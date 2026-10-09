@@ -30,6 +30,7 @@ import {
   addWorkspaceMembership,
   archiveWorkspace,
   createWorkspaceWithOwner,
+  removeWorkspaceMembership,
 } from '../../src/workspaces'
 import type {
   ArtifactReferenceGrant,
@@ -196,10 +197,25 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
         expiresAt: EXPIRES_AT,
       })
     ).rejects.toThrow('Artifact reference grant identity conflict')
+
+    // A replay that relabels the artifact is refused by the artifact-first
+    // lock order: an artifact id that anchors nothing is unknown before any
+    // grant row is consulted.
     expect(
       registerArtifactReferenceGrant(connection.db, source.id, owner, {
         ...input,
         artifactId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow('Artifact reference grant artifact unknown')
+
+    // Relabelling to a REAL artifact resolves the locks and then still fails
+    // closed on the identity conflict: a registered grant id can never be
+    // moved to a different artifact.
+    const secondArtifact = await createAvailableArtifact(source.id, owner)
+    expect(
+      registerArtifactReferenceGrant(connection.db, source.id, owner, {
+        ...input,
+        artifactId: secondArtifact.id,
       })
     ).rejects.toThrow('Artifact reference grant identity conflict')
     expect(await storedRows(input.grantId)).toHaveLength(1)
@@ -773,5 +789,206 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
       (_t, state) => Promise.resolve(state)
     )
     expect(afterRevocation?.revoked).toBe(true)
+  })
+
+  test('regrant and locked authorization race under one artifact-first lock order', async () => {
+    const { audience, owner, source } = await fixture('regrant-authorize-order')
+    const created = await createAvailableArtifact(source.id, owner)
+    const input = inputFor(source, audience, created.id)
+    await registerArtifactReferenceGrant(connection.db, source.id, owner, input)
+
+    // Two dedicated single-session lanes: a lock cycle needs two independent
+    // sessions, and a session-level statement timeout bounds each side so a
+    // regressed order fails the test instead of hanging it.
+    const authorityLane = createDatabase(connectionUrl!)
+    const regrantLane = createDatabase(connectionUrl!)
+    try {
+      await authorityLane.db.execute(sql`set statement_timeout = '15s'`)
+      await regrantLane.db.execute(sql`set statement_timeout = '15s'`)
+
+      for (let round = 1; round <= 3; round++) {
+        // Each round regrants a revoked grant at its current revision, so the
+        // regrant takes the full CAS path while the authorize transaction is
+        // parked inside the locks.
+        await revokeArtifactReferenceGrant(connection.db, source.id, owner, input.grantId)
+        const scope = {
+          artifactId: created.id,
+          grantId: input.grantId,
+          revision: round,
+          sourceWorkspaceId: source.id,
+        }
+        const callbackEntered = Promise.withResolvers<void>()
+        const release = Promise.withResolvers<void>()
+
+        const authorized = withArtifactReferenceGrantLocks(
+          authorityLane.db,
+          scope,
+          async (_t, state) => {
+            callbackEntered.resolve()
+            await release.promise
+            return state
+          }
+        )
+        await callbackEntered.promise
+
+        // The regrant races the parked authorization: it must block, and it
+        // must block on the ARTIFACT row — the same artifact-first order the
+        // authorize path uses — never on the grant row behind an
+        // authorization that holds the artifact. pg_stat_activity and
+        // pg_locks observe the real wait: the blocked transaction's first
+        // statement has already taken its table lock, so the relation set
+        // names which row it reached without guessing a schedule.
+        const regranted = regrantArtifactReferenceGrant(
+          regrantLane.db,
+          source.id,
+          owner,
+          input,
+          round
+        )
+        let waitingRelations: string[] | null = null
+        for (let attempt = 0; attempt < 500 && waitingRelations === null; attempt++) {
+          const rows = await connection.db.execute(
+            sql`select coalesce(array_agg(c.relname) filter (where c.relname is not null), '{}')
+                  as relations
+                from pg_stat_activity a
+                left join pg_locks l on l.pid = a.pid and l.granted
+                left join pg_class c on c.oid = l.relation
+                  and c.relname in ('artifacts', 'artifact_reference_grants')
+                where a.wait_event_type = 'Lock' and a.datname = current_database()
+                  and a.state <> 'idle'
+                group by a.pid
+                limit 1`
+          )
+          const row = rows[0] as { relations: string[] } | undefined
+          waitingRelations = row ? row.relations : null
+          if (waitingRelations === null) await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        try {
+          expect(waitingRelations).not.toBeNull()
+          // The grant-table statement has not started: the wait is on the
+          // artifact row, and only the artifact table lock is held.
+          expect(waitingRelations).toContain('artifacts')
+          expect(waitingRelations).not.toContain('artifact_reference_grants')
+        } catch (error) {
+          const activity = await connection.db.execute(
+            sql`select state, wait_event_type, left(query, 120) as q
+                from pg_stat_activity
+                where datname = current_database() and pid <> pg_backend_pid()`
+          )
+          throw new Error(
+            `lock-order observation failed: waiting=${JSON.stringify(waitingRelations)} activity=${JSON.stringify(activity)}`,
+            { cause: error }
+          )
+        } finally {
+          // Never leave the authorize transaction parked: a failure here
+          // would hold its row locks and block cleanup behind it.
+          release.resolve()
+        }
+
+        // One waits, both complete: no deadlock abort under the bounded
+        // statement timeouts.
+        const [authorizedState, regrantState] = await Promise.all([authorized, regranted])
+        expect(authorizedState?.revoked).toBe(true)
+        expect(regrantState.outcome).toBe('registered')
+        expect(regrantState.state.revision).toBe(round + 1)
+      }
+
+      // The regrants really landed: the final revision reads current and live.
+      const final = await withArtifactReferenceGrantLocks(
+        connection.db,
+        {
+          artifactId: created.id,
+          grantId: input.grantId,
+          revision: 4,
+          sourceWorkspaceId: source.id,
+        },
+        (_t, state) => Promise.resolve(state)
+      )
+      expect(final?.revoked).toBe(false)
+      expect(final?.revision).toBe(4)
+    } finally {
+      await authorityLane.close()
+      await regrantLane.close()
+    }
+  })
+
+  test('an issuer whose authority was revoked cannot recover a grant by retrying registration', async () => {
+    const { audience, owner, source } = await fixture('revoked-issuer')
+    const created = await createAvailableArtifact(source.id, owner)
+
+    // An admin is an authoritative issuer at registration time.
+    const admin = await temporaryUser('revoked-issuer-admin')
+    await addWorkspaceMembership(connection.db, source.id, admin, 'admin')
+    const adminInput = inputFor(source, audience, created.id)
+    const registered = await registerArtifactReferenceGrant(
+      connection.db,
+      source.id,
+      admin,
+      adminInput
+    )
+    expect(registered.outcome).toBe('registered')
+    expect(registered.state.revision).toBe(1)
+
+    // The workspace removes the admin: per the schema's own membership
+    // semantics, the issuer's authority ends with the membership.
+    expect(await removeWorkspaceMembership(connection.db, source.id, admin)).toBe(true)
+
+    // The SAME registration retried must not return the existing grant: a
+    // caller whose CURRENT authority lapsed gets the same typed rejection a
+    // fresh registration gets, and the stored grant is untouched.
+    await expect(
+      registerArtifactReferenceGrant(connection.db, source.id, admin, adminInput)
+    ).rejects.toThrow('Artifact reference grant issuer unauthorized')
+
+    const [row] = await storedRows(adminInput.grantId)
+    expect(row?.revision).toBe(1)
+    expect(row?.revokedAt).toBeNull()
+
+    // A demotion from admin to member revokes issuer authority the same way.
+    const demoted = await temporaryUser('revoked-issuer-demoted')
+    await addWorkspaceMembership(connection.db, source.id, demoted, 'admin')
+    const demotedInput = inputFor(source, audience, created.id)
+    const demotedRegistration = await registerArtifactReferenceGrant(
+      connection.db,
+      source.id,
+      demoted,
+      demotedInput
+    )
+    expect(demotedRegistration.outcome).toBe('registered')
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, source.id),
+          eq(workspaceMemberships.userId, demoted.userId)
+        )
+      )
+    await expect(
+      registerArtifactReferenceGrant(connection.db, source.id, demoted, demotedInput)
+    ).rejects.toThrow('Artifact reference grant issuer unauthorized')
+    const [demotedRow] = await storedRows(demotedInput.grantId)
+    expect(demotedRow?.revision).toBe(1)
+    expect(demotedRow?.revokedAt).toBeNull()
+  })
+
+  test("an authoritative caller's idempotent retry still returns the same row and revision", async () => {
+    const { audience, owner, source } = await fixture('idempotent-authority')
+    const created = await createAvailableArtifact(source.id, owner)
+    const input = inputFor(source, audience, created.id)
+
+    const first = await registerArtifactReferenceGrant(connection.db, source.id, owner, input)
+    expect(first.outcome).toBe('registered')
+    expect(first.state.revision).toBe(1)
+
+    // Authority is re-checked on every registration path; for a caller whose
+    // authority holds, the retry stays idempotent: same state, same revision,
+    // no duplicate row.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const replay = await registerArtifactReferenceGrant(connection.db, source.id, owner, input)
+      expect(replay.outcome).toBe('existing')
+      expect(replay.state).toEqual(first.state)
+    }
+    expect(await storedRows(input.grantId)).toHaveLength(1)
   })
 })
