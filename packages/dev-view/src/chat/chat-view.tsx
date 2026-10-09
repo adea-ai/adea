@@ -1,7 +1,7 @@
 import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
-import { createTranscriptAccumulator, transcriptWindow } from './model'
+import { ChatRuntimeError, createTranscriptAccumulator, transcriptWindow } from './model'
 import {
   ChatComposer,
   type ChatComposerProps,
@@ -10,7 +10,15 @@ import {
 } from './chat-composer'
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 import { DirectSessionHandoffControls } from './handoff-controls'
-import type { DirectSessionHandoffView } from './model/handoff'
+import {
+  deriveDirectSessionHandoff,
+  deriveHandoffInputFromConversation,
+  handoffActionReducer,
+  initialHandoffActionState,
+  type DirectSessionHandoffSupply,
+  type DirectSessionHandoffView,
+  type HandoffActionKind,
+} from './model/handoff'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
@@ -20,7 +28,10 @@ export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
     Partial<
-      Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'>
+      Pick<
+        ChatConversationModel,
+        'transfer' | 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'
+      >
     >
   authority?: ChatInputAuthority
   connected?: boolean
@@ -37,6 +48,10 @@ export type ChatViewProps = Readonly<{
   onJumpToTerminal?: () => void
   autoAttach?: boolean
   handoffView?: DirectSessionHandoffView
+  /** Production supplier config: derives the handoff view from the live
+   *  conversation plus surface facts, with model-backed default actions.
+   *  Omit entirely and no handoff section renders (fixture-safe). */
+  handoff?: DirectSessionHandoffSupply
   onLeadStop?: () => void | Promise<void>
   onReconnectHandoff?: () => void | Promise<void>
   onReturnToUser?: () => void | Promise<void>
@@ -73,6 +88,18 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   )
   const [streamError, setStreamError] = createSignal<string | undefined>()
   const [mounted, setMounted] = createSignal(false)
+  // Handoff coordination state (#1177): the confirmed post-transfer mode,
+  // a control conflict observed from a stale transfer receipt, and the
+  // single-flight action machine. All reset when the selected session
+  // changes so one session's coordination never leaks into another's.
+  const [handoffModeOverride, setHandoffModeOverride] = createSignal<
+    DirectSessionHandoffView['mode'] | undefined
+  >(undefined)
+  const [handoffConflict, setHandoffConflict] = createSignal(false)
+  const [handoffAction, setHandoffAction] = createSignal(initialHandoffActionState)
+  const dispatchHandoffAction = (event: Parameters<typeof handoffActionReducer>[1]): void => {
+    setHandoffAction((state) => handoffActionReducer(state, event))
+  }
   let closeStream: (() => void) | undefined
   let attachment = 0
 
@@ -172,6 +199,85 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     if (props.model) await props.model.cancel(props.conversation.runtimeSessionId)
   }
 
+  createEffect(
+    on(
+      () => props.conversation.runtimeSessionId,
+      () => {
+        setHandoffModeOverride(undefined)
+        setHandoffConflict(false)
+        setHandoffAction(initialHandoffActionState)
+      }
+    )
+  )
+
+  const runHandoffAction = async (
+    action: HandoffActionKind,
+    work: () => void | Promise<void>
+  ): Promise<void> => {
+    dispatchHandoffAction({ type: 'start', action })
+    try {
+      await work()
+      dispatchHandoffAction({ type: 'succeed' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Handoff action failed.'
+      dispatchHandoffAction({ type: 'fail', action, message })
+      if (
+        error instanceof ChatRuntimeError &&
+        (error.code === 'stale_generation' || error.code === 'stale_version')
+      ) {
+        // A stale transfer receipt proves concurrent coordination: park an
+        // explicit conflict instead of retrying blindly or failing silently.
+        setHandoffConflict(true)
+      }
+    }
+  }
+
+  const leadStopAction = (): void | Promise<void> => {
+    if (props.onLeadStop) return props.onLeadStop()
+    if (!props.model) return undefined
+    return void runHandoffAction('lead_stop', stop)
+  }
+
+  const returnToUserAction = (): void | Promise<void> => {
+    if (props.onReturnToUser) return props.onReturnToUser()
+    const transfer = props.model?.transfer
+    if (!transfer) return undefined
+    // The persisted authoritative transition: input ownership moves to this
+    // (chat) surface via generation- and version-fenced transferInput. The
+    // confirmed receipt presents as returned-to-user; drafts survive because
+    // transfer never touches them (pinned by transfer tests).
+    return void runHandoffAction('return_to_user', async () => {
+      await transfer(props.conversation.runtimeSessionId, { fromView: 'dev', toView: 'chat' })
+      setHandoffModeOverride('returned_to_user')
+    })
+  }
+
+  const reconnectHandoffAction = (): void | Promise<void> => {
+    if (props.onReconnectHandoff) return props.onReconnectHandoff()
+    if (!props.model) return undefined
+    return void attach()
+  }
+
+  const suppliedHandoffView = (): DirectSessionHandoffView | undefined => {
+    if (props.handoffView) return props.handoffView
+    const supply = props.handoff
+    if (!supply) return undefined
+    const availability = transcript().availability.status
+    return deriveDirectSessionHandoff(
+      deriveHandoffInputFromConversation({
+        conversation: props.conversation,
+        authority: props.authority ?? 'chat',
+        connected: connected(),
+        generationCurrent:
+          availability !== 'stale_generation' && availability !== 'resync_required',
+        harnessRuns: supply.harnessRuns,
+        awaitingApproval: props.awaitingApproval,
+        mode: handoffModeOverride() ?? supply.mode,
+        controlConflict: supply.controlConflict ?? handoffConflict(),
+      })
+    )
+  }
+
   const changeDraft: ChatDraftChange | undefined =
     props.onDraftChange ??
     (props.model?.setDraftIfCurrent
@@ -216,15 +322,24 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           </Button>
         </div>
       </Show>
-      <Show when={props.handoffView}>
-        {(view) => (
-          <DirectSessionHandoffControls
-            view={view()}
-            onLeadStop={props.onLeadStop}
-            onReconnect={props.onReconnectHandoff}
-            onReturnToUser={props.onReturnToUser}
-          />
-        )}
+      <Show when={suppliedHandoffView()}>
+        {(view) => {
+          const action = handoffAction()
+          return (
+            <DirectSessionHandoffControls
+              view={view()}
+              onLeadStop={props.onLeadStop ?? (props.model ? leadStopAction : undefined)}
+              onReconnect={
+                props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
+              }
+              onReturnToUser={
+                props.onReturnToUser ?? (props.model?.transfer ? returnToUserAction : undefined)
+              }
+              busyAction={action.status === 'busy' ? action.action : undefined}
+              actionError={action.status === 'error' ? action.message : undefined}
+            />
+          )
+        }}
       </Show>
       <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
         {() => {

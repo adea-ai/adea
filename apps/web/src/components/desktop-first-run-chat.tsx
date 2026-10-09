@@ -465,6 +465,10 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         conversation={active()}
                         model={state().model}
                         onJumpToTerminal={props.onOpenDev}
+                        // #1177 production handoff supply: the view derives from
+                        // the live conversation with model-backed lead-stop,
+                        // reconnect, and return-to-user (transferInput) actions.
+                        handoff={{}}
                         readingPosition={props.modelHost.readingPosition(state().scope, active())}
                         onReadingPositionChange={(identity, position) => {
                           if (!lifecycle.isCurrent(request)) return

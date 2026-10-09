@@ -264,6 +264,7 @@ export type ChatConversationModel = Readonly<{
   switchTo(runtimeSessionId: string): ChatConversation
   resume(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
   cancel(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
+  transfer(runtimeSessionId: string, direction: SessionTransferDirection): Promise<ChatConversation>
   archive(runtimeSessionId: string, reason?: string): Promise<ChatConversation>
   unarchive(runtimeSessionId: string): Promise<ChatConversation>
   send(runtimeSessionId: string, text: string): Promise<void>
@@ -281,6 +282,11 @@ export type ChatConversationModel = Readonly<{
     subscribe: (listener: (state: TranscriptAccumulator) => void) => () => void
     close: () => void
   }>
+}>
+
+export type SessionTransferDirection = Readonly<{
+  fromView: 'chat' | 'dev'
+  toView: 'chat' | 'dev'
 }>
 
 export function createChatConversationModel(
@@ -548,6 +554,40 @@ export function createChatConversationModel(
     await executeChatCommand(service, command)
     return refresh(runtimeSessionId)
   }
+  const transferInput = async (
+    runtimeSessionId: string,
+    direction: SessionTransferDirection
+  ): Promise<ChatConversation> => {
+    const current = sessions.get(runtimeSessionId)
+      ? requireConversation(runtimeSessionId)
+      : await attach(runtimeSessionId)
+    const stored = sessions.get(runtimeSessionId)
+    if (!stored)
+      throw new ChatRuntimeError({
+        code: 'not_found',
+        retryable: false,
+        message: `Runtime session ${runtimeSessionId} was not found.`,
+      })
+    // The persisted authoritative input-ownership transfer (#1177): the host
+    // fences it on the exact generation and owner version, bumps both, and
+    // publishes `session.input_transferred`. Input granted under the old
+    // generation is inert afterwards, so a transport loss after commit is
+    // recovered by refreshing — never by replaying blindly.
+    const command = buildDevCommand({
+      operation: 'dev.session.transferInput',
+      scope,
+      body: {
+        runtimeSessionId,
+        expectedGeneration: current.generation,
+        fromView: direction.fromView,
+        toView: direction.toView,
+        expectedOwnerVersion: stored.version,
+      },
+      resource: sessionResource(stored),
+    })
+    await executeChatCommand(service, command)
+    return refresh(runtimeSessionId)
+  }
   const archive = async (runtimeSessionId: string, reason?: string): Promise<ChatConversation> => {
     const current = sessions.get(runtimeSessionId)
       ? requireConversation(runtimeSessionId)
@@ -799,6 +839,7 @@ export function createChatConversationModel(
       mutateSession(runtimeSessionId, 'dev.session.resumeHarness', harnessRunId),
     cancel: (runtimeSessionId, harnessRunId) =>
       mutateSession(runtimeSessionId, 'dev.session.cancelHarness', harnessRunId),
+    transfer: (runtimeSessionId, direction) => transferInput(runtimeSessionId, direction),
     archive,
     unarchive,
     send,
