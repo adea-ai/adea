@@ -161,5 +161,7 @@ never revived. `archiveProject`, `softDeleteProject` and
 `promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
 which lock the project row first and the project's channels in id order, then
 compare-and-swap each channel `version`, so a concurrent write rolls the whole
-transaction back instead of losing an update. Migration 0045 adds the enum and
-column and is expand-only.
+transaction back instead of losing an update. The migration that adds the enum
+and column is expand-only; its number is provisional until the `main` journal
+confirms it (see the lane handoff
+`docs/plans/m14-03-management-action-contract.md`).
