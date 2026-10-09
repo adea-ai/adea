@@ -46,19 +46,33 @@ type AuthorizeCall = Readonly<{
 
 function dependencies(options?: {
   allowed?: boolean
+  allowedSequence?: boolean[]
+  assertCurrentThrows?: boolean
   auditThrows?: boolean
   authorizeThrows?: boolean
 }) {
   const authorized: AuthorizeCall[] = []
   const audited: ManagementAuditDecision[] = []
+  const assertCurrentCalls: unknown[] = []
   let executed = 0
   return {
+    assertCurrentCalls,
     audited,
     authorized,
     dependencies: {
+      async assertCurrent(request: unknown) {
+        if (options?.assertCurrentThrows) throw new Error('current authority revoked')
+        assertCurrentCalls.push(request)
+      },
       async authorize(input: AuthorizeCall) {
         if (options?.authorizeThrows) throw new Error('authorization backend secret detail')
         authorized.push(input)
+        if (options?.allowedSequence)
+          return (
+            options.allowedSequence[
+              Math.min(authorized.length - 1, options.allowedSequence.length - 1)
+            ] ?? true
+          )
         return options?.allowed ?? true
       },
       async audit(record: ManagementAuditDecision) {
@@ -109,6 +123,11 @@ describe('shared management gateway (#1215)', () => {
         value: { projectId: MANAGEMENT_PROJECT, updated: true },
       })
       expect(harness.authorized).toEqual([
+        {
+          permission: 'workspace.update',
+          principal: PRINCIPAL,
+          workspaceId: MANAGEMENT_WORKSPACE,
+        },
         {
           permission: 'workspace.update',
           principal: PRINCIPAL,
@@ -383,7 +402,7 @@ describe('shared management gateway (#1215)', () => {
     ])
   })
 
-  test('reopen passes the archived authorization flag exactly once through the shared path', async () => {
+  test('reopen passes the archived authorization flag on the entry and late checks', async () => {
     const harness = dependencies()
     const gateway = gatewayFor(harness, humanCaller())
     await gateway.run(
@@ -398,7 +417,116 @@ describe('shared management gateway (#1215)', () => {
         principal: PRINCIPAL,
         workspaceId: MANAGEMENT_WORKSPACE,
       },
+      {
+        includeArchived: true,
+        permission: 'workspace.update',
+        principal: PRINCIPAL,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      },
     ])
+  })
+
+  test('a decision that expires during the awaited checks refuses at the effect boundary', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies()
+    let clock = MANAGEMENT_NOW
+    const gateway = createManagementGateway(harness.dependencies, leadCaller(decision), () => clock)
+    harness.dependencies.authorize = async (input: AuthorizeCall) => {
+      harness.authorized.push(input)
+      // Park the await past the decision expiry, as a slow backend can.
+      clock = MANAGEMENT_NOW + 120_000
+      return true
+    }
+    const outcome = await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        harness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('unreachable')
+    expect(outcome.failure.reason).toBe('authority_expired')
+    expect(harness.executed()).toBe(0)
+  })
+
+  test('an authority denial that lands after the audit stops the effect', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies({ allowedSequence: [true, false] })
+    const gateway = gatewayFor(harness, leadCaller(decision))
+    const outcome = await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        harness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('unreachable')
+    expect(outcome.failure.code).toBe('forbidden')
+    expect(harness.authorized).toHaveLength(2)
+    expect(harness.executed()).toBe(0)
+    expect(harness.audited[0]?.decision).toBe('allowed')
+  })
+
+  test('a current-authority assertion that throws stops the effect', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies({ assertCurrentThrows: true })
+    const gateway = gatewayFor(harness, leadCaller(decision))
+    const outcome = await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        harness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('unreachable')
+    expect(outcome.failure.reason).toBe('authority_unavailable')
+    expect(harness.executed()).toBe(0)
+  })
+
+  test('a lead effect without a current-authority owner fails closed', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies()
+    const { assertCurrent: _assertCurrent, ...withoutCurrent } = harness.dependencies
+    void _assertCurrent
+    const gateway = createManagementGateway(
+      withoutCurrent,
+      leadCaller(decision),
+      () => MANAGEMENT_NOW
+    )
+    const outcome = await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        harness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('unreachable')
+    expect(outcome.failure.reason).toBe('authority_unavailable')
+    expect(harness.executed()).toBe(0)
   })
 
   test('maps stale revisions, conflicts and unavailable rows to typed failures', () => {

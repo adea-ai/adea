@@ -21,7 +21,6 @@ import {
   managementOperations,
   parseManagementAuthorityDecision,
   validateManagementAuthorityDecision,
-  type ManagementAuthorityDecision,
   type ManagementAuthorityReasonCode,
   type ManagementCallBinding,
   type ManagementDomain,
@@ -83,8 +82,6 @@ export type LeadManagementToolsDependencies = Readonly<{
   resolveAuthority?(
     input: Readonly<LeadManagementAuthority & { binding: ManagementCallBinding }>
   ): Promise<unknown>
-  /** Optional local single-use guard, defense in depth behind the CP store. */
-  consumeDecision?(decision: ManagementAuthorityDecision): Promise<boolean>
   now?(): number
 }>
 
@@ -300,16 +297,6 @@ export async function executeLeadManagementTool(
     now: dependencies.now?.() ?? Date.now(),
   })
   if (invalid) return authorityFailure(operation, invalid)
-
-  if (dependencies.consumeDecision) {
-    let consumed: boolean
-    try {
-      consumed = await dependencies.consumeDecision(decision)
-    } catch {
-      return authorityFailure(operation, 'authority_unavailable')
-    }
-    if (!consumed) return authorityFailure(operation, 'authority_replay')
-  }
 
   let operations: ManagementOperations
   try {

@@ -85,6 +85,7 @@ function harness(caller: ManagementCaller) {
   Object.assign(executors, overrides)
   const gateway = createManagementGateway(
     {
+      async assertCurrent() {},
       async authorize(input) {
         authorized.push({ permission: input.permission, workspaceId: input.workspaceId })
         return true
@@ -129,7 +130,10 @@ describe('shared management operations (#1215)', () => {
       operation: 'config.workspace.update',
       value: { ...project, version: 3 },
     })
-    expect(run.authorized).toEqual([{ permission: 'workspace.update', workspaceId: WORKSPACE }])
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+    ])
     expect(run.calls).toEqual([
       {
         args: [DATABASE, WORKSPACE, PRINCIPAL, { expectedVersion: 2, update: { name: 'Renamed' } }],
@@ -162,7 +166,10 @@ describe('shared management operations (#1215)', () => {
       operation: 'project.update',
       value: { ...project, name: 'Lead rename' },
     })
-    expect(run.authorized).toEqual([{ permission: 'workspace.update', workspaceId: WORKSPACE }])
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+    ])
     expect(run.calls[0]?.name).toBe('updateProject')
     expect(run.audited).toEqual([
       {

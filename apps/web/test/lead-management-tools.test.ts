@@ -4,7 +4,6 @@ import {
   managementOperationIds,
   managementOperationSupport,
   managementOperations,
-  type ManagementAuthorityDecision,
   type ManagementCallBinding,
 } from '@adea-ai/types/management'
 
@@ -45,12 +44,7 @@ type Resolver = (
   input: Readonly<LeadManagementAuthority & { binding: ManagementCallBinding }>
 ) => Promise<unknown>
 
-function harness(options: {
-  resolved?: unknown
-  resolver?: Resolver
-  consume?: (decision: ManagementAuthorityDecision) => Promise<boolean>
-  operationsThrow?: boolean
-}) {
+function harness(options: { resolved?: unknown; resolver?: Resolver; operationsThrow?: boolean }) {
   const calls: Call[] = []
   const callers: ManagementCaller[] = []
   const project = {
@@ -97,7 +91,6 @@ function harness(options: {
         if ('resolved' in options) return options.resolved
         return null
       }),
-    ...(options.consume ? { consumeDecision: options.consume } : {}),
     now: () => MANAGEMENT_NOW,
   }
   return { calls, callers, dependencies }
@@ -297,31 +290,6 @@ describe('lead management tools (#1215)', () => {
       expect(run.callers).toEqual([])
       expect(run.calls).toEqual([])
     }
-  })
-
-  test('a replayed single-use decision fails closed before any operation', async () => {
-    const decision = await managementAuthorityDecision({
-      input: { name: 'Lead rename' },
-      operation: 'project.update',
-      targetId: MANAGEMENT_PROJECT,
-    })
-    let consumed = false
-    const run = harness({
-      consume: async () => {
-        if (consumed) return false
-        consumed = true
-        return true
-      },
-      resolved: decision,
-    })
-    const first = await executeLeadManagementTool(run.dependencies, updateCall)
-    expect(first.ok).toBe(true)
-    expect(run.calls.length).toBe(1)
-    const replay = await executeLeadManagementTool(run.dependencies, updateCall)
-    expect(replay.ok).toBe(false)
-    if (replay.ok) throw new Error('unreachable')
-    expect(replay.failure.reason).toBe('authority_replay')
-    expect(run.calls.length).toBe(1)
   })
 
   test('a device-only operation is refused with its inventory reason before authority', async () => {

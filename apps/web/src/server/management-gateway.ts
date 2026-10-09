@@ -25,6 +25,7 @@ import {
   type ManagementAuthorityDecision,
   type ManagementAuthorityReasonCode,
   type ManagementCallBinding,
+  type ManagementCurrentAuthority,
   type ManagementOperationId,
   type ManagementUnsupportedReason,
 } from '@adea-ai/types/management'
@@ -93,6 +94,12 @@ export type ManagementGatewayDependencies = Readonly<{
   authorize(input: ManagementAuthorizationInput): Promise<boolean>
   /** The shared audit API consulted to attribute an inherited lead action. */
   audit?(record: ManagementAuditDecision): Promise<void>
+  /**
+   * Per-delivery CP current-authority/consumption assertion immediately before
+   * the effect. Resolves void or throws; absent means the caller has no wired
+   * current-authority owner and the lead action is refused before execution.
+   */
+  assertCurrent?: ManagementCurrentAuthority
 }>
 
 export type ManagementRunInput = Readonly<{
@@ -213,6 +220,7 @@ export function createManagementGateway(
       if (support.state === 'unsupported')
         return Object.freeze({ failure: unsupportedFailure(operation, support.reason), ok: false })
 
+      let binding: ManagementCallBinding | undefined
       if (caller.kind === 'lead') {
         const decision = caller.decision
         if (!decision || decision.schemaVersion !== 'adea-management-authority/v1')
@@ -220,7 +228,7 @@ export function createManagementGateway(
             failure: authorityFailure(operation, 'authority_malformed'),
             ok: false,
           })
-        const binding = input.binding
+        binding = input.binding
         if (!binding)
           return Object.freeze({
             failure: authorityFailure(operation, 'authority_binding_mismatch'),
@@ -239,59 +247,92 @@ export function createManagementGateway(
       }
 
       const permission = permissionFor(operation)
-      let allowed: boolean
-      try {
-        allowed = await dependencies.authorize({
-          ...(input.includeArchived ? { includeArchived: true } : {}),
-          permission,
-          principal: input.principal,
-          workspaceId: input.workspaceId,
-        })
-      } catch {
-        return Object.freeze({
-          failure: Object.freeze({
-            code: 'unavailable' as const,
-            message: 'Management authorization is unavailable',
-            operation,
-          }),
-          ok: false,
-        })
-      }
+      const first = await checkAuthority(dependencies, input, permission)
+      if ('failed' in first) return failureOutcome<T>(operation, first.failed)
+
       if (caller.kind === 'lead' && dependencies.audit) {
         try {
           await dependencies.audit({
             ...(caller.decision.authorityRef ? { authorityRef: caller.decision.authorityRef } : {}),
             ...(input.binding ? { binding: input.binding } : {}),
             caller,
-            decision: allowed ? 'allowed' : 'denied',
+            decision: first.allowed ? 'allowed' : 'denied',
             decisionId: caller.decision.decisionId,
             operation,
             permission,
             principal: input.principal,
-            reason: allowed ? 'lead_management_allowed' : 'lead_management_denied',
+            reason: first.allowed ? 'lead_management_allowed' : 'lead_management_denied',
             workspaceId: input.workspaceId,
           })
         } catch {
           // A lead action may not execute without its attribution record.
-          return Object.freeze({
-            failure: Object.freeze({
-              code: 'unavailable' as const,
-              message: 'Management audit is unavailable',
-              operation,
-            }),
-            ok: false,
+          return failureOutcome<T>(operation, {
+            code: 'unavailable',
+            message: 'Management audit is unavailable',
           })
         }
       }
-      if (!allowed)
-        return Object.freeze({
-          failure: Object.freeze({
-            code: 'forbidden' as const,
-            message: 'Management operation is forbidden',
-            operation,
-          }),
-          ok: false,
+      if (!first.allowed)
+        return failureOutcome<T>(operation, {
+          code: 'forbidden',
+          message: 'Management operation is forbidden',
         })
+
+      // Late authority recheck after the awaited authorize/audit: a membership
+      // revocation that lands during those waits must stop the effect.
+      const late = await checkAuthority(dependencies, input, permission)
+      if ('failed' in late) return failureOutcome<T>(operation, late.failed)
+      if (!late.allowed)
+        return failureOutcome<T>(operation, {
+          code: 'forbidden',
+          message: 'Management operation is forbidden',
+        })
+
+      if (caller.kind === 'lead') {
+        // Per-delivery CP current-authority assertion immediately before the
+        // effect, then a final synchronous time/binding recheck after every
+        // await so an expired or parked decision cannot execute.
+        if (dependencies.assertCurrent) {
+          try {
+            await dependencies.assertCurrent({
+              approval: caller.decision.approval,
+              audienceRef: caller.decision.audienceRef,
+              authorityRef: caller.decision.authorityRef,
+              authorityRevision: caller.decision.authorityRevision,
+              binding: binding!,
+              decisionId: caller.decision.decisionId,
+              intentId: caller.decision.intentId,
+              leadAgentId: caller.decision.leadAgentId,
+              now: now(),
+              planRef: caller.decision.planRef,
+              planRevision: caller.decision.planRevision,
+              principal: caller.decision.principal,
+            })
+          } catch {
+            return Object.freeze({
+              failure: authorityFailure(operation, 'authority_unavailable'),
+              ok: false,
+            })
+          }
+        } else {
+          // Without a current-authority owner no lead effect may run, even
+          // when the signed decision is locally current.
+          return Object.freeze({
+            failure: authorityFailure(operation, 'authority_unavailable'),
+            ok: false,
+          })
+        }
+        const invalid =
+          validateManagementAuthorityDecision(caller.decision, {
+            authorityRef: caller.reference.authorityRef,
+            binding: binding!,
+            intentId: caller.reference.intentId,
+            leadAgentId: caller.reference.leadAgentId,
+            now: now(),
+          }) ?? bindingOperationMismatch(operation, input, caller.decision, binding!)
+        if (invalid)
+          return Object.freeze({ failure: authorityFailure(operation, invalid), ok: false })
+      }
 
       try {
         return Object.freeze({ ok: true as const, operation, value: await execute() })
@@ -299,6 +340,47 @@ export function createManagementGateway(
         return Object.freeze({ failure: managementFailure(operation, error), ok: false })
       }
     },
+  })
+}
+
+type AuthorityCheck =
+  | Readonly<{ allowed: boolean }>
+  | Readonly<{ failed: Readonly<{ code: 'unavailable'; message: string }> }>
+
+async function checkAuthority(
+  dependencies: ManagementGatewayDependencies,
+  input: ManagementRunInput,
+  permission: WorkspacePermission
+): Promise<AuthorityCheck> {
+  try {
+    return Object.freeze({
+      allowed: await dependencies.authorize({
+        ...(input.includeArchived ? { includeArchived: true } : {}),
+        permission,
+        principal: input.principal,
+        workspaceId: input.workspaceId,
+      }),
+    })
+  } catch {
+    return Object.freeze({
+      failed: Object.freeze({
+        code: 'unavailable' as const,
+        message: 'Management authorization is unavailable',
+      }),
+    })
+  }
+}
+
+function failureOutcome<T>(
+  operation: ManagementOperationId,
+  failure: Readonly<{
+    code: 'forbidden' | 'unavailable'
+    message: string
+  }>
+): ManagementOutcome<T> {
+  return Object.freeze({
+    failure: Object.freeze({ ...failure, operation }),
+    ok: false,
   })
 }
 

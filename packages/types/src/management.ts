@@ -787,6 +787,8 @@ export const managementAuthorityReasonCodes = Object.freeze([
   'authority_not_yet_valid',
   /** The durable approval interaction expired before this execution. */
   'authority_approval_expired',
+  /** The durable claim was left by an interrupted delivery; retry needs a fresh decision. */
+  'authority_recovery_required',
   /** The single-use approval was already consumed. */
   'authority_replay',
 ] as const)
@@ -795,6 +797,53 @@ export type ManagementAuthorityReasonCode = (typeof managementAuthorityReasonCod
 export type ManagementAuthorityValidation =
   | Readonly<{ state: 'valid'; decision: ManagementAuthorityDecision }>
   | Readonly<{ state: 'invalid'; reason: ManagementAuthorityReasonCode }>
+
+/** Version of the per-delivery CP current-authority request. */
+export const managementCurrentSchemaVersion = 'adea-management-current/v1' as const
+
+/**
+ * One per-delivery current-authority request sent to the CP932 consumption /
+ * current-authority store. The CP must re-read current grants, revocation,
+ * plan and approval state, atomically consume the single-use approval, and
+ * return void or throw; it must never echo a caller-provided truthy grant.
+ */
+export type ManagementCurrentAuthorityRequest = Readonly<{
+  decisionId: string
+  authorityRef: string
+  authorityRevision: number
+  leadAgentId: string
+  intentId: string
+  principal: UserPrincipalRef
+  planRef: string
+  planRevision: number
+  audienceRef: string
+  approval: ManagementAuthorityApproval
+  binding: ManagementCallBinding
+  now: number
+}>
+
+/** Server-only current-authority port; resolves void or throws. */
+export type ManagementCurrentAuthority = (
+  request: ManagementCurrentAuthorityRequest
+) => Promise<void>
+
+/**
+ * Durable claim state for one delivered decision. `replayed` retains only a
+ * result digest; `recovery_required` means an interrupted delivery must not be
+ * retried with the same decision.
+ */
+export type ManagementAuthorityClaim =
+  | Readonly<{ state: 'claimed' }>
+  | Readonly<{ state: 'replayed'; resultDigest: string | null }>
+  | Readonly<{
+      state: 'recovery_required'
+      priorState: 'claimed' | 'succeeded' | 'failed'
+    }>
+
+/** The retained outcome written after the effect. */
+export type ManagementAuthorityCompletion =
+  | Readonly<{ state: 'succeeded'; resultDigest: string | null }>
+  | Readonly<{ state: 'failed'; failureCode: string }>
 
 /** A thrown, typed refusal from `assertManagementAuthorityCurrent`. */
 export class ManagementAuthorityError extends Error {
