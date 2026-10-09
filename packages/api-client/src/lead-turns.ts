@@ -11,7 +11,6 @@ export type ApiHandoffTarget = Readonly<{
   taskId?: string
   observedGeneration: number
 }>
-}>
 
 /** Product projection; runtime state is observed, never inferred from Message persistence. */
 export type LeadTurnRuntimeState =

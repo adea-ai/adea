@@ -33,7 +33,6 @@ type Input = Omit<
 > & { handoffTarget?: HandoffTarget } & {
   requestedModelSelections?: RequestedRoleModelSelections
 }
-> & { handoffTarget?: HandoffTarget }
 
 /** Structured handoff target: the exact direct session this admission coordinates. */
 export type HandoffTarget = Readonly<{
