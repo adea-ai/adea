@@ -4,11 +4,14 @@ import {
   JOB_OUTBOUND_SUMMARY_MAX_BYTES,
   decideJobOutboundDelivery,
   decideJobOutboundPublication,
+  projectJobOutboundRelease,
   sanitizeJobOutboundResult,
   type JobOutboundAccess,
   type JobOutboundArtifactClaim,
   type JobOutboundArtifactCurrent,
+  type JobOutboundAudience,
   type JobOutboundDeliveryInput,
+  type JobOutboundDestination,
   type JobOutboundJobSource,
   type JobOutboundPublicationInput,
 } from '../../src/job-outbound-result-policy'
@@ -20,17 +23,21 @@ import type {
 } from '@adea-ai/types'
 
 /**
- * Pure outbound-result suites for M15 #1217. Authority is the job's source
- * owner or admin acting through the original actor; group participation is not
- * authority. Access, evidence, grant state and the clock are injected here.
+ * Pure outbound-result suites for M15 #1217. Authority is the job's original
+ * actor with current source ownership, over a completed Task. Group membership is
+ * never source authority. It only decides the exact destination audience.
  */
 
 const NOW = '2026-10-08T12:00:00.000Z'
 const CHECKSUM = 'a'.repeat(64)
 const SOURCE = 'ws-source'
 const DEST = 'ws-dest'
+const CHANNEL = 'channel-a'
+const OTHER_CHANNEL = 'channel-b'
 const ACTOR = 'user-actor'
 const CANARY = 'CANARY-runtime-node-/private/home/secret'
+
+const destination: JobOutboundDestination = { channelId: CHANNEL, workspaceId: DEST }
 
 function target(overrides: Partial<ArtifactReferenceTarget> = {}): ArtifactReferenceTarget {
   return {
@@ -60,7 +67,15 @@ function job(overrides: Partial<JobOutboundJobSource> = {}): JobOutboundJobSourc
 const OWNER: JobOutboundAccess = { role: 'owner', workspaceLive: true }
 const ADMIN: JobOutboundAccess = { role: 'admin', workspaceLive: true }
 const MEMBER: JobOutboundAccess = { role: 'member', workspaceLive: true }
-const DEST_MEMBER: JobOutboundAccess = { role: 'member', workspaceLive: true }
+
+/** A participant of the exact destination group channel in a live destination workspace. */
+const PARTICIPANT: JobOutboundAudience = {
+  channelId: CHANNEL,
+  channelIsGroup: true,
+  channelLive: true,
+  participant: true,
+  workspaceLive: true,
+}
 
 function evidence(overrides: Partial<ArtifactReferenceEvidence> = {}): ArtifactReferenceEvidence {
   return {
@@ -120,7 +135,7 @@ function publication(
 ): JobOutboundPublicationInput {
   return {
     artifact: null,
-    destinationWorkspaceId: DEST,
+    destination,
     job: job(),
     jobId: 'job-1',
     now: NOW,
@@ -143,19 +158,19 @@ function withArtifact(
 function delivery(overrides: Partial<JobOutboundDeliveryInput> = {}): JobOutboundDeliveryInput {
   return {
     artifact: null,
-    destinationWorkspaceId: DEST,
+    destination,
     job: job(),
     jobId: 'job-1',
     now: NOW,
     published: result(),
-    recipientAccess: DEST_MEMBER,
+    recipientAudience: PARTICIPANT,
     sourceAccess: OWNER,
     ...overrides,
   }
 }
 
 describe('sanitizeJobOutboundResult', () => {
-  test('builds the outbound shape by allowlist and drops runtime fields', () => {
+  test('builds the released shape by allowlist and drops runtime fields', () => {
     const sanitized = sanitizeJobOutboundResult(
       result({
         controlPlane: { projectId: CANARY },
@@ -172,13 +187,13 @@ describe('sanitizeJobOutboundResult', () => {
     expect(JSON.stringify(sanitized)).not.toContain(CANARY)
   })
 
-  test('removes controls, bidi overrides and zero-width marks while keeping tab and newline', () => {
+  test('removes controls, bidi overrides and zero-width marks; canonicalizes CRLF and lone CR', () => {
     const sanitized = sanitizeJobOutboundResult(
-      result({ summary: 'a\u0000b\u001b[31m‮c​\u{feff}\n\td\r\ne' })
+      result({ summary: 'a\u0000b\u001b[31m‮c​\u{feff}\n\td\r\ne\rf' })
     )
     expect(sanitized).toEqual({
       ok: true,
-      result: { artifact: null, jobId: 'job-1', summary: 'ab[31mc\n\td\ne' },
+      result: { artifact: null, jobId: 'job-1', summary: 'ab[31mc\n\td\ne\nf' },
     })
   })
 
@@ -187,14 +202,26 @@ describe('sanitizeJobOutboundResult', () => {
     expect(sanitized.ok && sanitized.result.summary).toBe('é')
   })
 
-  test('refuses malformed results with typed reasons', () => {
-    expect(sanitizeJobOutboundResult(null)).toEqual({ ok: false, reason: 'result_malformed' })
-    expect(sanitizeJobOutboundResult(['job-1'])).toEqual({ ok: false, reason: 'result_malformed' })
-    expect(sanitizeJobOutboundResult(result({ jobId: '' }))).toEqual({
+  test('bounds identifiers by visible ASCII and length, checked per character', () => {
+    expect(sanitizeJobOutboundResult(result({ jobId: 'j'.repeat(128) })).ok).toBe(true)
+    expect(sanitizeJobOutboundResult(result({ jobId: 'j'.repeat(129) }))).toEqual({
+      ok: false,
+      reason: 'result_malformed',
+    })
+    expect(sanitizeJobOutboundResult(result({ jobId: 'jöb' }))).toEqual({
       ok: false,
       reason: 'result_malformed',
     })
     expect(sanitizeJobOutboundResult(result({ jobId: 'job 1' }))).toEqual({
+      ok: false,
+      reason: 'result_malformed',
+    })
+  })
+
+  test('refuses malformed results with typed reasons', () => {
+    expect(sanitizeJobOutboundResult(null)).toEqual({ ok: false, reason: 'result_malformed' })
+    expect(sanitizeJobOutboundResult(['job-1'])).toEqual({ ok: false, reason: 'result_malformed' })
+    expect(sanitizeJobOutboundResult(result({ jobId: '' }))).toEqual({
       ok: false,
       reason: 'result_malformed',
     })
@@ -234,12 +261,25 @@ describe('sanitizeJobOutboundResult', () => {
   })
 })
 
+describe('projectJobOutboundRelease', () => {
+  test('includes the artifact locator only when the destination is authorized to retrieve it', () => {
+    const sanitized = sanitizeJobOutboundResult(result({ artifact: target() }))
+    if (!sanitized.ok) throw new Error('expected a sanitized result')
+    expect(projectJobOutboundRelease(sanitized.result, true).artifact).toEqual(target())
+    expect(projectJobOutboundRelease(sanitized.result, false)).toEqual({
+      artifact: null,
+      jobId: 'job-1',
+      summary: 'Done.',
+    })
+  })
+})
+
 describe('decideJobOutboundPublication', () => {
-  test('publishes a sanitized result for a completed job with the original actor in source ownership', () => {
+  test('publishes a released shape for a completed job whose original actor owns the source', () => {
     expect(decideJobOutboundPublication(publication())).toEqual({
       action: 'publish',
       basis: 'source_owner_actor',
-      destinationWorkspaceId: DEST,
+      destination,
       jobId: 'job-1',
       result: { artifact: null, jobId: 'job-1', summary: 'Done.' },
     })
@@ -300,15 +340,16 @@ describe('decideJobOutboundPublication', () => {
     })
   })
 
-  test('holds a destination that is blank or the job’s own workspace', () => {
-    expect(decideJobOutboundPublication(publication({ destinationWorkspaceId: '' }))).toMatchObject(
-      {
-        gate: 'destination',
-        reason: 'destination_not_outbound',
-      }
-    )
+  test('holds a destination that is blank or in the job’s own workspace', () => {
     expect(
-      decideJobOutboundPublication(publication({ destinationWorkspaceId: SOURCE }))
+      decideJobOutboundPublication(
+        publication({ destination: { channelId: CHANNEL, workspaceId: '' } })
+      )
+    ).toMatchObject({ gate: 'destination', reason: 'destination_not_outbound' })
+    expect(
+      decideJobOutboundPublication(
+        publication({ destination: { channelId: CHANNEL, workspaceId: SOURCE } })
+      )
     ).toMatchObject({ gate: 'destination', reason: 'destination_not_outbound' })
   })
 
@@ -317,6 +358,19 @@ describe('decideJobOutboundPublication', () => {
       action: 'publish',
       result: { artifact: target(), jobId: 'job-1' },
     })
+  })
+
+  test('holds an artifact whose audience is not the destination workspace', () => {
+    const elsewhere = withArtifact(
+      current({ grantState: grantState({ audienceWorkspaceIds: ['ws-elsewhere'] }) }),
+      { audienceWorkspaceId: 'ws-elsewhere' }
+    )
+    expect(
+      decideJobOutboundPublication({
+        ...elsewhere,
+        result: result({ artifact: target({ audienceWorkspaceId: 'ws-elsewhere' }) }),
+      })
+    ).toMatchObject({ gate: 'artifact', reason: 'audience_not_authorized' })
   })
 
   test('holds an artifact whose source is not the job’s source workspace', () => {
@@ -371,16 +425,16 @@ describe('decideJobOutboundPublication', () => {
 })
 
 describe('decideJobOutboundDelivery', () => {
-  test('delivers the re-sanitized result to a destination member while source ownership holds', () => {
+  test('delivers the released shape to a participant of the exact channel while source ownership holds', () => {
     expect(decideJobOutboundDelivery(delivery({ published: result({ extra: CANARY }) }))).toEqual({
       action: 'deliver',
-      destinationWorkspaceId: DEST,
+      destination,
       jobId: 'job-1',
       result: { artifact: null, jobId: 'job-1', summary: 'Done.' },
     })
   })
 
-  test('denies release once the original actor loses source ownership, even for a current member', () => {
+  test('group membership alone grants no release once the original actor loses source ownership', () => {
     expect(decideJobOutboundDelivery(delivery({ sourceAccess: MEMBER }))).toEqual({
       action: 'deny',
       gate: 'source',
@@ -392,19 +446,42 @@ describe('decideJobOutboundDelivery', () => {
     })
   })
 
-  test('denies a recipient outside the exact destination audience or a destination that is gone', () => {
-    expect(decideJobOutboundDelivery(delivery({ recipientAccess: null }))).toMatchObject({
+  test('refuses a participant standing read for a different channel (cross-group substitution)', () => {
+    expect(
+      decideJobOutboundDelivery(
+        delivery({ recipientAudience: { ...PARTICIPANT, channelId: OTHER_CHANNEL } })
+      )
+    ).toEqual({ action: 'deny', gate: 'audience', reason: 'destination_channel_mismatch' })
+  })
+
+  test('denies a recipient who is not a participant of the destination group channel', () => {
+    expect(
+      decideJobOutboundDelivery(
+        delivery({ recipientAudience: { ...PARTICIPANT, participant: false } })
+      )
+    ).toEqual({ action: 'deny', gate: 'audience', reason: 'recipient_not_destination_participant' })
+  })
+
+  test('denies a destination that is not a group channel, not live or in a deleted workspace', () => {
+    expect(
+      decideJobOutboundDelivery(
+        delivery({ recipientAudience: { ...PARTICIPANT, channelIsGroup: false } })
+      )
+    ).toMatchObject({ gate: 'audience', reason: 'destination_channel_unavailable' })
+    expect(
+      decideJobOutboundDelivery(
+        delivery({ recipientAudience: { ...PARTICIPANT, channelLive: false } })
+      )
+    ).toMatchObject({ gate: 'audience', reason: 'destination_channel_unavailable' })
+    expect(
+      decideJobOutboundDelivery(
+        delivery({ recipientAudience: { ...PARTICIPANT, workspaceLive: false } })
+      )
+    ).toMatchObject({ gate: 'audience', reason: 'destination_workspace_unavailable' })
+    expect(decideJobOutboundDelivery(delivery({ recipientAudience: null }))).toMatchObject({
       gate: 'audience',
       reason: 'destination_workspace_unavailable',
     })
-    expect(
-      decideJobOutboundDelivery(delivery({ recipientAccess: { role: null, workspaceLive: true } }))
-    ).toEqual({ action: 'deny', gate: 'audience', reason: 'recipient_not_destination_member' })
-    expect(
-      decideJobOutboundDelivery(
-        delivery({ recipientAccess: { role: 'member', workspaceLive: false } })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'destination_workspace_unavailable' })
   })
 
   test('denies a job that is missing, uncompleted or reassigned at delivery', () => {
@@ -435,12 +512,17 @@ describe('decideJobOutboundDelivery', () => {
     ).toMatchObject({ gate: 'result', reason: 'result_job_mismatch' })
   })
 
-  test('re-runs the exact retrieval gate for an artifact with the destination as audience', () => {
-    const artifactDelivery = (destinationWorkspaceId: string, state = grantState()) =>
+  test('releases an artifact only through the retrieval gate with the destination workspace as audience', () => {
+    const artifactDelivery = (
+      destinationWorkspaceId: string,
+      state = grantState(),
+      audience: JobOutboundAudience = PARTICIPANT
+    ) =>
       delivery({
         artifact: { ...claim(), ...current({ grantState: state }) },
-        destinationWorkspaceId,
+        destination: { channelId: CHANNEL, workspaceId: destinationWorkspaceId },
         published: result({ artifact: target() }),
+        recipientAudience: { ...audience, workspaceLive: true },
       })
     expect(decideJobOutboundDelivery(artifactDelivery(DEST))).toMatchObject({
       action: 'deliver',

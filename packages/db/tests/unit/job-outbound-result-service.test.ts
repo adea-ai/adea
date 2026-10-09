@@ -1,30 +1,38 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  createJobOutboundResultService,
-  type JobOutboundPorts,
-} from '../../src/job-outbound-result-service'
-import type { JobOutboundAccess, JobOutboundJobSource } from '../../src/job-outbound-result-policy'
 import type {
   ArtifactReferenceEvidence,
   ArtifactReferenceGrant,
   ArtifactReferenceGrantState,
   ArtifactReferenceTarget,
 } from '@adea-ai/types'
+import type {
+  JobOutboundAccess,
+  JobOutboundAudience,
+  JobOutboundDestination,
+  JobOutboundJobSource,
+} from '../../src/job-outbound-result-policy'
+import {
+  createJobOutboundResultService,
+  type JobOutboundAuthorize,
+  type JobOutboundReads,
+} from '../../src/job-outbound-result-service'
 
 /**
- * Service suites for M15 #1217. The store is an in-memory fake whose state a
- * test mutates between calls. Every port counts its reads, so the suites prove
- * that publish and delivery re-read current authority rather than reusing an
- * earlier snapshot.
+ * Service suites for M15 #1217. A fake authorization scope stands in for the
+ * #1207 grant lock and the transaction. Every read goes through that scope, and
+ * the release runs inside it, so the suites prove that the final authority check
+ * precedes the release, and that a change between awaits is seen.
  */
 
 const CHECKSUM = 'a'.repeat(64)
 const SOURCE = 'ws-source'
 const DEST = 'ws-dest'
+const CHANNEL = 'channel-a'
 const ACTOR = 'user-actor'
 const RECIPIENT = 'user-recipient'
 const NOW = '2026-10-08T12:00:00.000Z'
+const destination: JobOutboundDestination = { channelId: CHANNEL, workspaceId: DEST }
 
 const target: ArtifactReferenceTarget = {
   artifactId: 'artifact-1',
@@ -46,255 +54,332 @@ const artifactGrant: ArtifactReferenceGrant = {
   version: 3,
 }
 
-function makeStore() {
-  const calls = {
-    access: [] as Array<{ userId: string; workspaceId: string }>,
-    evidence: [] as Array<{ artifactId: string; principalUserId: string; workspaceId: string }>,
-    grantState: [] as Array<{ grantId: string; revision: number }>,
-    job: [] as string[],
+const liveGrantState: ArtifactReferenceGrantState = {
+  artifactId: 'artifact-1',
+  audienceWorkspaceIds: [DEST],
+  checksumSha256: CHECKSUM,
+  expiresAt: null,
+  grantId: 'artifact-grant-1',
+  revoked: false,
+  revision: 1,
+  sourceWorkspaceId: SOURCE,
+  version: 3,
+}
+
+const liveEvidence: ArtifactReferenceEvidence = {
+  availability: 'available',
+  checksumSha256: CHECKSUM,
+  deletionState: 'active',
+  id: 'artifact-1',
+  sensitivity: 'workspace',
+  version: 3,
+  workspaceId: SOURCE,
+}
+
+type Store = {
+  access: Map<string, JobOutboundAccess>
+  audience: Map<string, JobOutboundAudience>
+  evidence: ArtifactReferenceEvidence | null
+  job: JobOutboundJobSource | null
+  /** Runs after the job read resolves, to model a change that lands between awaits. */
+  afterJobRead?: () => void
+}
+
+function makeStore(): Store {
+  return {
+    access: new Map([[`${SOURCE}:${ACTOR}`, { role: 'owner', workspaceLive: true }]]),
+    audience: new Map([
+      [
+        `${CHANNEL}:${RECIPIENT}`,
+        {
+          channelId: CHANNEL,
+          channelIsGroup: true,
+          channelLive: true,
+          participant: true,
+          workspaceLive: true,
+        },
+      ],
+    ]),
+    evidence: liveEvidence,
+    job: {
+      completedAt: '2026-10-08T11:00:00.000Z',
+      jobId: 'job-1',
+      originalActorUserId: ACTOR,
+      sourceWorkspaceId: SOURCE,
+    },
   }
-  const store = {
-    access: new Map<string, JobOutboundAccess>(),
-    evidence: new Map<string, ArtifactReferenceEvidence>(),
-    grantStates: new Map<string, ArtifactReferenceGrantState>(),
-    jobs: new Map<string, JobOutboundJobSource>(),
-    calls,
-    failGrantRead: false,
-  }
-  const ports: JobOutboundPorts = {
+}
+
+/**
+ * A scope that reads from the store and passes `grantState` through as the
+ * registration under the grant lock. It records each scope it opens and each read.
+ */
+function fakeAuthorize(store: Store, grantState: ArtifactReferenceGrantState | null) {
+  const scopes: Array<{ scope: unknown; transaction: unknown }> = []
+  const reads: string[] = []
+  const transaction = { id: 'tx-1' }
+  const readsFor = (): JobOutboundReads => ({
     async readAccess({ userId, workspaceId }) {
-      calls.access.push({ userId, workspaceId })
+      reads.push('access')
       return store.access.get(`${workspaceId}:${userId}`) ?? { role: null, workspaceLive: false }
     },
-    async readArtifactEvidence(input) {
-      calls.evidence.push(input)
-      return store.evidence.get(input.artifactId) ?? null
+    async readArtifactEvidence() {
+      reads.push('evidence')
+      return store.evidence
     },
-    async readArtifactGrantState(presentation) {
-      calls.grantState.push(presentation)
-      if (store.failGrantRead) throw new Error('grant store unavailable')
-      return store.grantStates.get(presentation.grantId) ?? null
+    async readAudience({ channelId, userId }) {
+      reads.push('audience')
+      return (
+        store.audience.get(`${channelId}:${userId}`) ?? {
+          channelId: null,
+          channelIsGroup: false,
+          channelLive: false,
+          participant: false,
+          workspaceLive: false,
+        }
+      )
     },
-    async readJobSource(jobId) {
-      calls.job.push(jobId)
-      return store.jobs.get(jobId) ?? null
+    async readJobSource() {
+      reads.push('job')
+      const job = store.job
+      store.afterJobRead?.()
+      return job
     },
+  })
+  const authorize: JobOutboundAuthorize<typeof transaction> = async (scope, run) => {
+    scopes.push({ scope, transaction })
+    return run({ grantState, reads: readsFor(), transaction })
   }
-  // Assign onto the same object the ports close over, so flags set by a test are seen.
-  return Object.assign(store, { ports })
+  return { authorize, reads, scopes, transaction }
 }
 
-function seed() {
-  const store = makeStore()
-  store.jobs.set('job-1', {
-    completedAt: '2026-10-08T11:00:00.000Z',
-    jobId: 'job-1',
-    originalActorUserId: ACTOR,
-    sourceWorkspaceId: SOURCE,
-  })
-  store.access.set(`${SOURCE}:${ACTOR}`, { role: 'owner', workspaceLive: true })
-  store.access.set(`${DEST}:${RECIPIENT}`, { role: 'member', workspaceLive: true })
-  store.evidence.set('artifact-1', {
-    availability: 'available',
-    checksumSha256: CHECKSUM,
-    deletionState: 'active',
-    id: 'artifact-1',
-    sensitivity: 'workspace',
-    version: 3,
-    workspaceId: SOURCE,
-  })
-  store.grantStates.set('artifact-grant-1', {
-    artifactId: 'artifact-1',
-    audienceWorkspaceIds: [DEST],
-    checksumSha256: CHECKSUM,
-    expiresAt: null,
-    grantId: 'artifact-grant-1',
-    revoked: false,
-    revision: 1,
-    sourceWorkspaceId: SOURCE,
-    version: 3,
-  })
-  return store
-}
-
-const plain = { artifact: null, destinationWorkspaceId: DEST, jobId: 'job-1', now: NOW }
+const plain = { artifact: null, destination, jobId: 'job-1', now: NOW }
 const payload = { jobId: 'job-1', summary: 'Done.' }
+const claim = { authority: { kind: 'workspace_grant' as const }, grant: artifactGrant }
 
 describe('job outbound result service', () => {
-  test('publishes for the source owner, then delivers after re-reading source and recipient access', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    const published = await service.publish({ ...plain, result: payload })
-    expect(published).toMatchObject({ action: 'publish', destinationWorkspaceId: DEST })
-    if (published.action !== 'publish') throw new Error('expected publish')
-
-    const reads = store.calls.access.length
-    const delivered = await service.deliver({
-      artifact: null,
-      destinationWorkspaceId: DEST,
-      jobId: 'job-1',
-      now: NOW,
-      published: published.result,
-      recipientUserId: RECIPIENT,
+  test('publishes under one scope with no grant lock when no artifact is claimed', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    expect(await service.publish({ ...plain, result: payload })).toMatchObject({
+      action: 'publish',
+      destination,
     })
-    expect(delivered).toMatchObject({ action: 'deliver', destinationWorkspaceId: DEST })
-    // Delivery reads the original actor's source access and the recipient's destination access.
-    expect(store.calls.access.length).toBe(reads + 2)
-    expect(store.calls.access.slice(-2)).toEqual([
-      { userId: ACTOR, workspaceId: SOURCE },
-      { userId: RECIPIENT, workspaceId: DEST },
-    ])
+    expect(fake.scopes).toEqual([{ scope: null, transaction: fake.transaction }])
   })
 
-  test('denies the next delivery once the original actor is demoted, with no cached allowance', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    const deliver = () =>
-      service.deliver({
-        artifact: null,
-        destinationWorkspaceId: DEST,
-        jobId: 'job-1',
-        now: NOW,
-        published: payload,
-        recipientUserId: RECIPIENT,
-      })
-    expect((await deliver()).action).toBe('deliver')
-
-    store.access.set(`${SOURCE}:${ACTOR}`, { role: 'member', workspaceLive: true })
-    expect(await deliver()).toEqual({
-      action: 'deny',
-      gate: 'source',
-      reason: 'source_access_lost',
-    })
-  })
-
-  test('denies release to a recipient removed from the destination after publication', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    store.access.set(`${DEST}:${RECIPIENT}`, { role: null, workspaceLive: true })
+  test('opens the grant scope for an artifact and reads the grant state from it', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, liveGrantState)
+    const service = createJobOutboundResultService(fake.authorize)
     expect(
-      await service.deliver({
+      await service.publish({ ...plain, artifact: claim, result: { ...payload, artifact: target } })
+    ).toMatchObject({ action: 'publish', result: { artifact: target } })
+    expect(fake.scopes[0]!.scope).toEqual({
+      artifactId: 'artifact-1',
+      grantId: 'artifact-grant-1',
+      revision: 1,
+      sourceWorkspaceId: SOURCE,
+    })
+  })
+
+  test('releases a delivery to the release write inside the same scope, after the final reads', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    const released: Array<{ transaction: unknown; result: unknown }> = []
+    const decision = await service.deliver(
+      {
         artifact: null,
-        destinationWorkspaceId: DEST,
+        destination,
         jobId: 'job-1',
         now: NOW,
         published: payload,
         recipientUserId: RECIPIENT,
-      })
-    ).toEqual({ action: 'deny', gate: 'audience', reason: 'recipient_not_destination_member' })
-  })
-
-  test('reads artifact evidence as the original actor in the source workspace and the grant at its revision', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    const published = await service.publish({
-      ...plain,
-      artifact: { authority: { kind: 'workspace_grant' }, grant: artifactGrant },
-      result: { ...payload, artifact: target },
-    })
-    expect(published.action).toBe('publish')
-    expect(store.calls.evidence).toEqual([
-      { artifactId: 'artifact-1', principalUserId: ACTOR, workspaceId: SOURCE },
+      },
+      async (context, result) => {
+        released.push({ transaction: context.transaction, result })
+      }
+    )
+    expect(decision).toMatchObject({ action: 'deliver', destination })
+    expect(released).toEqual([
+      {
+        transaction: fake.transaction,
+        result: { artifact: null, jobId: 'job-1', summary: 'Done.' },
+      },
     ])
-    expect(store.calls.grantState).toEqual([{ grantId: 'artifact-grant-1', revision: 1 }])
+    expect(fake.scopes.length).toBe(1)
+    expect(fake.reads).toEqual(['job', 'access', 'audience'])
   })
 
-  test('denies an artifact delivery whose grant was revoked after publication', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    const claim = { authority: { kind: 'workspace_grant' as const }, grant: artifactGrant }
-    const published = await service.publish({
-      ...plain,
-      artifact: claim,
-      result: { ...payload, artifact: target },
-    })
-    if (published.action !== 'publish') throw new Error('expected publish')
+  test('recheck after awaits: a source revocation between reads denies, and nothing is released', async () => {
+    const store = makeStore()
+    store.afterJobRead = () => {
+      store.access.set(`${SOURCE}:${ACTOR}`, { role: 'member', workspaceLive: true })
+    }
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    let released = 0
+    expect(
+      await service.deliver(
+        {
+          artifact: null,
+          destination,
+          jobId: 'job-1',
+          now: NOW,
+          published: payload,
+          recipientUserId: RECIPIENT,
+        },
+        async () => {
+          released += 1
+        }
+      )
+    ).toEqual({ action: 'deny', gate: 'source', reason: 'source_access_lost' })
+    expect(released).toBe(0)
+  })
 
-    const deliver = () =>
-      service.deliver({
-        artifact: claim,
-        destinationWorkspaceId: DEST,
-        jobId: 'job-1',
-        now: NOW,
-        published: published.result,
-        recipientUserId: RECIPIENT,
-      })
-    expect(await deliver()).toMatchObject({ action: 'deliver', result: { artifact: target } })
+  test('a grant revoked before the scope reads it denies delivery and releases nothing', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, { ...liveGrantState, revoked: true })
+    const service = createJobOutboundResultService(fake.authorize)
+    let released = 0
+    expect(
+      await service.deliver(
+        {
+          artifact: claim,
+          destination,
+          jobId: 'job-1',
+          now: NOW,
+          published: { ...payload, artifact: target },
+          recipientUserId: RECIPIENT,
+        },
+        async () => {
+          released += 1
+        }
+      )
+    ).toEqual({ action: 'deny', gate: 'artifact', reason: 'grant_revoked' })
+    expect(released).toBe(0)
+  })
 
-    store.grantStates.set('artifact-grant-1', {
-      ...store.grantStates.get('artifact-grant-1')!,
-      revoked: true,
+  test('cross-group substitution: a standing for another channel never releases to this destination', async () => {
+    const store = makeStore()
+    store.audience.set(`${CHANNEL}:${RECIPIENT}`, {
+      channelId: 'channel-b',
+      channelIsGroup: true,
+      channelLive: true,
+      participant: true,
+      workspaceLive: true,
     })
-    expect(await deliver()).toEqual({ action: 'deny', gate: 'artifact', reason: 'grant_revoked' })
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    let released = 0
+    expect(
+      await service.deliver(
+        {
+          artifact: null,
+          destination,
+          jobId: 'job-1',
+          now: NOW,
+          published: payload,
+          recipientUserId: RECIPIENT,
+        },
+        async () => {
+          released += 1
+        }
+      )
+    ).toEqual({ action: 'deny', gate: 'audience', reason: 'destination_channel_mismatch' })
+    expect(released).toBe(0)
   })
 
   test('holds publication for a missing job without reading the actor’s access', async () => {
-    const store = seed()
-    const service = createJobOutboundResultService(store.ports)
-    expect(
-      await service.publish({
-        ...plain,
-        jobId: 'job-missing',
-        result: { ...payload, jobId: 'job-missing' },
-      })
-    ).toEqual({
+    const store = makeStore()
+    store.job = null
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    expect(await service.publish({ ...plain, result: payload })).toEqual({
       action: 'hold',
       gate: 'job',
-      jobId: 'job-missing',
+      jobId: 'job-1',
       producerEffect: 'unaffected',
       reason: 'job_unavailable',
     })
-    expect(store.calls.access).toEqual([])
+    expect(fake.reads).toEqual(['job'])
   })
 
-  test('holds publication when the job record names another job', async () => {
-    const store = seed()
-    store.jobs.set('job-2', { ...store.jobs.get('job-1')!, jobId: 'job-other' })
-    const service = createJobOutboundResultService(store.ports)
-    expect(
-      await service.publish({ ...plain, jobId: 'job-2', result: { ...payload, jobId: 'job-2' } })
-    ).toMatchObject({ gate: 'job', reason: 'job_unavailable' })
-  })
-
-  test('holds publication from a source workspace where the actor is no longer an owner', async () => {
-    const store = seed()
-    store.access.set(`${SOURCE}:${ACTOR}`, { role: 'member', workspaceLive: true })
-    const service = createJobOutboundResultService(store.ports)
-    expect(await service.publish({ ...plain, result: payload })).toMatchObject({
-      gate: 'source',
-      reason: 'source_access_lost',
-    })
-  })
-
-  test('leaves the stored job unchanged by publish and delivery', async () => {
-    const store = seed()
-    const before = JSON.stringify(store.jobs.get('job-1'))
-    const service = createJobOutboundResultService(store.ports)
-    await service.publish({ ...plain, result: payload })
-    await service.deliver({
-      artifact: null,
-      destinationWorkspaceId: DEST,
-      jobId: 'job-1',
-      now: NOW,
-      published: payload,
-      recipientUserId: RECIPIENT,
-    })
-    expect(JSON.stringify(store.jobs.get('job-1'))).toBe(before)
-  })
-
-  test('propagates a failed read instead of deciding on partial authority', async () => {
-    const store = seed()
-    store.failGrantRead = true
-    const service = createJobOutboundResultService(store.ports)
+  test('propagates a failed read and releases nothing', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, null)
+    const failing: JobOutboundAuthorize<typeof fake.transaction> = (scope, run) =>
+      fake.authorize(scope, (context) =>
+        run({
+          ...context,
+          reads: {
+            ...context.reads,
+            async readAudience() {
+              throw new Error('audience store unavailable')
+            },
+          },
+        })
+      )
+    const service = createJobOutboundResultService(failing)
+    let released = 0
     await expect(
-      service.deliver({
-        artifact: { authority: { kind: 'workspace_grant' }, grant: artifactGrant },
-        destinationWorkspaceId: DEST,
+      service.deliver(
+        {
+          artifact: null,
+          destination,
+          jobId: 'job-1',
+          now: NOW,
+          published: payload,
+          recipientUserId: RECIPIENT,
+        },
+        async () => {
+          released += 1
+        }
+      )
+    ).rejects.toThrow('audience store unavailable')
+    expect(released).toBe(0)
+  })
+
+  test('a release write that fails rejects the delivery, so the scope is not committed', async () => {
+    const store = makeStore()
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    await expect(
+      service.deliver(
+        {
+          artifact: null,
+          destination,
+          jobId: 'job-1',
+          now: NOW,
+          published: payload,
+          recipientUserId: RECIPIENT,
+        },
+        async () => {
+          throw new Error('write failed')
+        }
+      )
+    ).rejects.toThrow('write failed')
+  })
+
+  test('does not mutate the stored job', async () => {
+    const store = makeStore()
+    const before = JSON.stringify(store.job)
+    const fake = fakeAuthorize(store, null)
+    const service = createJobOutboundResultService(fake.authorize)
+    await service.publish({ ...plain, result: payload })
+    await service.deliver(
+      {
+        artifact: null,
+        destination,
         jobId: 'job-1',
         now: NOW,
-        published: { ...payload, artifact: target },
+        published: payload,
         recipientUserId: RECIPIENT,
-      })
-    ).rejects.toThrow('grant store unavailable')
+      },
+      async () => {}
+    )
+    expect(JSON.stringify(store.job)).toBe(before)
   })
 })

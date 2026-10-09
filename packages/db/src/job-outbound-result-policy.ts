@@ -1,23 +1,26 @@
 /*
  * Job outbound result policy (M15 #1217).
  *
- * Pure sanitization and gate composition for one job's outbound result.
- * Authority is the job's source-workspace owner or admin acting through the
- * original authorized actor that admitted the job. Group participation is not
- * authority. Publication and every delivery re-check that actor's current
- * source-workspace access, and each delivery also re-checks the recipient's
- * current membership in the exact destination workspace. An artifact claim
- * must pass the artifact reference gates against current evidence and the
- * registered grant (#1207), bound to the destination audience.
+ * Pure gate composition for one job's outbound result. Authority is the job's
+ * original authorized actor, who must hold current owner or admin access to the
+ * job's source workspace, and the job must be a completed Task. Group membership
+ * is never source authority. Group membership only decides who the destination
+ * audience is.
  *
- * Outbound payloads are built by allowlist: only `jobId`, a bounded and
- * cleaned `summary`, and an exact artifact locator leave this module. Runtime
- * fields such as filenames, locations, provenance, task or node identifiers
- * are never copied, so they cannot reach a destination by construction.
+ * The destination is one exact group channel in one destination workspace.
+ * A recipient is released to only when they are a participant of that exact
+ * channel, so a participation in some other group cannot stand in for it. An
+ * artifact claim must pass the registration-backed artifact gates (#1207)
+ * against current evidence, bound to the destination workspace as audience.
  *
- * No I/O: the service module reads current state through injected ports and
- * persists nothing. A hold or denial never cancels, reassigns or mutates the
- * job, and every refusal carries only a typed reason.
+ * Release is an audience-authorized projection. The released object is built
+ * field by field from the authorized facts, never copied from the stored
+ * record. A claimed artifact is included only when the destination is
+ * authorized to retrieve it, and a result whose artifact is not authorized is
+ * not released at all.
+ *
+ * No I/O. The service reads state through injected ports and persists nothing.
+ * A hold or denial never cancels, reassigns or mutates the job.
  */
 import {
   isArtifactReferenceTarget,
@@ -39,13 +42,15 @@ import {
 /** Summaries are refused above this size; they are never silently truncated. */
 export const JOB_OUTBOUND_SUMMARY_MAX_BYTES = 8_192
 
-const JOB_ID_PATTERN = /^[\x21-\x7e]{1,128}$/u
+/** Identifiers are bounded visible ASCII; the bound is checked by code point, not by pattern. */
+const JOB_ID_MAX_LENGTH = 128
 
 /** Work bound: the raw string is refused before normalization when it is far larger than the limit. */
 const RAW_SUMMARY_MAX_UNITS = JOB_OUTBOUND_SUMMARY_MAX_BYTES * 4
 
+/** The released object. Built only by `projectJobOutboundRelease`. */
 export type SanitizedJobOutboundResult = Readonly<{
-  /** The exact artifact locator the result references, or null when it carries none. */
+  /** The exact artifact locator, present only when the destination may retrieve it. */
   artifact: ArtifactReferenceTarget | null
   jobId: string
   summary: string
@@ -62,10 +67,13 @@ export type JobOutboundSanitization =
   | Readonly<{ ok: true; result: SanitizedJobOutboundResult }>
   | Readonly<{ ok: false; reason: JobOutboundResultRejection }>
 
+/** The exact destination: one group channel in one destination workspace. */
+export type JobOutboundDestination = Readonly<{ channelId: string; workspaceId: string }>
+
 /**
- * A completed job as the source workspace records it: the workspace that owns
- * it and the original authorized actor who admitted it. `completedAt` is null
- * while the job has not completed, so the gate can name that state.
+ * A job as the source workspace records it: the owning workspace, the original
+ * authorized actor and the completion instant. `completedAt` is null while the
+ * Task has not completed, so the gate can name that state.
  */
 export type JobOutboundJobSource = Readonly<{
   completedAt: string | null
@@ -74,13 +82,22 @@ export type JobOutboundJobSource = Readonly<{
   sourceWorkspaceId: string
 }>
 
-/**
- * One principal's current access to one workspace, read at decision time.
- * `role` is null when there is no membership; `workspaceLive` is false for a
- * deleted or missing workspace.
- */
+/** One principal's current role in one workspace; `workspaceLive` is false for a deleted workspace. */
 export type JobOutboundAccess = Readonly<{
   role: 'owner' | 'admin' | 'member' | null
+  workspaceLive: boolean
+}>
+
+/**
+ * A recipient's standing in the exact channel the destination names. `channelId`
+ * is the channel the read was bound to, so a standing read for another channel
+ * can never be substituted into this decision.
+ */
+export type JobOutboundAudience = Readonly<{
+  channelId: string | null
+  channelIsGroup: boolean
+  channelLive: boolean
+  participant: boolean
   workspaceLive: boolean
 }>
 
@@ -97,10 +114,8 @@ export type JobOutboundArtifactCurrent = Readonly<{
 }>
 
 export type JobOutboundPublicationInput = Readonly<{
-  /** Present exactly when the result carries an artifact reference. */
   artifact: (JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null
-  destinationWorkspaceId: string
-  /** The job as read now; null when it cannot be found or proven. */
+  destination: JobOutboundDestination
   job: JobOutboundJobSource | null
   jobId: string
   now: string
@@ -125,15 +140,11 @@ export type JobOutboundPublicationHoldReason =
   | 'job_unavailable'
   | 'source_access_lost'
 
-/**
- * Publication decisions. Every hold keeps the result out of the destination
- * while the job continues unaffected; `gate` names the first check that failed.
- */
 export type JobOutboundPublicationDecision =
   | Readonly<{
       action: 'publish'
       basis: 'source_owner_actor'
-      destinationWorkspaceId: string
+      destination: JobOutboundDestination
       jobId: string
       result: SanitizedJobOutboundResult
     }>
@@ -146,38 +157,42 @@ export type JobOutboundPublicationDecision =
     }>
 
 export type JobOutboundDeliveryInput = Readonly<{
-  /** The artifact claim the result was published with, with current facts; null when none. */
   artifact: (JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null
-  /** The destination recorded at publication. It is never taken from the request. */
-  destinationWorkspaceId: string
-  /** The job as read now at delivery. */
+  /** The destination recorded at publication; never taken from the request. */
+  destination: JobOutboundDestination
+  /** The recipient's standing in the destination channel, read at delivery. */
+  recipientAudience: JobOutboundAudience | null
+  /** The job as read at delivery. */
   job: JobOutboundJobSource | null
   jobId: string
   now: string
-  /** The published record; it is sanitized again before any byte is released. */
+  /** The published record; it is re-sanitized before any byte is released. */
   published: unknown
-  /** The recipient's current access to the destination workspace; null when unreadable. */
-  recipientAccess: JobOutboundAccess | null
-  /** The original actor's current access to the job's source workspace; null when unreadable. */
+  /** The original actor's current access to the job's source workspace. */
   sourceAccess: JobOutboundAccess | null
 }>
 
 export type JobOutboundDeliveryDenialGate = 'artifact' | 'audience' | 'job' | 'result' | 'source'
 
+export type JobOutboundAudienceDenial =
+  | 'destination_channel_mismatch'
+  | 'destination_channel_unavailable'
+  | 'destination_workspace_unavailable'
+  | 'recipient_not_destination_participant'
+
 export type JobOutboundDeliveryDenialReason =
   | ArtifactReferenceRefusalReason
+  | JobOutboundAudienceDenial
   | JobOutboundResultRejection
   | 'job_not_completed'
   | 'job_source_mismatch'
   | 'job_unavailable'
-  | 'recipient_not_destination_member'
-  | 'destination_workspace_unavailable'
   | 'source_access_lost'
 
 export type JobOutboundDeliveryDecision =
   | Readonly<{
       action: 'deliver'
-      destinationWorkspaceId: string
+      destination: JobOutboundDestination
       jobId: string
       result: SanitizedJobOutboundResult
     }>
@@ -189,6 +204,17 @@ export type JobOutboundDeliveryDecision =
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Visible ASCII, bounded in length; checked code point by code point. */
+function isIdentifier(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > JOB_ID_MAX_LENGTH)
+    return false
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < 0x21 || code > 0x7e) return false
+  }
+  return true
 }
 
 /** Controls except tab and newline, bidi embeddings/overrides/isolates, zero-width marks and BOM. */
@@ -204,8 +230,23 @@ function isUnsafeSummaryCharacter(code: number): boolean {
   )
 }
 
+/** Canonical line breaks: CRLF and lone CR become LF, read left to right in one pass. */
+function canonicalLineBreaks(value: string): string {
+  let text = ''
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value.charAt(index)
+    if (character !== '\r') {
+      text += character
+    } else {
+      text += '\n'
+      if (value.charAt(index + 1) === '\n') index += 1
+    }
+  }
+  return text
+}
+
 function cleanSummary(value: string): string {
-  const normalized = value.normalize('NFC').replace(/\r\n?/gu, '\n')
+  const normalized = canonicalLineBreaks(value.normalize('NFC'))
   let text = ''
   for (const character of normalized) {
     if (!isUnsafeSummaryCharacter(character.codePointAt(0) ?? 0)) text += character
@@ -218,13 +259,13 @@ function refused(reason: JobOutboundResultRejection): JobOutboundSanitization {
 }
 
 /**
- * Builds the only outbound result shape. Unlisted top-level fields are dropped;
- * the artifact locator must be exact because the artifact gates require it.
+ * Reads a published or submitted result into the only released shape. Unlisted
+ * top-level fields are dropped; the artifact locator must be exact.
  */
 export function sanitizeJobOutboundResult(value: unknown): JobOutboundSanitization {
   if (!isPlainObject(value)) return refused('result_malformed')
   const { artifact, jobId, summary } = value
-  if (typeof jobId !== 'string' || !JOB_ID_PATTERN.test(jobId)) return refused('result_malformed')
+  if (!isIdentifier(jobId)) return refused('result_malformed')
   if (typeof summary !== 'string') return refused('result_malformed')
   if (summary.length > RAW_SUMMARY_MAX_UNITS) return refused('result_too_large')
   const text = cleanSummary(summary)
@@ -245,7 +286,22 @@ export function sanitizeJobOutboundResult(value: unknown): JobOutboundSanitizati
   return { ok: true, result: Object.freeze({ artifact: target, jobId, summary: text }) }
 }
 
-/** The result's artifact presence must agree with the claim it is published or delivered under. */
+/**
+ * Builds the released object from authorized facts only. The artifact field is
+ * included only when `artifactAuthorized` is true, which the caller sets from
+ * the retrieval gate. Nothing else from the stored record is carried over.
+ */
+export function projectJobOutboundRelease(
+  result: SanitizedJobOutboundResult,
+  artifactAuthorized: boolean
+): SanitizedJobOutboundResult {
+  return Object.freeze({
+    artifact: artifactAuthorized ? result.artifact : null,
+    jobId: result.jobId,
+    summary: result.summary,
+  })
+}
+
 function claimMatches(
   result: SanitizedJobOutboundResult,
   claimed: boolean
@@ -254,8 +310,8 @@ function claimMatches(
 }
 
 /**
- * Whether the original actor's source-workspace access is current: a live
- * workspace and an owner or admin membership. Anything else is lost access.
+ * The original actor's source-workspace access is current when the workspace is
+ * live and the actor is an owner or admin. Group membership never enters here.
  */
 export function sourceAccessCurrent(access: JobOutboundAccess | null): boolean {
   return (
@@ -263,7 +319,6 @@ export function sourceAccessCurrent(access: JobOutboundAccess | null): boolean {
   )
 }
 
-/** Whether a completed job is still in force at `now` for its source workspace. */
 function jobDenial(
   job: JobOutboundJobSource | null,
   jobId: string,
@@ -279,10 +334,25 @@ function jobDenial(
 }
 
 /**
- * Publication gate for one job's result, evaluated in a fixed order: result
- * sanitization, job identity and completion, the original actor's current
- * source-workspace access, the destination (cross-workspace only), and finally
- * the artifact reference against current evidence and its registered grant.
+ * Whether the recipient's standing is for the exact destination channel and is
+ * in force. A standing read for any other channel is refused as a mismatch.
+ */
+function audienceDenial(
+  audience: JobOutboundAudience | null,
+  destination: JobOutboundDestination
+): JobOutboundAudienceDenial | null {
+  if (!audience) return 'destination_workspace_unavailable'
+  if (audience.channelId !== destination.channelId) return 'destination_channel_mismatch'
+  if (!audience.workspaceLive) return 'destination_workspace_unavailable'
+  if (!audience.channelIsGroup || !audience.channelLive) return 'destination_channel_unavailable'
+  if (!audience.participant) return 'recipient_not_destination_participant'
+  return null
+}
+
+/**
+ * Publication gate, in order: result, job identity and completion, the original
+ * actor's source access, the destination (outbound only), and the artifact claim.
+ * An artifact must be bound to the destination workspace as audience.
  */
 export function decideJobOutboundPublication(
   input: JobOutboundPublicationInput
@@ -311,15 +381,19 @@ export function decideJobOutboundPublication(
 
   if (!sourceAccessCurrent(input.sourceAccess)) return hold('source', 'source_access_lost')
 
+  const { destination } = input
   if (
-    input.destinationWorkspaceId.trim().length === 0 ||
-    input.destinationWorkspaceId === input.job.sourceWorkspaceId
+    destination.channelId.trim().length === 0 ||
+    destination.workspaceId.trim().length === 0 ||
+    destination.workspaceId === input.job.sourceWorkspaceId
   )
     return hold('destination', 'destination_not_outbound')
 
   if (result.artifact !== null && input.artifact) {
     if (result.artifact.sourceWorkspaceId !== input.job.sourceWorkspaceId)
       return hold('job', 'job_source_mismatch')
+    if (result.artifact.audienceWorkspaceId !== destination.workspaceId)
+      return hold('artifact', 'audience_not_authorized')
     const artifact: ArtifactReferencePublicationDecision = authorizeArtifactReferencePublication({
       authority: input.artifact.authority,
       evidence: input.artifact.evidence,
@@ -334,24 +408,23 @@ export function decideJobOutboundPublication(
   return {
     action: 'publish',
     basis: 'source_owner_actor',
-    destinationWorkspaceId: input.destinationWorkspaceId,
+    destination,
     jobId,
     result,
   }
 }
 
 /**
- * Delivery gate for one destination recipient. Re-sanitizes the published
- * record, re-checks the job, re-checks the original actor's current
- * source-workspace access, then checks the recipient's current membership in
- * the exact destination workspace. For an artifact it runs the retrieval gate
- * against current evidence and the registered grant, with the destination as
- * the requesting audience.
+ * Delivery gate, in order: re-sanitize the published record, re-check the job,
+ * the original actor's source access, the recipient's standing in the exact
+ * destination channel, and — for an artifact — the retrieval gate with the
+ * destination workspace as the requesting audience. The release is projected
+ * from these facts only.
  */
 export function decideJobOutboundDelivery(
   input: JobOutboundDeliveryInput
 ): JobOutboundDeliveryDecision {
-  const { jobId } = input
+  const { jobId, destination } = input
   const sanitized = sanitizeJobOutboundResult(input.published)
   if (!sanitized.ok) return { action: 'deny', gate: 'result', reason: sanitized.reason }
   const { result } = sanitized
@@ -367,12 +440,10 @@ export function decideJobOutboundDelivery(
   if (!sourceAccessCurrent(input.sourceAccess))
     return { action: 'deny', gate: 'source', reason: 'source_access_lost' }
 
-  const recipient = input.recipientAccess
-  if (!recipient || !recipient.workspaceLive)
-    return { action: 'deny', gate: 'audience', reason: 'destination_workspace_unavailable' }
-  if (recipient.role === null)
-    return { action: 'deny', gate: 'audience', reason: 'recipient_not_destination_member' }
+  const audience = audienceDenial(input.recipientAudience, destination)
+  if (audience) return { action: 'deny', gate: 'audience', reason: audience }
 
+  let artifactAuthorized = false
   if (result.artifact !== null && input.artifact) {
     if (result.artifact.sourceWorkspaceId !== input.job.sourceWorkspaceId)
       return { action: 'deny', gate: 'job', reason: 'job_source_mismatch' }
@@ -382,12 +453,18 @@ export function decideJobOutboundDelivery(
       grant: input.artifact.grant,
       grantState: input.artifact.grantState,
       now: input.now,
-      requestingWorkspaceId: input.destinationWorkspaceId,
+      requestingWorkspaceId: destination.workspaceId,
       target: result.artifact,
     })
     if (retrieval.action === 'deny')
       return { action: 'deny', gate: 'artifact', reason: retrieval.reason }
+    artifactAuthorized = true
   }
 
-  return { action: 'deliver', destinationWorkspaceId: input.destinationWorkspaceId, jobId, result }
+  return {
+    action: 'deliver',
+    destination,
+    jobId,
+    result: projectJobOutboundRelease(result, artifactAuthorized),
+  }
 }

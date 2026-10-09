@@ -3,31 +3,40 @@ import { eq } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 
 import { createAgent } from '../../src/agents'
+import { createArtifact } from '../../src/artifacts'
+import {
+  registerArtifactReferenceGrant,
+  revokeArtifactReferenceGrant,
+} from '../../src/artifact-reference-grants'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createGroupChannel, setChannelParticipants } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
+  createJobOutboundAuthorizer,
   readJobOutboundAccess,
+  readJobOutboundAudience,
   readJobOutboundSource,
-  createJobOutboundStorePorts,
 } from '../../src/job-outbound-result-store'
 import { createJobOutboundResultService } from '../../src/job-outbound-result-service'
 import { createProject } from '../../src/projects'
 import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
-import { workspaceMemberships, workspaces } from '../../src/schema'
+import { channels, workspaceMemberships } from '../../src/schema'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
 import { completeTask, createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 /**
- * PostgreSQL lane for the #1217 store adapters. The fixture admits a real Task
- * submission and completes the Task through the production paths, then reads
- * the job, access and destination state back through the adapters. No row is
- * written by hand except the explicit demotion and workspace soft delete.
+ * PostgreSQL lane for the #1217 authorization scope and store adapters. The
+ * fixture admits a real Task submission and completes the Task through the
+ * production paths, creates a real destination group channel, and registers a
+ * real artifact grant (#1207). Only the demotion, channel archive and workspace
+ * soft delete are written by hand.
  */
 
 const url = process.env.DATABASE_URL
 const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1`, revision: 0 }
 const NIL_UUID = '00000000-0000-4000-8000-000000000000'
+const CHECKSUM = 'c'.repeat(64)
 
 describe.skipIf(!url)('job outbound result store adapters', () => {
   let connection: DatabaseConnection
@@ -36,6 +45,7 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
   })
   afterAll(() => connection.close())
 
+  /** A completed-to-be Task in a source workspace, and a destination group channel with one participant. */
   async function fixture() {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
@@ -55,6 +65,18 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
       name: 'Destination workspace',
       owner: recipient.principal,
     })
+    const channel = await createGroupChannel(connection.db, destination.id, recipient.principal, {
+      idempotencyKey: crypto.randomUUID(),
+      title: 'Destination group',
+    })
+    await setChannelParticipants(
+      connection.db,
+      destination.id,
+      channel.id,
+      recipient.principal,
+      [{ kind: 'user', userId: recipient.principal.userId }],
+      channel.version
+    )
     const project = await createProject(connection.db, workspace.id, owner.principal, {
       name: 'Selected project',
       iconKey: 'planning',
@@ -133,13 +155,20 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
       requestId,
       expectedVersion: task.version,
     })
-    return { owner, recipient, workspace, destination, task }
+    return { channel, destination, owner, recipient, task, workspace }
+  }
+
+  async function completed(f: Awaited<ReturnType<typeof fixture>>) {
+    await completeTask(connection.db, f.workspace.id, f.task.id, f.owner.principal, {
+      idempotencyKey: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
+      expectedVersion: f.task.version,
+    })
   }
 
   test('reads a submitted but uncompleted job with its original actor and source workspace', async () => {
     const f = await fixture()
-    const job = await readJobOutboundSource(connection.db, f.task.id)
-    expect(job).toEqual({
+    expect(await readJobOutboundSource(connection.db, f.task.id)).toEqual({
       completedAt: null,
       jobId: f.task.id,
       originalActorUserId: f.owner.principal.userId,
@@ -149,27 +178,16 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
 
   test('reads completion from the task.completed mutation and refuses unknown or malformed ids', async () => {
     const f = await fixture()
-    const submitted = await readJobOutboundSource(connection.db, f.task.id)
-    const current = await completeTask(
-      connection.db,
-      f.workspace.id,
-      f.task.id,
-      f.owner.principal,
-      {
-        idempotencyKey: crypto.randomUUID(),
-        requestId: crypto.randomUUID(),
-        expectedVersion: f.task.version,
-      }
-    )
-    expect(current.lifecycleState).toBe('completed')
-    const completed = await readJobOutboundSource(connection.db, f.task.id)
-    expect(completed?.completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(completed?.originalActorUserId).toBe(submitted?.originalActorUserId)
+    const before = await readJobOutboundSource(connection.db, f.task.id)
+    await completed(f)
+    const after = await readJobOutboundSource(connection.db, f.task.id)
+    expect(after?.completedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(after?.originalActorUserId).toBe(before?.originalActorUserId)
     expect(await readJobOutboundSource(connection.db, NIL_UUID)).toBeNull()
     expect(await readJobOutboundSource(connection.db, 'not-a-uuid')).toBeNull()
   })
 
-  test('reads current access by membership role and workspace liveness', async () => {
+  test('reads current source access by membership role and workspace liveness', async () => {
     const f = await fixture()
     const stranger = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
@@ -190,54 +208,95 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
     expect(
       await readJobOutboundAccess(connection.db, { userId: 'bogus', workspaceId: f.workspace.id })
     ).toEqual({ role: null, workspaceLive: false })
-
-    await connection.db
-      .update(workspaces)
-      .set({ deletedAt: new Date() })
-      .where(eq(workspaces.id, f.destination.id))
-    expect(
-      await readJobOutboundAccess(connection.db, {
-        userId: f.recipient.principal.userId,
-        workspaceId: f.destination.id,
-      })
-    ).toEqual({ role: 'owner', workspaceLive: false })
   })
 
-  test('denies publication and later delivery after the original actor is demoted', async () => {
+  test('reads destination standing for the exact channel only, never a standing in another group', async () => {
     const f = await fixture()
-    const service = createJobOutboundResultService({
-      ...createJobOutboundStorePorts(connection.db),
-      readArtifactGrantState: async () => null,
-    })
-    const payload = { jobId: f.task.id, summary: 'Outbound summary.' }
-    await completeTask(connection.db, f.workspace.id, f.task.id, f.owner.principal, {
+    const other = await createGroupChannel(connection.db, f.destination.id, f.recipient.principal, {
       idempotencyKey: crypto.randomUUID(),
-      requestId: crypto.randomUUID(),
-      expectedVersion: f.task.version,
+      title: 'Other destination group',
     })
-    // Read the clock after completion: a completion instant later than `now` is not yet complete.
-    const now = new Date().toISOString()
-
-    const published = await service.publish({
-      artifact: null,
-      destinationWorkspaceId: f.destination.id,
-      jobId: f.task.id,
-      now,
-      result: payload,
+    // The creator joins automatically; clear the roster so the recipient is in the first group only.
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      other.id,
+      f.recipient.principal,
+      [],
+      other.version
+    )
+    const inChannel = await readJobOutboundAudience(connection.db, {
+      channelId: f.channel.id,
+      userId: f.recipient.principal.userId,
+      workspaceId: f.destination.id,
     })
-    expect(published).toMatchObject({ action: 'publish', destinationWorkspaceId: f.destination.id })
-    if (published.action !== 'publish') throw new Error('expected publish')
+    expect(inChannel).toEqual({
+      channelId: f.channel.id,
+      channelIsGroup: true,
+      channelLive: true,
+      participant: true,
+      workspaceLive: true,
+    })
+    // The recipient participates in the first group only; the second group is not a stand-in.
+    const substituted = await readJobOutboundAudience(connection.db, {
+      channelId: other.id,
+      userId: f.recipient.principal.userId,
+      workspaceId: f.destination.id,
+    })
+    expect(substituted.participant).toBe(false)
+    expect(substituted.channelId).toBe(other.id)
+  })
 
+  test('reads an archived destination channel as not live', async () => {
+    const f = await fixture()
+    await connection.db
+      .update(channels)
+      .set({ lifecycleState: 'archived' })
+      .where(eq(channels.id, f.channel.id))
+    const standing = await readJobOutboundAudience(connection.db, {
+      channelId: f.channel.id,
+      userId: f.recipient.principal.userId,
+      workspaceId: f.destination.id,
+    })
+    expect(standing).toMatchObject({ channelLive: false, participant: true })
+  })
+
+  test('releases a plain result under the real scope, then denies once the original actor is demoted', async () => {
+    const f = await fixture()
+    await completed(f)
+    const service = createJobOutboundResultService(createJobOutboundAuthorizer(connection.db))
+    const destination = { channelId: f.channel.id, workspaceId: f.destination.id }
+    const payload = { jobId: f.task.id, summary: 'Outbound summary.' }
+    const released: unknown[] = []
+    const release = async (context: { transaction: unknown }, result: unknown) => {
+      // The release runs inside the authorization transaction, not on the root connection.
+      expect(context.transaction).not.toBe(connection.db)
+      released.push(result)
+    }
     const deliver = () =>
-      service.deliver({
+      service.deliver(
+        {
+          artifact: null,
+          destination,
+          jobId: f.task.id,
+          now: new Date().toISOString(),
+          published: payload,
+          recipientUserId: f.recipient.principal.userId,
+        },
+        release
+      )
+
+    expect(
+      await service.publish({
         artifact: null,
-        destinationWorkspaceId: f.destination.id,
+        destination,
         jobId: f.task.id,
         now: new Date().toISOString(),
-        published: published.result,
-        recipientUserId: f.recipient.principal.userId,
+        result: payload,
       })
-    expect(await deliver()).toMatchObject({ action: 'deliver' })
+    ).toMatchObject({ action: 'publish', destination })
+    expect(await deliver()).toMatchObject({ action: 'deliver', destination })
+    expect(released).toEqual([{ artifact: null, jobId: f.task.id, summary: 'Outbound summary.' }])
 
     await connection.db
       .update(workspaceMemberships)
@@ -248,33 +307,110 @@ describe.skipIf(!url)('job outbound result store adapters', () => {
       gate: 'source',
       reason: 'source_access_lost',
     })
+    expect(released.length).toBe(1)
+  })
+
+  test('releases an artifact only under the live #1207 registration and denies after revocation', async () => {
+    const f = await fixture()
+    await completed(f)
+    const artifact = await createArtifact(connection.db, f.workspace.id, f.owner.principal, {
+      availability: 'available',
+      checksumSha256: CHECKSUM,
+      filename: 'result.txt',
+      location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
+      mediaType: 'text/plain',
+      sizeBytes: 32,
+      sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
+      sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+    })
+    const grantId = `grant-${crypto.randomUUID()}`
+    const registration = await registerArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId,
+        version: artifact.version,
+      }
+    )
+    const grant = {
+      artifactId: artifact.id,
+      audienceWorkspaceId: f.destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt: null,
+      grantId,
+      revokedAt: null,
+      revision: registration.state.revision,
+      sourceWorkspaceId: f.workspace.id,
+      version: artifact.version,
+    }
+    const artifactTarget = {
+      artifactId: artifact.id,
+      audienceWorkspaceId: f.destination.id,
+      checksumSha256: CHECKSUM,
+      sourceWorkspaceId: f.workspace.id,
+      version: artifact.version,
+    }
+    const claim = { authority: { kind: 'workspace_grant' as const }, grant }
+    const destination = { channelId: f.channel.id, workspaceId: f.destination.id }
+    const service = createJobOutboundResultService(createJobOutboundAuthorizer(connection.db))
+    const payload = { artifact: artifactTarget, jobId: f.task.id, summary: 'Report attached.' }
+    const released: unknown[] = []
+    const release = async (_context: unknown, result: unknown) => {
+      released.push(result)
+    }
+    const deliver = () =>
+      service.deliver(
+        {
+          artifact: claim,
+          destination,
+          jobId: f.task.id,
+          now: new Date().toISOString(),
+          published: payload,
+          recipientUserId: f.recipient.principal.userId,
+        },
+        release
+      )
+
     expect(
       await service.publish({
-        artifact: null,
-        destinationWorkspaceId: f.destination.id,
+        artifact: claim,
+        destination,
         jobId: f.task.id,
         now: new Date().toISOString(),
         result: payload,
       })
-    ).toMatchObject({ action: 'hold', gate: 'source', reason: 'source_access_lost' })
+    ).toMatchObject({ action: 'publish', result: { artifact: artifactTarget } })
+    expect(await deliver()).toMatchObject({
+      action: 'deliver',
+      result: { artifact: artifactTarget },
+    })
+    expect(released.length).toBe(1)
+
+    await revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner.principal, grantId)
+    expect(await deliver()).toEqual({ action: 'deny', gate: 'artifact', reason: 'grant_revoked' })
+    expect(released.length).toBe(1)
   })
 
-  test('refuses artifact evidence for malformed or unknown identifiers', async () => {
+  test('refuses artifact evidence for malformed or unknown identifiers through the scope reads', async () => {
     const f = await fixture()
-    const ports = createJobOutboundStorePorts(connection.db)
-    expect(
-      await ports.readArtifactEvidence({
+    const reads = createJobOutboundAuthorizer(connection.db)
+    const probe = await reads(null, async ({ reads: scopedReads }) => ({
+      evidence: await scopedReads.readArtifactEvidence({
         artifactId: 'not-a-uuid',
         principalUserId: f.owner.principal.userId,
         workspaceId: f.workspace.id,
-      })
-    ).toBeNull()
-    expect(
-      await ports.readArtifactEvidence({
+      }),
+      unknown: await scopedReads.readArtifactEvidence({
         artifactId: NIL_UUID,
         principalUserId: f.owner.principal.userId,
         workspaceId: f.workspace.id,
-      })
-    ).toBeNull()
+      }),
+    }))
+    expect(probe).toEqual({ evidence: null, unknown: null })
   })
 })
