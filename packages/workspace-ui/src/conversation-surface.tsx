@@ -173,10 +173,23 @@ export function ConversationSurface(props: {
     (state) => state.conversationAudienceEpochs[props.workspaceId] ?? 0
   )
   const [requestedChoices, setRequestedChoices] = createSignal<LeadRequestedChoices>({})
+  const [optimisticMessage, setOptimisticMessage] = createSignal<MessageSummary | null>(null)
   let modelRequests:
     | ReturnType<typeof import('./lead-model-request').createLeadModelRequestResolver>
     | undefined
+  let modelRequestClient = props.client
+  let modelRequestGeneration = 0
+  const adoptModelRequestClient = (client: AgentHqApiClient) => {
+    if (client === modelRequestClient) return
+    modelRequests?.reset()
+    modelRequests = undefined
+    modelRequestClient = client
+    modelRequestGeneration++
+    setRequestedChoices({})
+    setOptimisticMessage(null)
+  }
   createEffect(() => {
+    adoptModelRequestClient(props.client)
     void props.workspaceId
     void props.channel?.id
     void audienceEpoch()
@@ -191,7 +204,6 @@ export function ConversationSurface(props: {
   // another channel's messages must not render as this conversation's history
   // (nor as an empty transcript). A genuinely empty page does belong here.
   const [pageBelongsToChannel, setPageBelongsToChannel] = createSignal(false)
-  const [optimisticMessage, setOptimisticMessage] = createSignal<MessageSummary | null>(null)
   const [transcript, setTranscript] = createSignal<HTMLDivElement>()
   const prefetchThread = usePrefetchThreadMessages(
     props.client,
@@ -213,7 +225,7 @@ export function ConversationSurface(props: {
     }
   )
   const createMessage = useCreateMessageMutation(
-    props.client,
+    () => props.client,
     () => props.workspaceId,
     () => props.channel?.id ?? ''
   )
@@ -390,10 +402,16 @@ export function ConversationSurface(props: {
   )
 
   const submit = async (submission: ComposerSubmission): Promise<ComposerSubmissionOutcome> => {
+    adoptModelRequestClient(props.client)
+    const submittedClient = props.client
+    const submittedClientGeneration = modelRequestGeneration
     const submittedWorkspaceId = props.workspaceId
     const submittedChannelId = props.channel?.id
     const submittedAudienceEpoch = audienceEpoch()
     const stillCurrent = () =>
+      props.client === submittedClient &&
+      modelRequestClient === submittedClient &&
+      modelRequestGeneration === submittedClientGeneration &&
       props.workspaceId === submittedWorkspaceId &&
       props.channel?.id === submittedChannelId &&
       audienceEpoch() === submittedAudienceEpoch
@@ -418,7 +436,8 @@ export function ConversationSurface(props: {
       if (useLead && (choices.lead || choices.child) && !modelRequests) {
         const module = await import('./control-plane-settings')
         if (!stillCurrent()) return { clearDraft: false }
-        modelRequests = module.createLeadModelRequestResolver(props.client)
+        modelRequests = module.createLeadModelRequestResolver(submittedClient)
+        modelRequestClient = submittedClient
       }
       const requestedModelSelections = useLead
         ? await modelRequests?.resolve(
@@ -499,16 +518,20 @@ export function ConversationSurface(props: {
           composer={
             <>
               <Show when={isWorkspaceLeadConversation(channel(), directAgent())}>
-                <LeadTurnControls
-                  client={props.client}
-                  workspaceId={props.workspaceId}
-                  channelId={channel().id}
-                  audienceEpoch={audienceEpoch()}
-                  receipt={leadReceipt()}
-                  requestedChoices={requestedChoices()}
-                  onRequestedChoicesChange={setRequestedChoices}
-                  onTimelineChange={() => void messageQuery.refetch()}
-                />
+                <Show when={props.client} keyed>
+                  {(client) => (
+                    <LeadTurnControls
+                      client={client}
+                      workspaceId={props.workspaceId}
+                      channelId={channel().id}
+                      audienceEpoch={audienceEpoch()}
+                      receipt={leadReceipt()}
+                      requestedChoices={requestedChoices()}
+                      onRequestedChoicesChange={setRequestedChoices}
+                      onTimelineChange={() => void messageQuery.refetch()}
+                    />
+                  )}
+                </Show>
               </Show>
               <MessageComposer
                 agents={props.agents}
