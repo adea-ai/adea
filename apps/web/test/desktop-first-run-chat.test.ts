@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { ensureFirstRunLead, resolveDesktopFirstRun } from '../src/lib/desktop-first-run-chat'
+import {
+  ensureFirstRunLead,
+  provisionFirstRunLeadIfCurrent,
+  resolveDesktopFirstRun,
+} from '../src/lib/desktop-first-run-chat'
 import type { ChatConversation, ChatConversationModel } from '@adea-ai/dev-view/chat/model'
 import {
   attachFirstRunConversationIfCurrent,
@@ -283,5 +287,69 @@ describe('desktop first-run lead provisioning', () => {
     })
     expect(resolved.facts.identity).toBe('guest')
     expect(resolved.facts.leadProvisioning).toBeUndefined()
+  })
+})
+
+describe('desktop first-run lead provisioning scope guard', () => {
+  test('a scope switch while reads are parked never issues a lead write', async () => {
+    const lifecycle = createDesktopChatLifecycleFence()
+    const request = lifecycle.begin()
+    let writes = 0
+    const client = {
+      ensureWorkspaceLead: async () => {
+        writes += 1
+        return { lead: null }
+      },
+    }
+    let releaseReads!: () => void
+    const reads = new Promise<void>((resolve) => {
+      releaseReads = resolve
+    })
+    const pending = (async () => {
+      await reads
+      return provisionFirstRunLeadIfCurrent({
+        isCurrent: () => lifecycle.isCurrent(request),
+        client,
+        workspaceId: 'workspace-old',
+        agents: [],
+      })
+    })()
+
+    lifecycle.invalidate()
+    releaseReads()
+
+    expect(await pending).toBeUndefined()
+    expect(writes).toBe(0)
+  })
+
+  test('the current request provisions exactly once', async () => {
+    const lifecycle = createDesktopChatLifecycleFence()
+    const request = lifecycle.begin()
+    let writes = 0
+    const client = {
+      ensureWorkspaceLead: async () => {
+        writes += 1
+        return {
+          lead: {
+            id: 'lead-current',
+            isWorkspaceLead: true,
+            lifecycleState: 'active',
+            profile: {
+              id: 'workspace-lead-unconfigured',
+              state: 'missing',
+              version: 'unconfigured',
+            },
+          } as AgentSummary,
+        }
+      },
+    }
+    const outcome = await provisionFirstRunLeadIfCurrent({
+      isCurrent: () => lifecycle.isCurrent(request),
+      client,
+      workspaceId: 'workspace-1',
+      agents: [],
+    })
+    expect(outcome?.status).toBe('provisioned')
+    expect(writes).toBe(1)
   })
 })

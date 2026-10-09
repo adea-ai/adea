@@ -121,3 +121,19 @@ export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunR
     ...(context ? { context } : {}),
   }
 }
+
+/**
+ * Runs lead provisioning only while the caller's scope is still current. The
+ * check sits immediately before the write, so a scope change during the parallel
+ * reads cannot issue a provisioning request for a workspace the user left.
+ * A stale request returns `undefined` and is never applied.
+ */
+export async function provisionFirstRunLeadIfCurrent(input: {
+  isCurrent(): boolean
+  client: Pick<AgentHqApiClient, 'ensureWorkspaceLead'>
+  workspaceId: string
+  agents: readonly AgentSummary[]
+}): Promise<FirstRunLeadOutcome | undefined> {
+  if (!input.isCurrent()) return undefined
+  return ensureFirstRunLead(input.client, input.workspaceId, input.agents)
+}

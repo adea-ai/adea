@@ -41,9 +41,10 @@ import {
 } from '../lib/desktop-chat-host'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import {
-  ensureFirstRunLead,
+  provisionFirstRunLeadIfCurrent,
   resolveDesktopFirstRun,
   type DesktopFirstRunWorktree,
+  type FirstRunLeadOutcome,
 } from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
@@ -316,12 +317,20 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
         client.getWorkspace(workspaceId),
         port.readManagedPi(),
       ])
-      if (!workspace) return undefined
+      if (!workspace || !lifecycle.isCurrent(request)) return undefined
       // Guests have no durable identity to attribute a lead to; only signed-in
-      // Home setup asks the server to provision the workspace lead.
-      const lead = temporary
-        ? undefined
-        : await ensureFirstRunLead(client, workspaceId, workspace.agents)
+      // Home setup asks the server to provision the workspace lead. A scope
+      // change during the reads above makes this a no-op, not a write.
+      let lead: FirstRunLeadOutcome | undefined
+      if (!temporary) {
+        lead = await provisionFirstRunLeadIfCurrent({
+          isCurrent: () => lifecycle.isCurrent(request),
+          client,
+          workspaceId,
+          agents: workspace.agents,
+        })
+        if (!lead) return undefined
+      }
       const resolution = resolveDesktopFirstRun({
         temporary,
         lead: lead?.status,
