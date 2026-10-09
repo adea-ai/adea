@@ -3,6 +3,7 @@
 // browser-safe modules and the shell's command surface. The web lane never
 // calls `desktopRuntime()`, so no session machinery is constructed there.
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
+import { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import {
   createDesktopAuthorizationManager,
   createDesktopAuthorizationUrl,
@@ -40,6 +41,19 @@ export type DesktopRuntime = Readonly<{
   consumeAuthorization(rawCallbackUrl: string): Promise<DesktopAuthorizationExchange>
   authorizationUrl(attempt: DesktopAuthorizationAttempt): string
   createClient(session?: DesktopSession, temporaryCredential?: string): AgentHqApiClient
+  /**
+   * The account-scoped directory client the account-wide directory and inbox
+   * surface reads through (M11.03). The session is an ACCESSOR: the mounted
+   * surface captures this one instance for its whole lifetime (its query
+   * closures close over it), so the client re-resolves the credential from
+   * the live session on every request instead of being rebuilt per session —
+   * a rotation or sign-out in the same workspace is honoured by refresh,
+   * polling, and pagination without a remount.
+   */
+  createAccountDirectoryClient(
+    session?: () => DesktopSession | undefined,
+    temporaryCredential?: string
+  ): AccountDirectoryApiClient
   sessionManager: ReturnType<typeof createDesktopSessionManager>
   temporaryVault: Readonly<{
     clear(): Promise<void>
@@ -51,13 +65,40 @@ export type DesktopRuntime = Readonly<{
 
 let runtime: DesktopRuntime | undefined
 
-function createClient(session?: DesktopSession, temporaryCredential?: string) {
-  return createApiClient({
+function desktopClientOptions(session?: DesktopSession, temporaryCredential?: string) {
+  return {
     // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
     baseUrl: '/api',
-    client: 'desktop',
+    client: 'desktop' as const,
     getDesktopSession: session
       ? () => ({ credential: session.credential, sessionId: session.sessionId })
+      : undefined,
+    getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
+  }
+}
+
+function createClient(session?: DesktopSession, temporaryCredential?: string) {
+  return createApiClient(desktopClientOptions(session, temporaryCredential))
+}
+
+function createAccountDirectoryClient(
+  session?: () => DesktopSession | undefined,
+  temporaryCredential?: string
+) {
+  return new AccountDirectoryApiClient({
+    // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
+    baseUrl: '/api',
+    client: 'desktop' as const,
+    // The credential is resolved per request, from the session at the moment
+    // of the call: the surface's captured instance stays correct across
+    // rotations and sign-out without ever being rebuilt.
+    getDesktopSession: session
+      ? () => {
+          const current = session()
+          return current
+            ? { credential: current.credential, sessionId: current.sessionId }
+            : undefined
+        }
       : undefined,
     getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
   })
@@ -97,6 +138,7 @@ function createDesktopRuntime(cloudOrigin: string): DesktopRuntime {
     authorizationUrl: (attempt: DesktopAuthorizationAttempt) =>
       createDesktopAuthorizationUrl(cloudOrigin, attempt),
     createClient,
+    createAccountDirectoryClient,
     sessionManager,
     temporaryVault,
     getUserVersion: () => invoke<string>('adea_app_version'),

@@ -6,6 +6,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./account-directory": {
+      "types": "./dist/account-directory.d.ts",
+      "development": "./src/account-directory.ts",
+      "import": "./dist/account-directory.js"
+    },
     "./model-connections": {
       "types": "./dist/model-connections.d.ts",
       "development": "./src/model-connections.ts",

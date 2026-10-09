@@ -241,7 +241,9 @@ function inboxEntry(row: InboxRow): AccountConversationInboxEntry {
  * carried on every row, instead); re-ranking by message activity belongs
  * with the inbox UI slice and its own reviewed index migration.
  * `includeArchived` lists archived conversations where their history
- * remains reachable; live ones only by default.
+ * remains reachable; live ones only by default, and `q` narrows by title
+ * inside the authorization — the inbox's authoritative search, answered by
+ * the database rather than by whatever pages a client happens to hold.
  */
 export async function accountConversationInbox(
   database: Database,
@@ -251,6 +253,14 @@ export async function accountConversationInbox(
   const limit = accountDirectoryPageLimit(options.limit)
   const after = options.after ? decodeAccountInboxCursor(options.after) : null
   const lifecycle = options.includeArchived ? sql`true` : sql`channel.lifecycle_state = 'active'`
+  // The search predicate sits INSIDE the authorization statement: it filters
+  // rows the caller may see, so a hidden project's or private conversation's
+  // title never matches, and it is constant for the whole walk — the keyset
+  // cursor stays valid because every page applies the same filter to the same
+  // total order over stable ids.
+  const search = options.q
+    ? sql`and position(lower(${options.q}) in lower(channel.title)) > 0`
+    : sql``
   const cursor = after
     ? sql`and (channel.updated_at, channel.id) < (${after.updatedAt}::timestamptz, ${after.id}::uuid)`
     : sql``
@@ -258,6 +268,7 @@ export async function accountConversationInbox(
     select ${inboxSelection}
     ${inboxAuthorization(principal.userId)}
     and ${lifecycle}
+    ${search}
     ${cursor}
     order by channel.updated_at desc, channel.id desc
     limit ${limit + 1}
