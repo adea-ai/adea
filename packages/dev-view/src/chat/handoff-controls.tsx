@@ -38,6 +38,7 @@ const CONTROL_LABELS: Record<HandoffControlKind, string> = {
   job_cancel: 'Job cancel',
   descendant_cancel: 'Descendant cancel',
   return_to_user: 'Return to user',
+  handoff_to_lead: 'Handoff to lead',
 }
 
 const CONTROL_ACTIONS: Record<HandoffControlKind, string> = {
@@ -45,15 +46,18 @@ const CONTROL_ACTIONS: Record<HandoffControlKind, string> = {
   job_cancel: 'Cancel job',
   descendant_cancel: 'Cancel descendants',
   return_to_user: 'Return to user',
+  handoff_to_lead: 'Hand off to lead',
 }
 
 const BUSY_LABELS: Record<HandoffActionKind, string> = {
   lead_stop: 'Stopping…',
   return_to_user: 'Returning…',
+  handoff_to_lead: 'Handing off…',
 }
 
 const ROW_KINDS: readonly HandoffControlKind[] = [
   'lead_stop',
+  'handoff_to_lead',
   'job_cancel',
   'descendant_cancel',
   'return_to_user',
@@ -64,6 +68,7 @@ export type DirectSessionHandoffControlsProps = Readonly<{
   onLeadStop?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
   onReturnToUser?: () => void | Promise<void>
+  onHandoffToLead?: () => void | Promise<void>
   /** The in-flight coordination action, if any; lead and return rows pause while set. */
   busyAction?: HandoffActionKind
   /** The failed action's message, if any; the rows re-enable for an explicit retry. */
@@ -120,7 +125,8 @@ export function DirectSessionHandoffControls(
   const baseId = createUniqueId()
   const noticeId = handoffControlReasonId(baseId, 'notice')
   const busyRow = (kind: HandoffControlKind): boolean =>
-    (kind === 'lead_stop' || kind === 'return_to_user') && props.busyAction !== undefined
+    (kind === 'lead_stop' || kind === 'return_to_user' || kind === 'handoff_to_lead') &&
+    props.busyAction !== undefined
   const busyLabel = (kind: HandoffControlKind): string | undefined =>
     kind === props.busyAction ? BUSY_LABELS[kind] : undefined
   const handlerFor = (kind: HandoffControlKind): (() => void | Promise<void>) | undefined =>
@@ -128,7 +134,9 @@ export function DirectSessionHandoffControls(
       ? props.onLeadStop
       : kind === 'return_to_user'
         ? props.onReturnToUser
-        : undefined
+        : kind === 'handoff_to_lead'
+          ? props.onHandoffToLead
+          : undefined
   return (
     <section aria-label="Direct session handoff" class="dev-handoff">
       <div class="dev-handoff__header">

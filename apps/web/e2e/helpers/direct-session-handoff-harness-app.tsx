@@ -60,6 +60,7 @@ function Harness() {
   const [connected, setConnected] = createSignal(true)
   const [transferCalls, setTransferCalls] = createSignal(0)
   const [cancelCalls, setCancelCalls] = createSignal(0)
+  const [lastDirection, setLastDirection] = createSignal('')
   let pendingTransfer: PendingTransfer | undefined
 
   const active = createMemo(() => sessions()[activeId()]!)
@@ -88,7 +89,7 @@ function Harness() {
     ) => {
       setTransferCalls((count) => count + 1)
       const base = sessions()[runtimeSessionId]!
-      void direction
+      setLastDirection(`${direction.fromView}→${direction.toView}`)
       return new Promise<ChatConversation>((resolve, reject) => {
         pendingTransfer = { resolve, reject, base }
       })
@@ -156,6 +157,7 @@ function Harness() {
         </Button>
         <output aria-label="Transfer calls">{transferCalls()}</output>
         <output aria-label="Cancel calls">{cancelCalls()}</output>
+        <output aria-label="Last transfer direction">{lastDirection()}</output>
         <output aria-label="Active draft">{active().draft}</output>
         <output aria-label="Active generation">{active().generation}</output>
       </div>

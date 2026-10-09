@@ -1,14 +1,15 @@
 // Direct-session handoff mounted interactions (#1177).
 //
-// Mounted Playwright proof for the paths unit tests cannot reach: the
-// production return transition is reachable and confirmed through the real
-// ChatView supplier, busy/single-flight/error behavior is reactive in the
-// live surface, late completions cannot leak across sessions, and the
+// Mounted Playwright proof for the joined journey the unit tests cannot
+// reach: a direct-user session attaches read-only, an explicit handoff
+// transfer establishes coordination, a return transfer completes it, and
+// late or superseded completions can never overwrite canonical ownership.
+// Busy/single-flight/error behavior is reactive in the live surface, and the
 // controls meet keyboard/focus/zoom/reduced-motion acceptance in a real
 // browser. The harness serves a scripted ChatView (pending transfer/cancel
-// intents resolve from fixture buttons); no backend, database, or shared
-// service is touched. The vite server binds an ephemeral loopback port and
-// closes after the file.
+// intents resolve from fixture buttons, with exact directions recorded); no
+// backend, database, or shared service is touched. The vite server binds an
+// ephemeral loopback port and closes after the file.
 import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
@@ -69,25 +70,48 @@ function expectNoErrors(errors: readonly string[]): void {
   expect(errors).toEqual([])
 }
 
-test('production return is reachable and confirms the transfer receipt', async ({ page }) => {
+function section(page: Page) {
+  return page.getByRole('region', { name: 'Direct session handoff' })
+}
+
+test('a direct session attaches read-only: nothing is invented from the bound run', async ({
+  page,
+}) => {
   const errors = await openHarness(page)
-  const section = page.getByRole('region', { name: 'Direct session handoff' })
-  await expect(section.getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  // The bound run proves execution, not a handoff: coordination controls
+  // stay blocked while the explicit handoff is offered.
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  expectNoErrors(errors)
+})
 
-  const returnToUser = page.getByRole('button', { name: 'Return to user', exact: true })
-  await expect(returnToUser).toBeEnabled()
-  await returnToUser.click()
+test('explicit handoff then return complete the joined journey with one receipt each', async ({
+  page,
+}) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
 
-  // Single-flight busy state is reactive: the acting row relabels while the
-  // sibling coordination row pauses.
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('gen 4', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Transfer calls')).toHaveText('1')
+  await expect(page.getByLabel('Last transfer direction')).toHaveText('chat→dev')
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
+
+  await page.getByRole('button', { name: 'Return to user', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Returning…', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
-
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
-  await expect(section.getByText('Returned to user', { exact: true })).toBeVisible()
-  await expect(section.getByText('gen 4', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Transfer calls')).toHaveText('1')
-  // The confirmed receipt preserves the unsent draft through the live surface.
+
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('gen 5', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Transfer calls')).toHaveText('2')
+  await expect(page.getByLabel('Last transfer direction')).toHaveText('dev→chat')
+  // The confirmed receipts preserve the unsent draft through the live surface.
   await expect(page.getByLabel('Active draft')).toHaveText('unsent coordination note')
   expectNoErrors(errors)
 })
@@ -96,29 +120,28 @@ test('concurrent starts admit once: double activation never duplicates the trans
   page,
 }) => {
   const errors = await openHarness(page)
-  const returnToUser = page.getByRole('button', { name: 'Return to user', exact: true })
-  await returnToUser.click()
-  await expect(page.getByRole('button', { name: 'Returning…', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
 
   // Disabled rows swallow activation: force-clicking the busy row and the
   // paused sibling dispatches nothing.
-  await page.getByRole('button', { name: 'Returning…', exact: true }).click({ force: true })
-  await page.getByRole('button', { name: 'Stop lead', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: 'Handing off…', exact: true }).click({ force: true })
+  await page.getByRole('button', { name: 'Return to user', exact: true }).click({ force: true })
   await expect(page.getByLabel('Transfer calls')).toHaveText('1')
   await expect(page.getByLabel('Cancel calls')).toHaveText('0')
 
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Transfer calls')).toHaveText('1')
-  await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Returned to user', {
-      exact: true,
-    })
-  ).toBeVisible()
   expectNoErrors(errors)
 })
 
-test('a stale rejection surfaces conflict truthfully and retry succeeds', async ({ page }) => {
+test('a stale rejection surfaces conflict truthfully and resolve-then-retry succeeds', async ({
+  page,
+}) => {
   const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
   await page.getByRole('button', { name: 'Return to user', exact: true }).click()
   await page.getByRole('button', { name: 'Reject pending transfer stale' }).click()
 
@@ -126,45 +149,60 @@ test('a stale rejection surfaces conflict truthfully and retry succeeds', async 
   await expect(page.getByRole('alert').getByText(/Another coordinator holds control/)).toBeVisible()
   // The conflict parks at this generation: retry stays blocked until the
   // concurrent commit is observed.
-  await expect(page.getByLabel('Transfer calls')).toHaveText('1')
+  await expect(page.getByLabel('Transfer calls')).toHaveText('2')
   await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
-
+  // The concurrent commit superseded our handoff receipt too: coordination
+  // restarts from an explicit handoff, never from a stale assumption.
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Return to user', exact: true }).click()
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
-  await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Returned to user', {
-      exact: true,
-    })
-  ).toBeVisible()
-  await expect(page.getByLabel('Transfer calls')).toHaveText('2')
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Transfer calls')).toHaveText('4')
   expectNoErrors(errors)
 })
 
-test('a late completion cannot mark the newly selected session returned', async ({ page }) => {
+test('newer canonical ownership is never overwritten by a stale local receipt', async ({
+  page,
+}) => {
   const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
   await page.getByRole('button', { name: 'Return to user', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+
+  // Ownership moves on underneath the receipt: the surface falls back to
+  // attachment with the newer-ownership notice instead of clinging to it.
+  await page.getByRole('button', { name: 'Observe concurrent generation' }).click()
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await expect(
+    section(page).getByText(/Coordination changed since the confirmed transfer/)
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
+  expectNoErrors(errors)
+})
+
+test('a late completion cannot mark the newly selected session coordinated', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
   await page.getByRole('button', { name: 'Show session 2' }).click()
 
-  const second = page.getByRole('region', { name: 'Direct session handoff' })
-  await expect(second.getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
 
-  // The superseded receipt commits nothing: no returned label, no alert, no
-  // transfer presented on the new session.
-  await expect(second.getByText('Returned to user', { exact: true })).toHaveCount(0)
+  // The superseded receipt commits nothing: no coordinating label, no alert.
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByLabel('Transfer calls')).toHaveText('1')
 
-  // The first session is untouched too: its completion was dropped, not applied.
+  // The first session is untouched too: its late completion was dropped.
   await page.getByRole('button', { name: 'Show session 1' }).click()
-  await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Coordination handoff', {
-      exact: true,
-    })
-  ).toBeVisible()
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -183,22 +221,18 @@ test('keyboard reachability, visible focus, and keyboard activation', async ({ p
         focusVisible: active instanceof HTMLElement && active.matches(':focus-visible'),
       }
     })
-    if (stop?.name === 'Return to user') {
+    if (stop?.name === 'Hand off to lead') {
       focusedName = stop.name
       expect(stop.focusVisible).toBe(true)
       break
     }
   }
-  expect(focusedName).toBe('Return to user')
+  expect(focusedName).toBe('Hand off to lead')
 
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('button', { name: 'Returning…', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
-  await expect(
-    page.getByRole('region', { name: 'Direct session handoff' }).getByText('Returned to user', {
-      exact: true,
-    })
-  ).toBeVisible()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -215,11 +249,14 @@ test('assistive-technology tree: names, disabled states, and reason linkage', as
   }
 
   await page.getByRole('button', { name: 'Go offline' }).click()
-  const section = page.getByRole('region', { name: 'Direct session handoff' })
-  await expect(section.getByRole('alert').getByText(/Runtime offline/)).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeDisabled()
+  await expect(
+    section(page)
+      .getByRole('alert')
+      .getByText(/Runtime offline/)
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Go online' }).click()
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
   expectNoErrors(errors)
 })
 
@@ -233,7 +270,7 @@ test('narrow viewport and 200% text keep every control reachable', async ({ page
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth
   )
   expect(overflow).toBeLessThanOrEqual(1)
-  await expect(page.getByRole('button', { name: 'Return to user', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeVisible()
   expectNoErrors(errors)
 })
@@ -243,8 +280,8 @@ test.describe('reduced motion', () => {
 
   test('no motion animation and full operability', async ({ page }) => {
     const errors = await openHarness(page)
-    const section = page.getByRole('region', { name: 'Direct session handoff' })
-    const motion = await section.evaluate((element) => {
+    const handoff = section(page)
+    const motion = await handoff.evaluate((element) => {
       const computed = getComputedStyle(element)
       return {
         transitionDuration: computed.transitionDuration,
@@ -252,9 +289,9 @@ test.describe('reduced motion', () => {
       }
     })
     expect(motion).toEqual({ transitionDuration: '0s', animationName: 'none' })
-    await page.getByRole('button', { name: 'Return to user', exact: true }).click()
+    await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
     await page.getByRole('button', { name: 'Resolve pending transfer' }).click()
-    await expect(section.getByText('Returned to user', { exact: true })).toBeVisible()
+    await expect(handoff.getByText('Coordination handoff', { exact: true })).toBeVisible()
     expectNoErrors(errors)
   })
 })
