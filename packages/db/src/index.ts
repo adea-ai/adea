@@ -37,6 +37,20 @@ export {
   readArtifactReferenceEvidence,
 } from './artifact-reference-policy'
 export {
+  readCurrentArtifactReferenceGrant,
+  registerArtifactReferenceGrant,
+  regrantArtifactReferenceGrant,
+  revokeArtifactReferenceGrant,
+  withArtifactReferenceGrantLocks,
+  ArtifactReferenceGrantError,
+  artifactReferenceGrantRejectionCodes,
+  type ArtifactReferenceGrantLockScope,
+  type ArtifactReferenceGrantPresentation,
+  type ArtifactReferenceGrantRejectionCode,
+  type ArtifactReferenceGrantRegistrationInput,
+  type ArtifactReferenceGrantRegistrationResult,
+} from './artifact-reference-grants'
+export {
   createDatabase,
   type AgentHqDatabase,
   type AgentHqTransaction,
