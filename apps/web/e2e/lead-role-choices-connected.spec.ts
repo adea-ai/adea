@@ -222,6 +222,15 @@ test('mounted lead choice is disclosed before inference and matches the real adm
 
   await page.getByRole('button', { name: 'Confirm this model and payer', exact: true }).click()
   await page.getByRole('button', { name: 'Start lead turn', exact: true }).click()
+  const dispatchAfterClientDeadline = new Promise((complete) => {
+    const timer = setTimeout(() => {
+      void connected.snapshot(intentId!).then(
+        (snapshot) => complete(snapshot),
+        () => complete(null)
+      )
+    }, 5_500)
+    timer.unref?.()
+  })
   try {
     await expect(page.getByLabel('Conversation timeline')).toContainText(
       'Actual production factory answer\\n',
@@ -230,6 +239,7 @@ test('mounted lead choice is disclosed before inference and matches the real adm
   } catch {
     const runtimeEvidence = await connected.evidence()
     const dispatchSnapshot = await connected.snapshot(intentId!)
+    const deadlineSnapshot = await dispatchAfterClientDeadline
     throw new Error(
       `CONNECTED_TIMELINE_NOT_PUBLISHED:${JSON.stringify({
         physicalSends: runtimeEvidence.physicalSends,
@@ -238,8 +248,12 @@ test('mounted lead choice is disclosed before inference and matches the real adm
         productReads: runtimeEvidence.productReads ?? null,
         canonical: runtimeEvidence.canonical,
         dispatchState: dispatchSnapshot.dispatchProjection?.state ?? null,
+        dispatchProjection: dispatchSnapshot.dispatchProjection,
+        dispatchAfterClientDeadline: deadlineSnapshot,
         hasPublishedMessage: Boolean(dispatchSnapshot.dispatchProjection?.publishedMessageId),
         drainFailure: dispatchSnapshot.drainFailure,
+        drainDiagnostics: dispatchSnapshot.drainDiagnostics,
+        productOperationDiagnostics: dispatchSnapshot.productOperationDiagnostics,
         readerRequests: dispatchSnapshot.readerRequests,
         runtimeReadCounts: dispatchSnapshot.runtimeReadCounts,
         publicationGate: dispatchSnapshot.publicationGate,

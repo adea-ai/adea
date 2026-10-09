@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { afterEach, expect, test } from 'bun:test'
 import { startConnectedFixtureChild } from './lead-role-choices-connected-client.mjs'
+import { safeTransportFailureDiagnostic } from './lead-role-choices-connected-process.mjs'
 
 const children = new Set()
 
@@ -67,6 +68,43 @@ function spawnOwned(child, beforeReturn = () => {}) {
 afterEach(() => {
   for (const child of children) child.finish(-1, 'SIGKILL')
   children.clear()
+})
+
+test('transport failure diagnostics retain timeout classes and codes without error text', () => {
+  const cause = Object.assign(new Error('credential-canary-cause'), { code: 'SECRET_TOKEN' })
+  const error = Object.assign(new Error('provider-prompt-canary'), {
+    code: 'ETIMEDOUT',
+    cause,
+  })
+  const timeoutReason = new DOMException('private timeout detail', 'TimeoutError')
+  const signal = AbortSignal.abort(timeoutReason)
+  const diagnostic = safeTransportFailureDiagnostic(error, signal, 5_012.4)
+
+  expect(diagnostic).toEqual({
+    elapsedMs: 5012,
+    errorClass: 'Error',
+    signalAborted: true,
+    errorCode: 'ETIMEDOUT',
+    signalReasonClass: 'TimeoutError',
+    causeClass: 'Error',
+  })
+  expect(JSON.stringify(diagnostic)).not.toContain('credential-canary')
+  expect(JSON.stringify(diagnostic)).not.toContain('provider-prompt-canary')
+  expect(JSON.stringify(diagnostic)).not.toContain('SECRET_TOKEN')
+})
+
+test('transport failure diagnostics bound elapsed time and unknown error identity', () => {
+  const error = Object.assign(new Error('secret diagnostic string'), {
+    code: 'secret-value',
+  })
+  const diagnostic = safeTransportFailureDiagnostic(error, undefined, 999_999)
+
+  expect(diagnostic).toEqual({
+    elapsedMs: 180_000,
+    errorClass: 'Error',
+    signalAborted: false,
+  })
+  expect(JSON.stringify(diagnostic)).not.toContain('secret')
 })
 
 test('missing executable spawn error is sanitized and reaped before startup rejects', async () => {
