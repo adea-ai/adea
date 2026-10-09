@@ -991,4 +991,79 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
     }
     expect(await storedRows(input.grantId)).toHaveLength(1)
   })
+
+  /** An in-flight revocation or archive, emulated at row-lock level. */
+  function holdRowFor(
+    table: typeof workspaceMemberships | typeof workspaces,
+    column: typeof workspaceMemberships.userId | typeof workspaces.id,
+    value: string,
+    milliseconds: number
+  ) {
+    return connection.db.transaction(async (transaction) => {
+      await transaction
+        .select({ locked: column })
+        .from(table)
+        .where(eq(column, value))
+        .for('update')
+      await new Promise((resolve) => setTimeout(resolve, milliseconds))
+    })
+  }
+
+  test('membership removal cannot interleave with registration: the issuer row is share-locked', async () => {
+    const { audience, source } = await fixture('race-membership')
+    const admin = await temporaryUser('race-membership-admin')
+    await addWorkspaceMembership(connection.db, source.id, admin, 'admin')
+    const created = await createAvailableArtifact(source.id, admin)
+    const input = inputFor(source, audience, created.id)
+
+    // An in-flight removal holds the issuer's membership row exclusively —
+    // exactly the state a concurrent removeWorkspaceMembership creates
+    // between its delete and its commit.
+    const holder = holdRowFor(workspaceMemberships, workspaceMemberships.userId, admin.userId, 400)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const registration = registerArtifactReferenceGrant(connection.db, source.id, admin, input)
+    // While the removal is unresolved, the registration cannot have passed
+    // its authority check, so nothing may be written. Without the share lock
+    // this read saw the grant row already committed here.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await storedRows(input.grantId)).toHaveLength(0)
+
+    await holder
+    const registered = await registration
+    expect(registered.outcome).toBe('registered')
+    expect(await storedRows(input.grantId)).toHaveLength(1)
+  })
+
+  test('a membership removal that committed first refuses the registration', async () => {
+    const { audience, source } = await fixture('race-revoked-first')
+    const admin = await temporaryUser('race-revoked-first-admin')
+    await addWorkspaceMembership(connection.db, source.id, admin, 'admin')
+    const created = await createAvailableArtifact(source.id, admin)
+    const input = inputFor(source, audience, created.id)
+
+    expect(await removeWorkspaceMembership(connection.db, source.id, admin)).toBe(true)
+    expect(registerArtifactReferenceGrant(connection.db, source.id, admin, input)).rejects.toThrow(
+      'Artifact reference grant issuer unauthorized'
+    )
+    expect(await storedRows(input.grantId)).toHaveLength(0)
+  })
+
+  test('archiving the source workspace cannot interleave with registration: the workspace row is share-locked', async () => {
+    const { audience, owner, source } = await fixture('race-archive')
+    const created = await createAvailableArtifact(source.id, owner)
+    const input = inputFor(source, audience, created.id)
+
+    const holder = holdRowFor(workspaces, workspaces.id, source.id, 400)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const registration = registerArtifactReferenceGrant(connection.db, source.id, owner, input)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(await storedRows(input.grantId)).toHaveLength(0)
+
+    await holder
+    const registered = await registration
+    expect(registered.outcome).toBe('registered')
+    expect(await storedRows(input.grantId)).toHaveLength(1)
+  })
 })
