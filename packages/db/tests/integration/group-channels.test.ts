@@ -1420,23 +1420,17 @@ describe('durable binding, fences and shared read boundary', () => {
   })
 
   test('lead expiry at the post-write check denies with zero side effects', async () => {
-    // On group channels the nested lead write can never succeed (#1179
-    // authority requires direct_agent), so the fence's gate+final denials
-    // are the live guards and the nested authority owns the rest: with a
-    // clock lapsing only at the post-write instant, the gate and final
-    // checks (valid, valid) pass and the nested authority refuses — with
-    // zero rows written. The shared post-write rollback mechanism itself is
-    // proven by the direct-mode test, where the nested write can succeed.
-    // On group channels the nested lead write can never succeed (#1179
-    // authority requires direct_agent), so this pins precedence: a clock
-    // lapsing only at the post-write instant still denies at the fence with
-    // nothing written — the same shared post-write path the direct rollback
-    // test proves. Control below pins the selections field flows this far.
+    // The nested lead write really runs, then the post-write check on fresh
+    // trusted time denies and the whole fence rolls back: message, intent
+    // and event leave zero rows. Lead posts require runtime.invoke, so the
+    // owner (founder) posts, not the member.
     const f = await isolatedFixture()
     try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
       const channelId = crypto.randomUUID()
+      const expiring = '2026-10-08T12:30:00.000Z'
       const founder = {
-        expiresAt: null,
+        expiresAt: expiring,
         grantId: 'gra_owner',
         groupId: channelId,
         issuedAt: ISSUED,
@@ -1444,44 +1438,43 @@ describe('durable binding, fences and shared read boundary', () => {
         revision: 1,
         revokedAt: null,
       }
-      const expiring = '2026-10-08T12:30:00.000Z'
-      const grant = {
-        expiresAt: expiring,
-        grantId: 'gra_member',
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
         groupId: channelId,
         issuedAt: ISSUED,
-        participant: f.member,
         revision: 1,
         revokedAt: null,
       }
       await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
         candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
-          audienceGrants: [founder, grant],
-          enlistmentGrants: [],
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
         }),
         channelId,
         idempotencyKey: crypto.randomUUID(),
         now: NOW,
         title: 'Group',
       })
+      // Gate and final read trusted instants while the grant lives; the
+      // post-write read lands after it lapses.
       const readings = [NOW, NOW, LATER]
       const clock = () => readings.shift() ?? LATER
-      // Gate and final pass on trusted time; the nested #1179 authority
-      // then refuses groups before writing anything.
       await expect(
         postGroupChannelMessage(
           f.local.db,
           f.workspace.id,
           channelId,
-          f.member,
-          f.member,
+          f.owner,
+          f.owner,
           {
             lead: { bodyText: 'must not land', idempotencyKey: crypto.randomUUID(), mentions: [] },
             mode: 'lead',
           },
           { clock }
         )
-      ).rejects.toThrow('Lead turn unavailable')
+      ).rejects.toThrow('Channel unavailable')
       const [messages, intents] = await Promise.all([
         f.local.db
           .select()
@@ -1504,16 +1497,13 @@ describe('durable binding, fences and shared read boundary', () => {
     }
   })
 
-  test('requestedModelSelections flow through the group lead path verbatim', async () => {
-    // The group lead branch must preserve the SAME explicit lead/child
-    // choices as the non-group lead path: parsed strictly at the route,
-    // forwarded verbatim by the fence. On groups the nested #1179 authority
-    // refuses before writing, so reaching its refusal — rather than any
-    // validation or gate denial — proves the field flowed through every
-    // layer unmodified. (Dropping the field from the fence input type is a
-    // compile error wherever the route passes it.)
+  test('a successful authorized group lead post retains explicit lead and child selections', async () => {
+    // The group lead branch preserves the SAME explicit lead/child choices
+    // as the non-group lead path: parsed strictly at the route, forwarded
+    // verbatim by the fence, retained on the canonical intent row.
     const f = await isolatedFixture()
     try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
       const channelId = crypto.randomUUID()
       const founder = {
         expiresAt: null,
@@ -1524,19 +1514,19 @@ describe('durable binding, fences and shared read boundary', () => {
         revision: 1,
         revokedAt: null,
       }
-      const grant = {
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
         expiresAt: null,
-        grantId: 'gra_member',
+        grantId: 'gra_lead',
         groupId: channelId,
         issuedAt: ISSUED,
-        participant: f.member,
         revision: 1,
         revokedAt: null,
       }
       await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
         candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
-          audienceGrants: [founder, grant],
-          enlistmentGrants: [],
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
         }),
         channelId,
         idempotencyKey: crypto.randomUUID(),
@@ -1547,30 +1537,43 @@ describe('durable binding, fences and shared read boundary', () => {
         child: { selectionRef: `msel_${'c'.repeat(32)}`, selectionRevision: 3 },
         lead: { selectionRef: `msel_${'d'.repeat(32)}`, selectionRevision: 2 },
       }
-      await expect(
-        postGroupChannelMessage(
-          f.local.db,
-          f.workspace.id,
-          channelId,
-          f.member,
-          f.member,
-          {
-            lead: {
-              bodyText: 'choices ride along',
-              idempotencyKey: crypto.randomUUID(),
-              mentions: [],
-              requestedModelSelections: selections,
-            },
-            mode: 'lead',
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: {
+            bodyText: 'choices ride along',
+            idempotencyKey: crypto.randomUUID(),
+            mentions: [],
+            requestedModelSelections: selections,
           },
-          { now: NOW }
-        )
-      ).rejects.toThrow('Lead turn unavailable')
-      const intents = await f.local.db
-        .select()
-        .from(schema.leadTurnIntents)
-        .where(eq(schema.leadTurnIntents.channelId, channelId))
-      expect(intents).toHaveLength(0)
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      expect(posted.message.sequence).toBeGreaterThanOrEqual(1)
+      const [intents, messages] = await Promise.all([
+        f.local.db
+          .select()
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.channelId, channelId)),
+        f.local.db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, channelId)
+            )
+          ),
+      ])
+      expect(intents).toHaveLength(1)
+      expect(intents[0]?.agentId).toBe(lead.id)
+      expect(intents[0]?.requestedModelSelections).toEqual(selections)
+      expect(messages.map((message) => message.id)).toContain(posted.message.id)
     } finally {
       await f.local.close()
     }

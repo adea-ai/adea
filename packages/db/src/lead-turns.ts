@@ -9,6 +9,7 @@ import {
   type RequestedRoleModelSelections,
 } from './lead-model-selections'
 import { createMessage } from './conversations'
+import { resolveGroupLeadAgentId } from './group-participation-store'
 import {
   agents,
   channelParticipants,
@@ -88,14 +89,23 @@ async function lockAuthority(
       )
     )
     .for('update')
-  if (!channel || channel.kind !== 'direct_agent' || !channel.agentId || channel.taskId)
-    throw new Error('Lead turn unavailable')
+  if (!channel || channel.taskId) throw new Error('Lead turn unavailable')
+  // Group admission (targetless): the group's single enlisted workspace
+  // lead, resolved under validated group authority with a live window. A
+  // direct channel keeps its bound agent; neither path weakens the other,
+  // and no handoff target is read or required here.
+  const groupLeadAgentId =
+    channel.kind === 'group' && !channel.agentId
+      ? await resolveGroupLeadAgentId(tx, workspaceId, channelId, new Date().toISOString())
+      : null
+  const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
+  if (!leadAgentId) throw new Error('Lead turn unavailable')
   const [agent] = await tx
     .select()
     .from(agents)
     .where(
       and(
-        eq(agents.id, channel.agentId),
+        eq(agents.id, leadAgentId),
         eq(agents.workspaceId, workspaceId),
         eq(agents.isWorkspaceLead, true),
         eq(agents.lifecycleState, 'active'),

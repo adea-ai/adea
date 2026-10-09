@@ -71,7 +71,6 @@ import {
   decideGroupPublication,
   decideGroupSummaryRead,
   decideGroupTurn,
-  evaluateGroupGrantWindow,
   validateGroupCreation,
 } from './group-participation-policy'
 import {
@@ -79,6 +78,7 @@ import {
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
+  resolveGroupLeadAgentId,
 } from './group-participation-store'
 export {
   ABSENT_GRANT_WINDOW,
@@ -185,28 +185,7 @@ export async function resolveGroupLeadAgent(
   channelId: string,
   now: string
 ): Promise<string | null> {
-  const roster = await loadGroupRoster(database, workspaceId, channelId)
-  const enlisted = roster.filter((admission) => admission.participant.kind === 'agent')
-  const eligible: string[] = []
-  for (const admission of enlisted) {
-    if (admission.participant.kind !== 'agent') continue
-    if (evaluateGroupGrantWindow(admission.grant, now) !== 'effective') continue
-    const [agent] = await database
-      .select({ id: agents.id })
-      .from(agents)
-      .where(
-        and(
-          eq(agents.id, admission.participant.agentId),
-          eq(agents.workspaceId, workspaceId),
-          eq(agents.isWorkspaceLead, true),
-          eq(agents.lifecycleState, 'active'),
-          isNull(agents.projectId)
-        )
-      )
-      .limit(1)
-    if (agent) eligible.push(agent.id)
-  }
-  return eligible.length === 1 ? eligible[0]! : null
+  return resolveGroupLeadAgentId(database, workspaceId, channelId, now)
 }
 
 /**

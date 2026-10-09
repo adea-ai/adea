@@ -25,10 +25,12 @@ import type {
   GroupGrantWindow,
   GroupSharingGrant,
 } from '@adea-ai/types'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
+import { evaluateGroupGrantWindow } from './group-participation-policy'
 import {
+  agents,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
@@ -285,4 +287,39 @@ export async function loadGroupAdmission(
 ): Promise<GroupAdmission | null> {
   const roster = await loadGroupRoster(database, workspaceId, channelId, options)
   return roster.find((admission) => sameParticipant(admission.participant, participant)) ?? null
+}
+
+/**
+ * The group's lead agent for a lead turn: the exactly-one enlisted Agent that
+ * is the workspace lead (active, standalone) with an effective enlistment at
+ * `now`. Fail-closed null on zero, several, revoked, stale or non-lead
+ * enlistments. Read-only; the shared lead-turn writer consumes the id.
+ */
+export async function resolveGroupLeadAgentId(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  channelId: string,
+  now: string
+): Promise<string | null> {
+  const roster = await loadGroupRoster(database, workspaceId, channelId)
+  const eligible: string[] = []
+  for (const admission of roster) {
+    if (admission.participant.kind !== 'agent') continue
+    if (evaluateGroupGrantWindow(admission.grant, now) !== 'effective') continue
+    const [agent] = await database
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, admission.participant.agentId),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.isWorkspaceLead, true),
+          eq(agents.lifecycleState, 'active'),
+          isNull(agents.projectId)
+        )
+      )
+      .limit(1)
+    if (agent) eligible.push(agent.id)
+  }
+  return eligible.length === 1 ? eligible[0]! : null
 }
