@@ -15,7 +15,13 @@ import type {
   HandoffLeadAgent,
   HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
-import { createOrderedScope, resolveLeadHandoffSupply } from '../lib/lead-handoff-supply'
+import {
+  acquireHandoffRequestKey,
+  confirmHandoffRequestKey,
+  createOrderedScope,
+  requestLeadHandoff,
+  resolveLeadHandoffSupply,
+} from '../lib/lead-handoff-supply'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -279,17 +285,31 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   const [leadSupply, setLeadSupply] = createSignal<{
     turn?: HandoffLeadTurn
     agent?: HandoffLeadAgent
+    channelId?: string
   }>({})
   const leadScope = createOrderedScope()
   let lastLeadKey = ''
-  createEffect(() => {
+  const applyLeadResolution = (
+    resolution: Awaited<ReturnType<typeof resolveLeadHandoffSupply>>
+  ): void => {
+    if (resolution.status !== 'resolved') {
+      setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
+      return
+    }
+    setLeadSupply({
+      turn: resolution.leadTurn,
+      agent: resolution.leadAgent,
+      channelId: resolution.channelId,
+    })
+  }
+  const resolveLeadSupply = (force: boolean): void => {
     const activeConversation = conversation()
     if (!activeConversation) return
     const workspaceId = activeConversation.scope.workspaceId
     const sessionId = activeConversation.runtimeSessionId
     const taskId = activeConversation.taskId
     const key = `${workspaceId}${sessionId}${taskId ?? ''}`
-    if (key === lastLeadKey) return
+    if (!force && key === lastLeadKey) return
     lastLeadKey = key
     const request = lifecycle.current()
     const epoch = leadScope.begin()
@@ -298,13 +318,46 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
       if (!lifecycle.isCurrent(request)) return
       if (!leadScope.isCurrent(epoch)) return
       if (conversation()?.runtimeSessionId !== sessionId) return
-      if (resolution.status !== 'resolved') {
-        setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
-        return
-      }
-      setLeadSupply({ turn: resolution.leadTurn, agent: resolution.leadAgent })
+      applyLeadResolution(resolution)
     })
+  }
+  createEffect(() => {
+    resolveLeadSupply(false)
   })
+
+  // Explicit handoff request (#1177): adopt the observed turn when one is
+  // already live on the linked channel (no new intent, no duplicate), or
+  // admit a fresh turn through the canonical admission path when none is.
+  // The idempotency key stays stable per session until a confirmed
+  // admission so blind retries dedupe server-side instead of minting a
+  // second turn.
+  const requestWorkspaceHandoff = async (): Promise<void> => {
+    const supply = leadSupply()
+    const activeConversation = conversation()
+    const channelId = supply.channelId
+    if (!activeConversation || !channelId) throw new Error('Handoff request unavailable.')
+    const workspaceId = activeConversation.scope.workspaceId
+    const sessionId = activeConversation.runtimeSessionId
+    const request = lifecycle.current()
+    const epoch = leadScope.begin()
+    // No adopt path: the view enables this control only with no live or
+    // unresolvable turn observed, so reaching here always means a fresh
+    // admission request. A blocked or terminal turn still takes a new
+    // explicit request rather than silently adopting another intent.
+    const key = acquireHandoffRequestKey(sessionId)
+    const confirmation = await requestLeadHandoff(props.client, {
+      workspaceId,
+      channelId,
+      runtimeSessionId: sessionId,
+      idempotencyKey: key,
+    })
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
+    confirmHandoffRequestKey(sessionId)
+    void confirmation
+    resolveLeadSupply(true)
+  }
 
   const cancelWorkspaceLead = async (): Promise<void> => {
     const supply = leadSupply()
@@ -539,13 +592,17 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         // #1177 production handoff supply: the view derives from
                         // the live conversation plus canonical workspace-lead
                         // facts resolved above; session-stop and reconnect
-                        // stay model-backed, and lead cancellation runs the
-                        // canonical lead-turn cancel path.
+                        // stay model-backed, lead cancellation runs the
+                        // canonical lead-turn cancel path, and handoff
+                        // requests run the canonical admission path.
                         handoff={{
                           leadTurn: leadSupply().turn,
                           leadAgent: leadSupply().agent,
+                          leadChannelId: leadSupply().channelId,
                         }}
                         onLeadStop={leadSupply().turn ? cancelWorkspaceLead : undefined}
+                        onRequestHandoff={requestWorkspaceHandoff}
+                        onRefreshLead={() => resolveLeadSupply(true)}
                         readingPosition={props.modelHost.readingPosition(state().scope, active())}
                         onReadingPositionChange={(identity, position) => {
                           if (!lifecycle.isCurrent(request)) return

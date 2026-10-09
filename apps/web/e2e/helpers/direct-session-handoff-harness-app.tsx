@@ -21,6 +21,9 @@ import {
 } from '@adea-ai/dev-view/chat'
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 import {
+  acquireHandoffRequestKey,
+  buildHandoffRequestBody,
+  confirmHandoffRequestKey,
   createOrderedScope,
   resolveLeadHandoffSupply,
   type LeadHandoffPort,
@@ -120,7 +123,15 @@ function initialBackend(): FixtureBackend {
       'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note', TASK_ID),
       'session-2': conversation('session-2', 'run-2', 2, '', undefined),
     },
-    channels: [],
+    channels: [
+      {
+        id: LEAD_CHANNEL_ID,
+        kind: 'direct_agent',
+        agentId: LEAD_ID,
+        taskId: TASK_ID,
+        lifecycleState: 'active',
+      },
+    ],
     turns: {},
   }
 }
@@ -169,7 +180,18 @@ function Harness() {
   const [leadCancelCalls, setLeadCancelCalls] = createSignal(0)
   const [sessionCancelCalls, setSessionCancelCalls] = createSignal(0)
   const [cancelledRunIds, setCancelledRunIds] = createSignal<readonly string[]>([])
-  const [supply, setSupply] = createSignal<{ turn?: HandoffLeadTurn; agent?: HandoffLeadAgent }>({})
+  const [supply, setSupply] = createSignal<{
+    turn?: HandoffLeadTurn
+    agent?: HandoffLeadAgent
+    channelId?: string
+  }>({})
+  const [admissionPosts, setAdmissionPosts] = createSignal<
+    readonly { channelId: string; key: string; body: string }[]
+  >([])
+  const pendingAdmissions: Array<{
+    resolve: (confirmation: { intentId: string; messageId: string }) => void
+    reject: (error: Error) => void
+  }> = []
   const pendingLeadCancels: PendingLeadCancel[] = []
   const pendingSessionCancels: PendingSessionCancel[] = []
 
@@ -221,7 +243,35 @@ function Harness() {
       setSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
       return
     }
-    setSupply({ turn: resolution.leadTurn, agent: resolution.leadAgent })
+    setSupply({
+      turn: resolution.leadTurn,
+      agent: resolution.leadAgent,
+      channelId: resolution.channelId,
+    })
+  }
+
+  // Mirrors the production request path: stable per-session idempotency
+  // key across unknown-outcome retries, admission deferred for busy/error
+  // coverage, and the admitted turn recorded as blocked like a real
+  // admission receipt.
+  const requestHandoff = async (): Promise<void> => {
+    const current = supply()
+    const activeConversation = active()
+    const channelId = current.channelId
+    if (!channelId) throw new Error('Handoff request unavailable.')
+    const key = acquireHandoffRequestKey(activeConversation.runtimeSessionId)
+    setAdmissionPosts((posts) => [
+      ...posts,
+      {
+        channelId,
+        key,
+        body: buildHandoffRequestBody(activeConversation.runtimeSessionId),
+      },
+    ])
+    await new Promise<{ intentId: string; messageId: string }>((resolve, reject) => {
+      pendingAdmissions.push({ resolve, reject })
+    })
+    confirmHandoffRequestKey(activeConversation.runtimeSessionId)
   }
 
   onMount(() => {
@@ -395,6 +445,38 @@ function Harness() {
         <Button type="button" onClick={() => resolveLeadCancel()}>
           Resolve lead cancel
         </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            const pending = pendingAdmissions.shift()
+            if (!pending) return
+            // The admitted turn starts blocked, mirroring a real admission
+            // receipt; the surface re-resolves it into requested state.
+            const channelId = supply().channelId
+            if (channelId) {
+              updateBackend((previous) => ({
+                ...previous,
+                turns: {
+                  ...previous.turns,
+                  [channelId]: { intentId: 'intent-admitted', state: 'blocked' },
+                },
+              }))
+            }
+            pending.resolve({ intentId: 'intent-admitted', messageId: 'message-admitted' })
+          }}
+        >
+          Resolve admission
+        </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            const pending = pendingAdmissions.shift()
+            if (!pending) return
+            pending.reject(new Error('transport lost'))
+          }}
+        >
+          Reject admission
+        </Button>
         <Button type="button" onClick={() => resolveSessionCancel()}>
           Resolve session cancel
         </Button>
@@ -421,6 +503,27 @@ function Harness() {
         <Button type="button" onClick={() => void refreshSupply()}>
           Refresh lead resolution
         </Button>
+        <Button
+          type="button"
+          onClick={() =>
+            setBackend((previous) => {
+              const next = {
+                ...previous,
+                turns: {
+                  ...previous.turns,
+                  [LEAD_CHANNEL_ID]: {
+                    intentId: 'intent-admitted',
+                    state: 'running',
+                  },
+                },
+              }
+              persistBackend(next)
+              return next
+            })
+          }
+        >
+          Advance turn silently
+        </Button>
         <Button type="button" onClick={() => setDeferReads((value) => !value)}>
           {deferReads() ? 'Stop deferring reads' : 'Defer reads'}
         </Button>
@@ -438,6 +541,12 @@ function Harness() {
           Release reads LIFO
         </Button>
         <output aria-label="Lead cancel calls">{leadCancelCalls()}</output>
+        <output aria-label="Admission posts">{admissionPosts().length}</output>
+        <output aria-label="Admission keys">
+          {admissionPosts()
+            .map((post) => post.key)
+            .join(',')}
+        </output>
         <output aria-label="Session cancel calls">{sessionCancelCalls()}</output>
         <output aria-label="Cancelled run ids">{cancelledRunIds().join(',')}</output>
         <output aria-label="Active draft">{active().draft}</output>
@@ -449,8 +558,15 @@ function Harness() {
         model={model}
         autoAttach={false}
         connected={connected()}
-        handoff={{ harnessRuns: runs(), leadTurn: supply().turn, leadAgent: supply().agent }}
+        handoff={{
+          harnessRuns: runs(),
+          leadTurn: supply().turn,
+          leadAgent: supply().agent,
+          leadChannelId: supply().channelId,
+        }}
         onLeadStop={cancelLeadTurn}
+        onRequestHandoff={requestHandoff}
+        onRefreshLead={() => void refreshSupply()}
       />
     </main>
   )

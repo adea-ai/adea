@@ -30,11 +30,10 @@ export type HandoffControlKind =
   | 'lead_stop'
   | 'session_stop'
   | 'handoff_to_lead'
-  | 'return_to_user'
   | 'job_cancel'
   | 'descendant_cancel'
 
-export type HandoffActionKind = 'lead_stop' | 'session_stop'
+export type HandoffActionKind = 'lead_stop' | 'session_stop' | 'handoff_to_lead'
 
 export type HandoffControlState = Readonly<{
   available: boolean
@@ -189,6 +188,8 @@ export type DirectSessionHandoffInput = Readonly<{
   leadAgent?: HandoffLeadAgent
   /** A supplied turn failed the lead-agent binding check below. */
   leadMismatch: boolean
+  /** Exactly one linked lead channel observed; absent means unknown. */
+  leadChannelId?: string
   mode: DirectSessionHandoffMode
   connected: boolean
   generationCurrent: boolean
@@ -221,6 +222,8 @@ export type DirectSessionHandoffView = Readonly<{
   reconnectRequired: boolean
   draftPreserved: boolean
   awaitingApproval: boolean
+  /** A handoff was requested and its turn is still pending admission. */
+  awaitingTurn: boolean
 }>
 
 export const HANDOFF_MODE_LABELS: Readonly<
@@ -247,7 +250,6 @@ export const HANDOFF_MODE_LABELS: Readonly<
       'The lead turn ended and the user owns the session again. Unsent drafts are preserved.',
   },
 }
-
 const LEAD_INTEGRATION_GAP =
   'No lead-turn contract is connected in this surface: coordination is established through lead-turn admission, and stopping the lead goes through the canonical lead-turn cancel path (control-plane#933 family).'
 
@@ -398,18 +400,49 @@ export function deriveDirectSessionHandoff(
     return boundRunBlock() ?? { available: true }
   })()
 
-  // Session-side handoff and return have no authorized coordination path:
-  // coordination is established through lead-turn admission, and this
-  // surface neither mints lead turns nor writes coordination. Both rows
-  // fail closed with the gap instead of performing a view relabel.
-  const handoffToLead: HandoffControlState = blocked(
-    `Session-side handoff is unavailable. ${LEAD_INTEGRATION_GAP}`,
-    'Establish coordination through lead-turn admission for this session.'
-  )
-  const returnToUser: HandoffControlState = blocked(
-    `Session-side return is unavailable. ${LEAD_INTEGRATION_GAP}`,
-    'Release coordination through the lead turn that holds it.'
-  )
+  // Handing off requests lead coordination through the caller-supplied
+  // admission handler: available from attachment (or a returned session
+  // re-engaging) while exactly one linked channel is known and no turn is
+  // currently observed there. A live observed turn blocks a second
+  // admission; without a linked channel there is no target to ask.
+  // Returning happens by completing or cancelling the turn itself, so no
+  // separate return action exists: the returned mode is the distinction.
+  const handoffToLead = ((): HandoffControlState => {
+    if (input.mode === 'coordination_handoff')
+      return blocked(
+        'Coordination is already handed off.',
+        'Complete or cancel the turn to return the session.'
+      )
+    if (input.mode !== 'attached' && input.mode !== 'returned_to_user')
+      return blocked(
+        'Hand-off applies from an attached or returned session.',
+        'Resolve the session state before handing off.'
+      )
+    const guard = transportGuard(input, 'Hand-off to lead')
+    if (guard) return guard
+    if (input.leadChannelId === undefined)
+      return blocked(
+        'No lead channel references this session.',
+        'Ask the workspace lead for a task topic, or coordinate through lead-turn admission.'
+      )
+    // Exactly one outstanding coordination attempt per session: a live,
+    // prepared, or unresolvable turn blocks a second request. A stuck
+    // (blocked) turn may be explicitly re-requested, and a terminal turn
+    // in returned mode may re-engage. Combined with stable idempotency
+    // keys across retries and single-flight admission, this leaves no
+    // silent duplication path.
+    if (input.leadTurn !== undefined && !input.leadMismatch) {
+      if (
+        LIVE_LEAD_TURN_STATES.includes(input.leadTurn.state) ||
+        input.leadTurn.state === 'unknown'
+      )
+        return blocked(
+          'A lead turn is already outstanding on this task.',
+          'Coordinate through the observed turn instead of requesting another.'
+        )
+    }
+    return { available: true }
+  })()
 
   // Job and descendant cancellation require the absent CP J2/J4 contracts.
   // They stay unavailable with the exact missing contract named, even when a
@@ -451,7 +484,6 @@ export function deriveDirectSessionHandoff(
       lead_stop: leadStop,
       session_stop: sessionStop,
       handoff_to_lead: handoffToLead,
-      return_to_user: returnToUser,
       job_cancel: jobCancel,
       descendant_cancel: descendantCancel,
     },
@@ -459,6 +491,11 @@ export function deriveDirectSessionHandoff(
     reconnectRequired,
     draftPreserved,
     awaitingApproval: input.awaitingApproval,
+    awaitingTurn:
+      input.mode === 'attached' &&
+      input.leadTurn !== undefined &&
+      !input.leadMismatch &&
+      (input.leadTurn.state === 'blocked' || input.leadTurn.state === 'unknown'),
   }
 }
 
@@ -510,6 +547,8 @@ export type DirectSessionHandoffSupply = Readonly<{
   mode?: DirectSessionHandoffMode
   leadTurn?: HandoffLeadTurn
   leadAgent?: HandoffLeadAgent
+  /** Exactly one linked lead channel observed; absent means unknown. */
+  leadChannelId?: string
 }>
 
 /**
@@ -548,6 +587,7 @@ export function deriveHandoffInputFromConversation(
     mode?: DirectSessionHandoffMode
     leadTurn?: HandoffLeadTurn
     leadAgent?: HandoffLeadAgent
+    leadChannelId?: string
   }>
 ): DirectSessionHandoffInput {
   const generationCurrent = input.generationCurrent ?? true
@@ -600,6 +640,7 @@ export function deriveHandoffInputFromConversation(
     ...(boundTurn === undefined ? {} : { leadTurn: boundTurn }),
     ...(input.leadAgent === undefined ? {} : { leadAgent: input.leadAgent }),
     leadMismatch: !coordination.bound && input.leadTurn !== undefined,
+    ...(input.leadChannelId === undefined ? {} : { leadChannelId: input.leadChannelId }),
     mode,
     connected: input.connected,
     generationCurrent: staleView ? false : generationCurrent,
@@ -628,9 +669,7 @@ export function handoffControlReasonId(
             ? 'job'
             : kind === 'descendant_cancel'
               ? 'descendant'
-              : kind === 'return_to_user'
-                ? 'return'
-                : 'notice'
+              : 'notice'
   return `${baseId}-${suffix}-reason`
 }
 

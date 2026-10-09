@@ -36,7 +36,6 @@ const CONTROL_LABELS: Record<HandoffControlKind, string> = {
   lead_stop: 'Lead stop',
   session_stop: 'Session stop',
   handoff_to_lead: 'Handoff to lead',
-  return_to_user: 'Return to user',
   job_cancel: 'Job cancel',
   descendant_cancel: 'Descendant cancel',
 }
@@ -45,7 +44,6 @@ const CONTROL_ACTIONS: Record<HandoffControlKind, string> = {
   lead_stop: 'Stop lead',
   session_stop: 'Stop session run',
   handoff_to_lead: 'Hand off to lead',
-  return_to_user: 'Return to user',
   job_cancel: 'Cancel job',
   descendant_cancel: 'Cancel descendants',
 }
@@ -53,13 +51,13 @@ const CONTROL_ACTIONS: Record<HandoffControlKind, string> = {
 const BUSY_LABELS: Record<HandoffActionKind, string> = {
   lead_stop: 'Stopping lead…',
   session_stop: 'Stopping session run…',
+  handoff_to_lead: 'Handing off…',
 }
 
 const ROW_KINDS: readonly HandoffControlKind[] = [
   'lead_stop',
   'session_stop',
   'handoff_to_lead',
-  'return_to_user',
   'job_cancel',
   'descendant_cancel',
 ]
@@ -68,7 +66,9 @@ export type DirectSessionHandoffControlsProps = Readonly<{
   view: DirectSessionHandoffView
   onLeadStop?: () => void | Promise<void>
   onSessionStop?: () => void | Promise<void>
+  onRequestHandoff?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
+  onRefreshLead?: () => void | Promise<void>
   /** Row-specific reason when a control is available but unwired. */
   leadUnwiredReason?: string
   /** The in-flight coordination action, if any; executable rows pause while set. */
@@ -131,7 +131,8 @@ export function DirectSessionHandoffControls(
   const baseId = createUniqueId()
   const noticeId = handoffControlReasonId(baseId, 'notice')
   const busyRow = (kind: HandoffControlKind): boolean =>
-    (kind === 'lead_stop' || kind === 'session_stop') && props.busyAction !== undefined
+    (kind === 'lead_stop' || kind === 'session_stop' || kind === 'handoff_to_lead') &&
+    props.busyAction !== undefined
   const busyLabel = (kind: HandoffControlKind): string | undefined =>
     kind === props.busyAction ? BUSY_LABELS[kind] : undefined
   const handlerFor = (kind: HandoffControlKind): (() => void | Promise<void>) | undefined =>
@@ -139,7 +140,9 @@ export function DirectSessionHandoffControls(
       ? props.onLeadStop
       : kind === 'session_stop'
         ? props.onSessionStop
-        : undefined
+        : kind === 'handoff_to_lead'
+          ? props.onRequestHandoff
+          : undefined
   const unwiredFor = (kind: HandoffControlKind): string | undefined =>
     kind === 'lead_stop' ? props.leadUnwiredReason : undefined
   return (
@@ -177,6 +180,16 @@ export function DirectSessionHandoffControls(
           <Show when={props.view.reconnectRequired && props.onReconnect}>
             <Button type="button" variant="outline" size="sm" onClick={() => props.onReconnect?.()}>
               Reconnect transcript
+            </Button>
+          </Show>
+          <Show when={props.view.awaitingTurn && props.onRefreshLead}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => props.onRefreshLead?.()}
+            >
+              Check lead status
             </Button>
           </Show>
         </div>

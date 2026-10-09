@@ -332,8 +332,22 @@ describe('harness-run binding', () => {
   })
 })
 
-describe('unavailable session-side handoff and return', () => {
-  test('both rows fail closed with the integration gap in every mode', () => {
+describe('session-side handoff availability', () => {
+  test('handoff needs an attached or returned session with a linked channel', () => {
+    const noChannel = deriveDirectSessionHandoff(input({ mode: 'attached' }))
+    expect(noChannel.controls.handoff_to_lead.available).toBe(false)
+    expect(noChannel.controls.handoff_to_lead.reason).toMatch(/no lead channel/i)
+    const linked = deriveDirectSessionHandoff(
+      input({ mode: 'attached', leadChannelId: 'channel-1' })
+    )
+    expect(linked.controls.handoff_to_lead.available).toBe(true)
+    const handedOff = deriveDirectSessionHandoff(
+      input({ mode: 'coordination_handoff', leadChannelId: 'channel-1' })
+    )
+    expect(handedOff.controls.handoff_to_lead.available).toBe(false)
+  })
+
+  test('job and descendant rows fail closed with the integration gap in every mode', () => {
     for (const mode of [
       'attached',
       'one_time_review',
@@ -345,10 +359,10 @@ describe('unavailable session-side handoff and return', () => {
           ? input({ mode })
           : coordinated(mode === 'returned_to_user' ? { mode } : {})
       )
-      for (const kind of ['handoff_to_lead', 'return_to_user'] as const) {
+      for (const kind of ['job_cancel', 'descendant_cancel'] as const) {
         const control = view.controls[kind]
         expect(control.available).toBe(false)
-        expect(control.reason ?? '').toMatch(/lead-turn admission/i)
+        expect(control.reason ?? '').toMatch(/control-plane/i)
       }
     }
   })
@@ -387,7 +401,6 @@ describe('assistive-technology content contract', () => {
       'lead_stop',
       'session_stop',
       'handoff_to_lead',
-      'return_to_user',
       'job_cancel',
       'descendant_cancel',
     ]
@@ -425,7 +438,6 @@ describe('assistive-technology content contract', () => {
       'lead_stop',
       'session_stop',
       'handoff_to_lead',
-      'return_to_user',
       'job_cancel',
       'descendant_cancel',
     ]
@@ -433,7 +445,7 @@ describe('assistive-technology content contract', () => {
       ...kinds.map((kind) => handoffControlReasonId('handoff-1', kind)),
       handoffControlReasonId('handoff-1', 'notice'),
     ])
-    expect(ids.size).toBe(7)
+    expect(ids.size).toBe(6)
     for (const id of ids) expect(id.startsWith('handoff-1-')).toBe(true)
     expect(handoffControlReasonId('handoff-2', 'lead_stop')).not.toBe(
       handoffControlReasonId('handoff-1', 'lead_stop')

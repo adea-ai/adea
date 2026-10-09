@@ -4,7 +4,12 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { LeadHandoffPort, LeadHandoffResolution } from '../src/lib/lead-handoff-supply'
-import { createOrderedScope, resolveLeadHandoffSupply } from '../src/lib/lead-handoff-supply'
+import {
+  buildHandoffRequestBody,
+  createOrderedScope,
+  requestLeadHandoff,
+  resolveLeadHandoffSupply,
+} from '../src/lib/lead-handoff-supply'
 
 const LEAD = {
   id: '00000000-0000-4000-8000-0000000000b2',
@@ -123,13 +128,16 @@ describe('resolveLeadHandoffSupply', () => {
     expect(resolution.leadAgent?.id).toBe(LEAD.id)
   })
 
-  test('a channel without a turn resolves to no-turn', async () => {
+  test('a linked channel without a turn resolves with the channel for admission', async () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ getChannelLeadTurn: async () => ({ leadTurn: null }) as never }),
       'workspace-1',
       'task-1'
     )
-    expect(resolution).toMatchObject({ status: 'unresolved', reason: 'no-turn' })
+    expect(resolution.status).toBe('resolved')
+    if (resolution.status !== 'resolved') return
+    expect(resolution.channelId).toBe('00000000-0000-4000-8000-0000000000c3')
+    expect(resolution.leadTurn).toBeUndefined()
   })
 
   test('a transport failure at any step resolves to request-failed', async () => {
@@ -307,5 +315,59 @@ describe('composed with the handoff derivation', () => {
     )
     expect(view.mode).toBe('attached')
     expect(view.controls.lead_stop.available).toBe(false)
+  })
+})
+
+describe('requestLeadHandoff', () => {
+  test('posts the fixed admission body and returns the intent receipt', async () => {
+    const seen: Array<{ workspaceId: string; channelId: string; body: unknown }> = []
+    const fake = port({
+      createMessage: (async (workspaceId: string, channelId: string, input: never) => {
+        seen.push({ workspaceId, channelId, body: input })
+        return {
+          message: { id: 'message-1' },
+          leadTurn: { intentId: 'intent-1' },
+        }
+      }) as never,
+    })
+    const confirmation = await requestLeadHandoff(fake, {
+      workspaceId: 'workspace-1',
+      channelId: 'channel-1',
+      runtimeSessionId: 'session-1',
+      idempotencyKey: 'key-1',
+    })
+    expect(confirmation).toEqual({
+      intentId: 'intent-1',
+      messageId: 'message-1',
+      channelId: 'channel-1',
+    })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ workspaceId: 'workspace-1', channelId: 'channel-1' })
+    const body = seen[0]!.body as Record<string, unknown>
+    expect(body.leadTurn).toBe(true)
+    expect(typeof body.bodyText).toBe('string')
+    expect(body.bodyText as string).toContain('session-1')
+    // The key travels in the Idempotency-Key header (stripped from the JSON
+    // body by the client); the fixed body keeps keyed retries byte-identical.
+    expect(body.idempotencyKey).toBe('key-1')
+  })
+
+  test('a response without an intent fails closed instead of recording', async () => {
+    const fake = port({
+      createMessage: (async () => ({ message: { id: 'message-1' } })) as never,
+    })
+    await expect(
+      requestLeadHandoff(fake, {
+        workspaceId: 'workspace-1',
+        channelId: 'channel-1',
+        runtimeSessionId: 'session-1',
+        idempotencyKey: 'key-1',
+      })
+    ).rejects.toThrow('did not return an intent')
+  })
+
+  test('the request body is fixed so keyed retries stay byte-identical', () => {
+    expect(buildHandoffRequestBody('session-1')).toBe(buildHandoffRequestBody('session-1'))
+    expect(buildHandoffRequestBody('session-1')).toContain('session-1')
   })
 })
