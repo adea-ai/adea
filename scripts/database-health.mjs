@@ -55,8 +55,12 @@ function queryPrivileges(rawUrl) {
   return {
     canCreateDatabaseObjects: values[2] === 't',
     canCreateSchemaObjects: values[1] === 't',
-    elevated: values.slice(3).some((value) => value === 't'),
     role: values[0],
+    rolsuper: values[3] === 't',
+    canCreateRoles: values[4] === 't',
+    canCreateDatabases: values[5] === 't',
+    canReplicate: values[6] === 't',
+    canBypassRls: values[7] === 't',
   }
 }
 
@@ -65,11 +69,27 @@ try {
   const runtime = queryPrivileges(process.env.DATABASE_URL)
   const migration = queryPrivileges(process.env.DATABASE_MIGRATION_URL)
 
-  if (runtime.elevated || runtime.canCreateSchemaObjects || runtime.canCreateDatabaseObjects) {
+  if (
+    runtime.rolsuper ||
+    runtime.canCreateRoles ||
+    runtime.canCreateDatabases ||
+    runtime.canReplicate ||
+    runtime.canBypassRls ||
+    runtime.canCreateSchemaObjects ||
+    runtime.canCreateDatabaseObjects
+  ) {
     throw new Error('Runtime database role has elevated or DDL privileges')
   }
+  // The migration identity is the lane's DDL role, so it may create schema
+  // objects and — unlike the runtime role — whole scratch databases: the
+  // migration snapshot capture proofs build one per run and drop it again.
+  // Everything above that (roles, replication, bypass, superuser) stays out
+  // of bounds.
   if (
-    migration.elevated ||
+    migration.rolsuper ||
+    migration.canCreateRoles ||
+    migration.canReplicate ||
+    migration.canBypassRls ||
     !migration.canCreateSchemaObjects ||
     !migration.canCreateDatabaseObjects
   ) {

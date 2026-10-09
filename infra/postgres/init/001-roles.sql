@@ -1,8 +1,11 @@
+-- The migration identity owns schema changes, so it alone holds CREATEDB:
+-- the migration snapshot capture proofs build a disposable scratch database
+-- and run the full migration set inside it on every integration run.
 CREATE ROLE agent_hq_local_migration
   LOGIN
   PASSWORD 'agent_hq_local_migration'
   NOSUPERUSER
-  NOCREATEDB
+  CREATEDB
   NOCREATEROLE
   NOINHERIT
   NOREPLICATION

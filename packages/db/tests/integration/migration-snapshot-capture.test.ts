@@ -50,8 +50,16 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 // database of its own: created in the same PostgreSQL instance DATABASE_URL
 // points at, migrated with the repository's drizzle migrations, and dropped
 // afterwards. The proofs therefore see exactly the state the fixture wrote.
+//
+// Create, migrate and drop happen through the lane's migration identity —
+// DATABASE_MIGRATION_URL, the one role the provisioned instance grants
+// CREATEDB; the read-only app role DATABASE_URL carries deliberately has
+// none. Callers that supply an already-privileged DATABASE_URL without a
+// migration URL fall back to it for everything.
 
 const connectionUrl = process.env.DATABASE_URL
+
+const scratchAdminUrl = process.env.DATABASE_MIGRATION_URL ?? connectionUrl
 
 let scratchDatabase: string | null = null
 
@@ -219,9 +227,9 @@ async function buildFixture(connection: DatabaseConnection) {
   }
 }
 
-/** The same connection settings as `connectionUrl`, against another database. */
+/** The same connection settings as the scratch admin URL, against another database. */
 function urlForDatabase(database: string): string {
-  const url = new URL(connectionUrl!)
+  const url = new URL(scratchAdminUrl!)
   url.pathname = `/${database}`
   return url.toString()
 }
