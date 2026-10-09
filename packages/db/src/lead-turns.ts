@@ -297,6 +297,9 @@ export async function createLeadTurn(
         )
       )
         throw new Error('Lead turn model selection conflict')
+      // Final freshness covers the replay path too: the awaited intent
+      // select above may have waited on locks until after a grant lapsed.
+      await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
       return { message, leadTurn: receipt(existing) }
     }
     const id = randomUUID()
@@ -313,6 +316,11 @@ export async function createLeadTurn(
       })
       .returning()
     if (!intent) throw new Error('Lead turn unavailable')
+    // Final trusted-time check after ALL intended writes (message, event,
+    // intent insert): first-time lock waits are inside the boundary, so a
+    // grant lapsing anywhere up to the commit still denies and rolls back
+    // every effect with zero rows surviving.
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
     return { message, leadTurn: receipt(intent) }
   })
 }
