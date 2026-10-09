@@ -53,16 +53,16 @@ function dependencies(options?: {
 }) {
   const authorized: AuthorizeCall[] = []
   const audited: ManagementAuditDecision[] = []
-  const assertCurrentCalls: unknown[] = []
+  const assertCurrentCalls: Array<{ boundary: string; request: unknown }> = []
   let executed = 0
   return {
     assertCurrentCalls,
     audited,
     authorized,
     dependencies: {
-      async assertCurrent(request: unknown) {
+      async assertCurrent(request: unknown, boundary: string) {
         if (options?.assertCurrentThrows) throw new Error('current authority revoked')
-        assertCurrentCalls.push(request)
+        assertCurrentCalls.push({ boundary, request })
       },
       async authorize(input: AuthorizeCall) {
         if (options?.authorizeThrows) throw new Error('authorization backend secret detail')
@@ -477,6 +477,27 @@ describe('shared management gateway (#1215)', () => {
     expect(harness.authorized).toHaveLength(2)
     expect(harness.executed()).toBe(0)
     expect(harness.audited[0]?.decision).toBe('allowed')
+  })
+
+  test('the gateway asserts the canonical effect boundary with the exact decision', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies()
+    const gateway = gatewayFor(harness, leadCaller(decision))
+    await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => 'executed'
+    )
+    expect(harness.assertCurrentCalls).toHaveLength(1)
+    expect(harness.assertCurrentCalls[0]?.boundary).toBe('effect')
+    expect(harness.assertCurrentCalls[0]?.request).toMatchObject({
+      binding: decision.binding,
+      decisionId: decision.decisionId,
+    })
   })
 
   test('a current-authority assertion that throws stops the effect', async () => {

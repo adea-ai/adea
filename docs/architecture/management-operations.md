@@ -1,12 +1,11 @@
 # Management operation routing
 
-- Status: Implemented (2026-10-09), M14.03.1 (adea-ai/adea#1215). Exact-call
-  authority aligned with the CP932 owner proposal
-  (`01a119c2-4f53-73d6-a80b-39a4fcb4001f`); owner confirmation pending.
+- Status: Implemented (2026-10-09), M14.03.1 (adea-ai/adea#1215), pending the
+  canonical CP932 host mapping and migration ordering.
 - Scope: how human HTTP controls and workspace lead tools share one authorized
   management surface for configuration, memory, projects, worktrees and
-  sessions, how a lead decision is bound to the exact call, and how replay,
-  current authority and parked awaits are enforced before any effect.
+  sessions, how a lead decision is bound to the exact call, and how authority,
+  currentness, replay and parked awaits are enforced before any effect.
   #1215 edits no shared tool SDK and no production composition; the R2/#935 and
   J1/#1018 owned files are out of scope by construction.
 
@@ -14,10 +13,9 @@
 
 The parent slice (adea-ai/adea#1176) requires that a lead tool cannot take a
 second, unaudited path to a change a human could also make. The first slice
-routed both paths through one gateway but still relied on a process-local
-replay set and checked the decision only before the awaited authorization and
-audit calls. This version replaces the local set with a durable database claim
-and asserts current authority on every delivery, immediately before the effect.
+routed both paths through one gateway. Later repairs made the exact-call
+binding, moved replay to a durable database claim, and added current-authority
+assertions at admission and immediately before the effect.
 
 ## The inventory
 
@@ -34,17 +32,15 @@ binding at entry, authorizes, audits, then:
 
 1. re-runs the authorization check **after** the awaited authorize/audit (a
    membership revocation during those waits stops the effect);
-2. calls the per-delivery current-authority port (CP932 consumption/current
-   authority) — absent or throwing means no effect;
+2. calls the current-authority seam at the canonical `effect` boundary;
 3. re-runs the decision time/binding validation **synchronously, immediately
-   before the executor**, so a decision that expires or is parked during the
-   awaits cannot execute.
+   before the executor**.
 
 `apps/web/src/server/management-operations.ts` binds each callable operation to
 its existing database function. HTTP routes and the lead tool surface both
 construct the same operations object.
 
-## Exact-call lead authority (CP932 alignment)
+## Exact-call lead authority
 
 `ManagementCallBinding` is
 `{actionDigest, inputDigest, targetDigest, operation, targetId, workspaceId}`
@@ -52,75 +48,73 @@ where each digest is `sha256:` over canonical JSON of `{operation}`, the
 operation input and `{targetId}`. Adea recomputes all three from the exact call
 and refuses any mismatch.
 
-`ManagementAuthorityDecision` (`adea-management-authority/v1`) carries
-`authorityRef`, `decisionId`, `leadAgentId`, `intentId`, the original user
-`principal`, the exact `binding`, the accepted-plan pin (`planRef`,
-`planRevision`), current authority revision and audience
-(`authorityRevision`, `audienceRef`), the durable approval identity
-(`approval.interactionId`, `approval.audienceRef`, `approval.expiresAt`) and
-`issuedAt`/`expiresAt` (≤ 300 s). The strict parser rejects unknown keys;
-`validateManagementAuthorityDecision` checks identity, binding, allowed,
-decision and approval currentness; `assertManagementAuthorityCurrent` is the
-server-only void-or-typed-throw equivalent of the CP932 `assertCurrent` port.
+`ManagementAuthorityDecision` (`adea-management-authority/v1`) carries the
+exact binding, the original user principal, the accepted-plan pin, authority
+revision and current audience, the durable approval identity, and bounded
+expiry. The strict parser and validator check shape, identity, binding,
+allowed/denied and time; `assertManagementAuthorityCurrent` is the server-only
+void-or-typed-throw equivalent used locally.
 
-## Durable consumption and current authority (primary owners)
+## Canonical current-authority integration
 
-Two durable boundaries, not a process-local set:
+The canonical Pi Durable owner is **control-plane PR #1038, commit
+`ed942840df125385e329f1af4d16c4699ec57fd5`**:
+`apps/control-api/src/pi-durable/current-tool-authority.ts` exports
+`createPiDurableCurrentToolAuthority(...).assertCurrent(request, boundary)`
+with boundaries `'admission' | 'approval' | 'effect' | 'publication'`. It is a
+server-only, **repeatable** currentness check: it resolves `void` or throws
+`PI_TOOL_AUTHORITY_REJECTED`, re-reads the accepted plan, actor, audience,
+grant, call and approval, and never returns a truthy authorization value. The
+Pi effect gate owns the durable request digest/replay fence.
 
-1. **CP current authority on every delivery.**
-   `apps/web/src/server/management-authority-current.ts` posts the exact signed
-   decision identity (schema `adea-management-current/v1`) to the configured
-   `PI_LEAD_MANAGEMENT_AUTHORITY_URL` with
-   `PI_LEAD_MANAGEMENT_AUTHORITY_TOKEN`. The CP endpoint must re-read current
-   grants/revocation/plan/approval state, atomically consume the single-use
-   approval, and answer a bounded `{asserted: true}`. A non-2xx answer, a
-   malformed or truthy body, an unreachable endpoint or absent configuration is
-   a typed refusal and no effect runs. The route requires this port; the
-   gateway repeats it immediately before the executor.
-2. **Durable Adea effect claim.** `claimManagementAuthorityDecision` in
-   `packages/db/src/management-authority-consumption.ts` (table
-   `management_authority_consumptions`) inserts `{decisionId, binding digests,
-state: 'claimed'}` before the effect and `completeManagementAuthorityDecision`
-   marks `succeeded`/`failed` after it. The unique `decision_id` makes the
-   database, not a process, the replay owner: a second worker, a cold restart
-   or any in-memory eviction finds the retained row. A retained `succeeded` row
-   is a typed `authority_replay`; an interrupted `claimed` row is a typed
-   `authority_recovery_required` — never a duplicate effect. Only digests and
-   identifiers are persisted.
+Adea does not invent a wire protocol for it. The Adea seam
+(`ManagementCurrentAuthority`) mirrors the canonical signature and boundary
+names:
 
-### `assertCurrent` alignment
+- the route asserts at `admission` before creating the durable claim;
+- the gateway asserts at `effect` immediately before the executor;
+- both calls are repeatable and consume nothing;
+- the durable Adea claim below is the single single-use owner.
 
-| CP932 proposed check                               | Adea decision field / owner                             | Adea enforcement                                                   |
-| -------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
-| Exact accepted-plan pin                            | `planRef` + `planRevision`                              | Strict parse; CP rechecks currentness on every delivery            |
-| Original actor                                     | `principal`                                             | Strict parse; authorization principal                              |
-| Workspace / current audience                       | `binding.workspaceId` / `audienceRef`                   | Recomputed and compared / CP rechecks on every delivery            |
-| Revision and expiry                                | `authorityRevision` / `expiresAt`                       | Strict parse / revalidated synchronously before the effect         |
-| Canonical action/input/target digests              | `binding.actionDigest` / `inputDigest` / `targetDigest` | Recomputed from the exact call and compared                        |
-| Approval interaction / audience / expiry           | `approval.interactionId` / `audienceRef` / `expiresAt`  | Strict parse / `authority_approval_expired`; consumed per delivery |
-| Durable whole-request digest, no raw input/secrets | Audit and claim store only IDs and digests              | No raw input/prompt/credential is written                          |
+### Required thin host mapping (reported to root; not edited here)
 
-## Transport claims (host endpoint)
+PR #1038's helper is not yet composed into the production host. The exact
+mapping needed, for the CP owner:
 
-`POST /api/internal/pi-durable/management` accepts
-`{schemaVersion: "adea-management-call/v1", operation, workspaceId, targetId,
-input}` plus `Authorization: Bearer <decision JWT>` with exactly:
-`actionDigest, actorUserId, approvalAudienceRef, approvalExpiresAt,
-approvalInteractionId, audience, audienceRef, authorityRevision, credentialId,
-credentialKind, decision, decisionId, expiresAt, inputDigest, intentId,
-issuedAt, issuer, keyId, leadAgentId, operation, planRef, planRevision,
-principalId, projectIds, scopes, targetDigest, targetId, workspaceIds`
-(`audience = adea-lead-management`, `scopes = [management:execute]`).
+1. `apps/control-api/src/models/production-model-composition.ts` — the
+   `createNodePiDurableLeadComposition({...})` call (currently around line 158)
+   passes no `tools`. Add
+   `tools: { service, assertAuthority: currentToolAuthority.assertCurrent }`
+   where `currentToolAuthority = createPiDurableCurrentToolAuthority({...})` is
+   built (from `apps/control-api/src/pi-durable/current-tool-authority.ts`) from
+   the same `canonical.executionAuthority`, `intents`, `executions`, `plans`,
+   `service` and `interactions` the host already owns.
+2. `packages/pi-durable-adapter/src/composition.ts` (`tools.assertAuthority`)
+   and `packages/pi-durable-adapter/src/effect-gate.ts` consume that port at the
+   canonical boundaries; `apps/control-api/src/pi-durable/node-composition.ts`
+   already forwards `options.tools`.
+3. The Adea management HTTP effect must be a governed tool effect inside that
+   service/effect gate so `assertCurrent(request, 'effect')` runs before the
+   HTTP call. Adea then receives the signed exact-call decision and does not
+   call back into CP.
 
-## CP932 obligations
+Until this mapping is installed, the Adea production port is fail-closed
+(`applicationManagementCurrentAuthority` throws `authority_unavailable`) and no
+lead effect runs.
 
-1. Persist exact action/input/target/audience/expiry approvals across restart,
-   pin the accepted plan and re-read current grants at issuance.
-2. Serve the per-delivery current-authority/consumption endpoint; atomically
-   consume the single-use approval and recheck revocation before answering.
-3. Recheck current authority at execution/publication; a prompt or persona
-   change must never widen the binding.
-4. Persist only the validated whole-request digest and identifiers.
+## Durable effect claim
+
+`claimManagementAuthorityDecision` in
+`packages/db/src/management-authority-consumption.ts` (table
+`management_authority_consumptions`, migration 0045 provisionally) inserts
+`{decisionId, binding digests, state: 'claimed'}` before the effect;
+`completeManagementAuthorityDecision` marks `succeeded`/`failed` after it. The
+unique `decision_id` makes the database the replay owner across workers, cold
+restarts and eviction. A retained `succeeded` row is `authority_replay`; an
+interrupted `claimed` row is `authority_recovery_required` and is **never**
+retried automatically — a duplicate effect is impossible and a fresh authorized
+decision (or operator reconciliation) owns the retry. Only digests and
+identifiers are persisted.
 
 ## Typed refusals
 
@@ -128,43 +122,47 @@ Unsupported lanes: `device_required`, `upstream_authority_unavailable`,
 `not_implemented`. Authority: `authority_unavailable`, `authority_malformed`,
 `authority_binding_mismatch`, `authority_denied`, `authority_expired`,
 `authority_not_yet_valid`, `authority_approval_expired`,
-`authority_recovery_required`, `authority_replay`. Every one performs zero
-authorization and zero executor calls where the refusal is pre-effect.
+`authority_recovery_required`, `authority_replay`.
 
 ## Regression coverage
 
 - `packages/types/tests/management.test.ts` — catalog, digests, strict parser,
   validator, approval expiry, server-only assertion.
 - `apps/web/test/management-gateway.test.ts` — human/lead parity, binding
-  mismatch, denied/expired/future decisions, late-authority denial, forced
-  timeout during the awaited checks, current-authority throw, missing
-  current-authority owner, bounded error projection.
+  mismatch, denied/expired/future decisions, late-authority denial, parked-await
+  expiry, canonical `effect` boundary assertion, current-authority throw,
+  missing owner, bounded error projection.
 - `apps/web/test/management-operations.test.ts` — executor wiring, conflict
-  contracts, zero-executor refusal without a lead binding, and digest-only lead
+  contracts, zero-executor refusal without a lead binding, digest-only lead
   audit with a canary secret.
 - `apps/web/test/lead-management-tools.test.ts` — lead-callable slice, exact
   binding handed to the resolver, malformed/expired decisions.
 - `apps/web/test/lead-management-service-auth.test.ts` — signed claim grammar,
   trust/revocation, forgery, lifetimes and approval expiry.
-- `apps/web/test/lead-management-route.test.ts` — host endpoint, strict call
-  parsing, body-tamper refusal, durable replay and recovery refusals, revoked
-  current authority on a later delivery, per-delivery ordering, and completion
-  failure.
-- `apps/web/test/management-authority-current.test.ts` — real loopback HTTP
-  client: exact binding, revocation, malformed/truthy answers, unreachable
-  endpoint, parked timeout.
+- `apps/web/test/lead-management-route.test.ts` — strict call parsing,
+  body-tamper refusal, durable replay and recovery refusals, revoked admission,
+  per-delivery ordering (`admission` before claim), completion failure.
+- `apps/web/test/management-production-composition.test.ts` — **production
+  composition** (real operations, real verifier, real DB, real claim), run with
+  an isolated `DATABASE_URL` and `--conditions=react-server`: authorized update
+  succeeds with `admission`/`effect` boundaries, replay is refused with no
+  second effect, revocation refuses with zero effect and no burned claim.
 - `packages/db/tests/integration/management-authority-consumption.test.ts` —
-  real disposable PostgreSQL: two independent connections, concurrent claim,
-  replay, cold restart, mismatched binding and interrupted-claim reconciliation
-  with no second effect.
+  real PostgreSQL, two connections + restart: one claim/effect, concurrent
+  claim recovery, replay, mismatched binding, interrupted-claim reconciliation.
 - `apps/web/test/management-routing-boundary.test.ts` — no API route imports a
   management database function directly.
 
-## Remaining integration boundary
+## Migration ordering gate
 
-The CP932 current-authority endpoint and its signing/consumption store are the
-remaining live prerequisite: `PI_LEAD_MANAGEMENT_AUTHORITY_URL`/`_TOKEN` and
-`PI_LEAD_MANAGEMENT_TRUST` must be configured by the operator, and the CP
-endpoint must exist. Until then the host fails closed on every delivery while
-the durable Adea claim remains the effect-level replay owner. Device-local
-operations still await the remote runtime-node channel.
+`origin/main` currently ends at `0044_lead_turn_runtime`. Adea #1233/#1213 is
+selected to land `0045_agent-edit-revisions` first. The `0045_management_authority_consumption`
+migration on this branch is **provisional** and must be regenerated on updated
+main after that landing (next authoritative free number), coordinated with root
+before publication. No migration is claimed to have landed.
+
+## Remaining boundary
+
+The canonical CP host mapping above and the authoritative migration number are
+the remaining integration gates. Device-local operations still await the remote
+runtime-node channel.

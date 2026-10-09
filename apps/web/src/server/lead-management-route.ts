@@ -282,20 +282,23 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
 
       // Every delivery reaches the current-authority owner before any effect.
       try {
-        await dependencies.assertCurrent({
-          approval: decision.approval,
-          audienceRef: decision.audienceRef,
-          authorityRef: decision.authorityRef,
-          authorityRevision: decision.authorityRevision,
-          binding,
-          decisionId: decision.decisionId,
-          intentId: decision.intentId,
-          leadAgentId: decision.leadAgentId,
-          now,
-          planRef: decision.planRef,
-          planRevision: decision.planRevision,
-          principal: decision.principal,
-        })
+        await dependencies.assertCurrent(
+          {
+            approval: decision.approval,
+            audienceRef: decision.audienceRef,
+            authorityRef: decision.authorityRef,
+            authorityRevision: decision.authorityRevision,
+            binding,
+            decisionId: decision.decisionId,
+            intentId: decision.intentId,
+            leadAgentId: decision.leadAgentId,
+            now,
+            planRef: decision.planRef,
+            planRevision: decision.planRevision,
+            principal: decision.principal,
+          },
+          'admission'
+        )
       } catch {
         return refusal(call.operation, 'authority_unavailable')
       }

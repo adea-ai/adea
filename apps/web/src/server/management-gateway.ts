@@ -294,20 +294,23 @@ export function createManagementGateway(
         // await so an expired or parked decision cannot execute.
         if (dependencies.assertCurrent) {
           try {
-            await dependencies.assertCurrent({
-              approval: caller.decision.approval,
-              audienceRef: caller.decision.audienceRef,
-              authorityRef: caller.decision.authorityRef,
-              authorityRevision: caller.decision.authorityRevision,
-              binding: binding!,
-              decisionId: caller.decision.decisionId,
-              intentId: caller.decision.intentId,
-              leadAgentId: caller.decision.leadAgentId,
-              now: now(),
-              planRef: caller.decision.planRef,
-              planRevision: caller.decision.planRevision,
-              principal: caller.decision.principal,
-            })
+            await dependencies.assertCurrent(
+              {
+                approval: caller.decision.approval,
+                audienceRef: caller.decision.audienceRef,
+                authorityRef: caller.decision.authorityRef,
+                authorityRevision: caller.decision.authorityRevision,
+                binding: binding!,
+                decisionId: caller.decision.decisionId,
+                intentId: caller.decision.intentId,
+                leadAgentId: caller.decision.leadAgentId,
+                now: now(),
+                planRef: caller.decision.planRef,
+                planRevision: caller.decision.planRevision,
+                principal: caller.decision.principal,
+              },
+              'effect'
+            )
           } catch {
             return Object.freeze({
               failure: authorityFailure(operation, 'authority_unavailable'),

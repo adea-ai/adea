@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
+  ManagementAuthorityBoundary,
   ManagementAuthorityClaim,
   ManagementAuthorityCompletion,
   ManagementAuthorityDecision,
@@ -35,7 +36,10 @@ function success(value: unknown): ManagementOutcome<unknown> {
 
 function harness(
   options: Readonly<{
-    assertCurrent?: (request: ManagementCurrentAuthorityRequest) => Promise<void>
+    assertCurrent?: (
+      request: ManagementCurrentAuthorityRequest,
+      boundary: ManagementAuthorityBoundary
+    ) => Promise<void>
     claim?: (decision: ManagementAuthorityDecision) => Promise<ManagementAuthorityClaim>
     complete?: (
       decision: ManagementAuthorityDecision,
@@ -89,13 +93,16 @@ function harness(
       return (options.operationOutcome ?? success({ id: MANAGEMENT_WORKSPACE })) as never
     },
   }
-  const assertCurrentCalls: ManagementCurrentAuthorityRequest[] = []
+  const assertCurrentCalls: Array<{
+    boundary: ManagementAuthorityBoundary
+    request: ManagementCurrentAuthorityRequest
+  }> = []
   const completions: ManagementAuthorityCompletion[] = []
   const dependencies: LeadManagementRouteDependencies = {
     assertCurrent:
       options.assertCurrent ??
-      (async (request) => {
-        assertCurrentCalls.push(request)
+      (async (request, boundary) => {
+        assertCurrentCalls.push({ boundary, request })
       }),
     claim: options.claim ?? (async () => ({ state: 'claimed' as const })),
     complete:
@@ -281,8 +288,8 @@ describe('lead management host endpoint (#1215)', () => {
     const decision = await updateDecision()
     const order: string[] = []
     const run = harness({
-      assertCurrent: async () => {
-        order.push('assert')
+      assertCurrent: async (_request, boundary) => {
+        order.push(`assert:${boundary}`)
       },
       claim: async () => {
         order.push('claim')
@@ -295,7 +302,7 @@ describe('lead management host endpoint (#1215)', () => {
       decision,
     })
     await createLeadManagementHandler(run.dependencies)(callRequest(updateCall))
-    expect(order).toEqual(['assert', 'claim', 'complete'])
+    expect(order).toEqual(['assert:admission', 'claim', 'complete'])
   })
 
   test('a failed completion is a bounded refyusal even when the effect ran', async () => {
