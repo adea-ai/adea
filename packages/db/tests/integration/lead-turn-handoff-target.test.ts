@@ -1,0 +1,236 @@
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { and, eq } from 'drizzle-orm'
+import { ensureWorkspaceLead } from '../../src/agents'
+import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createDirectAgentTopic } from '../../src/conversations'
+import { createTemporaryUserSession } from '../../src/identity'
+import { createLeadTurn, getLatestLeadTurnForTarget } from '../../src/lead-turns'
+import { leadTurnIntents } from '../../src/schema/lead-turns'
+import { createTask } from '../../src/tasks'
+import { createWorkspaceWithOwner } from '../../src/workspaces'
+
+const connectionUrl = process.env.DATABASE_URL
+describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
+  let connection: DatabaseConnection
+  beforeAll(() => {
+    connection = createDatabase(connectionUrl!)
+  })
+  afterAll(async () => connection.close())
+
+  async function fixture() {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `handoff-target-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      owner: owner.principal,
+      name: 'Handoff targets',
+      idempotencyKey: crypto.randomUUID(),
+    })
+    const lead = await ensureWorkspaceLead(connection.db, workspace.id, owner.principal)
+    const topic = await createDirectAgentTopic(
+      connection.db,
+      workspace.id,
+      lead.id,
+      owner.principal,
+      { title: 'Lead DM', idempotencyKey: crypto.randomUUID() }
+    )
+    const task = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Coordinate', title: 'Coordination' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    const target = (session: string, generation: number) => ({
+      runtimeSessionId: session,
+      taskId: task.id,
+      expectedGeneration: generation,
+    })
+    const admit = (session: string, generation: number, channelId = topic.id) =>
+      createLeadTurn(connection.db, workspace.id, channelId, owner.principal, {
+        bodyText: `Requesting lead coordination for direct session ${session}.`,
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: target(session, generation),
+      })
+    return { owner, workspace, lead, topic, task, target, admit }
+  }
+
+  test('admission retains the structured target and returns it on the receipt', async () => {
+    const f = await fixture()
+    const { leadTurn } = await f.admit('target-session-a', 3)
+    expect(leadTurn.handoffTarget).toEqual({
+      runtimeSessionId: 'target-session-a',
+      taskId: f.task.id,
+      observedGeneration: 3,
+    })
+    const [row] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, leadTurn.intentId))
+    expect(row).toMatchObject({
+      handoffTargetSessionId: 'target-session-a',
+      handoffTargetGeneration: 3,
+      handoffTargetTaskId: f.task.id,
+    })
+  })
+
+  test('two sessions sharing one task keep exact bindings', async () => {
+    const f = await fixture()
+    const first = await f.admit('target-session-a', 3)
+    const second = await f.admit('target-session-b', 3)
+    expect(second.leadTurn.intentId).not.toBe(first.leadTurn.intentId)
+    const forA = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-a',
+      f.owner.principal
+    )
+    const forB = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-b',
+      f.owner.principal
+    )
+    expect(forA?.intentId).toBe(first.leadTurn.intentId)
+    expect(forA?.handoffTarget?.runtimeSessionId).toBe('target-session-a')
+    expect(forB?.intentId).toBe(second.leadTurn.intentId)
+    expect(forB?.handoffTarget?.runtimeSessionId).toBe('target-session-b')
+    const forUnknown = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-absent',
+      f.owner.principal
+    )
+    expect(forUnknown).toBeNull()
+  })
+
+  test('a newer unrelated channel turn never overrides the exact binding', async () => {
+    const f = await fixture()
+    const first = await f.admit('target-session-a', 3)
+    const other = await createDirectAgentTopic(
+      connection.db,
+      f.workspace.id,
+      f.lead.id,
+      f.owner.principal,
+      { title: 'Other DM', idempotencyKey: crypto.randomUUID() }
+    )
+    await f.admit('target-session-other', 7, other.id)
+    const retained = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-a',
+      f.owner.principal
+    )
+    expect(retained?.intentId).toBe(first.leadTurn.intentId)
+  })
+
+  test('reload after unknown outcome recovers the retained intent instead of minting', async () => {
+    const f = await fixture()
+    const first = await f.admit('target-session-a', 3)
+    // The client lost its request identity (eviction/reload): a fresh key
+    // with the same exact target and generation must recover, not duplicate.
+    const recovered = await f.admit('target-session-a', 3)
+    expect(recovered.leadTurn.intentId).toBe(first.leadTurn.intentId)
+    const rows = await connection.db
+      .select({ id: leadTurnIntents.id })
+      .from(leadTurnIntents)
+      .where(
+        and(
+          eq(leadTurnIntents.workspaceId, f.workspace.id),
+          eq(leadTurnIntents.channelId, f.topic.id)
+        )
+      )
+    expect(rows).toHaveLength(1)
+  })
+
+  test('a newer generation supersedes; an older generation is stale', async () => {
+    const f = await fixture()
+    const older = await f.admit('target-session-a', 3)
+    const newer = await f.admit('target-session-a', 5)
+    expect(newer.leadTurn.intentId).not.toBe(older.leadTurn.intentId)
+    const current = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-a',
+      f.owner.principal
+    )
+    expect(current?.intentId).toBe(newer.leadTurn.intentId)
+    expect(current?.handoffTarget?.observedGeneration).toBe(5)
+    await expect(f.admit('target-session-a', 3)).rejects.toThrow()
+  })
+
+  test('concurrent same-target admissions commit exactly one intent', async () => {
+    const f = await fixture()
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => f.admit('target-session-a', 3))
+    )
+    expect(new Set(results.map((r) => r.leadTurn.intentId)).size).toBe(1)
+    const rows = await connection.db
+      .select({ id: leadTurnIntents.id })
+      .from(leadTurnIntents)
+      .where(
+        and(
+          eq(leadTurnIntents.workspaceId, f.workspace.id),
+          eq(leadTurnIntents.channelId, f.topic.id)
+        )
+      )
+    expect(rows).toHaveLength(1)
+  })
+
+  test('malformed targets and phantom tasks fail closed', async () => {
+    const f = await fixture()
+    const base = {
+      bodyText: 'Requesting lead coordination.',
+      idempotencyKey: crypto.randomUUID(),
+    }
+    const principal = f.owner.principal
+    await expect(
+      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
+        ...base,
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: { runtimeSessionId: '   ', taskId: f.task.id, expectedGeneration: 3 },
+      })
+    ).rejects.toThrow()
+    await expect(
+      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
+        ...base,
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: {
+          runtimeSessionId: 'target-session-a',
+          taskId: f.task.id,
+          expectedGeneration: -1,
+        },
+      })
+    ).rejects.toThrow()
+    await expect(
+      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
+        ...base,
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: {
+          runtimeSessionId: 'target-session-a',
+          taskId: '00000000-0000-4000-8000-ffffffffffff',
+          expectedGeneration: 3,
+        },
+      })
+    ).rejects.toThrow()
+  })
+
+  test('legacy admissions without a target keep working', async () => {
+    const f = await fixture()
+    const { leadTurn } = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      { bodyText: 'Canonical user content', idempotencyKey: crypto.randomUUID() }
+    )
+    expect(leadTurn.handoffTarget).toBeUndefined()
+    expect(leadTurn.state).toBe('blocked')
+  })
+})

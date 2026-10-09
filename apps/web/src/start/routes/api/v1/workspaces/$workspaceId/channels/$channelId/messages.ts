@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiMessagePage, ApiMessageResponse } from '@adea-ai/api-client'
-import { createLeadTurn, createMessage, listMessagesForUser } from '@adea-ai/db'
+import { createLeadTurn, createMessage, listMessagesForUser, parseHandoffTarget } from '@adea-ai/db'
 import { parseLeadTurnMode } from '../../../../../../../../server/lead-turn-request'
 
 import {
@@ -79,6 +79,12 @@ async function post(request: Request, { params }: Context) {
   }
   const hasBodyText = typeof body?.bodyText === 'string' && Boolean(body.bodyText.trim())
   const leadTurnMode = body && !Array.isArray(body) ? parseLeadTurnMode(body) : null
+  let handoffTarget
+  try {
+    handoffTarget = parseHandoffTarget(body?.handoffTarget)
+  } catch {
+    return workspaceInvalidRequestResponse(request)
+  }
   const hasBodyRef = isConversationUuid(body?.bodyContentRefId)
   const mentions = Array.isArray(body?.mentions)
     ? body.mentions.map(parseConversationParticipant)
@@ -117,6 +123,7 @@ async function post(request: Request, { params }: Context) {
           ...(Array.isArray(body.artifactIds) ? { artifactIds: body.artifactIds as string[] } : {}),
           ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
           ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+          ...(handoffTarget ? { handoffTarget } : {}),
           idempotencyKey,
           mentions: mentions as never,
         }

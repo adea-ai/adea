@@ -16,9 +16,8 @@ import type {
   HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
 import {
-  acquireHandoffRequestKey,
-  confirmHandoffRequestKey,
   createOrderedScope,
+  leadTurnCanCancel,
   requestLeadHandoff,
   resolveLeadHandoffSupply,
 } from '../lib/lead-handoff-supply'
@@ -314,7 +313,9 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     const request = lifecycle.current()
     const epoch = leadScope.begin()
     setLeadSupply({})
-    void resolveLeadHandoffSupply(props.client, workspaceId, taskId).then((resolution) => {
+    void resolveLeadHandoffSupply(props.client, workspaceId, taskId, {
+      runtimeSessionId: sessionId,
+    }).then((resolution) => {
       if (!lifecycle.isCurrent(request)) return
       if (!leadScope.isCurrent(epoch)) return
       if (conversation()?.runtimeSessionId !== sessionId) return
@@ -325,38 +326,66 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     resolveLeadSupply(false)
   })
 
-  // Explicit handoff request (#1177): adopt the observed turn when one is
-  // already live on the linked channel (no new intent, no duplicate), or
-  // admit a fresh turn through the canonical admission path when none is.
-  // The idempotency key stays stable per session until a confirmed
-  // admission so blind retries dedupe server-side instead of minting a
-  // second turn.
+  // Explicit handoff request (#1177): admit through the canonical
+  // admission path with the structured target (session, task, observed
+  // generation), verify the retained receipt names this exact session,
+  // then refresh from the exact intent — never by task-wide re-resolution.
+  // Unknown-outcome retries recover the retained intent server-side, so no
+  // client-held request identity can be evicted or lost on reload.
   const requestWorkspaceHandoff = async (): Promise<void> => {
     const supply = leadSupply()
     const activeConversation = conversation()
     const channelId = supply.channelId
-    if (!activeConversation || !channelId) throw new Error('Handoff request unavailable.')
+    const taskId = activeConversation?.taskId
+    if (!activeConversation || !channelId || !taskId)
+      throw new Error('Handoff request unavailable.')
     const workspaceId = activeConversation.scope.workspaceId
     const sessionId = activeConversation.runtimeSessionId
+    const generation = activeConversation.generation
     const request = lifecycle.current()
     const epoch = leadScope.begin()
-    // No adopt path: the view enables this control only with no live or
-    // unresolvable turn observed, so reaching here always means a fresh
-    // admission request. A blocked or terminal turn still takes a new
-    // explicit request rather than silently adopting another intent.
-    const key = acquireHandoffRequestKey(sessionId)
     const confirmation = await requestLeadHandoff(props.client, {
       workspaceId,
       channelId,
       runtimeSessionId: sessionId,
-      idempotencyKey: key,
+      taskId,
+      expectedGeneration: generation,
     })
     if (!lifecycle.isCurrent(request)) return
     if (!leadScope.isCurrent(epoch)) return
     if (conversation()?.runtimeSessionId !== sessionId) return
-    confirmHandoffRequestKey(sessionId)
-    void confirmation
-    resolveLeadSupply(true)
+    // The confirmation is used, not discarded: re-read the exact retained
+    // intent so the surface binds to it rather than to a task-wide latest.
+    const status = await props.client.getLeadTurnStatus(workspaceId, confirmation.intentId)
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
+    const observed = status.leadTurn
+    if (observed.handoffTarget?.runtimeSessionId !== sessionId)
+      throw new Error('Lead admission returned another target.')
+    const agentId = supply.turn?.agentId ?? leadSupply().agent?.id
+    if (!agentId) throw new Error('Handoff request unavailable.')
+    setLeadSupply((previous) => ({
+      ...previous,
+      turn: {
+        intentId: observed.intentId,
+        agentId,
+        ...(observed.dispatchId !== undefined ? { dispatchId: observed.dispatchId } : {}),
+        state: observed.state,
+        canCancel: leadTurnCanCancel(observed.state),
+        ...(observed.handoffTarget !== undefined
+          ? {
+              handoffTarget: {
+                runtimeSessionId: observed.handoffTarget.runtimeSessionId,
+                ...(observed.handoffTarget.taskId !== undefined
+                  ? { taskId: observed.handoffTarget.taskId }
+                  : {}),
+                observedGeneration: observed.handoffTarget.observedGeneration,
+              },
+            }
+          : {}),
+      },
+    }))
   }
 
   const cancelWorkspaceLead = async (): Promise<void> => {

@@ -237,7 +237,14 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  createLeadTurn,
+  getLatestLeadTurnForTarget,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+  parseHandoffTarget,
+  type HandoffTarget,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,

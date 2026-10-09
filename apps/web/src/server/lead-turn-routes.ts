@@ -53,9 +53,19 @@ export async function handleLeadTurnRequest(
   }
   const url = new URL(request.url)
   const afterSequence = Number(url.searchParams.get('afterSequence') ?? 0)
+  const targetSessionId = url.searchParams.get('targetSessionId') ?? undefined
+  if (
+    targetSessionId !== undefined &&
+    (operation !== 'latest' || !targetSessionId.trim() || targetSessionId.trim().length > 256)
+  )
+    return workspaceInvalidRequestResponse(request)
   if (
     (operation === 'progress' && (!Number.isSafeInteger(afterSequence) || afterSequence < 0)) ||
-    [...url.searchParams.keys()].some((key) => operation !== 'progress' || key !== 'afterSequence')
+    [...url.searchParams.keys()].some(
+      (key) =>
+        (operation !== 'progress' || key !== 'afterSequence') &&
+        (operation !== 'latest' || key !== 'targetSessionId')
+    )
   )
     return workspaceInvalidRequestResponse(request)
   try {
@@ -71,7 +81,17 @@ export async function handleLeadTurnRequest(
     }
     const payload =
       operation === 'latest'
-        ? { leadTurn: await service.latest(params.workspaceId, params.channelId!, scope.userId) }
+        ? {
+            leadTurn:
+              targetSessionId === undefined
+                ? await service.latest(params.workspaceId, params.channelId!, scope.userId)
+                : await service.latestForTarget(
+                    params.workspaceId,
+                    params.channelId!,
+                    targetSessionId.trim(),
+                    scope.userId
+                  ),
+          }
         : operation === 'progress'
           ? await service.progress(scope, afterSequence)
           : { leadTurn: await service[operation](scope) }

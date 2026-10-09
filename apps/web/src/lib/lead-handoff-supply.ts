@@ -1,18 +1,16 @@
 // Workspace-lead handoff supply (#1177): resolves the designated workspace
-// chief-of-staff, the task-linked lead channel for one exact direct
-// session, and that channel's current lead turn — through existing
-// canonical services only (getWorkspaceLead, listChannels,
+// chief-of-staff, the lead's exactly-one active task-less direct channel,
+// and that channel's retained turn for one exact direct session — through
+// existing canonical services only (getWorkspaceLead, listChannels,
 // getChannelLeadTurn, cancelLeadTurn on AgentHqApiClient), then maps the
 // observed facts onto the handoff supply.
 //
-// The session↔lead relationship is the shared cloud task id: a session
-// created for task-scoped work carries it, and a lead channel created for
-// the same task carries it. Channels that do not reference the session's
-// task are irrelevant to it — several lead conversations elsewhere never
-// disable a valid explicitly linked handoff. Missing links resolve to
-// explicit unresolved reasons; an ambiguous link (several channels
-// referencing one task) fails closed instead of picking one. Nothing is
-// invented: a session without a task id costs zero reads and attaches.
+// Binding is exact, never task-wide: admission opens on the lead's direct
+// channel and retains the structured target (session, server-verified task,
+// observed generation) on the intent. Reads are target-scoped, so another
+// session sharing the task — or a newer turn for it — can never display as
+// this session's coordinator. A session without a task id costs zero reads
+// and attaches; several lead channels fail closed instead of picking one.
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { HandoffLeadAgent, HandoffLeadTurn } from '@adea-ai/dev-view/chat'
 
@@ -54,6 +52,10 @@ const CANCELLABLE_TURN_STATES: readonly string[] = [
   'awaiting_input',
   'cancelling',
 ]
+
+export function leadTurnCanCancel(state: string): boolean {
+  return CANCELLABLE_TURN_STATES.includes(state)
+}
 
 function toLeadAgent(input: {
   id: string
@@ -101,9 +103,10 @@ export function createOrderedScope(): {
 export async function resolveLeadHandoffSupply(
   port: LeadHandoffPort,
   workspaceId: string,
-  sessionTaskId: string | undefined
+  sessionTaskId: string | undefined,
+  sessionRef?: Readonly<{ runtimeSessionId: string }>
 ): Promise<LeadHandoffResolution> {
-  if (!sessionTaskId) return { status: 'unresolved', reason: 'no-link' }
+  if (!sessionTaskId || !sessionRef) return { status: 'unresolved', reason: 'no-link' }
   let lead: { id: string; isWorkspaceLead?: boolean; lifecycleState: string } | null
   try {
     lead = (await port.getWorkspaceLead(workspaceId)).lead
@@ -126,11 +129,13 @@ export async function resolveLeadHandoffSupply(
   } catch {
     return { status: 'unresolved', reason: 'request-failed', leadAgent }
   }
+  // Admission opens only on the lead's task-less direct channel: task-scoped
+  // channels cannot admit, so they can never coordinate either.
   const linked = channels.filter(
     (channel) =>
       channel.kind === 'direct_agent' &&
       channel.agentId === leadAgent.id &&
-      channel.taskId === sessionTaskId &&
+      (channel.taskId === undefined || channel.taskId === null) &&
       channel.lifecycleState === 'active'
   )
   if (linked.length === 0) return { status: 'unresolved', reason: 'no-channel', leadAgent }
@@ -140,14 +145,24 @@ export async function resolveLeadHandoffSupply(
     intentId: string
     dispatchId?: string
     state: string
+    handoffTarget?: {
+      runtimeSessionId: string
+      taskId?: string
+      observedGeneration: number
+    }
   } | null
   try {
-    turn = (await port.getChannelLeadTurn(workspaceId, linked[0]!.id)).leadTurn
+    turn = (await port.getChannelLeadTurn(workspaceId, linked[0]!.id, sessionRef.runtimeSessionId))
+      .leadTurn
   } catch {
     return { status: 'unresolved', reason: 'request-failed', leadAgent }
   }
   const channelId = linked[0]!.id
   if (!turn) return { status: 'resolved', leadAgent, channelId }
+  // Defense in depth: the read is already target-scoped server-side; a
+  // mistargeted turn never becomes supply even if it arrives here.
+  if (turn.handoffTarget?.runtimeSessionId !== sessionRef.runtimeSessionId)
+    return { status: 'resolved', leadAgent, channelId }
   return {
     status: 'resolved',
     leadAgent,
@@ -158,35 +173,13 @@ export async function resolveLeadHandoffSupply(
       ...(turn.dispatchId !== undefined ? { dispatchId: turn.dispatchId } : {}),
       state: turn.state as HandoffLeadTurn['state'],
       canCancel: CANCELLABLE_TURN_STATES.includes(turn.state),
+      handoffTarget: {
+        runtimeSessionId: turn.handoffTarget.runtimeSessionId,
+        ...(turn.handoffTarget.taskId !== undefined ? { taskId: turn.handoffTarget.taskId } : {}),
+        observedGeneration: turn.handoffTarget.observedGeneration,
+      },
     },
   }
-}
-
-/**
- * Stable per-session idempotency keys for handoff admission: a retry of an
- * unknown-outcome request reuses the retained key so the server dedupes to
- * the same message and intent instead of minting a duplicate turn. Keys
- * clear on confirmed success, so a deliberate later re-handoff mints
- * fresh. Bounded like receipts; best-effort, never load-bearing for
- * correctness beyond dedup.
- */
-const MAX_PENDING_KEYS = 50
-const pendingRequestKeys = new Map<string, string>()
-
-export function acquireHandoffRequestKey(sessionId: string): string {
-  const existing = pendingRequestKeys.get(sessionId)
-  if (existing) return existing
-  const key = crypto.randomUUID()
-  if (pendingRequestKeys.size >= MAX_PENDING_KEYS) {
-    const oldest = pendingRequestKeys.keys().next()
-    if (!oldest.done) pendingRequestKeys.delete(oldest.value)
-  }
-  pendingRequestKeys.set(sessionId, key)
-  return key
-}
-
-export function confirmHandoffRequestKey(sessionId: string): void {
-  pendingRequestKeys.delete(sessionId)
 }
 
 /**
@@ -204,14 +197,27 @@ export type LeadHandoffRequest = Readonly<{
   intentId: string
   messageId: string
   channelId: string
+  handoffTarget: Readonly<{
+    runtimeSessionId: string
+    taskId?: string
+    observedGeneration: number
+  }>
 }>
 
 /**
  * Requests lead coordination through the canonical admission path: one
- * message with `leadTurn: true` on the linked channel, fenced by the
- * server's channel-write and lead-turn authorization. The response receipt
- * carries the admitted intent; a response without one is a failed
+ * message with `leadTurn: true` plus the structured handoff target on the
+ * linked direct channel, fenced by the server's channel-write, lead-turn,
+ * and task-visibility authorization. The response receipt carries the
+ * admitted intent with its retained target, and the target is verified to
+ * match the request — a missing or mistargeted receipt is a failed
  * admission, never a silent success.
+ *
+ * No client-held request identity: every attempt mints a fresh
+ * idempotency key, and unknown-outcome retries recover the canonically
+ * retained intent server-side (same target and generation dedupes, a newer
+ * retained generation rejects the stale request). Eviction and reload
+ * cannot lose the binding because the binding never lived client-side.
  */
 export async function requestLeadHandoff(
   port: LeadHandoffPort,
@@ -219,16 +225,37 @@ export async function requestLeadHandoff(
     workspaceId: string
     channelId: string
     runtimeSessionId: string
-    idempotencyKey: string
+    taskId: string
+    expectedGeneration: number
   }>
 ): Promise<LeadHandoffRequest> {
   const response = await port.createMessage(input.workspaceId, input.channelId, {
     leadTurn: true,
     bodyText: buildHandoffRequestBody(input.runtimeSessionId),
-    idempotencyKey: input.idempotencyKey,
+    handoffTarget: {
+      runtimeSessionId: input.runtimeSessionId,
+      taskId: input.taskId,
+      expectedGeneration: input.expectedGeneration,
+    },
+    idempotencyKey: crypto.randomUUID(),
   })
-  const intentId = response.leadTurn?.intentId
+  const receipt = response.leadTurn
   const messageId = response.message?.id
-  if (!intentId || !messageId) throw new Error('Lead admission did not return an intent')
-  return { intentId, messageId, channelId: input.channelId }
+  const target = receipt?.handoffTarget
+  if (!receipt || !messageId || !target) throw new Error('Lead admission did not return an intent')
+  if (
+    target.runtimeSessionId !== input.runtimeSessionId ||
+    target.observedGeneration !== input.expectedGeneration
+  )
+    throw new Error('Lead admission returned another target')
+  return {
+    intentId: receipt.intentId,
+    messageId,
+    channelId: input.channelId,
+    handoffTarget: {
+      runtimeSessionId: target.runtimeSessionId,
+      ...(target.taskId !== undefined ? { taskId: target.taskId } : {}),
+      observedGeneration: target.observedGeneration,
+    },
+  }
 }
