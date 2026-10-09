@@ -1,7 +1,7 @@
 import './lead-payer-journey-harness.css'
 import { AgentHqApiClient } from '@adea-ai/api-client'
 import { AgentHqQueryProvider } from '@adea-ai/data'
-import { createSignal } from 'solid-js'
+import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { LeadTurnModelChoices } from '../../../../packages/workspace-ui/src/lead-turn-model-choices'
