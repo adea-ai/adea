@@ -43,6 +43,13 @@ export const projects = appSchema.table(
     sourceKind: text('source_kind', { enum: PROJECT_SOURCE_KINDS }).default('none').notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: projectLifecycleState('lifecycle_state').default('active').notNull(),
+    /**
+     * Monotonic optimistic revision. Every UPDATE of this row increments it,
+     * so an observed version is invalid after any later write — including two
+     * writes inside the same millisecond, which a timestamp token cannot
+     * distinguish. Timestamps stay display-only.
+     */
+    version: integer('version').default(1).notNull(),
     visibility: projectVisibility('visibility').default('workspace').notNull(),
     /** The Control Plane project scope (`prj_…`, ADR 0013); never reused. */
     controlPlaneProjectId: controlPlaneIdentifierColumn('control_plane_project_id', 'prj'),
@@ -58,6 +65,7 @@ export const projects = appSchema.table(
     check('projects_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('projects_icon_key_nonempty', sql`length(btrim(${table.iconKey})) > 0`),
     check('projects_sort_order_nonnegative', sql`${table.sortOrder} >= 0`),
+    check('projects_version_positive', sql`${table.version} > 0`),
     check('projects_source_kind_valid', sql`${table.sourceKind} in ('none', 'repository')`),
     index('projects_workspace_order_idx').on(
       table.workspaceId,

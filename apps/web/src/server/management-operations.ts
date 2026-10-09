@@ -50,7 +50,7 @@ export type ManagementExecutors = Readonly<{
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ confirmed: boolean; expectedUpdatedAt: string }>
+    input: Readonly<{ confirmed: boolean; expectedVersion: number }>
   ): Promise<ProjectSummary>
   removeProjectMember(
     database: AgentHqDatabase,
@@ -134,7 +134,7 @@ export type ManagementOperations = Readonly<{
   projectPromote(
     input: Readonly<{
       confirmed: boolean
-      expectedUpdatedAt: string
+      expectedVersion: number
       principal: UserPrincipalRef
       projectId: string
       workspaceId: string
@@ -291,7 +291,7 @@ export function createManagementOperations(
           input.workspaceId,
           input.projectId,
           input.principal,
-          { confirmed: input.confirmed, expectedUpdatedAt: input.expectedUpdatedAt }
+          { confirmed: input.confirmed, expectedVersion: input.expectedVersion }
         )
       ),
     projectReorder: (input, binding) =>

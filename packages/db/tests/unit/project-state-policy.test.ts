@@ -2,6 +2,9 @@
 // adea#1218). The transactional `promoteProjectState` path is covered by
 // `tests/integration/project-state-promotion.test.ts`; here the decision is
 // exercised over injected observations only.
+//
+// The revision authority is the integer `projects.version`; timestamps are
+// display-only and never participate in the decision.
 import { describe, expect, test } from 'bun:test'
 
 import {
@@ -13,7 +16,7 @@ import {
 
 const WORKSPACE = '00000000-0000-4000-8000-00000000000a'
 const ELSEWHERE = '00000000-0000-4000-8000-00000000000b'
-const UPDATED = '2026-10-08T12:00:00.000Z'
+const VERSION = 4
 
 function observation(
   overrides: Partial<ProjectStatePromotionObservation> = {}
@@ -22,7 +25,7 @@ function observation(
     deletedAt: null,
     id: '00000000-0000-4000-8000-0000000000aa',
     lifecycleState: 'archived',
-    updatedAt: UPDATED,
+    version: VERSION,
     visibility: 'workspace',
     workspaceId: WORKSPACE,
     ...overrides,
@@ -33,7 +36,7 @@ function decide(overrides: Partial<Parameters<typeof decideProjectStatePromotion
   return decideProjectStatePromotion({
     authorizedWorkspaceId: WORKSPACE,
     confirmed: true,
-    expectedUpdatedAt: UPDATED,
+    expectedVersion: VERSION,
     project: observation(),
     ...overrides,
   })
@@ -56,7 +59,7 @@ describe('project-state promotion decision', () => {
         retainedVisibility: visibility,
         from: 'archived',
         to: 'active',
-        expectedUpdatedAt: UPDATED,
+        expectedVersion: VERSION,
       })
     }
   })
@@ -68,14 +71,27 @@ describe('project-state promotion decision', () => {
     )
   })
 
-  test('soft-deleted, active and stale observations refuse with typed reasons', () => {
-    expect(refusalOf({ project: observation({ deletedAt: UPDATED }) })).toBe('promotion_deleted')
+  test('soft-deleted, active and stale revisions refuse with typed reasons', () => {
+    expect(refusalOf({ project: observation({ deletedAt: '2026-10-08T12:00:00.000Z' }) })).toBe(
+      'promotion_deleted'
+    )
     expect(refusalOf({ project: observation({ lifecycleState: 'active' }) })).toBe(
       'promotion_state_invalid'
     )
-    expect(refusalOf({ expectedUpdatedAt: '2026-10-08T11:59:59.000Z' })).toBe('promotion_stale')
-    expect(refusalOf({ expectedUpdatedAt: '' })).toBe('promotion_stale')
-    expect(refusalOf({ expectedUpdatedAt: 'not-a-date' })).toBe('promotion_stale')
+    expect(refusalOf({ expectedVersion: VERSION + 1 })).toBe('promotion_stale')
+    expect(refusalOf({ expectedVersion: VERSION - 1 })).toBe('promotion_stale')
+  })
+
+  test('an unprovable revision never counts as current', () => {
+    for (const expectedVersion of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(refusalOf({ expectedVersion })).toBe('promotion_stale')
+    }
+    // A wrong-typed token smuggled past the type is refused the same way.
+    expect(
+      refusalOf({
+        expectedVersion: '4' as unknown as number,
+      })
+    ).toBe('promotion_stale')
   })
 
   test('promotion is explicit opt-in: no confirmation, no promotion', () => {

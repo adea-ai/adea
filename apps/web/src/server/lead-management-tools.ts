@@ -188,7 +188,7 @@ function leadToolBindingInput(
       return {
         input: {
           confirmed: call.confirmed,
-          expectedUpdatedAt: call.expectedUpdatedAt,
+          expectedVersion: call.expectedVersion,
         },
         targetId: call.projectId,
       }
