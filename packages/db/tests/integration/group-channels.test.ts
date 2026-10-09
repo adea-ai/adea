@@ -5,6 +5,8 @@ import { and, eq } from 'drizzle-orm'
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
+import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
+import { listWorkspaceEventsAfter, workspaceEventWindow } from '../../src/event-log'
 import {
   authorizeGroupChannelHistoryRead,
   authorizeGroupChannelPublication,
@@ -1457,10 +1459,13 @@ describe('durable binding, fences and shared read boundary', () => {
         now: NOW,
         title: 'Group',
       })
-      // Gate and final read trusted instants while the grant lives; the
-      // post-write read lands after it lapses.
-      const readings = [NOW, NOW, LATER]
-      const clock = () => readings.shift() ?? LATER
+      // Gate, final and writer authority read trusted instants while the
+      // grant lives; the writer's own post-write re-check is the first
+      // expired read. Three valid readings cover exactly gate, final and
+      // authority. The denial surfaces from the writer layer, after the
+      // nested write really ran — zero rows prove the rollback.
+      let reads = 0
+      const clock = () => (++reads <= 3 ? NOW : LATER)
       await expect(
         postGroupChannelMessage(
           f.local.db,
@@ -1474,7 +1479,7 @@ describe('durable binding, fences and shared read boundary', () => {
           },
           { clock }
         )
-      ).rejects.toThrow('Channel unavailable')
+      ).rejects.toThrow('Lead turn unavailable')
       const [messages, intents] = await Promise.all([
         f.local.db
           .select()
@@ -2103,6 +2108,252 @@ describe('durable binding, fences and shared read boundary', () => {
       ])
       expect(messages).toHaveLength(0)
       expect(intents).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('lead enlistment expiry during the nested write rolls back message, intent and events', async () => {
+    // The nested writer blocks on a held sequence row while wall time lapses
+    // past the enlistment expiry; the writer-internal freshness check then
+    // denies and the whole transaction rolls back. A second lock holder, a
+    // scripted clock, or the fence alone cannot stage this interleave.
+    const f = await isolatedFixture()
+    const local = f.local
+    try {
+      const lead = await ensureWorkspaceLead(local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const wallNow = Date.now()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: new Date(wallNow + 400).toISOString(),
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      // Seed the workspace sequence row and a first message whose event must survive.
+      const first = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          message: { bodyText: 'seed', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { now: new Date(wallNow).toISOString() }
+      )
+      const { latest: start } = await workspaceEventWindow(f.local.db, f.workspace.id)
+      let releaseSeq!: () => void
+      const seqOpen = new Promise<void>((resolve) => {
+        releaseSeq = resolve
+      })
+      let seqAcquired!: () => void
+      const seqAcquiredPromise = new Promise<void>((resolve) => {
+        seqAcquired = resolve
+      })
+      const holding = f.local.db.transaction(async (tx) => {
+        await tx
+          .select()
+          .from(schema.workspaceEventSequences)
+          .where(eq(schema.workspaceEventSequences.workspaceId, f.workspace.id))
+          .limit(1)
+          .for('update')
+        seqAcquired()
+        await seqOpen
+      })
+      await Promise.race([
+        seqAcquiredPromise,
+        sleep(3000).then(() => {
+          throw new Error('sequence lock never acquired')
+        }),
+      ])
+      const selections = {
+        lead: { selectionRef: `msel_${'d'.repeat(32)}`, selectionRevision: 2 },
+      }
+      const posting = postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: {
+            bodyText: 'must not land',
+            idempotencyKey: crypto.randomUUID(),
+            mentions: [],
+            requestedModelSelections: selections,
+          },
+          mode: 'lead',
+        },
+        { now: new Date(wallNow).toISOString() }
+      )
+      // Let wall time lapse past the enlistment expiry while the nested
+      // write waits on the held sequence row.
+      await sleep(800)
+      releaseSeq()
+      await expect(posting).rejects.toThrow('Lead turn unavailable')
+      await holding
+      const [messages, intents, events] = await Promise.all([
+        f.local.db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, channelId)
+            )
+          ),
+        f.local.db
+          .select()
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.channelId, channelId)),
+        listWorkspaceEventsAfter(f.local.db, f.workspace.id, start, 100),
+      ])
+      // Only the seed message survives; the lapsed lead left no message,
+      // no intent and no events.
+      expect(messages.map((row) => row.id)).toEqual([first.id])
+      expect(intents).toHaveLength(0)
+      expect(events.filter((event) => event.payload.channelId === channelId)).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a direct shared-writer call with a revoked actor is denied without any fence', async () => {
+    // createLeadTurn enforces the human group grant itself: no HTTP wrapper,
+    // no fence, no route. Revocation committed before the call denies.
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_owner',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      await expect(
+        createLeadTurn(f.local.db, f.workspace.id, channelId, f.owner, {
+          bodyText: 'must not land',
+          idempotencyKey: crypto.randomUUID(),
+          mentions: [],
+        })
+      ).rejects.toThrow('Lead turn unavailable')
+      const rows = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(rows).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('replay inspection after human revocation is denied while the intent survives', async () => {
+    // Reauthorization paths enforce the human grant too: a revoked reader
+    // cannot inspect the retained intent, which itself is untouched.
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: { bodyText: 'admitted', idempotencyKey: crypto.randomUUID(), mentions: [] },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_owner',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      await expect(
+        getLeadTurnForUser(f.local.db, f.workspace.id, posted.message.id, f.owner)
+      ).rejects.toThrow('Lead turn unavailable')
+      const intents = await f.local.db
+        .select()
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.channelId, channelId))
+      expect(intents).toHaveLength(1)
     } finally {
       await f.local.close()
     }

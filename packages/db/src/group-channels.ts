@@ -766,7 +766,9 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   if (final.action !== 'allow') throw new Error('Channel unavailable')
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
-    const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead)
+    const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead, {
+      clock: options.clock ?? liveGroupClock,
+    })
     // Post-write lifetime check: the awaited write above may have waited on
     // channel or nested locks until after expiry and then committed. Denial
     // throws and rolls back ALL of the fence's effects — message, intent,
