@@ -124,7 +124,9 @@ function directoryAgent(row: DirectoryRow): AccountDirectoryAgent {
  * are distinct entries: the page order is `(workspace_id, name, id)` and the
  * cursor carries all three, so pagination steps through one total order over
  * stable identities. `includeArchived` widens the lifecycle filter the way
- * the workspace-scoped listing does.
+ * the workspace-scoped listing does, and `q` narrows by Agent name inside the
+ * authorization — the directory's authoritative search, answered by the
+ * database rather than by whatever pages a client happens to hold.
  */
 export async function accountAgentDirectory(
   database: Database,
@@ -134,6 +136,11 @@ export async function accountAgentDirectory(
   const limit = accountDirectoryPageLimit(options.limit)
   const after = options.after ? decodeAccountDirectoryCursor(options.after) : null
   const lifecycle = options.includeArchived ? sql`true` : sql`agent.lifecycle_state = 'active'`
+  // The search predicate sits INSIDE the authorization statement: it filters
+  // rows the caller may see, so a hidden project's Agent never matches, and it
+  // is constant for the whole walk — the keyset cursor stays valid because
+  // every page applies the same filter to the same total order over stable ids.
+  const search = options.q ? sql`and position(lower(${options.q}) in lower(agent.name)) > 0` : sql``
   const cursor = after
     ? sql`and (agent.workspace_id, agent.name, agent.id) > (${after.workspaceId}::uuid, ${after.name}, ${after.id}::uuid)`
     : sql``
@@ -141,6 +148,7 @@ export async function accountAgentDirectory(
     select ${directorySelection}
     ${directoryAuthorization(principal.userId)}
     and ${lifecycle}
+    ${search}
     ${cursor}
     order by agent.workspace_id asc, agent.name asc, agent.id asc
     limit ${limit + 1}

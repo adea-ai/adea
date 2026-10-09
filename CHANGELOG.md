@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.87.0](https://github.com/adea-ai/adea/compare/v0.86.0...v0.87.0) (2026-10-09)
+
+
+### Features
+
+* account-wide authorized agent directory and inbox query layer ([#1194](https://github.com/adea-ai/adea/issues/1194)) ([28f88bf](https://github.com/adea-ai/adea/commit/28f88bffd2fbce80992f168282d8e6ff5e39f959)), closes [#1174](https://github.com/adea-ai/adea/issues/1174)
+* add group audience and participation policy ([#1192](https://github.com/adea-ai/adea/issues/1192)) ([69fdf15](https://github.com/adea-ai/adea/commit/69fdf15cec77b528304c21a45ca489173fa578de))
+* **db:** add read-only migration snapshot comparator ([#1199](https://github.com/adea-ai/adea/issues/1199)) ([bb18324](https://github.com/adea-ai/adea/commit/bb18324e9ed201e42e17ff2c99e305cdb99aa02c))
+* **db:** authorize shared-plan artifact references ([#1198](https://github.com/adea-ai/adea/issues/1198)) ([990dd38](https://github.com/adea-ai/adea/commit/990dd387c442ec469198ce33e7720d003af2f8a8))
+* M11.03 authorized global directory and inbox — integration ([#1174](https://github.com/adea-ai/adea/issues/1174)) ([#1212](https://github.com/adea-ai/adea/issues/1212)) ([dd47dc7](https://github.com/adea-ai/adea/commit/dd47dc7c95127dcdfeb2da8ff2534602209640f8))
+* **workspace:** partial stable lead and revision-safe edit work ([#1213](https://github.com/adea-ai/adea/issues/1213)) ([#1233](https://github.com/adea-ai/adea/issues/1233)) ([3091312](https://github.com/adea-ai/adea/commit/30913129ccb1722d9bada288598bc18831342858))
+* **workspaces:** persist personal Home and block unverified deletion ([#1164](https://github.com/adea-ai/adea/issues/1164)) ([df655fb](https://github.com/adea-ai/adea/commit/df655fb58b16938b913996ffff00cd1ae5dd7396))
+
+
+### Bug Fixes
+
+* **deps:** update adea-ai design system ([#1161](https://github.com/adea-ai/adea/issues/1161)) ([413aa97](https://github.com/adea-ai/adea/commit/413aa97352bcdc794de4a4293241f4cc09cee614))
+* **lead:** decode SDK envelopes before timeline publication ([#1204](https://github.com/adea-ai/adea/issues/1204)) ([8986b83](https://github.com/adea-ai/adea/commit/8986b8313fbcebe399c910e1e2e817b4d5944122))
+* pin web lint stylesheet and patch release dependency ([#1201](https://github.com/adea-ai/adea/issues/1201)) ([ef0b198](https://github.com/adea-ai/adea/commit/ef0b198011f4ce09b32e4a648697b8be7e722f8c))
+* **types:** charge JSON escape and structure expansion in snapshot record byte bounds ([#1208](https://github.com/adea-ai/adea/issues/1208)) ([aa6de44](https://github.com/adea-ai/adea/commit/aa6de44f210810b6530ef592cbb43722409fe53e))
+
+
+### Tests
+
+* **pi-durable:** expose selected-model gap and mounted payer journey ([#1196](https://github.com/adea-ai/adea/issues/1196)) ([1313e6b](https://github.com/adea-ai/adea/commit/1313e6b60da063032072714fe35fe1028e6b2013))
+* **pi-durable:** prove selected model payer review and confirmed lead execution ([#1200](https://github.com/adea-ai/adea/issues/1200)) ([9b39cbd](https://github.com/adea-ai/adea/commit/9b39cbdf7b2edcb48750bd22cb9818f75c531508))
+* **pi-durable:** qualify prepared workspace lead consumer ([#1193](https://github.com/adea-ai/adea/issues/1193)) ([79a2970](https://github.com/adea-ai/adea/commit/79a2970a5eefa993a69a29f7da26f472692731e4))
+
+
+### CI
+
+* **lanes:** fire the visual and start-host lanes at ready, not on open ([#1197](https://github.com/adea-ai/adea/issues/1197)) ([ca057b1](https://github.com/adea-ai/adea/commit/ca057b15acfc83da2b98d5b9fd88b37655973c21))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.47.1 ([#1205](https://github.com/adea-ai/adea/issues/1205)) ([957e897](https://github.com/adea-ai/adea/commit/957e897795b86ff8541e04c69a96aff96401cb6a))
+
 ## [0.86.0](https://github.com/adea-ai/adea/compare/v0.85.0...v0.86.0) (2026-10-08)
 
 

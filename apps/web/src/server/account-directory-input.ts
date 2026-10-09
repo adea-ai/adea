@@ -6,6 +6,7 @@ export type AccountDirectoryPageQuery = Readonly<{
   after?: string
   includeArchived?: boolean
   limit?: number
+  q?: string
 }>
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -29,6 +30,17 @@ function parsePageLimit(value: string): number | null {
   return limit >= 1 && limit <= 100 ? limit : null
 }
 
+// The authoritative search term. Bounded so one keystroke can never turn into
+// an unbounded scan, trimmed so "box " and "box" are one search (and therefore
+// one cache entry), and rejected when blank rather than silently meaning
+// "everything" — clearing the box omits the parameter entirely.
+const MAX_SEARCH_LENGTH = 200
+
+function parseSearch(value: string): string | null {
+  const term = value.trim()
+  return term.length >= 1 && term.length <= MAX_SEARCH_LENGTH ? term : null
+}
+
 /**
  * Parses the page query exactly: unknown parameters, malformed numbers, and
  * ambiguous markers are rejected as a whole, returning `null` for the route
@@ -37,7 +49,7 @@ function parsePageLimit(value: string): number | null {
 export function parseAccountDirectoryPageQuery(
   searchParams: URLSearchParams
 ): AccountDirectoryPageQuery | null {
-  const known = new Set(['after', 'includeArchived', 'limit'])
+  const known = new Set(['after', 'includeArchived', 'limit', 'q'])
   for (const key of searchParams.keys()) if (!known.has(key)) return null
 
   const limit = searchParams.get('limit')
@@ -50,9 +62,14 @@ export function parseAccountDirectoryPageQuery(
   const includeArchived = searchParams.get('includeArchived')
   if (includeArchived !== null && !['true', 'false'].includes(includeArchived)) return null
 
+  const q = searchParams.get('q')
+  const parsedQ = q === null ? null : parseSearch(q)
+  if (q !== null && parsedQ === null) return null
+
   return {
     ...(after !== null ? { after } : {}),
     ...(includeArchived !== null ? { includeArchived: includeArchived === 'true' } : {}),
     ...(parsedLimit !== null ? { limit: parsedLimit } : {}),
+    ...(parsedQ !== null ? { q: parsedQ } : {}),
   }
 }

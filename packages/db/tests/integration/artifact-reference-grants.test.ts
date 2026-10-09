@@ -746,27 +746,18 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
 
     // Observe the real lock wait before releasing it; no fixed sleep guesses
     // the schedule (the runtime-node-delivery lane's pattern).
-    let blocked = false
-    for (let attempt = 0; attempt < 200 && !blocked; attempt++) {
-      const rows = await connection.db.execute(
-        sql`select pid from pg_stat_activity
-            where wait_event_type = 'Lock' and datname = current_database()
-              and query ilike '%artifact_reference_grants%'`
-      )
-      blocked = rows.length > 0
-      if (!blocked) await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-    let diagnostic = ''
     try {
-      expect(blocked).toBe(true)
+      await waitForLockWait('artifact_reference_grants')
       expect(revocationSettled).toBe(false)
     } catch (error) {
       const activity = await connection.db.execute(
         sql`select state, wait_event_type, wait_event, left(query, 70) as q
             from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()`
       )
-      diagnostic = `settled=${revocationSettled} events=${JSON.stringify(events)} activity=${JSON.stringify(activity)}`
-      throw new Error(`race poll failed: ${diagnostic}`, { cause: error })
+      throw new Error(
+        `race wait failed: settled=${revocationSettled} events=${JSON.stringify(events)} activity=${JSON.stringify(activity)}`,
+        { cause: error }
+      )
     } finally {
       // Never leave the authorize transaction parked: a failure here would
       // hold its row locks and block cleanup behind it.
@@ -845,26 +836,9 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
           input,
           round
         )
-        let waitingRelations: string[] | null = null
-        for (let attempt = 0; attempt < 500 && waitingRelations === null; attempt++) {
-          const rows = await connection.db.execute(
-            sql`select coalesce(array_agg(c.relname) filter (where c.relname is not null), '{}')
-                  as relations
-                from pg_stat_activity a
-                left join pg_locks l on l.pid = a.pid and l.granted
-                left join pg_class c on c.oid = l.relation
-                  and c.relname in ('artifacts', 'artifact_reference_grants')
-                where a.wait_event_type = 'Lock' and a.datname = current_database()
-                  and a.state <> 'idle'
-                group by a.pid
-                limit 1`
-          )
-          const row = rows[0] as { relations: string[] } | undefined
-          waitingRelations = row ? row.relations : null
-          if (waitingRelations === null) await new Promise((resolve) => setTimeout(resolve, 10))
-        }
+        let waitingRelations: string[] = []
         try {
-          expect(waitingRelations).not.toBeNull()
+          waitingRelations = await waitForLockedRelations()
           // The grant-table statement has not started: the wait is on the
           // artifact row, and only the artifact table lock is held.
           expect(waitingRelations).toContain('artifacts')
@@ -989,6 +963,140 @@ describe.skipIf(!connectionUrl)('Artifact reference grant store', () => {
       expect(replay.outcome).toBe('existing')
       expect(replay.state).toEqual(first.state)
     }
+    expect(await storedRows(input.grantId)).toHaveLength(1)
+  })
+
+  /** An in-flight revocation or archive, emulated at row-lock level. The
+   *  barrier resolves `acquired` only after the exclusive row lock is held,
+   *  and releases only when the test explicitly releases it; no fixed
+   *  duration guesses the schedule. */
+  function holdRowFor(
+    table: typeof workspaceMemberships | typeof workspaces,
+    column: typeof workspaceMemberships.userId | typeof workspaces.id,
+    value: string
+  ) {
+    const acquired = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const done = connection.db.transaction(async (transaction) => {
+      await transaction
+        .select({ locked: column })
+        .from(table)
+        .where(eq(column, value))
+        .for('update')
+      acquired.resolve()
+      await release.promise
+    })
+    return { acquired: acquired.promise, done, release: () => release.resolve() }
+  }
+
+  /** Wait, bounded and event-driven, until another backend is blocked on a row
+   *  lock whose current statement mentions `needle`, then return. The caller
+   *  releases the held lock only after this wait is observed, so no fixed
+   *  duration is assumed. */
+  async function waitForLockWait(needle: string): Promise<void> {
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const rows = await connection.db.execute(
+        sql`select pid from pg_stat_activity
+            where wait_event_type = 'Lock' and datname = current_database()
+              and pid <> pg_backend_pid()
+              and query ilike ${`%${needle}%`}`
+      )
+      if (rows.length > 0) return
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    const activity = await connection.db.execute(
+      sql`select state, wait_event_type, wait_event, left(query, 90) as q
+          from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()`
+    )
+    throw new Error(`no backend blocked on ${needle}: ${JSON.stringify(activity)}`)
+  }
+
+  /** The granted relation set of the blocked backend, observed without fixed
+   *  delays; the lock-order proof fails if no blocked backend ever appears. */
+  async function waitForLockedRelations(): Promise<string[]> {
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const rows = await connection.db.execute(
+        sql`select coalesce(array_agg(c.relname) filter (where c.relname is not null), '{}')
+              as relations
+            from pg_stat_activity a
+            left join pg_locks l on l.pid = a.pid and l.granted
+            left join pg_class c on c.oid = l.relation
+              and c.relname in ('artifacts', 'artifact_reference_grants')
+            where a.wait_event_type = 'Lock' and a.datname = current_database()
+              and a.state <> 'idle'
+            group by a.pid
+            limit 1`
+      )
+      const relations = (rows[0] as { relations?: string[] } | undefined)?.relations
+      if (relations !== undefined) return relations
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    throw new Error('no blocked backend was observed for the lock-order relations')
+  }
+
+  test('membership removal cannot interleave with registration: the issuer row is share-locked', async () => {
+    const { audience, source } = await fixture('race-membership')
+    const admin = await temporaryUser('race-membership-admin')
+    await addWorkspaceMembership(connection.db, source.id, admin, 'admin')
+    const created = await createAvailableArtifact(source.id, admin)
+    const input = inputFor(source, audience, created.id)
+
+    // An in-flight removal holds the issuer's membership row exclusively —
+    // exactly the state a concurrent removeWorkspaceMembership creates
+    // between its delete and its commit. The barrier resolves only once the
+    // row lock is held; the registration is released only after its wait on
+    // the share lock is observed.
+    const holder = holdRowFor(workspaceMemberships, workspaceMemberships.userId, admin.userId)
+    await holder.acquired
+
+    const registration = registerArtifactReferenceGrant(connection.db, source.id, admin, input)
+    try {
+      // While the removal is unresolved, the registration cannot have passed
+      // its authority check, so nothing may be written. Without the share lock
+      // this read saw the grant row already committed here.
+      await waitForLockWait('workspace_memberships')
+      expect(await storedRows(input.grantId)).toHaveLength(0)
+    } finally {
+      holder.release()
+    }
+    await holder.done
+    const registered = await registration
+    expect(registered.outcome).toBe('registered')
+    expect(await storedRows(input.grantId)).toHaveLength(1)
+  })
+
+  test('a membership removal that committed first refuses the registration', async () => {
+    const { audience, source } = await fixture('race-revoked-first')
+    const admin = await temporaryUser('race-revoked-first-admin')
+    await addWorkspaceMembership(connection.db, source.id, admin, 'admin')
+    const created = await createAvailableArtifact(source.id, admin)
+    const input = inputFor(source, audience, created.id)
+
+    expect(await removeWorkspaceMembership(connection.db, source.id, admin)).toBe(true)
+    await expect(
+      registerArtifactReferenceGrant(connection.db, source.id, admin, input)
+    ).rejects.toThrow('Artifact reference grant issuer unauthorized')
+    expect(await storedRows(input.grantId)).toHaveLength(0)
+  })
+
+  test('archiving the source workspace cannot interleave with registration: the workspace row is share-locked', async () => {
+    const { audience, owner, source } = await fixture('race-archive')
+    const created = await createAvailableArtifact(source.id, owner)
+    const input = inputFor(source, audience, created.id)
+
+    const holder = holdRowFor(workspaces, workspaces.id, source.id)
+    await holder.acquired
+
+    const registration = registerArtifactReferenceGrant(connection.db, source.id, owner, input)
+    try {
+      await waitForLockWait('workspaces')
+      expect(await storedRows(input.grantId)).toHaveLength(0)
+    } finally {
+      holder.release()
+    }
+    await holder.done
+    const registered = await registration
+    expect(registered.outcome).toBe('registered')
     expect(await storedRows(input.grantId)).toHaveLength(1)
   })
 })
