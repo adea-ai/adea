@@ -18,7 +18,7 @@ import {
 
 const WORKSPACE = '0f3a2e1c-0000-4000-8000-000000000001'
 const PROJECT = '0f3a2e1c-0000-4000-8000-000000000002'
-const REVISION = '2026-10-09T00:00:00.000Z'
+const PROJECT_VERSION = 7
 const PRINCIPAL: UserPrincipalRef = { kind: 'user', userId: 'user-1' }
 const DATABASE = {} as AgentHqDatabase
 
@@ -31,6 +31,7 @@ const project = {
   sortOrder: 0,
   sourceKind: 'none' as const,
   updatedAt: '2026-10-09T00:00:00.000Z',
+  version: PROJECT_VERSION,
   visibility: 'workspace' as const,
   workspaceId: WORKSPACE,
 }
@@ -98,7 +99,7 @@ function harness(caller: ManagementCaller, options: Readonly<{ allowed?: boolean
 function promoteInput(overrides: Readonly<Record<string, unknown>> = {}) {
   return {
     confirmed: true,
-    expectedUpdatedAt: REVISION,
+    expectedVersion: PROJECT_VERSION,
     principal: PRINCIPAL,
     projectId: PROJECT,
     workspaceId: WORKSPACE,
@@ -119,7 +120,7 @@ describe('project promotion through the shared management API (#1218)', () => {
           WORKSPACE,
           PROJECT,
           PRINCIPAL,
-          { confirmed: true, expectedUpdatedAt: REVISION },
+          { confirmed: true, expectedVersion: PROJECT_VERSION },
         ],
         name: 'promoteProjectState',
       },

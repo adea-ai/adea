@@ -87,45 +87,67 @@ not fork the gateway, authorization or audit paths.
 
 ## Migration sequencing (root-coordinated)
 
-- **#1233/#1213 `0045_agent-edit-revisions` lands first.** It is not merged
-  yet; its ready transition awaits user confirmation under the approval
-  guard. This lane neither claims nor depends on it having already landed.
-- This lane's migration is provisionally numbered `0045_solid_ted_forrester`
-  on the current stacked branch. Once `0045_agent-edit-revisions` actually
-  lands on `main`, rebase this branch on updated `main` and **regenerate**
-  the migration there: the real `packages/db/drizzle/meta/_journal.json` on
-  `main` is the only authoritative numbering. Never merge two `0045`s and
-  never pre-assign a replacement number from a plan.
-- Planned `0046` (artifact dependency) and `0047` (requested-model selection,
-  #1229) are plans until the main journal confirms them.
+- **#1233/#1213 `0045_agent-edit-revisions` has landed.** Verified on actual
+  `main` = `30913129c` (squash of reviewed `fdc940d79`); the main journal ends
+  `idx 45 = 0045_agent-edit-revisions`. Nothing here claims or fabricates that
+  landing.
+- This branch is still stacked on the pre-#1233 #1215 commit and therefore
+  carries **two provisional, branch-local migrations**: `0045_solid_ted_forrester`
+  (channels `archive_source`) and `0046_wealthy_mister_fear`
+  (`projects.version` + positive check). They exist only so the branch can be
+  tested; they are not for publication and must not be merged as numbered.
+- At the safe integration point (after 1207 regenerates `0046` and #1229's
+  `0047` land), rebase on actual `main`, delete both provisional SQL/snapshot
+  entries, and regenerate **one** combined migration from the authoritative
+  journal; the number is coordinated with root, never pre-assigned.
 - Regeneration note: drizzle-kit 0.31.11 emitted only
   `ALTER TABLE ... ADD COLUMN` for the new enum used by an added column. After
   regenerating, prepend
   `CREATE TYPE "app"."channel_archive_source" AS ENUM('individual', 'project_cascade');`
-  (the current file already carries it) and re-run `drizzle-kit check`.
+  and re-run `drizzle-kit check`.
 - No migration number is claimed for publication until root confirms the
-  journal state; this lane publishes only its draft PR for now.
+  journal state; this lane publishes only its draft PR.
 
-## Follow-ups (not in this lane)
+## Implemented: canonical project revision
 
-### `projects.version` replaces the `updatedAt` revision token
+ROOT authorized this slice. The timestamp authority is fully replaced:
 
-The promotion decision uses the exact observed `updatedAt` under a row lock
-and a compare-and-swap because `projects` has no version column. When that
-column lands, these are the exact hunks, and `expectedUpdatedAt` becomes
-`expectedVersion` in the plan, operation and API input:
+- `packages/db/src/schema/projects.ts`: additive `version integer DEFAULT 1
+NOT NULL` with `CHECK (version > 0)`, matching the workspaces/channels
+  convention.
+- `packages/types/src/index.ts`: `ProjectSummary.version: number`.
+- `packages/db/src/project-summary.ts`: the one canonical `projectSummary(row)`
+  mapper, exported from the db barrel and used by `projects.ts`,
+  `project-sharing.ts` and `project-state-policy.ts` (duplicated mappers
+  removed).
+- Every project-row mutation increments atomically: `updateProject`,
+  `archiveProject`, `softDeleteProject`, `reorderProjects` (included),
+  `setProjectVisibility` and `promoteProjectState`. `createProject` starts
+  at 1. Membership rows keep their own operation contracts and are not part
+  of the project-row revision.
+- `decideProjectStatePromotion` and `promoteProjectState` take
+  `expectedVersion: number`; a non-safe-integer, `< 1` or mismatched revision
+  refuses `promotion_stale`, and the SQL CAS is
+  `eq(projects.version, expectedVersion)`. Timestamps remain display-only.
+- The management executor/operation, the `restore` route and
+  `ApiProjectRestoreInput` now carry `{ confirmed: true; expectedVersion }`;
+  `packages/types/src/management.ts` was not edited — `project_revision`
+  remains the catalog name for this integer.
+- Archived-channel provenance and the project→channels(id) lock order are
+  unchanged.
 
-```diff
---- a/packages/db/src/schema/projects.ts
-+++ b/packages/db/src/schema/projects.ts
-@@
-   lifecycleState: projectLifecycleState('lifecycle_state').default('active').notNull(),
-+  version: integer('version').default(1).notNull(),
-   visibility: projectVisibility('visibility').default('workspace').notNull(),
-@@
-     check('projects_sort_order_nonnegative', sql`${table.sortOrder} >= 0`),
-+    check('projects_version_positive', sql`${table.version} > 0`),
-```
+Permanent regressions:
+
+- `packages/db/tests/unit/project-state-policy.test.ts`: version-token cases
+  including zero/negative/fractional/NaN/non-number revisions.
+- `packages/db/tests/integration/project-state-promotion.test.ts`:
+  microsecond timestamps no longer block an exact revision; a
+  same-millisecond edit still moves the token and refuses the old revision.
+- `packages/db/tests/integration/projects.test.ts`: every row mutation
+  increments the revision (update → visibility → reorder → archive → soft
+  delete), and the summary key set includes `version`.
+
+## Follow-up (not in this lane)
 
 ### `dev.cleanupPolicy.createDraft` body/guard mismatch
 

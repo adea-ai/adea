@@ -323,6 +323,13 @@
       "when": 1791512705826,
       "tag": "0045_solid_ted_forrester",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791525239347,
+      "tag": "0046_wealthy_mister_fear",
+      "breakpoints": true
     }
   ]
 }

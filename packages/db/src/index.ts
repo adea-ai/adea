@@ -225,6 +225,7 @@ export {
   softDeleteProject,
   updateProject,
 } from './projects'
+export { projectSummary } from './project-summary'
 export {
   archiveProjectChannels,
   decideProjectStatePromotion,
