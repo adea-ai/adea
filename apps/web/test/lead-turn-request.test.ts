@@ -8,6 +8,15 @@ describe('explicit lead-turn admission request', () => {
     ).toBe('history')
     expect(parseLeadTurnMode({ executionRef: 'historical-execution' })).toBe('history')
   })
+  test('requested role refs require explicit lead admission', () => {
+    const requestedModelSelections = {
+      lead: { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 },
+    }
+    expect(parseLeadTurnMode({ bodyText: 'Question', requestedModelSelections })).toBeNull()
+    expect(
+      parseLeadTurnMode({ leadTurn: true, bodyText: 'Question', requestedModelSelections })
+    ).toBe('lead')
+  })
   test('only true opts in and only canonical message content is accepted', () => {
     expect(
       parseLeadTurnMode({ leadTurn: true, bodyText: 'User message', mentions: [], artifactIds: [] })

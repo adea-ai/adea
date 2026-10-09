@@ -178,6 +178,7 @@ export type ApiAccountSummaryResponse = AccountSummary
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type {
   ApiLeadTurnStatus,
+  ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,
   ApiChannelLeadTurnResponse,
   ApiLeadTurnProgress,
@@ -210,6 +211,7 @@ export type ApiMessagePage = Readonly<{
 export type ApiMessageCreateInput = Readonly<{
   /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
   leadTurn?: true
+  requestedModelSelections?: import('./lead-turns').ApiRequestedRoleModelSelections
   artifactIds?: readonly string[]
   bodyContentRefId?: string
   bodyText?: string
