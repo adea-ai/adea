@@ -178,12 +178,12 @@ test('explicit handoff admits through the canonical path with server-side recove
   // The admission commits a blocked turn: requested state with a status
   // check, then dispatch, then coordination.
   await page.getByRole('button', { name: 'Resolve admission' }).click()
-  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Check lead status', exact: true })).toBeEnabled()
   // The turn dispatches without pushing: the view stays requested until
   // an explicit check re-reads it.
   await page.getByRole('button', { name: 'Advance turn silently' }).click()
-  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   await page.getByRole('button', { name: 'Check lead status', exact: true }).click()
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
   await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
@@ -202,7 +202,7 @@ test('a foreign turn grants nothing and keeps handoff available', async ({ page 
   await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
   await page.getByRole('button', { name: 'Resolve admission' }).click()
-  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
   expectNoErrors(errors)
 })
 
@@ -237,6 +237,22 @@ test('revoked session control and phantom sessions refuse before any post', asyn
   await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
   await expect(page.getByRole('alert').getByText(/not_found/)).toBeVisible()
   await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  expectNoErrors(errors)
+})
+
+test('a runtime binding to another session never coordinates', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe mismatched binding' }).click()
+  // Claimed for this session but observed elsewhere: the binding
+  // mismatch is named, nothing coordinates. The live claim still holds
+  // the request slot (a same-triple re-request would dedupe to it), so
+  // hand-off stays disabled with the outstanding reason.
+  await expect(section(page).getByText(/another session/)).toBeVisible()
+  const handoff = page.getByRole('button', { name: 'Hand off to lead', exact: true })
+  await expect(handoff).toBeDisabled()
+  await expect(page.locator(`#${await handoff.getAttribute('aria-describedby')}`)).toContainText(
+    'already outstanding'
+  )
   expectNoErrors(errors)
 })
 

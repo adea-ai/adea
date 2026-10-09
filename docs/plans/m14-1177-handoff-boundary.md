@@ -29,41 +29,48 @@ plus model-backed actions in `ChatView` (`handoff` config; full `handoffView`
 override still wins), and the production enablement in
 `apps/web/src/components/desktop-first-run-chat.tsx`.
 
-Coordination semantics: coordination comes only from supplied canonical
-lead-turn facts — the workspace lead's admitted intent identity plus its
-observed live execution — and never from a bound run, composer authority,
-view routing, or task-wide correlation. Binding is exact, never
-task-wide: an explicit handoff request posts admission (`createMessage`
-with `leadTurn: true` plus the structured `handoffTarget`
-`{runtimeSessionId, taskId, expectedGeneration}`) on the lead's
-exactly-one active task-less direct channel — task-scoped channels cannot
-admit (server `lockAuthority`), so they can never coordinate either. The
-server verifies the claimed task is visible, stamps the triple on the
-intent, and returns it on the receipt; the client verifies the receipt
-names the requesting session and refreshes from the exact intent
-(`getLeadTurnStatus`), never by task-wide re-resolution. A response
-without a retained target, or with another session's target, fails closed.
-Unknown-outcome retries recover the canonically retained intent
-server-side (the COMPLETE triple — session, generation, task — must
-match; a same-session/generation claim naming another task fails closed
-as a target mismatch), backed by a partial unique target context — no
-client-held request identity exists to evict or lose on reload. A
-different generation always mints anew: retained ordering is ordering
-only, never staleness ground truth (a fabricated high generation can
-therefore neither be rejected as proof nor poison later requests), and
-concurrent same-target admissions serialize on the channel FOR UPDATE
-lock (createLeadTurn is the sole inserter), so the unique index is a
-backstop with no recovery branch of its own.
-Single-flight admission and handoff-blocked-while-live complete the
-duplication defense. Awaiting admission shows a Check-status refresh
-instead of polling. The turn counts only when bound to the observed workspace
-lead agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
-workspace-scoped, active lifecycle) AND to this exact session (retained
-`handoffTarget.runtimeSessionId` equals the selected session; targetless
-or foreign turns are stripped before derivation): the model checks
-`turn.agentId === lead.id` plus designation, lifecycle, and exact target,
-and an unbound turn is stripped before derivation so it can neither drive
-a mode nor authorize lead-stop — the mismatch is named instead. The
+Coordination semantics: caller handoff targets are REQUESTED
+REFERENCES, never observed authority. A retained request — or even a
+running lead turn — alone MUST NOT make the UI or status claim
+native-session coordination. Coordination establishes at exactly one
+place: the effect boundary, where a runtime-validated execution
+binding observed in THIS session meets the retained claim (same
+session, current generation). Everything else is tracking, planning,
+or explicitly unavailable — never coordination.
+Concretely, an explicit handoff request posts admission
+(`createMessage` with `leadTurn: true` plus the structured
+`handoffTarget` `{runtimeSessionId, taskId, expectedGeneration}`)
+on the lead's exactly-one active task-less direct channel —
+task-scoped channels cannot admit (server `lockAuthority`), so they
+can never coordinate either. The server verifies the claimed task is
+visible, stamps the triple on the intent, and returns it on the
+receipt; the client verifies the receipt names the requesting session
+and refreshes from the exact intent (`getLeadTurnStatus`), never by
+task-wide re-resolution. A response without a retained target, or
+with another session's target, fails closed. Reads follow admission
+sequence, never caller-claimed generation. Unknown-outcome retries
+recover the canonically retained request server-side (the COMPLETE
+triple — session, generation, task — must match; a same-session
+claim naming another task fails closed as a target mismatch; a
+changed explicit choice fails as a model selection conflict),
+backed by a partial unique target context — no client-held request
+identity exists to evict or lose on reload. A different generation
+always mints anew. Concurrent same-target admissions serialize on
+the channel FOR UPDATE lock (createLeadTurn is the sole inserter),
+so the unique index is a backstop with no recovery branch of its
+own. Single-flight admission and handoff-blocked-while-live
+complete the duplication defense. Awaiting admission shows a
+Check-status refresh instead of polling.
+The turn coordinates only when bound to the observed workspace lead
+agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
+workspace-scoped, active lifecycle) AND to this exact session by
+claim (retained target names it) AND by effect (a runtime-observed
+execution binding names it, at the live generation). Targetless,
+foreign, generation-stale, or binding-less turns are stripped before
+derivation so none can drive a mode or authorize lead-stop — the
+mismatch is named instead. An outstanding own-session request that
+is not yet effect-bound shows as REQUESTED (tracked, Check
+available), never as coordinated. The
 binding also compares generations against the LIVE session: a retained
 target naming another generation (older or fabricated-newer) does not
 coordinate, so display currency never trusts retained ordering. A caller that can
@@ -198,6 +205,11 @@ contiguity, tag/file correspondence) and
 migrate through 0050, close/reopen, apply the complete chain,
 columns/check/index present, journal row exactly once). Both guards
 were proven to fire on the broken timestamp before the fix landed.
+`chat-handoff-model/supplier.test.ts` claim-vs-binding matrix
+(forged 9999 unbound, binding-elsewhere unbound, requested vs
+mismatch notices, handoff gating on claims); mounted
+mismatched-binding exclusion plus the full requested→check→live
+journey with effect-bound fixtures.
 
 ## Session authority (defect-1 fix)
 
@@ -215,33 +227,69 @@ and any refusal fails closed before any admission post exists. No
 desktop-shell changes were needed: `dev.session.get` already returns
 the full record and the capability snapshot already reports manage.
 
-Host-to-server trust (identified mechanism, then enforced): the
-`Authorization: Desktop` credential scheme is the existing host
-channel — vault-held by the shell, issued via the PKCE `adea://`
-handoff (`apps/web/src/server/desktop-auth.ts`,
-`resolveDesktopSessionPrincipal`; client sends it in
-`packages/api-client/src/index.ts`, configured from the vault in
-`apps/web/src/lib/desktop-runtime.ts`), revocable/expiring in
-`desktop_sessions`, origin-gated. `resolveWorkspacePrincipal`
-collapsed the channel to a bare user principal, so admission could
-not distinguish host-mediated from direct-API requests. Now: the
-messages route records the validated channel and target-bearing
-admissions require it (`createLeadTurn` enforces
-`hostMediated` for any retained target, for every caller — the
-group-lane caller is targetless and unaffected). Retained target
-⟺ host-channeled by construction, with zero new columns: a direct
-bypass with forged session/task/generation fails closed before any
-row exists (proven: 0 rows retained), and high-generation futures
-can never outrank honest intents (proven: forged 9999 rejected,
-honest 4 reads current). The route gate duplicates the DB rule so
-failures 400 early; the DB rule holds even if the route line ever
-regresses (the route handler has no test seam by repo practice —
-reviewed, not unit-proven).
+Host-to-server trust, precisely bounded: the `Authorization: Desktop`
+credential scheme proves desktop LOGIN (vault-held shell credential,
+PKCE `adea://` issuance in `apps/web/src/server/desktop-auth.ts`,
+revocable/expiring `desktop_sessions`, origin-gated; sent in
+`packages/api-client/src/index.ts`, configured in
+`apps/web/src/lib/desktop-runtime.ts`) — it does NOT prove the
+session authority ran or that session/task/generation is current,
+and a desktop-authenticated caller can bypass client preflight.
+The `hostMediated` flag therefore records channel only, never
+vetting: it narrows forgery to credential holders (defense in
+depth — the messages route 400s unmediated targets early and
+`createLeadTurn` enforces mediation for every caller; the
+group-lane caller is targetless and unaffected), but a mediated
+forgery IS retained as a request. What forgery cannot do is
+coordinate: retained order is admission sequence (never untrusted
+generation) and coordination needs the effect binding, so even a
+fully retained forged future only ever reads as one more tracked
+request. The route handler has no test seam by repo practice —
+reviewed, not unit-proven; the DB rule is proven.
+
+## Operational today vs awaiting CP935 control integration
+
+OPERATIONAL (proven by the suites named in Traceability):
+attachment and planning views; requested-reference tracking with
+receipt verification, server recovery, and Check-by-receipt;
+explicit unavailability states naming the missing proof;
+own-intent cancellation through the canonical actor-gated path;
+fail-closed admission (validation, task visibility, mediation,
+complete-target and selection identity).
+AWAITING canonical CP935 control integration (issue stays OPEN;
+nothing here claims complete while coordination is unavailable):
+target-aware execution such that the control plane observes
+execution bound to the exact session — today the dispatch
+authority and binding carry no session (`LeadRuntimeAuthority`
+and `LeadRuntimeBinding` have intent/dispatch/execution/attempt
+but no target; the adapter reports whatever session CP
+associates, which the claim cannot direct). Until that
+integration lands, session coordination shows explicitly
+unavailable; the effect-binding check is implemented and will
+light up with zero further changes when CP reports the session.
 Explicit choices are identity too: the retained-target return
 applies 1215's `sameRequestedRoleModelSelections` check first, so
 a changed choice replays as `model selection conflict` exactly
 like the message-idempotency path — never a silent old receipt
 (proven by focused replay).
+
+## Effect-boundary path (actual E2E, existing infrastructure)
+
+Admission (`createLeadTurn`, intent + `handoffTarget` claim) →
+prepare (`prepareLeadTurnRuntime`, funding-confirmed selection) →
+dispatch (`dispatchLeadTurn`, adapter mints execution) → observe
+(`observeLeadTurnRuntime`, adapter-reported `LeadRuntimeBinding`
+with CP-observed `runtimeSessionId`, immutable once set) → runtime
+row (`lead_turn_runtime`) → snapshot (`projection` in
+`apps/web/src/server/lead-turn-runtime.ts` surfaces BOTH the
+admission claim and the observed binding) → `latest`/`status`
+routes → supply mapping → `resolveLeadClaim` (request tracking)
+vs `resolveLeadCoordination` (claim + observed==session +
+generation). Neither the dispatch authority nor the binding
+carries a target session, and nothing tells CP the session — so
+with existing infrastructure the observed binding cannot match a
+claim except by CP-side coincidence. That is exactly why
+coordination stays unavailable until CP935 carries the target.
 
 ## Traceability
 

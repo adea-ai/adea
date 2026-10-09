@@ -9,6 +9,7 @@ import {
   deriveDirectSessionHandoff,
   deriveHandoffModeForSurface,
   hasOpenApproval,
+  resolveLeadClaim,
   resolveLeadCoordination,
   handoffActionReducer,
   handoffControlReasonId,
@@ -79,6 +80,7 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
       taskId: '00000000-0000-4000-8000-0000000000f1',
       observedGeneration: 3,
     },
+    observedRuntimeSessionId: 'session-1',
     ...overrides,
   }
 }
@@ -798,6 +800,35 @@ describe('lead-agent binding', () => {
     ).toEqual({
       bound: false,
       reason: 'the observed turn names no handoff target',
+    })
+    expect(
+      resolveLeadCoordination(leadTurn({ observedRuntimeSessionId: undefined }), leadAgent(), {
+        id: 'session-1',
+        generation: 3,
+      })
+    ).toEqual({
+      bound: false,
+      reason: 'the observed turn has no runtime-validated execution binding',
+    })
+    expect(resolveLeadClaim(leadTurn(), leadAgent(), 'session-1')).toEqual({ bound: true })
+    expect(resolveLeadClaim(leadTurn(), leadAgent(), 'session-other')).toEqual({
+      bound: false,
+      reason: 'the observed turn targets another session',
+    })
+    const { handoffTarget: _claimed, ...unclaimed } = leadTurn()
+    expect(resolveLeadClaim(unclaimed, leadAgent(), 'session-1')).toEqual({
+      bound: false,
+      reason: 'the observed turn names no handoff target',
+    })
+    expect(
+      resolveLeadCoordination(
+        leadTurn({ observedRuntimeSessionId: 'session-other' }),
+        leadAgent(),
+        { id: 'session-1', generation: 3 }
+      )
+    ).toEqual({
+      bound: false,
+      reason: 'the observed turn executes in another session',
     })
     expect(
       resolveLeadCoordination(

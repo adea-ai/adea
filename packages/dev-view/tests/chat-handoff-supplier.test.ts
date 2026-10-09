@@ -74,6 +74,7 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
       taskId: '00000000-0000-4000-8000-0000000000f1',
       observedGeneration: 3,
     },
+    observedRuntimeSessionId: 'session-1',
     ...overrides,
   }
 }
@@ -291,6 +292,78 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(view.controls.handoff_to_lead.available).toBe(true)
     expect(view.awaitingTurn).toBe(false)
     expect(view.notice).toMatch(/another session/)
+  })
+
+  test('DESKTOP-AUTHENTICATED forged claim cannot coordinate', () => {
+    // The strong attacker: a desktop-credentialed caller bypassing client
+    // preflight, fully retained server-side (mediated, same channel). The
+    // forged future generation is tracked as a request but establishes
+    // nothing: attached, no coordination, re-request stays available.
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({
+        state: 'blocked',
+        canCancel: false,
+        handoffTarget: {
+          runtimeSessionId: 'session-1',
+          taskId: '00000000-0000-4000-8000-0000000000f1',
+          observedGeneration: 9999,
+        },
+        observedRuntimeSessionId: undefined,
+      }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(supplied.leadMismatch).toBe(true)
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.awaitingTurn).toBe(true)
+    expect(view.notice).toMatch(/requested/)
+  })
+
+  test('a live forged claim blocks duplicates but still coordinates nothing', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({
+        handoffTarget: {
+          runtimeSessionId: 'session-1',
+          taskId: '00000000-0000-4000-8000-0000000000f1',
+          observedGeneration: 9999,
+        },
+        observedRuntimeSessionId: undefined,
+      }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.controls.handoff_to_lead.available).toBe(false)
+    expect(view.controls.lead_stop.available).toBe(false)
+  })
+
+  test('a runtime binding to another session never coordinates this one', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({
+        state: 'blocked',
+        canCancel: false,
+        observedRuntimeSessionId: 'session-other',
+      }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(supplied.leadMismatch).toBe(true)
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.notice).toMatch(/requested/)
   })
 
   test('a targetless turn grants nothing and keeps handoff available', () => {

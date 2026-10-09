@@ -150,6 +150,8 @@ export async function resolveLeadHandoffSupply(
       taskId?: string
       observedGeneration: number
     }
+    /** Runtime-validated execution binding, when the runtime observed one. */
+    runtimeSessionId?: string
   } | null
   try {
     turn = (await port.getChannelLeadTurn(workspaceId, linked[0]!.id, sessionRef.runtimeSessionId))
@@ -172,7 +174,10 @@ export async function resolveLeadHandoffSupply(
       agentId: leadAgent.id,
       ...(turn.dispatchId !== undefined ? { dispatchId: turn.dispatchId } : {}),
       state: turn.state as HandoffLeadTurn['state'],
-      canCancel: CANCELLABLE_TURN_STATES.includes(turn.state),
+      canCancel: leadTurnCanCancel(turn.state),
+      ...(turn.runtimeSessionId !== undefined
+        ? { observedRuntimeSessionId: turn.runtimeSessionId }
+        : {}),
       handoffTarget: {
         runtimeSessionId: turn.handoffTarget.runtimeSessionId,
         ...(turn.handoffTarget.taskId !== undefined ? { taskId: turn.handoffTarget.taskId } : {}),

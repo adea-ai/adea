@@ -96,6 +96,10 @@ export type HandoffLeadTurn = Readonly<{
   canCancel: boolean
   /** Admission refusal code when state is blocked. */
   reasonCode?: string
+  /** Runtime-validated execution binding: the session the control plane
+   *  observed this turn executing in. Absent means never observed — a
+   *  retained request alone, however live it looks, is not authority. */
+  observedRuntimeSessionId?: string
 }>
 
 const LIVE_LEAD_TURN_STATES: readonly HandoffLeadTurnState[] = [
@@ -171,10 +175,15 @@ export function resolveHarnessRunBinding(
  * non-lead or inactive designation — is not chief-of-staff coordination,
  * and the caller must not present it as such.
  */
-export function resolveLeadCoordination(
+/**
+ * Requested reference check: the turn names this session as its handoff
+ * target and belongs to the workspace lead. A claim is routing, never
+ * authority: passing it means the request is tracked, not granted.
+ */
+export function resolveLeadClaim(
   leadTurn: HandoffLeadTurn | undefined,
   leadAgent: HandoffLeadAgent | undefined,
-  session?: Readonly<{ id: string; generation: number }>
+  runtimeSessionId?: string
 ): { bound: boolean; reason?: string } {
   if (!leadTurn || !leadAgent) return { bound: false }
   if (leadTurn.agentId !== leadAgent.id)
@@ -186,26 +195,45 @@ export function resolveLeadCoordination(
       bound: false,
       reason: `the workspace lead is ${leadAgent.lifecycleState}, not active`,
     }
-  // Exact-session binding: the turn coordinates only the session its
-  // retained target names, at the generation the session currently shows.
-  // A targetless turn, one retained for another session, or one retained
-  // for an older or newer generation grants nothing here no matter how
-  // live it is: the live generation is known on this surface, so currency
-  // is decided here instead of trusting retained ordering. A fabricated
-  // future generation therefore displays nothing, and an advanced session
-  // re-requests instead of acting on stale context.
-  if (session !== undefined) {
-    const target = leadTurn.handoffTarget
+  if (runtimeSessionId !== undefined) {
+    const target = leadTurn.handoffTarget?.runtimeSessionId
     if (target === undefined)
       return { bound: false, reason: 'the observed turn names no handoff target' }
-    if (target.runtimeSessionId !== session.id)
+    if (target !== runtimeSessionId)
       return { bound: false, reason: 'the observed turn targets another session' }
-    if (target.observedGeneration !== session.generation)
-      return {
-        bound: false,
-        reason: `the observed turn targets generation ${target.observedGeneration} but the session is at generation ${session.generation}`,
-      }
   }
+  return { bound: true }
+}
+
+export function resolveLeadCoordination(
+  leadTurn: HandoffLeadTurn | undefined,
+  leadAgent: HandoffLeadAgent | undefined,
+  session?: Readonly<{ id: string; generation: number }>
+): { bound: boolean; reason?: string } {
+  if (!leadTurn || !leadAgent) return { bound: false }
+  // Coordination needs the claim first, then the effect boundary: only a
+  // runtime-validated execution binding observed in THIS session, at the
+  // generation the session currently shows, establishes coordination. A
+  // retained request — or even a running lead — alone never coordinates,
+  // no matter how live it looks: ordering among requests is recency, and
+  // recency of caller claims proves nothing about control.
+  const claim =
+    session === undefined
+      ? resolveLeadClaim(leadTurn, leadAgent)
+      : resolveLeadClaim(leadTurn, leadAgent, session.id)
+  if (!claim.bound) return claim
+  if (session === undefined) return { bound: true }
+  const observed = leadTurn.observedRuntimeSessionId
+  if (observed === undefined)
+    return { bound: false, reason: 'the observed turn has no runtime-validated execution binding' }
+  if (observed !== session.id)
+    return { bound: false, reason: 'the observed turn executes in another session' }
+  const target = leadTurn.handoffTarget
+  if (target !== undefined && target.observedGeneration !== session.generation)
+    return {
+      bound: false,
+      reason: `the observed turn targets generation ${target.observedGeneration} but the session is at generation ${session.generation}`,
+    }
   return { bound: true }
 }
 
@@ -213,6 +241,9 @@ export type DirectSessionHandoffInput = Readonly<{
   session: RuntimeSession
   activeHarnessRun?: HarnessRun
   leadTurn?: HandoffLeadTurn
+  /** The turn requesting this session, if any: claim-matched but not
+   *  necessarily runtime-validated. Drives requested-tracking only. */
+  claimedTurn?: HandoffLeadTurn
   leadAgent?: HandoffLeadAgent
   /** A supplied turn failed the lead-agent binding check below. */
   leadMismatch: boolean
@@ -351,6 +382,13 @@ export function deriveDirectSessionHandoff(
     notice = `Lead coordination unavailable${
       input.leadTurn.reasonCode ? `: ${input.leadTurn.reasonCode}` : ''
     }. The session stays read-only.`
+  } else if (
+    input.mode === 'attached' &&
+    input.claimedTurn !== undefined &&
+    (input.claimedTurn.state === 'blocked' || input.claimedTurn.state === 'unknown')
+  ) {
+    notice =
+      'Lead coordination requested for this session. The request is retained but unvalidated: coordination establishes only when the runtime observes execution bound to this session.'
   } else if (input.leadMismatch) {
     notice =
       input.leadMismatchReason !== undefined
@@ -457,20 +495,21 @@ export function deriveDirectSessionHandoff(
         'No lead channel references this session.',
         'Ask the workspace lead for a task topic, or coordinate through lead-turn admission.'
       )
-    // Exactly one outstanding coordination attempt per session: a live,
-    // prepared, or unresolvable turn for this exact session blocks a second
-    // request. A stuck (blocked) turn may be explicitly re-requested, and a
-    // terminal turn in returned mode may re-engage. Combined with canonical
-    // server-side recovery (same target and generation dedupes) and
-    // single-flight admission, this leaves no silent duplication path.
-    if (input.leadTurn !== undefined && !input.leadMismatch) {
+    // Exactly one outstanding request per session: a live, prepared, or
+    // unresolvable turn CLAIMING this exact session blocks a second
+    // request, whether or not it is runtime-validated yet. A stuck
+    // (blocked) claim may be explicitly re-requested, and a terminal turn
+    // in returned mode may re-engage. Combined with canonical server-side
+    // recovery (complete target dedupes) and single-flight admission, this
+    // leaves no silent duplication path.
+    if (input.claimedTurn !== undefined) {
       if (
-        LIVE_LEAD_TURN_STATES.includes(input.leadTurn.state) ||
-        input.leadTurn.state === 'unknown'
+        LIVE_LEAD_TURN_STATES.includes(input.claimedTurn.state) ||
+        input.claimedTurn.state === 'unknown'
       )
         return blocked(
-          'A lead turn is already outstanding on this task.',
-          'Coordinate through the observed turn instead of requesting another.'
+          'A lead turn is already outstanding for this session.',
+          'Track the retained request instead of requesting another.'
         )
     }
     return { available: true }
@@ -525,9 +564,8 @@ export function deriveDirectSessionHandoff(
     awaitingApproval: input.awaitingApproval,
     awaitingTurn:
       input.mode === 'attached' &&
-      input.leadTurn !== undefined &&
-      !input.leadMismatch &&
-      (input.leadTurn.state === 'blocked' || input.leadTurn.state === 'unknown'),
+      input.claimedTurn !== undefined &&
+      (input.claimedTurn.state === 'blocked' || input.claimedTurn.state === 'unknown'),
   }
 }
 
@@ -646,6 +684,12 @@ export function deriveHandoffInputFromConversation(
   // The turn counts only when bound to the observed workspace lead. An
   // unbound turn is stripped before derivation so it can neither drive a
   // mode nor authorize lead-stop; the mismatch flag names it instead.
+  const claim = resolveLeadClaim(
+    input.leadTurn,
+    input.leadAgent,
+    input.conversation.runtimeSessionId
+  )
+  const claimedTurn = claim.bound ? input.leadTurn : undefined
   const coordination = resolveLeadCoordination(input.leadTurn, input.leadAgent, {
     id: input.conversation.runtimeSessionId,
     generation: input.conversation.generation,
@@ -673,6 +717,7 @@ export function deriveHandoffInputFromConversation(
           ),
         }),
     ...(boundTurn === undefined ? {} : { leadTurn: boundTurn }),
+    ...(claimedTurn === undefined ? {} : { claimedTurn }),
     ...(input.leadAgent === undefined ? {} : { leadAgent: input.leadAgent }),
     leadMismatch: !coordination.bound && input.leadTurn !== undefined,
     ...(coordination.reason === undefined ? {} : { leadMismatchReason: coordination.reason }),

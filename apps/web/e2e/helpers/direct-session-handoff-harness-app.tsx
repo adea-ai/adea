@@ -101,6 +101,8 @@ type BackendTurn = {
     taskId?: string
     observedGeneration: number
   }
+  /** API snapshot shape: the runtime-observed execution session, when any. */
+  runtimeSessionId?: string
 }
 
 type FixtureBackend = {
@@ -463,7 +465,11 @@ function Harness() {
 
   // The lead's task-less direct channel carries turns with retained exact
   // targets, mirroring server retention; reads match the active session.
-  const observeTurn = (state: string, targetSessionId = 'session-1') => {
+  const observeTurn = (
+    state: string,
+    targetSessionId = 'session-1',
+    observedSessionId: string | undefined = targetSessionId
+  ) => {
     updateBackend((previous) => ({
       ...previous,
       channels: [
@@ -485,6 +491,7 @@ function Harness() {
             taskId: TASK_ID,
             observedGeneration: 3,
           },
+          ...(observedSessionId === undefined ? {} : { runtimeSessionId: observedSessionId }),
         },
       },
     }))
@@ -519,6 +526,9 @@ function Harness() {
         </Button>
         <Button type="button" onClick={() => observeTurn('running', 'session-other')}>
           Observe foreign lead turn
+        </Button>
+        <Button type="button" onClick={() => observeTurn('running', 'session-1', 'session-other')}>
+          Observe mismatched binding
         </Button>
         <Button type="button" onClick={() => observeTurn('completed')}>
           Observe lead turn completed
