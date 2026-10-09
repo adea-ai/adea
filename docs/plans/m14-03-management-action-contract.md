@@ -52,7 +52,8 @@ not fork the gateway, authorization or audit paths.
   sidebar and rendered in the delete confirmation. The preview stays read-only
   (`executesNothing: true`) and never grants execution.
 - **Channel archive provenance** — new `channels.archive_source`
-  (`individual | project_cascade`) with migration `0045`. The canonical
+  (`individual | project_cascade`) with the provisional migration
+  `0045_solid_ted_forrester` (see migration sequencing below). The canonical
   `archiveProjectChannels`/`restoreProjectChannels` in
   `packages/db/src/project-state-policy.ts` are shared by `archiveProject`,
   `softDeleteProject` and `promoteProjectState`: the project row is locked
@@ -83,6 +84,27 @@ not fork the gateway, authorization or audit paths.
 - `bunx turbo run typecheck` + `lint` over db, types, api-client, data, web,
   desktop and dev-view.
 - `bun test scripts/docs-boundary.test.ts`
+
+## Migration sequencing (root-coordinated)
+
+- **#1233/#1213 `0045_agent-edit-revisions` lands first.** It is not merged
+  yet; its ready transition awaits user confirmation under the approval
+  guard. This lane neither claims nor depends on it having already landed.
+- This lane's migration is provisionally numbered `0045_solid_ted_forrester`
+  on the current stacked branch. Once `0045_agent-edit-revisions` actually
+  lands on `main`, rebase this branch on updated `main` and **regenerate**
+  the migration there: the real `packages/db/drizzle/meta/_journal.json` on
+  `main` is the only authoritative numbering. Never merge two `0045`s and
+  never pre-assign a replacement number from a plan.
+- Planned `0046` (artifact dependency) and `0047` (requested-model selection,
+  #1229) are plans until the main journal confirms them.
+- Regeneration note: drizzle-kit 0.31.11 emitted only
+  `ALTER TABLE ... ADD COLUMN` for the new enum used by an added column. After
+  regenerating, prepend
+  `CREATE TYPE "app"."channel_archive_source" AS ENUM('individual', 'project_cascade');`
+  (the current file already carries it) and re-run `drizzle-kit check`.
+- No migration number is claimed for publication until root confirms the
+  journal state; this lane publishes only its draft PR for now.
 
 ## Follow-ups (not in this lane)
 
