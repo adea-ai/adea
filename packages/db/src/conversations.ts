@@ -11,6 +11,12 @@ import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
+import { decideGroupHistoryRead } from './group-participation-policy'
+import {
+  admissionForParticipant,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+} from './group-participation-store'
 import {
   canReadProject,
   canWriteProject,
@@ -25,6 +31,9 @@ import {
   artifacts,
   channelParticipants,
   channels,
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -481,6 +490,42 @@ async function createChannel(
             ]
           : []),
       ])
+      if (channel.kind === 'group') {
+        // Legacy-compatible implicit founder grant: the creating principal's
+        // intent to found the group is explicit in the call itself. Strict
+        // caller-supplied grants remain the HTTP boundary's requirement;
+        // this keeps pre-migration groups and direct db callers readable
+        // under the shared join-point gate instead of going dark.
+        const issuedAt = new Date().toISOString()
+        const founderGrantId = `implicit:founder:${principal.userId}`
+        await transaction
+          .insert(groupAudienceGrants)
+          .values({
+            channelId: channel.id,
+            expiresAt: null,
+            grantId: founderGrantId,
+            issuedAt,
+            revision: 1,
+            revokedAt: null,
+            userId: principal.userId,
+            workspaceId,
+          })
+          .onConflictDoNothing()
+        await transaction
+          .insert(groupAdmissions)
+          .values({
+            authGrantId: founderGrantId,
+            authGroupId: channel.id,
+            authRevision: 1,
+            channelId: channel.id,
+            joinedAt: issuedAt,
+            joinedSequence: 0,
+            principalKind: 'user',
+            userId: principal.userId,
+            workspaceId,
+          })
+          .onConflictDoNothing()
+      }
     }
     return channelSummary(transaction, channel)
   })
@@ -779,6 +824,135 @@ export async function setChannelParticipants(
       )
       .returning()
     if (!updated) throw new Error('Channel version conflict')
+    // Keep canonical admissions in step with the legacy roster write:
+    // retained members keep their stored join point, newcomers join at the
+    // frontier under implicit membership grants, removals lose admissions.
+    // Strict caller-supplied grants remain the HTTP boundary's requirement.
+    const now = new Date().toISOString()
+    const [storedAdmissions, audienceRows, enlistmentRows] = await Promise.all([
+      transaction
+        .select()
+        .from(groupAdmissions)
+        .where(
+          and(
+            eq(groupAdmissions.workspaceId, workspaceId),
+            eq(groupAdmissions.channelId, channelId)
+          )
+        ),
+      transaction
+        .select({
+          grantId: groupAudienceGrants.grantId,
+          revision: groupAudienceGrants.revision,
+          userId: groupAudienceGrants.userId,
+        })
+        .from(groupAudienceGrants)
+        .where(
+          and(
+            eq(groupAudienceGrants.workspaceId, workspaceId),
+            eq(groupAudienceGrants.channelId, channelId)
+          )
+        ),
+      transaction
+        .select({
+          agentId: groupEnlistmentGrants.agentId,
+          grantId: groupEnlistmentGrants.grantId,
+          revision: groupEnlistmentGrants.revision,
+        })
+        .from(groupEnlistmentGrants)
+        .where(
+          and(
+            eq(groupEnlistmentGrants.workspaceId, workspaceId),
+            eq(groupEnlistmentGrants.channelId, channelId)
+          )
+        ),
+    ])
+    const storedJoin = new Map(
+      storedAdmissions.map((row) => [
+        row.principalKind === 'user' ? `user:${row.userId}` : `agent:${row.agentId}`,
+        { joinedAt: row.joinedAt, joinedSequence: row.joinedSequence },
+      ])
+    )
+    const audienceGrant = new Map(audienceRows.map((row) => [row.userId, row]))
+    const enlistmentGrant = new Map(enlistmentRows.map((row) => [row.agentId, row]))
+    const frontier = updated.latestMessageSequence
+    for (const participant of normalized) {
+      const existing =
+        participant.kind === 'user'
+          ? audienceGrant.get(participant.userId)
+          : enlistmentGrant.get(participant.agentId)
+      const grantId =
+        existing?.grantId ??
+        (participant.kind === 'user'
+          ? `implicit:member:${participant.userId}`
+          : `implicit:member:${participant.agentId}`)
+      if (!existing && participant.kind === 'user')
+        await transaction
+          .insert(groupAudienceGrants)
+          .values({
+            channelId,
+            expiresAt: null,
+            grantId,
+            issuedAt: now,
+            revision: 1,
+            revokedAt: null,
+            userId: participant.userId,
+            workspaceId,
+          })
+          .onConflictDoNothing()
+      if (!existing && participant.kind === 'agent')
+        await transaction
+          .insert(groupEnlistmentGrants)
+          .values({
+            agentId: participant.agentId,
+            channelId,
+            expiresAt: null,
+            grantId,
+            issuedAt: now,
+            revision: 1,
+            revokedAt: null,
+            workspaceId,
+          })
+          .onConflictDoNothing()
+    }
+    await transaction
+      .delete(groupAdmissions)
+      .where(
+        and(eq(groupAdmissions.workspaceId, workspaceId), eq(groupAdmissions.channelId, channelId))
+      )
+    if (normalized.length)
+      await transaction.insert(groupAdmissions).values(
+        normalized.map((participant) => {
+          const key =
+            participant.kind === 'user'
+              ? `user:${participant.userId}`
+              : `agent:${participant.agentId}`
+          const join = storedJoin.get(key) ?? {
+            joinedAt: now,
+            joinedSequence: frontier + 1,
+          }
+          const grant =
+            participant.kind === 'user'
+              ? audienceGrant.get(participant.userId)
+              : enlistmentGrant.get(participant.agentId)
+          const grantId =
+            grant?.grantId ??
+            (participant.kind === 'user'
+              ? `implicit:member:${participant.userId}`
+              : `implicit:member:${participant.agentId}`)
+          return {
+            agentId: participant.kind === 'agent' ? participant.agentId : null,
+            authGrantId: grantId,
+            authGroupId: channelId,
+            authRevision: grant?.revision ?? 1,
+            channelId,
+            joinedAt: join.joinedAt,
+            joinedSequence: join.joinedSequence,
+            principalKind: participant.kind,
+            userId: participant.kind === 'user' ? participant.userId : null,
+            workspaceId,
+          }
+        })
+      )
     return channelSummary(transaction, updated)
   })
 }
@@ -985,7 +1159,25 @@ async function createMessageWithTextPolicy(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    const channel = await requireChannelAccess(
+      transaction,
+      workspaceId,
+      channelId,
+      principal,
+      'write'
+    )
+    if (channel.kind === 'group') {
+      // Serialize group writers against roster rewrites before allocating a
+      // sequence: the rewrite holds this same row lock across its frontier
+      // read, so a message either commits fully before the join (hidden) or
+      // allocates after it (hidden) — never lands on the join boundary.
+      await transaction
+        .select({ id: channels.id })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+        .limit(1)
+        .for('update')
+    }
     await validateSender(transaction, workspaceId, input.sender)
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
@@ -1112,10 +1304,15 @@ export async function listMessagesForUser(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {}
+  options: Readonly<{
+    afterSequence?: number
+    limit?: number
+    now?: string
+    threadRootMessageId?: string
+  }> = {}
 ) {
   await requireMembership(database, workspaceId, principal)
-  await requireChannelAccess(database, workspaceId, channelId, principal)
+  const channel = await requireChannelAccess(database, workspaceId, channelId, principal)
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100)
   const rows = await database
     .select()
@@ -1141,12 +1338,39 @@ export async function listMessagesForUser(
     workspaceId,
     page.map((row) => row.id)
   )
+  const summaries = page.map((row) =>
+    messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
+  )
+  if (channel.kind !== 'group')
+    return Object.freeze({
+      messages: Object.freeze(summaries),
+      ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
+    })
+  // Shared authorized read boundary for groups: join-point and live-grant
+  // filtering applies to every consumer of this function, not just the
+  // message routes. Hidden earlier entries can shorten a page; clients keep
+  // paging with `nextAfterSequence` until it is absent.
+  const now = options.now ?? new Date().toISOString()
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(database, workspaceId, channelId),
+    loadGroupSharingGrants(database, workspaceId, channelId),
+  ])
+  const admission = admissionForParticipant(roster, {
+    kind: 'user',
+    userId: principal.userId,
+  })
+  const visible = summaries.filter(
+    (message) =>
+      decideGroupHistoryRead({
+        admission,
+        entry: { occurredAt: message.createdAt, sequence: message.sequence },
+        groupId: channelId,
+        now,
+        sharingGrants,
+      }).action === 'allow'
+  )
   return Object.freeze({
-    messages: Object.freeze(
-      page.map((row) =>
-        messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
-      )
-    ),
+    messages: Object.freeze(visible),
     ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
   })
 }
@@ -1155,12 +1379,30 @@ export async function getMessageForUser(
   database: AgentHqDatabase,
   workspaceId: string,
   messageId: string,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  options: Readonly<{ now?: string }> = {}
 ) {
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
-  await requireChannelAccess(database, workspaceId, message.channelId, principal)
-  return messageSummary(database, message)
+  const channel = await requireChannelAccess(database, workspaceId, message.channelId, principal)
+  const summary = await messageSummary(database, message)
+  if (channel.kind !== 'group') return summary
+  // Shared authorized read boundary for groups: a denied entry answers
+  // exactly like a missing one, so the gate is not a history oracle.
+  const now = options.now ?? new Date().toISOString()
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(database, workspaceId, message.channelId),
+    loadGroupSharingGrants(database, workspaceId, message.channelId),
+  ])
+  const decision = decideGroupHistoryRead({
+    admission: admissionForParticipant(roster, { kind: 'user', userId: principal.userId }),
+    entry: { occurredAt: summary.createdAt, sequence: summary.sequence },
+    groupId: message.channelId,
+    now,
+    sharingGrants,
+  })
+  if (decision.action !== 'allow') throw new Error('Message unavailable')
+  return summary
 }
 
 export async function editMessage(

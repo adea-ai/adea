@@ -19,6 +19,7 @@ import {
   groupCreationPayloadHash,
   GroupCreationError,
   partitionGroupChannelHistory,
+  resolveAdmissionWindow,
   setGroupChannelParticipantsWithGrants,
   type GroupChannelGate,
 } from '../../src/group-channels'
@@ -491,5 +492,72 @@ describe('grant-gated writes fail closed before any database access', () => {
     )
     expect(failure).toBeInstanceOf(GroupCreationError)
     expect(calls.count).toBe(0)
+  })
+})
+
+describe('resolveAdmissionWindow binds every identity and revision field', () => {
+  const bound = admission({
+    authorization: { groupId: CHANNEL, grantId: 'gra_alice', revision: 1 },
+  })
+  const grants = {
+    audience: [audienceGrant()],
+    enlistment: [enlistmentGrant()],
+  }
+
+  test('a fully matching row resolves its live window', () => {
+    expect(resolveAdmissionWindow(bound, grants)).toEqual({
+      expiresAt: null,
+      issuedAt: ISSUED,
+      revokedAt: null,
+    })
+  })
+
+  test('a regrant revision never revives an admission bound to the revoked revision', () => {
+    const regranted = {
+      audience: [audienceGrant({ revision: 2, revokedAt: null })],
+      enlistment: [],
+    }
+    expect(resolveAdmissionWindow(bound, regranted)).toEqual({
+      expiresAt: null,
+      issuedAt: 'invalid-grant-absent',
+      revokedAt: null,
+    })
+  })
+
+  test('a retargeted grant id never authorizes the wrong participant', () => {
+    const retargeted = {
+      audience: [audienceGrant({ participant: BOB, revision: 2 })],
+      enlistment: [],
+    }
+    expect(resolveAdmissionWindow(bound, retargeted)).toEqual({
+      expiresAt: null,
+      issuedAt: 'invalid-grant-absent',
+      revokedAt: null,
+    })
+    const stranger = admission({
+      authorization: { groupId: CHANNEL, grantId: 'gra_alice', revision: 2 },
+      participant: BOB,
+    })
+    expect(resolveAdmissionWindow(stranger, grants)).toEqual({
+      expiresAt: null,
+      issuedAt: 'invalid-grant-absent',
+      revokedAt: null,
+    })
+  })
+
+  test('an Agent grant never resolves a human admission and vice versa', () => {
+    const agentBound = admission({
+      authorization: { groupId: CHANNEL, grantId: 'gra_doc', revision: 1 },
+      participant: { agentId: 'agt_doc', kind: 'agent' },
+    })
+    expect(
+      resolveAdmissionWindow(agentBound, {
+        audience: [audienceGrant({ grantId: 'gra_doc' })],
+        enlistment: [],
+      })
+    ).toEqual({ expiresAt: null, issuedAt: 'invalid-grant-absent', revokedAt: null })
+    expect(
+      resolveAdmissionWindow(bound, { audience: [], enlistment: [enlistmentGrant()] })
+    ).toEqual({ expiresAt: null, issuedAt: 'invalid-grant-absent', revokedAt: null })
   })
 })

@@ -2,13 +2,13 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiMessagePage, ApiMessageResponse } from '@adea-ai/api-client'
 import {
-  authorizeGroupChannelTurnNow,
   createLeadTurn,
   createMessage,
   getChannelForUser,
   listGroupChannelMessagesForUser,
   listMessagesForUser,
   parseRequestedRoleModelSelections,
+  postGroupChannelMessage,
 } from '@adea-ai/db'
 import { parseLeadTurnMode } from '../../../../../../../../server/lead-turn-request'
 
@@ -149,16 +149,68 @@ async function post(request: Request, { params }: Context) {
       resolution.principal
     )
     if (channel.kind === 'group') {
-      // Immediate turn revocation for groups: a revoked or stale grant takes
-      // no turn. Dispatch and orchestration stay with the turn coordinator.
-      const turn = await authorizeGroupChannelTurnNow(
-        applicationDatabase(),
-        workspaceId,
-        channelId,
-        { kind: 'user', userId: resolution.principal.userId },
-        new Date().toISOString()
-      )
-      if (turn.action !== 'allow') return workspaceUnavailableResponse(request)
+      // ONE shared transaction/fence: the current admission/grant check and
+      // the actual message/turn write commit together, so a revocation
+      // landing between a separate check and write cannot slip a forbidden
+      // turn through. Dispatch and orchestration stay with the turn
+      // coordinator; this fence only gates.
+      if (leadTurnMode === 'lead') {
+        const payload: ApiMessageResponse = await postGroupChannelMessage(
+          applicationDatabase(),
+          workspaceId,
+          channelId,
+          resolution.principal,
+          resolution.principal,
+          {
+            lead: {
+              ...(Array.isArray(body.artifactIds)
+                ? { artifactIds: body.artifactIds as string[] }
+                : {}),
+              ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
+              ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+              idempotencyKey,
+              mentions: mentions as never,
+            },
+            mode: 'lead',
+          },
+          new Date().toISOString()
+        )
+        return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+      }
+      const payload: ApiMessageResponse = {
+        message: await postGroupChannelMessage(
+          applicationDatabase(),
+          workspaceId,
+          channelId,
+          resolution.principal,
+          resolution.principal,
+          {
+            message: {
+              ...(Array.isArray(body.artifactIds)
+                ? { artifactIds: body.artifactIds as string[] }
+                : {}),
+              ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
+              ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+              ...(typeof body.executionRef === 'string' ? { executionRef: body.executionRef } : {}),
+              ...(typeof body.externalSessionRef === 'string'
+                ? { externalSessionRef: body.externalSessionRef }
+                : {}),
+              idempotencyKey,
+              mentions: mentions as never,
+              ...(isConversationUuid(body.replyToMessageId)
+                ? { replyToMessageId: body.replyToMessageId }
+                : {}),
+              ...(isConversationUuid(body.taskId) ? { taskId: body.taskId } : {}),
+              ...(isConversationUuid(body.threadRootMessageId)
+                ? { threadRootMessageId: body.threadRootMessageId }
+                : {}),
+            },
+            mode: 'direct',
+          },
+          new Date().toISOString()
+        ),
+      }
+      return workspaceJsonResponse(payload, resolution, request, { status: 201 })
     }
     if (leadTurnMode === 'lead') {
       const payload: ApiMessageResponse = await createLeadTurn(

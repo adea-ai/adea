@@ -16,10 +16,16 @@ import {
   listGroupChannelMessagesForUser,
   loadGroupRoster,
   loadGroupSharingGrants,
+  postGroupChannelMessage,
+  postGroupChannelMessageInTransaction,
   revokeGroupGrant,
+  setGroupChannelParticipantsInTransaction,
   setGroupChannelParticipantsWithGrants,
   shareGroupHistory,
 } from '../../src/group-channels'
+import type { GroupPostBarrier, GroupRosterBarrier } from '../../src/group-channels'
+import { searchWorkspaceForUser } from '../../src/search'
+import { validateGroupCreation } from '../../src/group-participation-policy'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
 import { addWorkspaceMembership, createWorkspaceWithOwner } from '../../src/workspaces'
@@ -175,6 +181,33 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       .where(eq(schema.channels.id, channelId))
       .limit(1)
     expect(replayed).toHaveLength(1)
+  })
+
+  test('legacy groups keep working: the creator reads via an implicit founder grant', async () => {
+    const f = await fixture()
+    const { createGroupChannel } = await import('../../src/conversations')
+    const channel = await createGroupChannel(connection.db, f.workspace.id, f.owner, {
+      idempotencyKey: crypto.randomUUID(),
+      title: 'Legacy group',
+    })
+    const posted = await createMessage(connection.db, f.workspace.id, channel.id, f.owner, {
+      bodyText: 'legacy hello',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    // The shared read boundary admits the founder; nothing went dark.
+    const page = await listGroupChannelMessagesForUser(
+      connection.db,
+      f.workspace.id,
+      channel.id,
+      f.owner,
+      {},
+      new Date().toISOString()
+    )
+    expect(page.messages.map((message) => message.sequence)).toContain(posted.sequence)
+    const roster = await loadGroupRoster(connection.db, f.workspace.id, channel.id)
+    expect(roster).toHaveLength(1)
+    expect(roster[0]?.authorization.grantId).toMatch(/^implicit:founder:/)
   })
 
   test('an invalid roster fails the whole creation with zero writes', async () => {
@@ -726,5 +759,572 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
         publisher: f.member,
       })
     ).toMatchObject({ action: 'hold', reason: 'publication_binding_mismatch' })
+  })
+})
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function raced<T>(operation: Promise<T>, ms: number): Promise<'blocked' | T> {
+  return Promise.race([operation, sleep(ms).then((): 'blocked' => 'blocked')])
+}
+
+async function isolatedFixture() {
+  const local = createDatabase(connectionUrl!)
+  const owner = (
+    await createTemporaryUserSession(local.db, {
+      credentialDigest: `fence-owner-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+  ).principal
+  const member = (
+    await createTemporaryUserSession(local.db, {
+      credentialDigest: `fence-member-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+  ).principal
+  const { workspace } = await createWorkspaceWithOwner(local.db, {
+    idempotencyKey: crypto.randomUUID(),
+    name: 'Fenced groups',
+    owner,
+  })
+  await addWorkspaceMembership(local.db, workspace.id, member, 'member')
+  return { local, member, owner, workspace }
+}
+
+describe('durable binding, fences and shared read boundary', () => {
+  test('a revision 2 regrant never revives a revision 1 admission until the roster rebinds', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const grant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const { channel } = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const gate = { channel, workspaceId: f.workspace.id }
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_member',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      // Regrant under revision 2 directly in storage (as a rotation would),
+      // without rewriting the roster: the admission stays bound to revoked
+      // revision 1 and must stay held, not revived.
+      await f.local.db
+        .update(schema.groupAudienceGrants)
+        .set({ revision: 2, revokedAt: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.groupAudienceGrants.workspaceId, f.workspace.id),
+            eq(schema.groupAudienceGrants.channelId, channelId),
+            eq(schema.groupAudienceGrants.grantId, 'gra_member')
+          )
+        )
+      const stale = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+      const held = stale.find(
+        (entry) => entry.participant.kind === 'user' && entry.participant.userId === f.member.userId
+      )!
+      expect(held.authorization).toMatchObject({ grantId: 'gra_member', revision: 1 })
+      expect(authorizeGroupChannelTurn(gate, { admission: held, now: LATER })).toMatchObject({
+        action: 'deny',
+      })
+      expect(
+        authorizeGroupChannelHistoryRead(gate, {
+          admission: held,
+          entry: { occurredAt: LATER, sequence: 0 },
+          now: LATER,
+          sharingGrants: [],
+        })
+      ).toMatchObject({ action: 'deny' })
+      // Rewriting the roster rebinds the admission to revision 2: reads resume.
+      const rebound = await setGroupChannelParticipantsWithGrants(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [founder, { ...grant, revision: 2, revokedAt: null }],
+            enlistmentGrants: [],
+          }),
+          expectedVersion: channel.version,
+          now: LATER,
+        }
+      )
+      const current = rebound.roster.find(
+        (entry) => entry.participant.kind === 'user' && entry.participant.userId === f.member.userId
+      )!
+      expect(current.authorization.revision).toBe(2)
+      expect(authorizeGroupChannelTurn(gate, { admission: current, now: LATER })).toMatchObject({
+        action: 'allow',
+      })
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a retargeted grant id authorizes neither the old nor the new subject', async () => {
+    const f = await isolatedFixture()
+    try {
+      const stranger = (
+        await createTemporaryUserSession(f.local.db, {
+          credentialDigest: `retarget-stranger-${crypto.randomUUID()}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+      ).principal
+      await addWorkspaceMembership(f.local.db, f.workspace.id, stranger, 'member')
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const grant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const { channel } = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const gate = { channel, workspaceId: f.workspace.id }
+      // Retarget the stored grant row at its face value: same id, new subject.
+      await f.local.db
+        .update(schema.groupAudienceGrants)
+        .set({ revision: 2, revokedAt: null, updatedAt: new Date(), userId: stranger.userId })
+        .where(
+          and(
+            eq(schema.groupAudienceGrants.workspaceId, f.workspace.id),
+            eq(schema.groupAudienceGrants.channelId, channelId),
+            eq(schema.groupAudienceGrants.grantId, 'gra_member')
+          )
+        )
+      const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+      const previous = roster.find(
+        (entry) => entry.participant.kind === 'user' && entry.participant.userId === f.member.userId
+      )!
+      expect(authorizeGroupChannelTurn(gate, { admission: previous, now: LATER })).toMatchObject({
+        action: 'deny',
+      })
+      // The new subject was never admitted: no admission, no reads.
+      expect(
+        roster.some(
+          (entry) =>
+            entry.participant.kind === 'user' && entry.participant.userId === stranger.userId
+        )
+      ).toBe(false)
+      expect(authorizeGroupChannelTurn(gate, { admission: null, now: LATER })).toMatchObject({
+        action: 'deny',
+        reason: 'turn_not_participant',
+      })
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a fenced post and a concurrent revocation linearize: no write slips between', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const grant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      // Hold the fence open after it locks the admission/grant rows.
+      let releaseFence!: () => void
+      const fenceOpen = new Promise<void>((resolve) => {
+        releaseFence = resolve
+      })
+      let signalGate!: () => void
+      const gateReached = new Promise<void>((resolve) => {
+        signalGate = resolve
+      })
+      const barrier: GroupPostBarrier = {
+        afterGate: async () => {
+          signalGate()
+          await fenceOpen
+        },
+      }
+      const posting = f.local.db.transaction((tx) =>
+        postGroupChannelMessageInTransaction(
+          tx,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          {
+            message: { bodyText: 'fenced hello', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          LATER,
+          barrier
+        )
+      )
+      await Promise.race([
+        gateReached,
+        sleep(2000).then(() => {
+          throw new Error('fence never reached the gate')
+        }),
+      ])
+      // The revocation must block on the fence's row locks: it cannot commit
+      // between the gate decision and the write.
+      const revoking = revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_member',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      expect(await raced(revoking, 500)).toBe('blocked')
+      releaseFence()
+      const posted = await posting
+      expect(posted.sequence).toBeGreaterThanOrEqual(1)
+      expect(await revoking).toEqual({ revoked: true })
+      // After the fence commits, the revocation lands and every fresh read denies.
+      const decision = await decideGroupChannelHistoryReadNow(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.member,
+        { occurredAt: LATER, sequence: posted.sequence },
+        LATER
+      )
+      expect(decision).toMatchObject({ action: 'deny', reason: 'history_participation_revoked' })
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('frontier and writers linearize: before-join messages hide, after-join messages show', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const created = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const before = await createMessage(f.local.db, f.workspace.id, channelId, f.owner, {
+        bodyText: 'before join',
+        idempotencyKey: crypto.randomUUID(),
+        sender: f.owner,
+      })
+      const memberGrant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      let releaseRewrite!: () => void
+      const rewriteOpen = new Promise<void>((resolve) => {
+        releaseRewrite = resolve
+      })
+      let lockNoticed: Promise<void> | null = null
+      const barrier: GroupRosterBarrier = {
+        afterChannelLock: async () => {
+          lockNoticed ??= Promise.resolve()
+          await rewriteOpen
+        },
+      }
+      const candidates = groupCreationCandidatesFromGrants(f.workspace.id, {
+        audienceGrants: [founder, memberGrant],
+        enlistmentGrants: [],
+      })
+      const validation = validateGroupCreation({
+        candidates,
+        groupId: channelId,
+        now: LATER,
+        workspaceId: f.workspace.id,
+      })
+      if (!validation.ok) throw new Error('test roster must validate')
+      const rewriting = f.local.db.transaction((tx) =>
+        setGroupChannelParticipantsInTransaction(
+          tx,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          {
+            candidates,
+            expectedVersion: created.channel.version,
+            now: LATER,
+            roster: validation.roster,
+          },
+          barrier
+        )
+      )
+      await Promise.race([
+        lockNoticed,
+        sleep(2000).then(() => {
+          throw new Error('lock never held')
+        }),
+      ])
+      // A concurrent writer must block on the held channel lock: it cannot
+      // commit (or allocate) ahead of the rewrite's frontier read.
+      const writing = createMessage(f.local.db, f.workspace.id, channelId, f.owner, {
+        bodyText: 'racing write',
+        idempotencyKey: crypto.randomUUID(),
+        sender: f.owner,
+      })
+      expect(await raced(writing, 500)).toBe('blocked')
+      releaseRewrite()
+      const [replaced, racedMessage] = await Promise.all([rewriting, writing])
+      const newcomer = replaced.roster.find(
+        (entry) => entry.participant.kind === 'user' && entry.participant.userId === f.member.userId
+      )!
+      // The writer linearized after the join: its sequence is at or after
+      // the recorded join point, so the newcomer sees it; the earlier
+      // message stays held.
+      expect(newcomer.joinPoint.joinedSequence).toBeLessThanOrEqual(racedMessage.sequence)
+      expect(newcomer.joinPoint.joinedSequence).toBeGreaterThan(before.sequence)
+      const page = await listGroupChannelMessagesForUser(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.member,
+        {},
+        LATER
+      )
+      const sequences = page.messages.map((message) => message.sequence)
+      expect(sequences).toContain(racedMessage.sequence)
+      expect(sequences).not.toContain(before.sequence)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a revoked post writes nothing: gate and write share one transaction', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const grant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const key = crypto.randomUUID()
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_member',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          {
+            message: { bodyText: 'must not land', idempotencyKey: key },
+            mode: 'direct',
+          },
+          LATER
+        )
+      ).rejects.toThrow('Channel unavailable')
+      const rows = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(rows).toHaveLength(0)
+      const allowed = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          message: { bodyText: 'founder lands', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        LATER
+      )
+      expect(allowed.sequence).toBeGreaterThanOrEqual(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('search snippets obey the same join point as the message reads', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const memberGrant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const created = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      await createMessage(f.local.db, f.workspace.id, channelId, f.owner, {
+        bodyText: 'zephyr confidential note',
+        idempotencyKey: crypto.randomUUID(),
+        sender: f.owner,
+      })
+      await setGroupChannelParticipantsWithGrants(f.local.db, f.workspace.id, channelId, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, memberGrant],
+          enlistmentGrants: [],
+        }),
+        expectedVersion: created.channel.version,
+        now: LATER,
+      })
+      const founderHits = await searchWorkspaceForUser(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        'zephyr',
+        {
+          channelId,
+          now: LATER,
+        }
+      )
+      expect(
+        founderHits.results.some(
+          (result) => result.kind === 'message' && result.channelId === channelId
+        )
+      ).toBe(true)
+      const memberHits = await searchWorkspaceForUser(
+        f.local.db,
+        f.workspace.id,
+        f.member,
+        'zephyr',
+        { channelId, now: LATER }
+      )
+      expect(
+        memberHits.results.some(
+          (result) => result.kind === 'message' && result.channelId === channelId
+        )
+      ).toBe(false)
+    } finally {
+      await f.local.close()
+    }
   })
 })
