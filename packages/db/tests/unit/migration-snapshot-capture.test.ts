@@ -1,3 +1,6 @@
+import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
+
 import { describe, expect, test } from 'bun:test'
 
 import type { AgentHqDatabase } from '../../src/connection'
@@ -5,9 +8,13 @@ import {
   collectBoundedRecords,
   captureMigrationSnapshot,
   migrationSnapshotEventPayloadDigest,
+  migrationSnapshotEventPayloadDigestField,
+  MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
   MigrationSnapshotCaptureInputError,
   MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES,
   MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
+  PAYLOAD_CANONICAL_DEEP_MAX_BYTES,
+  PAYLOAD_CANONICAL_DEEP_MAX_WORK,
   PAYLOAD_CANONICAL_MAX_DEPTH,
   resolveMigrationSnapshotCaptureDomains,
   type MigrationSnapshotRecord,
@@ -197,24 +204,32 @@ describe('collectBoundedRecords', () => {
 
 // ─── Event payload digests ───────────────────────────────────────────────────
 
+/**
+ * Unwrap a completed digest, failing the test when the fold came back
+ * inconclusive — most tests exercise payloads that must produce a digest.
+ */
+const digestOf = (payload: unknown): string => {
+  const result = migrationSnapshotEventPayloadDigest(payload)
+  expect(result.ok).toBe(true)
+  return result.ok ? result.digest : ''
+}
+
 describe('migrationSnapshotEventPayloadDigest', () => {
   test('is key-order independent and value sensitive', () => {
-    const left = migrationSnapshotEventPayloadDigest({ actorUserId: 'u-1', channelId: 'c-1' })
-    const right = migrationSnapshotEventPayloadDigest({ channelId: 'c-1', actorUserId: 'u-1' })
+    const left = digestOf({ actorUserId: 'u-1', channelId: 'c-1' })
+    const right = digestOf({ channelId: 'c-1', actorUserId: 'u-1' })
     expect(left).toBe(right)
     expect(left).toMatch(/^[0-9a-f]{64}$/)
-    expect(migrationSnapshotEventPayloadDigest({ actorUserId: 'u-2', channelId: 'c-1' })).not.toBe(
-      left
-    )
+    expect(digestOf({ actorUserId: 'u-2', channelId: 'c-1' })).not.toBe(left)
   })
 
   test('covers nested structure deterministically', () => {
-    const digest = migrationSnapshotEventPayloadDigest({
+    const digest = digestOf({
       nested: { b: 1, a: ['x', { y: null }] },
     })
     expect(digest).toMatch(/^[0-9a-f]{64}$/)
     expect(digest).toBe(
-      migrationSnapshotEventPayloadDigest({
+      digestOf({
         nested: { a: ['x', { y: null }], b: 1 },
       })
     )
@@ -240,10 +255,30 @@ const nestArraysAtDepth = (leaf: string, levels: number): unknown => {
   return value
 }
 
+/** A payload whose folded subtree is exactly `subtree` (the fold's input). */
+const foldedSubtreePayload = (subtree: unknown): unknown =>
+  wrapAtDepth(subtree, PAYLOAD_CANONICAL_MAX_DEPTH + 1)
+
+/**
+ * A no-cap materializing canonical encoding, written independently of the
+ * production walker: the streaming fold must hash exactly these bytes.
+ */
+const referenceCanonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(referenceCanonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const source = value as Record<string, unknown>
+    return `{${Object.keys(source)
+      .toSorted()
+      .map((key) => `${JSON.stringify(key)}:${referenceCanonicalJson(source[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
 describe('migrationSnapshotEventPayloadDigest past the depth cap', () => {
   test('payloads identical above the cap but different below it digest differently', () => {
-    const left = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'left' }))
-    const right = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'right' }))
+    const left = digestOf(wrapAtDepth({ leaf: 'left' }))
+    const right = digestOf(wrapAtDepth({ leaf: 'right' }))
     expect(left).toMatch(/^[0-9a-f]{64}$/)
     expect(right).toMatch(/^[0-9a-f]{64}$/)
     expect(left).not.toBe(right)
@@ -251,47 +286,137 @@ describe('migrationSnapshotEventPayloadDigest past the depth cap', () => {
 
   test('a difference exactly one level past the cap still digests differently', () => {
     const levels = PAYLOAD_CANONICAL_MAX_DEPTH + 1
-    const left = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'left' }, levels))
-    const right = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'right' }, levels))
+    const left = digestOf(wrapAtDepth({ leaf: 'left' }, levels))
+    const right = digestOf(wrapAtDepth({ leaf: 'right' }, levels))
     expect(left).not.toBe(right)
   })
 
   test('deep digests stay deterministic and key-order independent', () => {
-    const reference = migrationSnapshotEventPayloadDigest(
-      wrapAtDepth({ b: [1, { y: null }], a: 'x' })
-    )
-    expect(reference).toBe(
-      migrationSnapshotEventPayloadDigest(wrapAtDepth({ a: 'x', b: [1, { y: null }] }))
-    )
-    expect(reference).toBe(
-      migrationSnapshotEventPayloadDigest(wrapAtDepth({ b: [1, { y: null }], a: 'x' }))
-    )
+    const reference = digestOf(wrapAtDepth({ b: [1, { y: null }], a: 'x' }))
+    expect(reference).toBe(digestOf(wrapAtDepth({ a: 'x', b: [1, { y: null }] })))
+    expect(reference).toBe(digestOf(wrapAtDepth({ b: [1, { y: null }], a: 'x' })))
   })
 
   test('deep content changes the digest even when the shallow skeleton repeats', () => {
     const variants = [
-      migrationSnapshotEventPayloadDigest(wrapAtDepth('same')),
-      migrationSnapshotEventPayloadDigest(wrapAtDepth('other')),
-      migrationSnapshotEventPayloadDigest(wrapAtDepth({ same: 1 })),
+      digestOf(wrapAtDepth('same')),
+      digestOf(wrapAtDepth('other')),
+      digestOf(wrapAtDepth({ same: 1 })),
     ]
     expect(new Set(variants).size).toBe(variants.length)
     // A skeleton cut off exactly at the cap is walked in full, with nothing
     // folded — its digest matches none of the deep variants above.
-    const atCap = migrationSnapshotEventPayloadDigest(
-      wrapAtDepth('same', PAYLOAD_CANONICAL_MAX_DEPTH)
-    )
+    const atCap = digestOf(wrapAtDepth('same', PAYLOAD_CANONICAL_MAX_DEPTH))
     expect(variants).not.toContain(atCap)
   })
 
   test('nesting far past the cap cannot overflow the walk and still digests', () => {
     // 100 000 levels: the recursive walk stops at the cap, and the deep fold
-    // serializes the rest with an explicit stack, so depth never grows the
-    // call stack.
-    const left = migrationSnapshotEventPayloadDigest(nestArraysAtDepth('left', 100_000))
-    const right = migrationSnapshotEventPayloadDigest(nestArraysAtDepth('right', 100_000))
+    // streams the rest through the explicit-stack walker, so depth never
+    // grows the call stack and the emitted bytes stay inside the fold budget.
+    const left = digestOf(nestArraysAtDepth('left', 100_000))
+    const right = digestOf(nestArraysAtDepth('right', 100_000))
     expect(left).toMatch(/^[0-9a-f]{64}$/)
-    expect(left).toBe(migrationSnapshotEventPayloadDigest(nestArraysAtDepth('left', 100_000)))
+    expect(left).toBe(digestOf(nestArraysAtDepth('left', 100_000)))
     expect(left).not.toBe(right)
+  })
+})
+
+describe('migrationSnapshotEventPayloadDigest deep-fold bounds', () => {
+  // A folded leaf string of two million chars: the fold's emitted bytes alone
+  // blow past any sane per-fold budget.
+  const overBudget = wrapAtDepth('x'.repeat(2_000_000))
+
+  test('an oversized deep payload is typed inconclusive, never a digest', () => {
+    const result = migrationSnapshotEventPayloadDigest(overBudget)
+    expect(result).toEqual({
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    })
+  })
+
+  test('a fold within the byte budget digests exactly like the canonical encoding', () => {
+    // Strings chosen to exercise the streaming escaper against
+    // JSON.stringify: quotes, backslashes, control characters, non-ASCII,
+    // an astral surrogate pair and a lone surrogate.
+    const subtree = {
+      a: 'x',
+      b: [1, { y: null }, 'quote " and \\ back', 'control\t\r\n', 'ünïcödé 🐉', '\uD800', ''],
+    }
+    const result = migrationSnapshotEventPayloadDigest(foldedSubtreePayload(subtree))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.digest).toMatch(/^[0-9a-f]{64}$/)
+    // The streamed fold must hash exactly the canonical bytes of the subtree,
+    // folded into the parent as the bounded `"~deep:len:hex"` marker inside
+    // the 65-wrapper skeleton.
+    const canonical = referenceCanonicalJson(subtree)
+    const foldHex = createHash('sha256').update(canonical, 'utf8').digest('hex')
+    let whole = `"~deep:${Buffer.byteLength(canonical, 'utf8')}:${foldHex}"`
+    for (let depth = 0; depth < PAYLOAD_CANONICAL_MAX_DEPTH + 1; depth += 1) {
+      whole = `{"layer":${whole}}`
+    }
+    expect(result.digest).toBe(createHash('sha256').update(whole, 'utf8').digest('hex'))
+    // Deterministic across calls.
+    const again = migrationSnapshotEventPayloadDigest(foldedSubtreePayload(subtree))
+    expect(again.ok).toBe(true)
+    if (!again.ok) return
+    expect(again.digest).toBe(result.digest)
+  })
+
+  test('the byte budget is exact: one byte under digests, one byte over trips', () => {
+    const fits = PAYLOAD_CANONICAL_DEEP_MAX_BYTES - 2 // the fold adds the two quotes
+    const within = migrationSnapshotEventPayloadDigest(foldedSubtreePayload('u'.repeat(fits)))
+    expect(within.ok).toBe(true)
+    const over = migrationSnapshotEventPayloadDigest(foldedSubtreePayload('u'.repeat(fits + 1)))
+    expect(over).toEqual({
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    })
+  })
+
+  test('two different oversized payloads share only the explicit inconclusive identity', () => {
+    const left = migrationSnapshotEventPayloadDigest(
+      foldedSubtreePayload({ hidden: 'l'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES) })
+    )
+    const right = migrationSnapshotEventPayloadDigest(
+      foldedSubtreePayload({ hidden: 'r'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES) })
+    )
+    // Deterministic: the same input always yields the same typed outcome, and
+    // over-limit payloads yield the one explicitly-inconclusive outcome.
+    expect(left).toEqual(right)
+    if (!left.ok) {
+      // …and that outcome can never pass for any payload's digest.
+      expect(left.marker).toMatch(/^~inconclusive:/)
+      expect(left.marker).not.toMatch(/^[0-9a-f]{64}$/)
+    }
+  })
+
+  test('a subtree nested past the deep work bound trips the typed limit, fast', () => {
+    const result = migrationSnapshotEventPayloadDigest(
+      nestArraysAtDepth('leaf', PAYLOAD_CANONICAL_DEEP_MAX_WORK * 2)
+    )
+    expect(result).toEqual({
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    })
+  })
+})
+
+describe('migrationSnapshotEventPayloadDigestField', () => {
+  test('a digestible payload yields the 64-hex digest', () => {
+    expect(migrationSnapshotEventPayloadDigestField({ a: 1 })).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  test('an oversized payload yields the inconclusive marker, never a digest', () => {
+    const field = migrationSnapshotEventPayloadDigestField(
+      foldedSubtreePayload('x'.repeat(PAYLOAD_CANONICAL_DEEP_MAX_BYTES + 1))
+    )
+    expect(field).toBe(MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER)
+    expect(field).not.toMatch(/^[0-9a-f]{64}$/)
   })
 })
 

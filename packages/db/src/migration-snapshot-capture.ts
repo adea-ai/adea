@@ -260,10 +260,40 @@ export function resolveMigrationSnapshotCaptureDomains(
 
 /**
  * How deep the recursive canonical walk descends before handing the rest of
- * the subtree to `deepCanonicalDigestMarker`. Exported so the tests can pin
+ * the subtree to the streaming deep fold. Exported so the tests can pin
  * the exact boundary the fold guarantees.
  */
 export const PAYLOAD_CANONICAL_MAX_DEPTH = 64
+
+/**
+ * Emitted-bytes bound for one over-limit subtree's streamed canonical form:
+ * the deep fold feeds the hash at most this many UTF-8 bytes before it gives
+ * up. Small on purpose — a hostile payload must not be able to buy more than
+ * a constant amount of hashing, buffering, or traversal per folded subtree.
+ */
+export const PAYLOAD_CANONICAL_DEEP_MAX_BYTES = 1_048_576
+
+/**
+ * Work bound for the deep fold's explicit stack: the maximum number of
+ * containers that may be open along one path at once. Bounds the traversal
+ * itself, independently of the byte budget, so even a payload that emits
+ * almost nothing cannot make the walk grow without end.
+ */
+export const PAYLOAD_CANONICAL_DEEP_MAX_WORK = 262_144
+
+/** Why a deep fold produced no digest. */
+export type MigrationSnapshotPayloadDigestInconclusiveReason = 'payload_too_large_to_digest'
+
+/**
+ * The record-field value capture emits when no payload digest exists: a
+ * fixed, clearly-marked non-digest. It is deliberately NOT derived from the
+ * payload — nothing has been proven about content the fold refused to read —
+ * and it fails the contract's digest check, so the comparator quarantines
+ * the record (`quarantined_record`, field `payloadDigest`) before any
+ * comparison could mistake it for a digest.
+ */
+export const MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER =
+  '~inconclusive:payload_too_large_to_digest'
 
 /**
  * Scalar half of the canonical encoding, shared by the bounded recursive walk
@@ -283,93 +313,269 @@ function canonicalScalar(value: unknown): string {
   }
 }
 
+/** One container open along the deep fold's current path, with its cursor. */
+type DeepFoldFrame =
+  | { readonly kind: 'array'; readonly source: readonly unknown[]; index: number }
+  | {
+      readonly kind: 'object'
+      readonly source: Record<string, unknown>
+      readonly keys: readonly string[]
+      index: number
+    }
+
+/** Result of streaming one over-limit subtree into the fold hash. */
+type StreamedDeepCanonicalDigest =
+  | Readonly<{ byteLength: number; digest: string; ok: true }>
+  | Readonly<{ ok: false; reason: MigrationSnapshotPayloadDigestInconclusiveReason }>
+
+const DEEP_DIGEST_OVERSIZED: StreamedDeepCanonicalDigest = Object.freeze({
+  ok: false,
+  reason: 'payload_too_large_to_digest',
+})
+
 /**
- * Canonical encoding of a subtree handed over at the depth cap, serialized
- * with an explicit work stack instead of recursion — depth lives on the heap,
- * so the walk stays bounded no matter how deeply the payload nests. The
- * output is exactly what the recursive walk would produce without its cap:
- * keys sorted, arrays positional, the same scalar markers.
+ * Stream `JSON.stringify(value)`'s bytes into the fold without ever
+ * materializing the escaped whole: code units are escaped one at a time into
+ * a small chunk buffer flushed through `emit`, so a leaf string or object key
+ * of any length costs O(chunk) memory and O(min(bytes, budget)) work.
+ * Byte-for-byte identical to JSON.stringify, including control-character and
+ * lone-surrogate escapes — the test suite pins that equivalence.
  */
-function canonicalJsonDeep(root: unknown): string {
-  const parts: string[] = []
-  // Values still to encode travel wrapped; bare strings are pre-rendered
-  // output (brackets, closers, separators) and go straight to the parts.
-  const work: Array<string | { readonly value: unknown }> = [{ value: root }]
-  for (;;) {
-    const token = work.pop()
-    if (token === undefined) break
-    if (typeof token === 'string') {
-      parts.push(token)
-      continue
-    }
-    const value = token.value
-    if (Array.isArray(value)) {
-      parts.push('[')
-      work.push(']')
-      for (let index = value.length - 1; index >= 0; index--) {
-        work.push({ value: value[index] })
-        if (index > 0) work.push(',')
+function emitQuotedJsonString(emit: (text: string) => boolean, value: string): boolean {
+  if (!emit('"')) return false
+  let chunk = ''
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index)
+    let piece: string
+    if (unit > 0x1f && unit < 0xd800 && unit !== 0x22 && unit !== 0x5c) {
+      piece = value[index]
+    } else if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = index + 1 < value.length ? value.charCodeAt(index + 1) : -1
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        index += 1
+        piece = value.slice(index - 1, index + 1)
+      } else {
+        piece = `\\u${unit.toString(16).padStart(4, '0')}`
       }
-      continue
-    }
-    if (value !== null && typeof value === 'object') {
-      const source = value as Record<string, unknown>
-      const keys = Object.keys(source).toSorted()
-      parts.push('{')
-      work.push('}')
-      for (let index = keys.length - 1; index >= 0; index--) {
-        work.push({ value: source[keys[index]] })
-        work.push(':')
-        work.push(JSON.stringify(keys[index]))
-        if (index > 0) work.push(',')
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      piece = `\\u${unit.toString(16).padStart(4, '0')}`
+    } else {
+      switch (unit) {
+        case 0x08:
+          piece = '\\b'
+          break
+        case 0x09:
+          piece = '\\t'
+          break
+        case 0x0a:
+          piece = '\\n'
+          break
+        case 0x0c:
+          piece = '\\f'
+          break
+        case 0x0d:
+          piece = '\\r'
+          break
+        case 0x22:
+          piece = '\\"'
+          break
+        case 0x5c:
+          piece = '\\\\'
+          break
+        default:
+          piece = `\\u${unit.toString(16).padStart(4, '0')}`
+          break
       }
-      continue
     }
-    parts.push(canonicalScalar(value))
+    chunk += piece
+    if (chunk.length >= 4096) {
+      if (!emit(chunk)) return false
+      chunk = ''
+    }
   }
-  return parts.join('')
+  return (chunk.length === 0 || emit(chunk)) && emit('"')
 }
 
 /**
- * The depth-cap fold: the over-limit subtree's full canonical form, hashed
- * and folded into the parent as one bounded, length-prefixed marker. Content
- * past `PAYLOAD_CANONICAL_MAX_DEPTH` never collapses into a constant, so two
- * payloads identical above the cap but different below it can never share a
- * digest; the parent's encoding still costs O(1) per folded subtree.
+ * Canonical encoding of a subtree handed over at the depth cap, streamed
+ * STRAIGHT INTO a SHA-256 hash — nothing like the full encoded subtree is
+ * ever materialized. Containers are walked with an explicit cursor stack, so
+ * depth lives on the heap and width never enlarges the stack; strings are
+ * escaped chunk-by-chunk on their way into the hash. The emitted bytes are
+ * exactly what an uncapped recursive walk would produce (keys sorted, arrays
+ * positional, the same scalar markers), so the digest matches the encoding
+ * the shallow walk defines. Two documented bounds keep a hostile subtree
+ * finite — the emitted-byte budget and the open-container work limit — and
+ * tripping either stops the walk immediately with a typed inconclusive.
  */
-function deepCanonicalDigestMarker(value: unknown): string {
-  const canonical = canonicalJsonDeep(value)
-  const digest = createHash('sha256').update(canonical, 'utf8').digest('hex')
-  return `"~deep:${Buffer.byteLength(canonical, 'utf8')}:${digest}"`
+function streamDeepCanonicalDigest(root: unknown): StreamedDeepCanonicalDigest {
+  const hash = createHash('sha256')
+  let bytes = 0
+  const emit = (text: string): boolean => {
+    const emitted = Buffer.byteLength(text, 'utf8')
+    if (bytes + emitted > PAYLOAD_CANONICAL_DEEP_MAX_BYTES) return false
+    bytes += emitted
+    hash.update(text, 'utf8')
+    return true
+  }
+  const frames: DeepFoldFrame[] = []
+  let current: unknown = root
+  for (;;) {
+    // Open `current` — or emit it, when it is a scalar.
+    if (Array.isArray(current)) {
+      if (frames.length >= PAYLOAD_CANONICAL_DEEP_MAX_WORK || !emit('[')) {
+        return DEEP_DIGEST_OVERSIZED
+      }
+      frames.push({ index: 0, kind: 'array', source: current })
+    } else if (current !== null && typeof current === 'object') {
+      if (frames.length >= PAYLOAD_CANONICAL_DEEP_MAX_WORK || !emit('{')) {
+        return DEEP_DIGEST_OVERSIZED
+      }
+      const source = current as Record<string, unknown>
+      frames.push({ index: 0, keys: Object.keys(source).toSorted(), kind: 'object', source })
+    } else if (typeof current === 'string') {
+      if (!emitQuotedJsonString(emit, current)) return DEEP_DIGEST_OVERSIZED
+    } else if (!emit(canonicalScalar(current))) {
+      return DEEP_DIGEST_OVERSIZED
+    }
+    // Advance: finish every exhausted container (emitting its closer), then
+    // step the deepest open one to its next element — or finish the walk.
+    for (;;) {
+      const frame = frames.at(-1)
+      if (frame === undefined) {
+        return { byteLength: bytes, digest: hash.digest('hex'), ok: true }
+      }
+      if (frame.kind === 'array') {
+        if (frame.index >= frame.source.length) {
+          frames.pop()
+          if (!emit(']')) return DEEP_DIGEST_OVERSIZED
+          continue
+        }
+        if (frame.index > 0 && !emit(',')) return DEEP_DIGEST_OVERSIZED
+        current = frame.source[frame.index]
+        frame.index += 1
+        break
+      }
+      if (frame.index >= frame.keys.length) {
+        frames.pop()
+        if (!emit('}')) return DEEP_DIGEST_OVERSIZED
+        continue
+      }
+      if (frame.index > 0 && !emit(',')) return DEEP_DIGEST_OVERSIZED
+      const key = frame.keys[frame.index]
+      if (!emitQuotedJsonString(emit, key) || !emit(':')) return DEEP_DIGEST_OVERSIZED
+      current = frame.source[key]
+      frame.index += 1
+      break
+    }
+  }
+}
+
+/**
+ * Internal sentinel: the deep fold hit a documented bound, so the payload has
+ * no canonical encoding and no digest may ever be derived from it. A unique
+ * symbol, so the encoding's union narrows cleanly on `===`.
+ */
+const DEEP_FOLD_INCONCLUSIVE = Symbol('migration-snapshot deep fold inconclusive')
+
+/**
+ * The depth-cap fold: the over-limit subtree's canonical form, streamed into
+ * a SHA-256 and folded into the parent as one bounded, length-prefixed
+ * marker. Content past `PAYLOAD_CANONICAL_MAX_DEPTH` never collapses into a
+ * constant, so two payloads identical above the cap but different below it
+ * can never share a digest; the parent's encoding still costs O(1) per
+ * folded subtree. Returns the inconclusive sentinel when the subtree trips a
+ * fold bound — the parent gets no marker at all, and neither does the
+ * payload.
+ */
+function deepFoldMarker(value: unknown): string | typeof DEEP_FOLD_INCONCLUSIVE {
+  const streamed = streamDeepCanonicalDigest(value)
+  if (!streamed.ok) return DEEP_FOLD_INCONCLUSIVE
+  return `"~deep:${streamed.byteLength}:${streamed.digest}"`
 }
 
 /**
  * Deterministic JSON encoding for event payload digests: object keys sorted,
  * arrays positional, recursion depth-capped, with content past the cap folded
  * in as a bounded digest of its full canonical form. The same payload always
- * digests the same, whatever key order the driver handed back — and no depth
- * limit can hide a difference from the digest.
+ * encodes the same, whatever key order the driver handed back — and no depth
+ * limit can hide a difference from the digest. A payload whose deep content
+ * trips a fold bound has no encoding at all: the inconclusive sentinel
+ * propagates out unchanged and the digest is refused.
  */
-function canonicalJson(value: unknown, depth = 0): string {
-  if (depth > PAYLOAD_CANONICAL_MAX_DEPTH) return deepCanonicalDigestMarker(value)
+function canonicalJson(value: unknown, depth = 0): string | typeof DEEP_FOLD_INCONCLUSIVE {
+  if (depth > PAYLOAD_CANONICAL_MAX_DEPTH) return deepFoldMarker(value)
   if (value === null || typeof value !== 'object') return canonicalScalar(value)
   if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item, depth + 1)).join(',')}]`
+    const parts: string[] = []
+    for (const item of value) {
+      const encoded = canonicalJson(item, depth + 1)
+      if (encoded === DEEP_FOLD_INCONCLUSIVE) return encoded
+      parts.push(encoded)
+    }
+    return `[${parts.join(',')}]`
   }
   const source = value as Record<string, unknown>
-  const entries = Object.keys(source)
-    .toSorted()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(source[key], depth + 1)}`)
-  return `{${entries.join(',')}}`
+  const parts: string[] = []
+  for (const key of Object.keys(source).toSorted()) {
+    const encoded = canonicalJson(source[key], depth + 1)
+    if (encoded === DEEP_FOLD_INCONCLUSIVE) return encoded
+    parts.push(`${JSON.stringify(key)}:${encoded}`)
+  }
+  return `{${parts.join(',')}}`
 }
+
+/**
+ * The digest outcome for one durable event payload.
+ *
+ * - `ok: true`: `digest` is the SHA-256 of the payload's canonical encoding —
+ *   64 lowercase hex, deterministic for the payload.
+ * - `ok: false`: the payload's deep content tripped a documented fold bound
+ *   (see `PAYLOAD_CANONICAL_DEEP_MAX_BYTES` and
+ *   `PAYLOAD_CANONICAL_DEEP_MAX_WORK`). Nothing about the content is claimed
+ *   or hashed; `marker` is the fixed, clearly-marked non-digest the record
+ *   carries instead, and the comparator quarantines it before comparing.
+ */
+export type MigrationSnapshotEventPayloadDigestResult = Readonly<
+  | { digest: string; ok: true }
+  | {
+      marker: typeof MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER
+      ok: false
+      reason: MigrationSnapshotPayloadDigestInconclusiveReason
+    }
+>
 
 /**
  * Caller-computed payload digest for one durable event: SHA-256 over the
  * canonical encoding of the event payload. The payload itself never travels —
- * this digest is what drift detection compares.
+ * this digest is what drift detection compares. A payload whose deep content
+ * trips a fold bound gets a typed inconclusive result instead of a digest;
+ * callers must never synthesize one for it.
  */
-export function migrationSnapshotEventPayloadDigest(payload: unknown): string {
-  return createHash('sha256').update(canonicalJson(payload), 'utf8').digest('hex')
+export function migrationSnapshotEventPayloadDigest(
+  payload: unknown
+): MigrationSnapshotEventPayloadDigestResult {
+  const encoded = canonicalJson(payload)
+  if (encoded === DEEP_FOLD_INCONCLUSIVE) {
+    return {
+      marker: MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+      ok: false,
+      reason: 'payload_too_large_to_digest',
+    }
+  }
+  return { digest: createHash('sha256').update(encoded, 'utf8').digest('hex'), ok: true }
+}
+
+/**
+ * The `payloadDigest` field value for one event record: the digest when one
+ * exists, otherwise `MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER`.
+ * The marker fails the contract's digest check, so the comparator
+ * quarantines the record as `quarantined_record` (field `payloadDigest`)
+ * instead of ever comparing an unknown as if it were a digest.
+ */
+export function migrationSnapshotEventPayloadDigestField(payload: unknown): string {
+  const result = migrationSnapshotEventPayloadDigest(payload)
+  return result.ok ? result.digest : result.marker
 }
 
 // ─── Stable record identity (order only) ─────────────────────────────────────
@@ -758,7 +964,10 @@ async function captureFamilySectionByName(
           eventId: row.id,
           eventType: row.eventType,
           family: 'events',
-          payloadDigest: migrationSnapshotEventPayloadDigest(row.payload),
+          // An over-limit deep payload digests to nothing: the field carries
+          // the clearly-marked inconclusive marker, which the comparator
+          // quarantines before comparison — never a synthesized digest.
+          payloadDigest: migrationSnapshotEventPayloadDigestField(row.payload),
           schemaVersion: row.schemaVersion,
           workspaceId: row.workspaceId,
           workspaceSequence: row.workspaceSequence,
