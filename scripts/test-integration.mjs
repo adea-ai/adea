@@ -22,6 +22,13 @@ if (integrationDirectories.length === 0) {
   throw new Error('No package integration test directories were found')
 }
 
+// The apps/web route-flow tests (server route handlers against PostgreSQL)
+// share this lane's provisioning but run under the react-server export
+// condition, which the runner supplies — the route modules carry the
+// `server-only` marker and cannot initialize under bun's default conditions.
+const routeFlowDirectory = resolve(root, 'apps', 'web', 'test', 'integration')
+const routeFlowDirectories = existsSync(routeFlowDirectory) ? [routeFlowDirectory] : []
+
 function run(command, args, environment) {
   const result = spawnSync(command, args, {
     cwd: root,
@@ -97,6 +104,28 @@ try {
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
   run('bun', ['test', '--timeout', String(timeoutMs), ...integrationDirectories], environment)
+  if (routeFlowDirectories.length > 0) {
+    // The route flow imports the compiled @adea-ai/db and @adea-ai/api-client
+    // entries (the package suites above import their own src relatively), so
+    // both must be built on a clean checkout before the route tests run. Like
+    // the builds above, this keeps integration runnable independently from a
+    // workspace-wide turbo build.
+    run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
+    run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+    // The runner sets the react-server condition for the route-flow modules;
+    // the shared database environment and the same latency-sized ceiling apply.
+    run(
+      'bun',
+      [
+        'test',
+        '--conditions=react-server',
+        '--timeout',
+        String(timeoutMs),
+        ...routeFlowDirectories,
+      ],
+      environment
+    )
+  }
 } finally {
   if (startedLocalPostgres) {
     run('docker', ['compose', 'stop', 'postgres'], process.env)
