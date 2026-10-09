@@ -93,10 +93,14 @@ async function lockAuthority(
   // Group admission (targetless): the group's single enlisted workspace
   // lead, resolved under validated group authority with a live window. A
   // direct channel keeps its bound agent; neither path weakens the other,
-  // and no handoff target is read or required here.
+  // and no handoff target is read or required here. Admission and grant
+  // rows lock with the decision in this same transaction, so a concurrent
+  // revocation orders before or after the authority — never inside it.
   const groupLeadAgentId =
     channel.kind === 'group' && !channel.agentId
-      ? await resolveGroupLeadAgentId(tx, workspaceId, channelId, new Date().toISOString())
+      ? await resolveGroupLeadAgentId(tx, workspaceId, channelId, new Date().toISOString(), {
+          forUpdate: true,
+        })
       : null
   const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
   if (!leadAgentId) throw new Error('Lead turn unavailable')

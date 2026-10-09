@@ -2030,4 +2030,81 @@ describe('durable binding, fences and shared read boundary', () => {
       await f.local.close()
     }
   })
+
+  test('a revoked lead enlistment denies the group lead post inside writer authority', async () => {
+    // The denial happens in the writer transaction on current rows — not on
+    // any helper result computed outside it. Revocation committed before the
+    // post starts must refuse with zero rows, never admit on a stale read.
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_lead',
+        kind: 'enlistment',
+        revokedAt: LATER,
+      })
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          {
+            lead: { bodyText: 'must not land', idempotencyKey: crypto.randomUUID(), mentions: [] },
+            mode: 'lead',
+          },
+          { now: LATER }
+        )
+      ).rejects.toThrow('Lead turn unavailable')
+      const [messages, intents] = await Promise.all([
+        f.local.db
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, channelId)
+            )
+          ),
+        f.local.db
+          .select()
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.channelId, channelId)),
+      ])
+      expect(messages).toHaveLength(0)
+      expect(intents).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
 })

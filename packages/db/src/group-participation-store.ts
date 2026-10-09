@@ -299,9 +299,10 @@ export async function resolveGroupLeadAgentId(
   database: GroupStoreDatabase,
   workspaceId: string,
   channelId: string,
-  now: string
+  now: string,
+  options: Readonly<{ forUpdate?: boolean }> = {}
 ): Promise<string | null> {
-  const roster = await loadGroupRoster(database, workspaceId, channelId)
+  const roster = await loadGroupRoster(database, workspaceId, channelId, options)
   const eligible: string[] = []
   for (const admission of roster) {
     if (admission.participant.kind !== 'agent') continue
