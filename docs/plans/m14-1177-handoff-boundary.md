@@ -217,12 +217,33 @@ and any refusal fails closed before any admission post exists. No
 desktop-shell changes were needed: `dev.session.get` already returns
 the full record and the capability snapshot already reports manage.
 
-Residual (root acceptance question): a credential-bearing direct cloud
-POST bypasses the host gate; the server cannot verify session control
-without a session registry, by design. Task visibility plus the stamped
-triple plus actor-gated dispatch contain it, but do not close it —
-closing needs CP session authority or host attestation, outside this
-slice's narrow scope.
+Host-to-server trust (identified mechanism, then enforced): the
+`Authorization: Desktop` credential scheme is the existing host
+channel — vault-held by the shell, issued via the PKCE `adea://`
+handoff (`apps/web/src/server/desktop-auth.ts`,
+`resolveDesktopSessionPrincipal`; client sends it in
+`packages/api-client/src/index.ts`, configured from the vault in
+`apps/web/src/lib/desktop-runtime.ts`), revocable/expiring in
+`desktop_sessions`, origin-gated. `resolveWorkspacePrincipal`
+collapsed the channel to a bare user principal, so admission could
+not distinguish host-mediated from direct-API requests. Now: the
+messages route records the validated channel and target-bearing
+admissions require it (`createLeadTurn` enforces
+`hostMediated` for any retained target, for every caller — the
+group-lane caller is targetless and unaffected). Retained target
+⟺ host-channeled by construction, with zero new columns: a direct
+bypass with forged session/task/generation fails closed before any
+row exists (proven: 0 rows retained), and high-generation futures
+can never outrank honest intents (proven: forged 9999 rejected,
+honest 4 reads current). The route gate duplicates the DB rule so
+failures 400 early; the DB rule holds even if the route line ever
+regresses (the route handler has no test seam by repo practice —
+reviewed, not unit-proven).
+Explicit choices are identity too: the retained-target return
+applies 1215's `sameRequestedRoleModelSelections` check first, so
+a changed choice replays as `model selection conflict` exactly
+like the message-idempotency path — never a silent old receipt
+(proven by focused replay).
 
 ## Traceability
 

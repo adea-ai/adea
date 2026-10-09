@@ -220,13 +220,22 @@ function assertPinned(
     throw new Error('Lead turn version conflict')
 }
 
-/** Message, message event, and blocked dispatch intent commit as one durable unit. */
+/** Message, message event, and blocked dispatch intent commit as one durable unit.
+ *
+ *  A structured handoff target is accepted only over the authenticated
+ *  desktop-host channel (`options.hostMediated`, asserted by the route from
+ *  a validated Desktop credential): the cloud holds no session facts, so a
+ *  bare session id can never prove binding, currency, or control
+ *  permission here. Unmediated target claims fail closed before anything
+ *  is retained, which keeps every retained target host-channeled by
+ *  construction — reads never see a forged binding. */
 export async function createLeadTurn(
   database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  input: Input
+  input: Input,
+  options: Readonly<{ hostMediated?: boolean }> = {}
 ) {
   const allowed = new Set([
     'artifactIds',
@@ -243,6 +252,8 @@ export async function createLeadTurn(
     input.idempotencyKey.length > 128
   )
     throw new Error('Invalid lead turn')
+  if (input.handoffTarget !== undefined && options.hostMediated !== true)
+    throw new Error('Lead turn target requires host mediation')
   const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
   const handoffTarget = parseHandoffTarget(input.handoffTarget)
   const {
@@ -280,6 +291,16 @@ export async function createLeadTurn(
         assertPinned(retained, authority)
         if (retained.handoffTargetTaskId !== handoffTarget.taskId)
           throw new Error('Lead turn target mismatch')
+        // Explicit choices are identity too: a changed selection must hit
+        // the same conflict the message-idempotency path reports, never a
+        // silent return of the old receipt.
+        if (
+          !sameRequestedRoleModelSelections(
+            retained.requestedModelSelections ?? undefined,
+            requestedModelSelections
+          )
+        )
+          throw new Error('Lead turn model selection conflict')
         return {
           message: await requireIntentMessage(tx, workspaceId, retained),
           leadTurn: receipt(retained),

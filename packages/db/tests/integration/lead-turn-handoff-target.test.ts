@@ -9,6 +9,13 @@ import { leadTurnIntents } from '../../src/schema/lead-turns'
 import { createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
+const selection = (revision: number) => ({
+  lead: {
+    selectionRef: `msel_${'a'.repeat(32)}`,
+    selectionRevision: revision,
+  },
+})
+
 const connectionUrl = process.env.DATABASE_URL
 describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
   let connection: DatabaseConnection
@@ -47,13 +54,36 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       taskId: task.id,
       expectedGeneration: generation,
     })
-    const admit = (session: string, generation: number, channelId = topic.id) =>
-      createLeadTurn(connection.db, workspace.id, channelId, owner.principal, {
+    // The trusted path: admissions arrive over the authenticated
+    // desktop-host channel (the route asserts the validated Desktop
+    // credential; direct callers pass the flag only in these tests).
+    const admit = (
+      session: string,
+      generation: number,
+      channelId = topic.id,
+      extra: Record<string, unknown> = {}
+    ) =>
+      createLeadTurn(
+        connection.db,
+        workspace.id,
+        channelId,
+        owner.principal,
+        {
+          bodyText: `Requesting lead coordination for direct session ${session}.`,
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: target(session, generation),
+          ...extra,
+        },
+        { hostMediated: true }
+      )
+    const bypass = (session: string, generation: number, extra: Record<string, unknown> = {}) =>
+      createLeadTurn(connection.db, workspace.id, topic.id, owner.principal, {
         bodyText: `Requesting lead coordination for direct session ${session}.`,
         idempotencyKey: crypto.randomUUID(),
         handoffTarget: target(session, generation),
+        ...extra,
       })
-    return { owner, workspace, lead, topic, task, target, admit }
+    return { owner, workspace, lead, topic, task, target, admit, bypass }
   }
 
   test('admission retains the structured target and returns it on the receipt', async () => {
@@ -188,15 +218,22 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
     )
     await expect(
-      createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
-        bodyText: 'Requesting lead coordination.',
-        idempotencyKey: crypto.randomUUID(),
-        handoffTarget: {
-          runtimeSessionId: 'target-session-a',
-          taskId: other.id,
-          expectedGeneration: 3,
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        f.owner.principal,
+        {
+          bodyText: 'Requesting lead coordination.',
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: {
+            runtimeSessionId: 'target-session-a',
+            taskId: other.id,
+            expectedGeneration: 3,
+          },
         },
-      })
+        { hostMediated: true }
+      )
     ).rejects.toThrow('target mismatch')
   })
 
@@ -219,15 +256,22 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
     )
     await expect(
-      createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
-        bodyText: 'Requesting lead coordination.',
-        idempotencyKey: crypto.randomUUID(),
-        handoffTarget: {
-          runtimeSessionId: 'target-session-a',
-          taskId: foreign.id,
-          expectedGeneration: 3,
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        f.owner.principal,
+        {
+          bodyText: 'Requesting lead coordination.',
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: {
+            runtimeSessionId: 'target-session-a',
+            taskId: foreign.id,
+            expectedGeneration: 3,
+          },
         },
-      })
+        { hostMediated: true }
+      )
     ).rejects.toThrow()
   })
 
@@ -260,34 +304,105 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     }
     const principal = f.owner.principal
     await expect(
-      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
-        ...base,
-        idempotencyKey: crypto.randomUUID(),
-        handoffTarget: { runtimeSessionId: '   ', taskId: f.task.id, expectedGeneration: 3 },
-      })
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        principal,
+        {
+          ...base,
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: { runtimeSessionId: '   ', taskId: f.task.id, expectedGeneration: 3 },
+        },
+        { hostMediated: true }
+      )
     ).rejects.toThrow()
     await expect(
-      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
-        ...base,
-        idempotencyKey: crypto.randomUUID(),
-        handoffTarget: {
-          runtimeSessionId: 'target-session-a',
-          taskId: f.task.id,
-          expectedGeneration: -1,
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        principal,
+        {
+          ...base,
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: {
+            runtimeSessionId: 'target-session-a',
+            taskId: f.task.id,
+            expectedGeneration: -1,
+          },
         },
-      })
+        { hostMediated: true }
+      )
     ).rejects.toThrow()
     await expect(
-      createLeadTurn(connection.db, f.workspace.id, f.topic.id, principal, {
-        ...base,
-        idempotencyKey: crypto.randomUUID(),
-        handoffTarget: {
-          runtimeSessionId: 'target-session-a',
-          taskId: '00000000-0000-4000-8000-ffffffffffff',
-          expectedGeneration: 3,
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        principal,
+        {
+          ...base,
+          idempotencyKey: crypto.randomUUID(),
+          handoffTarget: {
+            runtimeSessionId: 'target-session-a',
+            taskId: '00000000-0000-4000-8000-ffffffffffff',
+            expectedGeneration: 3,
+          },
         },
-      })
+        { hostMediated: true }
+      )
     ).rejects.toThrow()
+  })
+
+  test('direct bypass without host mediation retains nothing', async () => {
+    // The attacker path: a fully authenticated principal calling admission
+    // directly, bypassing the desktop host (forged session, task, and a
+    // fabricated high generation). Without host mediation the claim fails
+    // closed before any row exists — there is nothing to recover, order,
+    // or display.
+    const f = await fixture()
+    await expect(f.bypass('target-session-a', 9999)).rejects.toThrow('host mediation')
+    await expect(f.bypass('target-session-a', 3)).rejects.toThrow('host mediation')
+    const rows = await connection.db
+      .select({ id: leadTurnIntents.id })
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.workspaceId, f.workspace.id))
+    expect(rows).toHaveLength(0)
+  })
+
+  test('high-generation poisoning proof: forged futures never outrank honest intents', async () => {
+    const f = await fixture()
+    // The forged future cannot be retained at all.
+    await expect(f.bypass('target-session-a', 9999)).rejects.toThrow('host mediation')
+    // The honest admission lands alone and reads as current.
+    const honest = await f.admit('target-session-a', 4)
+    const current = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-a',
+      f.owner.principal
+    )
+    expect(current?.intentId).toBe(honest.leadTurn.intentId)
+    expect(current?.handoffTarget?.observedGeneration).toBe(4)
+  })
+
+  test('a changed explicit choice replays as a conflict, never a silent return', async () => {
+    const f = await fixture()
+    const first = await f.admit('target-session-a', 3, f.topic.id, {
+      requestedModelSelections: selection(1),
+    })
+    // Same complete target and same choice: the retained receipt returns.
+    const replay = await f.admit('target-session-a', 3, f.topic.id, {
+      requestedModelSelections: selection(1),
+    })
+    expect(replay.leadTurn.intentId).toBe(first.leadTurn.intentId)
+    // Same target with a changed explicit choice: conflict, like the
+    // message-idempotency path reports — never the old receipt.
+    await expect(
+      f.admit('target-session-a', 3, f.topic.id, { requestedModelSelections: selection(2) })
+    ).rejects.toThrow('model selection conflict')
   })
 
   test('legacy admissions without a target keep working', async () => {

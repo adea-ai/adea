@@ -101,6 +101,13 @@ async function post(request: Request, { params }: Context) {
   if (!(await authorizeConversationWrite(resolution.principal, workspaceId, { channelId })))
     return workspaceUnavailableResponse(request)
   const idempotencyKey = request.headers.get('idempotency-key')?.trim()
+  // Host-mediated channel: a validated Desktop credential proves the request
+  // rode the authenticated desktop-host channel (vault-held, PKCE-issued,
+  // revocable). Validity is already established above by principal
+  // resolution (anything else 401s before admission); this flag only
+  // records which validated channel carried it, so target-bearing
+  // admissions can require host mediation.
+  const hostMediatedChannel = request.headers.get('authorization')?.startsWith('Desktop ') ?? false
   let body: Record<string, unknown>
   try {
     body = (await request.json()) as Record<string, unknown>
@@ -115,6 +122,12 @@ async function post(request: Request, { params }: Context) {
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
+  // Unverifiable target claims never reach retention: without host
+  // mediation the cloud cannot prove session binding, currency, or
+  // control, so the request fails closed here (the database enforces
+  // the same rule for any other caller).
+  if (handoffTarget !== undefined && !hostMediatedChannel)
+    return workspaceInvalidRequestResponse(request)
   let requestedModelSelections
   try {
     requestedModelSelections = parseRequestedRoleModelSelections(body?.requestedModelSelections)
@@ -231,7 +244,8 @@ async function post(request: Request, { params }: Context) {
           idempotencyKey,
           ...(requestedModelSelections ? { requestedModelSelections } : {}),
           mentions: mentions as never,
-        }
+        },
+        { hostMediated: hostMediatedChannel }
       )
       return workspaceJsonResponse(payload, resolution, request, { status: 201 })
     }
