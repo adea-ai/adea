@@ -2,104 +2,106 @@
  * Job outbound result service (M15 #1217).
  *
  * Runs the pure decisions in `job-outbound-result-policy` over CURRENT state
- * read through injected ports. Publication reads the job, the publisher's
- * admission and the artifact facts; every delivery reads the recipient's
- * admission and the artifact facts again, so a revocation or revision after
- * publication denies the next delivery. Nothing is cached between calls. A
- * rejected read rejects the call: no decision is made and nothing is released
- * on an authority that could not be read.
+ * read through injected ports. Every publish and every delivery reads the job,
+ * the original actor's source-workspace access, the artifact facts, and (for
+ * delivery) the recipient's destination access again. Nothing is cached between
+ * calls, so a revocation after publication denies the next delivery. A rejected
+ * read rejects the call: no decision is made and nothing is released on an
+ * authority that could not be read.
  *
  * The service persists nothing and mutates no job. Callers own the outbox,
  * event and transport steps that follow a `publish` or `deliver` decision.
  */
-import type {
-  ArtifactReferenceEvidence,
-  ArtifactReferenceGrantState,
-  ConversationParticipantRef,
-  GroupAdmission,
-  GroupCompletedJob,
-  UserPrincipalRef,
-} from '@adea-ai/types'
+import type { ArtifactReferenceEvidence, ArtifactReferenceGrantState } from '@adea-ai/types'
 
-import { readArtifactReferenceEvidence } from './artifact-reference-policy'
-import type { AgentHqDatabase } from './connection'
 import {
   decideJobOutboundDelivery,
   decideJobOutboundPublication,
   sanitizeJobOutboundResult,
+  type JobOutboundAccess,
   type JobOutboundArtifactClaim,
   type JobOutboundArtifactCurrent,
   type JobOutboundDeliveryDecision,
+  type JobOutboundJobSource,
   type JobOutboundPublicationDecision,
-  type JobOutboundRecipient,
 } from './job-outbound-result-policy'
 
 /**
- * Current-state reads. Each port returns the authoritative value at call time;
- * `null` means no current evidence, which the policy treats as a refusal.
+ * Current-state reads. Each returns the authoritative value at call time; a
+ * `null` evidence or job is a refusal, never a reason to trust the request.
  */
 export type JobOutboundPorts = Readonly<{
+  /** Current access of one principal to one workspace (role and workspace liveness). */
+  readAccess: (
+    input: Readonly<{ userId: string; workspaceId: string }>
+  ) => Promise<JobOutboundAccess>
   readArtifactEvidence: (
-    input: Readonly<{ artifactId: string; workspaceId: string }>
+    input: Readonly<{ artifactId: string; principalUserId: string; workspaceId: string }>
   ) => Promise<ArtifactReferenceEvidence | null>
   /** Resolves the registration only while the presented revision is current; a stale revision reads null. */
   readArtifactGrantState: (
     presentation: Readonly<{ grantId: string; revision: number }>
   ) => Promise<ArtifactReferenceGrantState | null>
-  readCompletedJob: (jobId: string) => Promise<GroupCompletedJob | null>
-  readGroupAdmission: (
-    input: Readonly<{ groupId: string; participant: ConversationParticipantRef }>
-  ) => Promise<GroupAdmission | null>
+  readJobSource: (jobId: string) => Promise<JobOutboundJobSource | null>
 }>
 
 export type JobOutboundPublishInput = Readonly<{
   artifact: JobOutboundArtifactClaim | null
-  groupId: string
+  destinationWorkspaceId: string
   jobId: string
   now: string
-  publisher: ConversationParticipantRef
   result: unknown
 }>
 
 export type JobOutboundDeliverInput = Readonly<{
   artifact: JobOutboundArtifactClaim | null
+  /** The destination recorded when the result was published. */
+  destinationWorkspaceId: string
+  jobId: string
   now: string
   /** The record stored at publication; it is sanitized again before release. */
   published: unknown
-  recipient: JobOutboundRecipient
+  /** The destination member the result is released to. */
+  recipientUserId: string
 }>
-
-/** A missing or mismatched job cannot be evaluated, so nothing is published. */
-export type JobOutboundPublishResult =
-  | JobOutboundPublicationDecision
-  | Readonly<{
-      action: 'hold'
-      gate: 'job'
-      jobId: string
-      producerEffect: 'unaffected'
-      reason: 'job_unavailable'
-    }>
 
 export type JobOutboundResultService = Readonly<{
   deliver: (input: JobOutboundDeliverInput) => Promise<JobOutboundDeliveryDecision>
-  publish: (input: JobOutboundPublishInput) => Promise<JobOutboundPublishResult>
+  publish: (input: JobOutboundPublishInput) => Promise<JobOutboundPublicationDecision>
 }>
 
 export function createJobOutboundResultService(ports: JobOutboundPorts): JobOutboundResultService {
-  /** Reads the artifact facts a claim depends on; a claim with no artifact reads nothing. */
+  /** Source access of the job's original actor, or null when the job cannot be proven. */
+  async function readSourceAccess(
+    job: JobOutboundJobSource | null
+  ): Promise<JobOutboundAccess | null> {
+    if (!job) return null
+    return ports.readAccess({
+      userId: job.originalActorUserId,
+      workspaceId: job.sourceWorkspaceId,
+    })
+  }
+
+  /**
+   * Reads the artifact facts a claim depends on. Evidence is read as the
+   * original actor, so a principal that lost source access reads no evidence.
+   */
   async function readArtifactCurrent(
     claim: JobOutboundArtifactClaim | null,
+    job: JobOutboundJobSource | null,
     result: unknown
   ): Promise<(JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null> {
     if (!claim) return null
     const sanitized = sanitizeJobOutboundResult(result)
     const target = sanitized.ok ? sanitized.result.artifact : null
-    const evidence = target
-      ? await ports.readArtifactEvidence({
-          artifactId: target.artifactId,
-          workspaceId: target.sourceWorkspaceId,
-        })
-      : null
+    const evidence =
+      target && job
+        ? await ports.readArtifactEvidence({
+            artifactId: target.artifactId,
+            principalUserId: job.originalActorUserId,
+            workspaceId: target.sourceWorkspaceId,
+          })
+        : null
     const grantState = claim.grant
       ? await ports.readArtifactGrantState({
           grantId: claim.grant.grantId,
@@ -111,57 +113,38 @@ export function createJobOutboundResultService(ports: JobOutboundPorts): JobOutb
 
   return {
     async publish(input) {
-      const job = await ports.readCompletedJob(input.jobId)
-      if (!job || job.jobId !== input.jobId)
-        return {
-          action: 'hold',
-          gate: 'job',
-          jobId: input.jobId,
-          producerEffect: 'unaffected',
-          reason: 'job_unavailable',
-        }
-      const admission = await ports.readGroupAdmission({
-        groupId: input.groupId,
-        participant: input.publisher,
-      })
-      const artifact = await readArtifactCurrent(input.artifact, input.result)
+      const job = await ports.readJobSource(input.jobId)
+      const sourceAccess = await readSourceAccess(job)
+      const artifact = await readArtifactCurrent(input.artifact, job, input.result)
       return decideJobOutboundPublication({
-        admission,
         artifact,
+        destinationWorkspaceId: input.destinationWorkspaceId,
         job,
+        jobId: input.jobId,
         now: input.now,
-        publisher: input.publisher,
         result: input.result,
+        sourceAccess,
       })
     },
 
     async deliver(input) {
-      const admission = await ports.readGroupAdmission({
-        groupId: input.recipient.groupId,
-        participant: input.recipient.participant,
+      const job = await ports.readJobSource(input.jobId)
+      const sourceAccess = await readSourceAccess(job)
+      const recipientAccess = await ports.readAccess({
+        userId: input.recipientUserId,
+        workspaceId: input.destinationWorkspaceId,
       })
-      const artifact = await readArtifactCurrent(input.artifact, input.published)
+      const artifact = await readArtifactCurrent(input.artifact, job, input.published)
       return decideJobOutboundDelivery({
-        admission,
         artifact,
+        destinationWorkspaceId: input.destinationWorkspaceId,
+        job,
+        jobId: input.jobId,
         now: input.now,
         published: input.published,
-        recipient: input.recipient,
+        recipientAccess,
+        sourceAccess,
       })
     },
   }
-}
-
-/**
- * Evidence port backed by the existing access helper. The principal must hold
- * access to the artifact's source workspace; a principal without it reads `null`
- * and the decision refuses with `evidence_unavailable`. Which principal reads at
- * delivery is the caller's decision.
- */
-export function artifactEvidenceThroughDatabase(
-  database: AgentHqDatabase,
-  principal: UserPrincipalRef
-): JobOutboundPorts['readArtifactEvidence'] {
-  return ({ artifactId, workspaceId }) =>
-    readArtifactReferenceEvidence(database, workspaceId, artifactId, principal)
 }

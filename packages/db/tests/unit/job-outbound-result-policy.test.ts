@@ -5,9 +5,11 @@ import {
   decideJobOutboundDelivery,
   decideJobOutboundPublication,
   sanitizeJobOutboundResult,
+  type JobOutboundAccess,
   type JobOutboundArtifactClaim,
   type JobOutboundArtifactCurrent,
   type JobOutboundDeliveryInput,
+  type JobOutboundJobSource,
   type JobOutboundPublicationInput,
 } from '../../src/job-outbound-result-policy'
 import type {
@@ -15,30 +17,25 @@ import type {
   ArtifactReferenceGrant,
   ArtifactReferenceGrantState,
   ArtifactReferenceTarget,
-  GroupAdmission,
-  GroupCompletedJob,
 } from '@adea-ai/types'
 
 /**
- * Pure outbound-result suites for M15 #1217. Current admissions, artifact
- * evidence, grant state and the clock are injected; no database is involved.
+ * Pure outbound-result suites for M15 #1217. Authority is the job's source
+ * owner or admin acting through the original actor; group participation is not
+ * authority. Access, evidence, grant state and the clock are injected here.
  */
 
 const NOW = '2026-10-08T12:00:00.000Z'
 const CHECKSUM = 'a'.repeat(64)
-const GROUP = 'group-1'
 const SOURCE = 'ws-source'
-const AUDIENCE = 'ws-audience'
-const OWNER = { kind: 'user', userId: 'user-owner' } as const
-const OTHER = { kind: 'user', userId: 'user-other' } as const
-const RECIPIENT = { kind: 'user', userId: 'user-recipient' } as const
-const AGENT = { kind: 'agent', agentId: 'agent-1' } as const
+const DEST = 'ws-dest'
+const ACTOR = 'user-actor'
 const CANARY = 'CANARY-runtime-node-/private/home/secret'
 
 function target(overrides: Partial<ArtifactReferenceTarget> = {}): ArtifactReferenceTarget {
   return {
     artifactId: 'artifact-1',
-    audienceWorkspaceId: AUDIENCE,
+    audienceWorkspaceId: DEST,
     checksumSha256: CHECKSUM,
     sourceWorkspaceId: SOURCE,
     version: 3,
@@ -50,34 +47,20 @@ function result(overrides: Record<string, unknown> = {}) {
   return { jobId: 'job-1', summary: 'Done.', ...overrides }
 }
 
-function job(overrides: Partial<GroupCompletedJob> = {}): GroupCompletedJob {
+function job(overrides: Partial<JobOutboundJobSource> = {}): JobOutboundJobSource {
   return {
-    authorization: { groupId: GROUP, grantId: 'grant-owner', revision: 2 },
     completedAt: '2026-10-08T11:00:00.000Z',
     jobId: 'job-1',
-    participant: OWNER,
+    originalActorUserId: ACTOR,
+    sourceWorkspaceId: SOURCE,
     ...overrides,
   }
 }
 
-function admission(
-  participant: GroupAdmission['participant'],
-  grantId: string,
-  grantOverrides: Partial<GroupAdmission['grant']> = {},
-  authorizationOverrides: Partial<GroupAdmission['authorization']> = {}
-): GroupAdmission {
-  return {
-    authorization: { groupId: GROUP, grantId, revision: 2, ...authorizationOverrides },
-    grant: {
-      expiresAt: null,
-      issuedAt: '2026-10-01T00:00:00.000Z',
-      revokedAt: null,
-      ...grantOverrides,
-    },
-    joinPoint: { joinedAt: '2026-10-01T00:00:00.000Z', joinedSequence: 0 },
-    participant,
-  }
-}
+const OWNER: JobOutboundAccess = { role: 'owner', workspaceLive: true }
+const ADMIN: JobOutboundAccess = { role: 'admin', workspaceLive: true }
+const MEMBER: JobOutboundAccess = { role: 'member', workspaceLive: true }
+const DEST_MEMBER: JobOutboundAccess = { role: 'member', workspaceLive: true }
 
 function evidence(overrides: Partial<ArtifactReferenceEvidence> = {}): ArtifactReferenceEvidence {
   return {
@@ -95,7 +78,7 @@ function evidence(overrides: Partial<ArtifactReferenceEvidence> = {}): ArtifactR
 function grant(overrides: Partial<ArtifactReferenceGrant> = {}): ArtifactReferenceGrant {
   return {
     artifactId: 'artifact-1',
-    audienceWorkspaceId: AUDIENCE,
+    audienceWorkspaceId: DEST,
     checksumSha256: CHECKSUM,
     expiresAt: null,
     grantId: 'artifact-grant-1',
@@ -112,7 +95,7 @@ function grantState(
 ): ArtifactReferenceGrantState {
   return {
     artifactId: 'artifact-1',
-    audienceWorkspaceIds: [AUDIENCE],
+    audienceWorkspaceIds: [DEST],
     checksumSha256: CHECKSUM,
     expiresAt: null,
     grantId: 'artifact-grant-1',
@@ -136,37 +119,37 @@ function publication(
   overrides: Partial<JobOutboundPublicationInput> = {}
 ): JobOutboundPublicationInput {
   return {
-    admission: admission(OWNER, 'grant-owner'),
     artifact: null,
+    destinationWorkspaceId: DEST,
     job: job(),
+    jobId: 'job-1',
     now: NOW,
-    publisher: OWNER,
     result: result(),
+    sourceAccess: OWNER,
     ...overrides,
   }
 }
 
-function publicationWithArtifact(
+function withArtifact(
   state: Partial<JobOutboundArtifactCurrent>,
   grantOverrides: Partial<ArtifactReferenceGrant> = {}
 ): JobOutboundPublicationInput {
   return publication({
-    artifact: {
-      authority: { kind: 'workspace_grant' },
-      grant: grant(grantOverrides),
-      ...current(state),
-    },
+    artifact: { ...claim({ grant: grant(grantOverrides) }), ...current(state) },
     result: result({ artifact: target() }),
   })
 }
 
 function delivery(overrides: Partial<JobOutboundDeliveryInput> = {}): JobOutboundDeliveryInput {
   return {
-    admission: admission(RECIPIENT, 'grant-recipient', {}, { revision: 1 }),
     artifact: null,
+    destinationWorkspaceId: DEST,
+    job: job(),
+    jobId: 'job-1',
     now: NOW,
     published: result(),
-    recipient: { groupId: GROUP, participant: RECIPIENT, workspaceId: AUDIENCE },
+    recipientAccess: DEST_MEMBER,
+    sourceAccess: OWNER,
     ...overrides,
   }
 }
@@ -252,25 +235,26 @@ describe('sanitizeJobOutboundResult', () => {
 })
 
 describe('decideJobOutboundPublication', () => {
-  test('publishes a sanitized result from the job owner with a current admission', () => {
-    const decision = decideJobOutboundPublication(publication())
-    expect(decision).toEqual({
+  test('publishes a sanitized result for a completed job with the original actor in source ownership', () => {
+    expect(decideJobOutboundPublication(publication())).toEqual({
       action: 'publish',
-      basis: 'participant_authorized',
+      basis: 'source_owner_actor',
+      destinationWorkspaceId: DEST,
       jobId: 'job-1',
       result: { artifact: null, jobId: 'job-1', summary: 'Done.' },
     })
   })
 
+  test('admin source access is as authoritative as owner access', () => {
+    expect(decideJobOutboundPublication(publication({ sourceAccess: ADMIN })).action).toBe(
+      'publish'
+    )
+  })
+
   test('holds results that do not belong to the job or disagree with the artifact claim', () => {
     expect(
       decideJobOutboundPublication(publication({ result: result({ jobId: 'job-2' }) }))
-    ).toMatchObject({
-      action: 'hold',
-      gate: 'result',
-      producerEffect: 'unaffected',
-      reason: 'result_job_mismatch',
-    })
+    ).toMatchObject({ action: 'hold', gate: 'result', reason: 'result_job_mismatch' })
     expect(
       decideJobOutboundPublication(publication({ result: result({ artifact: target() }) }))
     ).toMatchObject({ action: 'hold', gate: 'result', reason: 'artifact_claim_mismatch' })
@@ -279,60 +263,79 @@ describe('decideJobOutboundPublication', () => {
     ).toMatchObject({ action: 'hold', gate: 'result', reason: 'artifact_claim_mismatch' })
   })
 
-  test('holds a job publisher who is not the job owner without touching the job', () => {
-    const owned = job()
-    const snapshot = JSON.stringify(owned)
-    const decision = decideJobOutboundPublication(
-      publication({ admission: admission(OTHER, 'grant-other'), job: owned, publisher: OTHER })
-    )
-    expect(decision).toEqual({
+  test('holds an unknown, mismatched or uncompleted job without a decision', () => {
+    expect(decideJobOutboundPublication(publication({ job: null }))).toEqual({
       action: 'hold',
-      gate: 'group',
+      gate: 'job',
       jobId: 'job-1',
       producerEffect: 'unaffected',
-      reason: 'publication_authority_mismatch',
+      reason: 'job_unavailable',
     })
-    expect(JSON.stringify(owned)).toBe(snapshot)
+    expect(
+      decideJobOutboundPublication(publication({ job: job({ jobId: 'job-2' }) }))
+    ).toMatchObject({ gate: 'job', reason: 'job_unavailable' })
+    expect(
+      decideJobOutboundPublication(publication({ job: job({ completedAt: null }) }))
+    ).toMatchObject({ gate: 'job', reason: 'job_not_completed' })
+    expect(
+      decideJobOutboundPublication(
+        publication({ job: job({ completedAt: '2026-10-09T00:00:00.000Z' }) })
+      )
+    ).toMatchObject({ gate: 'job', reason: 'job_not_completed' })
   })
 
-  test('holds without a current admission, with a revoked admission, or with a superseded binding', () => {
-    expect(decideJobOutboundPublication(publication({ admission: null }))).toMatchObject({
-      gate: 'group',
-      reason: 'publication_unauthorized_at_completion',
+  test('holds when the original actor no longer holds source ownership', () => {
+    expect(decideJobOutboundPublication(publication({ sourceAccess: MEMBER }))).toMatchObject({
+      gate: 'source',
+      reason: 'source_access_lost',
     })
     expect(
       decideJobOutboundPublication(
-        publication({ admission: admission(OWNER, 'grant-owner', { revokedAt: NOW }) })
+        publication({ sourceAccess: { ...OWNER, workspaceLive: false } })
       )
-    ).toMatchObject({ gate: 'group', reason: 'publication_participation_revoked' })
+    ).toMatchObject({ gate: 'source', reason: 'source_access_lost' })
+    expect(decideJobOutboundPublication(publication({ sourceAccess: null }))).toMatchObject({
+      gate: 'source',
+      reason: 'source_access_lost',
+    })
+  })
+
+  test('holds a destination that is blank or the job’s own workspace', () => {
+    expect(decideJobOutboundPublication(publication({ destinationWorkspaceId: '' }))).toMatchObject(
+      {
+        gate: 'destination',
+        reason: 'destination_not_outbound',
+      }
+    )
     expect(
-      decideJobOutboundPublication(
-        publication({ admission: admission(OWNER, 'grant-owner', {}, { revision: 3 }) })
-      )
-    ).toMatchObject({ gate: 'group', reason: 'publication_binding_mismatch' })
-    expect(
-      decideJobOutboundPublication(publication({ job: job({ authorization: null }) }))
-    ).toMatchObject({ gate: 'group', reason: 'publication_binding_mismatch' })
+      decideJobOutboundPublication(publication({ destinationWorkspaceId: SOURCE }))
+    ).toMatchObject({ gate: 'destination', reason: 'destination_not_outbound' })
   })
 
   test('publishes an artifact reference only under current evidence and an effective grant', () => {
-    const decision = decideJobOutboundPublication(
-      publication({
-        artifact: { ...claim(), ...current() },
-        result: result({ artifact: target() }),
-      })
-    )
-    expect(decision).toMatchObject({
+    expect(decideJobOutboundPublication(withArtifact(current()))).toMatchObject({
       action: 'publish',
       result: { artifact: target(), jobId: 'job-1' },
     })
   })
 
-  test('holds an artifact reference whose grant is revoked, superseded or whose version is stale', () => {
+  test('holds an artifact whose source is not the job’s source workspace', () => {
+    const otherSource = publication({
+      artifact: {
+        ...claim({ grant: grant({ sourceWorkspaceId: 'ws-other' }) }),
+        ...current({ evidence: evidence({ workspaceId: 'ws-other' }) }),
+      },
+      result: result({ artifact: target({ sourceWorkspaceId: 'ws-other' }) }),
+    })
+    expect(decideJobOutboundPublication(otherSource)).toMatchObject({
+      gate: 'job',
+      reason: 'job_source_mismatch',
+    })
+  })
+
+  test('holds an artifact whose grant is revoked, superseded or whose version is stale', () => {
     expect(
-      decideJobOutboundPublication(
-        publicationWithArtifact({ grantState: grantState({ revoked: true }) })
-      )
+      decideJobOutboundPublication(withArtifact({ grantState: grantState({ revoked: true }) }))
     ).toEqual({
       action: 'hold',
       gate: 'artifact',
@@ -341,98 +344,82 @@ describe('decideJobOutboundPublication', () => {
       reason: 'grant_revoked',
     })
     expect(
-      decideJobOutboundPublication(
-        publicationWithArtifact({ grantState: grantState({ revision: 2 }) })
-      )
+      decideJobOutboundPublication(withArtifact({ grantState: grantState({ revision: 2 }) }))
     ).toMatchObject({ gate: 'artifact', reason: 'grant_revision_stale' })
-    expect(decideJobOutboundPublication(publicationWithArtifact({ evidence: null }))).toMatchObject(
-      {
-        gate: 'artifact',
-        reason: 'evidence_unavailable',
-      }
-    )
+    expect(decideJobOutboundPublication(withArtifact({ evidence: null }))).toMatchObject({
+      gate: 'artifact',
+      reason: 'evidence_unavailable',
+    })
     expect(
-      decideJobOutboundPublication(publicationWithArtifact({ evidence: evidence({ version: 4 }) }))
+      decideJobOutboundPublication(withArtifact({ evidence: evidence({ version: 4 }) }))
     ).toMatchObject({ gate: 'artifact', reason: 'stale_version' })
   })
 
   test('never leaks runtime canaries through a hold decision', () => {
     const decision = decideJobOutboundPublication(
-      publication({ admission: null, result: result({ filename: CANARY, summary: CANARY }) })
+      publication({ sourceAccess: MEMBER, result: result({ filename: CANARY, summary: CANARY }) })
     )
     expect(JSON.stringify(decision)).not.toContain(CANARY)
+  })
+
+  test('does not mutate the job it reads', () => {
+    const source = job()
+    const before = JSON.stringify(source)
+    decideJobOutboundPublication(publication({ job: source, sourceAccess: MEMBER }))
+    expect(JSON.stringify(source)).toBe(before)
   })
 })
 
 describe('decideJobOutboundDelivery', () => {
-  test('delivers the re-sanitized result to a currently effective recipient', () => {
+  test('delivers the re-sanitized result to a destination member while source ownership holds', () => {
     expect(decideJobOutboundDelivery(delivery({ published: result({ extra: CANARY }) }))).toEqual({
       action: 'deliver',
+      destinationWorkspaceId: DEST,
+      jobId: 'job-1',
       result: { artifact: null, jobId: 'job-1', summary: 'Done.' },
     })
   })
 
-  test('denies a recipient who is absent, of another identity, or of another kind', () => {
-    expect(decideJobOutboundDelivery(delivery({ admission: null }))).toEqual({
+  test('denies release once the original actor loses source ownership, even for a current member', () => {
+    expect(decideJobOutboundDelivery(delivery({ sourceAccess: MEMBER }))).toEqual({
       action: 'deny',
+      gate: 'source',
+      reason: 'source_access_lost',
+    })
+    expect(decideJobOutboundDelivery(delivery({ sourceAccess: null }))).toMatchObject({
+      gate: 'source',
+      reason: 'source_access_lost',
+    })
+  })
+
+  test('denies a recipient outside the exact destination audience or a destination that is gone', () => {
+    expect(decideJobOutboundDelivery(delivery({ recipientAccess: null }))).toMatchObject({
       gate: 'audience',
-      reason: 'recipient_not_admitted',
+      reason: 'destination_workspace_unavailable',
     })
     expect(
-      decideJobOutboundDelivery(
-        delivery({ admission: admission(OTHER, 'grant-x', {}, { revision: 1 }) })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_not_admitted' })
+      decideJobOutboundDelivery(delivery({ recipientAccess: { role: null, workspaceLive: true } }))
+    ).toEqual({ action: 'deny', gate: 'audience', reason: 'recipient_not_destination_member' })
     expect(
       decideJobOutboundDelivery(
-        delivery({ admission: admission(AGENT, 'grant-x', {}, { revision: 1 }) })
+        delivery({ recipientAccess: { role: 'member', workspaceLive: false } })
       )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_not_admitted' })
+    ).toMatchObject({ gate: 'audience', reason: 'destination_workspace_unavailable' })
   })
 
-  test('denies an admission bound to another group or to an unprovable revision', () => {
-    expect(
-      decideJobOutboundDelivery(
-        delivery({
-          admission: admission(RECIPIENT, 'grant-r', {}, { groupId: 'group-2', revision: 1 }),
-        })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_binding_invalid' })
-    expect(
-      decideJobOutboundDelivery(
-        delivery({ admission: admission(RECIPIENT, 'grant-r', {}, { revision: 0 }) })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_binding_invalid' })
-    expect(
-      decideJobOutboundDelivery(
-        delivery({ admission: admission(RECIPIENT, ' ', {}, { revision: 1 }) })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_binding_invalid' })
+  test('denies a job that is missing, uncompleted or reassigned at delivery', () => {
+    expect(decideJobOutboundDelivery(delivery({ job: null }))).toEqual({
+      action: 'deny',
+      gate: 'job',
+      reason: 'job_unavailable',
+    })
+    expect(decideJobOutboundDelivery(delivery({ job: job({ completedAt: null }) }))).toMatchObject({
+      gate: 'job',
+      reason: 'job_not_completed',
+    })
   })
 
-  test('denies a revoked or lapsed recipient at the next delivery', () => {
-    expect(
-      decideJobOutboundDelivery(
-        delivery({
-          admission: admission(RECIPIENT, 'grant-r', { revokedAt: NOW }, { revision: 1 }),
-        })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_participation_revoked' })
-    expect(
-      decideJobOutboundDelivery(
-        delivery({
-          admission: admission(
-            RECIPIENT,
-            'grant-r',
-            { expiresAt: '2026-10-08T11:59:00.000Z' },
-            { revision: 1 }
-          ),
-        })
-      )
-    ).toMatchObject({ gate: 'audience', reason: 'recipient_participation_stale' })
-  })
-
-  test('denies a tampered or oversized published record before any audience check', () => {
+  test('denies a tampered or oversized published record before any access check', () => {
     expect(decideJobOutboundDelivery(delivery({ published: { jobId: 'job-1' } }))).toMatchObject({
       action: 'deny',
       gate: 'result',
@@ -443,16 +430,19 @@ describe('decideJobOutboundDelivery', () => {
         delivery({ published: result({ summary: 'a'.repeat(JOB_OUTBOUND_SUMMARY_MAX_BYTES + 1) }) })
       )
     ).toMatchObject({ gate: 'result', reason: 'result_too_large' })
+    expect(
+      decideJobOutboundDelivery(delivery({ published: result({ jobId: 'job-2' }) }))
+    ).toMatchObject({ gate: 'result', reason: 'result_job_mismatch' })
   })
 
-  test('re-runs the exact retrieval gate for an artifact with the recipient workspace as audience', () => {
-    const artifactDelivery = (recipientWorkspaceId: string, state = grantState()) =>
+  test('re-runs the exact retrieval gate for an artifact with the destination as audience', () => {
+    const artifactDelivery = (destinationWorkspaceId: string, state = grantState()) =>
       delivery({
         artifact: { ...claim(), ...current({ grantState: state }) },
+        destinationWorkspaceId,
         published: result({ artifact: target() }),
-        recipient: { groupId: GROUP, participant: RECIPIENT, workspaceId: recipientWorkspaceId },
       })
-    expect(decideJobOutboundDelivery(artifactDelivery(AUDIENCE))).toMatchObject({
+    expect(decideJobOutboundDelivery(artifactDelivery(DEST))).toMatchObject({
       action: 'deliver',
       result: { artifact: target() },
     })
@@ -462,8 +452,20 @@ describe('decideJobOutboundDelivery', () => {
       reason: 'audience_not_authorized',
     })
     expect(
-      decideJobOutboundDelivery(artifactDelivery(AUDIENCE, grantState({ revoked: true })))
+      decideJobOutboundDelivery(artifactDelivery(DEST, grantState({ revoked: true })))
     ).toMatchObject({ gate: 'artifact', reason: 'grant_revoked' })
+  })
+
+  test('refuses an artifact whose source has moved away from the job’s source workspace', () => {
+    expect(
+      decideJobOutboundDelivery(
+        delivery({
+          artifact: { ...claim(), ...current() },
+          job: job({ sourceWorkspaceId: 'ws-other' }),
+          published: result({ artifact: target() }),
+        })
+      )
+    ).toMatchObject({ gate: 'job', reason: 'job_source_mismatch' })
   })
 
   test('refuses a delivery whose artifact claim disagrees with the published record', () => {
