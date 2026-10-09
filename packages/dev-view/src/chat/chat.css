@@ -239,6 +239,12 @@
   font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
+.dev-handoff__error {
+  margin: 0;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
+}
+
 .dev-handoff__remediation {
   display: block;
 }
