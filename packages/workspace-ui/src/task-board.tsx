@@ -300,10 +300,7 @@ export function TaskBoard(props: Props) {
           mode="create"
           onClose={() => setCreating(false)}
           onError={setBoardError}
-          onCreate={async (input) => {
-            await props.onCreate(input)
-            setCreating(false)
-          }}
+          onCreate={props.onCreate}
         />
       </Show>
       {/* Keyed on the task's id, not the task object. The panel's draft is

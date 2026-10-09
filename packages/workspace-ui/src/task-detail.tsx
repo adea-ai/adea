@@ -221,7 +221,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
   const [sheetOpen, setSheetOpen] = createSignal(true)
   const [closePending, setClosePending] = createSignal(false)
   const requestClose = () => {
-    if (saving()) return
+    if (saving() || closePending()) return
     setClosePending(true)
     setSheetOpen(false)
   }
@@ -334,6 +334,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
     setStatus(null)
     if (props.mode === 'create') {
       setSaving(true)
+      let created = false
       try {
         await props.onCreate({
           kind: kind(),
@@ -341,19 +342,25 @@ export function TaskPanel(props: CreateProps | EditProps) {
           priority: priority(),
           title: trimmedTitle(),
         })
+        created = true
       } catch {
         setStatus('The task could not be created. Check the fields and try again.')
       } finally {
         setSaving(false)
       }
+      // Close through the dialog lifecycle so the modal restores the
+      // background before the board unmounts this panel.
+      if (created) requestClose()
       return
     }
     const edit = props
     const writes = pendingWrites(edit)
     let current: TaskSummary = { ...edit.task, version }
-    // Close first: the writes are optimistic, so the board already shows the
-    // result, and keeping the panel up until the server answers only delays it.
-    edit.onClose()
+    // Close through the dialog lifecycle: the writes are optimistic, so the
+    // board already shows the result, but the panel must stay mounted until
+    // the modal has restored the background (a bare onClose unmounts early and
+    // can leave the workspace frame aria-hidden).
+    requestClose()
     try {
       for (const write of writes) {
         await write(current)

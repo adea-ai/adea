@@ -42,6 +42,8 @@ type Principal = { kind: 'user'; userId: string }
 type SignInSession = Readonly<{ homeWorkspaceId: string; principal: Principal }>
 
 const TASK_TITLE = 'Browser UI Accessibility Keep Visible'
+const SAVED_TITLE = 'Browser UI Accessibility Saved'
+const CREATED_TITLE = 'Browser UI Accessibility Created'
 
 async function openSignedInApp(page: Page): Promise<void> {
   await page.goto('/')
@@ -220,14 +222,59 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await expect(taskSheet).toHaveCount(0)
     await assertAccessibleBoard()
 
-    // Stress the close lifecycle: each reopen/close cycle must restore the
-    // frame before the panel unmounts.
-    for (let cycle = 0; cycle < 3; cycle += 1) {
-      await page.getByRole('button', { name: TASK_TITLE }).click()
+    const openFromCard = async (name: string) => {
+      await page.getByRole('button', { name }).click()
       await expect(taskSheet).toBeVisible()
-      await taskSheet.getByRole('button', { name: 'Close task' }).click()
-      await expect(taskSheet).toHaveCount(0)
-      await assertAccessibleBoard()
     }
+
+    // Escape
+    await openFromCard(TASK_TITLE)
+    await page.keyboard.press('Escape')
+    await expect(taskSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+    await expect(page.getByRole('button', { name: TASK_TITLE })).toBeFocused()
+
+    // Cancel
+    await openFromCard(TASK_TITLE)
+    await taskSheet.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(taskSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+    await expect(page.getByRole('button', { name: TASK_TITLE })).toBeFocused()
+
+    // Save closes through the dialog lifecycle and keeps the optimistic write:
+    // the board card already shows the new title when the panel goes.
+    await openFromCard(TASK_TITLE)
+    await taskSheet.getByRole('textbox', { name: 'Title' }).fill(SAVED_TITLE)
+    await taskSheet.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(taskSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+    await expect(page.getByRole('button', { name: SAVED_TITLE })).toBeVisible()
+    await expect(page.getByRole('button', { name: SAVED_TITLE })).toBeFocused()
+
+    // Create completion closes through the same lifecycle.
+    await page.getByRole('button', { name: 'New task' }).click()
+    const createSheet = page.getByRole('dialog', { name: 'New task' })
+    await expect(createSheet).toBeVisible()
+    await createSheet.getByRole('textbox', { name: 'Title' }).fill(CREATED_TITLE)
+    await createSheet
+      .getByRole('textbox', { name: 'Description' })
+      .fill('Created through the accessibility regression.')
+    await createSheet.getByRole('button', { name: 'Create task' }).click()
+    await expect(createSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+    await expect(page.getByRole('button', { name: CREATED_TITLE })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New task' })).toBeFocused()
+
+    // Archive confirmation: the nested alert must close and the sheet must
+    // still restore the frame before its task card disappears.
+    await openFromCard(SAVED_TITLE)
+    await taskSheet.getByRole('button', { name: 'Archive', exact: true }).click()
+    const archiveConfirm = page.getByRole('alertdialog', { name: 'Archive this task?' })
+    await expect(archiveConfirm).toBeVisible()
+    await archiveConfirm.getByRole('button', { name: 'Archive', exact: true }).click()
+    await expect(archiveConfirm).toHaveCount(0)
+    await expect(taskSheet).toHaveCount(0)
+    await assertAccessibleBoard()
+    await expect(page.getByRole('button', { name: SAVED_TITLE })).toHaveCount(0)
   })
 })
