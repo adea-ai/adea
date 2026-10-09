@@ -240,6 +240,23 @@ test('ABA: an old completion cannot clear a new action’s busy state', async ({
   expectNoErrors(errors)
 })
 
+test('out-of-order resolutions apply newest-first: stale reads never win', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Defer reads' }).click()
+  await page.getByRole('button', { name: 'Refresh lead resolution' }).click()
+  // A newer observation commits while the older read is still queued.
+  await page.getByRole('button', { name: 'Observe lead turn completed' }).click()
+  // LIFO release completes the newer resolution first; the older one is
+  // dropped by the epoch even though it resolves last.
+  await page.getByRole('button', { name: 'Release reads LIFO' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  expectNoErrors(errors)
+})
+
 test('browser reload retains the re-read lead-turn facts', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
