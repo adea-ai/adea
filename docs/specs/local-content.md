@@ -105,6 +105,17 @@ counted as `unreadable` in the list result and is never shown, injected or
 promoted. Lookups by id that name another workspace's entry read as
 `memory_not_found`, so existence never leaks across workspaces.
 
+**Provenance.** `source` is fixed for the entry's lifetime: `user` for notes
+the owner wrote, `agent` for harness proposals. Accepting a proposal is an
+explicit promotion that changes only `status` and `revision` (`pending` to
+`active` at exactly the observed revision); a call that presents another
+provenance, another workspace, a stale revision or an already-handled entry
+refuses with a stable store code (`memory_invalid_input`, `memory_not_found`,
+`memory_stale_revision`, `memory_invalid_state`) and leaves the entry exactly
+as it was. Nothing else in the device — a profile/persona change, a connection
+binding or the injection switch — rewrites an entry or changes which
+workspace's launch receives it.
+
 **Bounds.** Entry text is trimmed, 1–2,000 UTF-16 code units, and contains no
 NUL; `\r\n` normalizes to `\n`. A workspace holds at most 200 entries
 (active plus pending) and at most 20 pending proposals; the next write refuses
