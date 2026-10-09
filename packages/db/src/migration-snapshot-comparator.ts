@@ -17,17 +17,25 @@
 // than guessed at, and conflicting duplicate records are quarantined
 // deterministically — reordering input records or object keys cannot change
 // the outcome, because quarantine identities and opaque references are
-// derived from canonical (key-sorted) encodings. Identity mismatches between
-// the two snapshots are a typed error, not a diff. Output is deterministic:
-// sorted findings, sorted counts, no timestamps, and no message bodies or
-// credentials — the record contract (see `@adea-ai/types`
-// migration-snapshot) excludes those fields, findings only ever carry
-// allow-listed detail keys, and every value a finding carries passes a
-// well-formed reference check: anything else is replaced by an opaque
-// reference (type plus short deterministic fingerprint) before it can
-// surface. Workspace bindings of nested participants (channel participants,
-// project members, execution attempts) are part of the compared binding, so
-// a workspace-only remap can never read as identical.
+// derived from canonical (key-sorted) encodings. Every input record — of any
+// shape, primitives and top-level arrays included — is bounded on total
+// bytes, property slots and array width BEFORE canonicalization — bounds
+// cover extra properties too, apply ahead of every quarantine path, and an
+// oversized value's quarantine identity is a bounded descriptor, so
+// oversized content is never canonicalized, hashed or echoed. Composite
+// identities (record stable ids and finding ids) are built with a
+// collision-safe tuple encoding, so distinct part tuples can never join to
+// the same key. Identity mismatches between the two snapshots are a typed
+// error, not a diff. Output is deterministic: sorted findings, sorted
+// counts, no timestamps, and no message bodies or credentials — the record
+// contract (see `@adea-ai/types` migration-snapshot) excludes those fields,
+// findings only ever carry allow-listed detail keys, and every value a
+// finding carries passes a well-formed reference check: anything else is
+// replaced by an opaque reference (type plus short deterministic
+// fingerprint) before it can surface. Workspace bindings of nested
+// participants (channel participants, project members, execution attempts)
+// are part of the compared binding, so a workspace-only remap can never read
+// as identical.
 
 import { createHash } from 'node:crypto'
 
@@ -50,6 +58,7 @@ import {
   MIGRATION_SNAPSHOT_FORMAT_VERSION,
   migrationSnapshotFamilies,
   migrationSnapshotRecordIssue,
+  migrationSnapshotRecordShapeIssue,
 } from '@adea-ai/types'
 
 /** The two snapshots do not describe the same rehearsal, format or source. */
@@ -227,6 +236,37 @@ function asText(value: unknown): string {
   return String(value)
 }
 
+/**
+ * Escape one composite-key part: the escape character and the separator lose
+ * their special meaning, so decoding is exact. Parts without `\` or `:`
+ * pass through unchanged, keeping ordinary identifiers readable.
+ */
+function escapeKeyPart(part: string): string {
+  return part.replaceAll('\\', '\\\\').replaceAll(':', '\\:')
+}
+
+/**
+ * Collision-safe tuple encoding for composite keys. Every part is escaped
+ * and joined with `:`, and an absent (null) part is encoded as the two
+ * fields `0:` — a flag plus an empty value. Because the field sequence can
+ * be decoded exactly, no two distinct part tuples share an encoding: unlike
+ * naive colon joining, `['a', 'b:c']` encodes as `a:b\:c` and `['a:b', 'c']`
+ * as `a\:b:c` — the two collide when joined naively, and a collision would
+ * make two different records read as one identical identity. All composite
+ * keys (record stable ids and finding ids) are built through this encoding.
+ */
+function tupleKey(...parts: readonly (string | null)[]): string {
+  const fields: string[] = []
+  for (const part of parts) {
+    if (part === null) {
+      fields.push('0', '')
+      continue
+    }
+    fields.push(escapeKeyPart(part))
+  }
+  return fields.join(':')
+}
+
 const CANONICAL_JSON_MAX_DEPTH = 64
 
 /**
@@ -266,13 +306,13 @@ function canonicalJson(value: unknown, depth = 0): string {
   }
 }
 
-/** Stable identity of a valid record, per family. */
+/** Stable identity of a valid record, per family, as a collision-safe tuple. */
 function stableIdOf(record: MigrationSnapshotRecord): string {
   switch (record.family) {
     case 'agents':
       return record.agentId
     case 'channelParticipants':
-      return `${record.channelId}:${record.principalKind}:${record.principalId}`
+      return tupleKey(record.channelId, record.principalKind, record.principalId)
     case 'channels':
       return record.channelId
     case 'contentRefs':
@@ -280,21 +320,26 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
     case 'events':
       return record.eventId
     case 'executionAttempts':
-      return `${record.taskId}:${record.attempt}`
+      return tupleKey(record.taskId, String(record.attempt))
     case 'identityBindings':
-      return `${record.provider}:${record.subject}`
+      return tupleKey(record.provider, record.subject)
     case 'invitations':
       return record.invitationId
     case 'memberships':
-      return `${record.workspaceId}:${record.userId}`
+      return tupleKey(record.workspaceId, record.userId)
     case 'messages':
       return record.messageId
     case 'projectMembers':
-      return `${record.projectId}:${record.userId}`
+      return tupleKey(record.projectId, record.userId)
     case 'projects':
       return record.projectId
     case 'readState':
-      return `${record.workspaceId}:${record.userId}:${record.channelId}:${record.threadRootMessageId ?? '-'}`
+      return tupleKey(
+        record.workspaceId,
+        record.userId,
+        record.channelId,
+        record.threadRootMessageId
+      )
     case 'tasks':
       return record.taskId
     case 'temporarySessions':
@@ -309,10 +354,27 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
  * real stable id cannot be trusted. The fingerprint is taken over the
  * canonical encoding, so reordering an object's keys cannot change it, and
  * hashing keeps the finding referable without echoing whatever the malformed
- * field held.
+ * field held. Only values that already passed the size bounds reach this
+ * function — of any shape, objects and primitives alike — so the canonical
+ * encoding is bounded by construction.
  */
 function quarantinedId(record: unknown): string {
   const digest = createHash('sha256').update(canonicalJson(record), 'utf8').digest('hex')
+  return `unverifiable:${digest}`
+}
+
+/**
+ * Deterministic identity for a record over the documented size bounds. Such
+ * a record must NEVER be canonicalized — that is the point of the bound — so
+ * its fingerprint is taken over a tiny bounded descriptor, never over its
+ * content. Records over a size bound in the same section therefore share one
+ * quarantine finding: the output stays bounded and the content is never
+ * echoed.
+ */
+function oversizedRecordId(): string {
+  const digest = createHash('sha256')
+    .update(canonicalJson({ bound: 'record-size' }), 'utf8')
+    .digest('hex')
   return `unverifiable:${digest}`
 }
 
@@ -368,7 +430,11 @@ function findingId(
   stableId: string,
   field?: string
 ): string {
-  return [findingClass, family, side, stableId, ...(field ? [field] : [])].join(':')
+  // `findingClass`, `family` and `side` are separator-free contract literals;
+  // the (stableId, field) pair is encoded as a collision-safe tuple so two
+  // distinct pairs can never join to the same finding id (a collided id would
+  // silently deduplicate one of the two findings away).
+  return [findingClass, family, side, tupleKey(stableId, field ?? null)].join(':')
 }
 
 class FindingCollector {
@@ -540,6 +606,23 @@ function intakeSection(
   let quarantined = 0
 
   for (const record of section.records) {
+    // Size bounds run BEFORE anything else, on input of ANY shape — before
+    // the object check, before the family check, before validation, before
+    // the ignore decision on extra properties, and before any
+    // canonicalization. A value over the byte, property-slot or array-width
+    // bound — an oversized object, primitive or top-level array alike — is
+    // quarantined by limit with a bounded descriptor as its only identity:
+    // its content is never canonicalized, hashed or echoed, even when it was
+    // already headed for another quarantine path.
+    const shapeIssue = migrationSnapshotRecordShapeIssue(record)
+    if (shapeIssue) {
+      quarantined += 1
+      collector.add('quarantined_record', family, side, oversizedRecordId(), {
+        field: 'record',
+        reason: 'limit',
+      })
+      continue
+    }
     if (typeof record !== 'object' || record === null) {
       quarantined += 1
       collector.add('quarantined_record', family, side, quarantinedId(record), {

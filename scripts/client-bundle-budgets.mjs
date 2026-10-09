@@ -144,10 +144,19 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // every route cap that had fallen under 1.5%: startup raw, virtual both
   // axes, devShell both axes, devTerminal both axes and devEditor both
   // axes, each documented at its cap below.
-  total: { rawBytes: 3_050_000, gzipBytes: 908 * 1024, fileCount: 157 },
+  // Re-measured for the account-wide directory and inbox (#1174): the
+  // directory/inbox route chunks land in the workspace startup set,
+  // measuring 3,051,359 raw / 928,958 gzip across 159 files locally
+  // (2026-10-09); total ratchets to 3,112,000 raw / 926 KiB gzip and the
+  // file cap to 162 (~2% each).
+  total: { rawBytes: 3_112_000, gzipBytes: 926 * 1024, fileCount: 162 },
   // Startup measured 732,351 raw / 239,561 gzip on the same build; raw had
   // 0.67% headroom. Raw ratchets to 730 KiB; gzip to 239 KiB (~2% each).
-  startup: { rawBytes: 730 * 1024, gzipBytes: 239 * 1024 },
+  // Re-measured for the account-wide directory and inbox (#1174): the
+  // workspace startup chunk carries the new directory/inbox routes and
+  // client, measured 750,589 raw locally (2026-10-09, CI 750,727); raw
+  // ratchets to 748 KiB and gzip to 245 KiB (~2% each).
+  startup: { rawBytes: 748 * 1024, gzipBytes: 245 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now

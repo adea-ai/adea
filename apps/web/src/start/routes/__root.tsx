@@ -17,6 +17,13 @@ export type WorkspaceSearch = {
   /** Development-only ChatView visual fixture selector (#536 evidence lane). */
   chatE2e?: string
   chatState?: string
+  /**
+   * The account-wide directory surface (M11.03): `agents` shows the global
+   * Agents directory, `inbox` the global conversation inbox. Present, the
+   * surface replaces the workspace view; the results never scope to the
+   * selected workspace.
+   */
+  directory?: 'agents' | 'inbox'
   /** Dev View deep links: deterministic project/session selection. */
   devProject?: string
   devSession?: string

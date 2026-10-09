@@ -18,6 +18,9 @@ export type ApiAccountConversationResponse = Readonly<{
 function accountDirectoryQuery(input: AccountDirectoryPageInput): string {
   const params = new URLSearchParams()
   if (input.after !== undefined) params.set('after', input.after)
+  // The server rejects an empty `q` outright, so the client omits an empty or
+  // blank term instead of turning "clearing the search box" into a 400.
+  if (input.q !== undefined && input.q.trim() !== '') params.set('q', input.q)
   if (input.includeArchived !== undefined)
     params.set('includeArchived', String(input.includeArchived))
   if (input.limit !== undefined) params.set('limit', String(input.limit))
