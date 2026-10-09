@@ -2,48 +2,42 @@
  * Grant-gated group channels (M15 #1178).
  *
  * This module binds the pure group audience and participation policy
- * (`group-participation-policy`, refs #1178, merged #1192) to the live
- * conversation store. It performs I/O only through the existing
- * `channels` and `channelParticipants` tables: no migration, no new tables,
- * no route or dispatch changes.
+ * (`group-participation-policy`, refs #1178, merged #1192) to durable
+ * conversation state. Grants and admissions persist in the
+ * `group_audience_grants`, `group_enlistment_grants`, `group_sharing_grants`
+ * and `group_admissions` tables, which are the authoritative source every
+ * decision authenticates against.
  *
- * What it provides:
+ * Guarantees:
  * - Atomic tenant-bounded creation. `createGroupChannelWithGrants` validates
- *   the caller-supplied explicit human audience and Agent enlistment grants
- *   with `validateGroupCreation` before touching the database, then creates
- *   the group channel and its full roster in one transaction. Any invalid
- *   participant fails the whole creation with typed rejections and zero
- *   writes; any insert failure rolls the channel back with it. There is no
- *   partial roster, ever.
- * - Grant-gated roster replacement. `setGroupChannelParticipantsWithGrants`
- *   revalidates every listed participant's explicit grant in one transaction
- *   with optimistic concurrency. Newcomers join at the channel's current
- *   message frontier; retained members keep their caller-supplied prior join
- *   point, defaulting fail closed to the frontier when unknown, so earlier
- *   history is never over-granted by a roster write.
- * - Snapshot-bound reads, turns and publication. The `authorize*` helpers pin
- *   every decision to the live channel (`groupId` is always the channel id,
- *   never caller-supplied), assert group isolation first, and delegate to the
- *   pure decisions. A foreign group's admission or sharing grant authorizes
- *   nothing here. Revocation denies future reads and turns immediately and
- *   holds late publication; a hold never cancels or reassigns the
- *   independently owned job.
+ *   explicit human audience and Agent enlistment grants before any write,
+ *   then commits the channel, grant rows, participant rows, admission rows
+ *   and the creation event in one transaction.
+ * - Authorized roster management. `setGroupChannelParticipantsWithGrants`
+ *   and `revokeGroupGrant` require workspace owner/admin management
+ *   authority — workspace membership alone rewrites nothing. A same-workspace
+ *   non-manager is denied like a stranger.
+ * - Canonical join points. Admissions are read from `group_admissions`
+ *   inside the deciding transaction; caller-supplied priors are never
+ *   trusted, so a forged or foreign join point authorizes nothing. Retained
+ *   members keep their stored join point; newcomers join fail closed at the
+ *   channel's current message frontier.
+ * - Serialized decisions. The `*Now` helpers and the message read paths load
+ *   the gate, the canonical admission, live sharing grants and the frontier
+ *   in one transaction and decide there. A concurrent revocation or roster
+ *   write lands either before the snapshot (denied) or after it — races fail
+ *   closed, never stale-open.
+ * - Revocation as a live gate. `revoked_at` denies future reads and turns
+ *   immediately and holds late publication; the row and the independently
+ *   owned job survive. Regrants bump the revision on the same row, so a
+ *   stale retained binding stays held.
  * - Isolation by construction. Group writes fix `kind: 'group'`,
- *   `visibility: 'participants'` and null project/agent bindings, so
- *   conversation membership never grants workspace or tool authority, and
- *   Agents are always resolved by their workspace-qualified identity, never
- *   by display name.
+ *   `visibility: 'participants'` and null project/agent bindings, and Agents
+ *   resolve only by workspace-qualified identity, never by display name.
  *
- * Deliberately out of scope (documented gaps, not silent):
- * - Durable grant and join-point storage. Grants are caller-supplied and
- *   validated in memory; admissions are returned values the caller retains.
- *   Persisting grant rows and join points (a migration with grant/admission
- *   tables) is the follow-up slice, as is wiring these gates into the HTTP
- *   routes and the turn coordinator (#1179 owns turn dispatch, #1180 owns
- *   artifact/outbound authorization).
- * - Revocation between validation and commit closes at use time: every
- *   read/turn/publication decision re-evaluates the live grant window, so a
- *   grant revoked after admission still denies immediately.
+ * Turn dispatch and orchestration belong to #1179 and artifact/outbound
+ * authorization to #1180; this module only gates (allow/deny/hold) and never
+ * dispatches, budgets or loops.
  */
 import { randomUUID } from 'node:crypto'
 
@@ -53,20 +47,24 @@ import type {
   GroupAdmission,
   GroupAgentEnlistmentGrant,
   GroupAudienceGrant,
+  GroupAuthorizationBinding,
   GroupCompletedJob,
   GroupCreationCandidate,
   GroupCreationRejection,
+  GroupGrantWindow,
   GroupHistoryEntryRef,
   GroupHistoryReadDecision,
   GroupPublicationDecision,
   GroupSharingGrant,
   GroupSummaryReadDecision,
   GroupTurnDecision,
+  MessageSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, eq, max } from 'drizzle-orm'
+import { and, asc, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { getMessageForUser, listMessagesForUser } from './conversations'
 import {
   decideGroupHistoryRead,
   decideGroupPublication,
@@ -74,8 +72,17 @@ import {
   decideGroupTurn,
   validateGroupCreation,
 } from './group-participation-policy'
-import { agents, channelParticipants, channels, workspaceMemberships } from './schema'
-import { appendWorkspaceEvent } from './transactions'
+import {
+  agents,
+  channelParticipants,
+  channels,
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
+  groupSharingGrants,
+  workspaceMemberships,
+} from './schema'
+import { appendWorkspaceEvent, inTransaction } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type ChannelRow = typeof channels.$inferSelect
@@ -160,10 +167,9 @@ export function admissionForParticipant(
 /**
  * Group isolation: a group decision runs only against a participants-scoped
  * group channel with no project or Agent binding, in the owning workspace.
- * Anything else — project lanes, direct Agent topics, workspace-visible
- * channels, foreign workspaces — is answered like a missing channel, so
- * group authority can never leak into workspace tool authority and private
- * direct chats never become group content.
+ * Anything else is answered like a missing channel, so group authority can
+ * never leak into workspace tool authority and private direct chats never
+ * become group content.
  */
 export function assertGroupChannelGate(gate: GroupChannelGate): void {
   const { channel, workspaceId } = gate
@@ -265,8 +271,7 @@ export function authorizeGroupChannelPublication(
 
 /**
  * Split already-fetched channel entries into the reader's visible history and
- * the held earlier history. Order is preserved on both sides. Live read-path
- * wiring (routes) is a follow-up; this pure partition is the unit under test.
+ * the held earlier history. Order is preserved on both sides.
  */
 export function partitionGroupChannelHistory(
   gate: GroupChannelGate,
@@ -308,6 +313,30 @@ async function requireGroupMembership(
     )
     .limit(1)
   if (!membership) throw new Error('Channel unavailable')
+}
+
+/**
+ * Group-management authority: workspace owner/admin management roles only.
+ * Membership alone — even in the same workspace — rewrites no roster and
+ * revokes no grant. Denied like a missing channel, fail closed.
+ */
+export async function requireGroupManagementAuthority(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+) {
+  const [membership] = await database
+    .select({ role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, principal.userId)
+      )
+    )
+    .limit(1)
+  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin'))
+    throw new Error('Channel unavailable')
 }
 
 async function requireGroupParticipantLiveness(
@@ -389,19 +418,11 @@ function summarizeGroupChannel(
   })
 }
 
-type GroupParticipantInsert = {
-  agentId: string | null
-  channelId: string
-  principalKind: 'user' | 'agent'
-  userId: string | null
-  workspaceId: string
-}
-
 function participantInsert(
   workspaceId: string,
   channelId: string,
   participant: ConversationParticipantRef
-): GroupParticipantInsert {
+) {
   return {
     agentId: participant.kind === 'agent' ? participant.agentId : null,
     channelId,
@@ -409,6 +430,414 @@ function participantInsert(
     userId: participant.kind === 'user' ? participant.userId : null,
     workspaceId,
   }
+}
+
+function admissionInsert(workspaceId: string, channelId: string, admission: GroupAdmission) {
+  return {
+    agentId: admission.participant.kind === 'agent' ? admission.participant.agentId : null,
+    authGrantId: admission.authorization.grantId,
+    authGroupId: admission.authorization.groupId,
+    authRevision: admission.authorization.revision,
+    channelId,
+    joinedAt: admission.joinPoint.joinedAt,
+    joinedSequence: admission.joinPoint.joinedSequence,
+    principalKind: admission.participant.kind,
+    userId: admission.participant.kind === 'user' ? admission.participant.userId : null,
+    workspaceId,
+  }
+}
+
+/** Fail-closed window for an admission whose grant row is gone: behaves as absent. */
+const ABSENT_GRANT_WINDOW: GroupGrantWindow = {
+  expiresAt: null,
+  issuedAt: 'invalid-grant-absent',
+  revokedAt: null,
+}
+
+function sharingGrantFromRow(
+  channelId: string,
+  row: typeof groupSharingGrants.$inferSelect
+): GroupSharingGrant {
+  return {
+    expiresAt: row.expiresAt,
+    grantId: row.grantId,
+    groupId: channelId,
+    issuedAt: row.issuedAt,
+    participant:
+      row.principalKind === 'user'
+        ? { kind: 'user', userId: row.userId! }
+        : { agentId: row.agentId!, kind: 'agent' },
+    revision: row.revision,
+    revokedAt: row.revokedAt,
+    scope: row.scope as GroupSharingGrant['scope'],
+  }
+}
+
+function admissionFromRow(
+  channelId: string,
+  row: typeof groupAdmissions.$inferSelect,
+  grantWindow: GroupGrantWindow
+): GroupAdmission {
+  const authorization: GroupAuthorizationBinding = {
+    groupId: row.authGroupId,
+    grantId: row.authGrantId,
+    revision: row.authRevision,
+  }
+  return {
+    authorization,
+    grant: grantWindow,
+    joinPoint: { joinedAt: row.joinedAt, joinedSequence: row.joinedSequence },
+    participant:
+      row.principalKind === 'user'
+        ? { kind: 'user', userId: row.userId! }
+        : { agentId: row.agentId!, kind: 'agent' },
+  }
+}
+
+async function persistAudienceGrant(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  grant: GroupAudienceGrant
+) {
+  const [existing] = await database
+    .select()
+    .from(groupAudienceGrants)
+    .where(
+      and(
+        eq(groupAudienceGrants.workspaceId, workspaceId),
+        eq(groupAudienceGrants.channelId, channelId),
+        eq(groupAudienceGrants.grantId, grant.grantId)
+      )
+    )
+    .limit(1)
+  if (!existing) {
+    await database.insert(groupAudienceGrants).values({
+      channelId,
+      expiresAt: grant.expiresAt,
+      grantId: grant.grantId,
+      issuedAt: grant.issuedAt,
+      revision: grant.revision,
+      revokedAt: grant.revokedAt,
+      userId: grant.participant.userId,
+      workspaceId,
+    })
+    return
+  }
+  // Monotonic current truth: a regrant with a higher revision supersedes;
+  // anything at or below the stored revision keeps the stored row.
+  if (grant.revision > existing.revision) {
+    await database
+      .update(groupAudienceGrants)
+      .set({
+        expiresAt: grant.expiresAt,
+        issuedAt: grant.issuedAt,
+        revision: grant.revision,
+        revokedAt: grant.revokedAt,
+        updatedAt: new Date(),
+        userId: grant.participant.userId,
+      })
+      .where(eq(groupAudienceGrants.id, existing.id))
+  }
+}
+
+async function persistEnlistmentGrant(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  grant: GroupAgentEnlistmentGrant
+) {
+  const [existing] = await database
+    .select()
+    .from(groupEnlistmentGrants)
+    .where(
+      and(
+        eq(groupEnlistmentGrants.workspaceId, workspaceId),
+        eq(groupEnlistmentGrants.channelId, channelId),
+        eq(groupEnlistmentGrants.grantId, grant.grantId)
+      )
+    )
+    .limit(1)
+  if (!existing) {
+    await database.insert(groupEnlistmentGrants).values({
+      agentId: grant.agent.agentId,
+      channelId,
+      expiresAt: grant.expiresAt,
+      grantId: grant.grantId,
+      issuedAt: grant.issuedAt,
+      revision: grant.revision,
+      revokedAt: grant.revokedAt,
+      workspaceId,
+    })
+    return
+  }
+  if (grant.revision > existing.revision) {
+    await database
+      .update(groupEnlistmentGrants)
+      .set({
+        agentId: grant.agent.agentId,
+        expiresAt: grant.expiresAt,
+        issuedAt: grant.issuedAt,
+        revision: grant.revision,
+        revokedAt: grant.revokedAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(groupEnlistmentGrants.id, existing.id))
+  }
+}
+
+/**
+ * Load the canonical roster: admissions joined to their live grant windows.
+ * Everything a decision needs — gate aside — comes from these rows in one
+ * transaction; caller-supplied join points are never consulted.
+ */
+export async function loadGroupRoster(
+  database: Database,
+  workspaceId: string,
+  channelId: string
+): Promise<readonly GroupAdmission[]> {
+  const [admissionRows, audienceRows, enlistmentRows] = await Promise.all([
+    database
+      .select()
+      .from(groupAdmissions)
+      .where(
+        and(eq(groupAdmissions.workspaceId, workspaceId), eq(groupAdmissions.channelId, channelId))
+      )
+      .orderBy(asc(groupAdmissions.createdAt), asc(groupAdmissions.id)),
+    database
+      .select()
+      .from(groupAudienceGrants)
+      .where(
+        and(
+          eq(groupAudienceGrants.workspaceId, workspaceId),
+          eq(groupAudienceGrants.channelId, channelId)
+        )
+      ),
+    database
+      .select()
+      .from(groupEnlistmentGrants)
+      .where(
+        and(
+          eq(groupEnlistmentGrants.workspaceId, workspaceId),
+          eq(groupEnlistmentGrants.channelId, channelId)
+        )
+      ),
+  ])
+  const audienceByGrant = new Map(audienceRows.map((row) => [row.grantId, row]))
+  const enlistmentByGrant = new Map(enlistmentRows.map((row) => [row.grantId, row]))
+  return admissionRows.map((row) => {
+    const audience = row.principalKind === 'user' ? audienceByGrant.get(row.authGrantId) : undefined
+    const enlistment =
+      row.principalKind === 'agent' ? enlistmentByGrant.get(row.authGrantId) : undefined
+    const grantWindow: GroupGrantWindow =
+      audience && row.principalKind === 'user'
+        ? {
+            expiresAt: audience.expiresAt,
+            issuedAt: audience.issuedAt,
+            revokedAt: audience.revokedAt,
+          }
+        : enlistment
+          ? {
+              expiresAt: enlistment.expiresAt,
+              issuedAt: enlistment.issuedAt,
+              revokedAt: enlistment.revokedAt,
+            }
+          : ABSENT_GRANT_WINDOW
+    return admissionFromRow(channelId, row, grantWindow)
+  })
+}
+
+/** Load live sharing grants for one group in the deciding transaction. */
+export async function loadGroupSharingGrants(
+  database: Database,
+  workspaceId: string,
+  channelId: string
+): Promise<readonly GroupSharingGrant[]> {
+  const rows = await database
+    .select()
+    .from(groupSharingGrants)
+    .where(
+      and(
+        eq(groupSharingGrants.workspaceId, workspaceId),
+        eq(groupSharingGrants.channelId, channelId)
+      )
+    )
+  return rows.map((row) => sharingGrantFromRow(channelId, row))
+}
+
+async function loadChannelGate(
+  database: Database,
+  workspaceId: string,
+  channelId: string
+): Promise<GroupChannelGate> {
+  const [channel] = await database
+    .select()
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+  if (!channel || channel.lifecycleState !== 'active') throw new Error('Channel unavailable')
+  const participantRows = await database
+    .select({
+      agentId: channelParticipants.agentId,
+      principalKind: channelParticipants.principalKind,
+      userId: channelParticipants.userId,
+    })
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId)
+      )
+    )
+  const gate: GroupChannelGate = {
+    channel: summarizeGroupChannel(
+      channel,
+      participantRows.map((row): ConversationParticipantRef =>
+        row.principalKind === 'user'
+          ? { kind: 'user', userId: row.userId! }
+          : { agentId: row.agentId!, kind: 'agent' }
+      )
+    ),
+    workspaceId,
+  }
+  assertGroupChannelGate(gate)
+  return gate
+}
+
+/**
+ * Serialized history decision: gate, canonical admission, live sharing grants
+ * and the policy evaluation all see one transaction snapshot, so a concurrent
+ * revocation or roster write lands before the snapshot (denied) or after it.
+ */
+export async function decideGroupChannelHistoryReadNow(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  participant: ConversationParticipantRef,
+  entry: GroupHistoryEntryRef,
+  now: string
+): Promise<GroupHistoryReadDecision> {
+  return inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    const sharingGrants = await loadGroupSharingGrants(transaction, workspaceId, channelId)
+    return authorizeGroupChannelHistoryRead(gate, {
+      admission: admissionForParticipant(roster, participant),
+      entry,
+      now,
+      sharingGrants,
+    })
+  })
+}
+
+/** Serialized summary decision; same snapshot discipline as history reads. */
+export async function decideGroupChannelSummaryReadNow(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  participant: ConversationParticipantRef,
+  fromSequence: number,
+  now: string
+): Promise<GroupSummaryReadDecision> {
+  return inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    const sharingGrants = await loadGroupSharingGrants(transaction, workspaceId, channelId)
+    return authorizeGroupChannelSummaryRead(gate, {
+      admission: admissionForParticipant(roster, participant),
+      fromSequence,
+      now,
+      sharingGrants,
+    })
+  })
+}
+
+/** Serialized turn decision against canonical admission state. */
+export async function authorizeGroupChannelTurnNow(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  participant: ConversationParticipantRef,
+  now: string
+): Promise<GroupTurnDecision> {
+  return inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    return authorizeGroupChannelTurn(gate, {
+      admission: admissionForParticipant(roster, participant),
+      now,
+    })
+  })
+}
+
+/**
+ * Join-point-filtered message history for one group channel. The page is
+ * fetched through the existing access-checked read, then every entry is
+ * decided inside one transaction against canonical admissions and live
+ * grants; races fail closed because the decision always runs after the
+ * fetch. Pagination cursors describe the underlying page; hidden earlier
+ * entries can shorten a page, so clients keep paging with
+ * `nextAfterSequence` until it is absent.
+ */
+export async function listGroupChannelMessagesForUser(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }>,
+  now: string
+) {
+  const page = await listMessagesForUser(database, workspaceId, channelId, principal, options)
+  const participant: ConversationParticipantRef = { kind: 'user', userId: principal.userId }
+  const { visible } = await inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    const sharingGrants = await loadGroupSharingGrants(transaction, workspaceId, channelId)
+    return partitionGroupChannelHistory(gate, {
+      admission: admissionForParticipant(roster, participant),
+      entries: page.messages.map((message) => ({
+        occurredAt: message.createdAt,
+        sequence: message.sequence,
+      })),
+      now,
+      sharingGrants,
+    })
+  })
+  const allowed = new Set(visible.map((entry) => entry.sequence))
+  return Object.freeze({
+    ...page,
+    messages: Object.freeze(page.messages.filter((message) => allowed.has(message.sequence))),
+  })
+}
+
+/**
+ * One group message gated by its join point. Denied entries answer exactly
+ * like missing ones, so the gate is not a history oracle.
+ */
+export async function getGroupMessageForUser(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  messageId: string,
+  principal: UserPrincipalRef,
+  now: string
+): Promise<MessageSummary> {
+  const message = await getMessageForUser(database, workspaceId, messageId, principal)
+  if (message.channelId !== channelId) throw new Error('Message unavailable')
+  const participant: ConversationParticipantRef = { kind: 'user', userId: principal.userId }
+  const decision = await inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, channelId)
+    const sharingGrants = await loadGroupSharingGrants(transaction, workspaceId, channelId)
+    return authorizeGroupChannelHistoryRead(gate, {
+      admission: admissionForParticipant(roster, participant),
+      entry: { occurredAt: message.createdAt, sequence: message.sequence },
+      now,
+      sharingGrants,
+    })
+  })
+  if (decision.action !== 'allow') throw new Error('Message unavailable')
+  return message
 }
 
 async function nextGroupChannelSortOrder(database: Database, workspaceId: string) {
@@ -432,8 +861,9 @@ export type GroupChannelCreateInput = Readonly<{
  * Atomically create a tenant-bounded group with explicit human audience and
  * Agent enlistment grants. Validation runs before any write: a rejected
  * roster throws `GroupCreationError` with zero database writes. A validated
- * roster commits the channel, every participant row and the creation event in
- * one transaction — any failure rolls all of it back.
+ * roster commits the channel, grant rows, participant rows, canonical
+ * admission rows and the creation event in one transaction. An idempotent
+ * replay returns the existing channel with its persisted canonical roster.
  */
 export async function createGroupChannelWithGrants(
   database: AgentHqDatabase,
@@ -445,8 +875,6 @@ export async function createGroupChannelWithGrants(
   const title = input.title.trim()
   if (!idempotencyKey || idempotencyKey.length > 128 || !title || input.title.length > 120)
     throw new Error('Invalid group request')
-  // An empty owning workspace reaches the policy as a typed group-scope
-  // rejection (group_workspace_missing), still with zero writes.
   const channelId = input.channelId ?? randomUUID()
   const validation = validateGroupCreation({
     candidates: input.candidates,
@@ -462,6 +890,10 @@ export async function createGroupChannelWithGrants(
     await requireGroupMembership(transaction, workspaceId, principal)
     for (const admission of roster)
       await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
+    // No conflict arbiter: concurrent retries carry the same explicit id,
+    // so the primary key itself can collide before the idempotency key is
+    // visible. Any conflict falls through to the replay path, which loads
+    // the existing row and accepts only an identical payload.
     const [created] = await transaction
       .insert(channels)
       .values({
@@ -474,7 +906,7 @@ export async function createGroupChannelWithGrants(
         visibility: 'participants',
         workspaceId,
       })
-      .onConflictDoNothing({ target: [channels.workspaceId, channels.idempotencyKey] })
+      .onConflictDoNothing()
       .returning()
     if (!created) {
       const [existing] = await transaction
@@ -486,31 +918,32 @@ export async function createGroupChannelWithGrants(
         .limit(1)
       if (!existing || existing.kind !== 'group' || existing.createPayloadHash !== payloadHash)
         throw new Error('Channel idempotency conflict')
-      const participantRows = await transaction
-        .select({
-          agentId: channelParticipants.agentId,
-          principalKind: channelParticipants.principalKind,
-          userId: channelParticipants.userId,
-        })
-        .from(channelParticipants)
-        .where(
-          and(
-            eq(channelParticipants.workspaceId, workspaceId),
-            eq(channelParticipants.channelId, existing.id)
-          )
+      const gate = await loadChannelGate(transaction, workspaceId, existing.id)
+      const persisted = await loadGroupRoster(transaction, workspaceId, existing.id)
+      return { channel: gate.channel, roster: persisted }
+    }
+    for (const candidate of input.candidates) {
+      if (candidate.kind === 'human') {
+        if (!candidate.audienceGrant) throw new Error('Group grant missing after validation')
+        await persistAudienceGrant(transaction, workspaceId, created.id, candidate.audienceGrant)
+      } else {
+        if (!candidate.enlistmentGrant) throw new Error('Group grant missing after validation')
+        await persistEnlistmentGrant(
+          transaction,
+          workspaceId,
+          created.id,
+          candidate.enlistmentGrant
         )
-      const participants = participantRows.map((row): ConversationParticipantRef =>
-        row.principalKind === 'user'
-          ? { kind: 'user', userId: row.userId! }
-          : { agentId: row.agentId!, kind: 'agent' }
-      )
-      return { channel: summarizeGroupChannel(existing, participants), roster }
+      }
     }
     await transaction
       .insert(channelParticipants)
       .values(
         roster.map((admission) => participantInsert(workspaceId, created.id, admission.participant))
       )
+    await transaction
+      .insert(groupAdmissions)
+      .values(roster.map((admission) => admissionInsert(workspaceId, created.id, admission)))
     await appendWorkspaceEvent(transaction, {
       eventType: 'channel.created',
       payload: { actorUserId: principal.userId, channelId: created.id, kind: 'group' },
@@ -530,17 +963,17 @@ export type GroupChannelSetParticipantsInput = Readonly<{
   candidates: readonly GroupCreationCandidate[]
   expectedVersion: number
   now: string
-  /** Previously retained admissions; retained members without one rejoin fail closed at the frontier. */
-  priorAdmissions?: readonly GroupAdmission[]
 }>
 
 /**
  * Grant-gated roster replacement for one group channel in a single
- * transaction with optimistic concurrency. Every listed participant must
- * present an effective explicit grant — staying in the group without one is
- * rejected with the whole replacement. Newcomers, and retained members whose
- * prior join point is unknown, join fail closed at the channel's current
- * message frontier, so a roster write never over-grants earlier history.
+ * transaction with optimistic concurrency. Management authority (workspace
+ * owner/admin) is required — same-workspace membership alone is denied.
+ * Every listed participant must present an effective explicit grant. Join
+ * points come from canonical stored admissions: retained members keep theirs,
+ * newcomers join fail closed at the channel's current message frontier, so a
+ * roster write never over-grants earlier history and no caller-supplied prior
+ * is ever trusted.
  */
 export async function setGroupChannelParticipantsWithGrants(
   database: AgentHqDatabase,
@@ -558,7 +991,7 @@ export async function setGroupChannelParticipantsWithGrants(
   if (!validation.ok) throw new GroupCreationError(validation.rejections)
 
   return database.transaction(async (transaction) => {
-    await requireGroupMembership(transaction, workspaceId, principal)
+    await requireGroupManagementAuthority(transaction, workspaceId, principal)
     const [channel] = await transaction
       .select()
       .from(channels)
@@ -569,35 +1002,28 @@ export async function setGroupChannelParticipantsWithGrants(
     if (channel.version !== input.expectedVersion) throw new Error('Channel version conflict')
     for (const admission of validation.roster)
       await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
-    const currentRows = await transaction
-      .select({
-        agentId: channelParticipants.agentId,
-        principalKind: channelParticipants.principalKind,
-        userId: channelParticipants.userId,
-      })
-      .from(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, workspaceId),
-          eq(channelParticipants.channelId, channelId)
-        )
-      )
-    const current = new Set(
-      currentRows.map((row) =>
-        row.principalKind === 'user'
-          ? participantKey(workspaceId, { kind: 'user', userId: row.userId! })
-          : participantKey(workspaceId, { agentId: row.agentId!, kind: 'agent' })
-      )
+    const stored = await loadGroupRoster(transaction, workspaceId, channelId)
+    const storedByParticipant = new Map(
+      stored.map((admission) => [participantKey(workspaceId, admission.participant), admission])
     )
     const frontier = channel.latestMessageSequence
     const roster = validation.roster.map((admission) => {
-      const prior = (input.priorAdmissions ?? []).find((entry) =>
-        sameParticipant(entry.participant, admission.participant)
-      )
-      if (prior && current.has(participantKey(workspaceId, admission.participant)))
-        return { ...admission, joinPoint: prior.joinPoint }
-      return { ...admission, joinPoint: { joinedAt: input.now, joinedSequence: frontier } }
+      const canonical = storedByParticipant.get(participantKey(workspaceId, admission.participant))
+      if (canonical) return { ...admission, joinPoint: canonical.joinPoint }
+      // Strictly after the observed frontier: the decision allows sequences
+      // at or after the join point, so joining AT the frontier would leak the
+      // boundary message posted before admission.
+      return { ...admission, joinPoint: { joinedAt: input.now, joinedSequence: frontier + 1 } }
     })
+    for (const candidate of input.candidates) {
+      if (candidate.kind === 'human') {
+        if (!candidate.audienceGrant) throw new Error('Group grant missing after validation')
+        await persistAudienceGrant(transaction, workspaceId, channelId, candidate.audienceGrant)
+      } else {
+        if (!candidate.enlistmentGrant) throw new Error('Group grant missing after validation')
+        await persistEnlistmentGrant(transaction, workspaceId, channelId, candidate.enlistmentGrant)
+      }
+    }
     await transaction
       .delete(channelParticipants)
       .where(
@@ -614,6 +1040,15 @@ export async function setGroupChannelParticipantsWithGrants(
             participantInsert(workspaceId, channelId, admission.participant)
           )
         )
+    await transaction
+      .delete(groupAdmissions)
+      .where(
+        and(eq(groupAdmissions.workspaceId, workspaceId), eq(groupAdmissions.channelId, channelId))
+      )
+    if (roster.length > 0)
+      await transaction
+        .insert(groupAdmissions)
+        .values(roster.map((admission) => admissionInsert(workspaceId, channelId, admission)))
     const [updated] = await transaction
       .update(channels)
       .set({ updatedAt: new Date(), version: channel.version + 1 })
@@ -632,6 +1067,134 @@ export async function setGroupChannelParticipantsWithGrants(
         roster.map((admission) => admission.participant)
       ),
       roster,
+    }
+  })
+}
+
+export type GroupGrantKind = 'audience' | 'enlistment' | 'sharing'
+
+/**
+ * Revoke one persisted grant effective immediately. Requires group-management
+ * authority. The row survives with its revocation instant, so future reads
+ * and turns deny at once while late publication holds and the independently
+ * owned job is untouched. Revoking an already-revoked grant reports
+ * `revoked: false` and changes nothing.
+ */
+export async function revokeGroupGrant(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{ grantId: string; kind: GroupGrantKind; revokedAt: string }>
+): Promise<{ revoked: boolean }> {
+  return database.transaction(async (transaction) => {
+    await requireGroupManagementAuthority(transaction, workspaceId, principal)
+    const [channel] = await transaction
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+      .limit(1)
+    if (!channel || !input.grantId.trim()) throw new Error('Channel unavailable')
+    const table =
+      input.kind === 'audience'
+        ? groupAudienceGrants
+        : input.kind === 'enlistment'
+          ? groupEnlistmentGrants
+          : groupSharingGrants
+    const [revoked] = await transaction
+      .update(table)
+      .set({ revokedAt: input.revokedAt, updatedAt: new Date() })
+      .where(
+        and(
+          eq(table.workspaceId, workspaceId),
+          eq(table.channelId, channelId),
+          eq(table.grantId, input.grantId),
+          isNull(table.revokedAt)
+        )
+      )
+      .returning({ id: table.id })
+    if (revoked) return { revoked: true }
+    const [existing] = await transaction
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.workspaceId, workspaceId),
+          eq(table.channelId, channelId),
+          eq(table.grantId, input.grantId)
+        )
+      )
+      .limit(1)
+    if (!existing) throw new Error('Grant unavailable')
+    return { revoked: false }
+  })
+}
+
+/**
+ * Persist an audience-aware sharing grant for earlier history or summaries.
+ * Requires group-management authority and a live grant window; the grant
+ * authorizes earlier material only for its exact participant and scope, in
+ * the group it names. A higher revision supersedes; anything at or below the
+ * stored revision keeps the stored row.
+ */
+export async function shareGroupHistory(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  grant: GroupSharingGrant
+): Promise<void> {
+  if (grant.groupId !== channelId) throw new Error('Invalid group request')
+  await database.transaction(async (transaction) => {
+    await requireGroupManagementAuthority(transaction, workspaceId, principal)
+    const [channel] = await transaction
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+      .limit(1)
+    if (!channel) throw new Error('Channel unavailable')
+    const [existing] = await transaction
+      .select()
+      .from(groupSharingGrants)
+      .where(
+        and(
+          eq(groupSharingGrants.workspaceId, workspaceId),
+          eq(groupSharingGrants.channelId, channelId),
+          eq(groupSharingGrants.grantId, grant.grantId)
+        )
+      )
+      .limit(1)
+    if (!existing) {
+      await transaction.insert(groupSharingGrants).values({
+        agentId: grant.participant.kind === 'agent' ? grant.participant.agentId : null,
+        channelId,
+        expiresAt: grant.expiresAt,
+        grantId: grant.grantId,
+        issuedAt: grant.issuedAt,
+        principalKind: grant.participant.kind,
+        revision: grant.revision,
+        revokedAt: grant.revokedAt,
+        scope: grant.scope,
+        userId: grant.participant.kind === 'user' ? grant.participant.userId : null,
+        workspaceId,
+      })
+      return
+    }
+    if (grant.revision > existing.revision) {
+      await transaction
+        .update(groupSharingGrants)
+        .set({
+          agentId: grant.participant.kind === 'agent' ? grant.participant.agentId : null,
+          expiresAt: grant.expiresAt,
+          issuedAt: grant.issuedAt,
+          principalKind: grant.participant.kind,
+          revision: grant.revision,
+          revokedAt: grant.revokedAt,
+          scope: grant.scope,
+          updatedAt: new Date(),
+          userId: grant.participant.kind === 'user' ? grant.participant.userId : null,
+        })
+        .where(eq(groupSharingGrants.id, existing.id))
     }
   })
 }

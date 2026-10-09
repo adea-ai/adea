@@ -2,8 +2,11 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiMessagePage, ApiMessageResponse } from '@adea-ai/api-client'
 import {
+  authorizeGroupChannelTurnNow,
   createLeadTurn,
   createMessage,
+  getChannelForUser,
+  listGroupChannelMessagesForUser,
   listMessagesForUser,
   parseRequestedRoleModelSelections,
 } from '@adea-ai/db'
@@ -52,6 +55,27 @@ async function get(request: Request, { params }: Context) {
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    const channel = await getChannelForUser(
+      applicationDatabase(),
+      workspaceId,
+      channelId,
+      resolution.principal
+    )
+    if (channel.kind === 'group') {
+      // Join-point-filtered group history: earlier entries stay held without
+      // an explicit audience-aware sharing grant.
+      const payload: ApiMessagePage = await listGroupChannelMessagesForUser(
+        applicationDatabase(),
+        workspaceId,
+        channelId,
+        resolution.principal,
+        { afterSequence, limit, threadRootMessageId },
+        new Date().toISOString()
+      )
+      return workspaceJsonResponse(payload, resolution, request, {
+        headers: { 'cache-control': 'private, no-store' },
+      })
+    }
     const payload: ApiMessagePage = await listMessagesForUser(
       applicationDatabase(),
       workspaceId,
@@ -118,6 +142,24 @@ async function post(request: Request, { params }: Context) {
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    const channel = await getChannelForUser(
+      applicationDatabase(),
+      workspaceId,
+      channelId,
+      resolution.principal
+    )
+    if (channel.kind === 'group') {
+      // Immediate turn revocation for groups: a revoked or stale grant takes
+      // no turn. Dispatch and orchestration stay with the turn coordinator.
+      const turn = await authorizeGroupChannelTurnNow(
+        applicationDatabase(),
+        workspaceId,
+        channelId,
+        { kind: 'user', userId: resolution.principal.userId },
+        new Date().toISOString()
+      )
+      if (turn.action !== 'allow') return workspaceUnavailableResponse(request)
+    }
     if (leadTurnMode === 'lead') {
       const payload: ApiMessageResponse = await createLeadTurn(
         applicationDatabase(),

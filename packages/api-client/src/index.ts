@@ -22,6 +22,8 @@ import type {
   ContentReplicaSummary,
   ConversationParticipantRef,
   ContentRefSummary,
+  GroupAgentEnlistmentGrant,
+  GroupAudienceGrant,
   MessageSummary,
   PrincipalRef,
   ProjectMemberRole,
@@ -1455,7 +1457,13 @@ export class AgentHqApiClient {
 
   async createGroupChannel(
     workspaceId: string,
-    input: Readonly<{ idempotencyKey: string; taskId?: string; title: string }>
+    input: Readonly<{
+      audienceGrants?: readonly GroupAudienceGrant[]
+      channelId?: string
+      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
+      idempotencyKey: string
+      title: string
+    }>
   ): Promise<ApiChannelResponse> {
     return this.createChannel(workspaceId, { ...input, kind: 'group' })
   }
@@ -1491,12 +1499,16 @@ export class AgentHqApiClient {
     workspaceId: string,
     channelId: string,
     participants: readonly ConversationParticipantRef[],
-    expectedVersion: number
+    expectedVersion: number,
+    grants?: Readonly<{
+      audienceGrants?: readonly GroupAudienceGrant[]
+      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
+    }>
   ): Promise<ApiChannelResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
       {
-        body: JSON.stringify({ participants }),
+        body: JSON.stringify({ ...grants, participants }),
         headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
         method: 'POST',
       }
@@ -1647,6 +1659,9 @@ export class AgentHqApiClient {
     workspaceId: string,
     input: Readonly<{
       agentId?: string
+      audienceGrants?: readonly GroupAudienceGrant[]
+      channelId?: string
+      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
       idempotencyKey: string
       kind: 'project' | 'direct_agent' | 'group'
       mode?: 'new_topic'
