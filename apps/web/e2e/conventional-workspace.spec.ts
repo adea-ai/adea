@@ -462,10 +462,15 @@ async function mockWorkspace(page: Page, empty = false) {
       ['PATCH', 'POST'].includes(route.request().method())
     ) {
       const body = route.request().postDataJSON() as Record<string, unknown>
+      // Mirror the server: presentation and placement edits advance the Agent revision.
+      const { expectedRevision, ...fields } = body
       const updated = {
         ...agents[0],
-        ...(url.pathname.endsWith('/presentation') ? body : {}),
+        ...(url.pathname.endsWith('/presentation') ? fields : {}),
         ...(url.pathname.endsWith('/project') ? { projectId: body.projectId } : {}),
+        ...(url.pathname.endsWith('/presentation') || url.pathname.endsWith('/project')
+          ? { revision: Number(expectedRevision) + 1 }
+          : {}),
         ...(url.pathname.endsWith('/profile')
           ? {
               profile: {
@@ -2522,8 +2527,15 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   const project = page.waitForRequest((request) => request.url().endsWith('/project'))
   const profile = page.waitForRequest((request) => request.url().endsWith('/profile'))
   await form.getByRole('button', { name: 'Save changes' }).click()
-  expect((await presentation).postDataJSON()).toMatchObject({ name: 'Research Lead' })
-  expect((await project).postDataJSON()).toEqual({ projectId: 'project-support' })
+  expect((await presentation).postDataJSON()).toMatchObject({
+    expectedRevision: 0,
+    name: 'Research Lead',
+  })
+  // The placement edit chains the revision the presentation response returned.
+  expect((await project).postDataJSON()).toEqual({
+    expectedRevision: 1,
+    projectId: 'project-support',
+  })
   expect((await profile).postDataJSON()).toMatchObject({
     profileId,
     profileVersion,

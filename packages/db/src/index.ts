@@ -232,6 +232,7 @@ export {
   assignAgentToProject,
   changeAgentProfile,
   AgentProfileConflictError,
+  AgentRevisionConflictError,
   createAgent,
   ensureWorkspaceLead,
   getWorkspaceLeadForUser,

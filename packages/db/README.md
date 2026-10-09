@@ -66,6 +66,12 @@ It preserves the staged 0041 schema and all legacy identities, history and audie
 Apply it before the new lead/topic API callers; a designation or canonical message
 is not model readiness or execution acceptance.
 
+Migration 0045 adds the Agent `revision` that presentation and placement edits check before
+writing; see the [lead identity evidence](../../docs/evidence/m11-workspace-lead-identity.md).
+It is additive with a default of zero. Apply it before callers that send `expectedRevision`:
+until every writer checks the revision, a pre-0045 writer can edit without advancing it, so
+complete the rollout before relying on conflicts.
+
 ## Permanent workspace deletion
 
 Active permanent deletion is unavailable until server-owned cleanup completion

@@ -63,9 +63,15 @@ export type ApiAgentCreateInput = Readonly<{
 export type ApiAgentPresentationInput = Readonly<{
   avatarRef?: string | null
   characterRef?: string | null
+  /** The Agent `revision` the editor opened; a superseded revision answers 409. */
+  expectedRevision: number
   name?: string
   presentationMetadata?: Readonly<Record<string, string>>
   roleSummary?: string | null
+}>
+export type ApiAgentProjectInput = Readonly<{
+  expectedRevision: number
+  projectId: string | null
 }>
 export type ApiAgentProfileInput = Readonly<{
   expectedRevision: number
@@ -1095,12 +1101,15 @@ export class AgentHqApiClient {
   async assignAgentToProject(
     workspaceId: string,
     agentId: string,
-    projectId: string | null
+    input: ApiAgentProjectInput
   ): Promise<ApiAgentResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/project`,
       {
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({
+          expectedRevision: input.expectedRevision,
+          projectId: input.projectId,
+        }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       }

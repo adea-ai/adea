@@ -76,7 +76,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       workspace.id,
       created.id,
       owner.principal,
-      project.id
+      { expectedRevision: 0, projectId: project.id }
     )
     const customized = await updateAgentPresentation(
       connection.db,
@@ -84,6 +84,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
       created.id,
       owner.principal,
       {
+        expectedRevision: assigned.revision ?? 0,
         avatarRef: 'avatar:ada',
         characterRef: 'character:75',
         name: 'Ada Lovelace',
@@ -239,13 +240,10 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     })
 
     await expect(
-      assignAgentToProject(
-        connection.db,
-        a.workspace.id,
-        agent.id,
-        owner.principal,
-        otherProject.id
-      )
+      assignAgentToProject(connection.db, a.workspace.id, agent.id, owner.principal, {
+        expectedRevision: 0,
+        projectId: otherProject.id,
+      })
     ).rejects.toThrow('Project unavailable')
 
     await connection.db.delete(agents).where(eq(agents.workspaceId, a.workspace.id))
