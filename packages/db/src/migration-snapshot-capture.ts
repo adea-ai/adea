@@ -43,6 +43,7 @@
 // bounds are carried verbatim and will be quarantined by the comparator as
 // typed `limit` issues; capture never drops or repairs a row silently.
 
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
 
 import { asc } from 'drizzle-orm'
@@ -257,15 +258,18 @@ export function resolveMigrationSnapshotCaptureDomains(
 
 // ─── Deterministic encodings ─────────────────────────────────────────────────
 
-const PAYLOAD_CANONICAL_MAX_DEPTH = 64
+/**
+ * How deep the recursive canonical walk descends before handing the rest of
+ * the subtree to `deepCanonicalDigestMarker`. Exported so the tests can pin
+ * the exact boundary the fold guarantees.
+ */
+export const PAYLOAD_CANONICAL_MAX_DEPTH = 64
 
 /**
- * Deterministic JSON encoding for event payload digests: object keys sorted,
- * arrays positional, recursion depth-capped. The same payload always digests
- * the same, whatever key order the driver handed back.
+ * Scalar half of the canonical encoding, shared by the bounded recursive walk
+ * and the deep iterative one so the two encodings can never drift apart.
  */
-function canonicalJson(value: unknown, depth = 0): string {
-  if (depth > PAYLOAD_CANONICAL_MAX_DEPTH) return '"~depth"'
+function canonicalScalar(value: unknown): string {
   if (value === null) return 'null'
   switch (typeof value) {
     case 'string':
@@ -274,20 +278,89 @@ function canonicalJson(value: unknown, depth = 0): string {
       return Number.isFinite(value) ? JSON.stringify(value) : `"~${String(value)}"`
     case 'boolean':
       return value ? 'true' : 'false'
-    default: {
-      if (Array.isArray(value)) {
-        return `[${value.map((item) => canonicalJson(item, depth + 1)).join(',')}]`
-      }
-      if (typeof value === 'object') {
-        const source = value as Record<string, unknown>
-        const entries = Object.keys(source)
-          .toSorted()
-          .map((key) => `${JSON.stringify(key)}:${canonicalJson(source[key], depth + 1)}`)
-        return `{${entries.join(',')}}`
-      }
+    default:
       return `"~${typeof value}"`
-    }
   }
+}
+
+/**
+ * Canonical encoding of a subtree handed over at the depth cap, serialized
+ * with an explicit work stack instead of recursion — depth lives on the heap,
+ * so the walk stays bounded no matter how deeply the payload nests. The
+ * output is exactly what the recursive walk would produce without its cap:
+ * keys sorted, arrays positional, the same scalar markers.
+ */
+function canonicalJsonDeep(root: unknown): string {
+  const parts: string[] = []
+  // Values still to encode travel wrapped; bare strings are pre-rendered
+  // output (brackets, closers, separators) and go straight to the parts.
+  const work: Array<string | { readonly value: unknown }> = [{ value: root }]
+  for (;;) {
+    const token = work.pop()
+    if (token === undefined) break
+    if (typeof token === 'string') {
+      parts.push(token)
+      continue
+    }
+    const value = token.value
+    if (Array.isArray(value)) {
+      parts.push('[')
+      work.push(']')
+      for (let index = value.length - 1; index >= 0; index--) {
+        work.push({ value: value[index] })
+        if (index > 0) work.push(',')
+      }
+      continue
+    }
+    if (value !== null && typeof value === 'object') {
+      const source = value as Record<string, unknown>
+      const keys = Object.keys(source).toSorted()
+      parts.push('{')
+      work.push('}')
+      for (let index = keys.length - 1; index >= 0; index--) {
+        work.push({ value: source[keys[index]] })
+        work.push(':')
+        work.push(JSON.stringify(keys[index]))
+        if (index > 0) work.push(',')
+      }
+      continue
+    }
+    parts.push(canonicalScalar(value))
+  }
+  return parts.join('')
+}
+
+/**
+ * The depth-cap fold: the over-limit subtree's full canonical form, hashed
+ * and folded into the parent as one bounded, length-prefixed marker. Content
+ * past `PAYLOAD_CANONICAL_MAX_DEPTH` never collapses into a constant, so two
+ * payloads identical above the cap but different below it can never share a
+ * digest; the parent's encoding still costs O(1) per folded subtree.
+ */
+function deepCanonicalDigestMarker(value: unknown): string {
+  const canonical = canonicalJsonDeep(value)
+  const digest = createHash('sha256').update(canonical, 'utf8').digest('hex')
+  return `"~deep:${Buffer.byteLength(canonical, 'utf8')}:${digest}"`
+}
+
+/**
+ * Deterministic JSON encoding for event payload digests: object keys sorted,
+ * arrays positional, recursion depth-capped, with content past the cap folded
+ * in as a bounded digest of its full canonical form. The same payload always
+ * digests the same, whatever key order the driver handed back — and no depth
+ * limit can hide a difference from the digest.
+ */
+function canonicalJson(value: unknown, depth = 0): string {
+  if (depth > PAYLOAD_CANONICAL_MAX_DEPTH) return deepCanonicalDigestMarker(value)
+  if (value === null || typeof value !== 'object') return canonicalScalar(value)
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item, depth + 1)).join(',')}]`
+  }
+  const source = value as Record<string, unknown>
+  const entries = Object.keys(source)
+    .toSorted()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(source[key], depth + 1)}`)
+  return `{${entries.join(',')}}`
 }
 
 /**
