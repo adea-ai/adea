@@ -1,7 +1,7 @@
 import type { UserPrincipalRef } from '@adea-ai/types'
 import {
-  managementCallBinding,
   managementAuthoritySchemaVersion,
+  managementCallBinding,
   type ManagementAuthorityDecision,
   type ManagementOperationId,
 } from '@adea-ai/types/management'
@@ -17,6 +17,8 @@ export async function managementAuthorityDecision(options: {
   workspaceId?: string
   targetId: string | null
   input: unknown
+  approvalExpiresAt?: string
+  audienceRef?: string
   authorityRef?: string
   authorityRevision?: number
   decision?: 'allowed' | 'denied'
@@ -26,6 +28,8 @@ export async function managementAuthorityDecision(options: {
   issuedAt?: string
   leadAgentId?: string
   now?: number
+  planRef?: string
+  planRevision?: number
   principal?: UserPrincipalRef
 }): Promise<ManagementAuthorityDecision> {
   const now = options.now ?? MANAGEMENT_NOW
@@ -37,6 +41,12 @@ export async function managementAuthorityDecision(options: {
   })
   if (!binding) throw new Error('test decision input is not canonically bound')
   return Object.freeze({
+    approval: Object.freeze({
+      audienceRef: options.audienceRef ?? 'audience:fixture',
+      expiresAt: options.approvalExpiresAt ?? new Date(now + 120_000).toISOString(),
+      interactionId: 'interaction-1',
+    }),
+    audienceRef: options.audienceRef ?? 'audience:fixture',
     authorityRef: options.authorityRef ?? 'authority-1',
     authorityRevision: options.authorityRevision ?? 7,
     binding,
@@ -46,6 +56,8 @@ export async function managementAuthorityDecision(options: {
     intentId: options.intentId ?? 'intent-1',
     issuedAt: options.issuedAt ?? new Date(now - 1_000).toISOString(),
     leadAgentId: options.leadAgentId ?? 'agent-lead-1',
+    planRef: options.planRef ?? 'plan:fixture',
+    planRevision: options.planRevision ?? 3,
     principal: options.principal ?? MANAGEMENT_PRINCIPAL,
     schemaVersion: managementAuthoritySchemaVersion,
   })
