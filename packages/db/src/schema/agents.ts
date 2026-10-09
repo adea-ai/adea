@@ -51,6 +51,8 @@ export const agents = appSchema.table(
     profileVersion: text('profile_version').notNull(),
     profileState: agentProfileState('profile_state').default('available').notNull(),
     profileRevision: integer('profile_revision').default(0).notNull(),
+    /** Presentation and project-placement revision; profile pins keep `profileRevision`. */
+    revision: integer('revision').default(0).notNull(),
     ...timestampColumns(),
   },
   (table) => [
@@ -71,6 +73,7 @@ export const agents = appSchema.table(
     check('agents_profile_id_nonempty', sql`length(btrim(${table.profileId})) > 0`),
     check('agents_profile_version_nonempty', sql`length(btrim(${table.profileVersion})) > 0`),
     check('agents_profile_revision_nonnegative', sql`${table.profileRevision} >= 0`),
+    check('agents_revision_nonnegative', sql`${table.revision} >= 0`),
     index('agents_workspace_lifecycle_idx').on(
       table.workspaceId,
       table.lifecycleState,

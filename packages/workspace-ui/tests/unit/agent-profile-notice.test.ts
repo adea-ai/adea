@@ -22,3 +22,13 @@ test('profile failures give fixed remediation without provider content', () => {
   expect(agentProfileActionNotice({ status: 422 })).toContain('compatible')
   expect(agentProfileActionNotice({ status: 403 })).toContain('permitted')
 })
+
+test('a superseded Agent revision asks the editor to refresh without repeating server text', () => {
+  const notice = agentProfileActionNotice({
+    code: 'AGENT_REVISION_CONFLICT',
+    message: 'private-provider-canary',
+  })
+  expect(notice).toContain('Agent changed')
+  expect(notice).toContain('refresh')
+  expect(notice).not.toContain('private-provider-canary')
+})

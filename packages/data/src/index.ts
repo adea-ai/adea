@@ -689,8 +689,13 @@ export const agentQueryOptions = {
 }
 export const agentMutationOptions = {
   assignProject: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
-    mutationFn: (input: Readonly<{ agentId: string; projectId: string | null }>) =>
-      client.assignAgentToProject(workspaceId, input.agentId, input.projectId),
+    mutationFn: (
+      input: Readonly<{ agentId: string; expectedRevision: number; projectId: string | null }>
+    ) =>
+      client.assignAgentToProject(workspaceId, input.agentId, {
+        expectedRevision: input.expectedRevision,
+        projectId: input.projectId,
+      }),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToProject']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
       await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })

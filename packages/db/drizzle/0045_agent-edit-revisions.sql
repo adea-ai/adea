@@ -1,0 +1,2 @@
+ALTER TABLE "app"."agents" ADD COLUMN "revision" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."agents" ADD CONSTRAINT "agents_revision_nonnegative" CHECK ("app"."agents"."revision" >= 0);

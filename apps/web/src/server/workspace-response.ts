@@ -93,6 +93,17 @@ export function workspaceInvalidRequestResponse(request: Request) {
   )
 }
 
+/** A presentation or placement edit opened a superseded Agent revision; nothing was written. */
+export function agentRevisionConflictResponse(request: Request) {
+  return withDesktopWorkspaceCors(
+    Response.json(
+      { code: 'AGENT_REVISION_CONFLICT', message: 'Agent changed; refresh and retry' },
+      { status: 409 }
+    ),
+    request
+  )
+}
+
 export function projectConflictResponse(request: Request) {
   return withDesktopWorkspaceCors(
     Response.json(
