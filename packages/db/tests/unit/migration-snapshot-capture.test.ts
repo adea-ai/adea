@@ -8,6 +8,7 @@ import {
   MigrationSnapshotCaptureInputError,
   MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES,
   MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
+  PAYLOAD_CANONICAL_MAX_DEPTH,
   resolveMigrationSnapshotCaptureDomains,
   type MigrationSnapshotRecord,
 } from '../../src/migration-snapshot-capture'
@@ -217,6 +218,80 @@ describe('migrationSnapshotEventPayloadDigest', () => {
         nested: { a: ['x', { y: null }], b: 1 },
       })
     )
+  })
+})
+
+// ─── Deep payload digests (past the canonical depth cap) ─────────────────────
+
+/**
+ * Nest `leaf` under `levels` single-key objects, so everything above the leaf
+ * sits at the same depth in every payload built with the same count.
+ */
+const wrapAtDepth = (leaf: unknown, levels = PAYLOAD_CANONICAL_MAX_DEPTH + 8): unknown => {
+  let value = leaf
+  for (let depth = 0; depth < levels; depth += 1) value = { layer: value }
+  return value
+}
+
+/** Nest `leaf` in `levels` single-element arrays: depth without width. */
+const nestArraysAtDepth = (leaf: string, levels: number): unknown => {
+  let value: unknown = leaf
+  for (let depth = 0; depth < levels; depth += 1) value = [value]
+  return value
+}
+
+describe('migrationSnapshotEventPayloadDigest past the depth cap', () => {
+  test('payloads identical above the cap but different below it digest differently', () => {
+    const left = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'left' }))
+    const right = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'right' }))
+    expect(left).toMatch(/^[0-9a-f]{64}$/)
+    expect(right).toMatch(/^[0-9a-f]{64}$/)
+    expect(left).not.toBe(right)
+  })
+
+  test('a difference exactly one level past the cap still digests differently', () => {
+    const levels = PAYLOAD_CANONICAL_MAX_DEPTH + 1
+    const left = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'left' }, levels))
+    const right = migrationSnapshotEventPayloadDigest(wrapAtDepth({ leaf: 'right' }, levels))
+    expect(left).not.toBe(right)
+  })
+
+  test('deep digests stay deterministic and key-order independent', () => {
+    const reference = migrationSnapshotEventPayloadDigest(
+      wrapAtDepth({ b: [1, { y: null }], a: 'x' })
+    )
+    expect(reference).toBe(
+      migrationSnapshotEventPayloadDigest(wrapAtDepth({ a: 'x', b: [1, { y: null }] }))
+    )
+    expect(reference).toBe(
+      migrationSnapshotEventPayloadDigest(wrapAtDepth({ b: [1, { y: null }], a: 'x' }))
+    )
+  })
+
+  test('deep content changes the digest even when the shallow skeleton repeats', () => {
+    const variants = [
+      migrationSnapshotEventPayloadDigest(wrapAtDepth('same')),
+      migrationSnapshotEventPayloadDigest(wrapAtDepth('other')),
+      migrationSnapshotEventPayloadDigest(wrapAtDepth({ same: 1 })),
+    ]
+    expect(new Set(variants).size).toBe(variants.length)
+    // A skeleton cut off exactly at the cap is walked in full, with nothing
+    // folded — its digest matches none of the deep variants above.
+    const atCap = migrationSnapshotEventPayloadDigest(
+      wrapAtDepth('same', PAYLOAD_CANONICAL_MAX_DEPTH)
+    )
+    expect(variants).not.toContain(atCap)
+  })
+
+  test('nesting far past the cap cannot overflow the walk and still digests', () => {
+    // 100 000 levels: the recursive walk stops at the cap, and the deep fold
+    // serializes the rest with an explicit stack, so depth never grows the
+    // call stack.
+    const left = migrationSnapshotEventPayloadDigest(nestArraysAtDepth('left', 100_000))
+    const right = migrationSnapshotEventPayloadDigest(nestArraysAtDepth('right', 100_000))
+    expect(left).toMatch(/^[0-9a-f]{64}$/)
+    expect(left).toBe(migrationSnapshotEventPayloadDigest(nestArraysAtDepth('left', 100_000)))
+    expect(left).not.toBe(right)
   })
 })
 
