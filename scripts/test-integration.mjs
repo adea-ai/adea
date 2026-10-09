@@ -1,4 +1,5 @@
 import { readdirSync, existsSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
@@ -62,6 +63,108 @@ function runningComposeServices() {
   return result.stdout.split(/\r?\n/).filter(Boolean)
 }
 
+// The migration-snapshot capture proofs build a disposable PostgreSQL scratch
+// database per run: a capture inventories the whole app schema and the
+// comparator refuses unbounded shared state. Creating and dropping that
+// database needs CREATEDB, which the provisioned application roles
+// deliberately do not have (the database health gate enforces it), so the
+// instance the proofs run against is test infrastructure: a throwaway
+// postgres container dedicated to this run, provisioned here and always
+// removed afterwards. It is independent of DATABASE_URL — its admin URL is
+// exported as MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL, the capture file
+// refuses to run without it, and no destructive step in this lane ever
+// targets the database DATABASE_URL names. A superuser inside an ephemeral,
+// randomly-passworded container that exists only for this run is the point;
+// widening an application role to make room for a test would not be.
+const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
+const captureProvisioningImage = 'postgres:18-alpine'
+
+function dockerDaemonAvailable() {
+  const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 15_000,
+  })
+  return !result.error && result.status === 0
+}
+
+function dockerCaptureRun(args, what, timeoutMs) {
+  const result = spawnSync('docker', args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`${what} failed: ${result.stderr.trim() || `exit code ${result.status}`}`)
+  }
+  return result.stdout.trim()
+}
+
+function startCaptureProvisioning() {
+  if (!dockerDaemonAvailable()) return null
+  // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
+  const password = randomBytes(24).toString('hex')
+  const name = `adea-capture-prov-${randomBytes(6).toString('hex')}`
+  dockerCaptureRun(
+    [
+      'run',
+      '-d',
+      '--rm',
+      '-P',
+      '--name',
+      name,
+      '-e',
+      `POSTGRES_PASSWORD=${password}`,
+      captureProvisioningImage,
+    ],
+    `starting the throwaway capture provisioning container (${captureProvisioningImage})`,
+    120_000
+  )
+  try {
+    // `-P` published 5432 on an ephemeral host port; read the mapping back
+    // instead of guessing one. The image's default POSTGRES_USER (postgres,
+    // superuser) owns the default `postgres` admin database.
+    const mapping = dockerCaptureRun(
+      ['port', name, '5432/tcp'],
+      'reading the provisioning port mapping'
+    )
+    const port = mapping.split(/\r?\n/).at(-1)?.split(':').at(-1)
+    if (!port) throw new Error(`unreadable provisioning port mapping: ${mapping}`)
+    const deadline = Date.now() + 60_000
+    let ready = false
+    while (Date.now() < deadline) {
+      const probe = spawnSync('docker', ['exec', name, 'pg_isready', '-U', 'postgres'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 10_000,
+      })
+      if (probe.error) throw probe.error
+      if (probe.status === 0) {
+        ready = true
+        break
+      }
+      // Synchronous sleep between readiness probes; the runner is single-
+      // threaded and the next step needs the instance healthy.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000)
+    }
+    if (!ready) throw new Error('the throwaway capture provisioning instance never became ready')
+    return {
+      databaseUrl: `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`,
+      stop() {
+        dockerCaptureRun(
+          ['rm', '-f', name],
+          'removing the throwaway capture provisioning container'
+        )
+      },
+    }
+  } catch (error) {
+    // A container that started but never became healthy must not leak.
+    spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' })
+    throw error
+  }
+}
+
 const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
 if (usesExplicitDatabase) {
   const missingVariables = ['DATABASE_URL_UNPOOLED', 'DATABASE_MIGRATION_URL'].filter(
@@ -78,6 +181,7 @@ const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
 let startedLocalPostgres = false
+let captureProvisioning = null
 let primaryFailure
 
 try {
@@ -114,6 +218,19 @@ try {
   const timeoutMs = remoteTarget
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
+  // Test-only provisioning for the capture proofs, independent of DATABASE_URL
+  // (see startCaptureProvisioning). Without docker the proofs skip cleanly;
+  // with docker a failed provisioning fails the lane instead of silently
+  // shrinking the coverage the capture file exists to prove.
+  captureProvisioning = startCaptureProvisioning()
+  if (captureProvisioning) {
+    environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl
+  } else {
+    console.warn(
+      `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned and the migration-snapshot capture proofs will skip`
+    )
+  }
+
   run(
     'bun',
     [
@@ -151,6 +268,19 @@ if (startedLocalPostgres) {
     run('docker', ['compose', 'stop', 'postgres'], process.env)
   } catch (error) {
     console.error(`docker compose stop postgres failed: ${error.message}`)
+    primaryFailure ??= error
+  }
+}
+
+if (captureProvisioning) {
+  // Same contract as the compose cleanup above: the throwaway capture
+  // provisioning container is removed on success AND failure, a broken
+  // removal is reported without hiding the primary result, and a leak after a
+  // green run fails the lane.
+  try {
+    captureProvisioning.stop()
+  } catch (error) {
+    console.error(`removing the capture provisioning container failed: ${error.message}`)
     primaryFailure ??= error
   }
 }

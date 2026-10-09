@@ -37,31 +37,55 @@ import { createWorkspaceInvitation } from '../../src/workspace-invitations'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { migrationSnapshotFamilies } from '@adea-ai/types'
 
-// Capture proofs against the disposable PostgreSQL lane (DATABASE_URL, skipped
-// cleanly when absent). Every proof drives real rows through the domain
+// Capture proofs against a disposable PostgreSQL instance dedicated to this
+// run: scripts/test-integration.mjs provisions a throwaway postgres container
+// and exports its admin URL as MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL. The
+// proofs skip cleanly when that variable is absent and never fall back to the
+// shared DATABASE_URL target. Every proof drives real rows through the domain
 // helpers, captures, and — where a diff is expected — runs the comparator on
 // the two frozen documents. Capture is read-only: the only writes in this
 // file are the fixtures themselves and their cleanup.
 //
 // A capture inventories the WHOLE app schema — that is its job — and the
 // comparator deliberately refuses input pairs whose sections could outgrow
-// its documented output bound. The shared disposable instance outlives this
-// file and may hold unrelated rows, so each run captures inside a scratch
-// database of its own: created in the same PostgreSQL instance DATABASE_URL
-// points at, migrated with the repository's drizzle migrations, and dropped
-// afterwards. The proofs therefore see exactly the state the fixture wrote.
+// its documented output bound. The provisioning instance exists only for this
+// run, and each run still captures inside a scratch database of its own:
+// created on the provisioning instance, migrated with the repository's
+// drizzle migrations, and dropped afterwards. The proofs therefore see
+// exactly the state the fixture wrote.
 //
-// Create, migrate and drop happen through the lane's migration identity —
-// DATABASE_MIGRATION_URL, the one role the provisioned instance grants
-// CREATEDB; the read-only app role DATABASE_URL carries deliberately has
-// none. Callers that supply an already-privileged DATABASE_URL without a
-// migration URL fall back to it for everything.
+// Guards: every create/drop refuses to run without the provisioning URL and
+// refuses any scratch name without the capture_test_ prefix. The provisioned
+// application roles deliberately hold no CREATEDB (the database health gate
+// enforces it), so nothing here may widen them or reach the database the
+// shared DATABASE_URL names.
 
-const connectionUrl = process.env.DATABASE_URL
+/** Every scratch database this file creates or drops must carry this prefix. */
+const DISPOSABLE_SCRATCH_PREFIX = 'capture_test_'
 
-const scratchAdminUrl = process.env.DATABASE_MIGRATION_URL ?? connectionUrl
+const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 
 let scratchDatabase: string | null = null
+
+/**
+ * The capture proofs create and drop databases only on the dedicated
+ * provisioning instance and only under disposable names. Both invariants are
+ * asserted before every destructive step: without the provisioning URL the
+ * proofs must fail loudly rather than silently target the shared DATABASE_URL
+ * instance, and a non-disposable name must never reach drop-with-force.
+ */
+function assertDisposableScratch(database: string): void {
+  if (!provisioningUrl) {
+    throw new Error(
+      'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is required: the capture proofs never create or drop databases on the shared DATABASE_URL instance'
+    )
+  }
+  if (!database.startsWith(DISPOSABLE_SCRATCH_PREFIX)) {
+    throw new Error(
+      `Refusing to create or drop "${database}": capture scratch databases must carry the "${DISPOSABLE_SCRATCH_PREFIX}" prefix`
+    )
+  }
+}
 
 /** Fixed capture clock: the fixture invitation below is pending at this instant. */
 const CAPTURED_AT = new Date('2026-01-05T00:00:00.000Z')
@@ -227,15 +251,16 @@ async function buildFixture(connection: DatabaseConnection) {
   }
 }
 
-/** The same connection settings as the scratch admin URL, against another database. */
+/** The same connection settings as the provisioning URL, against another database. */
 function urlForDatabase(database: string): string {
-  const url = new URL(scratchAdminUrl!)
+  const url = new URL(provisioningUrl!)
   url.pathname = `/${database}`
   return url.toString()
 }
 
 async function dropScratchDatabase(): Promise<void> {
   if (!scratchDatabase) return
+  assertDisposableScratch(scratchDatabase)
   const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
   try {
     await admin.unsafe(`drop database if exists "${scratchDatabase}" with (force)`)
@@ -244,11 +269,12 @@ async function dropScratchDatabase(): Promise<void> {
   }
 }
 
-describe.skipIf(!connectionUrl)('migration snapshot capture', () => {
+describe.skipIf(!provisioningUrl)('migration snapshot capture', () => {
   let connection: DatabaseConnection
 
   beforeAll(async () => {
     scratchDatabase = `capture_test_${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
+    assertDisposableScratch(scratchDatabase)
     const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
     try {
       await admin.unsafe(`create database "${scratchDatabase}"`)
