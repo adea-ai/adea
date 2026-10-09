@@ -3,18 +3,18 @@
  *
  * Runs the pure gates in `job-outbound-result-policy` over current state.
  *
- * Publish reads the job, the original actor's source access and the artifact
- * facts inside one authorization scope, then returns its decision. The message
- * write that records the publication happens after that scope closes, because
- * the existing message write opens its own transaction.
+ * Publish runs in one authorization scope. Inside it, every fact is read, the
+ * trusted clock is sampled after the reads, and the decision is made. On
+ * publish, the canonical message is written in that same transaction, through
+ * the caller's `write`, before the scope commits. So a message exists only if its
+ * authorization committed with it, and an ordinary read cannot see a publication
+ * that was not authorized.
  *
  * Deliver works in two steps. First, `resolveDelivery` reads the canonical
- * publication and the artifact registration identity without a lock, so the
- * grant lock can be taken on the exact grant. Second, inside that scope, every
- * fact is read again, the publication is re-read, and the trusted clock is
- * sampled after those reads. Only then is the decision made, and the release
- * runs as the last step of the scope. A change between the two steps shows up
- * in the locked reads and denies.
+ * publication and the grant identity it was bound to, without a lock. Second,
+ * inside the scope, every fact is read again, the clock is sampled after the
+ * reads, and the release runs as the last step. A change between the two steps
+ * shows up in the locked reads and denies.
  */
 import type { ArtifactReferenceEvidence, ArtifactReferenceGrantState } from '@adea-ai/types'
 
@@ -67,26 +67,31 @@ export type JobOutboundAuthorizationContext<TTransaction> = Readonly<{
 }>
 
 /**
- * Runs `run` inside one authorization scope. With a grant scope, the scope is the
- * #1207 lock: the artifact and grant rows stay locked for the whole callback.
- * Without one, it is a plain transaction. A rejection rolls the scope back.
+ * Runs `run` inside one authorization scope. With a grant scope the scope is the
+ * #1207 lock, held for the whole callback. Without one it is a plain transaction.
+ * A rejection rolls the scope back, including any write made inside it.
  */
 export type JobOutboundAuthorize<TTransaction> = <T>(
   scope: JobOutboundGrantScope | null,
   run: (context: JobOutboundAuthorizationContext<TTransaction>) => Promise<T>
 ) => Promise<T>
 
-/** The release write. It runs inside the authorization scope, after the final checks. */
+/** The release write for delivery. It runs inside the scope, after the final checks. */
 export type JobOutboundRelease<TTransaction> = (
   context: Readonly<{ transaction: TTransaction }>,
   released: SanitizedJobOutboundResult
 ) => Promise<void>
 
 /**
- * The unlocked first step of delivery: the canonical publication's artifact
- * claim (its registration as presented) and the grant scope to lock. Null when
- * the publication cannot be resolved at all.
+ * The publication write. It runs inside the scope, after the publish decision,
+ * and returns the id of the canonical message it wrote in that transaction.
  */
+export type JobOutboundPublicationWrite<TTransaction> = (
+  context: Readonly<{ transaction: TTransaction }>,
+  decision: Extract<JobOutboundPublicationDecision, { action: 'publish' }>
+) => Promise<string>
+
+/** The unlocked first step of delivery: the grant identity the publication was bound to, and its claim. */
 export type JobOutboundDeliveryResolution = Readonly<{
   claim: JobOutboundArtifactClaim | null
   scope: JobOutboundGrantScope | null
@@ -101,10 +106,16 @@ export type JobOutboundPublishInput = Readonly<{
 
 export type JobOutboundDeliverInput = Readonly<{
   jobId: string
-  /** The canonical publication written by the existing message flow. */
+  /** The canonical publication message written by `publish`. */
   messageId: string
   /** The destination participant the result is released to. */
   recipientUserId: string
+}>
+
+export type JobOutboundPublishResult = Readonly<{
+  decision: JobOutboundPublicationDecision
+  /** The canonical message id when the publication was written in the same transaction. */
+  messageId: string | null
 }>
 
 export type JobOutboundResultService<TTransaction> = Readonly<{
@@ -112,7 +123,10 @@ export type JobOutboundResultService<TTransaction> = Readonly<{
     input: JobOutboundDeliverInput,
     release: JobOutboundRelease<TTransaction>
   ) => Promise<JobOutboundDeliveryDecision>
-  publish: (input: JobOutboundPublishInput) => Promise<JobOutboundPublicationDecision>
+  publish: (
+    input: JobOutboundPublishInput,
+    write: JobOutboundPublicationWrite<TTransaction>
+  ) => Promise<JobOutboundPublishResult>
 }>
 
 export type JobOutboundServiceOptions<TTransaction> = Readonly<{
@@ -125,11 +139,7 @@ export type JobOutboundServiceOptions<TTransaction> = Readonly<{
   ) => Promise<JobOutboundDeliveryResolution | null>
 }>
 
-/**
- * The grant scope a publication claim needs: the artifact and grant named by the
- * sanitized result, locked at the presented revision. Null when no artifact grant
- * is claimed or the result cannot name one.
- */
+/** The grant scope a claim needs: the artifact and grant the sanitized result names, at the presented revision. */
 function grantScopeFor(
   claim: JobOutboundArtifactClaim | null,
   result: unknown
@@ -172,15 +182,23 @@ export function createJobOutboundResultService<TTransaction>(
 ): JobOutboundResultService<TTransaction> {
   const { authorize, clock, resolveDelivery } = options
   return {
-    async publish(input) {
+    async publish(input, write) {
       return authorize(
         grantScopeFor(input.artifact, input.result),
-        async ({ grantState, reads }) => {
+        async ({ grantState, reads, transaction }) => {
           const job = await reads.readJobSource(input.jobId)
           const sourceAccess = job
             ? await reads.readAccess({
                 userId: job.originalActorUserId,
                 workspaceId: job.sourceWorkspaceId,
+              })
+            : null
+          // The destination's revision is read as the job's original actor, who must be able to write there.
+          const audience = job
+            ? await reads.readAudience({
+                channelId: input.destination.channelId,
+                userId: job.originalActorUserId,
+                workspaceId: input.destination.workspaceId,
               })
             : null
           const sanitized = sanitizeJobOutboundResult(input.result)
@@ -193,15 +211,21 @@ export function createJobOutboundResultService<TTransaction>(
             target?.sourceWorkspaceId ?? null,
             grantState
           )
-          return decideJobOutboundPublication({
+          const decision = decideJobOutboundPublication({
             artifact,
+            audience,
             destination: input.destination,
             job,
             jobId: input.jobId,
+            // Sampled after the reads, inside the scope.
             now: clock(),
             result: input.result,
             sourceAccess,
           })
+          if (decision.action !== 'publish') return { decision, messageId: null }
+          // The write runs in the same transaction as the decision: it commits or rolls back with it.
+          const messageId = await write({ transaction }, decision)
+          return { decision, messageId }
         }
       )
     },
@@ -237,7 +261,6 @@ export function createJobOutboundResultService<TTransaction>(
           publication?.artifact?.sourceWorkspaceId ?? null,
           grantState
         )
-        // Sampled after every awaited read: lock waits cannot carry an expired grant through.
         const decision = decideJobOutboundDelivery({
           artifact,
           job,

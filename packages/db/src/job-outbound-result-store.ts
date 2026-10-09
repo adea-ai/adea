@@ -3,17 +3,16 @@
  *
  * A job is a Task in its source workspace. Its original authorized actor is the
  * single distinct actor of its submissions, and its completion is the
- * `task.completed` mutation. The canonical publication is the channel message
- * that the existing message flow wrote for the job: it carries the job id as
- * its execution reference, the original actor as sender, and any artifact
- * as a linked attachment. Destination standing is the exact channel's participant
- * row. An artifact is authorized through the #1207 registration lock.
+ * `task.completed` mutation. The canonical publication is a channel message written
+ * by `createMessage` inside the authorization transaction. Its system sender
+ * carries the encoded binding, and any artifact is a link row written in the same
+ * transaction. Destination standing is the exact channel's participant row, and the
+ * channel's revision is its version. An artifact is authorized through the #1207
+ * registration lock.
  *
- * Reads are shared-locked inside the authorization scope, so a revocation or
- * completion change waits for the release. The publish write is the existing
- * `createMessage`, and it runs after the publish decision, outside the scope.
- * The deliver gate re-reads the publication under lock, so a publication written
- * after a revocation is never released.
+ * Every read is shared-locked inside the scope. The publication, its link and its
+ * artifact row are locked together with the grant, so a concurrent revocation,
+ * availability change, or roster change waits for the scope to finish.
  */
 import { and, desc, eq, isNull } from 'drizzle-orm'
 
@@ -21,10 +20,10 @@ import { readArtifactReferenceEvidence } from './artifact-reference-policy'
 import { withArtifactReferenceGrantLocks } from './artifact-reference-grants'
 import { createMessage } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { decodeJobOutboundBinding, encodeJobOutboundBinding } from './job-outbound-binding'
 import type {
   JobOutboundAccess,
   JobOutboundAudience,
-  JobOutboundDestination,
   JobOutboundJobSource,
   JobOutboundPublication,
   JobOutboundPublicationDecision,
@@ -34,6 +33,7 @@ import {
   type JobOutboundAuthorize,
   type JobOutboundDeliveryResolution,
   type JobOutboundPublishInput,
+  type JobOutboundPublishResult,
   type JobOutboundReads,
   type JobOutboundResultService,
 } from './job-outbound-result-service'
@@ -61,21 +61,14 @@ function isUuid(value: string): boolean {
   return UUID.test(value)
 }
 
-/**
- * The source-workspace job for one Task id, or null when the Task is missing or
- * its original actor is not one provable principal.
- */
+/** The source-workspace job for one Task id, or null when the Task or its original actor is not provable. */
 export async function readJobOutboundSource(
   database: Database,
   jobId: string
 ): Promise<JobOutboundJobSource | null> {
   if (!isUuid(jobId)) return null
   const [task] = await database
-    .select({
-      id: tasks.id,
-      lifecycleState: tasks.lifecycleState,
-      workspaceId: tasks.workspaceId,
-    })
+    .select({ id: tasks.id, lifecycleState: tasks.lifecycleState, workspaceId: tasks.workspaceId })
     .from(tasks)
     .where(eq(tasks.id, jobId))
     .limit(1)
@@ -140,9 +133,9 @@ export async function readJobOutboundAccess(
 }
 
 /**
- * A recipient's standing in one exact channel, including when they joined it.
- * The channel is matched by id and by its own workspace, so a participant row
- * for any other channel cannot stand in for it.
+ * A principal's standing in one exact channel, with the channel's current revision.
+ * The channel is matched by id and by its own workspace, so a row for any other
+ * channel cannot stand in for it.
  */
 export async function readJobOutboundAudience(
   database: Database,
@@ -152,7 +145,7 @@ export async function readJobOutboundAudience(
     channelId: null,
     channelIsGroup: false,
     channelLive: false,
-    joinedAt: null,
+    channelVersion: null,
     participant: false,
     workspaceLive: false,
   }
@@ -164,14 +157,19 @@ export async function readJobOutboundAudience(
     .limit(1)
     .for('share')
   const [channel] = await database
-    .select({ id: channels.id, kind: channels.kind, lifecycleState: channels.lifecycleState })
+    .select({
+      id: channels.id,
+      kind: channels.kind,
+      lifecycleState: channels.lifecycleState,
+      version: channels.version,
+    })
     .from(channels)
     .where(and(eq(channels.id, input.channelId), eq(channels.workspaceId, input.workspaceId)))
     .limit(1)
     .for('share')
   const [participant] = channel
     ? await database
-        .select({ createdAt: channelParticipants.createdAt })
+        .select({ id: channelParticipants.id })
         .from(channelParticipants)
         .where(
           and(
@@ -188,16 +186,16 @@ export async function readJobOutboundAudience(
     channelId: channel?.id ?? null,
     channelIsGroup: channel?.kind === 'group',
     channelLive: channel?.lifecycleState === 'active',
-    joinedAt: participant ? participant.createdAt.toISOString() : null,
+    channelVersion: channel?.version ?? null,
     participant: Boolean(participant),
     workspaceLive: Boolean(workspace),
   }
 }
 
 /**
- * The canonical publication: the message written for this job. A message that
- * belongs to another job, another agent, or another workspace is still returned
- * as read, so the gate can name the mismatch. Only a missing message is null.
+ * The canonical publication: the message as stored, its links and the linked
+ * artifact row, each shared-locked. A link whose artifact row is missing is returned
+ * as a link with a null artifact, so the gate can refuse it.
  */
 export async function readJobOutboundPublication(
   database: Database,
@@ -216,6 +214,7 @@ export async function readJobOutboundPublication(
     .select({ artifactId: messageArtifactReferences.artifactId })
     .from(messageArtifactReferences)
     .where(eq(messageArtifactReferences.messageId, message.id))
+    .for('share')
   let artifact: JobOutboundPublication['artifact'] = null
   if (links.length === 1) {
     const [row] = await database
@@ -228,6 +227,7 @@ export async function readJobOutboundPublication(
       .from(artifacts)
       .where(eq(artifacts.id, links[0]!.artifactId))
       .limit(1)
+      .for('share')
     if (row) {
       artifact = {
         artifactId: row.id,
@@ -243,14 +243,12 @@ export async function readJobOutboundPublication(
     artifactLinkCount: links.length,
     bodyText: message.bodyText,
     channelId: message.channelId,
-    createdAt: message.createdAt.toISOString(),
     deleted: message.deletedAt !== null,
     edited: message.editedAt !== null || message.version !== 1,
     executionRef: message.executionRef,
     messageId: message.id,
-    senderUserId: message.senderUserId,
     senderKind: message.senderKind,
-    taskId: message.taskId,
+    senderSystemId: message.senderSystemId,
     workspaceId: message.workspaceId,
   }
 }
@@ -284,7 +282,8 @@ export function jobOutboundReadsFor(database: Database): JobOutboundReads {
 
 /**
  * The authorization scope over the database. A grant scope runs under the #1207
- * registration lock; without one, the run is a plain transaction.
+ * registration lock; without one, the run is a plain transaction. Both pass the
+ * transaction to the callback, so a publication write joins the same transaction.
  */
 export function createJobOutboundAuthorizer(
   database: AgentHqDatabase
@@ -302,10 +301,9 @@ export function createJobOutboundAuthorizer(
 }
 
 /**
- * The unlocked first step of delivery. It resolves the canonical publication's
- * artifact registration: the single live grant for this artifact and destination
- * workspace. Zero or several live grants resolve to no grant, which the gate
- * refuses. The grant lock is then taken on that exact identity.
+ * The unlocked first step of delivery. It decodes the publication's binding and
+ * resolves the grant the binding names. A grant that is missing, revoked, or
+ * revised is still resolved by identity, so the locked check denies it by name.
  */
 export async function resolveJobOutboundDelivery(
   database: AgentHqDatabase,
@@ -313,21 +311,16 @@ export async function resolveJobOutboundDelivery(
 ): Promise<JobOutboundDeliveryResolution | null> {
   const publication = await readJobOutboundPublication(database, input)
   if (!publication) return null
-  if (!publication.artifact) return { claim: null, scope: null }
-  const target = publication.artifact
-  const live = await database
+  const binding = decodeJobOutboundBinding(
+    publication.senderKind === 'system' ? publication.senderSystemId : null
+  )
+  if (!binding) return null
+  if (!binding.artifact || !binding.grant) return { claim: null, scope: null }
+  const [row] = await database
     .select()
     .from(artifactReferenceGrants)
-    .where(
-      and(
-        eq(artifactReferenceGrants.sourceWorkspaceId, target.sourceWorkspaceId),
-        eq(artifactReferenceGrants.artifactId, target.artifactId),
-        eq(artifactReferenceGrants.audienceWorkspaceId, target.audienceWorkspaceId),
-        isNull(artifactReferenceGrants.revokedAt)
-      )
-    )
-    .limit(2)
-  const [row] = live.length === 1 ? live : []
+    .where(eq(artifactReferenceGrants.grantId, binding.grant.grantId))
+    .limit(1)
   if (!row) return { claim: { authority: { kind: 'workspace_grant' }, grant: null }, scope: null }
   return {
     claim: {
@@ -339,18 +332,68 @@ export async function resolveJobOutboundDelivery(
         expiresAt: row.expiresAt,
         grantId: row.grantId,
         revokedAt: null,
-        revision: row.revision,
+        revision: binding.grant.revision,
         sourceWorkspaceId: row.sourceWorkspaceId,
         version: row.version,
       },
     },
     scope: {
-      artifactId: row.artifactId,
-      grantId: row.grantId,
-      revision: row.revision,
-      sourceWorkspaceId: row.sourceWorkspaceId,
+      artifactId: binding.artifact.artifactId,
+      grantId: binding.grant.grantId,
+      revision: binding.grant.revision,
+      sourceWorkspaceId: binding.artifact.sourceWorkspaceId,
     },
   }
+}
+
+/**
+ * Writes the canonical publication inside the authorization transaction. The
+ * artifact row is locked first, so the link cannot point at a row that changes or
+ * disappears before commit. The message and its link commit with the decision.
+ */
+export async function writeJobOutboundPublication(
+  transaction: AgentHqTransaction,
+  decision: Extract<JobOutboundPublicationDecision, { action: 'publish' }>
+): Promise<string> {
+  const { binding, destination, jobId, result } = decision
+  const artifact = binding.artifact
+  if (artifact) {
+    const [locked] = await transaction
+      .select({ id: artifacts.id })
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.id, artifact.artifactId),
+          eq(artifacts.workspaceId, artifact.sourceWorkspaceId)
+        )
+      )
+      .limit(1)
+      .for('share')
+    if (!locked) throw new Error('artifact_unavailable')
+  }
+  const message = await createMessage(
+    transaction,
+    destination.workspaceId,
+    destination.channelId,
+    { kind: 'user', userId: binding.actorUserId },
+    {
+      bodyText: result.summary,
+      executionRef: jobId,
+      idempotencyKey: `job-outbound:v1:${jobId}:${binding.channelVersion}`,
+      sender: { kind: 'system', systemId: encodeJobOutboundBinding(binding) },
+    }
+  )
+  if (artifact) {
+    await transaction
+      .insert(messageArtifactReferences)
+      .values({
+        artifactId: artifact.artifactId,
+        messageId: message.id,
+        workspaceId: destination.workspaceId,
+      })
+      .onConflictDoNothing()
+  }
+  return message.id
 }
 
 /** The service bound to the database: authorization scope, trusted clock, and delivery resolution. */
@@ -366,39 +409,14 @@ export function createJobOutboundStoreService(
 }
 
 /**
- * Publishes an approved decision through the existing message flow. The message
- * is the canonical publication: job id as task and execution reference, the job's
- * actor as sender and posting principal, and the artifact as a
- * linked attachment. The write is idempotent per job and channel.
+ * Publishes through the authorization transaction. The decision and the canonical
+ * message commit together, or neither does.
  */
 export async function publishJobOutboundMessage(
-  database: AgentHqDatabase,
   service: JobOutboundResultService<AgentHqTransaction>,
-  input: Omit<JobOutboundPublishInput, 'destination'> & { destination: JobOutboundDestination }
-): Promise<JobOutboundPublicationDecision & { messageId?: string }> {
-  const decision = await service.publish(input)
-  if (decision.action !== 'publish') return decision
-  const job = await readJobOutboundSource(database, input.jobId)
-  if (!job)
-    return {
-      action: 'hold',
-      gate: 'job',
-      jobId: input.jobId,
-      producerEffect: 'unaffected',
-      reason: 'job_unavailable',
-    }
-  const message = await createMessage(
-    database,
-    decision.destination.workspaceId,
-    decision.destination.channelId,
-    { kind: 'user', userId: job.originalActorUserId },
-    {
-      artifactIds: decision.result.artifact ? [decision.result.artifact.artifactId] : [],
-      bodyText: decision.result.summary,
-      executionRef: input.jobId,
-      idempotencyKey: `job-outbound:${input.jobId}:${decision.destination.channelId}`,
-      sender: { kind: 'user', userId: job.originalActorUserId },
-    }
+  input: JobOutboundPublishInput
+): Promise<JobOutboundPublishResult> {
+  return service.publish(input, ({ transaction }, decision) =>
+    writeJobOutboundPublication(transaction, decision)
   )
-  return { ...decision, messageId: message.id }
 }

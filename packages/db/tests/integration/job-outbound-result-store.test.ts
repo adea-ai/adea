@@ -1,16 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 
 import { createAgent } from '../../src/agents'
-import { createArtifact } from '../../src/artifacts'
+import { createArtifact, setArtifactAvailability } from '../../src/artifacts'
 import {
+  regrantArtifactReferenceGrant,
   registerArtifactReferenceGrant,
   revokeArtifactReferenceGrant,
 } from '../../src/artifact-reference-grants'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   createGroupChannel,
+  createMessage,
   deleteMessage,
   editMessage,
   setChannelParticipants,
@@ -26,18 +28,23 @@ import {
 } from '../../src/job-outbound-result-store'
 import { createProject } from '../../src/projects'
 import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
-import { channels, workspaceMemberships } from '../../src/schema'
+import {
+  channels,
+  messageArtifactReferences,
+  messages,
+  workspaceMemberships,
+} from '../../src/schema'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
 import { completeTask, createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 /**
- * PostgreSQL lane for the #1217 release path on real data. The job is a real
- * submitted and completed Task. The canonical publication is written by the
- * existing message flow, and delivery reads it back under the same locks. The
- * destination owner is the job's original actor, so the publication is written by
- * a real destination writer. The recipient is an ordinary destination member and
- * channel participant.
+ * PostgreSQL lane for the #1217 publication and release path on real data. The job
+ * is a real submitted and completed Task. Publication is authorized and written in
+ * one transaction, and delivery reads the canonical publication back under the same
+ * locks. The destination owner is the job's original actor. The recipient is an
+ * ordinary destination member. The artifact is in the source workspace, and its
+ * grant is a real #1207 registration for the destination.
  */
 
 const url = process.env.DATABASE_URL
@@ -45,7 +52,7 @@ const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1
 const NIL_UUID = '00000000-0000-4000-8000-000000000000'
 const CHECKSUM = 'c'.repeat(64)
 
-describe.skipIf(!url)('job outbound result release on real data', () => {
+describe.skipIf(!url)('job outbound publication and release on real data', () => {
   let connection: DatabaseConnection
   beforeAll(() => {
     connection = createDatabase(url!)
@@ -183,22 +190,17 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
 
   const service = () => createJobOutboundStoreService(connection.db)
 
-  async function publishTo(
-    f: Fixture,
-    channelId: string,
-    summary: string,
-    claim: Parameters<typeof publishJobOutboundMessage>[2]['artifact'] = null,
-    artifact: Readonly<Record<string, unknown>> | null = null
-  ) {
-    const decision = await publishJobOutboundMessage(connection.db, service(), {
-      artifact: claim,
+  /** Publishes and returns the canonical message id; a held publication fails the test. */
+  async function publishTo(f: Fixture, channelId: string, summary: string) {
+    const outcome = await publishJobOutboundMessage(service(), {
+      artifact: null,
       destination: { channelId, workspaceId: f.destination.id },
       jobId: f.task.id,
-      result: { ...(artifact ? { artifact } : {}), jobId: f.task.id, summary },
+      result: { jobId: f.task.id, summary },
     })
-    if (decision.action !== 'publish' || !decision.messageId)
-      throw new Error(`publication held: ${JSON.stringify(decision)}`)
-    return decision.messageId
+    if (outcome.decision.action !== 'publish' || !outcome.messageId)
+      throw new Error(`publication held: ${JSON.stringify(outcome.decision)}`)
+    return outcome.messageId
   }
 
   function deliver(f: Fixture, messageId: string) {
@@ -218,6 +220,74 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     return row!.version
   }
 
+  /** Messages in a channel whose execution reference is the job. */
+  async function jobMessages(channelId: string, jobId: string) {
+    return connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.channelId, channelId), eq(messages.executionRef, jobId)))
+  }
+
+  /** A real artifact in the source workspace, registered to the destination by a real grant. */
+  async function registeredArtifact(f: Fixture) {
+    const artifact = await createArtifact(connection.db, f.workspace.id, f.owner.principal, {
+      availability: 'available',
+      checksumSha256: CHECKSUM,
+      filename: 'result.txt',
+      location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
+      mediaType: 'text/plain',
+      sizeBytes: 32,
+      sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
+      sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+    })
+    const grantId = `grant-${crypto.randomUUID()}`
+    const registration = await registerArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId,
+        version: artifact.version,
+      }
+    )
+    const target = {
+      artifactId: artifact.id,
+      audienceWorkspaceId: f.destination.id,
+      checksumSha256: CHECKSUM,
+      sourceWorkspaceId: f.workspace.id,
+      version: artifact.version,
+    }
+    const claim = {
+      authority: { kind: 'workspace_grant' as const },
+      grant: {
+        artifactId: artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId,
+        revokedAt: null,
+        revision: registration.state.revision,
+        sourceWorkspaceId: f.workspace.id,
+        version: artifact.version,
+      },
+    }
+    return { artifact, claim, grantId, target }
+  }
+
+  /** Publishes a linked artifact result to channel A, through the same atomic path. */
+  async function publishArtifact(f: Fixture, reg: Awaited<ReturnType<typeof registeredArtifact>>) {
+    return publishJobOutboundMessage(service(), {
+      artifact: reg.claim,
+      destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
+      jobId: f.task.id,
+      result: { artifact: reg.target, jobId: f.task.id, summary: 'Report attached.' },
+    })
+  }
+
   test('reads the job, its original actor and its completion from real Task data', async () => {
     const f = await fixture()
     expect(await readJobOutboundSource(connection.db, f.task.id)).toMatchObject({
@@ -230,7 +300,7 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     expect(await readJobOutboundSource(connection.db, 'not-a-uuid')).toBeNull()
   })
 
-  test('reads source ownership and destination standing for the exact channel', async () => {
+  test('reads source ownership and the exact channel standing with its revision', async () => {
     const f = await fixture()
     expect(
       await readJobOutboundAccess(connection.db, {
@@ -249,7 +319,7 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
       participant: true,
       workspaceLive: true,
     })
-    expect(inA.joinedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(inA.channelVersion).toEqual(expect.any(Number))
     const inB = await readJobOutboundAudience(connection.db, {
       channelId: f.channelB.id,
       userId: f.recipient.principal.userId,
@@ -258,7 +328,7 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     expect(inB.participant).toBe(false)
   })
 
-  test('releases the approved body of a real publication to a participant of its channel', async () => {
+  test('publishes atomically as a system-sender message bound to the job, and releases its approved body', async () => {
     const f = await fixture()
     const messageId = await publishTo(f, f.channelA.id, 'Approved body.')
     expect(
@@ -267,9 +337,7 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
       bodyText: 'Approved body.',
       channelId: f.channelA.id,
       executionRef: f.task.id,
-      senderKind: 'user',
-      senderUserId: f.owner.principal.userId,
-      taskId: null,
+      senderKind: 'system',
       workspaceId: f.destination.id,
     })
     expect(await deliver(f, messageId)).toEqual({
@@ -278,6 +346,46 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
       jobId: f.task.id,
       messageId,
       result: { artifact: null, jobId: f.task.id, summary: 'Approved body.' },
+    })
+  })
+
+  test('a held publication writes no message: nothing is visible before authorization', async () => {
+    const f = await fixture()
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(eq(workspaceMemberships.userId, f.owner.principal.userId))
+    const outcome = await publishJobOutboundMessage(service(), {
+      artifact: null,
+      destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
+      jobId: f.task.id,
+      result: { jobId: f.task.id, summary: 'Held.' },
+    })
+    expect(outcome).toMatchObject({
+      decision: { action: 'hold', gate: 'source', reason: 'source_access_lost' },
+      messageId: null,
+    })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a user message that names the job and the actor is never a publication', async () => {
+    const f = await fixture()
+    const forged = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      {
+        bodyText: 'Approved body.',
+        executionRef: f.task.id,
+        idempotencyKey: `forged-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      }
+    )
+    expect(await deliver(f, forged.id)).toEqual({
+      action: 'deny',
+      gate: 'publication',
+      reason: 'publication_unavailable',
     })
   })
 
@@ -291,9 +399,9 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     })
   })
 
-  test('denies a recipient who joined the channel after the publication was written', async () => {
+  test('denies release after a roster change: the channel revision moved since publication', async () => {
     const f = await fixture()
-    const messageId = await publishTo(f, f.channelA.id, 'Written before rejoining.')
+    const messageId = await publishTo(f, f.channelA.id, 'Written before a roster change.')
     await setChannelParticipants(
       connection.db,
       f.destination.id,
@@ -313,7 +421,7 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     expect(await deliver(f, messageId)).toEqual({
       action: 'deny',
       gate: 'audience',
-      reason: 'recipient_joined_after_publication',
+      reason: 'audience_revision_changed',
     })
   })
 
@@ -360,132 +468,151 @@ describe.skipIf(!url)('job outbound result release on real data', () => {
     })
   })
 
-  test('publishes an artifact claim under the live #1207 lock, and holds it after revocation', async () => {
+  test('cross-workspace artifact: publication links the source artifact in the destination, and releases it', async () => {
     const f = await fixture()
-    const artifact = await createArtifact(connection.db, f.workspace.id, f.owner.principal, {
-      availability: 'available',
-      checksumSha256: CHECKSUM,
-      filename: 'result.txt',
-      location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
-      mediaType: 'text/plain',
-      sizeBytes: 32,
-      sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
-      sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
-    })
-    const grantId = `grant-${crypto.randomUUID()}`
-    const registration = await registerArtifactReferenceGrant(
-      connection.db,
-      f.workspace.id,
-      f.owner.principal,
-      {
-        artifactId: artifact.id,
-        audienceWorkspaceId: f.destination.id,
-        checksumSha256: CHECKSUM,
-        expiresAt: null,
-        grantId,
-        version: artifact.version,
-      }
-    )
-    const claim = {
-      authority: { kind: 'workspace_grant' as const },
-      grant: {
-        artifactId: artifact.id,
-        audienceWorkspaceId: f.destination.id,
-        checksumSha256: CHECKSUM,
-        expiresAt: null,
-        grantId,
-        revokedAt: null,
-        revision: registration.state.revision,
-        sourceWorkspaceId: f.workspace.id,
-        version: artifact.version,
-      },
-    }
-    const artifactTarget = {
-      artifactId: artifact.id,
-      audienceWorkspaceId: f.destination.id,
-      checksumSha256: CHECKSUM,
-      sourceWorkspaceId: f.workspace.id,
-      version: artifact.version,
-    }
-    const publish = () =>
-      service().publish({
-        artifact: claim,
-        destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
-        jobId: f.task.id,
-        result: { artifact: artifactTarget, jobId: f.task.id, summary: 'Report attached.' },
-      })
-    expect(await publish()).toMatchObject({
-      action: 'publish',
-      result: { artifact: artifactTarget },
-    })
-    await revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner.principal, grantId)
-    expect(await publish()).toEqual({
-      action: 'hold',
-      gate: 'artifact',
-      jobId: f.task.id,
-      producerEffect: 'unaffected',
-      reason: 'grant_revoked',
-    })
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    expect(outcome.decision).toMatchObject({ action: 'publish', result: { artifact: reg.target } })
+    if (!outcome.messageId) throw new Error('expected a message id')
+    const links = await connection.db
+      .select({ workspaceId: messageArtifactReferences.workspaceId })
+      .from(messageArtifactReferences)
+      .where(eq(messageArtifactReferences.messageId, outcome.messageId))
+    expect(links).toEqual([{ workspaceId: f.destination.id }])
+    expect(
+      await service().deliver(
+        {
+          jobId: f.task.id,
+          messageId: outcome.messageId,
+          recipientUserId: f.recipient.principal.userId,
+        },
+        async () => {}
+      )
+    ).toMatchObject({ action: 'deliver', result: { artifact: reg.target } })
   })
 
-  test('the existing message flow refuses to link a cross-workspace artifact, and writes nothing', async () => {
+  test('publication under a revoked grant is held atomically: no message and no link are written', async () => {
     const f = await fixture()
-    const artifact = await createArtifact(connection.db, f.workspace.id, f.owner.principal, {
-      availability: 'available',
-      checksumSha256: CHECKSUM,
-      filename: 'result.txt',
-      location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
-      mediaType: 'text/plain',
-      sizeBytes: 32,
-      sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
-      sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const outcome = await publishArtifact(f, reg)
+    expect(outcome).toMatchObject({
+      decision: { action: 'hold', gate: 'artifact', reason: 'grant_revoked' },
+      messageId: null,
     })
-    const grantId = `grant-${crypto.randomUUID()}`
-    const registration = await registerArtifactReferenceGrant(
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('revocation after publication denies release of the linked artifact', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    if (!outcome.messageId) throw new Error('expected a message id')
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    expect(
+      await service().deliver(
+        {
+          jobId: f.task.id,
+          messageId: outcome.messageId,
+          recipientUserId: f.recipient.principal.userId,
+        },
+        async () => {}
+      )
+    ).toEqual({ action: 'deny', gate: 'artifact', reason: 'grant_revoked' })
+  })
+
+  test('a regrant after publication does not revive the bound revision', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    if (!outcome.messageId) throw new Error('expected a message id')
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    await regrantArtifactReferenceGrant(
       connection.db,
       f.workspace.id,
       f.owner.principal,
       {
-        artifactId: artifact.id,
+        artifactId: reg.artifact.id,
         audienceWorkspaceId: f.destination.id,
         checksumSha256: CHECKSUM,
         expiresAt: null,
-        grantId,
-        version: artifact.version,
-      }
-    )
-    const artifactTarget = {
-      artifactId: artifact.id,
-      audienceWorkspaceId: f.destination.id,
-      checksumSha256: CHECKSUM,
-      sourceWorkspaceId: f.workspace.id,
-      version: artifact.version,
-    }
-    const claim = {
-      authority: { kind: 'workspace_grant' as const },
-      grant: {
-        artifactId: artifact.id,
-        audienceWorkspaceId: f.destination.id,
-        checksumSha256: CHECKSUM,
-        expiresAt: null,
-        grantId,
-        revokedAt: null,
-        revision: registration.state.revision,
-        sourceWorkspaceId: f.workspace.id,
-        version: artifact.version,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
       },
-    }
-    await expect(
-      publishJobOutboundMessage(connection.db, service(), {
-        artifact: claim,
-        destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
+      1
+    )
+    const decision = await service().deliver(
+      {
         jobId: f.task.id,
-        result: { artifact: artifactTarget, jobId: f.task.id, summary: 'Report attached.' },
-      })
-    ).rejects.toThrow('Artifact unavailable')
+        messageId: outcome.messageId,
+        recipientUserId: f.recipient.principal.userId,
+      },
+      async () => {}
+    )
+    expect(decision).toMatchObject({ action: 'deny', gate: 'artifact' })
+  })
+
+  test('an artifact that is quarantined after publication is not released', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    if (!outcome.messageId) throw new Error('expected a message id')
+    await setArtifactAvailability(
+      connection.db,
+      f.workspace.id,
+      reg.artifact.id,
+      f.owner.principal,
+      'quarantined',
+      reg.artifact.version
+    )
+    // The #1207 lock refuses a quarantined artifact with its own typed error: fail closed, nothing released.
+    await expect(
+      service().deliver(
+        {
+          jobId: f.task.id,
+          messageId: outcome.messageId,
+          recipientUserId: f.recipient.principal.userId,
+        },
+        async () => {}
+      )
+    ).rejects.toMatchObject({ code: 'grant_artifact_quarantined' })
+  })
+
+  test('concurrent revocation and release: once revocation has committed, no later release succeeds', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    if (!outcome.messageId) throw new Error('expected a message id')
+    const messageId = outcome.messageId
+    const [released] = await Promise.all([
+      service().deliver(
+        { jobId: f.task.id, messageId, recipientUserId: f.recipient.principal.userId },
+        async () => {}
+      ),
+      revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner.principal, reg.grantId),
+    ])
+    expect(['deliver', 'deny'].includes(released.action)).toBe(true)
     expect(
-      await readJobOutboundPublication(connection.db, { jobId: f.task.id, messageId: NIL_UUID })
-    ).toBeNull()
+      await service().deliver(
+        { jobId: f.task.id, messageId, recipientUserId: f.recipient.principal.userId },
+        async () => {}
+      )
+    ).toEqual({ action: 'deny', gate: 'artifact', reason: 'grant_revoked' })
   })
 
   test('refuses an unknown or malformed publication identifier', async () => {
