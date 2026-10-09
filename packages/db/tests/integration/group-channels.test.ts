@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
 import { and, eq } from 'drizzle-orm'
 
-import { createAgent } from '../../src/agents'
+import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
 import {
@@ -18,6 +18,7 @@ import {
   loadGroupSharingGrants,
   postGroupChannelMessage,
   postGroupChannelMessageInTransaction,
+  resolveGroupLeadAgent,
   revokeGroupGrant,
   setGroupChannelParticipantsInTransaction,
   setGroupChannelParticipantsWithGrants,
@@ -1904,6 +1905,124 @@ describe('durable binding, fences and shared read boundary', () => {
           )
         )
       expect(rows).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('group lead resolution finds the single enlisted workspace lead', async () => {
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const resolved = await resolveGroupLeadAgent(f.local.db, f.workspace.id, channelId, LATER)
+      expect(resolved).toBe(lead.id)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('group lead resolution fails closed without an effective lead enlistment', async () => {
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      // A non-lead agent enlisted alongside the lead: only the lead resolves.
+      const plain = await createAgent(f.local.db, f.workspace.id, f.owner, {
+        name: 'Plain',
+        profileId: 'lead',
+        profileVersion: '1',
+      })
+      const { channel } = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [
+            {
+              agent: { agentId: lead.id, workspaceId: f.workspace.id },
+              expiresAt: null,
+              grantId: 'gra_lead',
+              groupId: channelId,
+              issuedAt: ISSUED,
+              revision: 1,
+              revokedAt: null,
+            },
+            {
+              agent: { agentId: plain.id, workspaceId: f.workspace.id },
+              expiresAt: null,
+              grantId: 'gra_plain',
+              groupId: channelId,
+              issuedAt: ISSUED,
+              revision: 1,
+              revokedAt: null,
+            },
+          ],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      expect(await resolveGroupLeadAgent(f.local.db, f.workspace.id, channelId, LATER)).toBe(
+        lead.id
+      )
+      expect(channel.participants).toHaveLength(3)
+      // Revoking the lead enlistment resolves nobody: no guessing, no fallback.
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_lead',
+        kind: 'enlistment',
+        revokedAt: LATER,
+      })
+      expect(await resolveGroupLeadAgent(f.local.db, f.workspace.id, channelId, LATER)).toBeNull()
+      // A group with no enlisted agents resolves nobody either.
+      const lonelyId = crypto.randomUUID()
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [{ ...founder, grantId: 'gra_owner2', groupId: lonelyId }],
+          enlistmentGrants: [],
+        }),
+        channelId: lonelyId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Lonely',
+      })
+      expect(await resolveGroupLeadAgent(f.local.db, f.workspace.id, lonelyId, LATER)).toBeNull()
     } finally {
       await f.local.close()
     }

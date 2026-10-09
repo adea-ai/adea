@@ -219,6 +219,7 @@ export {
   postGroupChannelMessageInTransaction,
   requireGroupManagementAuthority,
   resolveAdmissionWindow,
+  resolveGroupLeadAgent,
   revokeGroupGrant,
   setGroupChannelParticipantsInTransaction,
   setGroupChannelParticipantsWithGrants,

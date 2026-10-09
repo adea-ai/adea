@@ -71,6 +71,7 @@ import {
   decideGroupPublication,
   decideGroupSummaryRead,
   decideGroupTurn,
+  evaluateGroupGrantWindow,
   validateGroupCreation,
 } from './group-participation-policy'
 import {
@@ -164,6 +165,48 @@ export function groupCreationCandidatesFromGrants(
       workspaceId: enlistmentGrant.agent.workspaceId,
     })),
   ]
+}
+
+/**
+ * Resolve the group's lead agent for a lead turn: the exactly-one enlisted
+ * Agent that is the workspace lead (active, standalone). Returns its agent
+ * id, or null when there is no single eligible lead. Reads only — the
+ * actual lead-turn authorization and persistence stay in the shared
+ * lead-turn writer (owned with #1177; this helper supplies the validated
+ * group authority that writer will consume once its hunk lands).
+ *
+ * Fail-closed on ambiguity: zero or several eligible leads resolve to null
+ * rather than guessing. A revoked or stale enlistment never resolves
+ * (binding-checked live windows only).
+ */
+export async function resolveGroupLeadAgent(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  now: string
+): Promise<string | null> {
+  const roster = await loadGroupRoster(database, workspaceId, channelId)
+  const enlisted = roster.filter((admission) => admission.participant.kind === 'agent')
+  const eligible: string[] = []
+  for (const admission of enlisted) {
+    if (admission.participant.kind !== 'agent') continue
+    if (evaluateGroupGrantWindow(admission.grant, now) !== 'effective') continue
+    const [agent] = await database
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.id, admission.participant.agentId),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.isWorkspaceLead, true),
+          eq(agents.lifecycleState, 'active'),
+          isNull(agents.projectId)
+        )
+      )
+      .limit(1)
+    if (agent) eligible.push(agent.id)
+  }
+  return eligible.length === 1 ? eligible[0]! : null
 }
 
 /**
