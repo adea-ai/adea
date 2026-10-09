@@ -243,12 +243,16 @@ export function DesktopWorkspaceEntry(props: {
   })
 
   // The account-scoped directory client the global directory and inbox reads
-  // through (M11.03), bound to the same session as `client` above. `undefined`
-  // before the first bootstrap lands; the surface only mounts after one.
+  // through (M11.03). The surface captures ONE instance for its lifetime, so
+  // the client re-resolves the session through the live `session` accessor on
+  // every request (see `createAccountDirectoryClient`) — a rotation or
+  // sign-out in the same workspace is honoured without a remount, unlike a
+  // snapshot binding. `undefined` before the first bootstrap lands; the
+  // surface only mounts after one.
   const accountDirectoryClient = createMemo(() => {
     const state = workspaceState()
     if (!state) return undefined
-    return runtime.createAccountDirectoryClient(session(), state.temporaryCredential ?? undefined)
+    return runtime.createAccountDirectoryClient(session, state.temporaryCredential ?? undefined)
   })
 
   async function beginSignIn() {

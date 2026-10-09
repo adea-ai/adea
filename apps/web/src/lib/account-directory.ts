@@ -15,7 +15,7 @@ import type {
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { accountQueryKeys, accountQueryOptions } from '@adea-ai/data'
 import { QueryClient, createQueries, useQueryClient } from '@tanstack/solid-query'
-import { createEffect, createMemo, createSignal, type Accessor } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
 
 /** The two account-wide sections the directory surface can show. */
@@ -221,6 +221,22 @@ function createAccountPages<
   queryClient: QueryClient
 ): AccountListPages<Row> {
   const [pageInputs, setPageInputs] = createSignal<readonly AccountDirectoryPageInput[]>([{}])
+  // An account change (or any cache clear) removes the account-scoped page
+  // entries while this surface still observes them. A removed query keeps
+  // feeding its observer the pre-clear rows, and a refresh — which
+  // invalidates what the CACHE holds — would find nothing to refetch, so the
+  // surface would keep showing the previous identity's data until a remount.
+  // A removal of one of this surface's pages therefore re-observes from the
+  // first page: the fresh query has no data, refetches immediately, and rides
+  // the client's CURRENT credential (see the desktop session seam). Loaded
+  // pages are dropped with it — their rows described the previous identity.
+  const unsubscribeCache = queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== 'removed') return
+    if (event.query.queryKey[0] === keyPrefix[0] && event.query.queryKey[1] === keyPrefix[1]) {
+      setPageInputs(() => [{}])
+    }
+  })
+  onCleanup(unsubscribeCache)
   const queries = createQueries(
     () => ({
       queries: pageInputs().map((input) => optionsFor(input)),

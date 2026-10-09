@@ -42,13 +42,16 @@ export type DesktopRuntime = Readonly<{
   authorizationUrl(attempt: DesktopAuthorizationAttempt): string
   createClient(session?: DesktopSession, temporaryCredential?: string): AgentHqApiClient
   /**
-   * The same session binding for the account-scoped directory client the
-   * account-wide directory and inbox surface reads through (M11.03). Built
-   * per session exactly like `createClient`, so a rotation never keeps an
-   * authorized directory reader on a dead credential.
+   * The account-scoped directory client the account-wide directory and inbox
+   * surface reads through (M11.03). The session is an ACCESSOR: the mounted
+   * surface captures this one instance for its whole lifetime (its query
+   * closures close over it), so the client re-resolves the credential from
+   * the live session on every request instead of being rebuilt per session —
+   * a rotation or sign-out in the same workspace is honoured by refresh,
+   * polling, and pagination without a remount.
    */
   createAccountDirectoryClient(
-    session?: DesktopSession,
+    session?: () => DesktopSession | undefined,
     temporaryCredential?: string
   ): AccountDirectoryApiClient
   sessionManager: ReturnType<typeof createDesktopSessionManager>
@@ -78,8 +81,27 @@ function createClient(session?: DesktopSession, temporaryCredential?: string) {
   return createApiClient(desktopClientOptions(session, temporaryCredential))
 }
 
-function createAccountDirectoryClient(session?: DesktopSession, temporaryCredential?: string) {
-  return new AccountDirectoryApiClient(desktopClientOptions(session, temporaryCredential))
+function createAccountDirectoryClient(
+  session?: () => DesktopSession | undefined,
+  temporaryCredential?: string
+) {
+  return new AccountDirectoryApiClient({
+    // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
+    baseUrl: '/api',
+    client: 'desktop' as const,
+    // The credential is resolved per request, from the session at the moment
+    // of the call: the surface's captured instance stays correct across
+    // rotations and sign-out without ever being rebuilt.
+    getDesktopSession: session
+      ? () => {
+          const current = session()
+          return current
+            ? { credential: current.credential, sessionId: current.sessionId }
+            : undefined
+        }
+      : undefined,
+    getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
+  })
 }
 
 function createDesktopRuntime(cloudOrigin: string): DesktopRuntime {

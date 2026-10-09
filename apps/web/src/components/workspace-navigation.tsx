@@ -482,9 +482,9 @@ export type WorkspaceNavigationProps = Readonly<{
   activeWorkspace?: WorkspaceSummary
   /**
    * Builds the account-scoped directory client for the account-wide directory
-   * and inbox surface (M11.03). The desktop lane supplies one bound to the
-   * live shell session (rebuilt with it); without it the surface uses the
-   * cookie-authenticated browser default.
+   * and inbox surface (M11.03). The desktop lane supplies one whose credential
+   * re-resolves from the live shell session on every request; without it the
+   * surface uses the cookie-authenticated browser default.
    */
   accountDirectoryClient?: () => AccountDirectoryApiClient | undefined
   /**
@@ -1136,8 +1136,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // never scope to the selected workspace.
   const directorySection = () => parseDirectorySection(currentSearch().directory)
   const directoryOpen = () => directorySection() !== undefined
-  // The desktop lane supplies a session-bound builder; the web default is the
-  // cookie-authenticated browser client, created once for this frame.
+  // The desktop lane supplies a builder whose client re-resolves the shell
+  // session per request (so a same-workspace rotation reaches the mounted
+  // surface); the web default is the cookie-authenticated browser client,
+  // created once for this frame.
   const accountDirectoryClient = createMemo<AccountDirectoryApiClient>(
     () => props.accountDirectoryClient?.() ?? new AccountDirectoryApiClient()
   )

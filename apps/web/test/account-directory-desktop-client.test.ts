@@ -113,13 +113,13 @@ const previousCloudOrigin = globals.__ADEA_DESKTOP_CLOUD_ORIGIN__
 
 /**
  * The client the mounted surface captures, built the way
- * `desktop-workspace-entry.tsx` builds it. The seam under regression lives in
- * this call: a snapshot session (`session()`) bakes the credential into the
- * captured instance forever; the live accessor (`session`) lets every request
- * re-resolve the current session.
+ * `desktop-workspace-entry.tsx` builds it: the LIVE session accessor, so the
+ * captured instance re-resolves its credential on every request. (The
+ * regression snapshot `session()` instead, baking one credential into the
+ * instance forever.)
  */
 const buildSurfaceClient = (session: Accessor<DesktopSession | undefined>) =>
-  desktopRuntime().createAccountDirectoryClient(session())
+  desktopRuntime().createAccountDirectoryClient(session)
 
 const mountDirectoryPages = (client: AccountDirectoryApiClient) => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -271,8 +271,10 @@ if (isServer) {
 
       // The 60s interval fires the same observer fetch a manual refetch runs;
       // refetchQueries exercises exactly that path without waiting a minute.
+      // `accountQueryKeys.inbox()` is the first page's key, which prefix-
+      // matches every loaded page.
       setSession(accountB)
-      await mounted.queryClient.refetchQueries({ queryKey: accountQueryKeys.inbox })
+      await mounted.queryClient.refetchQueries({ queryKey: accountQueryKeys.inbox() })
       await settle()
       expect(
         calls
@@ -348,6 +350,9 @@ if (isServer) {
   test('a stale in-flight page response cannot resurrect the cleared account cache', async () => {
     const [session, setSession] = createSignal<DesktopSession | undefined>(accountA)
     const client = buildSurfaceClient(session)
+    // Park the FIRST request before the mount so the page is genuinely in
+    // flight when the identity changes.
+    parkNextAgentsRequest = true
     const mounted = mountDirectoryPages(client)
     const [principalId, setPrincipalId] = createSignal<string | null | undefined>('user-a')
     const guard = createRoot((rootDispose) => {
@@ -355,7 +360,6 @@ if (isServer) {
       return rootDispose
     })
     try {
-      parkNextAgentsRequest = true
       await settle()
       const firstPageKey = accountQueryKeys.directory({ limit: 25 })
       expect(mounted.queryClient.getQueryData(firstPageKey)).toBeUndefined()
