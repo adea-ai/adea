@@ -53,6 +53,7 @@ import type {
   GroupHistoryEntryRef,
   GroupHistoryReadDecision,
   GroupPublicationDecision,
+  GroupPublicationHoldReason,
   GroupSharingGrant,
   GroupSummaryReadDecision,
   GroupTurnDecision,
@@ -64,6 +65,8 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
+import { publishLeadTurnResult } from './lead-turn-runtime'
+import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
 import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
 import {
@@ -103,6 +106,8 @@ import {
   groupSharingGrants,
   workspaceMemberships,
 } from './schema'
+import { leadTurnIntents } from './schema/lead-turns'
+import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { appendWorkspaceEvent, inTransaction } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
@@ -1280,4 +1285,107 @@ export async function shareGroupHistory(
         .where(eq(groupSharingGrants.id, existing.id))
     }
   })
+}
+
+/** A held group publication, carrying the typed reason instead of failing silently. */
+export class GroupPublicationHoldError extends Error {
+  readonly reason: GroupPublicationHoldReason
+
+  constructor(reason: GroupPublicationHoldReason) {
+    super(`Group publication held: ${reason}`)
+    this.name = 'GroupPublicationHoldError'
+    this.reason = reason
+  }
+}
+
+export type GroupLeadPublicationInput = Readonly<{
+  /** Opaque runtime binding, forwarded verbatim to the job-outbound service. */
+  binding: LeadTurnRuntimeBinding
+  /** Exact destination channel: must equal the job's canonical channel. */
+  channelId: string
+  /** Canonical job: the retained lead-turn intent id. */
+  intentId: string
+  /** Result text for the audience-authorized projection. */
+  bodyText: string
+}>
+
+/**
+ * Publish a completed group lead job through the existing job-outbound
+ * service (`publishLeadTurnResult`, owned with #1217) — no competing store
+ * or outbox. Before invoking, this caller binds, from canonical rows: the
+ * job (retained intent), the original actor (publisher must be the intent's
+ * actor), the accepted group revision (the publisher's current admission
+ * binding, bound to the destination channel), the exact destination channel
+ * (must equal the intent's channel, and be a group), and the
+ * audience-authorized projection (the publisher's participation must be
+ * effective at completion and now). The SAME frozen job snapshot is then
+ * re-decided inside the service's canonical locks via the check closure, so
+ * a roster mutation between binding and publication lands as a typed hold
+ * instead of publishing under superseded authority. Group membership never
+ * implies source authority and vice versa: each is checked on its own rows.
+ */
+export async function publishGroupLeadResult(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  input: GroupLeadPublicationInput,
+  options: GroupFenceOptions & Readonly<{ beforeService?: () => Promise<void> }> = {}
+): Promise<string> {
+  const now = options.clock?.() ?? options.now ?? liveGroupClock()
+  const [intent] = await database
+    .select()
+    .from(leadTurnIntents)
+    .where(
+      and(eq(leadTurnIntents.id, input.intentId), eq(leadTurnIntents.workspaceId, workspaceId))
+    )
+    .limit(1)
+  if (!intent || intent.channelId !== input.channelId) throw new Error('Channel unavailable')
+  const publisher: ConversationParticipantRef = { kind: 'user', userId: principal.userId }
+  if (intent.actorUserId !== principal.userId)
+    throw new GroupPublicationHoldError('publication_authority_mismatch')
+  const bound = await inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, input.channelId)
+    const roster = await loadGroupRoster(transaction, workspaceId, input.channelId)
+    const admission = admissionForParticipant(roster, publisher)
+    if (!admission) throw new GroupPublicationHoldError('publication_unauthorized_at_completion')
+    const [runtime] = await transaction
+      .select({ observedAt: leadTurnRuntime.observedAt })
+      .from(leadTurnRuntime)
+      .where(eq(leadTurnRuntime.intentId, intent.id))
+      .limit(1)
+    const job: GroupCompletedJob = {
+      authorization: admission.authorization,
+      completedAt: runtime?.observedAt?.toISOString() ?? now,
+      jobId: intent.id,
+      participant: publisher,
+    }
+    const decision = authorizeGroupChannelPublication(gate, {
+      admission,
+      job,
+      now,
+      publisher,
+    })
+    if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+    return job
+  })
+  await options.beforeService?.()
+  return publishLeadTurnResult(
+    database,
+    workspaceId,
+    intent.id,
+    principal,
+    input.binding,
+    input.bodyText,
+    async () => {
+      const decision = await decideGroupChannelPublicationNow(
+        database,
+        workspaceId,
+        input.channelId,
+        bound,
+        publisher,
+        options.clock ? { clock: options.clock } : { now }
+      )
+      if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+    }
+  )
 }

@@ -6,6 +6,12 @@ import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
+import {
+  markLeadTurnDispatchPending,
+  observeLeadTurnRuntime,
+  prepareLeadTurnRuntime,
+  resolveLeadTurnAuthority,
+} from '../../src/lead-turn-runtime'
 import { listWorkspaceEventsAfter, workspaceEventWindow } from '../../src/event-log'
 import {
   authorizeGroupChannelHistoryRead,
@@ -13,13 +19,16 @@ import {
   authorizeGroupChannelTurn,
   createGroupChannelWithGrants,
   decideGroupChannelHistoryReadNow,
+  decideGroupChannelPublicationNow,
   groupCreationCandidatesFromGrants,
   GroupCreationError,
+  GroupPublicationHoldError,
   listGroupChannelMessagesForUser,
   loadGroupRoster,
   loadGroupSharingGrants,
   postGroupChannelMessage,
   postGroupChannelMessageInTransaction,
+  publishGroupLeadResult,
   resolveGroupLeadAgent,
   revokeGroupGrant,
   setGroupChannelParticipantsInTransaction,
@@ -766,6 +775,23 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function hexId(length: number): string {
+  return [...crypto.getRandomValues(new Uint8Array(length))]
+    .map((byte) => (byte % 16).toString(16))
+    .join('')
+}
+
+/** Unique Crockford/hex fixture ids: runtime attempt/execution ids are unique. */
+function uniqueRuntimeIds() {
+  const upper = (length: number) => hexId(length).toUpperCase()
+  return {
+    attemptId: `att_${upper(26)}`,
+    dispatchId: `dispatch_${hexId(32)}`,
+    executionId: `exe_${upper(26)}`,
+    runtimeSessionId: `ses_${upper(26)}`,
+  }
 }
 
 async function raced<T>(operation: Promise<T>, ms: number): Promise<'blocked' | T> {
@@ -2436,6 +2462,472 @@ describe('durable binding, fences and shared read boundary', () => {
         .from(schema.leadTurnIntents)
         .where(eq(schema.leadTurnIntents.channelId, channelId))
       expect(intents).toHaveLength(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('group publication publishes a completed lead job with bound authority', async () => {
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const selections = {
+        lead: { selectionRef: `msel_${'d'.repeat(32)}`, selectionRevision: 2 },
+      }
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: {
+            bodyText: 'run it',
+            idempotencyKey: crypto.randomUUID(),
+            mentions: [],
+            requestedModelSelections: selections,
+          },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      const intentId = posted.leadTurn.intentId
+      const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intentId,
+        f.owner
+      )
+      const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+      const selection = {
+        attemptId,
+        executionId,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        intentId,
+        preparationRef: `prep_${'e'.repeat(32)}`,
+        selectionRef: `msel_${'e'.repeat(32)}`,
+        selectionRevision: 1,
+        workspaceId: controlPlaneWorkspaceId,
+      }
+      const runtimes = {
+        markLeadTurnDispatchPending,
+        observeLeadTurnRuntime,
+        prepareLeadTurnRuntime,
+      }
+      await runtimes.prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        attemptId: selection.attemptId,
+        executionId: selection.executionId,
+        expiresAt: selection.expiresAt,
+        intentId: selection.intentId,
+        preparationRef: selection.preparationRef,
+        selectionRef: selection.selectionRef,
+        selectionRevision: selection.selectionRevision,
+        workspaceId: selection.workspaceId,
+      })
+      await runtimes.markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, {
+        attemptId: selection.attemptId,
+        executionId: selection.executionId,
+        expiresAt: selection.expiresAt,
+        intentId: selection.intentId,
+        preparationRef: selection.preparationRef,
+        selectionRef: selection.selectionRef,
+        selectionRevision: selection.selectionRevision,
+        workspaceId: selection.workspaceId,
+      })
+      const binding = {
+        attemptId,
+        dispatchId,
+        executionId,
+        intentId,
+        runtimeSessionId,
+      }
+      await runtimes.observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: NOW,
+        state: 'completed',
+      })
+      const messageId = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        { binding, bodyText: 'result text', channelId, intentId },
+        { now: NOW }
+      )
+      const [result] = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.id, messageId))
+      expect(result?.bodyText).toBe('result text')
+      expect(result?.senderAgentId).toBe(lead.id)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('substitution via a replacement grant is held with the frozen snapshot', async () => {
+    // Bind under revision 1, then rotate the grant row behind the frozen
+    // snapshot: the service's own locked authority denies first (the stale
+    // rev1 admission resolves fail-closed against the rev2 row), so nothing
+    // reaches the check closure and zero new rows appear. The closure's own
+    // binding comparison is pinned directly below.
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: { bodyText: 'run it', idempotencyKey: crypto.randomUUID(), mentions: [] },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      const intentId = posted.leadTurn.intentId
+      const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intentId,
+        f.owner
+      )
+      const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+      const selection = {
+        attemptId,
+        executionId,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        intentId,
+        preparationRef: `prep_${'e'.repeat(32)}`,
+        selectionRef: `msel_${'e'.repeat(32)}`,
+        selectionRevision: 1,
+        workspaceId: controlPlaneWorkspaceId,
+      }
+      await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+      await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: NOW,
+        state: 'completed',
+      })
+      const before = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      const failure = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        { binding, bodyText: 'result text', channelId, intentId },
+        {
+          beforeService: async () => {
+            // Rotate the grant row behind the frozen rev1 snapshot without
+            // touching the roster or channel version: the service check
+            // replays rev1 against fresh rev2 state and must hold.
+            await f.local.db
+              .update(schema.groupAudienceGrants)
+              .set({ revision: 2, revokedAt: null, updatedAt: new Date() })
+              .where(
+                and(
+                  eq(schema.groupAudienceGrants.workspaceId, f.workspace.id),
+                  eq(schema.groupAudienceGrants.channelId, channelId),
+                  eq(schema.groupAudienceGrants.grantId, 'gra_owner')
+                )
+              )
+          },
+          now: NOW,
+        }
+      ).then(
+        () => {
+          throw new Error('substituted publication must hold')
+        },
+        (error: unknown) => error
+      )
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).message).toBe('Lead turn unavailable')
+      const after = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(after.map((row) => row.id)).toEqual(before.map((row) => row.id))
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('revocation before publish holds with no new rows; transfer to another publisher held', async () => {
+    const f = await isolatedFixture()
+    const stranger = (
+      await createTemporaryUserSession(f.local.db, {
+        credentialDigest: `publish-stranger-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    ).principal
+    await addWorkspaceMembership(f.local.db, f.workspace.id, stranger, 'member')
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: { bodyText: 'run it', idempotencyKey: crypto.randomUUID(), mentions: [] },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      const intentId = posted.leadTurn.intentId
+      const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intentId,
+        f.owner
+      )
+      const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+      const selection = {
+        attemptId,
+        executionId,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        intentId,
+        preparationRef: `prep_${'e'.repeat(32)}`,
+        selectionRef: `msel_${'e'.repeat(32)}`,
+        selectionRevision: 1,
+        workspaceId: controlPlaneWorkspaceId,
+      }
+      await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+      await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: NOW,
+        state: 'completed',
+      })
+      const baseline = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      // Authority transfer to a stranger with no admission: held, nothing new.
+      const transfer = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        stranger,
+        { binding, bodyText: 'result text', channelId, intentId },
+        { now: NOW }
+      ).then(
+        () => {
+          throw new Error('transferred publication must hold')
+        },
+        (error: unknown) => error
+      )
+      expect(transfer).toBeInstanceOf(GroupPublicationHoldError)
+      expect((transfer as GroupPublicationHoldError).reason).toBe('publication_authority_mismatch')
+      // Revocation of the completing publisher: held, nothing new.
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_owner',
+        kind: 'audience',
+        revokedAt: LATER,
+      })
+      const held = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        { binding, bodyText: 'result text', channelId, intentId },
+        { now: LATER }
+      ).then(
+        () => {
+          throw new Error('revoked publication must hold')
+        },
+        (error: unknown) => error
+      )
+      expect(held).toBeInstanceOf(GroupPublicationHoldError)
+      expect((held as GroupPublicationHoldError).reason).toBe('publication_participation_revoked')
+      const after = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(after.map((row) => row.id)).toEqual(baseline.map((row) => row.id))
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a stale retained binding reads as absent at the check layer after a regrant', async () => {
+    // The check closure replays the FROZEN rev1 job snapshot against fresh
+    // rev2 grant state: the full binding rule resolves no window for the
+    // stale binding, so it reads as absent (stale) — never borrowed from
+    // the replacement. Binding_mismatch fires when the ADMISSION itself was
+    // rebound (covered by the roster-rewrite tests); both deny.
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const staleJob = {
+        authorization: { groupId: channelId, grantId: 'gra_owner', revision: 1 },
+        completedAt: NOW,
+        jobId: 'job_stale',
+        participant: f.owner,
+      }
+      await f.local.db
+        .update(schema.groupAudienceGrants)
+        .set({ revision: 2, revokedAt: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.groupAudienceGrants.workspaceId, f.workspace.id),
+            eq(schema.groupAudienceGrants.channelId, channelId),
+            eq(schema.groupAudienceGrants.grantId, 'gra_owner')
+          )
+        )
+      const held = await decideGroupChannelPublicationNow(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        staleJob,
+        f.owner,
+        { now: NOW }
+      )
+      expect(held).toEqual({
+        action: 'hold',
+        jobId: 'job_stale',
+        reason: 'publication_participation_stale',
+      })
     } finally {
       await f.local.close()
     }
