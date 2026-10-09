@@ -335,12 +335,52 @@ export function clearAccountScopedCache(queryClient: QueryClient): void {
 }
 
 /**
+ * Where the current cache owner is remembered: on the QueryClient the entries
+ * live on, not in the guard's closure. The guard mounts and unmounts with the
+ * navigation, but the app-level QueryClient (`AgentHqQueryProvider`) outlives
+ * it — the desktop sign-out drops the navigation subtree while the workspace
+ * mount keeps the client — so a closure-local baseline forgets the previous
+ * identity exactly when a DIFFERENT account remounts the navigation: the fresh
+ * guard would adopt that account as its baseline and never clear the previous
+ * account's rows. The key sits OUTSIDE the `['account']` prefix on purpose:
+ * `clearAccountScopedCache` must not erase the owner marker that makes the
+ * next reconciliation correct.
+ */
+const ACCOUNT_IDENTITY_OWNER_KEY = ['account-identity', 'owner'] as const
+
+/**
+ * Records `principalId` as the cache owner and clears the account-scoped
+ * entries when a DIFFERENT owner left them behind. A missing marker (a fresh
+ * client — a page load, or the provider's own `clear()`) keeps the baseline
+ * rule: whoever is observed first owns the caches that exist, which is nobody.
+ * Signed-out states (`null`/`undefined`) are one owner: neither can hold rows,
+ * because account reads answer 401 without a session.
+ */
+function reconcileAccountCacheOwner(
+  queryClient: QueryClient,
+  principalId: string | null | undefined
+): void {
+  const owner = queryClient.getQueryData<string | null>(ACCOUNT_IDENTITY_OWNER_KEY)
+  queryClient.setQueryData(ACCOUNT_IDENTITY_OWNER_KEY, principalId ?? null)
+  if (owner !== undefined && owner !== (principalId ?? null)) {
+    clearAccountScopedCache(queryClient)
+  }
+}
+
+/**
  * Watches the signed-in principal and clears the account-scoped caches when
  * the identity changes — to another account or to signed-out. The first
- * observed value is a baseline (a fresh mount's caches belong to whoever is
+ * observed value is a baseline (a fresh client's caches belong to whoever is
  * signed in already, and a page reload rebuilds the cache anyway); every later
  * change clears. An uncertain identity (a failed bootstrap) also clears:
  * dropping cache entries is cheap, leaking them is not.
+ *
+ * The baseline is the CLIENT's memory, not the guard's: it is recorded on the
+ * QueryClient and reconciled SYNCHRONOUSLY at mount, so it survives the
+ * navigation's own unmount/remount (sign-out drops the navigation; the
+ * app-level provider keeps the client) and runs before the remounted subtree's
+ * observers can read the previous account's entries. The first observation
+ * takes effect before the first effect flush for the same reason.
  *
  * Workspace switches deliberately do NOT clear these keys — that independence
  * is the point of the account-wide query keys (see `@adea-ai/data`).
@@ -349,17 +389,12 @@ export function watchAccountIdentity(
   queryClient: QueryClient,
   principalId: Accessor<string | null | undefined>
 ): void {
-  let established = false
-  let previous: string | null | undefined
+  let previous: string | null | undefined = principalId()
+  reconcileAccountCacheOwner(queryClient, previous)
   createEffect(() => {
     const id = principalId()
-    if (!established) {
-      established = true
-      previous = id
-      return
-    }
     if (id === previous) return
     previous = id
-    clearAccountScopedCache(queryClient)
+    reconcileAccountCacheOwner(queryClient, id)
   })
 }
