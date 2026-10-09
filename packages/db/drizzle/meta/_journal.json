@@ -346,10 +346,17 @@
       "breakpoints": true
     },
     {
-      "idx": 46,
+      "idx": 49,
       "version": "7",
-      "when": 1791528000000,
-      "tag": "0047_group_legacy_backfill",
+      "when": 1791530437626,
+      "tag": "0049_group_participation_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791534000000,
+      "tag": "0050_group_legacy_backfill",
       "breakpoints": true
     }
   ]
