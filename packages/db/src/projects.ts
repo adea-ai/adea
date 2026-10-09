@@ -1,5 +1,5 @@
 import type { ProjectSourceKind, ProjectSummary, UserPrincipalRef } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
@@ -12,6 +12,7 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { archiveProjectChannels, lockProjectForStateChange } from './project-state-policy'
+import { projectSummary } from './project-summary'
 import { projects, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
@@ -41,21 +42,6 @@ export function isProjectSourceKind(value: unknown): value is ProjectSourceKind 
 
 export function isProjectId(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value)
-}
-
-function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
-  return Object.freeze({
-    createdAt: row.createdAt.toISOString(),
-    iconKey: row.iconKey,
-    id: row.id,
-    lifecycleState: row.lifecycleState,
-    name: row.name,
-    sortOrder: row.sortOrder,
-    sourceKind: row.sourceKind,
-    updatedAt: row.updatedAt.toISOString(),
-    visibility: row.visibility,
-    workspaceId: row.workspaceId,
-  })
 }
 
 async function requireMembership(
@@ -226,6 +212,7 @@ export async function updateProject(
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
         ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
         updatedAt: new Date(),
+        version: sql`${projects.version} + 1`,
       })
       .where(activeProjectFilter(workspaceId, projectId))
       .returning()
@@ -260,7 +247,11 @@ export async function archiveProject(
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const [archived] = await transaction
       .update(projects)
-      .set({ lifecycleState: 'archived', updatedAt: new Date() })
+      .set({
+        lifecycleState: 'archived',
+        updatedAt: new Date(),
+        version: sql`${projects.version} + 1`,
+      })
       .where(activeProjectFilter(workspaceId, projectId))
       .returning({ id: projects.id })
     if (!archived) throw new Error('Project unavailable')
@@ -298,7 +289,12 @@ export async function softDeleteProject(
     const now = new Date()
     const [deleted] = await transaction
       .update(projects)
-      .set({ deletedAt: now, lifecycleState: 'archived', updatedAt: now })
+      .set({
+        deletedAt: now,
+        lifecycleState: 'archived',
+        updatedAt: now,
+        version: sql`${projects.version} + 1`,
+      })
       .where(
         and(
           eq(projects.id, projectId),
@@ -350,7 +346,11 @@ export async function reorderProjects(
     for (const [index, projectId] of projectIds.entries()) {
       await transaction
         .update(projects)
-        .set({ sortOrder: slots[index]!, updatedAt: new Date() })
+        .set({
+          sortOrder: slots[index]!,
+          updatedAt: new Date(),
+          version: sql`${projects.version} + 1`,
+        })
         .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     }
     await appendWorkspaceEvent(transaction, {

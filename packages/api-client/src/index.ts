@@ -251,13 +251,14 @@ export type ApiProjectUpdateInput = Readonly<{
 }>
 
 /**
- * Explicit project-state promotion (archived → active). `expectedUpdatedAt`
- * is the exact revision the caller observed and `confirmed` is the owner's
- * opt-in; neither has a default, so an unconfirmed or stale call fails.
+ * Explicit project-state promotion (archived → active). `expectedVersion` is
+ * the integer `ProjectSummary.version` the caller observed and `confirmed` is
+ * the owner's opt-in; neither has a default, so an unconfirmed or stale call
+ * fails.
  */
 export type ApiProjectRestoreInput = Readonly<{
   confirmed: true
-  expectedUpdatedAt: string
+  expectedVersion: number
 }>
 
 export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>

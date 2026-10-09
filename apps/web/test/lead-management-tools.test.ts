@@ -56,6 +56,7 @@ function harness(options: { resolved?: unknown; resolver?: Resolver; operationsT
     sortOrder: 0,
     sourceKind: 'none' as const,
     updatedAt: '2026-10-09T00:00:00.000Z',
+    version: 1,
     visibility: 'workspace' as const,
     workspaceId: MANAGEMENT_WORKSPACE,
   }

@@ -5,7 +5,7 @@
 // attempts without touching the row.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { archiveChannel, createProjectChannel } from '../../src/conversations'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -150,7 +150,7 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
         workspace.id,
         project.id,
         owner.principal,
-        { confirmed: true, expectedUpdatedAt: archived.updatedAt }
+        { confirmed: true, expectedVersion: archived.version }
       )
       expect(promoted).toMatchObject({
         id: project.id,
@@ -194,7 +194,7 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       await expect(
         promoteProjectState(connection.db, workspace.id, project.id, outsider.principal, {
           confirmed: true,
-          expectedUpdatedAt: archived.updatedAt,
+          expectedVersion: archived.version,
         })
       ).rejects.toThrow('Project unavailable')
     } finally {
@@ -224,7 +224,7 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
 
       await promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
         confirmed: true,
-        expectedUpdatedAt: archived.updatedAt,
+        expectedVersion: archived.version,
       })
       const after = await channelRows(workspace.id, project.id)
       // Exactly the cascade channel woke; the independent archive stayed archived.
@@ -247,11 +247,11 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       const results = await Promise.allSettled([
         promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
           confirmed: true,
-          expectedUpdatedAt: archived.updatedAt,
+          expectedVersion: archived.version,
         }),
         promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
           confirmed: true,
-          expectedUpdatedAt: archived.updatedAt,
+          expectedVersion: archived.version,
         }),
       ])
       expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
@@ -301,7 +301,7 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       await expect(
         promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
           confirmed: true,
-          expectedUpdatedAt: beforeArchive.updatedAt,
+          expectedVersion: beforeArchive.version,
         })
       ).rejects.toMatchObject({
         name: 'ProjectStatePromotionError',
@@ -322,7 +322,7 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
       await expect(
         promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
           confirmed: false,
-          expectedUpdatedAt: archived.updatedAt,
+          expectedVersion: archived.version,
         })
       ).rejects.toMatchObject({ reason: 'promotion_not_confirmed' })
       expect(
@@ -331,13 +331,13 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
 
       await promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
         confirmed: true,
-        expectedUpdatedAt: archived.updatedAt,
+        expectedVersion: archived.version,
       })
       const active = await archivedSummary(workspace.id, project.id, owner.principal)
       await expect(
         promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
           confirmed: true,
-          expectedUpdatedAt: active.updatedAt,
+          expectedVersion: active.version,
         })
       ).rejects.toMatchObject({ reason: 'promotion_state_invalid' })
       const restoredEvents = await connection.db
@@ -350,6 +350,76 @@ describe.skipIf(!connectionUrl)('explicit project-state promotion', () => {
           )
         )
       expect(restoredEvents).toHaveLength(1)
+    } finally {
+      await cleanup({ outsider, owner, workspace })
+    }
+  })
+
+  test('a microsecond timestamp no longer blocks an exact revision', async () => {
+    const { owner, outsider, project, workspace } = await fixture()
+    try {
+      await archiveProject(connection.db, workspace.id, project.id, owner.principal)
+      // Postgres stores microseconds; the JS surface only milliseconds. The
+      // integer revision is authoritative, so the exact observed version
+      // still promotes even though the display timestamp is truncated.
+      await connection.db.execute(
+        sql`update app.projects set updated_at = '2026-10-09 12:00:00.123456+00' where id = ${project.id}`
+      )
+      const archived = await archivedSummary(workspace.id, project.id, owner.principal)
+      expect(archived.updatedAt).toBe('2026-10-09T12:00:00.123Z')
+      const promoted = await promoteProjectState(
+        connection.db,
+        workspace.id,
+        project.id,
+        owner.principal,
+        { confirmed: true, expectedVersion: archived.version }
+      )
+      expect(promoted).toMatchObject({ id: project.id, lifecycleState: 'active' })
+      expect(promoted.version).toBe(archived.version + 1)
+    } finally {
+      await cleanup({ outsider, owner, workspace })
+    }
+  })
+
+  test('a same-millisecond edit still moves the revision token', async () => {
+    const { owner, outsider, project, workspace } = await fixture()
+    try {
+      await archiveProject(connection.db, workspace.id, project.id, owner.principal)
+      const observed = await archivedSummary(workspace.id, project.id, owner.principal)
+      // Canonical project-row mutation while archived (visibility), then pin
+      // the display timestamp to the observed millisecond: the timestamp is
+      // identical, the revision is not.
+      await setProjectVisibility(
+        connection.db,
+        workspace.id,
+        project.id,
+        owner.principal,
+        'members'
+      )
+      await connection.db.execute(
+        sql`update app.projects set updated_at = ${observed.updatedAt}::timestamptz where id = ${project.id}`
+      )
+      const edited = await archivedSummary(workspace.id, project.id, owner.principal)
+      expect(edited.updatedAt).toBe(observed.updatedAt)
+      expect(edited.version).toBe(observed.version + 1)
+      await expect(
+        promoteProjectState(connection.db, workspace.id, project.id, owner.principal, {
+          confirmed: true,
+          expectedVersion: observed.version,
+        })
+      ).rejects.toMatchObject({ reason: 'promotion_stale' })
+      const promoted = await promoteProjectState(
+        connection.db,
+        workspace.id,
+        project.id,
+        owner.principal,
+        { confirmed: true, expectedVersion: edited.version }
+      )
+      expect(promoted).toMatchObject({
+        lifecycleState: 'active',
+        version: edited.version + 1,
+        visibility: 'members',
+      })
     } finally {
       await cleanup({ outsider, owner, workspace })
     }

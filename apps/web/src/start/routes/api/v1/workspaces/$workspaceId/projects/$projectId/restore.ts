@@ -35,17 +35,19 @@ async function post(request: Request, { params }: Context) {
     return workspaceInvalidRequestResponse(request)
   }
   const candidate = body as Record<string, unknown>
+  const expectedVersion = candidate.expectedVersion
   const input: ApiProjectRestoreInput | null =
     candidate.confirmed === true &&
-    typeof candidate.expectedUpdatedAt === 'string' &&
-    candidate.expectedUpdatedAt.length > 0
-      ? { confirmed: true, expectedUpdatedAt: candidate.expectedUpdatedAt }
+    typeof expectedVersion === 'number' &&
+    Number.isSafeInteger(expectedVersion) &&
+    expectedVersion >= 1
+      ? { confirmed: true, expectedVersion }
       : null
   if (!input) return workspaceInvalidRequestResponse(request)
   const outcome = await applicationManagementOperations().projectPromote(
     {
       confirmed: input.confirmed,
-      expectedUpdatedAt: input.expectedUpdatedAt,
+      expectedVersion: input.expectedVersion,
       principal: resolution.principal,
       projectId,
       workspaceId,

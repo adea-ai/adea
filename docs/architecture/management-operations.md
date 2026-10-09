@@ -31,10 +31,10 @@ callable state, with typed unsupported reasons.
   method, or a `dev.*` Dev Runtime registry operation);
 - its **workspace permission** (cloud) or Dev Runtime **capability** (device);
 - its **revision** anchor (`workspace_version`, `workspace_order`,
-  `memory_revision`, `project_order`, `project_revision`,
-  `worktree_generation`, `session_generation`, `plan_digest`), **confirmation**
-  style (`none`, `explicit`, `plan_commit`), **audit** surface and **recovery**
-  contract;
+  `memory_revision`, `project_order`, `project_revision` — the integer
+  `ProjectSummary.version`, `worktree_generation`, `session_generation`,
+  `plan_digest`), **confirmation** style (`none`, `explicit`, `plan_commit`),
+  **audit** surface and **recovery** contract;
 - the callable state per **lane** (`web`, `desktop`, `lead`), where every
   unsupported lane carries one of the typed reasons below.
 

@@ -337,6 +337,13 @@
       "when": 1791528462037,
       "tag": "0047_tiresome_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791525239347,
+      "tag": "0046_wealthy_mister_fear",
+      "breakpoints": true
     }
   ]
 }

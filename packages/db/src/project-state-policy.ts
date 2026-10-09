@@ -38,10 +38,11 @@ import type {
   ProjectVisibility,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { requireProjectAccessScope, requireProjectWrite } from './project-access'
+import { projectSummary } from './project-summary'
 import { channels, projects } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
@@ -61,7 +62,8 @@ export type ProjectStatePromotionObservation = Readonly<{
   workspaceId: string
   lifecycleState: ProjectLifecycleState
   visibility: ProjectVisibility
-  updatedAt: string
+  /** The monotonic `projects.version`; the only revision authority. */
+  version: number
   deletedAt: string | null
 }>
 
@@ -73,7 +75,7 @@ export type ProjectStatePromotionPlan = Readonly<{
   retainedVisibility: ProjectVisibility
   from: 'archived'
   to: 'active'
-  expectedUpdatedAt: string
+  expectedVersion: number
 }>
 
 export type ProjectStatePromotionDecision =
@@ -125,7 +127,7 @@ function isProjectId(value: string): boolean {
 export function decideProjectStatePromotion(input: {
   project: ProjectStatePromotionObservation | null
   authorizedWorkspaceId: string
-  expectedUpdatedAt: string
+  expectedVersion: number
   confirmed: boolean
 }): ProjectStatePromotionDecision {
   const { project } = input
@@ -136,10 +138,12 @@ export function decideProjectStatePromotion(input: {
   if (project.lifecycleState !== 'archived') {
     return { allowed: false, reason: 'promotion_state_invalid' }
   }
+  // A non-safe-integer, zero/negative or mismatched revision is unprovable:
+  // it never counts as current.
   if (
-    input.expectedUpdatedAt.length < 1 ||
-    !Number.isFinite(Date.parse(input.expectedUpdatedAt)) ||
-    project.updatedAt !== input.expectedUpdatedAt
+    !Number.isSafeInteger(input.expectedVersion) ||
+    input.expectedVersion < 1 ||
+    project.version !== input.expectedVersion
   ) {
     return { allowed: false, reason: 'promotion_stale' }
   }
@@ -152,7 +156,7 @@ export function decideProjectStatePromotion(input: {
       retainedVisibility: project.visibility,
       from: 'archived',
       to: 'active',
-      expectedUpdatedAt: project.updatedAt,
+      expectedVersion: project.version,
     }),
   }
 }
@@ -285,35 +289,19 @@ export async function restoreProjectChannels(
   return projectChannels.length
 }
 
-/** Mirrors the `projects` row projection for a summary. Local so this module
- *  never edits the shared `projects.ts` summary mapper. */
-function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
-  return Object.freeze({
-    createdAt: row.createdAt.toISOString(),
-    iconKey: row.iconKey,
-    id: row.id,
-    lifecycleState: row.lifecycleState,
-    name: row.name,
-    sortOrder: row.sortOrder,
-    sourceKind: row.sourceKind,
-    updatedAt: row.updatedAt.toISOString(),
-    visibility: row.visibility,
-    workspaceId: row.workspaceId,
-  })
-}
-
 /**
  * Promote one archived project back to active. The caller must already hold
  * write access to the project (`requireProjectWrite`) and the observation
- * must be current; a stale token fails with `promotion_stale` and leaves the
- * archived row and its channels untouched.
+ * must be current; a stale revision fails with `promotion_stale` and leaves
+ * the archived row and its channels untouched. The promoted row increments
+ * `version` atomically with the CAS, so no later write can reuse the token.
  */
 export async function promoteProjectState(
   database: AgentHqDatabase,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,
-  input: Readonly<{ confirmed: boolean; expectedUpdatedAt: string }>
+  input: Readonly<{ confirmed: boolean; expectedVersion: number }>
 ): Promise<ProjectSummary> {
   if (!isProjectId(projectId)) refuse('project_unavailable')
   return database.transaction(async (transaction) => {
@@ -331,11 +319,11 @@ export async function promoteProjectState(
         workspaceId: row.workspaceId,
         lifecycleState: row.lifecycleState,
         visibility: row.visibility,
-        updatedAt: row.updatedAt.toISOString(),
+        version: row.version,
         deletedAt: row.deletedAt?.toISOString() ?? null,
       },
       authorizedWorkspaceId: workspaceId,
-      expectedUpdatedAt: input.expectedUpdatedAt,
+      expectedVersion: input.expectedVersion,
       confirmed: input.confirmed,
     })
     if (!decision.allowed) refuse(decision.reason)
@@ -345,19 +333,24 @@ export async function promoteProjectState(
     await restoreProjectChannels(transaction, workspaceId, projectId, principal)
     const [updated] = await transaction
       .update(projects)
-      .set({ lifecycleState: 'active', updatedAt: new Date() })
+      .set({
+        lifecycleState: 'active',
+        updatedAt: new Date(),
+        version: sql`${projects.version} + 1`,
+      })
       .where(
         and(
           eq(projects.id, projectId),
           eq(projects.workspaceId, workspaceId),
           eq(projects.lifecycleState, 'archived'),
           isNull(projects.deletedAt),
-          eq(projects.updatedAt, new Date(plan.expectedUpdatedAt))
+          eq(projects.version, plan.expectedVersion)
         )
       )
       .returning()
-    // The row lock plus this compare-and-swap close the window between the
-    // decision and the write; losing the race is a stale promotion.
+    // The row lock plus this integer compare-and-swap close the window
+    // between the decision and the write; losing the race is a stale
+    // promotion.
     if (!updated) refuse('promotion_stale')
     await appendWorkspaceEvent(transaction, {
       eventType: 'project.restored',
