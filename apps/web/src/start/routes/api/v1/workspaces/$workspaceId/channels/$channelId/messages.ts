@@ -7,6 +7,7 @@ import {
   getChannelForUser,
   listGroupChannelMessagesForUser,
   listMessagesForUser,
+  parseHandoffTarget,
   parseRequestedRoleModelSelections,
   postGroupChannelMessage,
 } from '@adea-ai/db'
@@ -108,6 +109,12 @@ async function post(request: Request, { params }: Context) {
   }
   const hasBodyText = typeof body?.bodyText === 'string' && Boolean(body.bodyText.trim())
   const leadTurnMode = body && !Array.isArray(body) ? parseLeadTurnMode(body) : null
+  let handoffTarget
+  try {
+    handoffTarget = parseHandoffTarget(body?.handoffTarget)
+  } catch {
+    return workspaceInvalidRequestResponse(request)
+  }
   let requestedModelSelections
   try {
     requestedModelSelections = parseRequestedRoleModelSelections(body?.requestedModelSelections)
@@ -220,6 +227,7 @@ async function post(request: Request, { params }: Context) {
           ...(Array.isArray(body.artifactIds) ? { artifactIds: body.artifactIds as string[] } : {}),
           ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
           ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+          ...(handoffTarget ? { handoffTarget } : {}),
           idempotencyKey,
           ...(requestedModelSelections ? { requestedModelSelections } : {}),
           mentions: mentions as never,

@@ -268,7 +268,7 @@ async function requireChannelProjectWrite(
 }
 
 /** A task the principal can see; a task of a hidden project is unavailable. */
-async function requireVisibleTask(
+export async function requireVisibleTask(
   database: Database,
   workspaceId: string,
   taskId: string,
@@ -958,7 +958,7 @@ export async function setChannelParticipants(
 }
 
 /** Single-message convenience wrapper; page reads use the batched read instead. */
-async function messageSummary(database: Database, row: MessageRow): Promise<MessageSummary> {
+export async function messageSummary(database: Database, row: MessageRow): Promise<MessageSummary> {
   const reads = await readMessageChildReads(database, row.workspaceId, [row.id])
   return messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
 }

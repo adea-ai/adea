@@ -69,6 +69,11 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
     dispatchId: 'dispatch_11111111111111111111111111111111',
     state: 'running',
     canCancel: true,
+    handoffTarget: {
+      runtimeSessionId: 'session-1',
+      taskId: '00000000-0000-4000-8000-0000000000f1',
+      observedGeneration: 3,
+    },
     ...overrides,
   }
 }
@@ -263,6 +268,45 @@ describe('deriveHandoffInputFromConversation', () => {
       connected: true,
     })
     expect(deriveDirectSessionHandoff(unlinked).controls.handoff_to_lead.available).toBe(false)
+  })
+
+  test('a foreign turn grants nothing and keeps handoff available', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({
+        handoffTarget: {
+          runtimeSessionId: 'session-other',
+          taskId: '00000000-0000-4000-8000-0000000000f1',
+          observedGeneration: 3,
+        },
+      }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(supplied.mode).toBe('attached')
+    expect(supplied.leadMismatch).toBe(true)
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.awaitingTurn).toBe(false)
+    expect(view.notice).toMatch(/another session/)
+  })
+
+  test('a targetless turn grants nothing and keeps handoff available', () => {
+    const { handoffTarget: _target, ...targetless } = leadTurn()
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: targetless,
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(supplied.leadMismatch).toBe(true)
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.notice).toMatch(/no handoff target/)
   })
 
   test('a blocked observed turn flags awaiting admission', () => {

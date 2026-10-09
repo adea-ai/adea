@@ -21,10 +21,8 @@ import {
 } from '@adea-ai/dev-view/chat'
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 import {
-  acquireHandoffRequestKey,
-  buildHandoffRequestBody,
-  confirmHandoffRequestKey,
   createOrderedScope,
+  requestLeadHandoff,
   resolveLeadHandoffSupply,
   type LeadHandoffPort,
 } from '../../src/lib/lead-handoff-supply'
@@ -96,6 +94,11 @@ type BackendTurn = {
   intentId: string
   dispatchId?: string
   state: string
+  handoffTarget?: {
+    runtimeSessionId: string
+    taskId?: string
+    observedGeneration: number
+  }
 }
 
 type FixtureBackend = {
@@ -128,7 +131,6 @@ function initialBackend(): FixtureBackend {
         id: LEAD_CHANNEL_ID,
         kind: 'direct_agent',
         agentId: LEAD_ID,
-        taskId: TASK_ID,
         lifecycleState: 'active',
       },
     ],
@@ -186,10 +188,15 @@ function Harness() {
     channelId?: string
   }>({})
   const [admissionPosts, setAdmissionPosts] = createSignal<
-    readonly { channelId: string; key: string; body: string }[]
+    readonly {
+      channelId: string
+      key: string
+      body: string
+      target: { runtimeSessionId: string; taskId: string; expectedGeneration: number }
+    }[]
   >([])
   const pendingAdmissions: Array<{
-    resolve: (confirmation: { intentId: string; messageId: string }) => void
+    resolve: () => void
     reject: (error: Error) => void
   }> = []
   const pendingLeadCancels: PendingLeadCancel[] = []
@@ -216,10 +223,50 @@ function Harness() {
         },
       })),
     listChannels: async () => readBackend((state) => state.channels),
-    getChannelLeadTurn: async (_workspaceId, channelId) =>
-      readBackend((state) => ({
-        leadTurn: state.turns[channelId] ?? null,
-      })),
+    getChannelLeadTurn: async (_workspaceId, channelId, targetSessionId) =>
+      readBackend((state) => {
+        const turn = state.turns[channelId] ?? null
+        // Canonical target scoping: only the retained turn for the exact
+        // requested session is returned.
+        if (!turn || turn.handoffTarget?.runtimeSessionId !== targetSessionId)
+          return { leadTurn: null }
+        return { leadTurn: turn }
+      }),
+    createMessage: async (_workspaceId, channelId, input) => {
+      const body = input as {
+        bodyText?: string
+        handoffTarget?: {
+          runtimeSessionId: string
+          taskId: string
+          expectedGeneration: number
+        }
+        idempotencyKey: string
+      }
+      const target = body.handoffTarget
+      if (!target) throw new Error('Lead admission did not return an intent')
+      const index = admissionPosts().length + 1
+      setAdmissionPosts((posts) => [
+        ...posts,
+        { channelId, key: body.idempotencyKey, body: body.bodyText ?? '', target },
+      ])
+      return new Promise((resolve, reject) => {
+        pendingAdmissions.push({
+          resolve: () =>
+            resolve({
+              message: { id: `message-${index}` },
+              leadTurn: {
+                intentId: `intent-${index}`,
+                handoffTarget: {
+                  runtimeSessionId: target.runtimeSessionId,
+                  taskId: target.taskId,
+                  observedGeneration: target.expectedGeneration,
+                },
+              },
+            }),
+          reject,
+        })
+      })
+    },
     cancelLeadTurn: async (_workspaceId, intentId) => {
       setLeadCancelCalls((count) => count + 1)
       return new Promise((resolve, reject) => {
@@ -236,7 +283,9 @@ function Harness() {
     const session = backend().sessions[sessionId]
     if (!session) return
     const epoch = supplyScope.begin()
-    const resolution = await resolveLeadHandoffSupply(port, SCOPE.workspaceId, session.taskId)
+    const resolution = await resolveLeadHandoffSupply(port, SCOPE.workspaceId, session.taskId, {
+      runtimeSessionId: sessionId,
+    })
     if (!supplyScope.isCurrent(epoch)) return
     if (activeId() !== sessionId) return
     if (resolution.status !== 'resolved') {
@@ -254,24 +303,21 @@ function Harness() {
   // key across unknown-outcome retries, admission deferred for busy/error
   // coverage, and the admitted turn recorded as blocked like a real
   // admission receipt.
+  // The REAL production request path (fresh key, structured target,
+  // receipt verification inside); only the transport below is deferred.
   const requestHandoff = async (): Promise<void> => {
     const current = supply()
     const activeConversation = active()
     const channelId = current.channelId
-    if (!channelId) throw new Error('Handoff request unavailable.')
-    const key = acquireHandoffRequestKey(activeConversation.runtimeSessionId)
-    setAdmissionPosts((posts) => [
-      ...posts,
-      {
-        channelId,
-        key,
-        body: buildHandoffRequestBody(activeConversation.runtimeSessionId),
-      },
-    ])
-    await new Promise<{ intentId: string; messageId: string }>((resolve, reject) => {
-      pendingAdmissions.push({ resolve, reject })
+    const taskId = activeConversation.taskId
+    if (!channelId || !taskId) throw new Error('Handoff request unavailable.')
+    await requestLeadHandoff(port, {
+      workspaceId: SCOPE.workspaceId,
+      channelId,
+      runtimeSessionId: activeConversation.runtimeSessionId,
+      taskId,
+      expectedGeneration: activeConversation.generation,
     })
-    confirmHandoffRequestKey(activeConversation.runtimeSessionId)
   }
 
   onMount(() => {
@@ -336,7 +382,9 @@ function Harness() {
     pending.resolve(backend().sessions[pending.sessionId]!)
   }
 
-  const observeTurn = (state: string) => {
+  // The lead's task-less direct channel carries turns with retained exact
+  // targets, mirroring server retention; reads match the active session.
+  const observeTurn = (state: string, targetSessionId = 'session-1') => {
     updateBackend((previous) => ({
       ...previous,
       channels: [
@@ -344,7 +392,6 @@ function Harness() {
           id: LEAD_CHANNEL_ID,
           kind: 'direct_agent',
           agentId: LEAD_ID,
-          taskId: TASK_ID,
           lifecycleState: 'active',
         },
       ],
@@ -354,6 +401,11 @@ function Harness() {
           intentId: INTENT_ID,
           dispatchId: 'dispatch_11111111111111111111111111111111',
           state,
+          handoffTarget: {
+            runtimeSessionId: targetSessionId,
+            taskId: TASK_ID,
+            observedGeneration: 3,
+          },
         },
       },
     }))
@@ -386,6 +438,9 @@ function Harness() {
         <Button type="button" onClick={() => observeTurn('running')}>
           Observe live lead turn
         </Button>
+        <Button type="button" onClick={() => observeTurn('running', 'session-other')}>
+          Observe foreign lead turn
+        </Button>
         <Button type="button" onClick={() => observeTurn('completed')}>
           Observe lead turn completed
         </Button>
@@ -406,7 +461,6 @@ function Harness() {
                   id: '00000000-0000-4000-8000-0000000000e5',
                   kind: 'direct_agent',
                   agentId: LEAD_ID,
-                  taskId: TASK_ID,
                   lifecycleState: 'active',
                 },
               ],
@@ -450,19 +504,28 @@ function Harness() {
           onClick={() => {
             const pending = pendingAdmissions.shift()
             if (!pending) return
-            // The admitted turn starts blocked, mirroring a real admission
-            // receipt; the surface re-resolves it into requested state.
+            // The admitted turn starts blocked with the posted exact target,
+            // mirroring server retention; the surface re-resolves it.
+            const posted = admissionPosts()[admissionPosts().length - 1]
             const channelId = supply().channelId
-            if (channelId) {
+            if (channelId && posted) {
               updateBackend((previous) => ({
                 ...previous,
                 turns: {
                   ...previous.turns,
-                  [channelId]: { intentId: 'intent-admitted', state: 'blocked' },
+                  [channelId]: {
+                    intentId: 'intent-admitted',
+                    state: 'blocked',
+                    handoffTarget: {
+                      runtimeSessionId: posted.target.runtimeSessionId,
+                      taskId: posted.target.taskId,
+                      observedGeneration: posted.target.expectedGeneration,
+                    },
+                  },
                 },
               }))
             }
-            pending.resolve({ intentId: 'intent-admitted', messageId: 'message-admitted' })
+            pending.resolve()
           }}
         >
           Resolve admission

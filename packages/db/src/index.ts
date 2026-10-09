@@ -327,7 +327,14 @@ export {
   type AgentPersonaPlan,
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  createLeadTurn,
+  getLatestLeadTurnForTarget,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+  parseHandoffTarget,
+  type HandoffTarget,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,

@@ -1,6 +1,7 @@
 import type { AgentHqDatabase } from '@adea-ai/db'
 import {
   getLatestLeadTurnForChannel,
+  getLatestLeadTurnForTarget,
   resolveLeadTurnAuthority,
   readLeadTurnRuntime,
   prepareLeadTurnRuntime,
@@ -108,6 +109,21 @@ export function createLeadTurnProduct(
         kind: 'user',
         userId,
       })
+      return receipt ? service.snapshot({ workspaceId, intentId: receipt.intentId, userId }) : null
+    },
+    async latestForTarget(
+      workspaceId: string,
+      channelId: string,
+      targetSessionId: string,
+      userId: string
+    ) {
+      const receipt = await getLatestLeadTurnForTarget(
+        database,
+        workspaceId,
+        channelId,
+        targetSessionId,
+        { kind: 'user', userId }
+      )
       return receipt ? service.snapshot({ workspaceId, intentId: receipt.intentId, userId }) : null
     },
   }

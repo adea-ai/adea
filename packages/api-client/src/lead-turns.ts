@@ -3,6 +3,15 @@ export type ApiRequestedRoleModelSelections = Readonly<{
   lead?: Readonly<{ selectionRef: string; selectionRevision: number }>
   child?: Readonly<{ selectionRef: string; selectionRevision: number }>
 }>
+/** Structured handoff target retained on the admission intent: the exact direct
+ *  session this turn coordinates, the server-verified task authority, and the
+ *  generation observed at admission. Absent for legacy targetless admissions. */
+export type ApiHandoffTarget = Readonly<{
+  runtimeSessionId: string
+  taskId?: string
+  observedGeneration: number
+}>
+}>
 
 /** Product projection; runtime state is observed, never inferred from Message persistence. */
 export type LeadTurnRuntimeState =
@@ -39,6 +48,8 @@ export type ApiLeadTurnStatus = Readonly<{
   preparationExpiresAt?: string
   /** Reference to the canonical runtime session, not a second session record. */
   runtimeSessionId?: string
+  /** Exact admission target retained on the intent; absent for legacy admissions. */
+  handoffTarget?: ApiHandoffTarget
   observedAt?: string
   cancelRequestedAt?: string
   publishedMessageId?: string

@@ -1,5 +1,5 @@
 {
-  "id": "6356002a-d70c-401e-a365-8861f440cce7",
+  "id": "49ea40b6-ee1a-4f78-ac7a-3513ac03b0aa",
   "prevId": "c943ea33-bb4b-43d6-b9c7-a0f384c615fb",
   "version": "7",
   "dialect": "postgresql",
@@ -102,13 +102,6 @@
         },
         "profile_revision": {
           "name": "profile_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "revision": {
-          "name": "revision",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -282,10 +275,6 @@
         "agents_profile_revision_nonnegative": {
           "name": "agents_profile_revision_nonnegative",
           "value": "\"app\".\"agents\".\"profile_revision\" >= 0"
-        },
-        "agents_revision_nonnegative": {
-          "name": "agents_revision_nonnegative",
-          "value": "\"app\".\"agents\".\"revision\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -2687,6 +2676,24 @@
           "primaryKey": false,
           "notNull": true
         },
+        "handoff_target_session_id": {
+          "name": "handoff_target_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handoff_target_generation": {
+          "name": "handoff_target_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "handoff_target_task_id": {
+          "name": "handoff_target_task_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "dispatch_key": {
           "name": "dispatch_key",
           "type": "text",
@@ -2740,6 +2747,40 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "lead_turn_intents_target_unique": {
+          "name": "lead_turn_intents_target_unique",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "handoff_target_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "handoff_target_generation",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2831,6 +2872,10 @@
         "lead_turn_intents_audience_valid": {
           "name": "lead_turn_intents_audience_valid",
           "value": "jsonb_typeof(\"app\".\"lead_turn_intents\".\"audience\") = 'array'"
+        },
+        "lead_turn_intents_handoff_target_valid": {
+          "name": "lead_turn_intents_handoff_target_valid",
+          "value": "(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is null) or (\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null and length(btrim(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\")) between 1 and 256 and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" >= 0 and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is not null)"
         },
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",

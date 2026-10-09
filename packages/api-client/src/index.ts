@@ -179,6 +179,7 @@ export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type {
+  ApiHandoffTarget,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,
@@ -189,6 +190,7 @@ export type {
   LeadTurnReasonCode,
 } from './lead-turns'
 import type {
+  ApiHandoffTarget,
   ApiLeadTurnResponse,
   ApiLeadTurnProgressResponse,
   ApiChannelLeadTurnResponse,
@@ -204,15 +206,26 @@ export type ApiMessageResponse = Readonly<{
     dispatchKey: string
     state: 'blocked'
     reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE'
+    handoffTarget?: ApiHandoffTarget
   }>
 }>
 export type ApiMessagePage = Readonly<{
   messages: readonly MessageSummary[]
   nextAfterSequence?: number
 }>
+export type ApiHandoffTargetRequest = Readonly<{
+  /** The exact direct session this admission coordinates. */
+  runtimeSessionId: string
+  /** The task authority claimed; the server verifies visibility and stamps it. */
+  taskId: string
+  /** The session generation observed when requesting; newer supersedes. */
+  expectedGeneration: number
+}>
 export type ApiMessageCreateInput = Readonly<{
   /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
   leadTurn?: true
+  /** Structured handoff target; prose never carries the binding. */
+  handoffTarget?: ApiHandoffTargetRequest
   requestedModelSelections?: import('./lead-turns').ApiRequestedRoleModelSelections
   artifactIds?: readonly string[]
   bodyContentRefId?: string
@@ -1586,10 +1599,13 @@ export class AgentHqApiClient {
 
   async getChannelLeadTurn(
     workspaceId: string,
-    channelId: string
+    channelId: string,
+    targetSessionId?: string
   ): Promise<ApiChannelLeadTurnResponse> {
+    const query =
+      targetSessionId === undefined ? '' : `?targetSessionId=${encodeURIComponent(targetSessionId)}`
     return this.request(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn`
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn${query}`
     )
   }
 

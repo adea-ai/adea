@@ -32,19 +32,32 @@ override still wins), and the production enablement in
 Coordination semantics: coordination comes only from supplied canonical
 lead-turn facts — the workspace lead's admitted intent identity plus its
 observed live execution — and never from a bound run, composer authority,
-or view routing. An explicit handoff request posts admission
-(`createMessage` with `leadTurn: true` on the linked channel, fixed body
-text, stable per-session idempotency key) through the caller-supplied
-handler; the response receipt carries the admitted intent, and a response
-without one fails closed. Retries reuse the retained key so the server
-dedupes instead of minting a duplicate turn; single-flight admission and
-handoff-blocked-while-live complete the duplication defense. Awaiting
-admission shows a Check-status refresh instead of polling. The turn counts only when bound to the observed workspace
+view routing, or task-wide correlation. Binding is exact, never
+task-wide: an explicit handoff request posts admission (`createMessage`
+with `leadTurn: true` plus the structured `handoffTarget`
+`{runtimeSessionId, taskId, expectedGeneration}`) on the lead's
+exactly-one active task-less direct channel — task-scoped channels cannot
+admit (server `lockAuthority`), so they can never coordinate either. The
+server verifies the claimed task is visible, stamps the triple on the
+intent, and returns it on the receipt; the client verifies the receipt
+names the requesting session and refreshes from the exact intent
+(`getLeadTurnStatus`), never by task-wide re-resolution. A response
+without a retained target, or with another session's target, fails closed.
+Unknown-outcome retries recover the canonically retained intent
+server-side (same target and generation dedupes; a retained newer
+generation rejects the stale request as superseded; an older one is
+superseded by minting new), backed by a partial unique target context —
+no client-held request identity exists to evict or lose on reload.
+Single-flight admission and handoff-blocked-while-live complete the
+duplication defense. Awaiting admission shows a Check-status refresh
+instead of polling. The turn counts only when bound to the observed workspace
 lead agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
-workspace-scoped, active lifecycle): the model checks
-`turn.agentId === lead.id` plus designation and lifecycle, and an unbound
-turn is stripped before derivation so it can neither drive a mode nor
-authorize lead-stop — the mismatch is named instead. A caller that can
+workspace-scoped, active lifecycle) AND to this exact session (retained
+`handoffTarget.runtimeSessionId` equals the selected session; targetless
+or foreign turns are stripped before derivation): the model checks
+`turn.agentId === lead.id` plus designation, lifecycle, and exact target,
+and an unbound turn is stripped before derivation so it can neither drive
+a mode nor authorize lead-stop — the mismatch is named instead. A caller that can
 observe turns (lead-turn reads) observes the agent through the same
 canonical roster (`getWorkspaceLead`); the check forces the full chain,
 so no run-as-lead alias can pass. A user-created direct run is execution, not delegation:
@@ -135,6 +148,27 @@ API boundaries are coordinated with the CP #935 owner through the linked
 issues. This slice records the handshake above and ships the truthful
 disabled states; integration lands when the CP contract is confirmed.
 
+Shared lead-turn paths (DeepSeek1215 model-selection integration, through
+root): this slice narrows `createLeadTurn`/intent retention for the exact
+handoff target alongside 1215's `requestedModelSelections` work. Owned
+hunks are the `handoffTarget` key in `parseLeadTurnMode`, its parse-or-400
+and forward in the messages route, the `targetSessionId` latest query,
+`ApiHandoffTarget` plus the target fields on the create/receipt/status
+shapes, the target columns/check/partial-unique on `leadTurnIntents`, the
+recovery/supersede logic and exact-target read in `createLeadTurn`, the
+target on the runtime authority and status projection, and the
+one-word `requireVisibleTask`/`messageSummary` exports. Untouched:
+`lockAuthority`, 1215's selections hunks, and every shared test file (all
+new coverage lives in new files). `lockAuthority`'s task-channel refusal
+is load-bearing for the direct-channel admission rule and was not relaxed.
+
+Migration: `0045_minor_pepper_potts` (three nullable target columns,
+validity check, partial unique target index) is generated canonically on
+this lane's chain and is additive/nullable-only. The number is valid on
+this chain only and MUST be renumbered onto the actual artifact →
+requested-role predecessor stack at integration (1215/ZCode tip moves
+independently); replaying the SQL under the assigned number is safe.
+
 ## Traceability
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
@@ -142,12 +176,17 @@ A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes
 and agent binding, binding/replacement matrix, gap rows, approval
 counting, a11y contract, action-machine and epoch admission;
 `chat-handoff-supplier.test.ts` lead-fact and taskId derivation,
-channel linkage, and awaiting flags;
+channel linkage, awaiting flags, and foreign/targetless exclusion;
 `chat-conversation-model.test.ts` session-cancel targeting, live draft
 preservation, and taskId projection; `lead-handoff-supply.test.ts`
-task-linked resolution matrix (no-link zero reads, unrelated ignored,
-foreign excluded, same-task ambiguity), epoch ordering, admission body
-and key stability, and resolver→derivation composition; `project-session-handoff-journey.test.ts`
+direct-channel selection matrix (no-link zero reads, task-carrying
+channels ignored, foreign excluded, several DMs ambiguous), exact-target
+supply exclusion, epoch ordering, admission target post with receipt
+verification and fresh keys, and resolver→derivation composition;
+`lead-turn-handoff-target.test.ts` (real Postgres) exact retention,
+two-sessions-one-task isolation, newer-unrelated-channel isolation,
+reload recovery, generation supersede/stale, concurrent single-commit,
+malformed/phantom fail-closed, legacy back-compat; `project-session-handoff-journey.test.ts`
 joined real-register view-routing journey with reload persistence and
 fencing; mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
 over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only

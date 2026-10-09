@@ -80,6 +80,13 @@ export type HandoffLeadAgent = Readonly<{
 export type HandoffLeadTurn = Readonly<{
   /** Canonical lead-turn intent id. Never invented: absent means unobserved. */
   intentId: string
+  /** Exact admission target retained on the intent. A turn whose target is
+   *  absent or names another session never coordinates this one. */
+  handoffTarget?: Readonly<{
+    runtimeSessionId: string
+    taskId?: string
+    observedGeneration: number
+  }>
   /** The turn's owning agent id: must equal the workspace lead's id. */
   agentId: string
   /** Live execution binding when dispatched. */
@@ -166,7 +173,8 @@ export function resolveHarnessRunBinding(
  */
 export function resolveLeadCoordination(
   leadTurn: HandoffLeadTurn | undefined,
-  leadAgent: HandoffLeadAgent | undefined
+  leadAgent: HandoffLeadAgent | undefined,
+  runtimeSessionId?: string
 ): { bound: boolean; reason?: string } {
   if (!leadTurn || !leadAgent) return { bound: false }
   if (leadTurn.agentId !== leadAgent.id)
@@ -178,6 +186,16 @@ export function resolveLeadCoordination(
       bound: false,
       reason: `the workspace lead is ${leadAgent.lifecycleState}, not active`,
     }
+  // Exact-session binding: the turn coordinates only the session its
+  // retained target names. A targetless turn, or one retained for another
+  // session, grants nothing here no matter how live it is.
+  if (runtimeSessionId !== undefined) {
+    const target = leadTurn.handoffTarget?.runtimeSessionId
+    if (target === undefined)
+      return { bound: false, reason: 'the observed turn names no handoff target' }
+    if (target !== runtimeSessionId)
+      return { bound: false, reason: 'the observed turn targets another session' }
+  }
   return { bound: true }
 }
 
@@ -188,6 +206,8 @@ export type DirectSessionHandoffInput = Readonly<{
   leadAgent?: HandoffLeadAgent
   /** A supplied turn failed the lead-agent binding check below. */
   leadMismatch: boolean
+  /** Why the supplied turn is unbound, when known. */
+  leadMismatchReason?: string
   /** Exactly one linked lead channel observed; absent means unknown. */
   leadChannelId?: string
   mode: DirectSessionHandoffMode
@@ -323,7 +343,9 @@ export function deriveDirectSessionHandoff(
     }. The session stays read-only.`
   } else if (input.leadMismatch) {
     notice =
-      'The supplied turn is not bound to the active workspace lead, so it grants no coordination. The session stays read-only.'
+      input.leadMismatchReason !== undefined
+        ? `The observed turn is not bound to this session (${input.leadMismatchReason}), so it grants no coordination. The session stays read-only.`
+        : 'The supplied turn is not bound to the active workspace lead, so it grants no coordination. The session stays read-only.'
   }
 
   // Stopping the LEAD cancels the canonical lead turn through the
@@ -426,11 +448,11 @@ export function deriveDirectSessionHandoff(
         'Ask the workspace lead for a task topic, or coordinate through lead-turn admission.'
       )
     // Exactly one outstanding coordination attempt per session: a live,
-    // prepared, or unresolvable turn blocks a second request. A stuck
-    // (blocked) turn may be explicitly re-requested, and a terminal turn
-    // in returned mode may re-engage. Combined with stable idempotency
-    // keys across retries and single-flight admission, this leaves no
-    // silent duplication path.
+    // prepared, or unresolvable turn for this exact session blocks a second
+    // request. A stuck (blocked) turn may be explicitly re-requested, and a
+    // terminal turn in returned mode may re-engage. Combined with canonical
+    // server-side recovery (same target and generation dedupes) and
+    // single-flight admission, this leaves no silent duplication path.
     if (input.leadTurn !== undefined && !input.leadMismatch) {
       if (
         LIVE_LEAD_TURN_STATES.includes(input.leadTurn.state) ||
@@ -614,7 +636,11 @@ export function deriveHandoffInputFromConversation(
   // The turn counts only when bound to the observed workspace lead. An
   // unbound turn is stripped before derivation so it can neither drive a
   // mode nor authorize lead-stop; the mismatch flag names it instead.
-  const coordination = resolveLeadCoordination(input.leadTurn, input.leadAgent)
+  const coordination = resolveLeadCoordination(
+    input.leadTurn,
+    input.leadAgent,
+    input.conversation.runtimeSessionId
+  )
   const boundTurn = coordination.bound ? input.leadTurn : undefined
   const mode =
     input.mode ??
@@ -640,6 +666,7 @@ export function deriveHandoffInputFromConversation(
     ...(boundTurn === undefined ? {} : { leadTurn: boundTurn }),
     ...(input.leadAgent === undefined ? {} : { leadAgent: input.leadAgent }),
     leadMismatch: !coordination.bound && input.leadTurn !== undefined,
+    ...(coordination.reason === undefined ? {} : { leadMismatchReason: coordination.reason }),
     ...(input.leadChannelId === undefined ? {} : { leadChannelId: input.leadChannelId }),
     mode,
     connected: input.connected,

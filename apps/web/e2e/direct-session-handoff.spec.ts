@@ -153,7 +153,9 @@ test('an unrelated channel never disables the linked handoff', async ({ page }) 
   expectNoErrors(errors)
 })
 
-test('explicit handoff admits through the canonical path with a stable key', async ({ page }) => {
+test('explicit handoff admits through the canonical path with server-side recovery', async ({
+  page,
+}) => {
   const errors = await openHarness(page)
   // No turn observed yet: the handoff button offers an explicit request.
   await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
@@ -161,16 +163,17 @@ test('explicit handoff admits through the canonical path with a stable key', asy
   await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
   await expect(page.getByLabel('Admission posts')).toHaveText('1')
 
-  // A transport failure keeps the key: retrying reuses it so the server
-  // dedupes instead of minting a duplicate turn.
+  // A transport failure loses nothing: every attempt mints a fresh key
+  // and the server recovers the retained intent instead of duplicating.
   await page.getByRole('button', { name: 'Reject admission' }).click()
   await expect(page.getByRole('alert').getByText(/transport lost/)).toBeVisible()
   const keyBefore = await page.getByLabel('Admission keys').textContent()
   await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
   await expect(page.getByLabel('Admission posts')).toHaveText('2')
-  expect(await page.getByLabel('Admission keys').textContent()).toBe(
-    `${keyBefore},${keyBefore?.split(',')[0]}`
-  )
+  const keysAfter = await page.getByLabel('Admission keys').textContent()
+  expect(keysAfter?.split(',')).toHaveLength(2)
+  expect(keysAfter?.split(',')[0]).not.toBe(keysAfter?.split(',')[1])
+  expect(keyBefore?.split(',')).toHaveLength(1)
 
   // The admission commits a blocked turn: requested state with a status
   // check, then dispatch, then coordination.
@@ -187,6 +190,19 @@ test('explicit handoff admits through the canonical path with a stable key', asy
   await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
   await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  expectNoErrors(errors)
+})
+
+test('a foreign turn grants nothing and keeps handoff available', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe foreign lead turn' }).click()
+  // The foreign turn never leaks: attached, handoff still offered. (The
+  // named mismatch notice is unit-proven for unfiltered arrivals.)
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
   expectNoErrors(errors)
 })
 

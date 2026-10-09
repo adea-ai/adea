@@ -17,11 +17,14 @@ const LEAD = {
   lifecycleState: 'active',
 }
 
+const TASK = '00000000-0000-4000-8000-0000000000f1'
+const SESSION = { runtimeSessionId: 'session-1' }
+
 const CHANNEL = {
   id: '00000000-0000-4000-8000-0000000000c3',
   kind: 'direct_agent',
   agentId: LEAD.id,
-  taskId: 'task-1',
+  taskId: null,
   lifecycleState: 'active',
 }
 
@@ -33,6 +36,11 @@ function turn(overrides: Record<string, unknown> = {}) {
     state: 'running',
     availability: 'available',
     dispatchId: 'dispatch_11111111111111111111111111111111',
+    handoffTarget: {
+      runtimeSessionId: 'session-1',
+      taskId: TASK,
+      observedGeneration: 3,
+    },
     ...overrides,
   }
 }
@@ -67,7 +75,7 @@ function offline(): Promise<never> {
 
 describe('resolveLeadHandoffSupply', () => {
   test('resolves agent, channel turn, and cancellability from canonical reads', async () => {
-    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1')
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1', SESSION)
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
     expect(resolution.leadAgent).toMatchObject({ id: LEAD.id, isWorkspaceLead: true })
@@ -86,7 +94,8 @@ describe('resolveLeadHandoffSupply', () => {
         getChannelLeadTurn: async () => ({ leadTurn: turn({ state: 'completed' }) }) as never,
       }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
@@ -97,7 +106,8 @@ describe('resolveLeadHandoffSupply', () => {
     const resolution: LeadHandoffResolution = await resolveLeadHandoffSupply(
       port({ getWorkspaceLead: async () => ({ lead: null }) as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution).toEqual({ status: 'unresolved', reason: 'no-lead' })
   })
@@ -110,7 +120,8 @@ describe('resolveLeadHandoffSupply', () => {
       const resolution = await resolveLeadHandoffSupply(
         port({ getWorkspaceLead: async () => ({ lead }) as never }),
         'workspace-1',
-        'task-1'
+        'task-1',
+        SESSION
       )
       expect(resolution).toMatchObject({ status: 'unresolved', reason: 'lead-unavailable' })
     }
@@ -120,7 +131,8 @@ describe('resolveLeadHandoffSupply', () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ listChannels: async () => [] }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution.status).toBe('unresolved')
     if (resolution.status !== 'unresolved') return
@@ -132,7 +144,8 @@ describe('resolveLeadHandoffSupply', () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ getChannelLeadTurn: async () => ({ leadTurn: null }) as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
@@ -147,39 +160,42 @@ describe('resolveLeadHandoffSupply', () => {
       turn: port({ getChannelLeadTurn: offline }),
     }
     for (const step of ['lead', 'channels', 'turn'] as const) {
-      const resolution = await resolveLeadHandoffSupply(failing[step], 'workspace-1', 'task-1')
+      const resolution = await resolveLeadHandoffSupply(
+        failing[step],
+        'workspace-1',
+        'task-1',
+        SESSION
+      )
       expect(resolution).toMatchObject({ status: 'unresolved', reason: 'request-failed' })
     }
   })
 })
 
-describe('task linkage', () => {
-  test('a session without a task costs zero reads and attaches', async () => {
+describe('channel selection and exact binding', () => {
+  test('a session without a task or reference costs zero reads and attaches', async () => {
     calls.lead = 0
     calls.channels = 0
     calls.turn = 0
-    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', undefined)
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', undefined, undefined)
     expect(resolution).toEqual({ status: 'unresolved', reason: 'no-link' })
     expect([calls.lead, calls.channels, calls.turn]).toEqual([0, 0, 0])
   })
 
-  test('channels for other tasks are irrelevant, never disabling', async () => {
-    const other = {
-      ...CHANNEL,
-      id: '00000000-0000-4000-8000-0000000000e5',
-      taskId: 'task-other',
-    }
+  test('task-carrying channels can never coordinate', async () => {
+    const scoped = { ...CHANNEL, taskId: 'task-1' }
     const resolution = await resolveLeadHandoffSupply(
-      port({ listChannels: async () => [other, CHANNEL] as never }),
+      port({ listChannels: async () => [scoped, CHANNEL] as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
+    expect(resolution.channelId).toBe(CHANNEL.id)
     expect(resolution.leadTurn?.intentId).toBe('00000000-0000-4000-8000-0000000000a1')
   })
 
-  test('channels of other agents for the same task do not coordinate', async () => {
+  test('channels of other agents do not coordinate', async () => {
     const foreign = {
       ...CHANNEL,
       id: '00000000-0000-4000-8000-0000000000e5',
@@ -188,19 +204,48 @@ describe('task linkage', () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ listChannels: async () => [foreign] as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution).toMatchObject({ status: 'unresolved', reason: 'no-channel' })
   })
 
-  test('several channels sharing one task fail closed as ambiguous', async () => {
+  test('several lead channels fail closed as ambiguous', async () => {
     const second = { ...CHANNEL, id: '00000000-0000-4000-8000-0000000000e5' }
     const resolution = await resolveLeadHandoffSupply(
       port({ listChannels: async () => [CHANNEL, second] as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution).toMatchObject({ status: 'unresolved', reason: 'ambiguous-channels' })
+  })
+
+  test('a turn retained for another session never becomes supply', async () => {
+    const foreign = turn({
+      handoffTarget: {
+        runtimeSessionId: 'session-other',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
+    })
+    const seen: Array<string | undefined> = []
+    const resolution = await resolveLeadHandoffSupply(
+      port({
+        getChannelLeadTurn: (async (_workspaceId: string, _channelId: string, target?: string) => {
+          seen.push(target)
+          return { leadTurn: foreign }
+        }) as never,
+      }),
+      'workspace-1',
+      'task-1',
+      SESSION
+    )
+    expect(seen).toEqual(['session-1'])
+    expect(resolution.status).toBe('resolved')
+    if (resolution.status !== 'resolved') return
+    expect(resolution.channelId).toBe(CHANNEL.id)
+    expect(resolution.leadTurn).toBeUndefined()
   })
 })
 
@@ -240,7 +285,7 @@ describe('composed with the handoff derivation', () => {
   test('resolved facts drive a coordinating view end to end', async () => {
     const { deriveDirectSessionHandoff, deriveHandoffInputFromConversation } =
       await import('@adea-ai/dev-view/chat/model')
-    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1')
+    const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1', SESSION)
     expect(resolution.status).toBe('resolved')
     if (resolution.status !== 'resolved') return
     const view = deriveDirectSessionHandoff(
@@ -282,7 +327,8 @@ describe('composed with the handoff derivation', () => {
     const resolution = await resolveLeadHandoffSupply(
       port({ getWorkspaceLead: async () => ({ lead: null }) as never }),
       'workspace-1',
-      'task-1'
+      'task-1',
+      SESSION
     )
     expect(resolution.status).toBe('unresolved')
     const view = deriveDirectSessionHandoff(
@@ -319,14 +365,21 @@ describe('composed with the handoff derivation', () => {
 })
 
 describe('requestLeadHandoff', () => {
-  test('posts the fixed admission body and returns the intent receipt', async () => {
+  test('posts the structured target and verifies the retained receipt', async () => {
     const seen: Array<{ workspaceId: string; channelId: string; body: unknown }> = []
     const fake = port({
       createMessage: (async (workspaceId: string, channelId: string, input: never) => {
         seen.push({ workspaceId, channelId, body: input })
         return {
           message: { id: 'message-1' },
-          leadTurn: { intentId: 'intent-1' },
+          leadTurn: {
+            intentId: 'intent-1',
+            handoffTarget: {
+              runtimeSessionId: 'session-1',
+              taskId: TASK,
+              observedGeneration: 3,
+            },
+          },
         }
       }) as never,
     })
@@ -334,12 +387,18 @@ describe('requestLeadHandoff', () => {
       workspaceId: 'workspace-1',
       channelId: 'channel-1',
       runtimeSessionId: 'session-1',
-      idempotencyKey: 'key-1',
+      taskId: TASK,
+      expectedGeneration: 3,
     })
     expect(confirmation).toEqual({
       intentId: 'intent-1',
       messageId: 'message-1',
       channelId: 'channel-1',
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
     })
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ workspaceId: 'workspace-1', channelId: 'channel-1' })
@@ -347,26 +406,97 @@ describe('requestLeadHandoff', () => {
     expect(body.leadTurn).toBe(true)
     expect(typeof body.bodyText).toBe('string')
     expect(body.bodyText as string).toContain('session-1')
-    // The key travels in the Idempotency-Key header (stripped from the JSON
-    // body by the client); the fixed body keeps keyed retries byte-identical.
-    expect(body.idempotencyKey).toBe('key-1')
+    expect(body.handoffTarget).toEqual({
+      runtimeSessionId: 'session-1',
+      taskId: TASK,
+      expectedGeneration: 3,
+    })
   })
 
-  test('a response without an intent fails closed instead of recording', async () => {
+  test('every attempt mints a fresh key; recovery lives server-side', async () => {
+    const keys: unknown[] = []
     const fake = port({
-      createMessage: (async () => ({ message: { id: 'message-1' } })) as never,
+      createMessage: (async (
+        _workspaceId: string,
+        _channelId: string,
+        input: {
+          handoffTarget: unknown
+          idempotencyKey: string
+        }
+      ) => {
+        keys.push(input.idempotencyKey)
+        return {
+          message: { id: 'message-1' },
+          leadTurn: {
+            intentId: 'intent-1',
+            handoffTarget: {
+              runtimeSessionId: 'session-1',
+              taskId: TASK,
+              observedGeneration: 3,
+            },
+          },
+        }
+      }) as never,
+    })
+    const input = {
+      workspaceId: 'workspace-1',
+      channelId: 'channel-1',
+      runtimeSessionId: 'session-1',
+      taskId: TASK,
+      expectedGeneration: 3,
+    }
+    await requestLeadHandoff(fake, input)
+    await requestLeadHandoff(fake, input)
+    expect(keys).toHaveLength(2)
+    // No client-held identity to lose: the two keys differ, and the server
+    // dedupes by retained target, not by remembered key.
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  test('a response without a retained target fails closed instead of recording', async () => {
+    const fake = port({
+      createMessage: (async () => ({
+        message: { id: 'message-1' },
+        leadTurn: { intentId: 'intent-1' },
+      })) as never,
     })
     await expect(
       requestLeadHandoff(fake, {
         workspaceId: 'workspace-1',
         channelId: 'channel-1',
         runtimeSessionId: 'session-1',
-        idempotencyKey: 'key-1',
+        taskId: TASK,
+        expectedGeneration: 3,
       })
     ).rejects.toThrow('did not return an intent')
   })
 
-  test('the request body is fixed so keyed retries stay byte-identical', () => {
+  test('a receipt for another target fails closed instead of binding', async () => {
+    const fake = port({
+      createMessage: (async () => ({
+        message: { id: 'message-1' },
+        leadTurn: {
+          intentId: 'intent-1',
+          handoffTarget: {
+            runtimeSessionId: 'session-other',
+            taskId: TASK,
+            observedGeneration: 3,
+          },
+        },
+      })) as never,
+    })
+    await expect(
+      requestLeadHandoff(fake, {
+        workspaceId: 'workspace-1',
+        channelId: 'channel-1',
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        expectedGeneration: 3,
+      })
+    ).rejects.toThrow('another target')
+  })
+
+  test('the request body is fixed so retries stay byte-identical', () => {
     expect(buildHandoffRequestBody('session-1')).toBe(buildHandoffRequestBody('session-1'))
     expect(buildHandoffRequestBody('session-1')).toContain('session-1')
   })

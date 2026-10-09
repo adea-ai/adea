@@ -8,6 +8,7 @@ export function parseLeadTurnMode(body: Record<string, unknown>): 'lead' | 'hist
     'artifactIds',
     'bodyContentRefId',
     'bodyText',
+    'handoffTarget',
     'mentions',
     'requestedModelSelections',
   ])

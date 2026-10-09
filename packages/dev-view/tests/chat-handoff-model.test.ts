@@ -74,6 +74,11 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
     dispatchId: 'dispatch_11111111111111111111111111111111',
     state: 'running',
     canCancel: true,
+    handoffTarget: {
+      runtimeSessionId: 'session-1',
+      taskId: '00000000-0000-4000-8000-0000000000f1',
+      observedGeneration: 3,
+    },
     ...overrides,
   }
 }
@@ -771,5 +776,24 @@ describe('lead-agent binding', () => {
   test('a missing turn or agent binds nothing without failing', () => {
     expect(resolveLeadCoordination(undefined, leadAgent())).toEqual({ bound: false })
     expect(resolveLeadCoordination(leadTurn(), undefined)).toEqual({ bound: false })
+    expect(resolveLeadCoordination(leadTurn(), leadAgent(), 'session-1')).toEqual({ bound: true })
+    expect(
+      resolveLeadCoordination(
+        leadTurn({
+          handoffTarget: {
+            runtimeSessionId: 'session-other',
+            taskId: '00000000-0000-4000-8000-0000000000f1',
+            observedGeneration: 3,
+          },
+        }),
+        leadAgent(),
+        'session-1'
+      )
+    ).toEqual({ bound: false, reason: 'the observed turn targets another session' })
+    const { handoffTarget: _target, ...targetless } = leadTurn()
+    expect(resolveLeadCoordination(targetless, leadAgent(), 'session-1')).toEqual({
+      bound: false,
+      reason: 'the observed turn names no handoff target',
+    })
   })
 })
