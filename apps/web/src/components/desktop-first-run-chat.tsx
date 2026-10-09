@@ -15,7 +15,7 @@ import type {
   HandoffLeadAgent,
   HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
-import { resolveLeadHandoffSupply } from '../lib/lead-handoff-supply'
+import { createOrderedScope, resolveLeadHandoffSupply } from '../lib/lead-handoff-supply'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -280,12 +280,8 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     turn?: HandoffLeadTurn
     agent?: HandoffLeadAgent
   }>({})
-  let leadResolution = 0
+  const leadScope = createOrderedScope()
   let lastLeadKey = ''
-  const advanceLeadEpoch = (): number => {
-    leadResolution += 1
-    return leadResolution
-  }
   createEffect(() => {
     const activeConversation = conversation()
     if (!activeConversation) return
@@ -296,11 +292,11 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     if (key === lastLeadKey) return
     lastLeadKey = key
     const request = lifecycle.current()
-    const epoch = advanceLeadEpoch()
+    const epoch = leadScope.begin()
     setLeadSupply({})
     void resolveLeadHandoffSupply(props.client, workspaceId, taskId).then((resolution) => {
       if (!lifecycle.isCurrent(request)) return
-      if (leadResolution !== epoch) return
+      if (!leadScope.isCurrent(epoch)) return
       if (conversation()?.runtimeSessionId !== sessionId) return
       if (resolution.status !== 'resolved') {
         setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
@@ -319,10 +315,10 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     const request = lifecycle.current()
     // The cancel is newer than any in-flight read: advance the epoch so a
     // late resolution cannot overwrite the receipt applied below.
-    const epoch = advanceLeadEpoch()
+    const epoch = leadScope.begin()
     const response = await props.client.cancelLeadTurn(workspaceId, turn.intentId)
     if (!lifecycle.isCurrent(request)) return
-    if (leadResolution !== epoch) return
+    if (!leadScope.isCurrent(epoch)) return
     if (conversation()?.runtimeSessionId !== activeConversation.runtimeSessionId) return
     // Refresh local facts from the canonical cancel receipt instead of
     // refetching: the response carries the turn's terminal state.

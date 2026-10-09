@@ -64,6 +64,31 @@ function toLeadAgent(input: {
 }
 
 /**
+ * Monotonic ordering scope for overlapping async resolutions. Each new
+ * resolution attempt (or invalidating mutation) begins an epoch; a
+ * completion applies only while its epoch is still current. This is what
+ * keeps a slow older read from overwriting a newer one for the same
+ * session, and what drops superseded selections without session-id
+ * round-trips. Shared by production and fixture hosts so the mounted
+ * out-of-order regression exercises the real primitive.
+ */
+export function createOrderedScope(): {
+  begin: () => number
+  current: () => number
+  isCurrent: (captured: number) => boolean
+} {
+  let epoch = 0
+  return {
+    begin: () => {
+      epoch += 1
+      return epoch
+    },
+    current: () => epoch,
+    isCurrent: (captured: number) => captured === epoch,
+  }
+}
+
+/**
  * Resolves the lead coordination facts linked to one exact direct session.
  * The session's cloud task id selects the channel: only an active lead
  * channel referencing that task can coordinate this session, and at most

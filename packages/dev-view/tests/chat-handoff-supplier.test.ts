@@ -219,6 +219,35 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(stale.generationCurrent).toBe(false)
   })
 
+  test('awaiting approval derives from open transcript approvals unless overridden', () => {
+    const requested = {
+      schemaVersion: 1,
+      eventId: 'approval-1',
+      runtimeSessionId: 'session-1',
+      generation: 3,
+      seq: '9',
+      occurredAt: '2026-09-22T10:00:00.000Z',
+      receivedAt: '2026-09-22T10:00:00.000Z',
+      source: 'host',
+      sourceEventId: 'source-9',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      kind: 'approval.requested',
+      payload: { name: 'deploy' },
+    } as const
+    const derived = deriveHandoffInputFromConversation({
+      conversation: conversation({ events: [requested] }),
+      connected: true,
+    })
+    expect(derived.awaitingApproval).toBe(true)
+    const overridden = deriveHandoffInputFromConversation({
+      conversation: conversation({ events: [requested] }),
+      connected: true,
+      awaitingApproval: false,
+    })
+    expect(overridden.awaitingApproval).toBe(false)
+  })
+
   test('session type completeness is preserved for the derivation', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation(),

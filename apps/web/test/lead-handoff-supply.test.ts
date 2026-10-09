@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { LeadHandoffPort, LeadHandoffResolution } from '../src/lib/lead-handoff-supply'
-import { resolveLeadHandoffSupply } from '../src/lib/lead-handoff-supply'
+import { createOrderedScope, resolveLeadHandoffSupply } from '../src/lib/lead-handoff-supply'
 
 const LEAD = {
   id: '00000000-0000-4000-8000-0000000000b2',
@@ -193,6 +193,38 @@ describe('task linkage', () => {
       'task-1'
     )
     expect(resolution).toMatchObject({ status: 'unresolved', reason: 'ambiguous-channels' })
+  })
+})
+
+describe('createOrderedScope', () => {
+  test('only the latest epoch applies; older completions are dropped', async () => {
+    const scope = createOrderedScope()
+    const applied: string[] = []
+    const gate = (() => {
+      let resolve!: () => void
+      const promise = new Promise<void>((resolvePromise) => {
+        resolve = resolvePromise
+      })
+      return { promise, resolve }
+    })()
+    const first = scope.begin()
+    const second = scope.begin()
+    const apply = (epoch: number, value: string) => {
+      if (scope.isCurrent(epoch)) applied.push(value)
+    }
+    const pending = gate.promise.then(() => apply(first, 'stale'))
+    apply(second, 'current')
+    gate.resolve()
+    await pending
+    expect(applied).toEqual(['current'])
+    expect(scope.current()).toBe(second)
+  })
+
+  test('a mutation advance invalidates in-flight reads', async () => {
+    const scope = createOrderedScope()
+    const read = scope.begin()
+    scope.begin()
+    expect(scope.isCurrent(read)).toBe(false)
   })
 })
 

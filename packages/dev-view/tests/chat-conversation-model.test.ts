@@ -148,6 +148,7 @@ describe('projectChatConversations', () => {
     })
     expect('conversationId' in projected.conversations[0]!).toBe(false)
     expect('groupIds' in projected.conversations[0]!).toBe(false)
+
     // Names come from the host's cloud project list; unknown ids show the short id.
     expect(projected.projects.map((project) => project.name)).toEqual(['Adea', 'project'])
     expect(
@@ -157,6 +158,21 @@ describe('projectChatConversations', () => {
         sessions: [first],
       }).conversations
     ).toHaveLength(0)
+  })
+
+  test('projects the session task id for task-linked lead resolution', () => {
+    const tasked = session({ taskId: '00000000-0000-4000-8000-0000000000f1' })
+    const plain = session({ id: '00000000-0000-4000-8000-000000000011' })
+    const projected = projectChatConversations({
+      scope: SCOPE,
+      projects: [
+        { id: 'project-1', scope: SCOPE, repoIds: ['repo-1'], lifecycle: 'ready', version: 1 },
+      ],
+      sessions: [tasked, plain],
+    })
+    const byId = new Map(projected.conversations.map((item) => [item.runtimeSessionId, item]))
+    expect(byId.get(tasked.id)?.taskId).toBe('00000000-0000-4000-8000-0000000000f1')
+    expect('taskId' in (byId.get(plain.id) ?? {})).toBe(false)
   })
 
   test('attaches by walking legal session list pages without an id filter', async () => {

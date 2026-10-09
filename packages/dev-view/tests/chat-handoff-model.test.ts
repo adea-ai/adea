@@ -8,6 +8,7 @@ import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runti
 import {
   deriveDirectSessionHandoff,
   deriveHandoffModeForSurface,
+  hasOpenApproval,
   resolveLeadCoordination,
   handoffActionReducer,
   handoffControlReasonId,
@@ -691,6 +692,27 @@ describe('view/action epoch', () => {
     await expect(pending).resolves.toBe('superseded')
     // Only the admission committed; the late completion committed nothing.
     expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
+  })
+})
+
+describe('open approvals', () => {
+  test('counts requested against resolved and expired within the window', () => {
+    expect(hasOpenApproval([])).toBe(false)
+    expect(hasOpenApproval([{ kind: 'turn.assistant_message' }])).toBe(false)
+    expect(hasOpenApproval([{ kind: 'approval.requested' }])).toBe(true)
+    expect(hasOpenApproval([{ kind: 'approval.requested' }, { kind: 'approval.resolved' }])).toBe(
+      false
+    )
+    expect(hasOpenApproval([{ kind: 'approval.requested' }, { kind: 'approval.expired' }])).toBe(
+      false
+    )
+    expect(
+      hasOpenApproval([
+        { kind: 'approval.requested' },
+        { kind: 'approval.requested' },
+        { kind: 'approval.resolved' },
+      ])
+    ).toBe(true)
   })
 })
 

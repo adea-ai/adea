@@ -20,7 +20,11 @@ import {
   type HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
-import { resolveLeadHandoffSupply, type LeadHandoffPort } from '../../src/lib/lead-handoff-supply'
+import {
+  createOrderedScope,
+  resolveLeadHandoffSupply,
+  type LeadHandoffPort,
+} from '../../src/lib/lead-handoff-supply'
 
 const SCOPE = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -149,6 +153,18 @@ function Harness() {
   const [backend, setBackend] = createSignal<FixtureBackend>(initial)
   const [activeId, setActiveId] = createSignal('session-1')
   const [connected, setConnected] = createSignal(true)
+  const [deferReads, setDeferReads] = createSignal(false)
+  const readQueue: Array<() => void> = []
+  // Reads snapshot the backend at call time: releasing the queue out of
+  // order replays genuinely stale observations, which is exactly what the
+  // epoch must drop.
+  const readBackend = <T,>(reader: (state: FixtureBackend) => T): Promise<T> => {
+    const snapshot = reader(JSON.parse(JSON.stringify(backend())) as FixtureBackend)
+    if (!deferReads()) return Promise.resolve(snapshot)
+    return new Promise<T>((resolve) => {
+      readQueue.push(() => resolve(snapshot))
+    })
+  }
   const [runs, setRuns] = createSignal<readonly HarnessRun[]>([])
   const [leadCancelCalls, setLeadCancelCalls] = createSignal(0)
   const [sessionCancelCalls, setSessionCancelCalls] = createSignal(0)
@@ -169,17 +185,19 @@ function Harness() {
   }
 
   const port: LeadHandoffPort = {
-    getWorkspaceLead: async () => ({
-      lead: {
-        id: LEAD_AGENT_ID,
-        isWorkspaceLead: true,
-        lifecycleState: 'active',
-      },
-    }),
-    listChannels: async () => backend().channels,
-    getChannelLeadTurn: async (_workspaceId, channelId) => ({
-      leadTurn: backend().turns[channelId] ?? null,
-    }),
+    getWorkspaceLead: async () =>
+      readBackend(() => ({
+        lead: {
+          id: LEAD_AGENT_ID,
+          isWorkspaceLead: true,
+          lifecycleState: 'active',
+        },
+      })),
+    listChannels: async () => readBackend((state) => state.channels),
+    getChannelLeadTurn: async (_workspaceId, channelId) =>
+      readBackend((state) => ({
+        leadTurn: state.turns[channelId] ?? null,
+      })),
     cancelLeadTurn: async (_workspaceId, intentId) => {
       setLeadCancelCalls((count) => count + 1)
       return new Promise((resolve, reject) => {
@@ -188,11 +206,16 @@ function Harness() {
     },
   }
 
+  // The same epoch ordering production uses: every refresh attempt
+  // advances, and only the latest attempt may apply its resolution.
+  const supplyScope = createOrderedScope()
   const refreshSupply = async (): Promise<void> => {
     const sessionId = activeId()
     const session = backend().sessions[sessionId]
     if (!session) return
+    const epoch = supplyScope.begin()
     const resolution = await resolveLeadHandoffSupply(port, SCOPE.workspaceId, session.taskId)
+    if (!supplyScope.isCurrent(epoch)) return
     if (activeId() !== sessionId) return
     if (resolution.status !== 'resolved') {
       setSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
@@ -397,6 +420,22 @@ function Harness() {
         </Button>
         <Button type="button" onClick={() => void refreshSupply()}>
           Refresh lead resolution
+        </Button>
+        <Button type="button" onClick={() => setDeferReads((value) => !value)}>
+          {deferReads() ? 'Stop deferring reads' : 'Defer reads'}
+        </Button>
+        <Button
+          type="button"
+          onClick={async () => {
+            // Drain to quiescence newest-first: sequential reads re-queue
+            // as their predecessors resolve, so one pass cannot suffice.
+            for (let wave = 0; wave < 20 && readQueue.length > 0; wave += 1) {
+              while (readQueue.length > 0) readQueue.pop()!()
+              await new Promise((resolve) => setTimeout(resolve, 0))
+            }
+          }}
+        >
+          Release reads LIFO
         </Button>
         <output aria-label="Lead cancel calls">{leadCancelCalls()}</output>
         <output aria-label="Session cancel calls">{sessionCancelCalls()}</output>

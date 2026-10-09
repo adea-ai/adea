@@ -520,6 +520,23 @@ export type DirectSessionHandoffSupply = Readonly<{
  * supplied lead-turn facts, never inferred. An explicit mode overrides
  * derivation.
  */
+/**
+ * Whether the retained transcript window ends with an open approval: more
+ * `approval.requested` events than closing (`resolved`/`expired`) ones.
+ * This mirrors exactly what the transcript surface shows, so the handoff
+ * badge never claims knowledge beyond the visible window. An explicit
+ * caller value always wins.
+ */
+export function hasOpenApproval(events: readonly { kind: string }[]): boolean {
+  let open = 0
+  for (const event of events) {
+    if (event.kind === 'approval.requested') open += 1
+    else if (event.kind === 'approval.resolved' || event.kind === 'approval.expired')
+      open = Math.max(0, open - 1)
+  }
+  return open > 0
+}
+
 export function deriveHandoffInputFromConversation(
   input: Readonly<{
     conversation: ChatConversation
@@ -589,7 +606,7 @@ export function deriveHandoffInputFromConversation(
     scopeAuthorized: input.scopeAuthorized ?? true,
     hasUnsentDraft:
       input.conversation.draft.trim().length > 0 || input.conversation.draftBlocks.length > 0,
-    awaitingApproval: input.awaitingApproval ?? false,
+    awaitingApproval: input.awaitingApproval ?? hasOpenApproval(input.conversation.events),
   }
   return base
 }

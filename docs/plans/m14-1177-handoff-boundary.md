@@ -131,16 +131,21 @@ disabled states; integration lands when the CP contract is confirmed.
 ## Traceability
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
-A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes,
-binding/replacement matrix, gap rows, a11y contract, action-machine and
-epoch admission; `chat-handoff-supplier.test.ts` lead-fact derivation;
-`chat-conversation-model.test.ts` session-cancel targeting plus live
-draft preservation; `project-session-handoff-journey.test.ts` joined
-real-register view-routing journey with reload persistence and fencing;
-mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts` over
-`e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only attach
-default, observed-turn journey with distinct lead/session stops,
-single-flight, replacement retargeting, late-completion and ABA busy
+A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes
+and agent binding, binding/replacement matrix, gap rows, approval
+counting, a11y contract, action-machine and epoch admission;
+`chat-handoff-supplier.test.ts` lead-fact and taskId derivation;
+`chat-conversation-model.test.ts` session-cancel targeting, live draft
+preservation, and taskId projection; `lead-handoff-supply.test.ts`
+task-linked resolution matrix (no-link zero reads, unrelated ignored,
+foreign excluded, same-task ambiguity), epoch ordering, and
+resolver→derivation composition; `project-session-handoff-journey.test.ts`
+joined real-register view-routing journey with reload persistence and
+fencing; mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
+over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only
+attach default, linked journey with distinct lead/session stops,
+unlinked and ambiguous sessions, single-flight, replacement
+retargeting, late-completion, ABA busy, and out-of-order resolution
 fences, reload of re-read facts, keyboard/focus, AT tree, narrow/200%
 text, reduced motion — the mounted file on an ephemeral loopback
 harness server, no backend or database; no duplicate execution, no
