@@ -26,8 +26,15 @@ if (integrationDirectories.length === 0) {
 // share this lane's provisioning but run under the react-server export
 // condition, which the runner supplies — the route modules carry the
 // `server-only` marker and cannot initialize under bun's default conditions.
+// The directory is required to exist: coverage silently shrinking out of the
+// lane would be indistinguishable from a green run.
 const routeFlowDirectory = resolve(root, 'apps', 'web', 'test', 'integration')
-const routeFlowDirectories = existsSync(routeFlowDirectory) ? [routeFlowDirectory] : []
+if (!existsSync(routeFlowDirectory)) {
+  throw new Error(
+    'apps/web/test/integration is missing; the route-flow lane cannot be silently skipped'
+  )
+}
+const routeFlowDirectories = [routeFlowDirectory]
 
 function run(command, args, environment) {
   const result = spawnSync(command, args, {
@@ -71,6 +78,7 @@ const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
 let startedLocalPostgres = false
+let primaryFailure
 
 try {
   // The database producer consumes the package's compiled public envelope
@@ -104,30 +112,35 @@ try {
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
   run('bun', ['test', '--timeout', String(timeoutMs), ...integrationDirectories], environment)
-  if (routeFlowDirectories.length > 0) {
-    // The route flow imports the compiled @adea-ai/db and @adea-ai/api-client
-    // entries (the package suites above import their own src relatively), so
-    // both must be built on a clean checkout before the route tests run. Like
-    // the builds above, this keeps integration runnable independently from a
-    // workspace-wide turbo build.
-    run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
-    run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
-    // The runner sets the react-server condition for the route-flow modules;
-    // the shared database environment and the same latency-sized ceiling apply.
-    run(
-      'bun',
-      [
-        'test',
-        '--conditions=react-server',
-        '--timeout',
-        String(timeoutMs),
-        ...routeFlowDirectories,
-      ],
-      environment
-    )
-  }
-} finally {
-  if (startedLocalPostgres) {
+  // The route flow imports the compiled @adea-ai/db and @adea-ai/api-client
+  // entries (the package suites above import their own src relatively), so
+  // both must be built on a clean checkout before the route tests run. Like
+  // the builds above, this keeps integration runnable independently from a
+  // workspace-wide turbo build.
+  run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
+  run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+  // The runner sets the react-server condition for the route-flow modules;
+  // the shared database environment and the same latency-sized ceiling apply.
+  run(
+    'bun',
+    ['test', '--conditions=react-server', '--timeout', String(timeoutMs), ...routeFlowDirectories],
+    environment
+  )
+} catch (error) {
+  primaryFailure = error
+}
+
+if (startedLocalPostgres) {
+  // Cleanup runs on success AND failure, and never hides the primary result:
+  // when the lane already failed, a broken stop is reported to stderr instead
+  // of replacing the real failure; when the lane was green, a leaked container
+  // still fails the run.
+  try {
     run('docker', ['compose', 'stop', 'postgres'], process.env)
+  } catch (error) {
+    console.error(`docker compose stop postgres failed: ${error.message}`)
+    primaryFailure ??= error
   }
 }
+
+if (primaryFailure) throw primaryFailure
