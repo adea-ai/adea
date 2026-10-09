@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { ManagementAuthorityDecision } from '@adea-ai/types/management'
+import type {
+  ManagementAuthorityClaim,
+  ManagementAuthorityCompletion,
+  ManagementAuthorityDecision,
+  ManagementCurrentAuthorityRequest,
+} from '@adea-ai/types/management'
 
 import {
-  createBoundedDecisionConsumption,
   createLeadManagementHandler,
   parseLeadManagementCall,
   type LeadManagementRouteDependencies,
@@ -31,6 +35,12 @@ function success(value: unknown): ManagementOutcome<unknown> {
 
 function harness(
   options: Readonly<{
+    assertCurrent?: (request: ManagementCurrentAuthorityRequest) => Promise<void>
+    claim?: (decision: ManagementAuthorityDecision) => Promise<ManagementAuthorityClaim>
+    complete?: (
+      decision: ManagementAuthorityDecision,
+      completion: ManagementAuthorityCompletion
+    ) => Promise<boolean>
     decision?: ManagementAuthorityDecision | null
     operationOutcome?: ManagementOutcome<unknown>
   }> = {}
@@ -79,8 +89,21 @@ function harness(
       return (options.operationOutcome ?? success({ id: MANAGEMENT_WORKSPACE })) as never
     },
   }
+  const assertCurrentCalls: ManagementCurrentAuthorityRequest[] = []
+  const completions: ManagementAuthorityCompletion[] = []
   const dependencies: LeadManagementRouteDependencies = {
-    consumeDecision: async () => true,
+    assertCurrent:
+      options.assertCurrent ??
+      (async (request) => {
+        assertCurrentCalls.push(request)
+      }),
+    claim: options.claim ?? (async () => ({ state: 'claimed' as const })),
+    complete:
+      options.complete ??
+      (async (_decision, completion) => {
+        completions.push(completion)
+        return true
+      }),
     now: () => MANAGEMENT_NOW,
     operationsFor(caller) {
       callers.push(caller)
@@ -88,7 +111,7 @@ function harness(
     },
     verify: async () => options.decision ?? null,
   }
-  return { calls, callers, dependencies }
+  return { assertCurrentCalls, calls, callers, completions, dependencies }
 }
 
 function callRequest(call: unknown, token = 'signed-token') {
@@ -194,13 +217,16 @@ describe('lead management host endpoint (#1215)', () => {
     expect(run.calls).toEqual([])
   })
 
-  test('a second use of the same decision is a typed replay with zero new operations', async () => {
+  test('a durable replay claim refuses without a second operation', async () => {
     const decision = await updateDecision()
-    const run = harness({ decision })
-    run.dependencies = {
-      ...run.dependencies,
-      consumeDecision: createBoundedDecisionConsumption(8),
-    }
+    const claims: ManagementAuthorityClaim[] = [
+      { state: 'claimed' },
+      { state: 'replayed', resultDigest: null },
+    ]
+    const run = harness({
+      claim: async () => claims.shift() ?? { state: 'replayed', resultDigest: null },
+      decision,
+    })
     const handler = createLeadManagementHandler(run.dependencies)
     expect((await handler(callRequest(updateCall))).status).toBe(200)
     const replay = await handler(callRequest(updateCall))
@@ -211,6 +237,76 @@ describe('lead management host endpoint (#1215)', () => {
       reason: 'authority_replay',
     })
     expect(run.calls.length).toBe(1)
+  })
+
+  test('an interrupted durable claim returns recovery_required with zero effects', async () => {
+    const decision = await updateDecision()
+    const run = harness({
+      claim: async () => ({ priorState: 'claimed', state: 'recovery_required' }),
+      decision,
+    })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(updateCall))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation: 'project.update',
+      reason: 'authority_recovery_required',
+    })
+    expect(run.calls).toEqual([])
+  })
+
+  test('a revoked current authority on a later delivery refuses with zero effects', async () => {
+    const decision = await updateDecision()
+    let revoked = false
+    const run = harness({
+      assertCurrent: async () => {
+        if (revoked) throw new Error('approval revoked')
+      },
+      decision,
+    })
+    const handler = createLeadManagementHandler(run.dependencies)
+    expect((await handler(callRequest(updateCall))).status).toBe(200)
+    revoked = true
+    const denied = await handler(callRequest(updateCall))
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toEqual({
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation: 'project.update',
+      reason: 'authority_unavailable',
+    })
+    expect(run.calls.length).toBe(1)
+  })
+
+  test('every delivery reaches the current-authority owner before the claim', async () => {
+    const decision = await updateDecision()
+    const order: string[] = []
+    const run = harness({
+      assertCurrent: async () => {
+        order.push('assert')
+      },
+      claim: async () => {
+        order.push('claim')
+        return { state: 'claimed' }
+      },
+      complete: async () => {
+        order.push('complete')
+        return true
+      },
+      decision,
+    })
+    await createLeadManagementHandler(run.dependencies)(callRequest(updateCall))
+    expect(order).toEqual(['assert', 'claim', 'complete'])
+  })
+
+  test('a failed completion is a bounded refyusal even when the effect ran', async () => {
+    const decision = await updateDecision()
+    const run = harness({ complete: async () => false, decision })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(updateCall))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation: 'project.update',
+    })
   })
 
   test('refusal statuses map to typed outcomes for forbidden, conflict and unsupported', async () => {

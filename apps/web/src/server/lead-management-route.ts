@@ -13,17 +13,28 @@
 import {
   isManagementOperationId,
   managementCallSchemaVersion,
+  managementInputDigest,
   managementOperationSupport,
+  validateManagementAuthorityDecision,
   type ManagementAuthorityDecision,
+  type ManagementAuthorityReasonCode,
+  type ManagementAuthorityClaim,
+  type ManagementAuthorityCompletion,
+  type ManagementCurrentAuthority,
 } from '@adea-ai/types/management'
 
 import {
   executeLeadManagementTool,
+  leadManagementToolBinding,
   type LeadManagementAuthority,
   type LeadManagementToolCall,
-  type LeadManagementToolsDependencies,
 } from './lead-management-tools'
-import type { ManagementCaller, ManagementOutcome } from './management-gateway'
+import type {
+  ManagementCaller,
+  ManagementFailure,
+  ManagementFailureReason,
+  ManagementOutcome,
+} from './management-gateway'
 import type { ManagementOperations } from './management-operations'
 import { parseWorkspaceUpdate } from './workspace-request'
 import type { ProjectMemberRole, ProjectSourceKind, ProjectVisibility } from '@adea-ai/types'
@@ -34,9 +45,20 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 export type LeadManagementRouteDependencies = Readonly<{
   verify(request: Request): Promise<ManagementAuthorityDecision | null>
+  /**
+   * Per-delivery CP current-authority/consumption assertion. Required: this
+   * endpoint refuses a lead effect unless an actual current-authority owner is
+   * wired, so a signed decision alone is never treated as a durable grant.
+   */
+  assertCurrent: ManagementCurrentAuthority
+  /** Durable, database-backed claim; the primary replay owner. */
+  claim(decision: ManagementAuthorityDecision): Promise<ManagementAuthorityClaim>
+  /** Marks the durable claim after the effect; false means it was not owned. */
+  complete(
+    decision: ManagementAuthorityDecision,
+    completion: ManagementAuthorityCompletion
+  ): Promise<boolean>
   operationsFor(caller: ManagementCaller): ManagementOperations
-  /** Local single-use guard; the CP store remains the durable replay owner. */
-  consumeDecision(decision: ManagementAuthorityDecision): Promise<boolean>
   now?(): number
 }>
 
@@ -230,25 +252,6 @@ export function parseLeadManagementCall(
   }
 }
 
-function failureResponse(outcome: Extract<ManagementOutcome<unknown>, { ok: false }>) {
-  const status =
-    outcome.failure.code === 'forbidden' || outcome.failure.code === 'authority_required'
-      ? 403
-      : outcome.failure.code === 'stale_revision' || outcome.failure.code === 'conflict'
-        ? 409
-        : outcome.failure.code === 'unsupported'
-          ? 501
-          : 503
-  return Response.json(
-    {
-      code: 'LEAD_MANAGEMENT_REFUSED',
-      operation: outcome.failure.operation,
-      ...(outcome.failure.reason ? { reason: outcome.failure.reason } : {}),
-    },
-    { status, headers: { 'cache-control': 'private, no-store' } }
-  )
-}
-
 export function createLeadManagementHandler(dependencies: LeadManagementRouteDependencies) {
   return async (request: Request): Promise<Response> => {
     try {
@@ -257,20 +260,85 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
       if (body === undefined) return unavailable()
       const decision = await dependencies.verify(request)
       if (!decision) return unavailable()
-      const call = parseLeadManagementCall(body, {
+      const authority: LeadManagementAuthority = {
         authorityRef: decision.authorityRef,
         intentId: decision.intentId,
         leadAgentId: decision.leadAgentId,
-      })
-      if (!call) return unavailable()
-      const tools: LeadManagementToolsDependencies = {
-        consumeDecision: dependencies.consumeDecision,
-        operationsFor: dependencies.operationsFor,
-        resolveAuthority: async () => decision,
-        ...(dependencies.now ? { now: dependencies.now } : {}),
       }
-      const outcome = await executeLeadManagementTool(tools, call)
-      if (!outcome.ok) return failureResponse(outcome)
+      const call = parseLeadManagementCall(body, authority)
+      if (!call) return unavailable()
+      const binding = await leadManagementToolBinding(call)
+      if (!binding) return unavailable()
+
+      const now = dependencies.now?.() ?? Date.now()
+      const invalid = validateManagementAuthorityDecision(decision, {
+        authorityRef: authority.authorityRef,
+        binding,
+        intentId: authority.intentId,
+        leadAgentId: authority.leadAgentId,
+        now,
+      })
+      if (invalid) return refusal(call.operation, invalid)
+
+      // Every delivery reaches the current-authority owner before any effect.
+      try {
+        await dependencies.assertCurrent({
+          approval: decision.approval,
+          audienceRef: decision.audienceRef,
+          authorityRef: decision.authorityRef,
+          authorityRevision: decision.authorityRevision,
+          binding,
+          decisionId: decision.decisionId,
+          intentId: decision.intentId,
+          leadAgentId: decision.leadAgentId,
+          now,
+          planRef: decision.planRef,
+          planRevision: decision.planRevision,
+          principal: decision.principal,
+        })
+      } catch {
+        return refusal(call.operation, 'authority_unavailable')
+      }
+
+      // The durable database claim is the primary replay owner across workers,
+      // restarts and eviction; an interrupted claim never executes twice.
+      let claim: ManagementAuthorityClaim
+      try {
+        claim = await dependencies.claim(decision)
+      } catch {
+        return failureResponse(
+          call.operation,
+          'unavailable',
+          'Management consumption is unavailable'
+        )
+      }
+      if (claim.state === 'replayed') return refusal(call.operation, 'authority_replay')
+      if (claim.state === 'recovery_required')
+        return refusal(call.operation, 'authority_recovery_required')
+
+      const outcome = await executeLeadManagementTool(
+        {
+          operationsFor: dependencies.operationsFor,
+          resolveAuthority: async () => decision,
+          ...(dependencies.now ? { now: dependencies.now } : {}),
+        },
+        call
+      )
+
+      const completed = await completeClaim(dependencies, decision, outcome)
+      if (!completed)
+        return failureResponse(
+          call.operation,
+          'unavailable',
+          'Management consumption is unavailable'
+        )
+      if (!outcome.ok)
+        return failureResponse(
+          outcome.failure.operation,
+          outcome.failure.code,
+          outcome.failure.message,
+          outcome.failure.reason
+        )
       return Response.json(
         {
           operation: outcome.operation,
@@ -285,21 +353,56 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
   }
 }
 
-/**
- * Bounded, process-local replay guard (defense in depth). CP932 owns the
- * durable single-use approval store; this only prevents a replayed decision
- * from executing twice in one warm process while the durable store rejects it
- * upstream.
- */
-export function createBoundedDecisionConsumption(maxEntries = 1_024) {
-  const consumed = new Set<string>()
-  return async (decision: ManagementAuthorityDecision): Promise<boolean> => {
-    if (consumed.has(decision.decisionId)) return false
-    if (consumed.size >= maxEntries) {
-      const oldest = consumed.values().next().value
-      if (oldest !== undefined) consumed.delete(oldest)
-    }
-    consumed.add(decision.decisionId)
-    return true
+async function completeClaim(
+  dependencies: LeadManagementRouteDependencies,
+  decision: ManagementAuthorityDecision,
+  outcome: ManagementOutcome<unknown>
+): Promise<boolean> {
+  try {
+    const resultDigest = outcome.ok ? await managementInputDigest(outcome.value) : null
+    return await dependencies.complete(
+      decision,
+      outcome.ok
+        ? { resultDigest, state: 'succeeded' }
+        : { failureCode: outcome.failure.code, state: 'failed' }
+    )
+  } catch {
+    return false
   }
+}
+
+function refusal(
+  operation: ManagementFailure['operation'],
+  reason: ManagementAuthorityReasonCode
+): Response {
+  return failureResponse(
+    operation,
+    'authority_required',
+    'Lead management authority is unavailable',
+    reason
+  )
+}
+
+function failureResponse(
+  operation: ManagementFailure['operation'],
+  code: ManagementFailure['code'],
+  message: string,
+  reason?: ManagementFailureReason
+): Response {
+  const status =
+    code === 'forbidden' || code === 'authority_required'
+      ? 403
+      : code === 'stale_revision' || code === 'conflict'
+        ? 409
+        : code === 'unsupported'
+          ? 501
+          : 503
+  return Response.json(
+    {
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation,
+      ...(reason ? { reason } : {}),
+    },
+    { status, headers: { 'cache-control': 'private, no-store' } }
+  )
 }

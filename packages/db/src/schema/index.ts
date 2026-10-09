@@ -10,6 +10,10 @@ export {
   workspaces,
 } from './workspaces'
 export {
+  managementAuthorityConsumptionState,
+  managementAuthorityConsumptions,
+} from './management-authority'
+export {
   commandOutbox,
   eventInbox,
   outboxStatus,

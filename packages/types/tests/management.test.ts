@@ -352,6 +352,7 @@ describe('management authority binding (#1215)', () => {
       'authority_expired',
       'authority_not_yet_valid',
       'authority_approval_expired',
+      'authority_recovery_required',
       'authority_replay',
     ])
     expect(Object.isFrozen(managementAuthorityReasonCodes)).toBe(true)

@@ -229,6 +229,13 @@ export {
   type WorkspaceRole,
 } from './workspaces'
 export {
+  claimManagementAuthorityDecision,
+  completeManagementAuthorityDecision,
+  type ManagementAuthorityClaim,
+  type ManagementAuthorityClaimInput,
+  type ManagementAuthorityCompletion,
+} from './management-authority-consumption'
+export {
   archiveProject,
   createProject,
   getProjectForUser,
