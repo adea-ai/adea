@@ -49,6 +49,15 @@ export type ApiLeadTurnStatus = Readonly<{
   runtimeSessionId?: string
   /** Exact admission target retained on the intent; absent for legacy admissions. */
   handoffTarget?: ApiHandoffTarget
+  /** Control-plane-reported execution observation (session + task) attached
+   *  by display reads when a live lookup returned one. Execution location
+   *  from control-plane records — never target authority, and never
+   *  carrying a generation. Absent when unobserved, unreachable, or
+   *  unconfigured. */
+  observedTarget?: Readonly<{
+    sessionId: string
+    taskId: string
+  }>
   observedAt?: string
   cancelRequestedAt?: string
   publishedMessageId?: string

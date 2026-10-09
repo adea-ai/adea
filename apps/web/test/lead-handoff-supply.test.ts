@@ -302,6 +302,32 @@ describe('effect-boundary mapping', () => {
     expect(resolution.leadTurn?.executionRuntimeSessionId).toBe('session-1')
   })
 
+  test('a control-plane-reported target maps through for display', async () => {
+    const reported = {
+      intentId: '00000000-0000-4000-8000-0000000000a1',
+      state: 'blocked',
+      canCancel: false,
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
+      observedTarget: { sessionId: 'ses_01JABCDEF0123456789ABCDEFG', taskId: TASK },
+    }
+    const resolution = await resolveLeadHandoffSupply(
+      port({ getChannelLeadTurn: (async () => ({ leadTurn: reported })) as never }),
+      'workspace-1',
+      'task-1',
+      SESSION
+    )
+    expect(resolution.status).toBe('resolved')
+    if (resolution.status !== 'resolved') return
+    expect(resolution.leadTurn?.observedTarget).toEqual({
+      sessionId: 'ses_01JABCDEF0123456789ABCDEFG',
+      taskId: TASK,
+    })
+  })
+
   test('an unobserved turn still maps; binding is decided downstream', async () => {
     const resolution = await resolveLeadHandoffSupply(port(), 'workspace-1', 'task-1', SESSION)
     expect(resolution.status).toBe('resolved')

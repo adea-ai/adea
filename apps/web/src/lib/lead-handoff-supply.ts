@@ -152,6 +152,13 @@ export async function resolveLeadHandoffSupply(
     }
     /** Runtime-validated execution binding, when the runtime observed one. */
     runtimeSessionId?: string
+    /** Control-plane-reported execution observation, when a live display
+     *  read returned one. Displayed for owner comparison only — never
+     *  authority, never carrying a generation. */
+    observedTarget?: {
+      sessionId: string
+      taskId: string
+    }
   } | null
   try {
     turn = (await port.getChannelLeadTurn(workspaceId, linked[0]!.id, sessionRef.runtimeSessionId))
@@ -180,6 +187,16 @@ export async function resolveLeadHandoffSupply(
       // coordination without an explicit target-bound observation.
       ...(turn.runtimeSessionId !== undefined
         ? { executionRuntimeSessionId: turn.runtimeSessionId }
+        : {}),
+      ...(turn.observedTarget !== undefined &&
+      typeof turn.observedTarget.sessionId === 'string' &&
+      typeof turn.observedTarget.taskId === 'string'
+        ? {
+            observedTarget: {
+              sessionId: turn.observedTarget.sessionId,
+              taskId: turn.observedTarget.taskId,
+            },
+          }
         : {}),
       handoffTarget: {
         runtimeSessionId: turn.handoffTarget.runtimeSessionId,

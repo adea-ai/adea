@@ -265,9 +265,22 @@ complete-target and selection identity); latest-retained
 request reads (ordering among retained requests confers nothing).
 CP935 status: target observation shapes merged (requestedTarget
 untrusted routing annotation + observedTarget session/task from
-verified records, no generation field by design); the Adea
-surface consumes the doctrine, not the data — no CP receipt is
-wired or labeled trusted, and Adea sends no target at dispatch.
+verified records, no generation field by design). The Adea
+surface wires the merged receipt through the production path —
+adapter lookup projection (validated, malformed omitted), product
+latest/latestForTarget attach (fail-soft omit on absent/throwing/
+mismatched lookup), api-client optional fields, supply mapping,
+and requested-notice display — and labels it at every layer as
+control-plane-reported, unverified, generation-less, never
+coordination evidence. Adea sends no target at dispatch; CP
+echoes only what its own records verify. Field mapping across
+the boundary: Adea handoffTarget{runtimeSessionId,taskId,
+observedGeneration} is the claim; CP observedTarget{sessionId,
+taskId} is execution location in CP namespace (never equal to a
+desktop UUID by construction); Adea runtimeSessionId (ses_) carries
+the dispatch-time CP observation via binding/recovery, while CP
+observedTarget carries the lookup-time one — agreement is
+consistency evidence between two reads, never authority.
 AWAITING canonical CP935 control integration (issue stays OPEN;
 nothing here claims complete while coordination is unavailable):
 control-plane#935 (M13.02, open, 0xPlayerOne-filed, unassigned,

@@ -103,6 +103,12 @@ type BackendTurn = {
   }
   /** API snapshot shape: the runtime-observed execution session, when any. */
   runtimeSessionId?: string
+  /** Control-plane-reported execution observation, when a live display
+   *  read returned one. Displayed for owner comparison only. */
+  observedTarget?: {
+    sessionId: string
+    taskId: string
+  }
 }
 
 type FixtureBackend = {
@@ -526,6 +532,28 @@ function Harness() {
         </Button>
         <Button type="button" onClick={() => observeTurn('running', 'session-other')}>
           Observe foreign lead turn
+        </Button>
+        <Button
+          type="button"
+          onClick={() => {
+            const existing = backend().turns[LEAD_CHANNEL_ID]
+            if (!existing) return
+            updateBackend((previous) => ({
+              ...previous,
+              turns: {
+                ...previous.turns,
+                [LEAD_CHANNEL_ID]: {
+                  ...previous.turns[LEAD_CHANNEL_ID]!,
+                  observedTarget: {
+                    sessionId: 'ses_01JABCDEF0123456789ABCDEFG',
+                    taskId: TASK_ID,
+                  },
+                },
+              },
+            }))
+          }}
+        >
+          Observe CP-reported target
         </Button>
         <Button type="button" onClick={() => observeTurn('running', 'session-1', 'session-other')}>
           Observe mismatched binding

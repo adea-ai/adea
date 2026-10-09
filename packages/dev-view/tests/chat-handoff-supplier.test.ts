@@ -377,6 +377,27 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(view.notice).toMatch(/requested/)
   })
 
+  test('a reported control-plane observation displays without coordinating', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({
+        state: 'blocked',
+        canCancel: false,
+        observedTarget: { sessionId: 'ses_01JABCDEF0123456789ABCDEFG', taskId: 'task-9' },
+      }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.notice).toMatch(
+      /Control plane reports execution in session ses_01JABCDEF0123456789ABCDEFG/
+    )
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+  })
+
   test('a targetless turn grants nothing and keeps handoff available', () => {
     const { handoffTarget: _target, ...targetless } = leadTurn()
     const supplied = deriveHandoffInputFromConversation({

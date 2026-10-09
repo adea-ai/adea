@@ -101,6 +101,15 @@ export type HandoffLeadTurn = Readonly<{
    *  location, NOT authority over any target session — it never
    *  establishes coordination alone. Absent means never observed. */
   executionRuntimeSessionId?: string
+  /** Control-plane-reported execution observation (session + task) as
+   *  returned by a live display read. Displayed for owner comparison
+   *  only — never authority, never carrying a generation, and never
+   *  establishing coordination. Absent when unobserved, unreachable,
+   *  or unconfigured. */
+  observedTarget?: Readonly<{
+    sessionId: string
+    taskId: string
+  }>
 }>
 
 const LIVE_LEAD_TURN_STATES: readonly HandoffLeadTurnState[] = [
@@ -402,10 +411,16 @@ export function deriveDirectSessionHandoff(
     (input.claimedTurn.state === 'blocked' || input.claimedTurn.state === 'unknown')
   ) {
     const claimedGeneration = input.claimedTurn.handoffTarget?.observedGeneration
+    const reported = input.claimedTurn.observedTarget
+    const reportedLine =
+      reported !== undefined
+        ? ` Control plane reports execution in session ${reported.sessionId} for task ${reported.taskId} (unverified report, no generation — never coordination evidence).`
+        : ''
     notice =
-      claimedGeneration !== undefined && claimedGeneration !== input.session.generation
+      (claimedGeneration !== undefined && claimedGeneration !== input.session.generation
         ? `Lead coordination requested for this session at generation ${claimedGeneration}, but the session is at generation ${input.session.generation}. The request is stale: re-request to bind current context, or check its status below.`
-        : 'Lead coordination requested for this session. The request is retained but unvalidated: coordination establishes only when the runtime observes execution bound to this session.'
+        : 'Lead coordination requested for this session. The request is retained but unvalidated: coordination establishes only when the runtime observes execution bound to this session.') +
+      reportedLine
   } else if (input.leadMismatch) {
     notice =
       input.leadMismatchReason !== undefined

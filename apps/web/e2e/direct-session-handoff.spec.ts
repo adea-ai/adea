@@ -293,6 +293,26 @@ test('a runtime binding to another session never coordinates', async ({ page }) 
   expectNoErrors(errors)
 })
 
+test('a control-plane-reported observation displays without coordinating', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/requested for this session/)).toBeVisible()
+  // The control plane reports execution elsewhere: the reported line
+  // appears beside the request, coordination stays unavailable, and the
+  // request path stays open for re-checks.
+  await page.getByRole('button', { name: 'Observe CP-reported target' }).click()
+  await expect(
+    section(page).getByText(/Control plane reports execution in session ses_/)
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check lead status', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Check lead status', exact: true }).click()
+  await expect(
+    section(page).getByText(/Control plane reports execution in session ses_/)
+  ).toBeVisible()
+  expectNoErrors(errors)
+})
+
 test('a live observed turn blocks a second admission', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()
