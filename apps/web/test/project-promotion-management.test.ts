@@ -1,6 +1,6 @@
 // Promotion wiring through the shared management API (M14.03.2, adea#1218).
 // The same gateway contract the sibling #1215 slice enforces for other
-// project operations applies here: one authorization, exact revision, and
+// project operations applies here: the first authorization plus the late recheck, exact revision, and
 // explicit confirmation, on the human and lead lanes alike.
 import { describe, expect, test } from 'bun:test'
 import type { AgentHqDatabase } from '@adea-ai/db'
@@ -15,6 +15,7 @@ import {
   createManagementOperations,
   type ManagementExecutors,
 } from '../src/server/management-operations'
+import { MANAGEMENT_NOW, managementAuthorityDecision } from './helpers/management-authority'
 
 const WORKSPACE = '0f3a2e1c-0000-4000-8000-000000000001'
 const PROJECT = '0f3a2e1c-0000-4000-8000-000000000002'
@@ -71,6 +72,7 @@ function harness(caller: ManagementCaller, options: Readonly<{ allowed?: boolean
   }
   const gateway = createManagementGateway(
     {
+      async assertCurrent() {},
       async authorize(input) {
         authorized.push({ permission: input.permission, workspaceId: input.workspaceId })
         return options.allowed ?? true
@@ -79,7 +81,8 @@ function harness(caller: ManagementCaller, options: Readonly<{ allowed?: boolean
         audited.push(decision)
       },
     },
-    caller
+    caller,
+    () => MANAGEMENT_NOW
   )
   return {
     audited,
@@ -110,9 +113,14 @@ function promoteInput(overrides: Readonly<Record<string, unknown>> = {}) {
 describe('project promotion through the shared management API (#1218)', () => {
   test('authorizes with workspace.update and executes the exact revisioned call', async () => {
     const run = harness({ kind: 'human' })
-    const outcome = await run.operations.projectPromote(promoteInput())
+    const outcome = await run.operations.projectPromote(promoteInput(), undefined)
     expect(outcome).toEqual({ ok: true, operation: 'project.promote', value: project })
-    expect(run.authorized).toEqual([{ permission: 'workspace.update', workspaceId: WORKSPACE }])
+    // The combined gateway authorizes once and rechecks after the awaited
+    // authorize/audit, so a revocation during those waits stops the effect.
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+    ])
     expect(run.calls).toEqual([
       {
         args: [
@@ -129,7 +137,7 @@ describe('project promotion through the shared management API (#1218)', () => {
 
   test('a denied authorization never reaches the executor', async () => {
     const run = harness({ kind: 'human' }, { allowed: false })
-    const outcome = await run.operations.projectPromote(promoteInput())
+    const outcome = await run.operations.projectPromote(promoteInput(), undefined)
     expect(outcome.ok).toBe(false)
     if (outcome.ok) throw new Error('unreachable')
     expect(outcome.failure).toMatchObject({ code: 'forbidden', operation: 'project.promote' })
@@ -145,7 +153,7 @@ describe('project promotion through the shared management API (#1218)', () => {
         name: 'ProjectStatePromotionError',
       })
     })
-    const outcome = await run.operations.projectPromote(promoteInput())
+    const outcome = await run.operations.projectPromote(promoteInput(), undefined)
     expect(outcome.ok).toBe(false)
     if (outcome.ok) throw new Error('unreachable')
     expect(outcome.failure).toMatchObject({
@@ -175,20 +183,34 @@ describe('project promotion through the shared management API (#1218)', () => {
   })
 
   test('a lead caller takes the identical authorization and audit path', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { confirmed: true, expectedVersion: PROJECT_VERSION },
+      operation: 'project.promote',
+      targetId: PROJECT,
+    })
     const lead: ManagementCaller = {
-      authorityRef: 'authority-1',
-      intentId: 'intent-1',
+      decision,
       kind: 'lead',
-      leadAgentId: 'agent-lead-1',
+      reference: {
+        authorityRef: decision.authorityRef,
+        intentId: decision.intentId,
+        leadAgentId: decision.leadAgentId,
+      },
     }
     const run = harness(lead)
-    const outcome = await run.operations.projectPromote(promoteInput())
+    const outcome = await run.operations.projectPromote(promoteInput(), decision.binding)
     expect(outcome).toEqual({ ok: true, operation: 'project.promote', value: project })
-    expect(run.authorized).toEqual([{ permission: 'workspace.update', workspaceId: WORKSPACE }])
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+      { permission: 'workspace.update', workspaceId: WORKSPACE },
+    ])
     expect(run.audited).toEqual([
       {
+        authorityRef: decision.authorityRef,
+        binding: decision.binding,
         caller: lead,
         decision: 'allowed',
+        decisionId: decision.decisionId,
         operation: 'project.promote',
         permission: 'workspace.update',
         principal: PRINCIPAL,
