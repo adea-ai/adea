@@ -62,21 +62,23 @@ describe('deriveHandoffModeForSurface', () => {
     for (const lifecycle of ['completed', 'failed', 'cancelled'] as const) {
       expect(
         deriveHandoffModeForSurface({
-          authority: 'chat',
           lifecycle,
           archived: false,
           connected: true,
           generationCurrent: true,
+          runBound: true,
+          coordination: 'lead',
         })
       ).toBe('one_time_review')
     }
     expect(
       deriveHandoffModeForSurface({
-        authority: 'chat',
         lifecycle: 'active',
         archived: true,
         connected: true,
         generationCurrent: true,
+        runBound: true,
+        coordination: 'lead',
       })
     ).toBe('one_time_review')
   })
@@ -84,34 +86,51 @@ describe('deriveHandoffModeForSurface', () => {
   test('a stale or offline view attaches read-only until resync', () => {
     expect(
       deriveHandoffModeForSurface({
-        authority: 'chat',
         lifecycle: 'active',
         archived: false,
         connected: false,
         generationCurrent: true,
+        runBound: true,
+        coordination: 'lead',
       })
     ).toBe('attached')
     expect(
       deriveHandoffModeForSurface({
-        authority: 'chat',
         lifecycle: 'active',
         archived: false,
         connected: true,
         generationCurrent: false,
+        runBound: true,
+        coordination: 'lead',
       })
     ).toBe('attached')
   })
 
-  test('the input owner decides between coordination and attachment', () => {
+  test('a live session with no bound run attaches: nothing to coordinate', () => {
+    expect(
+      deriveHandoffModeForSurface({
+        lifecycle: 'active',
+        archived: false,
+        connected: true,
+        generationCurrent: true,
+        runBound: false,
+        coordination: 'lead',
+      })
+    ).toBe('attached')
+  })
+
+  test('the coordination holder decides between handoff and returned', () => {
     const live = {
       lifecycle: 'active',
       archived: false,
       connected: true,
       generationCurrent: true,
+      runBound: true,
     } as const
-    expect(deriveHandoffModeForSurface({ ...live, authority: 'chat' })).toBe('coordination_handoff')
-    expect(deriveHandoffModeForSurface({ ...live, authority: 'dev' })).toBe('attached')
-    expect(deriveHandoffModeForSurface({ ...live, authority: 'none' })).toBe('attached')
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'lead' })).toBe(
+      'coordination_handoff'
+    )
+    expect(deriveHandoffModeForSurface({ ...live, coordination: 'user' })).toBe('returned_to_user')
   })
 })
 
@@ -119,7 +138,6 @@ describe('deriveHandoffInputFromConversation', () => {
   test('rebuilds the register session without minting identity', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation(),
-      authority: 'chat',
       connected: true,
     })
     expect(supplied.session).toMatchObject({
@@ -130,14 +148,13 @@ describe('deriveHandoffInputFromConversation', () => {
       version: 7,
     })
     expect(supplied.mode).toBe('coordination_handoff')
-    expect(supplied.inputOwnedHere).toBe(true)
+    expect(supplied.coordination).toBe('lead')
     expect(supplied.hasUnsentDraft).toBe(false)
   })
 
   test('resolves the run candidate by register binding and never guesses', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation(),
-      authority: 'chat',
       connected: true,
       harnessRuns: [run({ id: 'run-9' }), run()],
     })
@@ -147,7 +164,6 @@ describe('deriveHandoffInputFromConversation', () => {
   test('no candidate when the register binds nothing, even with runs present', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation({ activeHarnessRunId: undefined }),
-      authority: 'chat',
       connected: true,
       harnessRuns: [run()],
     })
@@ -157,13 +173,11 @@ describe('deriveHandoffInputFromConversation', () => {
   test('draft text and blocks both mark unsent work', () => {
     const withText = deriveHandoffInputFromConversation({
       conversation: conversation({ draft: '  hello  ' }),
-      authority: 'dev',
       connected: true,
     })
     expect(withText.hasUnsentDraft).toBe(true)
     const blank = deriveHandoffInputFromConversation({
       conversation: conversation({ draft: '   ' }),
-      authority: 'dev',
       connected: true,
     })
     expect(blank.hasUnsentDraft).toBe(false)
@@ -172,7 +186,6 @@ describe('deriveHandoffInputFromConversation', () => {
   test('an explicit mode overrides derivation; stale transcript forces attachment', () => {
     const overridden = deriveHandoffInputFromConversation({
       conversation: conversation(),
-      authority: 'chat',
       connected: true,
       mode: 'returned_to_user',
     })
@@ -180,7 +193,6 @@ describe('deriveHandoffInputFromConversation', () => {
 
     const stale = deriveHandoffInputFromConversation({
       conversation: conversation({ status: 'stale_generation' }),
-      authority: 'chat',
       connected: true,
     })
     expect(stale.mode).toBe('attached')
@@ -190,7 +202,6 @@ describe('deriveHandoffInputFromConversation', () => {
   test('session type completeness is preserved for the derivation', () => {
     const supplied = deriveHandoffInputFromConversation({
       conversation: conversation(),
-      authority: 'chat',
       connected: true,
     })
     const session: RuntimeSession = supplied.session

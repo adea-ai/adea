@@ -23,11 +23,21 @@ transcript, its bound harness run, and its accepted execution location:
 Implementation: `packages/dev-view/src/chat/model/handoff.ts`
 (`deriveDirectSessionHandoff`, strict run binding, return-to-user guards,
 `deriveHandoffModeForSurface` / `deriveHandoffInputFromConversation`
-production supplier, single-flight action machine),
+production supplier, single-flight admission, session-identity late fence),
 `packages/dev-view/src/chat/handoff-controls.tsx`, default supplier plus
 model-backed actions in `ChatView` (`handoff` config; full `handoffView`
 override still wins), `transfer` on `ChatConversationModel`, and the
 production enablement in `apps/web/src/components/desktop-first-run-chat.tsx`.
+
+Coordination semantics: while a harness run is bound, the lead holds session
+coordination and this surface coordinates (`coordination_handoff`); the
+confirmed `dev.session.transferInput` receipt moves coordination to the user
+(`returned_to_user`). Composer input authority (who may type in a box) is a
+different dimension and is deliberately not consulted: conflating the two
+made the production return transition unreachable. With no run bound there
+is nothing to coordinate, so a live session attaches read-only until a run
+exists. The only path to user-held coordination is a confirmed transfer
+receipt or an explicit caller override — never a default.
 The view mints no session, run, or location IDs and switches no worktree,
 project, or execution location. Offline, stale generation, control conflicts,
 scope mismatch, archived sessions, superseded/foreign/terminal runs, and
@@ -40,7 +50,10 @@ Persisted authoritative transition: `dev.session.transferInput`
 `session.input_transferred` event). Return-to-user executes it for real via
 `ChatConversationModel.transfer` (exact fenced command, refresh from the
 canonical register, drafts untouched); a stale receipt parks an explicit
-control conflict instead of retrying blindly. Lead-stop maps to the bound
+control conflict scoped to the parked generation (it clears when the
+conversation moves past it via refresh, never by blind retry at the same
+generation), and a late completion after a session switch commits nothing
+(session-identity fence plus per-session state reset). Lead-stop maps to the bound
 `cancelHarness` control. Run binding is strict where run objects exist
 (same session, register-bound id, same scope, non-terminal) and falls back
 to the register id exactly as `cancelHarness` does where they do not — a
@@ -105,10 +118,16 @@ disabled states; integration lands when the CP contract is confirmed.
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
 A23–A25, A33 (this slice: `chat-handoff-model.test.ts` binding/guard/a11y
-contract/action-machine tests, `chat-handoff-transfer.test.ts` exact-command
-and live-draft-preservation tests against the real conversation model,
-`chat-handoff-supplier.test.ts` mode/run/draft derivation tests; no
-duplicate execution, no silent fallback, preserved authority).
+contract/action-machine/production-admission tests,
+`chat-handoff-transfer.test.ts` exact-command and live-draft-preservation
+tests against the real conversation model,
+`chat-handoff-supplier.test.ts` mode/run/draft derivation tests, plus
+mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts` over
+`e2e/helpers/direct-session-handoff-harness-app.tsx`: reachable production
+return, single-flight, stale/conflict/retry, late-completion fence,
+keyboard/focus activation, assistive-technology tree, narrow/200% text, and
+reduced motion — all on an ephemeral loopback harness server, no backend or
+database; no duplicate execution, no silent fallback, preserved authority).
 Related gates: [#40](https://github.com/adea-ai/adea/issues/40),
 [#43](https://github.com/adea-ai/adea/issues/43),
 [#811](https://github.com/adea-ai/adea/issues/811).

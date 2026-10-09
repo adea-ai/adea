@@ -11,7 +11,10 @@ import {
   HANDOFF_MODE_LABELS,
   initialHandoffActionState,
   resolveHarnessRunBinding,
+  runHandoffActionOnce,
   type DirectSessionHandoffInput,
+  type HandoffActionKind,
+  type HandoffActionState,
   type HandoffControlKind,
 } from '../src/chat/model/handoff'
 
@@ -65,7 +68,7 @@ function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessio
     connected: true,
     generationCurrent: true,
     scopeAuthorized: true,
-    inputOwnedHere: false,
+    coordination: 'lead',
     hasUnsentDraft: false,
     controlConflict: false,
     awaitingApproval: false,
@@ -158,7 +161,7 @@ describe('direct-session handoff modes', () => {
 function coordinated(
   overrides: Partial<DirectSessionHandoffInput> = {}
 ): DirectSessionHandoffInput {
-  return input({ mode: 'coordination_handoff', inputOwnedHere: false, ...overrides })
+  return input({ mode: 'coordination_handoff', coordination: 'lead', ...overrides })
 }
 
 describe('harness-run binding', () => {
@@ -260,20 +263,20 @@ describe('return-to-user guards', () => {
 
   test('read-only modes and already-returned states stay unavailable', () => {
     for (const mode of ['attached', 'one_time_review'] as const) {
-      const view = deriveDirectSessionHandoff(input({ mode, inputOwnedHere: false }))
+      const view = deriveDirectSessionHandoff(input({ mode, coordination: 'lead' }))
       expect(view.controls.return_to_user.available).toBe(false)
     }
     const returned = deriveDirectSessionHandoff(
-      input({ mode: 'returned_to_user', inputOwnedHere: true })
+      input({ mode: 'returned_to_user', coordination: 'user' })
     )
     expect(returned.controls.return_to_user.available).toBe(false)
     expect(returned.controls.return_to_user.reason).toMatch(/already/i)
   })
 
-  test('input already held here needs no transfer', () => {
-    const view = deriveDirectSessionHandoff(coordinated({ inputOwnedHere: true }))
+  test('user-held coordination needs no transfer', () => {
+    const view = deriveDirectSessionHandoff(coordinated({ coordination: 'user' }))
     expect(view.controls.return_to_user.available).toBe(false)
-    expect(view.controls.return_to_user.reason).toMatch(/already held/i)
+    expect(view.controls.return_to_user.reason).toMatch(/already user-held/i)
   })
 
   test('offline, stale, conflict, scope, and archived each block with a remedy', () => {
@@ -420,5 +423,145 @@ describe('coordination-action machine', () => {
     expect(
       handoffActionReducer(busy, { type: 'fail', action: 'return_to_user', message: 'x' })
     ).toBe(busy)
+  })
+})
+
+function handoffMachine() {
+  let state: HandoffActionState = initialHandoffActionState
+  const committed: HandoffActionState[] = []
+  return {
+    current: () => state,
+    commit: (next: HandoffActionState) => {
+      committed.push(next)
+      state = next
+    },
+    committed,
+  }
+}
+
+function deferredGate() {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+describe('production action admission', () => {
+  test('concurrent starts admit once: the second never invokes work', async () => {
+    const harness = handoffMachine()
+    let workCalls = 0
+    const gate = deferredGate()
+    const first = runHandoffActionOnce({
+      ...harness,
+      action: 'return_to_user',
+      work: () => {
+        workCalls += 1
+        return gate.promise
+      },
+    })
+    const second = runHandoffActionOnce({
+      ...harness,
+      action: 'return_to_user',
+      work: () => {
+        workCalls += 1
+        return Promise.resolve()
+      },
+    })
+    gate.resolve()
+    await expect(first).resolves.toBe('completed')
+    await expect(second).resolves.toBe('rejected')
+    expect(workCalls).toBe(1)
+    expect(harness.committed).toEqual([
+      { status: 'busy', action: 'return_to_user' },
+      { status: 'idle' },
+    ])
+  })
+
+  test('failure parks the message and reports conflicts', async () => {
+    const harness = handoffMachine()
+    let conflicted = 0
+    let succeeded = 0
+    const outcome = await runHandoffActionOnce({
+      ...harness,
+      action: 'return_to_user',
+      work: () => Promise.reject(new Error('stale_version: input owner version conflict')),
+      isConflict: (error) => error instanceof Error && error.message.startsWith('stale_version'),
+      onConflict: () => {
+        conflicted += 1
+      },
+      onSuccess: () => {
+        succeeded += 1
+      },
+    })
+    expect(outcome).toBe('completed')
+    expect(conflicted).toBe(1)
+    expect(succeeded).toBe(0)
+    expect(harness.current()).toEqual({
+      status: 'error',
+      action: 'return_to_user',
+      message: 'stale_version: input owner version conflict',
+    })
+  })
+
+  test('a late completion after navigation commits nothing', async () => {
+    const harness = handoffMachine()
+    let currentSession = 'session-1'
+    let succeeded = 0
+    const gate = deferredGate()
+    const pending = runHandoffActionOnce({
+      ...harness,
+      action: 'return_to_user',
+      work: () => gate.promise,
+      isCurrent: () => currentSession === 'session-1',
+      onSuccess: () => {
+        succeeded += 1
+      },
+    })
+    currentSession = 'session-2'
+    gate.resolve()
+    await expect(pending).resolves.toBe('superseded')
+    expect(succeeded).toBe(0)
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'return_to_user' }])
+  })
+
+  test('a late failure after navigation commits nothing', async () => {
+    const harness = handoffMachine()
+    let conflicted = 0
+    let currentSession = 'session-1'
+    const gate = deferredGate()
+    const pending = runHandoffActionOnce({
+      ...harness,
+      action: 'lead_stop',
+      work: () => gate.promise,
+      isCurrent: () => currentSession === 'session-1',
+      isConflict: () => true,
+      onConflict: () => {
+        conflicted += 1
+      },
+    })
+    currentSession = 'session-2'
+    gate.reject(new Error('stale_generation: runtime session generation conflict'))
+    await expect(pending).resolves.toBe('superseded')
+    expect(conflicted).toBe(0)
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'lead_stop' }])
+  })
+
+  test('non-error rejections surface a stable message', async () => {
+    const harness = handoffMachine()
+    const action: HandoffActionKind = 'lead_stop'
+    const outcome = await runHandoffActionOnce({
+      ...harness,
+      action,
+      work: () => Promise.reject('transport lost'),
+    })
+    expect(outcome).toBe('completed')
+    expect(harness.current()).toEqual({
+      status: 'error',
+      action,
+      message: 'Handoff action failed.',
+    })
   })
 })
