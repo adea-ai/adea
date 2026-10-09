@@ -12,7 +12,10 @@ import type {
   ChatConversationModel,
   DevWorkspaceNavHost,
   FirstRunFacts,
+  HandoffLeadAgent,
+  HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
+import { resolveLeadHandoffSupply } from '../lib/lead-handoff-supply'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -264,6 +267,59 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // runtime session selection.
   bindDesktopChatPresentation('chat', () => conversation()?.runtimeSessionId)
 
+  // Workspace-lead handoff supply (#1177): resolved from canonical
+  // services for the active conversation's workspace — the designated
+  // lead agent, its direct channel turn, and the canonical cancel path.
+  // Keyed on session identity (not object identity) so draft edits and
+  // same-session refreshes never refetch; a late resolution for a
+  // superseded selection is dropped by the lifecycle fence.
+  const [leadSupply, setLeadSupply] = createSignal<{
+    turn?: HandoffLeadTurn
+    agent?: HandoffLeadAgent
+  }>({})
+  createEffect(() => {
+    const activeConversation = conversation()
+    if (!activeConversation) return
+    const workspaceId = activeConversation.scope.workspaceId
+    const sessionId = activeConversation.runtimeSessionId
+    const request = lifecycle.current()
+    setLeadSupply({})
+    void resolveLeadHandoffSupply(props.client, workspaceId).then((resolution) => {
+      if (!lifecycle.isCurrent(request)) return
+      if (conversation()?.runtimeSessionId !== sessionId) return
+      if (resolution.status !== 'resolved') {
+        setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
+        return
+      }
+      setLeadSupply({ turn: resolution.leadTurn, agent: resolution.leadAgent })
+    })
+  })
+
+  const cancelWorkspaceLead = async (): Promise<void> => {
+    const supply = leadSupply()
+    const turn = supply.turn
+    const activeConversation = conversation()
+    if (!turn || !activeConversation) return
+    const workspaceId = activeConversation.scope.workspaceId
+    const request = lifecycle.current()
+    const response = await props.client.cancelLeadTurn(workspaceId, turn.intentId)
+    if (!lifecycle.isCurrent(request)) return
+    if (conversation()?.runtimeSessionId !== activeConversation.runtimeSessionId) return
+    // Refresh local facts from the canonical cancel receipt instead of
+    // refetching: the response carries the turn's terminal state.
+    const next = response.leadTurn
+    setLeadSupply((previous) => ({
+      ...previous,
+      turn: {
+        intentId: next.intentId,
+        agentId: turn.agentId,
+        ...(next.dispatchId !== undefined ? { dispatchId: next.dispatchId } : {}),
+        state: next.state as HandoffLeadTurn['state'],
+        canCancel: false,
+      },
+    }))
+  }
+
   createEffect(() => {
     // These reads make auth/workspace changes start a fresh scoped load even
     // when the parent keeps the Chat entry mounted across a route switch.
@@ -466,10 +522,15 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         model={state().model}
                         onJumpToTerminal={props.onOpenDev}
                         // #1177 production handoff supply: the view derives from
-                        // the live conversation with model-backed session-stop
-                        // and reconnect actions; lead cancellation arrives via
-                        // onLeadStop when a lead-aware host connects it.
-                        handoff={{}}
+                        // the live conversation plus canonical workspace-lead
+                        // facts resolved above; session-stop and reconnect
+                        // stay model-backed, and lead cancellation runs the
+                        // canonical lead-turn cancel path.
+                        handoff={{
+                          leadTurn: leadSupply().turn,
+                          leadAgent: leadSupply().agent,
+                        }}
+                        onLeadStop={leadSupply().turn ? cancelWorkspaceLead : undefined}
                         readingPosition={props.modelHost.readingPosition(state().scope, active())}
                         onReadingPositionChange={(identity, position) => {
                           if (!lifecycle.isCurrent(request)) return
