@@ -4,6 +4,7 @@ export * from './artifact-reference'
 export * from './desktop-permissions'
 export * from './execution-location'
 export * from './group-participation'
+export * from './management'
 export * from './migration-snapshot'
 export * from './task-submission'
 
