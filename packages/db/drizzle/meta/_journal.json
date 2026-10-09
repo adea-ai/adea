@@ -337,13 +337,6 @@
       "when": 1791529797353,
       "tag": "0047_huge_hitman",
       "breakpoints": true
-    },
-    {
-      "idx": 46,
-      "version": "7",
-      "when": 1791525239347,
-      "tag": "0046_wealthy_mister_fear",
-      "breakpoints": true
     }
   ]
 }
