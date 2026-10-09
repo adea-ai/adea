@@ -584,15 +584,20 @@ function nullableIdentifierField(field: string, value: unknown): FieldCheck {
 }
 
 /**
- * UTF-8 byte length of `text`, capped: returns a value greater than
+ * Serialized JSON byte length of `text`, capped: returns a value greater than
  * `remaining` as soon as the remaining budget is exceeded, so oversized text
  * is detected without scanning the rest. Per-code-unit costs are conservative
- * upper bounds (non-ASCII costs 6 — enough for UTF-8 or its JSON escape).
+ * upper bounds of the serialized form: ASCII control characters cost their
+ * longest escape (`\u00XX`, 6), the quote and backslash cost their two-byte
+ * escape, plain ASCII costs 1, and each non-ASCII code unit costs 6 — enough
+ * for its `\uXXXX` escape (a surrogate pair therefore costs 12) and for raw
+ * UTF-8, which never exceeds 4 bytes per code unit.
  */
 function utf8LengthCapped(text: string, remaining: number): number {
   let bytes = 0
   for (let index = 0; index < text.length; index++) {
-    bytes += text.charCodeAt(index) < 0x80 ? 1 : 6
+    const codeUnit = text.charCodeAt(index)
+    bytes += codeUnit < 0x20 || codeUnit > 0x7e ? 6 : codeUnit === 0x22 || codeUnit === 0x5c ? 2 : 1
     if (bytes > remaining) return bytes
   }
   return bytes

@@ -465,6 +465,32 @@ describe('migration snapshot record input bounds', () => {
     expect(migrationSnapshotRecordShapeIssue('x'.repeat(64))).toBeNull()
   })
 
+  test('escape expansion counts against the byte bound: quotes, backslashes and control characters', () => {
+    // The bound measures the SERIALIZED record. JSON escapes the quote and
+    // the backslash to two bytes, so 4,100 of them serialize to 8,200 bytes —
+    // over the 8,192-byte bound even though the raw characters count 4,100.
+    expect(migrationSnapshotRecordShapeIssue('"'.repeat(4_100))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    expect(migrationSnapshotRecordShapeIssue('\\'.repeat(4_100))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Control characters serialize through their six-byte \u00XX escape.
+    expect(migrationSnapshotRecordShapeIssue('\u0001'.repeat(1_370))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // The same characters inside the bound are not flagged: 4,000 quotes
+    // serialize to exactly 8,000 bytes, and 1,365 control characters to
+    // 8,190 — both within the 8,192-byte bound.
+    expect(migrationSnapshotRecordShapeIssue('"'.repeat(4_000))).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue('\u0001'.repeat(1_365))).toBeNull()
+    // Plain ASCII of the same magnitude keeps its one byte per character.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(8_000))).toBeNull()
+  })
+
   test('an oversized top-level array is a typed limit issue, by width or by bytes', () => {
     const marker = 'SECRET-TOP-ARRAY-MARKER'
     // Over the array-width bound.
