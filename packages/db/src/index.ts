@@ -193,6 +193,23 @@ export {
   workspaceQualifiedAgentKey,
 } from './group-participation-policy'
 export {
+  admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  createGroupChannelWithGrants,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
+  partitionGroupChannelHistory,
+  setGroupChannelParticipantsWithGrants,
+  type GroupChannelCreateInput,
+  type GroupChannelGate,
+  type GroupChannelSetParticipantsInput,
+} from './group-channels'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
