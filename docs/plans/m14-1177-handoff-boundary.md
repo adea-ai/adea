@@ -44,10 +44,16 @@ names the requesting session and refreshes from the exact intent
 (`getLeadTurnStatus`), never by task-wide re-resolution. A response
 without a retained target, or with another session's target, fails closed.
 Unknown-outcome retries recover the canonically retained intent
-server-side (same target and generation dedupes; a retained newer
-generation rejects the stale request as superseded; an older one is
-superseded by minting new), backed by a partial unique target context —
-no client-held request identity exists to evict or lose on reload.
+server-side (the COMPLETE triple — session, generation, task — must
+match; a same-session/generation claim naming another task fails closed
+as a target mismatch), backed by a partial unique target context — no
+client-held request identity exists to evict or lose on reload. A
+different generation always mints anew: retained ordering is ordering
+only, never staleness ground truth (a fabricated high generation can
+therefore neither be rejected as proof nor poison later requests), and
+concurrent same-target admissions serialize on the channel FOR UPDATE
+lock (createLeadTurn is the sole inserter), so the unique index is a
+backstop with no recovery branch of its own.
 Single-flight admission and handoff-blocked-while-live complete the
 duplication defense. Awaiting admission shows a Check-status refresh
 instead of polling. The turn counts only when bound to the observed workspace
@@ -57,7 +63,10 @@ workspace-scoped, active lifecycle) AND to this exact session (retained
 or foreign turns are stripped before derivation): the model checks
 `turn.agentId === lead.id` plus designation, lifecycle, and exact target,
 and an unbound turn is stripped before derivation so it can neither drive
-a mode nor authorize lead-stop — the mismatch is named instead. A caller that can
+a mode nor authorize lead-stop — the mismatch is named instead. The
+binding also compares generations against the LIVE session: a retained
+target naming another generation (older or fabricated-newer) does not
+coordinate, so display currency never trusts retained ordering. A caller that can
 observe turns (lead-turn reads) observes the agent through the same
 canonical roster (`getWorkspaceLead`); the check forces the full chain,
 so no run-as-lead alias can pass. A user-created direct run is execution, not delegation:
@@ -182,6 +191,29 @@ append need root sequencing. Do NOT run `db:generate` on this lane
 until merged: the lane schema TS deliberately lacks predecessor-only
 columns, so generation would propose spurious drops.
 
+## Session authority (defect-1 fix)
+
+The cloud admission path holds no session facts by design (no session
+registry), so a bare session id can never prove binding, currency, or
+control permission there. Every handoff request therefore passes the
+existing authenticated desktop/runtime command boundary FIRST
+(`resolveHandoffSessionAuthority` over `dev.session.get` +
+`dev.capability.snapshot`, the same authority fencing
+`dev.session.cancelHarness`): the session must exist, belong to the
+requesting scope, carry the claimed task, be live, sit at the observed
+generation, and the caller must hold `dev.session.manage`. The request
+is built from the authority-returned triple (actual current generation),
+and any refusal fails closed before any admission post exists. No
+desktop-shell changes were needed: `dev.session.get` already returns
+the full record and the capability snapshot already reports manage.
+
+Residual (root acceptance question): a credential-bearing direct cloud
+POST bypasses the host gate; the server cannot verify session control
+without a session registry, by design. Task visibility plus the stamped
+triple plus actor-gated dispatch contain it, but do not close it —
+closing needs CP session authority or host attestation, outside this
+slice's narrow scope.
+
 ## Traceability
 
 REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
@@ -198,8 +230,15 @@ supply exclusion, epoch ordering, admission target post with receipt
 verification and fresh keys, and resolver→derivation composition;
 `lead-turn-handoff-target.test.ts` (real Postgres) exact retention,
 two-sessions-one-task isolation, newer-unrelated-channel isolation,
-reload recovery, generation supersede/stale, concurrent single-commit,
-malformed/phantom fail-closed, legacy back-compat; `project-session-handoff-journey.test.ts`
+reload recovery, generation ordering (mint-anew, newest-wins),
+same-session/generation task-mismatch rejection, cross-workspace task
+rejection, concurrent single-commit via serialization, malformed/phantom
+fail-closed, legacy back-compat;
+`chat-handoff-authority.test.ts` authority gate (phantom, scope, task,
+archived, ACTUAL stale generation, control permission, host refusal);
+mounted Playwright authority refusals (stale/wrong-task/revoked/phantom,
+zero posts) plus derivation generation gating (fabricated-newer and
+superseded-older display nothing); `project-session-handoff-journey.test.ts`
 joined real-register view-routing journey with reload persistence and
 fencing; mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
 over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only

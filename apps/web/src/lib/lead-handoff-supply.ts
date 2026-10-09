@@ -245,6 +245,7 @@ export async function requestLeadHandoff(
   if (!receipt || !messageId || !target) throw new Error('Lead admission did not return an intent')
   if (
     target.runtimeSessionId !== input.runtimeSessionId ||
+    (target.taskId ?? undefined) !== input.taskId ||
     target.observedGeneration !== input.expectedGeneration
   )
     throw new Error('Lead admission returned another target')

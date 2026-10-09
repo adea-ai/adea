@@ -776,7 +776,9 @@ describe('lead-agent binding', () => {
   test('a missing turn or agent binds nothing without failing', () => {
     expect(resolveLeadCoordination(undefined, leadAgent())).toEqual({ bound: false })
     expect(resolveLeadCoordination(leadTurn(), undefined)).toEqual({ bound: false })
-    expect(resolveLeadCoordination(leadTurn(), leadAgent(), 'session-1')).toEqual({ bound: true })
+    expect(
+      resolveLeadCoordination(leadTurn(), leadAgent(), { id: 'session-1', generation: 3 })
+    ).toEqual({ bound: true })
     expect(
       resolveLeadCoordination(
         leadTurn({
@@ -787,13 +789,31 @@ describe('lead-agent binding', () => {
           },
         }),
         leadAgent(),
-        'session-1'
+        { id: 'session-1', generation: 3 }
       )
     ).toEqual({ bound: false, reason: 'the observed turn targets another session' })
     const { handoffTarget: _target, ...targetless } = leadTurn()
-    expect(resolveLeadCoordination(targetless, leadAgent(), 'session-1')).toEqual({
+    expect(
+      resolveLeadCoordination(targetless, leadAgent(), { id: 'session-1', generation: 3 })
+    ).toEqual({
       bound: false,
       reason: 'the observed turn names no handoff target',
+    })
+    expect(
+      resolveLeadCoordination(
+        leadTurn({ handoffTarget: { runtimeSessionId: 'session-1', observedGeneration: 9999 } }),
+        leadAgent(),
+        { id: 'session-1', generation: 3 }
+      )
+    ).toEqual({
+      bound: false,
+      reason: 'the observed turn targets generation 9999 but the session is at generation 3',
+    })
+    expect(
+      resolveLeadCoordination(leadTurn(), leadAgent(), { id: 'session-1', generation: 5 })
+    ).toEqual({
+      bound: false,
+      reason: 'the observed turn targets generation 3 but the session is at generation 5',
     })
   })
 })

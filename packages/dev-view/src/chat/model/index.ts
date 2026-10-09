@@ -43,6 +43,7 @@ import { normalizeChatDraft } from '../draft'
 
 export * from './commands'
 export * from './handoff'
+export * from './handoff-authority'
 export * from './transcript'
 export * from './types'
 

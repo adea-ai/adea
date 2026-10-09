@@ -206,6 +206,40 @@ test('a foreign turn grants nothing and keeps handoff available', async ({ page 
   expectNoErrors(errors)
 })
 
+test('ACTUAL stale session generation refuses before any post', async ({ page }) => {
+  const errors = await openHarness(page)
+  // The authority record advances behind the view: the view still shows
+  // generation 3, but the host is at 5. No admission may be built.
+  await page.getByRole('button', { name: 'Advance authority generation' }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('alert').getByText(/advanced to generation 5/)).toBeVisible()
+  await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  expectNoErrors(errors)
+})
+
+test('a wrong task binding refuses before any post', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Retarget authority task' }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('alert').getByText(/bound to another task/)).toBeVisible()
+  await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  expectNoErrors(errors)
+})
+
+test('revoked session control and phantom sessions refuse before any post', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Toggle session control' }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('alert').getByText(/control permission/)).toBeVisible()
+  await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  await page.getByRole('button', { name: 'Toggle session control' }).click()
+  await page.getByRole('button', { name: 'Remove authority session' }).click()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('alert').getByText(/not_found/)).toBeVisible()
+  await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  expectNoErrors(errors)
+})
+
 test('a live observed turn blocks a second admission', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()

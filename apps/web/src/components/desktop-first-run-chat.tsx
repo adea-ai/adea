@@ -5,6 +5,7 @@ import {
   DevWorkspaceSidebar,
   devBindingsFromProjection,
   resolveDevSelection,
+  resolveHandoffSessionAuthority,
 } from '@adea-ai/dev-view/chat'
 import type { DesktopTeamChat } from './workspace-navigation'
 import type {
@@ -326,12 +327,14 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     resolveLeadSupply(false)
   })
 
-  // Explicit handoff request (#1177): admit through the canonical
-  // admission path with the structured target (session, task, observed
-  // generation), verify the retained receipt names this exact session,
-  // then refresh from the exact intent — never by task-wide re-resolution.
-  // Unknown-outcome retries recover the retained intent server-side, so no
-  // client-held request identity can be evicted or lost on reload.
+  // Explicit handoff request (#1177): first the session authority gate
+  // (existence, scope, task binding, liveness, ACTUAL current generation,
+  // control permission — all read from the host record, never claimed),
+  // then admission with the authority-returned triple, receipt
+  // verification, and an exact-intent refresh — never task-wide
+  // re-resolution. Unknown-outcome retries recover the retained intent
+  // server-side, so no client-held request identity can be evicted or
+  // lost on reload.
   const requestWorkspaceHandoff = async (): Promise<void> => {
     const supply = leadSupply()
     const activeConversation = conversation()
@@ -341,15 +344,26 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
       throw new Error('Handoff request unavailable.')
     const workspaceId = activeConversation.scope.workspaceId
     const sessionId = activeConversation.runtimeSessionId
-    const generation = activeConversation.generation
     const request = lifecycle.current()
     const epoch = leadScope.begin()
+    const authority = await resolveHandoffSessionAuthority(
+      props.runtime,
+      activeConversation.scope,
+      {
+        runtimeSessionId: sessionId,
+        taskId,
+        observedGeneration: activeConversation.generation,
+      }
+    )
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
     const confirmation = await requestLeadHandoff(props.client, {
       workspaceId,
       channelId,
-      runtimeSessionId: sessionId,
-      taskId,
-      expectedGeneration: generation,
+      runtimeSessionId: authority.runtimeSessionId,
+      taskId: authority.taskId,
+      expectedGeneration: authority.generation,
     })
     if (!lifecycle.isCurrent(request)) return
     if (!leadScope.isCurrent(epoch)) return

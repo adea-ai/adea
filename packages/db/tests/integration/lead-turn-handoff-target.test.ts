@@ -148,7 +148,10 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     expect(rows).toHaveLength(1)
   })
 
-  test('a newer generation supersedes; an older generation is stale', async () => {
+  test('generations order, never reject: older mints anew and newest wins reads', async () => {
+    // Ordering only, never ground truth: the session host alone knows the
+    // current generation, so the server never rejects an older generation
+    // (a fabricated high generation can neither poison nor block here).
     const f = await fixture()
     const older = await f.admit('target-session-a', 3)
     const newer = await f.admit('target-session-a', 5)
@@ -162,10 +165,76 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     )
     expect(current?.intentId).toBe(newer.leadTurn.intentId)
     expect(current?.handoffTarget?.observedGeneration).toBe(5)
-    await expect(f.admit('target-session-a', 3)).rejects.toThrow()
+    const late = await f.admit('target-session-a', 3)
+    expect(late.leadTurn.intentId).not.toBe(newer.leadTurn.intentId)
+    const still = await getLatestLeadTurnForTarget(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      'target-session-a',
+      f.owner.principal
+    )
+    expect(still?.intentId).toBe(newer.leadTurn.intentId)
+  })
+
+  test('same session and generation with a different task fails closed', async () => {
+    const f = await fixture()
+    await f.admit('target-session-a', 3)
+    const other = await createTask(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      { objective: 'Other', title: 'Other' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    await expect(
+      createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
+        bodyText: 'Requesting lead coordination.',
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: {
+          runtimeSessionId: 'target-session-a',
+          taskId: other.id,
+          expectedGeneration: 3,
+        },
+      })
+    ).rejects.toThrow('target mismatch')
+  })
+
+  test('a task from another workspace fails closed', async () => {
+    const f = await fixture()
+    const outsider = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `handoff-outsider-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace: other } = await createWorkspaceWithOwner(connection.db, {
+      owner: outsider.principal,
+      name: 'Elsewhere',
+      idempotencyKey: crypto.randomUUID(),
+    })
+    const foreign = await createTask(
+      connection.db,
+      other.id,
+      outsider.principal,
+      { objective: 'Foreign', title: 'Foreign' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    await expect(
+      createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
+        bodyText: 'Requesting lead coordination.',
+        idempotencyKey: crypto.randomUUID(),
+        handoffTarget: {
+          runtimeSessionId: 'target-session-a',
+          taskId: foreign.id,
+          expectedGeneration: 3,
+        },
+      })
+    ).rejects.toThrow()
   })
 
   test('concurrent same-target admissions commit exactly one intent', async () => {
+    // Serialization, not the unique index: the channel FOR UPDATE lock
+    // orders same-channel admissions, so every loser finds the winner in
+    // recovery. The partial unique target index stays as the backstop.
     const f = await fixture()
     const results = await Promise.all(
       Array.from({ length: 4 }, () => f.admit('target-session-a', 3))
