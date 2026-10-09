@@ -1,3 +1,4 @@
+CREATE TYPE "app"."channel_archive_source" AS ENUM('individual', 'project_cascade');--> statement-breakpoint
 CREATE TYPE "app"."management_authority_consumption_state" AS ENUM('claimed', 'succeeded', 'failed');--> statement-breakpoint
 CREATE TABLE "app"."management_authority_consumptions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
