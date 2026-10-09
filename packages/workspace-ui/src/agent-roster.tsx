@@ -158,7 +158,7 @@ export function AgentRoster(props: Props) {
                       <PropertyValue>{entry.item().profile.state}</PropertyValue>
                     </PropertyList>
                     <Show when={entry.item().profile.state !== 'available'}>
-                      <p>{agentProfileStateNotice(entry.item().profile.state)}</p>
+                      <p>{agentProfileStateNotice(entry.item().profile)}</p>
                     </Show>
                   </div>
                 </CardContent>

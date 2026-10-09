@@ -24,6 +24,8 @@ export type FirstRunFacts = Readonly<{
   modelAccess: FirstRunModelAccess
   projectReady: boolean
   agentProfileReady: boolean
+  /** Signed-in Home could not provision the structural lead; never a success state. */
+  leadProvisioning?: 'failed'
 }>
 export type FirstRunActionKind =
   | 'guest'
@@ -33,6 +35,7 @@ export type FirstRunActionKind =
   | 'retry_access'
   | 'add_project'
   | 'set_up_agent'
+  | 'retry_lead'
   | 'start'
 export type FirstRunAction = Readonly<{ kind: FirstRunActionKind; label: string }>
 export type FirstRunProjection = Readonly<{
@@ -149,6 +152,13 @@ export function projectFirstRun(facts: FirstRunFacts): FirstRunProjection {
       'Choose your workspace',
       'Add a project for your first conversation.',
       [action('add_project', 'Add a project')]
+    )
+  if (!facts.agentProfileReady && facts.leadProvisioning === 'failed')
+    return projection(
+      'agent',
+      'Workspace lead not set up',
+      'Adea could not prepare your workspace lead. Try again.',
+      [action('retry_lead', 'Try again')]
     )
   if (!facts.agentProfileReady)
     return projection('agent', 'Agent setup needs attention', 'Set up an agent profile to start.', [

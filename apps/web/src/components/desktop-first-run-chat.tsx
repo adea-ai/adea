@@ -40,7 +40,11 @@ import {
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
+import {
+  ensureFirstRunLead,
+  resolveDesktopFirstRun,
+  type DesktopFirstRunWorktree,
+} from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
 
@@ -313,12 +317,18 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
         port.readManagedPi(),
       ])
       if (!workspace) return undefined
+      // Guests have no durable identity to attribute a lead to; only signed-in
+      // Home setup asks the server to provision the workspace lead.
+      const lead = temporary
+        ? undefined
+        : await ensureFirstRunLead(client, workspaceId, workspace.agents)
       const resolution = resolveDesktopFirstRun({
         temporary,
+        lead: lead?.status,
         managedPi,
         projection,
         worktrees: worktreePage.items,
-        agents: workspace.agents,
+        agents: lead?.agents ?? workspace.agents,
       })
       const boundPort = createFirstRunRuntimePort(runtime, scope, model, resolution.context)
       return {
@@ -418,7 +428,11 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                                 if (kind === 'sign_in') return props.onSignIn()
                                 if (kind === 'add_project' || kind === 'set_up_agent')
                                   props.onOpenDev()
-                                if (kind === 'retry_access' || kind === 'update_app') {
+                                if (
+                                  kind === 'retry_access' ||
+                                  kind === 'update_app' ||
+                                  kind === 'retry_lead'
+                                ) {
                                   const nextRequest = lifecycle.begin()
                                   setReady(undefined)
                                   setConversation(undefined)

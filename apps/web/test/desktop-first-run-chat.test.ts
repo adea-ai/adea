@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 
-import { resolveDesktopFirstRun } from '../src/lib/desktop-first-run-chat'
+import { ensureFirstRunLead, resolveDesktopFirstRun } from '../src/lib/desktop-first-run-chat'
 import type { ChatConversation, ChatConversationModel } from '@adea-ai/dev-view/chat/model'
 import {
   attachFirstRunConversationIfCurrent,
   createDesktopChatLifecycleFence,
 } from '../src/lib/desktop-chat-host'
 import type { AgentSummary } from '@adea-ai/types'
+import { ApiClientError } from '@adea-ai/api-client'
 
 const projection = {
   projects: [
@@ -160,5 +161,127 @@ describe('desktop first-run authority projection', () => {
       request: nextRequest,
     })
     expect(attachCalls).toBe(2)
+  })
+})
+
+describe('desktop first-run lead provisioning', () => {
+  const unconfiguredLead = {
+    id: 'lead-1',
+    isWorkspaceLead: true,
+    lifecycleState: 'active',
+    profile: { id: 'workspace-lead-unconfigured', state: 'missing', version: 'unconfigured' },
+  } as AgentSummary
+
+  test('provisions a missing lead without making agent setup ready', async () => {
+    const calls: string[] = []
+    const client = {
+      ensureWorkspaceLead: async (workspaceId: string) => {
+        calls.push(workspaceId)
+        return { lead: unconfiguredLead }
+      },
+    }
+    const outcome = await ensureFirstRunLead(client, 'workspace-1', [])
+    expect(calls).toEqual(['workspace-1'])
+    expect(outcome.status).toBe('provisioned')
+    expect(outcome.agents.map((item) => item.id)).toEqual(['lead-1'])
+
+    const resolved = resolveDesktopFirstRun({
+      temporary: false,
+      lead: outcome.status,
+      managedPi: { state: 'ready' },
+      projection,
+      worktrees: [worktree],
+      agents: outcome.agents,
+    })
+    expect(resolved.facts.identity).toBe('signed_in')
+    expect(resolved.facts.leadProvisioning).toBeUndefined()
+    expect(resolved.facts.agentProfileReady).toBe(false)
+    expect(resolved.context).toBeUndefined()
+  })
+
+  test('does not call the provisioning route when a lead already exists', async () => {
+    let calls = 0
+    const existing = { ...unconfiguredLead, id: 'lead-2' }
+    const outcome = await ensureFirstRunLead(
+      {
+        ensureWorkspaceLead: async () => {
+          calls += 1
+          return { lead: unconfiguredLead }
+        },
+      },
+      'workspace-1',
+      [existing]
+    )
+    expect(calls).toBe(0)
+    expect(outcome).toEqual({ status: 'present', agents: [existing] })
+  })
+
+  test('a refused, empty, or failed provisioning is reported as failed, never as a lead', async () => {
+    const roster = [agent]
+    const refused = await ensureFirstRunLead(
+      {
+        ensureWorkspaceLead: async () => {
+          throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+        },
+      },
+      'workspace-1',
+      roster
+    )
+    const empty = await ensureFirstRunLead(
+      { ensureWorkspaceLead: async () => ({ lead: null }) },
+      'workspace-1',
+      roster
+    )
+    expect(refused).toEqual({ status: 'failed', agents: roster })
+    expect(empty).toEqual({ status: 'failed', agents: roster })
+  })
+
+  test('an expired session reports auth_required so sign-in is offered', async () => {
+    const outcome = await ensureFirstRunLead(
+      {
+        ensureWorkspaceLead: async () => {
+          throw new ApiClientError('Workspace unavailable', 401, 'workspace_unavailable')
+        },
+      },
+      'workspace-1',
+      []
+    )
+    expect(outcome.status).toBe('auth_required')
+
+    const resolved = resolveDesktopFirstRun({
+      temporary: false,
+      lead: outcome.status,
+      managedPi: { state: 'ready' },
+      projection,
+      worktrees: [worktree],
+      agents: outcome.agents,
+    })
+    expect(resolved.facts.identity).toBe('auth_required')
+  })
+
+  test('a failed provisioning is carried into facts and never marks agent setup ready', () => {
+    const resolved = resolveDesktopFirstRun({
+      temporary: false,
+      lead: 'failed',
+      managedPi: { state: 'ready' },
+      projection,
+      worktrees: [worktree],
+      agents: [],
+    })
+    expect(resolved.facts.leadProvisioning).toBe('failed')
+    expect(resolved.facts.agentProfileReady).toBe(false)
+    expect(resolved.context).toBeUndefined()
+  })
+
+  test('guests are never provisioned and carry no lead outcome', () => {
+    const resolved = resolveDesktopFirstRun({
+      temporary: true,
+      managedPi: { state: 'ready' },
+      projection,
+      worktrees: [worktree],
+      agents: [],
+    })
+    expect(resolved.facts.identity).toBe('guest')
+    expect(resolved.facts.leadProvisioning).toBeUndefined()
   })
 })
