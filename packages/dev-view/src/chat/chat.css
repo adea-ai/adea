@@ -3,24 +3,29 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  /* A reconnect/resync notice can render between the header and the
-     transcript. The transcript and composer own their tracks by explicit
-     line placement, so the notice's presence never steals the 1fr row (which
-     collapsed the notice to zero height and let the transcript section paint
-     over the Reconnect affordance, blocking its pointer). Without a notice
-     the reserved second track collapses to zero height and the surface lays
-     out exactly as before. */
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  /* A reconnect/resync notice and the optional direct-session handoff
+     controls (#1177) render between the header and the transcript. The
+     transcript and composer own their tracks by explicit line placement, so
+     a notice's presence never steals the 1fr row (which collapsed the
+     notice to zero height and let the transcript section paint over the
+     Reconnect affordance, blocking its pointer). Without a notice or
+     handoff the reserved tracks collapse to zero height and the surface
+     lays out exactly as before. */
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   color: var(--foreground);
   background: var(--background);
 }
 
 .dev-chat > [data-dev-chat-stream] {
+  grid-row: 4;
+}
+
+.dev-chat > .dev-handoff {
   grid-row: 3;
 }
 
 .dev-chat > .dev-chat__composer {
-  grid-row: 4;
+  grid-row: 5;
 }
 
 .dev-chat__header,
@@ -178,4 +183,74 @@
   margin: auto;
   color: var(--dev-muted, var(--muted-foreground));
   font-size: calc(0.8rem * var(--font-ui-scale, 1));
+}
+
+.dev-handoff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-block-end: 1px solid var(--dev-border, var(--border));
+  background: var(--dev-panel, var(--background));
+}
+
+.dev-handoff__header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+
+.dev-handoff__description,
+.dev-handoff__preserved,
+.dev-handoff__draft {
+  margin: 0;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
+}
+
+.dev-handoff__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.dev-handoff__control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dev-handoff__control-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+
+.dev-handoff__control-label {
+  margin-inline-end: auto;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
+}
+
+.dev-handoff__reason {
+  margin: 0;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
+}
+
+.dev-handoff__remediation {
+  display: block;
+}
+
+.dev-handoff__return {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dev-handoff {
+    scroll-behavior: auto;
+  }
 }

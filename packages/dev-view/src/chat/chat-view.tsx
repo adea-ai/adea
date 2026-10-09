@@ -9,6 +9,8 @@ import {
   type ChatInputAuthority,
 } from './chat-composer'
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
+import { DirectSessionHandoffControls } from './handoff-controls'
+import type { DirectSessionHandoffView } from './model/handoff'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
@@ -34,6 +36,10 @@ export type ChatViewProps = Readonly<{
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
   autoAttach?: boolean
+  handoffView?: DirectSessionHandoffView
+  onLeadStop?: () => void | Promise<void>
+  onReconnectHandoff?: () => void | Promise<void>
+  onReturnToUser?: () => void | Promise<void>
   readingPosition?: ChatTranscriptProps['readingPosition']
   onReadingPositionChange?: (
     identity: Readonly<{ runtimeSessionId: string; generation: number }>,
@@ -209,6 +215,16 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             Reconnect transcript
           </Button>
         </div>
+      </Show>
+      <Show when={props.handoffView}>
+        {(view) => (
+          <DirectSessionHandoffControls
+            view={view()}
+            onLeadStop={props.onLeadStop}
+            onReconnect={props.onReconnectHandoff}
+            onReturnToUser={props.onReturnToUser}
+          />
+        )}
       </Show>
       <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
         {() => {
