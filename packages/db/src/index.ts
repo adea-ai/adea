@@ -39,8 +39,14 @@ export {
 export {
   readCurrentArtifactReferenceGrant,
   registerArtifactReferenceGrant,
+  regrantArtifactReferenceGrant,
   revokeArtifactReferenceGrant,
+  withArtifactReferenceGrantLocks,
+  ArtifactReferenceGrantError,
+  artifactReferenceGrantRejectionCodes,
+  type ArtifactReferenceGrantLockScope,
   type ArtifactReferenceGrantPresentation,
+  type ArtifactReferenceGrantRejectionCode,
   type ArtifactReferenceGrantRegistrationInput,
   type ArtifactReferenceGrantRegistrationResult,
 } from './artifact-reference-grants'
