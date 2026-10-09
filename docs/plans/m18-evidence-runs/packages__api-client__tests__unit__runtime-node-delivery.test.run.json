@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "packages/api-client/tests/unit/runtime-node-delivery.test.ts",
+  "command": "bun test packages/api-client/tests/unit/runtime-node-delivery.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 1,
+    "fail": 0
+  },
+  "ids": ["A23"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__api-client__tests__unit__runtime-node-delivery.test.junit.xml",
+    "sha256": "ac0c68238bb12e8b2ef871f4699abee83ac972c9239773ddf24edaea510e692f"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "apps/web/test/agent-profile-pin.test.ts",
+  "command": "bun test apps/web/test/agent-profile-pin.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 8,
+    "fail": 0
+  },
+  "ids": ["A11"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-pin.test.junit.xml",
+    "sha256": "d2efca3374e9b6015ed6409dc01e914ff8b10020eaf350a9e5e963854a3e6597"
+  }
+}

@@ -10,6 +10,7 @@ import {
   REQUIRED_IDS,
   REQUIREMENT_IDS,
   STATUS,
+  parseJunit,
   repositoryIo,
   validateEvidenceManifest,
 } from './evidence-manifest.mjs'
@@ -84,15 +85,52 @@ function manifest(entries = [], overrides = {}) {
 
 const testRef = { kind: 'test-reference', repository: 'adea', path: TEST_PATH, name: TEST_TITLE }
 
+/** A JUnit receipt as bun writes it: one testcase per title; failing titles get a failure child. */
+function junitReceipt(titles, failing = []) {
+  const cases = titles
+    .map((title) =>
+      failing.includes(title)
+        ? `    <testcase name="${title}" classname="" time="0.1"><failure message="boom"/></testcase>`
+        : `    <testcase name="${title}" classname="" time="0.1" />`
+    )
+    .join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="bun test">\n  <testsuite name="x">\n${cases}\n  </testsuite>\n</testsuites>\n`
+}
+
+/** A run record and its receipt, as the runner would produce them for one test file. */
+function runArtifacts({
+  repository = 'adea',
+  sourceSha = SHA,
+  executedAtHead = SHA,
+  file = TEST_PATH,
+  status = 'passed',
+  ids = ['A01'],
+  titles = [TEST_TITLE],
+  failing = [],
+  pass,
+  fail,
+} = {}) {
+  const receipt = Buffer.from(junitReceipt(titles, failing))
+  const run = record({
+    repository,
+    sourceSha,
+    executedAtHead,
+    file,
+    command: `bun test ${file}`,
+    exitCode: 0,
+    status,
+    summary: { pass: pass ?? titles.length - failing.length, fail: fail ?? failing.length },
+    ids,
+  })
+  return {
+    run,
+    receipt: { bytes: receipt, sha256: createHash('sha256').update(receipt).digest('hex') },
+  }
+}
+
 /** A fully evidenced A01 (test + execution + packaged candidate) and its fixture io. */
 function completeFixture({ io: overrides = {}, entry: entryOverrides = {} } = {}) {
-  const run = record({
-    repository: 'adea',
-    sourceSha: SHA,
-    command: 'bun test',
-    status: 'passed',
-    ids: ['A01'],
-  })
+  const { run, receipt } = runArtifacts()
   const candidate = record({
     candidateId: 'pkg-1',
     channel: 'packaged',
@@ -105,6 +143,7 @@ function completeFixture({ io: overrides = {}, entry: entryOverrides = {} } = {}
     checkouts: { adea: checkoutFake({ blobs: testBlob() }) },
     working: {
       'artifacts/run.json': { content: run.bytes },
+      'artifacts/receipt.xml': { content: receipt.bytes },
       'artifacts/candidate.json': { content: candidate.bytes },
       ...overrides.working,
     },
@@ -112,6 +151,7 @@ function completeFixture({ io: overrides = {}, entry: entryOverrides = {} } = {}
   })
   const entry = {
     id: 'A01',
+    coverage: 'complete',
     repoEvidence: [
       testRef,
       {
@@ -119,6 +159,7 @@ function completeFixture({ io: overrides = {}, entry: entryOverrides = {} } = {}
         repository: 'adea',
         path: 'artifacts/run.json',
         sha256: run.sha256,
+        receipt: { path: 'artifacts/receipt.xml', sha256: receipt.sha256 },
       },
     ],
     candidateEvidence: [
@@ -157,7 +198,10 @@ describe('partial coverage', () => {
     const report = validateEvidenceManifest(manifest([partial]), io)
     expect(statusOf(report, 'A01')).toMatchObject({
       status: STATUS.pending,
-      reasons: ['execution-reference resolves', 'gap: no candidate for direct sessions'],
+      reasons: [
+        'runner-verified titles: 1, source-text-only titles: 0 (weaker)',
+        'gap: no candidate for direct sessions',
+      ],
     })
     expect(report.ok).toBe(true)
   })
@@ -569,13 +613,15 @@ describe('evidence manifest validation', () => {
 
   test('multi-repository: references resolve per repository and candidates must declare every repository', () => {
     const CP = { name: 'adea-ai/control-plane', rootCommit: OTHER_ROOT, sourceSha: OTHER_SHA }
-    const cpRun = record({
+    const cp = runArtifacts({
       repository: 'control-plane',
       sourceSha: OTHER_SHA,
-      command: 'bun test',
-      status: 'passed',
+      executedAtHead: OTHER_SHA,
+      file: 'tests/cp.test.ts',
       ids: ['A02'],
+      titles: ['cp title'],
     })
+    const cpRun = cp.run
     const candidate = record({
       candidateId: 'pkg-both',
       channel: 'packaged',
@@ -609,6 +655,7 @@ describe('evidence manifest validation', () => {
       },
       working: {
         'artifacts/cp-run.json': { content: cpRun.bytes },
+        'artifacts/cp-receipt.xml': { content: cp.receipt.bytes },
         'artifacts/both.json': { content: candidate.bytes },
         'artifacts/partial.json': { content: partial.bytes },
       },
@@ -622,6 +669,7 @@ describe('evidence manifest validation', () => {
           repository: 'control-plane',
           path: 'artifacts/cp-run.json',
           sha256: cpRun.sha256,
+          receipt: { path: 'artifacts/cp-receipt.xml', sha256: cp.receipt.sha256 },
         },
       ],
       candidateEvidence: [{ kind: 'candidate-reference', path: candidatePath, sha256 }],
@@ -759,6 +807,211 @@ function makeRepo(dir, build) {
   git(dir, ['commit', '-q', '-m', 'fixture', '--allow-empty'])
   return git(dir, ['rev-parse', 'HEAD']).stdout.trim()
 }
+
+describe('runner receipts and source references', () => {
+  test('parseJunit separates passing, failing, and entity-escaped testcases', () => {
+    const xml = `<testsuites><testsuite>
+      <testcase name="ok &amp; fine" classname="" time="0.1" />
+      <testcase name="it&apos;s &quot;quoted&quot;" time="0.1"></testcase>
+      <testcase name="broken" time="0.1"><failure message="x"/></testcase>
+      <testcase name="errored" time="0.1"><error message="x"/></testcase>
+    </testsuite></testsuites>`
+    const parsed = parseJunit(xml)
+    expect([...parsed.passed].toSorted()).toEqual(['it\'s "quoted"', 'ok & fine'])
+    expect([...parsed.failed].toSorted()).toEqual(['broken', 'errored'])
+    expect(parseJunit('<testsuites></testsuites>')).toBeNull()
+    const repeated = parseJunit(`<testsuites>
+      <testcase name="same" time="0.1" />
+      <testcase name="same" time="0.1" />
+    </testsuites>`)
+    expect([repeated.passCount, repeated.failCount]).toEqual([2, 0])
+  })
+
+  test('a passing title in the receipt is runner-verified; source-only titles are reported as weaker', () => {
+    const { io, entry } = completeFixture()
+    const extra = {
+      kind: 'test-reference',
+      repository: 'adea',
+      path: TEST_PATH,
+      name: 'declared but not run',
+    }
+    const source = {
+      ...entry,
+      coverage: 'partial',
+      gaps: ['not all criteria covered'],
+      repoEvidence: [...entry.repoEvidence, extra],
+      candidateEvidence: [],
+    }
+    const withSource = {
+      ...io,
+      checkout: () =>
+        checkoutFake({
+          blobs: {
+            [`${SHA}:${TEST_PATH}`]: {
+              content: `test('${TEST_TITLE}', () => {})\ntest('declared but not run', () => {})`,
+            },
+          },
+        }),
+    }
+    const report = validateEvidenceManifest(manifest([source]), withSource)
+    expect(statusOf(report, 'A01')).toMatchObject({
+      status: STATUS.pending,
+      reasons: [
+        'runner-verified titles: 1, source-text-only titles: 1 (weaker)',
+        'gap: not all criteria covered',
+      ],
+    })
+    expect(report.ok).toBe(true)
+  })
+
+  test('a receipt that fails the claimed title is not verified', () => {
+    const { entry } = completeFixture()
+    const { run, receipt } = runArtifacts({ failing: [TEST_TITLE] })
+    const failing = fixtureIo({
+      checkouts: { adea: checkoutFake({ blobs: testBlob() }) },
+      working: {
+        'artifacts/run.json': { content: run.bytes },
+        'artifacts/receipt.xml': { content: receipt.bytes },
+      },
+    })
+    const bad = {
+      ...entry,
+      repoEvidence: [
+        testRef,
+        {
+          ...entry.repoEvidence[1],
+          sha256: run.sha256,
+          receipt: { path: 'artifacts/receipt.xml', sha256: receipt.sha256 },
+        },
+      ],
+    }
+    const report = validateEvidenceManifest(manifest([bad]), failing)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      'no test-reference is a passing title in its receipt',
+    ])
+    expect(report.ok).toBe(false)
+  })
+
+  test('a receipt whose hash differs from the pinned value is refused', () => {
+    const { io, entry } = completeFixture()
+    const tampered = {
+      ...entry,
+      repoEvidence: entry.repoEvidence.map((item) =>
+        item.kind === 'execution-reference'
+          ? { ...item, receipt: { ...item.receipt, sha256: '0'.repeat(64) } }
+          : item
+      ),
+    }
+    const report = validateEvidenceManifest(manifest([tampered]), io)
+    expect(statusOf(report, 'A01').reasons[0]).toContain('does not match sha256')
+  })
+
+  test('a receipt that lists no matching passing title is invalid', () => {
+    const { entry } = completeFixture()
+    const { run, receipt } = runArtifacts({ titles: ['some other title'] })
+    const io = fixtureIo({
+      checkouts: { adea: checkoutFake({ blobs: testBlob() }) },
+      working: {
+        'artifacts/run.json': { content: run.bytes },
+        'artifacts/receipt.xml': { content: receipt.bytes },
+      },
+    })
+    const bad = {
+      ...entry,
+      repoEvidence: [
+        testRef,
+        {
+          ...entry.repoEvidence[1],
+          sha256: run.sha256,
+          receipt: { path: 'artifacts/receipt.xml', sha256: receipt.sha256 },
+        },
+      ],
+    }
+    const report = validateEvidenceManifest(manifest([bad]), io)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      'no test-reference is a passing title in its receipt',
+    ])
+  })
+
+  test('executedAtHead must be a commit in the checkout', () => {
+    const { run, receipt } = runArtifacts({ executedAtHead: OTHER_SHA })
+    const { io, entry } = completeFixture({
+      io: {
+        working: {
+          'artifacts/run.json': { content: run.bytes },
+          'artifacts/receipt.xml': { content: receipt.bytes },
+        },
+      },
+    })
+    const report = validateEvidenceManifest(
+      manifest([
+        {
+          ...entry,
+          repoEvidence: [
+            testRef,
+            {
+              ...entry.repoEvidence[1],
+              sha256: run.sha256,
+              receipt: { path: 'artifacts/receipt.xml', sha256: receipt.sha256 },
+            },
+          ],
+        },
+      ]),
+      io
+    )
+    expect(statusOf(report, 'A01').reasons[0]).toContain(
+      `executedAtHead ${OTHER_SHA} is not a commit`
+    )
+  })
+
+  test('a receipt outside the root or over the size limit is refused before reading', () => {
+    const { io, entry } = completeFixture({
+      io: { working: { 'artifacts/receipt.xml': { content: '', size: MAX_EVIDENCE_BYTES + 1 } } },
+    })
+    const report = validateEvidenceManifest(manifest([entry]), io)
+    expect(statusOf(report, 'A01').reasons[0]).toContain('receipt artifacts/receipt.xml exceeds')
+  })
+
+  test('a source reference must be a regular file at the pinned SHA', () => {
+    const { io, entry } = completeFixture()
+    const sourced = {
+      ...entry,
+      coverage: 'partial',
+      gaps: ['x'],
+      sourceReferences: [{ repository: 'adea', path: 'scripts/missing.ts' }],
+    }
+    const report = validateEvidenceManifest(manifest([sourced]), io)
+    expect(statusOf(report, 'A01').reasons[0]).toContain('is not a regular file at the pinned SHA')
+    expect(report.ok).toBe(false)
+  })
+
+  test('an uncovered criterion with a source reference is pending and names the gap', () => {
+    const sourced = {
+      id: 'A02',
+      coverage: 'partial',
+      gaps: ['retry returning the original id is not tested'],
+      repoEvidence: [],
+      candidateEvidence: [],
+      sourceReferences: [{ repository: 'adea', path: 'scripts/evidence-manifest.mjs' }],
+    }
+    const io = fixtureIo({
+      checkouts: {
+        adea: checkoutFake({
+          blobs: { [`${SHA}:scripts/evidence-manifest.mjs`]: { content: 'x' } },
+        }),
+      },
+    })
+    const report = validateEvidenceManifest(manifest([sourced]), io)
+    expect(statusOf(report, 'A02')).toMatchObject({
+      status: STATUS.pending,
+      reasons: [
+        'no repository evidence mapped',
+        'gap: retry returning the original id is not tested',
+      ],
+    })
+    expect(report.ok).toBe(true)
+  })
+})
 
 describe('repositoryIo: git and working-tree safety', () => {
   test('reads committed blobs, rejects symlink and oversized blobs, and resolves immutable roots', () => {

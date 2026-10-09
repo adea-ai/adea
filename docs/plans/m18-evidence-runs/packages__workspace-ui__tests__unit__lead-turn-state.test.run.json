@@ -1,15 +1,18 @@
 {
   "repository": "adea",
   "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
   "file": "packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
-  "command": "bun test packages/workspace-ui/tests/unit/lead-turn-state.test.ts",
+  "command": "bun test packages/workspace-ui/tests/unit/lead-turn-state.test.ts --reporter=junit",
   "exitCode": 0,
   "status": "passed",
   "summary": {
     "pass": 68,
     "fail": 0
   },
-  "ids": ["A18", "A34", "A40", "REQ-108", "REQ-119", "REQ-132", "REQ-134"],
-  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+  "ids": ["A18", "A24", "A34", "A40", "REQ-108", "REQ-119", "REQ-132", "REQ-134"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
+    "sha256": "5c64b473c65babc5350d33ac102123eda13a659da864a8469082769b4933e15a"
+  }
 }

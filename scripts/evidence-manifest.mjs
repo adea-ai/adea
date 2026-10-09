@@ -192,7 +192,8 @@ function checkTestReference(item, checkout, manifest) {
   return null
 }
 
-function readRecord(item, io) {
+/** Bounded, hash-pinned bytes: size is checked before any read. */
+function readBytes(item, io) {
   const file = io.workingFile(item.path)
   if (file === null) return { problem: `${item.path} is missing` }
   if (file.outside) return { problem: `${item.path} resolves outside the repository root` }
@@ -204,30 +205,115 @@ function readRecord(item, io) {
   if (!SHA256.test(item.sha256 ?? '') || sha256Hex(bytes) !== item.sha256) {
     return { problem: `${item.path} does not match sha256` }
   }
+  return { bytes }
+}
+
+function readRecord(item, io) {
+  const { bytes, problem } = readBytes(item, io)
+  if (problem) return { problem }
   const parsed = parseJson(bytes)
   if (parsed.error) return { problem: `${item.path} is ${parsed.error}` }
   if (!isObject(parsed.value)) return { problem: `${item.path} must be a JSON object` }
   return { record: parsed.value }
 }
 
+const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const unescapeXml = (text) =>
+  text.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => XML_ENTITIES[name])
+
+/**
+ * Runner-produced JUnit receipt: per-testcase pass or fail. A testcase with a failure,
+ * error, or skipped child is not passing. Returns null when the XML has no testcases.
+ */
+export function parseJunit(xml) {
+  const passed = new Set()
+  const failed = new Set()
+  let passCount = 0
+  let failCount = 0
+  for (const match of xml.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)) {
+    const name = /\sname="([^"]*)"/.exec(match[1])?.[1]
+    if (name === undefined) return null
+    const title = unescapeXml(name)
+    if (/<(failure|error|skipped)\b/.test(match[2] ?? '')) {
+      failed.add(title)
+      failCount += 1
+    } else {
+      passed.add(title)
+      passCount += 1
+    }
+  }
+  if (passCount + failCount === 0) return null
+  return { passed, failed, passCount, failCount }
+}
+
+/**
+ * A recorded run plus its receipt. The record is a claim; the receipt is the runner's
+ * output, and its counts must match the claim. The record's executedAtHead must be a
+ * commit in the repository's checkout. Returns the titles the receipt shows passing.
+ */
 function checkExecutionReference(item, id, io, manifest) {
   const { record, problem } = readRecord(item, io)
-  if (problem) return problem
+  if (problem) return { problem }
   if (record.repository !== item.repository) {
-    return `execution record names repository ${record.repository}, reference names ${item.repository}`
+    return {
+      problem: `execution record names repository ${record.repository}, reference names ${item.repository}`,
+    }
   }
   const sha = manifest.repositories[item.repository].sourceSha
   if (record.sourceSha !== sha) {
-    return `execution record pins ${record.sourceSha}, ${item.repository} pins ${sha}`
+    return { problem: `execution record pins ${record.sourceSha}, ${item.repository} pins ${sha}` }
   }
-  if (record.status !== 'passed') return `execution record status is ${record.status}, not passed`
+  if (record.status !== 'passed')
+    return { problem: `execution record status is ${record.status}, not passed` }
   if (typeof record.command !== 'string' || record.command.length === 0) {
-    return 'execution record must name the command'
+    return { problem: 'execution record must name the command' }
   }
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
-    return `execution record does not list ${id}`
+    return { problem: `execution record does not list ${id}` }
   }
-  return null
+  if (safeRepoPath(record.file) === null || !TEST_FILE.test(record.file)) {
+    return { problem: 'execution record must name a *.test.* file' }
+  }
+  const checkout = io.checkout(item.repository)
+  if (!checkout.commitExists(record.executedAtHead)) {
+    return { problem: `executedAtHead ${record.executedAtHead} is not a commit in the checkout` }
+  }
+  if (!isObject(item.receipt) || safeRepoPath(item.receipt.path) === null) {
+    return { problem: 'execution-reference must name a receipt' }
+  }
+  const receipt = readBytes({ path: item.receipt.path, sha256: item.receipt.sha256 }, io)
+  if (receipt.problem) return { problem: `receipt ${receipt.problem}` }
+  const junit = parseJunit(Buffer.from(receipt.bytes).toString('utf8'))
+  if (junit === null) return { problem: `receipt ${item.receipt.path} is not JUnit testcases` }
+  if (junit.passCount !== record.summary?.pass || junit.failCount !== record.summary?.fail) {
+    return {
+      problem: `receipt counts ${junit.passCount}/${junit.failCount} do not match record summary`,
+    }
+  }
+  return {
+    file: record.file,
+    passed: new Set([...junit.passed].filter((title) => !junit.failed.has(title))),
+  }
+}
+
+function sourceProblems(entry, io, manifest) {
+  const problems = []
+  for (const ref of entry.sourceReferences ?? []) {
+    if (safeRepoPath(ref?.path) === null) {
+      problems.push(`unsafe source reference ${String(ref?.path)}`)
+      continue
+    }
+    const checkout = io.checkout(ref.repository)
+    if (checkout === null) {
+      problems.push(`no local checkout mapped for repository ${ref.repository}`)
+      continue
+    }
+    const blob = checkout.blobAtSha(manifest.repositories[ref.repository].sourceSha, ref.path)
+    if (blob === null || !blob.regular) {
+      problems.push(`source ${ref.repository}:${ref.path} is not a regular file at the pinned SHA`)
+    }
+  }
+  return problems
 }
 
 function checkCandidateEvidence(item, id, io, manifest, repositories) {
@@ -258,6 +344,10 @@ function checkCandidateEvidence(item, id, io, manifest, repositories) {
 
 function evaluate(id, entry, io, manifest) {
   if (entry === undefined) return { status: STATUS.pending, reasons: ['no evidence mapped'] }
+  const sources = sourceProblems(entry, io, manifest)
+  if (sources.length > 0) return { status: STATUS.invalid, reasons: sources }
+  const gapReasons = (entry.gaps ?? []).map((gap) => `gap: ${gap}`)
+
   if (entry.repoEvidence.length === 0) {
     if (entry.candidateEvidence.length > 0) {
       return {
@@ -265,11 +355,13 @@ function evaluate(id, entry, io, manifest) {
         reasons: ['candidate evidence requires an execution-reference'],
       }
     }
-    return { status: STATUS.pending, reasons: ['no repository evidence mapped'] }
+    return { status: STATUS.pending, reasons: ['no repository evidence mapped', ...gapReasons] }
   }
 
   const reasons = []
   const repositories = new Set()
+  const receipts = new Map()
+  const tests = []
   let executions = 0
   for (const item of entry.repoEvidence) {
     if (safeRepoPath(item.path) === null) {
@@ -282,18 +374,50 @@ function evaluate(id, entry, io, manifest) {
       reasons.push(`no local checkout mapped for repository ${item.repository}`)
       continue
     }
-    let problem
     if (item.kind === 'test-reference') {
-      problem = checkTestReference(item, checkout, manifest)
+      tests.push(item)
+      const problem = checkTestReference(item, checkout, manifest)
+      if (problem) reasons.push(problem)
     } else if (item.kind === 'execution-reference') {
       executions += 1
-      problem = checkExecutionReference(item, id, io, manifest)
+      const result = checkExecutionReference(item, id, io, manifest)
+      if (result.problem) reasons.push(result.problem)
+      else receipts.set(result.file, result.passed)
     } else {
-      problem = `unknown repository evidence kind ${item.kind}`
+      reasons.push(`unknown repository evidence kind ${item.kind}`)
     }
-    if (problem) reasons.push(problem)
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
+
+  // Declarations are matched in source text, which also matches comments and strings.
+  // Only a title that the receipt shows passing counts as runner-verified.
+  const verified = tests.filter((test) => receipts.get(test.path)?.has(test.name)).length
+  const sourceOnly = tests.length - verified
+
+  if (executions === 0) {
+    if (entry.candidateEvidence.length > 0) {
+      return {
+        status: STATUS.invalid,
+        reasons: ['candidate evidence requires an execution-reference'],
+      }
+    }
+    if (entry.coverage === 'partial') {
+      return {
+        status: STATUS.pending,
+        reasons: ['declaration only, no execution-reference', ...gapReasons],
+      }
+    }
+    return {
+      status: STATUS.repoDeclared,
+      reasons: ['test declared, no execution-reference recorded'],
+    }
+  }
+  if (verified === 0) {
+    return {
+      status: STATUS.invalid,
+      reasons: ['no test-reference is a passing title in its receipt'],
+    }
+  }
 
   if (entry.coverage === 'partial') {
     if (entry.candidateEvidence.length > 0) {
@@ -305,22 +429,9 @@ function evaluate(id, entry, io, manifest) {
     return {
       status: STATUS.pending,
       reasons: [
-        executions > 0 ? 'execution-reference resolves' : 'declaration only',
-        ...entry.gaps.map((gap) => `gap: ${gap}`),
+        `runner-verified titles: ${verified}, source-text-only titles: ${sourceOnly} (weaker)`,
+        ...gapReasons,
       ],
-    }
-  }
-
-  if (executions === 0) {
-    if (entry.candidateEvidence.length > 0) {
-      return {
-        status: STATUS.invalid,
-        reasons: ['candidate evidence requires an execution-reference'],
-      }
-    }
-    return {
-      status: STATUS.repoDeclared,
-      reasons: ['test declared, no execution-reference recorded'],
     }
   }
 

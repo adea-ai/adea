@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="16" assertions="83" failures="0" skipped="0" time="0.045834">
+  <testsuite name="apps/web/test/lead-turn-runtime.test.ts" file="apps/web/test/lead-turn-runtime.test.ts" tests="16" assertions="83" failures="0" skipped="0" time="0.015066">
+    <testcase name="publication gate receives the exact canonical output digest under publication locks" classname="" time="0.002406" file="apps/web/test/lead-turn-runtime.test.ts" line="36" assertions="4" />
+    <testcase name="absent adapter fails closed without dispatch or pending execution claims" classname="" time="0.000101" file="apps/web/test/lead-turn-runtime.test.ts" line="139" assertions="2" />
+    <testcase name="lost acknowledgement recovers actual binding after preparation expires without start or funding" classname="" time="0.000562" file="apps/web/test/lead-turn-runtime.test.ts" line="150" assertions="8" />
+    <testcase name="missing and incomplete lookup receipts retain pending without inventing a session or runtime state" classname="" time="0.000475" file="apps/web/test/lead-turn-runtime.test.ts" line="194" assertions="21" />
+    <testcase name="lookup refuses mismatched canonical pins and late authority changes before publication" classname="" time="0.000638" file="apps/web/test/lead-turn-runtime.test.ts" line="240" assertions="12" />
+    <testcase name="lookup denial retains pending and exposes no service/provider details or output" classname="" time="0.000276" file="apps/web/test/lead-turn-runtime.test.ts" line="289" assertions="4" />
+    <testcase name="configured transport still cannot start without trusted confirmed funding" classname="" time="0.000066" file="apps/web/test/lead-turn-runtime.test.ts" line="306" assertions="2" />
+    <testcase name="prepare persists an exact binding without starting inference or creating a runtime session" classname="" time="0.000112" file="apps/web/test/lead-turn-runtime.test.ts" line="313" assertions="4" />
+    <testcase name="persists repair identity before transport and keeps original human distinct from transport" classname="" time="0.000203" file="apps/web/test/lead-turn-runtime.test.ts" line="326" assertions="2" />
+    <testcase name="mismatched intent or canonical runtime session is refused" classname="" time="0.00012" file="apps/web/test/lead-turn-runtime.test.ts" line="336" assertions="2" />
+    <testcase name="unknown transport outcome stays pending and cancel acknowledgement is not cancellation" classname="" time="0.000289" file="apps/web/test/lead-turn-runtime.test.ts" line="346" assertions="3" />
+    <testcase name="completed output requires current trusted grant inside publication boundary" classname="" time="0.000198" file="apps/web/test/lead-turn-runtime.test.ts" line="361" assertions="2" />
+    <testcase name="missing or revoked publication authority never leaks terminal output" classname="" time="0.00031" file="apps/web/test/lead-turn-runtime.test.ts" line="383" assertions="5" />
+    <testcase name="progress validates cursor ordering and projects no raw data or provider errors" classname="" time="0.000532" file="apps/web/test/lead-turn-runtime.test.ts" line="405" assertions="3" />
+    <testcase name="missing or expired preparation never persists a start or reaches inference" classname="" time="0.000175" file="apps/web/test/lead-turn-runtime.test.ts" line="430" assertions="6" />
+    <testcase name="changed preparation confirmation is refused and identical preparation replays the exact reference" classname="" time="0.000293" file="apps/web/test/lead-turn-runtime.test.ts" line="445" assertions="3" />
+  </testsuite>
+</testsuites>

@@ -32,11 +32,17 @@ candidate evidence; its references are still checked, but its status stays `pend
 Current mappings are all `partial`: the cited tests exercise part of each criterion. `id` must be a known
 requirement or A-id. Every `repoEvidence` item must name a declared `repository`.
 
-- `{ kind: "test-reference", repository, path, name }` proves that a test title is
-  declared in a `*.test.*` file at `sourceSha`. It is a declaration only.
-- `{ kind: "execution-reference", repository, path, sha256 }` points to a JSON record
-  `{ repository, sourceSha, command, status: "passed", ids[] }` whose bytes match
-  `sha256`. Only this kind can verify an id.
+- `{ kind: "test-reference", repository, path, name }` checks that a test title appears in a
+  `*.test.*` file at `sourceSha`. The check is a source-text match, so comments and strings
+  also match. It is weaker than a runner receipt.
+- `{ kind: "execution-reference", repository, path, sha256, receipt: { path, sha256 } }` points to
+  a run record `{ repository, sourceSha, executedAtHead, file, command, exitCode, status, summary, ids[] }`
+  (a recorded claim) and to a JUnit receipt written by the runner. Both bytes must match their
+  hashes. The receipt counts must equal `summary`, and `executedAtHead` must be a commit in the
+  checkout. A `test-reference` counts as runner-verified only when its title is a passing testcase
+  in the receipt for the same file.
+- Entries may also list `sourceReferences: [{ repository, path }]`: merged source files that must
+  exist at `sourceSha`. A source reference is context, not evidence.
 - `{ kind: "candidate-reference", path, sha256 }` points to a JSON record
   `{ candidateId, channel: "packaged" | "deployed", contractVersion, status: "passed", ids[], sources }`.
   `sources` must equal `sourceSha` for every repository the id references, and
@@ -65,6 +71,9 @@ Default mode fails only on `invalid` and schema errors. `--strict` also fails on
 id that is not `candidate-compatible`.
 
 ## Limits
+
+- The run record is a claim and the receipt is the runner output. Both are committed by us, so
+  neither is independent verification. Re-running the command at `executedAtHead` is the check.
 
 - The validator checks declarations, hashes, and recorded `passed` status. It does not
   rerun tests or prove a candidate binary was built from the declared SHAs.

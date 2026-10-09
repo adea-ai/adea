@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="5" assertions="28" failures="0" skipped="0" time="0.020226">
+  <testsuite name="apps/desktop/tests/dev-runtime-deny-policy.test.ts" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" tests="5" assertions="28" failures="0" skipped="0" time="0.001827">
+    <testcase name="private key material is denied by name, in any directory" classname="" time="0.000306" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" line="12" assertions="6" />
+    <testcase name="public and non-secret neighbours stay readable" classname="" time="0.000152" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" line="21" assertions="7" />
+    <testcase name="credential stores are denied anywhere in the tree, not only under $HOME" classname="" time="0.000094" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" line="34" assertions="8" />
+    <testcase name="protected roots refuse exactly themselves and their descendants" classname="" time="0.000087" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" line="46" assertions="4" />
+    <testcase name="a rule names itself so a refusal can explain what it refused" classname="" time="0.000054" file="apps/desktop/tests/dev-runtime-deny-policy.test.ts" line="58" assertions="3" />
+  </testsuite>
+</testsuites>

@@ -1,9 +1,9 @@
 {
   "repository": "adea",
   "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
   "file": "apps/web/test/desktop-workspace-deletion.test.ts",
-  "command": "bun test apps/web/test/desktop-workspace-deletion.test.ts",
+  "command": "bun test apps/web/test/desktop-workspace-deletion.test.ts --reporter=junit",
   "exitCode": 0,
   "status": "passed",
   "summary": {
@@ -11,5 +11,8 @@
     "fail": 0
   },
   "ids": ["A35"],
-  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__desktop-workspace-deletion.test.junit.xml",
+    "sha256": "25c8de100db05d0e46bb356ab3ac95fe9513b88944e4ae54845ef14f29c3dad0"
+  }
 }

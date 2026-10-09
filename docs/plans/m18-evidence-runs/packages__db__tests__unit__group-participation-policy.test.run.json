@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "packages/db/tests/unit/group-participation-policy.test.ts",
+  "command": "bun test packages/db/tests/unit/group-participation-policy.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 63,
+    "fail": 0
+  },
+  "ids": ["A07"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__group-participation-policy.test.junit.xml",
+    "sha256": "783de0c52df7de52cd594d0c8601a9d631145c7068b1b0922cd0c722679ce698"
+  }
+}

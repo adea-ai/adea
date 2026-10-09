@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="5" assertions="33" failures="0" skipped="0" time="0.148577">
+  <testsuite name="apps/web/test/lead-product-reader.test.ts" file="apps/web/test/lead-product-reader.test.ts" tests="5" assertions="33" failures="0" skipped="0" time="0.11884">
+    <testcase name="private product read authenticates before DB work and rejects caller actor/model/profile assertions" classname="" time="0.001196" file="apps/web/test/lead-product-reader.test.ts" line="33" assertions="8" />
+    <testcase name="fresh canonical evidence pins original actor/audience/profile and has a stable bounded intent expiry" classname="" time="0.001155" file="apps/web/test/lead-product-reader.test.ts" line="58" assertions="13" />
+    <testcase name="invalid policy, body limit, wrong DB binding and DB denial expose no canonical text" classname="" time="0.000545" file="apps/web/test/lead-product-reader.test.ts" line="88" assertions="5" />
+    <testcase name="service revocation while the canonical DB read awaits withholds the private prompt" classname="" time="0.00036" file="apps/web/test/lead-product-reader.test.ts" line="121" assertions="2" />
+    <testcase name="final service verification and response construction remain inside canonical product locks" classname="" time="0.000346" file="apps/web/test/lead-product-reader.test.ts" line="149" assertions="5" />
+  </testsuite>
+</testsuites>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="4" assertions="17" failures="0" skipped="0" time="0.031622">
+  <testsuite name="apps/web/test/lead-turn-sdk-adapter.test.ts" file="apps/web/test/lead-turn-sdk-adapter.test.ts" tests="4" assertions="17" failures="0" skipped="0" time="0.003647">
+    <testcase name="candidate SDK adapter forwards only opaque references, never human identity in public command payload" classname="" time="0.000544" file="apps/web/test/lead-turn-sdk-adapter.test.ts" line="22" assertions="3" />
+    <testcase name="candidate adapter rejects wrong workspace, substituted transport principal and changed retry key" classname="" time="0.000382" file="apps/web/test/lead-turn-sdk-adapter.test.ts" line="47" assertions="4" />
+    <testcase name="prepare decodes actual SDK response data and retains only bound references and expiry" classname="" time="0.000743" file="apps/web/test/lead-turn-sdk-adapter.test.ts" line="85" assertions="4" />
+    <testcase name="lookup uses actual strict response decoder and opaque intent only; absent decoder remains disabled" classname="" time="0.000353" file="apps/web/test/lead-turn-sdk-adapter.test.ts" line="136" assertions="6" />
+  </testsuite>
+</testsuites>

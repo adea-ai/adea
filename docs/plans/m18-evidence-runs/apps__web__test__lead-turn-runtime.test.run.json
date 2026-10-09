@@ -1,15 +1,18 @@
 {
   "repository": "adea",
   "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
   "file": "apps/web/test/lead-turn-runtime.test.ts",
-  "command": "bun test apps/web/test/lead-turn-runtime.test.ts",
+  "command": "bun test apps/web/test/lead-turn-runtime.test.ts --reporter=junit",
   "exitCode": 0,
   "status": "passed",
   "summary": {
     "pass": 16,
     "fail": 0
   },
-  "ids": ["A18", "A40", "REQ-134"],
-  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+  "ids": ["A16", "A18", "A20", "A40", "REQ-134"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
+    "sha256": "dd6e9278ffcc5a28bb33bf440888bd678d4d6de157336f9625c7ded5cfda6891"
+  }
 }

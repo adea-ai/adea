@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "apps/web/test/lead-product-reader.test.ts",
+  "command": "bun test apps/web/test/lead-product-reader.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 5,
+    "fail": 0
+  },
+  "ids": ["A29"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-product-reader.test.junit.xml",
+    "sha256": "2d6e97261c7ed1786c5718e8c623dd4f644b1d19f008d3f3a421f618b85ca042"
+  }
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="8" assertions="42" failures="0" skipped="0" time="5.129794">
+  <testsuite name="apps/web/test/agent-profile-availability.test.ts" file="apps/web/test/agent-profile-availability.test.ts" tests="8" assertions="42" failures="0" skipped="0" time="5.111007">
+    <testcase name="structural lead remains setup-blocked without catalog or model calls" classname="" time="0.000596" file="apps/web/test/agent-profile-availability.test.ts" line="25" assertions="1" />
+    <testsuite name="authoritative exact-pin Agent availability" file="apps/web/test/agent-profile-availability.test.ts" line="142" tests="7" assertions="41" failures="0" skipped="0" time="5.042">
+      <testcase name="checks a shared pin once, preserves every identity/revision and drops private metadata" classname="authoritative exact-pin Agent availability" time="0.006444" file="apps/web/test/agent-profile-availability.test.ts" line="143" assertions="6" />
+      <testcase name="projects exact lifecycle/approval/compatibility refusals without changing the pin" classname="authoritative exact-pin Agent availability" time="0.005794" file="apps/web/test/agent-profile-availability.test.ts" line="156" assertions="22" />
+      <testcase name="a legacy/malformed reference is blocked without calling the catalog" classname="authoritative exact-pin Agent availability" time="0.000135" file="apps/web/test/agent-profile-availability.test.ts" line="180" assertions="2" />
+      <testcase name="limits distinct pins and concurrency; unchecked pins never inherit available" classname="authoritative exact-pin Agent availability" time="0.009636" file="apps/web/test/agent-profile-availability.test.ts" line="190" assertions="4" />
+      <testcase name="request cancellation bounds scope work and ignores a late result" classname="authoritative exact-pin Agent availability" time="0.011197" file="apps/web/test/agent-profile-availability.test.ts" line="212" assertions="3" />
+      <testcase name="empty inventory never calls scope or catalog" classname="authoritative exact-pin Agent availability" time="0.000158" file="apps/web/test/agent-profile-availability.test.ts" line="243" assertions="2" />
+      <testcase name="the overall deadline returns unavailable even while scope resolution is stalled" classname="authoritative exact-pin Agent availability" time="5.011213" file="apps/web/test/agent-profile-availability.test.ts" line="249" assertions="2" />
+    </testsuite>
+  </testsuite>
+</testsuites>

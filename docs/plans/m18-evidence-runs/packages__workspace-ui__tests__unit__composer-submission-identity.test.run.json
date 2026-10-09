@@ -1,9 +1,9 @@
 {
   "repository": "adea",
   "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
   "file": "packages/workspace-ui/tests/unit/composer-submission-identity.test.ts",
-  "command": "bun test packages/workspace-ui/tests/unit/composer-submission-identity.test.ts",
+  "command": "bun test packages/workspace-ui/tests/unit/composer-submission-identity.test.ts --reporter=junit",
   "exitCode": 0,
   "status": "passed",
   "summary": {
@@ -11,5 +11,8 @@
     "fail": 0
   },
   "ids": ["REQ-131"],
-  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__composer-submission-identity.test.junit.xml",
+    "sha256": "05b0779765d17731be0c0ad81f806dc7a83365e0e677ce7f327f5f7a27d6c021"
+  }
 }

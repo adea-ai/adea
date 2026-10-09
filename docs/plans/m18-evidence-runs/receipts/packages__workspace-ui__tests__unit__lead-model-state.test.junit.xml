@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="13" assertions="134" failures="0" skipped="0" time="0.032305">
+  <testsuite name="packages/workspace-ui/tests/unit/lead-model-state.test.ts" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" tests="13" assertions="134" failures="0" skipped="0" time="0.005396">
+    <testcase name="every bounded readiness failure has safe actionable copy and READY has no remedy" classname="" time="0.000423" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="76" assertions="52" />
+    <testcase name="unknown reasons, contradictory readiness and provider error text never qualify or leak" classname="" time="0.000147" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="89" assertions="14" />
+    <testcase name="lead, child and direct defaults remain independent, and malformed overrides never fall back" classname="" time="0.000521" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="116" assertions="7" />
+    <testcase name="selection requires a listed active ready model with complete model metadata" classname="" time="0.000738" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="127" assertions="14" />
+    <testcase name="ambiguous duplicate connection or model identity cannot be selected" classname="" time="0.000104" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="172" assertions="2" />
+    <testcase name="model projections leave frozen defaults and unrelated draft/persona state intact" classname="" time="0.000131" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="188" assertions="1" />
+    <testcase name="ready funding displays exact authenticated provider identity and explicit funder separately" classname="" time="0.000516" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="200" assertions="6" />
+    <testcase name="funding mismatch in each immutable scope pin fails closed without exposing ready metadata" classname="" time="0.000177" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="212" assertions="15" />
+    <testcase name="missing explicit funding ownership is never inferred from provider account metadata" classname="" time="0.00032" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="227" assertions="6" />
+    <testcase name="expired, stale, failed and malformed funding views cannot retain a ready label" classname="" time="0.000259" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="249" assertions="10" />
+    <testcase name="blocked funding uses only the bounded reason/remedy and suppresses all ready fields" classname="" time="0.000098" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="265" assertions="3" />
+    <testcase name="funding scope extras cannot enter the ready projection and freshness must be explicitly true" classname="" time="0.000041" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="283" assertions="3" />
+    <testcase name="a calendar-invalid future expiry is not normalized into fresh funding" classname="" time="0.00004" file="packages/workspace-ui/tests/unit/lead-model-state.test.ts" line="293" assertions="1" />
+  </testsuite>
+</testsuites>

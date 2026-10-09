@@ -1,9 +1,9 @@
 {
   "repository": "adea",
   "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "291bc6c4cbdaccc3946a0da62a05315427f6475a",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
   "file": "packages/data/tests/unit/account-directory-keys.test.ts",
-  "command": "bun test packages/data/tests/unit/account-directory-keys.test.ts",
+  "command": "bun test packages/data/tests/unit/account-directory-keys.test.ts --reporter=junit",
   "exitCode": 0,
   "status": "passed",
   "summary": {
@@ -11,5 +11,8 @@
     "fail": 0
   },
   "ids": ["A04"],
-  "treeNote": "executedAtHead differs from sourceSha only by evidence-manifest files, one package.json script line, and docs/plans; none is imported by the file under test"
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__data__tests__unit__account-directory-keys.test.junit.xml",
+    "sha256": "baecccd18080dbe280e6a47a39aff52e132d7b0edfd81bf75268d2da1eba3d1d"
+  }
 }

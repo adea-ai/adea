@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "apps/desktop/tests/dev-runtime-deny-policy.test.ts",
+  "command": "bun test apps/desktop/tests/dev-runtime-deny-policy.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 5,
+    "fail": 0
+  },
+  "ids": ["A38"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__dev-runtime-deny-policy.test.junit.xml",
+    "sha256": "7dd879691844d92fa1990848735632ac10fae3107bb5969b68373804ee77b1d0"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "repository": "adea",
+  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
+  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "file": "packages/db/tests/unit/artifact-reference-policy.test.ts",
+  "command": "bun test packages/db/tests/unit/artifact-reference-policy.test.ts --reporter=junit",
+  "exitCode": 0,
+  "status": "passed",
+  "summary": {
+    "pass": 31,
+    "fail": 0
+  },
+  "ids": ["A09"],
+  "receipt": {
+    "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__artifact-reference-policy.test.junit.xml",
+    "sha256": "040b9c657b7c8ddcd7c1b0e5d6bb6930caf517a24eb9cc708cac84e5d5057a69"
+  }
+}
