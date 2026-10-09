@@ -367,11 +367,13 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     // Unmediated forgery retains nothing at all.
     await expect(f.bypass('target-session-a', 9999)).rejects.toThrow('host mediation')
     // A desktop-credentialed bypass of client preflight IS retained (the
-    // server cannot tell it from an honest request): it reads back as the
-    // latest tracked request. That is ALL it ever becomes — coordination
-    // needs a runtime-validated execution binding no retained claim
-    // carries, proven unbound at the derivation layer for this exact
-    // shape (forged future, no observation).
+    // server cannot tell it from an honest request): it reads back as a
+    // tracked request with its claim intact. That is ALL it ever becomes
+    // — coordination needs a runtime-validated execution binding no
+    // retained claim carries, proven unbound at the derivation layer for
+    // this exact shape (forged future, no observation). Reads order
+    // retained requests by generation-then-sequence for tracking only;
+    // neither order confers coordination.
     const forged = await f.admit('target-session-a', 9999)
     const current = await getLatestLeadTurnForTarget(
       connection.db,

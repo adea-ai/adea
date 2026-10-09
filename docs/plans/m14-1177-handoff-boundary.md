@@ -47,8 +47,10 @@ visible, stamps the triple on the intent, and returns it on the
 receipt; the client verifies the receipt names the requesting session
 and refreshes from the exact intent (`getLeadTurnStatus`), never by
 task-wide re-resolution. A response without a retained target, or
-with another session's target, fails closed. Reads follow admission
-sequence, never caller-claimed generation. Unknown-outcome retries
+with another session's target, fails closed. Reads return the latest
+retained request for tracking (generation-then-sequence among retained
+requests); ordering confers nothing — coordination needs the effect
+boundary regardless of what reads return. Unknown-outcome retries
 recover the canonically retained request server-side (the COMPLETE
 triple — session, generation, task — must match; a same-session
 claim naming another task fails closed as a target mismatch; a

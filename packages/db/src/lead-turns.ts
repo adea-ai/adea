@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   parseRequestedRoleModelSelections,
@@ -267,14 +267,14 @@ export async function createLeadTurn(
     // task, and it is stamped on the intent so later reads can tell a
     // retargeted or phantom task from the admitted one.
     if (handoffTarget) await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
-    // Canonical recovery before another admission: a retained REQUEST for
-    // the COMPLETE requested reference (session, generation, task) dedupes
-    // reload/eviction retries without any client-held request identity.
-    // Requested references are routing, never authority: they decide which
-    // retained request a retry continues, never what coordinates. The
-    // complete triple must match: the same session and generation naming a
-    // different task is a contradictory claim about one context and fails
-    // closed. Any other generation mints anew. Serialization note: createLeadTurn is the
+    // Canonical recovery before another admission: a retained intent for the
+    // exact target context dedupes reload/eviction retries without any
+    // client-held request identity. The COMPLETE retained target must match:
+    // same session and generation but a different task is a contradictory
+    // claim about one context and fails closed. A different generation
+    // mints anew (ordering, never ground truth: the session host alone
+    // knows current generation, and display currency is decided where the
+    // live generation is known). Serialization note: createLeadTurn is the
     // sole inserter and holds the channel FOR UPDATE lock (lockAuthority)
     // before any insert, so concurrent same-target admissions serialize and
     // the loser always finds the winner here; the partial unique target
@@ -380,12 +380,7 @@ async function findTargetIntent(
   return retained?.intent
 }
 
-/** Latest retained request for one exact target session, newest admission
- *  first. Ordering is admission sequence ONLY — never the caller-claimed
- *  generation, which proves nothing about currency and would let a forged
- *  future outrank honest requests. Currency is decided where the live
- *  generation is known (the requesting surface) and coordination requires
- *  a runtime-validated execution binding, never retained order. */
+/** Latest retained intent for one exact target session, newest generation first. */
 async function findLatestTargetIntent(
   tx: AgentHqTransaction,
   workspaceId: string,
@@ -404,7 +399,7 @@ async function findLatestTargetIntent(
         isNull(messages.deletedAt)
       )
     )
-    .orderBy(sql`${messages.sequence} desc`)
+    .orderBy(desc(leadTurnIntents.handoffTargetGeneration), sql`${messages.sequence} desc`)
     .limit(1)
   return retained?.intent
 }
