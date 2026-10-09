@@ -5,6 +5,26 @@ export {
   MigrationSnapshotStructureError,
 } from './migration-snapshot-comparator'
 export {
+  captureMigrationSnapshot,
+  captureMigrationSnapshotInTransaction,
+  migrationSnapshotEventPayloadDigest,
+  migrationSnapshotEventPayloadDigestField,
+  MigrationSnapshotCaptureInputError,
+  MIGRATION_SNAPSHOT_CAPTURE_PAGE_SIZE,
+  MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES,
+  MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
+  migrationSnapshotCaptureUnknownReasons,
+  MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
+  resolveMigrationSnapshotCaptureDomains,
+  type MigrationSnapshotCaptureIdentityInput,
+  type MigrationSnapshotCaptureInput,
+  type MigrationSnapshotCaptureResult,
+  type MigrationSnapshotCaptureUnknownReason,
+  type MigrationSnapshotDomainCaptureStatus,
+  type MigrationSnapshotEventPayloadDigestResult,
+  type MigrationSnapshotPayloadDigestInconclusiveReason,
+} from './migration-snapshot-capture'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
