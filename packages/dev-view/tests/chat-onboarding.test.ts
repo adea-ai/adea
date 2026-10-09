@@ -169,37 +169,3 @@ describe('first-run onboarding', () => {
     ])
   })
 })
-
-describe('first-run lead provisioning outcome', () => {
-  const notReady: FirstRunFacts = { ...ready, agentProfileReady: false }
-
-  test('a failed lead provisioning shows a retryable error, never a setup-complete state', () => {
-    const state = projectFirstRun({ ...notReady, leadProvisioning: 'failed' })
-    expect(state.stage).toBe('agent')
-    expect(state.heading).toBe('Workspace lead not set up')
-    expect(state.message).toContain('Try again')
-    expect(state.actions.map((action) => action.kind)).toEqual(['retry_lead'])
-    expect(state.heading).not.toMatch(/ready|started|complete/i)
-  })
-
-  test('without a provisioning failure the existing setup prompt remains', () => {
-    const state = projectFirstRun(notReady)
-    expect(state.actions.map((action) => action.kind)).toEqual(['set_up_agent'])
-  })
-
-  test('expired auth offers the existing sign-in action before any setup step', () => {
-    const state = projectFirstRun({
-      ...notReady,
-      identity: 'auth_required',
-      leadProvisioning: 'failed',
-    })
-    expect(state.stage).toBe('identity')
-    expect(state.actions.map((action) => action.kind)).toEqual(['sign_in'])
-  })
-
-  test('a provisioned lead that is still unconfigured stays setup-blocked, not ready', () => {
-    const state = projectFirstRun(notReady)
-    expect(state.stage).toBe('agent')
-    expect(state.stage).not.toBe('compose')
-  })
-})

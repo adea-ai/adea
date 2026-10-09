@@ -40,12 +40,7 @@ import {
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
-import {
-  provisionFirstRunLeadIfCurrent,
-  resolveDesktopFirstRun,
-  type DesktopFirstRunWorktree,
-  type FirstRunLeadOutcome,
-} from '../lib/desktop-first-run-chat'
+import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
 
@@ -317,27 +312,13 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
         client.getWorkspace(workspaceId),
         port.readManagedPi(),
       ])
-      if (!workspace || !lifecycle.isCurrent(request)) return undefined
-      // Guests have no durable identity to attribute a lead to; only signed-in
-      // Home setup asks the server to provision the workspace lead. A scope
-      // change during the reads above makes this a no-op, not a write.
-      let lead: FirstRunLeadOutcome | undefined
-      if (!temporary) {
-        lead = await provisionFirstRunLeadIfCurrent({
-          isCurrent: () => lifecycle.isCurrent(request),
-          client,
-          workspaceId,
-          agents: workspace.agents,
-        })
-        if (!lead) return undefined
-      }
+      if (!workspace) return undefined
       const resolution = resolveDesktopFirstRun({
         temporary,
-        lead: lead?.status,
         managedPi,
         projection,
         worktrees: worktreePage.items,
-        agents: lead?.agents ?? workspace.agents,
+        agents: workspace.agents,
       })
       const boundPort = createFirstRunRuntimePort(runtime, scope, model, resolution.context)
       return {
@@ -437,11 +418,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                                 if (kind === 'sign_in') return props.onSignIn()
                                 if (kind === 'add_project' || kind === 'set_up_agent')
                                   props.onOpenDev()
-                                if (
-                                  kind === 'retry_access' ||
-                                  kind === 'update_app' ||
-                                  kind === 'retry_lead'
-                                ) {
+                                if (kind === 'retry_access' || kind === 'update_app') {
                                   const nextRequest = lifecycle.begin()
                                   setReady(undefined)
                                   setConversation(undefined)

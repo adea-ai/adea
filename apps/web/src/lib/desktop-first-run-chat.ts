@@ -1,5 +1,4 @@
 import type { AgentSummary } from '@adea-ai/types'
-import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { FirstRunFacts, FirstRunLaunchContext } from '@adea-ai/dev-view/chat'
 import type { DevWorkspaceProjection } from '@adea-ai/dev-view/platform'
 
@@ -18,49 +17,11 @@ export type DesktopFirstRunResolution = Readonly<{
 
 type ResolutionInput = Readonly<{
   temporary: boolean
-  /** Outcome of signed-in lead provisioning; absent for guests. */
-  lead?: FirstRunLeadOutcome['status']
   managedPi: FirstRunFacts['managedPi']
   projection: DevWorkspaceProjection
   worktrees: readonly DesktopFirstRunWorktree[]
   agents: readonly AgentSummary[]
 }>
-
-export type FirstRunLeadOutcome = Readonly<{
-  /** `failed` and `auth_required` never carry a lead; both are reported, never inferred. */
-  status: 'present' | 'provisioned' | 'failed' | 'auth_required'
-  agents: readonly AgentSummary[]
-}>
-
-/**
- * Structural lead provisioning for signed-in Home setup. The server owns the
- * permission check and the one-lead invariant; this only fills the gap when the
- * workspace has no lead yet. Provisioning never makes the lead ready: its
- * profile stays unconfigured, so `resolveDesktopFirstRun` keeps agent setup
- * blocked. An expired session (401) is reported as `auth_required`; any other
- * refusal, transport failure, or empty result is `failed` and leaves the roster
- * unchanged rather than inventing a lead.
- */
-export async function ensureFirstRunLead(
-  client: Pick<AgentHqApiClient, 'ensureWorkspaceLead'>,
-  workspaceId: string,
-  agents: readonly AgentSummary[]
-): Promise<FirstRunLeadOutcome> {
-  if (agents.some((agent) => agent.isWorkspaceLead)) return { status: 'present', agents }
-  try {
-    const { lead } = await client.ensureWorkspaceLead(workspaceId)
-    if (!lead?.isWorkspaceLead) return { status: 'failed', agents }
-    return {
-      status: 'provisioned',
-      agents: [...agents.filter((agent) => agent.id !== lead.id), lead],
-    }
-  } catch (error) {
-    return {
-      status: error instanceof ApiClientError && error.status === 401 ? 'auth_required' : 'failed',
-      agents,
-    }
-  }
-}
 
 /**
  * Projects the desktop's independent authorities into onboarding facts. Every
@@ -107,33 +68,12 @@ export function resolveDesktopFirstRun(input: ResolutionInput): DesktopFirstRunR
 
   return {
     facts: {
-      identity: input.temporary
-        ? 'guest'
-        : input.lead === 'auth_required'
-          ? 'auth_required'
-          : 'signed_in',
+      identity: input.temporary ? 'guest' : 'signed_in',
       managedPi: input.managedPi,
       modelAccess: 'byok',
       projectReady,
       agentProfileReady,
-      ...(input.lead === 'failed' ? { leadProvisioning: 'failed' as const } : {}),
     },
     ...(context ? { context } : {}),
   }
-}
-
-/**
- * Runs lead provisioning only while the caller's scope is still current. The
- * check sits immediately before the write, so a scope change during the parallel
- * reads cannot issue a provisioning request for a workspace the user left.
- * A stale request returns `undefined` and is never applied.
- */
-export async function provisionFirstRunLeadIfCurrent(input: {
-  isCurrent(): boolean
-  client: Pick<AgentHqApiClient, 'ensureWorkspaceLead'>
-  workspaceId: string
-  agents: readonly AgentSummary[]
-}): Promise<FirstRunLeadOutcome | undefined> {
-  if (!input.isCurrent()) return undefined
-  return ensureFirstRunLead(input.client, input.workspaceId, input.agents)
 }
