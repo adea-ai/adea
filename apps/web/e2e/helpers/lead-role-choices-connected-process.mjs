@@ -39,6 +39,82 @@ function readErrorCode(error) {
     return undefined
   }
 }
+const safeTransportClasses = new Set([
+  'AbortError',
+  'ConnectTimeoutError',
+  'DOMException',
+  'Error',
+  'FetchError',
+  'HeadersTimeoutError',
+  'SocketError',
+  'TimeoutError',
+  'TypeError',
+])
+const safeTransportCodes = new Set([
+  'ABORT_ERR',
+  'CONTROL_PLANE_TRANSPORT_FAILED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'ERR_ABORTED',
+  'ERR_NETWORK',
+  'ERR_SOCKET_CLOSED',
+  'HOST_CONTROL_TIMEOUT',
+  'PI_LEAD_DISPATCH_CONFLICT',
+  'PI_LEAD_FUNDING_CONFIRMATION_STALE',
+  'PI_LEAD_UNAVAILABLE',
+  'RUNTIME_RESPONSE_INVALID',
+  'RUNTIME_UNAVAILABLE',
+  'UND_ERR_ABORTED',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+])
+function safeTransportClass(value) {
+  try {
+    const name = value?.name
+    return typeof name === 'string' && safeTransportClasses.has(name) ? name : 'OtherError'
+  } catch {
+    return 'OtherError'
+  }
+}
+function safeTransportCode(value) {
+  try {
+    const code = value?.code
+    if (typeof code === 'string' && safeTransportCodes.has(code)) return code
+    const message = value?.message
+    if (typeof message === 'string' && safeTransportCodes.has(message)) return message
+  } catch {}
+  return undefined
+}
+/** Allowlisted fetch failure details for diagnosing deadlines without exposing messages or stacks. */
+export function safeTransportFailureDiagnostic(error, signal, elapsedMs) {
+  let cause
+  let reason
+  let signalAborted = false
+  try {
+    cause = error?.cause
+  } catch {}
+  try {
+    reason = signal?.reason
+    signalAborted = signal?.aborted === true
+  } catch {}
+  const elapsed = Number.isFinite(elapsedMs) ? Math.max(0, Math.min(180_000, elapsedMs)) : 0
+  const record = {
+    elapsedMs: Math.round(elapsed),
+    errorClass: safeTransportClass(error),
+    signalAborted,
+    ...(safeTransportCode(error) ? { errorCode: safeTransportCode(error) } : {}),
+    ...(reason ? { signalReasonClass: safeTransportClass(reason) } : {}),
+    ...(safeTransportCode(reason) ? { signalReasonCode: safeTransportCode(reason) } : {}),
+    ...(cause ? { causeClass: safeTransportClass(cause) } : {}),
+    ...(safeTransportCode(cause) ? { causeCode: safeTransportCode(cause) } : {}),
+  }
+  return record
+}
 /** No error messages, stacks, upstream text, executable paths, or child stderr cross this boundary. */
 export function factoryFailureRecord(phase, error, readerRequests = 0) {
   let code = 'PROOF_FAILED'
