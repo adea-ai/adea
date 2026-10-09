@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { FactoryFixtureFailure } from './lead-production-factory-process.mjs'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, realpathSync } from 'node:fs'
@@ -35,7 +36,10 @@ export function verifyFactoryArchives(manifestPath, expectedHead) {
     assert.equal(bytes.length, artifact.bytes)
     assert.equal(sha256(bytes), artifact.sha256)
     const declared = JSON.parse(
-      execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8' })
+      execFileSync('tar', ['-xOf', archive, 'package/package.json'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
     )
     assert.equal(declared.name, artifact.name)
     assert.equal(declared.version, artifact.version)
@@ -45,7 +49,8 @@ export function verifyFactoryArchives(manifestPath, expectedHead) {
 }
 
 export function verifyFactorySource(cpRoot, manifest) {
-  const git = (args) => execFileSync('git', args, { cwd: cpRoot, encoding: 'utf8' })
+  const git = (args) =>
+    execFileSync('git', args, { cwd: cpRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   assert.equal(git(['rev-parse', 'HEAD']).trim(), manifest.head)
   assert.equal(git(['status', '--porcelain']), '')
   const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
@@ -70,7 +75,10 @@ export function verifyFactorySource(cpRoot, manifest) {
 
 /** Compare the actual installed payload, not only its version and package metadata. */
 export function verifyInstalledPackagePayload(artifact, installedRoot) {
-  const entries = execFileSync('tar', ['-tf', artifact.archivePath], { encoding: 'utf8' })
+  const entries = execFileSync('tar', ['-tf', artifact.archivePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
     .split('\n')
     .filter(Boolean)
   let files = 0
@@ -79,6 +87,7 @@ export function verifyInstalledPackagePayload(artifact, installedRoot) {
     if (entry.endsWith('/')) continue
     const expected = execFileSync('tar', ['-xOf', artifact.archivePath, entry], {
       maxBuffer: 20 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
     const actual = readFileSync(resolve(installedRoot, entry.slice('package/'.length)))
     assert.equal(sha256(actual), sha256(expected), `INSTALLED_ARTIFACT_PAYLOAD_MISMATCH:${entry}`)
@@ -90,7 +99,7 @@ export function verifyInstalledPackagePayload(artifact, installedRoot) {
 
 /** Resolve from the actual web consumer, including both transitive package instances. */
 export async function verifyInstalledFactoryPackages(manifest, webManifestUrl, port) {
-  if (!port.supported) throw new Error('PI_FACTORY_PROOF_UNSUPPORTED_INSTALLED_SDK')
+  if (!port.supported) throw new FactoryFixtureFailure('PI_FACTORY_PROOF_UNSUPPORTED_INSTALLED_SDK')
   const webRequire = createRequire(webManifestUrl)
   function installed(name, from = webRequire) {
     const entry = realpathSync(from.resolve(name))

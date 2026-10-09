@@ -6,7 +6,7 @@ CP's real production factory and retained SQLite publication reader, and Adea's
 restricted PostgreSQL product reader and timeline transaction. It does not inject
 an SDK port, runtime status, retained record, or publication response.
 
-The normal DB unit inventory discovers `lead-production-factory-preflight.test.ts`.
+The normal DB unit inventory discovers the preflight and process-fault test files.
 The connected fixture is intentionally opt-in: ordinary unit/integration jobs must
 not start another repository's host or acquire a database without explicit inputs.
 
@@ -59,6 +59,13 @@ Start the owned PG cluster with an explicit loopback host/port and require
 fast-stop only that cluster, then verify its postmaster PID and listener are gone.
 The fixture closes its reader, database connection and exact spawned CP child; its
 bounded shutdown escalates only that child and preserves a primary proof failure.
+Asynchronous spawn errors and process close settle startup only once. Missing or
+non-executable binaries still run every owned cleanup. Failure records contain only
+a bounded phase, allow-listed code and safe request count; messages, stacks, child
+stdout/stderr and credential fields are never forwarded. Failure returns a nonzero
+exit without rethrowing a raw error. The process-fault tests exercise missing binaries,
+permissions, real owned reader shutdown and primary/cleanup/startup canaries without
+starting PostgreSQL or a provider.
 It retains its synthetic canonical DB records as evidence; isolate the test target.
 
 The fixture creates in-memory synthetic Ed25519 assertions for the two service
