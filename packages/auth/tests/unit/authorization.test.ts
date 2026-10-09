@@ -101,3 +101,21 @@ describe('workspace authorization', () => {
     ).toEqual({ allowed: true })
   })
 })
+
+test('a pending deletion stays readable while ordinary writes and runtime work are refused', async () => {
+  const principal = { kind: 'user' as const, userId: 'owner' }
+  for (const permission of [
+    'workspace.read',
+    'workspace.delete',
+    'workspace.update',
+    'runtime.invoke',
+  ] as const) {
+    const result = await authorizeWorkspaceAction(
+      { permission, principal, workspaceId: 'workspace' },
+      { findMembership: async () => ({ role: 'owner', deletionPending: true }) }
+    )
+    expect(result.allowed).toBe(
+      permission === 'workspace.read' || permission === 'workspace.delete'
+    )
+  }
+})

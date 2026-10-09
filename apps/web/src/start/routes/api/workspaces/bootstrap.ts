@@ -28,7 +28,7 @@ async function post(request: Request) {
   const displayName = await getUserDisplayName(applicationDatabase(), resolution.principal)
 
   const payload: ApiWorkspaceBootstrapResponse = {
-    activeWorkspace: workspaces[0]!,
+    activeWorkspace: workspaces.find((workspace) => workspace.isPersonal) ?? workspaces[0] ?? null,
     principal: {
       ...(displayName ? { displayName } : {}),
       temporary: resolution.temporary,

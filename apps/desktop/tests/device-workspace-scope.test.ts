@@ -637,3 +637,15 @@ describe('device workspace scope through the shell entry', () => {
     expect(again).not.toHaveProperty('rehandshake')
   })
 })
+
+test('forgetting a deleted workspace removes its persisted selection and offline membership while preserving a sibling', async () => {
+  const dataDir = tempDir()
+  const cloud = scriptedCloud({ [TEMPORARY]: [WORKSPACE_A, WORKSPACE_B] })
+  const identity = createDesktopIdentityAuthority({ dataDir, verifier: cloud.verifier })
+  await identity.selectWorkspace({ workspaceId: WORKSPACE_B, credential: guest() })
+  await identity.selectWorkspace({ workspaceId: WORKSPACE_A, credential: guest() })
+  identity.forgetWorkspace(WORKSPACE_A)
+  expect(identity.currentScope().workspaceId).not.toBe(WORKSPACE_A)
+  const persisted = createDesktopIdentityAuthority({ dataDir, verifier: cloud.verifier })
+  expect(persisted.currentScope().workspaceId).not.toBe(WORKSPACE_A)
+})

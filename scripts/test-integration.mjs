@@ -86,6 +86,9 @@ try {
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
+  // API regression cases exercise the production server handler through the
+  // compiled database entry, with the explicit server-only runtime condition.
+  run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
     run(
       'docker',
@@ -111,13 +114,22 @@ try {
   const timeoutMs = remoteTarget
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
-  run('bun', ['test', '--timeout', String(timeoutMs), ...integrationDirectories], environment)
-  // The route flow imports the compiled @adea-ai/db and @adea-ai/api-client
-  // entries (the package suites above import their own src relatively), so
-  // both must be built on a clean checkout before the route tests run. Like
-  // the builds above, this keeps integration runnable independently from a
-  // workspace-wide turbo build.
-  run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
+  run(
+    'bun',
+    [
+      '--conditions=react-server',
+      'test',
+      '--timeout',
+      String(timeoutMs),
+      ...integrationDirectories,
+    ],
+    environment
+  )
+  // The route flow imports the compiled @adea-ai/api-client entry (the package
+  // suites above read their own src relatively; the database entry is already
+  // built before provisioning), so it must be built on a clean checkout before
+  // the route tests run. Like the builds above, this keeps integration
+  // runnable independently from a workspace-wide turbo build.
   run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
   // The runner sets the react-server condition for the route-flow modules;
   // the shared database environment and the same latency-sized ceiling apply.

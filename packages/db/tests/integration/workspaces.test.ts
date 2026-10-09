@@ -59,12 +59,12 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
     )
 
     const first = await createWorkspaceWithOwner(connection.db, {
-      idempotencyKey: 'default',
+      idempotencyKey: 'retry-fixture',
       name: 'My Adea',
       owner: temporary.principal,
     })
     const retry = await createWorkspaceWithOwner(connection.db, {
-      idempotencyKey: 'default',
+      idempotencyKey: 'retry-fixture',
       name: 'Ignored retry name',
       owner: temporary.principal,
     })
@@ -117,7 +117,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
     await connection.db.delete(users).where(eq(users.id, temporary.principal.userId))
   })
 
-  test('upgrades the legacy default workspace into Home and adds Work', async () => {
+  test('protects the legacy default identity without replacing its name or seeding Work', async () => {
     const temporary = await createTemporaryUserSession(connection.db, {
       credentialDigest: `bootstrap-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
@@ -130,15 +130,17 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
 
     const bootstrapped = await ensureBootstrapWorkspaces(connection.db, temporary.principal)
 
-    expect(bootstrapped.map(({ name }) => name).toSorted()).toEqual(['Home', 'Work'])
+    expect(bootstrapped.map(({ name }) => name)).toEqual(['My Adea'])
     expect(
       await getWorkspaceForUser(connection.db, legacy.workspace.id, temporary.principal)
     ).toMatchObject({
       id: legacy.workspace.id,
-      name: 'Home',
+      name: 'My Adea',
       scene: 'home',
+      isPersonal: true,
+      canDelete: false,
     })
-    expect(bootstrapped.find(({ name }) => name === 'Work')).toMatchObject({ scene: 'work' })
+    expect(bootstrapped).toHaveLength(1)
 
     for (const workspace of bootstrapped) {
       await connection.db
@@ -438,14 +440,11 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
       owner: temporary.principal,
     })
 
-    expect(bootstrapped.map(({ name, sortOrder }) => [name, sortOrder])).toEqual([
-      ['Home', 0],
-      ['Work', 1],
-    ])
+    expect(bootstrapped.map(({ name, sortOrder }) => [name, sortOrder])).toEqual([['Home', 0]])
     expect(created.workspace).toMatchObject({
       accent: null,
-      logo: { kind: 'monogram' },
-      sortOrder: 2,
+      logo: { kind: 'box' },
+      sortOrder: 1,
       version: 1,
     })
 
@@ -457,7 +456,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
     })
     expect(
       (await listWorkspacesForUser(connection.db, temporary.principal)).map(({ name }) => name)
-    ).toEqual(['Personal', 'Work', 'Pink Binder'])
+    ).toEqual(['Personal', 'Pink Binder'])
   })
 
   test('applies a versioned identity update and records one event', async () => {
@@ -502,7 +501,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
       expectedVersion: 2,
       update: { accent: null, logo: { kind: 'monogram' } },
     })
-    expect(cleared).toMatchObject({ accent: null, logo: { kind: 'monogram' }, version: 3 })
+    expect(cleared).toMatchObject({ accent: null, logo: { kind: 'box' }, version: 3 })
 
     const events = await connection.db
       .select({ payload: workspaceEvents.payload })

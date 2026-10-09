@@ -33,6 +33,28 @@ describe('workspace API client', () => {
     expect(request?.credentials).toBe('include')
   })
 
+  test('sends an exact name/version deletion confirmation and accepts the final-workspace response', async () => {
+    let request: Request | undefined
+    const payload = { deleted: true, workspaceId: 'workspace/one', workspaces: [] }
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init)
+        return Response.json(payload)
+      },
+    })
+    expect(
+      await client.deleteWorkspace('workspace/one', {
+        confirmationName: 'Home',
+        expectedVersion: 2,
+      })
+    ).toEqual(payload)
+    expect(request?.url).toBe('https://hq.example/api/workspaces/workspace%2Fone/delete')
+    expect(request?.method).toBe('POST')
+    expect(await request?.json()).toEqual({ confirmationName: 'Home', expectedVersion: 2 })
+    expect(request?.credentials).toBe('include')
+  })
+
   test('bootstraps a desktop guest and requests its keychain credential', async () => {
     let request: Request | undefined
     let credentials: RequestCredentials | undefined
@@ -145,4 +167,21 @@ describe('workspace API client', () => {
     expect(new URL(request!.url).pathname).toBe('/api/workspaces/workspace%2Fone/reopen')
     expect(request?.method).toBe('POST')
   })
+})
+
+test('workspace reorder sends only the complete ordered ID list with authenticated credentials', async () => {
+  let request: Request | undefined
+  const ids = ['personal-home', 'secondary']
+  const client = createApiClient({
+    baseUrl: 'https://hq.example/api',
+    fetchImpl: async (input, init) => {
+      request = new Request(input, init)
+      return Response.json([{ ...workspace, isPersonal: true, canDelete: false }])
+    },
+  })
+  expect(await client.reorderWorkspaces(ids)).toHaveLength(1)
+  expect(request?.url).toBe('https://hq.example/api/workspaces/reorder')
+  expect(request?.method).toBe('POST')
+  expect(request?.credentials).toBe('include')
+  expect(await request?.json()).toEqual({ workspaceIds: ids })
 })

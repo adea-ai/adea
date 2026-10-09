@@ -3,8 +3,8 @@
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
 // surface; the workspace itself renders through the shared
 // `WorkspaceNavigation`.
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show, lazy } from 'solid-js'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
+import { createEffect, createMemo, createSignal, lazy, onCleanup, onMount, Show } from 'solid-js'
+import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
 import type { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -50,6 +50,15 @@ import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import {
+  desktopWorkspaceDeletion,
+  type PendingWorkspaceCleanup,
+} from '../lib/desktop-workspace-deletion'
+
+const WorkspaceEmpty = lazy(() =>
+  import('./workspace-empty').then((module) => ({ default: module.WorkspaceEmpty }))
+)
 
 type AppStatus =
   | 'authenticated'
@@ -95,6 +104,32 @@ export function DesktopWorkspaceEntry(props: {
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   let temporaryCredential: string | null = null
   let clientRef: AgentHqApiClient | undefined
+  const [pendingCleanup, setPendingCleanup] = createSignal<readonly PendingWorkspaceCleanup[]>([])
+  const [cleanupBusy, setCleanupBusy] = createSignal(false)
+  const deletion = desktopWorkspaceDeletion({
+    credential: () => devScopeCredential(session(), temporaryCredential),
+    pending: setPendingCleanup,
+  })
+  async function retryCleanup() {
+    setCleanupBusy(true)
+    try {
+      const pending = await deletion.resume()
+      for (const receipt of pending.filter((item) => item.state === 'local_complete')) {
+        const client = clientRef
+        if (!client) continue
+        const { workspace } = await client.getWorkspace(receipt.workspaceId)
+        await client.deleteWorkspace(receipt.workspaceId, {
+          confirmationName: workspace.name,
+          expectedVersion: workspace.version,
+        })
+      }
+      await openWorkspace(session())
+    } catch {
+      await deletion.refreshPending().catch(() => undefined)
+    } finally {
+      setCleanupBusy(false)
+    }
+  }
   const workspaceRequestGuard = createWorkspaceRequestGuard()
   let authCallbackObserved = false
   // Each cloud workspace owns its own Dev partition: the shell selects the
@@ -107,7 +142,9 @@ export function DesktopWorkspaceEntry(props: {
   const activeWorkspace = (): WorkspaceSummary | undefined => {
     const state = workspaceState()
     return state
-      ? (state.workspaces.find(({ id }) => id === selectedWorkspaceId()) ?? state.workspace)
+      ? (state.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+          state.workspace ??
+          undefined)
       : undefined
   }
   // The plugins provider reads these lazily, so accessors deliver the current
@@ -151,18 +188,23 @@ export function DesktopWorkspaceEntry(props: {
         temporaryVault: runtime.temporaryVault,
       })
       if (!requestIsCurrent()) return
-      await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
+      if (nextWorkspace.workspace)
+        await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
       if (!requestIsCurrent()) return
+      temporaryCredential = nextWorkspace.temporaryCredential
+      // Resume before switching the device authority away from the old scope.
+      await deletion.resume().catch(() => undefined)
       // Select the Dev scope for the bootstrapped workspace before Dev mounts.
       // A refusal never blocks the workspace: Dev reports itself unavailable.
-      await devScope.select(
-        nextWorkspace.workspace.id,
-        devScopeCredential(activeSession, nextWorkspace.temporaryCredential)
-      )
+      if (nextWorkspace.workspace)
+        await devScope.select(
+          nextWorkspace.workspace.id,
+          devScopeCredential(activeSession, nextWorkspace.temporaryCredential)
+        )
       if (!requestIsCurrent()) return
       // The scene is a router fact; WorkspaceNavigation reconciles the URL to
       // this workspace's scene once it mounts with the summary.
-      workspaceStore.getState().switchWorkspace(nextWorkspace.workspace.id)
+      workspaceStore.getState().switchWorkspace(nextWorkspace.workspace?.id ?? null)
       temporaryCredential = nextWorkspace.temporaryCredential
       setWorkspaceState(nextWorkspace)
       setStatus(activeSession ? 'authenticated' : 'guest')
@@ -237,7 +279,9 @@ export function DesktopWorkspaceEntry(props: {
   const client = createMemo(() => {
     const state = workspaceState()
     if (!state) return clientRef
-    const nextClient = runtime.createClient(session(), state.temporaryCredential ?? undefined)
+    const nextClient = deletion.attach(
+      runtime.createClient(session(), state.temporaryCredential ?? undefined)
+    )
     clientRef = nextClient
     return nextClient
   })
@@ -285,51 +329,88 @@ export function DesktopWorkspaceEntry(props: {
   const busy = () => status() === 'loading' || status() === 'opening' || status() === 'waiting'
 
   return (
-    <Show
-      when={activeWorkspace()}
-      fallback={
-        <DesktopStartSurface
-          busy={busy()}
-          message={message()}
-          onRetry={() => void openWorkspace(session())}
-          onSignIn={() => void beginSignIn()}
-          showSignIn={!session() && status() !== 'waiting' && status() !== 'opening'}
-          status={status()}
-        />
-      }
-    >
-      {(workspace) => (
-        // Keyed by workspace id: Dev's runtime, utility owner and chat host
-        // bind one verified scope for their lifetime, so a switch remounts
-        // them under the newly selected scope instead of reusing the old one.
-        <Show when={workspace().id} keyed>
-          {(workspaceId) => (
-            <DesktopWorkspace
-              accountLabel={workspaceState()?.accountLabel ?? undefined}
-              activeWorkspace={workspace()}
-              devScope={devScope}
-              devScopeWorkspaceId={workspaceId}
-              appVersion={appVersion()}
-              busy={busy()}
-              client={client()!}
-              accountDirectoryClient={accountDirectoryClient}
-              accountPrincipalId={() => workspaceState()?.userId ?? null}
-              plugins={plugins}
-              characterDesigner={props.characterDesigner ?? false}
-              roomDesigner={props.roomDesigner ?? false}
-              session={session()}
-              onBeginSignIn={beginSignIn}
-              onSignOut={signOut}
-              onUpdatesOpenChange={setUpdatesOpen}
-              updatesOpen={updatesOpen()}
-              virtual={props.virtual}
-              virtualProps={props.virtualProps}
-              workspaces={workspaceState()?.workspaces ?? []}
+    <>
+      <Show when={pendingCleanup().length}>
+        <Alert>
+          <AlertDescription>
+            Workspace device cleanup is pending. Keep this device online and retry cleanup.
+            <Button variant="outline" disabled={cleanupBusy()} onClick={() => void retryCleanup()}>
+              Retry cleanup
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <Show
+        when={activeWorkspace()}
+        fallback={
+          <Show
+            when={workspaceState() && workspaceState()!.workspaces.length === 0 && client()}
+            fallback={
+              <DesktopStartSurface
+                busy={busy()}
+                message={message()}
+                onRetry={() => void openWorkspace(session())}
+                onSignIn={() => void beginSignIn()}
+                showSignIn={!session() && status() !== 'waiting' && status() !== 'opening'}
+                status={status()}
+              />
+            }
+          >
+            <WorkspaceEmpty
+              onCreate={async (name) => {
+                await client()!.createWorkspace({ idempotencyKey: crypto.randomUUID(), name })
+                await openWorkspace(session())
+              }}
             />
-          )}
-        </Show>
-      )}
-    </Show>
+          </Show>
+        }
+      >
+        {(workspace) => (
+          // Keyed by workspace id: Dev's runtime, utility owner and chat host
+          // bind one verified scope for their lifetime, so a switch remounts
+          // them under the newly selected scope instead of reusing the old one.
+          <Show when={workspace().id} keyed>
+            {(workspaceId) => (
+              <DesktopWorkspace
+                accountLabel={workspaceState()?.accountLabel ?? undefined}
+                activeWorkspace={workspace()}
+                devScope={devScope}
+                devScopeWorkspaceId={workspaceId}
+                appVersion={appVersion()}
+                busy={busy()}
+                client={client()!}
+                accountDirectoryClient={accountDirectoryClient}
+                accountPrincipalId={() => workspaceState()?.userId ?? null}
+                plugins={plugins}
+                characterDesigner={props.characterDesigner ?? false}
+                roomDesigner={props.roomDesigner ?? false}
+                session={session()}
+                onBeginSignIn={beginSignIn}
+                onSignOut={signOut}
+                onUpdatesOpenChange={setUpdatesOpen}
+                updatesOpen={updatesOpen()}
+                virtual={props.virtual}
+                virtualProps={props.virtualProps}
+                workspaces={workspaceState()?.workspaces ?? []}
+                onWorkspaceDeleted={(result) =>
+                  setWorkspaceState(
+                    (current) =>
+                      current && {
+                        ...current,
+                        workspace:
+                          result.workspaces.find((candidate) => candidate.isPersonal) ??
+                          result.workspaces[0] ??
+                          null,
+                        workspaces: result.workspaces,
+                      }
+                  )
+                }
+              />
+            )}
+          </Show>
+        )}
+      </Show>
+    </>
   )
 }
 
@@ -342,6 +423,7 @@ const DevNewProjectDialog = lazy(() =>
 function DesktopWorkspace(props: {
   accountLabel?: string
   activeWorkspace: WorkspaceSummary
+  onWorkspaceDeleted: (result: ApiWorkspaceDeleteResponse) => void
   appVersion: string
   busy: boolean
   client: AgentHqApiClient
@@ -434,6 +516,7 @@ function DesktopWorkspace(props: {
           onSignOut: () => void props.onSignOut(),
         }}
         activeWorkspace={props.activeWorkspace}
+        onWorkspaceDeleted={props.onWorkspaceDeleted}
         devSummary={devSummary}
         chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav, teamChat) => (
           <DesktopFirstRunChat

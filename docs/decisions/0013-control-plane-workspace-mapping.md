@@ -151,3 +151,17 @@ Status (2026-10-06):
   closed with `503 CONTROL_PLANE_UNAVAILABLE`. Revoking the static credential
   on the Control Plane remains an owner action.
 - Control Plane credential-vault HTTP API: open (in review upstream).
+
+Workspace deletion ownership (local patch, 2026-10-07): fresh scopes record
+`control_plane_used_at` before a mutating signed credential is issued. The
+conditional update serializes with workspace cleanup preparation; unresolved
+legacy scopes are conservatively marked used. Read-only catalog requests and
+shared host authentication do not become workspace-owned resources. Used or
+unverified scopes require a future workspace purge receipt and remain intact;
+revocation/uninstall alone is not a complete purge. The local/database desktop
+path can finish only after local ownership verification. This adds ownership
+accounting and a bounded safety block, not a new Control Plane purge API.
+
+Active workspace preparation/final deletion is additionally blocked until the
+server can verify native cleanup completion. Neither a desktop-origin header nor
+pending intent proves a purge; native pending retries preserve data and identity.

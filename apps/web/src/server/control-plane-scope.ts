@@ -1,6 +1,6 @@
 import 'server-only'
 
-import { controlPlaneScopeIds } from '@adea-ai/db'
+import { controlPlaneScopeIds, markWorkspaceControlPlaneUsed } from '@adea-ai/db'
 
 import type { ControlPlaneScopeIds } from './control-plane-credential'
 import { applicationDatabase } from './database'
@@ -15,9 +15,16 @@ export function controlPlaneScopeResolver(
   workspaceId: string,
   projectId?: string
 ): () => Promise<ControlPlaneScopeIds | null> {
-  return () =>
-    controlPlaneScopeIds(applicationDatabase(), {
+  return async () => {
+    const scope = await controlPlaneScopeIds(applicationDatabase(), {
       workspaceId,
       ...(projectId === undefined ? {} : { projectId }),
     })
+    return (
+      scope && {
+        ...scope,
+        beforeMutation: () => markWorkspaceControlPlaneUsed(applicationDatabase(), workspaceId),
+      }
+    )
+  }
 }
