@@ -72,6 +72,7 @@ function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessio
     hasUnsentDraft: false,
     controlConflict: false,
     awaitingApproval: false,
+    supersededReceipt: false,
     ...overrides,
   }
 }
@@ -609,63 +610,93 @@ describe('receipt currency', () => {
     generationCurrent: true,
   } as const
 
-  test('a current receipt enters the coordinating mode of its direction', () => {
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: { sessionId: 's', fromView: 'chat', toView: 'dev', generation: 4 },
-        sessionId: 's',
-        sessionGeneration: 4,
-      })
-    ).toBe('coordination_handoff')
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 4 },
-        sessionId: 's',
-        sessionGeneration: 4,
-      })
-    ).toBe('returned_to_user')
+  test('retained coordination enters the mode of its holder', () => {
+    expect(deriveHandoffModeForSurface({ ...base, coordination: 'lead' })).toBe(
+      'coordination_handoff'
+    )
+    expect(deriveHandoffModeForSurface({ ...base, coordination: 'user' })).toBe('returned_to_user')
   })
 
-  test('a receipt newer than the props is our unobserved commit: it applies', () => {
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 5 },
-        sessionId: 's',
-        sessionGeneration: 4,
-      })
-    ).toBe('returned_to_user')
+  test('no coordination signal means attachment even with a bound run', () => {
+    expect(deriveHandoffModeForSurface({ ...base, coordination: undefined })).toBe('attached')
   })
 
-  test('a receipt behind canonical ownership is superseded and never overwrites', () => {
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 4 },
-        sessionId: 's',
-        sessionGeneration: 6,
-      })
-    ).toBe('attached')
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: { sessionId: 'other', fromView: 'dev', toView: 'chat', generation: 6 },
-        sessionId: 's',
-        sessionGeneration: 6,
-      })
-    ).toBe('attached')
+  test('a superseded receipt sets the flag for the newer-ownership notice', () => {
+    const view = deriveDirectSessionHandoff(input({ mode: 'attached', supersededReceipt: true }))
+    expect(view.mode).toBe('attached')
+    expect(view.notice).toMatch(/changed since the confirmed transfer/i)
+  })
+})
+
+function epochHarness() {
+  let state = initialHandoffActionState
+  let epoch = 0
+  const committed: unknown[] = []
+  return {
+    current: () => state,
+    commit: (next: typeof state) => {
+      committed.push(next)
+      state = next
+    },
+    committed,
+    epoch: () => epoch,
+    advance: () => {
+      epoch += 1
+    },
+  }
+}
+
+describe('view/action epoch', () => {
+  test('admission advances the epoch exactly once; rejection never does', async () => {
+    const harness = epochHarness()
+    let admitted = 0
+    const gate = new Promise<void>(() => {})
+    const first = runHandoffActionOnce({
+      ...harness,
+      action: 'handoff_to_lead',
+      work: () => gate,
+      onAdmitted: () => {
+        admitted += 1
+        harness.advance()
+      },
+    })
+    void first
+    const second = runHandoffActionOnce({
+      ...harness,
+      action: 'return_to_user',
+      work: () => Promise.resolve(),
+      onAdmitted: () => {
+        admitted += 1
+        harness.advance()
+      },
+    })
+    await expect(second).resolves.toBe('rejected')
+    expect(admitted).toBe(1)
+    expect(harness.epoch()).toBe(1)
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'handoff_to_lead' }])
   })
 
-  test('no receipt means attachment even with a bound run: runs prove execution, not handoff', () => {
-    expect(
-      deriveHandoffModeForSurface({
-        ...base,
-        receipt: undefined,
-        sessionId: 's',
-        sessionGeneration: 3,
-      })
-    ).toBe('attached')
+  test('a replaced invocation fails currency even when the session matches', async () => {
+    const harness = epochHarness()
+    let resolveWork!: () => void
+    const gate = new Promise<void>((resolve) => {
+      resolveWork = resolve
+    })
+    const captured: number[] = []
+    const pending = runHandoffActionOnce({
+      ...harness,
+      action: 'handoff_to_lead',
+      work: () => gate,
+      onAdmitted: () => harness.advance(),
+      isCurrent: () => harness.epoch() === captured[0],
+    })
+    captured.push(harness.epoch())
+    // Navigation and a newer admitted action each advance the epoch.
+    harness.advance()
+    harness.advance()
+    resolveWork()
+    await expect(pending).resolves.toBe('superseded')
+    // Only the admission committed; the late completion committed nothing.
+    expect(harness.committed).toEqual([{ status: 'busy', action: 'handoff_to_lead' }])
   })
 })

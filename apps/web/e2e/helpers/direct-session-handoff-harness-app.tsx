@@ -49,19 +49,51 @@ type PendingTransfer = {
   resolve: (next: ChatConversation) => void
   reject: (error: Error) => void
   base: ChatConversation
+  direction: { fromView: 'chat' | 'dev'; toView: 'chat' | 'dev' }
+}
+
+const STORAGE_KEY = 'direct-handoff-fixture-sessions-v1'
+
+function initialSessions(): Record<string, ChatConversation> {
+  // The host-double's durable store: a reload must observe the retained
+  // coordination owner, never an in-memory receipt. Each Playwright test
+  // runs in a fresh browser context, so fixtures start clean per test.
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, ChatConversation>
+      if (parsed && parsed['session-1'] && parsed['session-2']) return parsed
+    }
+  } catch {
+    // Disposable fixture: fall through to the canned sessions.
+  }
+  return {
+    'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note'),
+    'session-2': conversation('session-2', 'run-2', 2, ''),
+  }
 }
 
 function Harness() {
-  const [sessions, setSessions] = createSignal<Record<string, ChatConversation>>({
-    'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note'),
-    'session-2': conversation('session-2', 'run-2', 2, ''),
-  })
+  const [sessions, setSessions] = createSignal<Record<string, ChatConversation>>(initialSessions())
+  const updateSessions = (
+    update: (previous: Record<string, ChatConversation>) => Record<string, ChatConversation>
+  ): void => {
+    setSessions((previous) => {
+      const next = update(previous)
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // Disposable fixture: persistence is best-effort.
+      }
+      return next
+    })
+  }
   const [activeId, setActiveId] = createSignal('session-1')
   const [connected, setConnected] = createSignal(true)
   const [transferCalls, setTransferCalls] = createSignal(0)
   const [cancelCalls, setCancelCalls] = createSignal(0)
   const [lastDirection, setLastDirection] = createSignal('')
-  let pendingTransfer: PendingTransfer | undefined
+  const pendingTransfers: PendingTransfer[] = []
 
   const active = createMemo(() => sessions()[activeId()]!)
 
@@ -91,28 +123,30 @@ function Harness() {
       const base = sessions()[runtimeSessionId]!
       setLastDirection(`${direction.fromView}→${direction.toView}`)
       return new Promise<ChatConversation>((resolve, reject) => {
-        pendingTransfer = { resolve, reject, base }
+        pendingTransfers.push({ resolve, reject, base, direction })
       })
     },
   }
 
   const resolveTransfer = () => {
-    const pending = pendingTransfer
+    // FIFO: the oldest pending intent commits first, like the host log.
+    const pending = pendingTransfers.shift()
     if (!pending) return
-    pendingTransfer = undefined
     const next: ChatConversation = {
       ...pending.base,
       generation: pending.base.generation + 1,
       version: pending.base.version + 1,
+      // The host-double retains coordination ownership from the explicit
+      // direction, exactly like dev.session.transferInput does.
+      coordinationOwner: pending.direction.toView === 'chat' ? 'user' : 'lead',
     }
-    setSessions((previous) => ({ ...previous, [pending.base.runtimeSessionId]: next }))
+    updateSessions((previous) => ({ ...previous, [pending.base.runtimeSessionId]: next }))
     pending.resolve(next)
   }
 
   const rejectTransferStale = () => {
-    const pending = pendingTransfer
+    const pending = pendingTransfers.shift()
     if (!pending) return
-    pendingTransfer = undefined
     pending.reject(
       new ChatRuntimeError({
         code: 'stale_version',
@@ -143,12 +177,15 @@ function Harness() {
         <Button
           type="button"
           onClick={() =>
-            setSessions((previous) => ({
+            // A concurrent handoff commit observed via refresh: newer
+            // canonical ownership held by the lead.
+            updateSessions((previous) => ({
               ...previous,
               'session-1': {
                 ...previous['session-1']!,
                 generation: previous['session-1']!.generation + 1,
                 version: previous['session-1']!.version + 1,
+                coordinationOwner: 'lead',
               },
             }))
           }

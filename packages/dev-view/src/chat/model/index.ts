@@ -209,6 +209,9 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
+      ...(session.coordinationOwner !== undefined
+        ? { coordinationOwner: session.coordinationOwner }
+        : {}),
       draft: draft.text,
       draftBlocks: draft.blocks,
       events,

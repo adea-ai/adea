@@ -131,6 +131,12 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   // All reset when the selected session changes so one session's
   // coordination never leaks into another's.
   const [handoffReceipt, setHandoffReceipt] = createSignal<HandoffReceipt | undefined>(undefined)
+  // Monotonic view/action epoch (#1177): every session switch and every
+  // admitted action start advances it; late completions apply only while
+  // it still reads the value captured at their admission. Session identity
+  // alone cannot fence A -> B -> A, where an old A completion would
+  // otherwise clear a new A action's busy state.
+  const [handoffEpoch, setHandoffEpoch] = createSignal(0)
   // The generation a stale receipt parked a conflict against. The conflict
   // clears when the conversation moves past it (the concurrent commit was
   // observed via refresh), never by retrying blindly at the same generation.
@@ -249,6 +255,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     setHandoffReceipt(undefined)
     setHandoffConflictGen(undefined)
     setHandoffAction(initialHandoffActionState)
+    setHandoffEpoch((epoch) => epoch + 1)
   })
 
   const runHandoffAction = (
@@ -256,16 +263,26 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     work: () => unknown | Promise<unknown>,
     onSuccess?: (result: unknown) => void
   ): Promise<'completed' | 'rejected' | 'superseded'> => {
-    // Fence on session identity only: a fast parent refresh may already show
-    // the post-transfer generation (apply: it is our receipt), but a session
-    // switch must drop everything (the reset effect clears state too).
+    // Fence on session identity plus the monotonic view/action epoch: a fast
+    // parent refresh may already show the post-transfer generation (apply:
+    // it is our receipt), but a session switch or a newer admitted action
+    // invalidates this invocation's epoch, so its late completion commits
+    // nothing (this is what closes A -> B -> A).
     const fenceId = props.conversation.runtimeSessionId
+    let admittedEpoch = -1
     return runHandoffActionOnce({
       current: handoffAction,
       commit: setHandoffAction,
       action,
       work,
-      isCurrent: () => props.conversation.runtimeSessionId === fenceId,
+      onAdmitted: () => {
+        setHandoffEpoch((epoch) => {
+          admittedEpoch = epoch + 1
+          return epoch + 1
+        })
+      },
+      isCurrent: () =>
+        props.conversation.runtimeSessionId === fenceId && handoffEpoch() === admittedEpoch,
       isConflict: (error) =>
         error instanceof ChatRuntimeError &&
         (error.code === 'stale_generation' || error.code === 'stale_version'),

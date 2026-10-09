@@ -1586,6 +1586,13 @@ The following invariants are mandatory:
    resume, duplicate, or implicitly transfer a run.
 3. Input ownership is changed only by the authorized `dev.session.transferInput`
    operation. Renderer focus is a presentation hint, not ownership proof.
+   The transfer also records the retained coordination holder (#1177):
+   `toView` `'dev'` hands coordination to the lead, `'chat'` returns it to
+   the user, projected as the session's optional `coordinationOwner` on
+   every later `get`/`list` reply and across restarts. Absent means no
+   explicit coordination was ever recorded. The routing (`fromView`/
+   `toView`) stays transient and is never stored; only the holder is
+   retained, and only `transferInput` may write it.
 4. The provider MUST expose the authenticated preference scope separately from
    runtime records. Until that scope exists, Dev may render unavailable state
    and pure local fixtures in development/E2E only, but MUST NOT persist a

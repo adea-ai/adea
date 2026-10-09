@@ -169,6 +169,8 @@ const SESSION_PROJECTIONS: ReadonlySet<string> = new Set([
   'authenticated_hook',
   'terminal_fallback',
 ])
+/** Retained coordination holders (#1177): written only by transferInput. */
+const COORDINATION_OWNERS: ReadonlySet<string> = new Set(['lead', 'user'])
 
 function isScope(value: unknown): value is Scope {
   const record = value as Scope | undefined
@@ -241,6 +243,8 @@ function validateStoredRecord(record: AuthorityRecord): void {
       typeof session.archived !== 'boolean' ||
       !SESSION_STATES.has(session.lifecycle) ||
       !SESSION_PROJECTIONS.has(session.projection) ||
+      (session.coordinationOwner !== undefined &&
+        !COORDINATION_OWNERS.has(session.coordinationOwner)) ||
       !positive(session.version) ||
       !positive(session.generation) ||
       !inScope(session.scope)
@@ -1135,8 +1139,13 @@ export function registerProjectSessionRuntime(input: {
       }
       // Ownership transfer is the one input-authority operation: it bumps
       // the generation, so input granted under the old generation is inert.
+      // It also records the retained coordination holder (#1177) from the
+      // explicit direction: handing input to the dev view hands
+      // coordination to the lead, returning it hands coordination to the
+      // user. The transient input-view routing itself is not stored.
       const next: RuntimeSession = {
         ...session,
+        coordinationOwner: body.toView === 'dev' ? 'lead' : 'user',
         generation: session.generation + 1,
         version: session.version + 1,
         lifecycle: session.lifecycle === 'ready' ? 'active' : session.lifecycle,

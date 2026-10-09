@@ -147,6 +147,7 @@ describe('direct-session handoff host journey', () => {
 
       // Explicit handoff: the user hands input ownership to the dev view.
       // The real decoder accepts the direction and the handler fences it.
+      expect('coordinationOwner' in session).toBe(false)
       const handedOff = transfer(runtime, {
         expectedGeneration: 1,
         fromView: 'chat',
@@ -156,6 +157,7 @@ describe('direct-session handoff host journey', () => {
       expect(handedOff.id).toBe(session.id)
       expect(handedOff.generation).toBe(2)
       expect(handedOff.version).toBe(2)
+      expect(handedOff.coordinationOwner).toBe('lead')
       expect(handedOff.activeHarnessRunId).toBe(session.activeHarnessRunId)
       expect(handedOff.worktreeId).toBe(session.worktreeId)
       expect(handedOff.projectId).toBe(session.projectId)
@@ -171,6 +173,7 @@ describe('direct-session handoff host journey', () => {
       expect(returned.id).toBe(session.id)
       expect(returned.generation).toBe(3)
       expect(returned.version).toBe(3)
+      expect(returned.coordinationOwner).toBe('user')
       expect(returned.activeHarnessRunId).toBe(session.activeHarnessRunId)
       expect(returned.worktreeId).toBe(session.worktreeId)
       expect(returned.projectId).toBe(session.projectId)
@@ -202,6 +205,7 @@ describe('direct-session handoff host journey', () => {
       expect(reloaded.id).toBe(session.id)
       expect(reloaded.generation).toBe(3)
       expect(reloaded.version).toBe(3)
+      expect(reloaded.coordinationOwner).toBe('user')
       expect(reloaded.activeHarnessRunId).toBe(session.activeHarnessRunId)
       expect(reloaded.worktreeId).toBe(session.worktreeId)
       expect(reloaded.projectId).toBe(session.projectId)
@@ -254,9 +258,32 @@ describe('direct-session handoff host journey', () => {
       ) as RuntimeSession
       expect(current.generation).toBe(1)
       expect(current.version).toBe(1)
+      expect('coordinationOwner' in current).toBe(false)
       expect(published.filter((entry) => entry.kind === 'session.input_transferred')).toHaveLength(
         0
       )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a foreign coordination owner fails closed as corrupt on reload', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-handoff-'))
+    const published: Array<{ event: string; kind: string }> = []
+    try {
+      const runtime = seedRuntime(dataDir, published)
+      runtime.upsertSession({
+        ...session,
+        version: session.version + 1,
+        coordinationOwner: 'nobody' as never,
+      })
+      expect(() =>
+        registerProjectSessionRuntime({
+          authority: { registerCommandProvider() {} },
+          dataDir,
+          scope,
+        })
+      ).toThrow(/failed to decode/)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
