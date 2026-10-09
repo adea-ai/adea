@@ -64,6 +64,7 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
+import type { RequestedRoleModelSelections } from './lead-model-selections'
 import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
 import {
   decideGroupHistoryRead,
@@ -543,13 +544,15 @@ async function persistEnlistmentGrant(
 async function loadChannelGate(
   database: Database,
   workspaceId: string,
-  channelId: string
+  channelId: string,
+  options: Readonly<{ forUpdate?: boolean }> = {}
 ): Promise<GroupChannelGate> {
-  const [channel] = await database
+  const channelQuery = database
     .select()
     .from(channels)
     .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
     .limit(1)
+  const [channel] = options.forUpdate ? await channelQuery.for('update') : await channelQuery
   if (!channel || channel.lifecycleState !== 'active') throw new Error('Channel unavailable')
   const participantRows = await database
     .select({
@@ -664,6 +667,8 @@ export type GroupChannelLeadPostInput = Readonly<{
   bodyText?: string
   idempotencyKey: string
   mentions?: readonly ConversationParticipantRef[]
+  /** Explicit lead/child choices, forwarded exactly as the caller stated them. */
+  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 export type GroupChannelPostInput =
@@ -713,7 +718,10 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
   const readNow = () => options.clock?.() ?? options.now ?? liveGroupClock()
-  const gate = await loadChannelGate(transaction, workspaceId, channelId)
+  // ONE lock order everywhere (channel before admission/grant): the roster
+  // rewrite locks the channel row first too, so a concurrent post and
+  // rewrite serialize instead of deadlocking.
+  const gate = await loadChannelGate(transaction, workspaceId, channelId, { forUpdate: true })
   const participant: ConversationParticipantRef | null =
     sender.kind === 'user'
       ? { kind: 'user', userId: sender.userId }
@@ -737,6 +745,12 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
     const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead)
+    // Post-write lifetime check: the awaited write above may have waited on
+    // channel or nested locks until after expiry and then committed. Denial
+    // throws and rolls back ALL of the fence's effects — message, intent,
+    // event — with zero rows surviving.
+    const settled = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+    if (settled.action !== 'allow') throw new Error('Channel unavailable')
     return posted as T extends Readonly<{ mode: 'lead' }>
       ? Awaited<ReturnType<typeof createLeadTurn>>
       : MessageSummary
@@ -747,6 +761,8 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
     ...direct,
     sender,
   })
+  const settled = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+  if (settled.action !== 'allow') throw new Error('Channel unavailable')
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>
     : MessageSummary

@@ -169,6 +169,9 @@ async function post(request: Request, { params }: Context) {
               ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
               ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
               idempotencyKey,
+              // SAME explicit lead/child choices as the non-group lead path:
+              // parsed strictly above, forwarded verbatim, never defaulted.
+              ...(requestedModelSelections ? { requestedModelSelections } : {}),
               mentions: mentions as never,
             },
             mode: 'lead',

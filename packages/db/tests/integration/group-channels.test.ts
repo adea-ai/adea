@@ -1494,4 +1494,261 @@ describe('durable binding, fences and shared read boundary', () => {
       await f.local.close()
     }
   })
+
+  test('post and roster rewrite share one lock order: two connections never deadlock', async () => {
+    // Both directions take the channel row before any admission/grant row.
+    // Each side holds its first lock while the other waits; whichever waits
+    // proceeds after the holder commits. Timeouts fail fast on deadlock.
+    const primary = await isolatedFixture()
+    const secondary = createDatabase(connectionUrl!)
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: primary.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const memberGrant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: primary.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const created = await createGroupChannelWithGrants(
+        primary.local.db,
+        primary.workspace.id,
+        primary.owner,
+        {
+          candidates: groupCreationCandidatesFromGrants(primary.workspace.id, {
+            audienceGrants: [founder],
+            enlistmentGrants: [],
+          }),
+          channelId,
+          idempotencyKey: crypto.randomUUID(),
+          now: NOW,
+          title: 'Group',
+        }
+      )
+      const candidates = groupCreationCandidatesFromGrants(primary.workspace.id, {
+        audienceGrants: [founder, memberGrant],
+        enlistmentGrants: [],
+      })
+      const validation = validateGroupCreation({
+        candidates,
+        groupId: channelId,
+        now: LATER,
+        workspaceId: primary.workspace.id,
+      })
+      if (!validation.ok) throw new Error('test roster must validate')
+      const finish = async <T>(operation: Promise<T>): Promise<T> =>
+        Promise.race([
+          operation,
+          sleep(8000).then(() => {
+            throw new Error('deadlock: operation never completed')
+          }),
+        ])
+      // Direction one: rewrite holds the channel lock, post waits, both finish.
+      let releaseRewrite!: () => void
+      const rewriteOpen = new Promise<void>((resolve) => {
+        releaseRewrite = resolve
+      })
+      let rewriteLocked!: () => void
+      const rewriteLockedPromise = new Promise<void>((resolve) => {
+        rewriteLocked = resolve
+      })
+      const rewriting = primary.local.db.transaction((tx) =>
+        setGroupChannelParticipantsInTransaction(
+          tx,
+          primary.workspace.id,
+          channelId,
+          primary.owner,
+          {
+            candidates,
+            expectedVersion: created.channel.version,
+            now: LATER,
+            roster: validation.roster,
+          },
+          {
+            afterChannelLock: async () => {
+              rewriteLocked()
+              await rewriteOpen
+            },
+          }
+        )
+      )
+      await Promise.race([
+        rewriteLockedPromise,
+        sleep(3000).then(() => {
+          throw new Error('rewrite never locked')
+        }),
+      ])
+      const posting = secondary.db.transaction((tx) =>
+        postGroupChannelMessageInTransaction(
+          tx,
+          primary.workspace.id,
+          channelId,
+          primary.owner,
+          primary.owner,
+          {
+            message: { bodyText: 'waits for rewrite', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: LATER }
+        )
+      )
+      expect(await raced(posting, 400)).toBe('blocked')
+      releaseRewrite()
+      const [replaced, posted] = await Promise.all([finish(rewriting), finish(posting)])
+      expect(posted.sequence).toBeGreaterThanOrEqual(1)
+      const newcomer = replaced.roster.find(
+        (entry) =>
+          entry.participant.kind === 'user' && entry.participant.userId === primary.member.userId
+      )!
+      expect(newcomer.joinPoint.joinedSequence).toBeLessThanOrEqual(posted.sequence)
+      // Direction two: fenced post holds the channel lock, rewrite waits, both finish.
+      let releasePost!: () => void
+      const postOpen = new Promise<void>((resolve) => {
+        releasePost = resolve
+      })
+      let postLocked!: () => void
+      const postLockedPromise = new Promise<void>((resolve) => {
+        postLocked = resolve
+      })
+      const posting2 = secondary.db.transaction((tx) =>
+        postGroupChannelMessageInTransaction(
+          tx,
+          primary.workspace.id,
+          channelId,
+          primary.owner,
+          primary.owner,
+          {
+            message: { bodyText: 'holds the lock', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          {
+            barrier: {
+              afterGate: async () => {
+                postLocked()
+                await postOpen
+              },
+            },
+            now: LATER,
+          }
+        )
+      )
+      await Promise.race([
+        postLockedPromise,
+        sleep(3000).then(() => {
+          throw new Error('post never locked')
+        }),
+      ])
+      const memberOnly = groupCreationCandidatesFromGrants(primary.workspace.id, {
+        audienceGrants: [founder],
+        enlistmentGrants: [],
+      })
+      const revalidation = validateGroupCreation({
+        candidates: memberOnly,
+        groupId: channelId,
+        now: LATER,
+        workspaceId: primary.workspace.id,
+      })
+      if (!revalidation.ok) throw new Error('test roster must validate')
+      const rewriting2 = primary.local.db.transaction((tx) =>
+        setGroupChannelParticipantsInTransaction(
+          tx,
+          primary.workspace.id,
+          channelId,
+          primary.owner,
+          {
+            candidates: memberOnly,
+            expectedVersion: replaced.channel.version,
+            now: LATER,
+            roster: revalidation.roster,
+          }
+        )
+      )
+      expect(await raced(rewriting2, 400)).toBe('blocked')
+      releasePost()
+      const [posted2, replaced2] = await Promise.all([finish(posting2), finish(rewriting2)])
+      expect(posted2.sequence).toBeGreaterThanOrEqual(1)
+      expect(replaced2.roster).toHaveLength(1)
+    } finally {
+      await secondary.close()
+      await primary.local.close()
+    }
+  })
+
+  test('expiry during real lock waiting denies after the write attempt and rolls back', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const expiring = '2026-10-08T12:30:00.000Z'
+      const grant = {
+        expiresAt: expiring,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, grant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      // The scripted clock lapses only at the post-write check: gate and
+      // final allow on trusted time, the nested write really executes, then
+      // the post-write denial rolls everything back. (Real lock waiting is
+      // proven by the lock-order test above; the clock models time passage
+      // deterministically here.)
+      const readings = [NOW, NOW, LATER]
+      const clock = () => readings.shift() ?? LATER
+      const key = crypto.randomUUID()
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          { message: { bodyText: 'must not land', idempotencyKey: key }, mode: 'direct' },
+          { clock }
+        )
+      ).rejects.toThrow('Channel unavailable')
+      const rows = await f.local.db
+        .select()
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(rows).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
 })
