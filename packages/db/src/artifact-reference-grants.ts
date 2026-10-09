@@ -13,13 +13,17 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  * granted version, content checksum, audience workspace and the expiry
  * string verbatim — plus a positive revision and the revocation mark.
  *
- * Authority is resolved from the DATABASE, never the request. A registration
- * or regrant is only ever persisted after the store has verified, inside its
- * own transaction, that:
+ * Authority is resolved from the DATABASE, never the request. EVERY
+ * registration path — a fresh insert, an idempotent replay of a live grant,
+ * and the concurrent-insert fallback — verifies, inside its own transaction,
+ * that:
  *
  * - the issuer holds an authoritative role (`owner` or `admin`) in the source
  *   workspace, per the existing membership/role model — granting
- *   cross-workspace access is not a member-level act;
+ *   cross-workspace access is not a member-level act, and a caller whose
+ *   issuer authority lapsed after the original registration cannot recover
+ *   the grant by retrying: the replay returns the same typed rejection a
+ *   fresh registration gets;
  * - BOTH bound workspaces are live (`deleted_at` is null): a deleted or
  *   archived workspace cannot anchor or receive a grant;
  * - the artifact exists under the claimed source workspace and is LIVE
@@ -30,10 +34,11 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *
  * Durability guarantees:
  *
- * - Registration is idempotent ONLY for a live grant. Registering the
- *   identical grant (same grant id and complete identity) while it is live
- *   returns the existing registration without duplicating a row or bumping
- *   the revision; a genuinely new registration starts at revision 1.
+ * - Registration is idempotent ONLY for a live grant presented by a caller
+ *   whose issuer authority currently holds. Registering the identical grant
+ *   (same grant id and complete identity) while it is live returns the
+ *   existing registration without duplicating a row or bumping the revision;
+ *   a genuinely new registration starts at revision 1.
  * - A registration retry after revocation FAILS CLOSED: it never restores
  *   access and never bumps the revision. Restoring access after revocation
  *   is an explicit, revision-checked regrant — never a registration replay.
@@ -52,8 +57,11 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *   callback while the locks are held: a concurrent revocation commits only
  *   after the callback completes, so a grant can never be read valid and
  *   then revoked before publication lands, nor published after revocation is
- *   visible. Locks are always taken artifact-first, then grant — the same
- *   order registration and regrant use — so lock cycles are impossible.
+ *   visible. Every transaction that takes both locks acquires them through
+ *   the one shared helper — artifact first, then grant — so lock cycles are
+ *   impossible; revocation locks the grant row alone (it cannot know the
+ *   artifact before reading the grant) and never waits on a second row lock,
+ *   so it cannot close a cycle either.
  *
  * The reader resolves a presented grant id to its CURRENT registration and
  * hands back the full stored state; the policy performs the field-by-field
@@ -273,8 +281,9 @@ async function requireWorkspaceLive(
  * Lock the artifact a grant names and refuse anything that is not LIVE under
  * the schema's own lifecycle semantics: it must exist under the claimed
  * source workspace, be `active` (not deleted) and not quarantined. The row
- * lock keeps version and checksum stable for the rest of the transaction and
- * orders artifact-before-grant with the authorize path.
+ * lock keeps version and checksum stable for the rest of the transaction;
+ * the shared `lockArtifactThenGrant` helper takes it BEFORE any grant row
+ * lock, which is the module's one global lock order.
  */
 async function lockLivableArtifact(
   transaction: AgentHqTransaction,
@@ -294,21 +303,41 @@ async function lockLivableArtifact(
 }
 
 /**
- * Resolve authority from the database before anything is persisted: issuer
- * role and source liveness, audience liveness, then the canonical artifact —
- * whose version and content checksum must EQUAL the presented ones. A
- * divergence fails closed: the request never gets to relabel the granted
- * target.
+ * The one shared lock-acquisition helper: lock the artifact a grant names
+ * FIRST (refusing anything that is not LIVE under the schema's own lifecycle
+ * semantics), then the current grant row. Authorization, registration, and
+ * regrant acquire both locks ONLY here, so two transactions can never each
+ * hold one lock and wait on the other's — the artifact-before-grant order is
+ * global and lock cycles are impossible. Regranting previously locked these
+ * rows in the opposite order, which deadlocked against the authorize path.
  */
-async function resolveRegistrationAuthority(
+async function lockArtifactThenGrant(
+  transaction: AgentHqTransaction,
+  sourceWorkspaceId: string,
+  artifactId: string,
+  grantId: string
+): Promise<{ artifact: typeof artifacts.$inferSelect; grant: GrantRow | undefined }> {
+  const artifact = await lockLivableArtifact(transaction, sourceWorkspaceId, artifactId)
+  const grant = await selectByGrantId(transaction, grantId)
+  return { artifact, grant }
+}
+
+/**
+ * The authority half of registration, re-run on EVERY registration path:
+ * issuer role and source liveness, audience liveness, then canonicality of
+ * the presented version and content checksum against the ALREADY-LOCKED
+ * artifact record. A divergence fails closed: the request never gets to
+ * relabel the granted target.
+ */
+async function requireRegistrationAuthority(
   transaction: AgentHqTransaction,
   sourceWorkspaceId: string,
   principal: UserPrincipalRef,
-  input: ArtifactReferenceGrantRegistrationInput
+  input: ArtifactReferenceGrantRegistrationInput,
+  artifact: typeof artifacts.$inferSelect
 ): Promise<void> {
   await requireGrantIssuerAuthority(transaction, sourceWorkspaceId, principal)
   await requireWorkspaceLive(transaction, input.audienceWorkspaceId)
-  const artifact = await lockLivableArtifact(transaction, sourceWorkspaceId, input.artifactId)
   if (artifact.version !== input.version || artifact.checksumSha256 !== input.checksumSha256)
     reject('grant_target_divergence')
 }
@@ -324,18 +353,19 @@ async function selectByGrantId(database: Database, grantId: string): Promise<Gra
 }
 
 /**
- * Decide a registration against the locked current row. A registered grant
- * id is either replayed identically (idempotent, live only), refused for an
- * identity conflict, or — after revocation — refused as a retry: restoring
- * access is the explicit regrant's job, never a registration's. Returns null
- * when the grant id is unregistered and a row must be inserted.
+ * Decide a registration against the CURRENT, already-locked grant row (the
+ * lock comes from the shared `lockArtifactThenGrant` helper, after the
+ * artifact lock). A registered grant id is either replayed identically
+ * (idempotent, live only, current issuer authority already verified), refused
+ * for an identity conflict, or — after revocation — refused as a retry:
+ * restoring access is the explicit regrant's job, never a registration's.
+ * Returns null when the grant id is unregistered and a row must be inserted.
  */
-async function decideRegistration(
-  transaction: AgentHqTransaction,
+function decideRegistration(
   sourceWorkspaceId: string,
-  input: ArtifactReferenceGrantRegistrationInput
-): Promise<ArtifactReferenceGrantRegistrationResult | null> {
-  const existing = await selectByGrantId(transaction, input.grantId)
+  input: ArtifactReferenceGrantRegistrationInput,
+  existing: GrantRow | undefined
+): ArtifactReferenceGrantRegistrationResult | null {
   if (!existing) return null
   if (!sameIdentity(existing, sourceWorkspaceId, input)) reject('grant_identity_conflict')
   if (existing.revokedAt !== null) reject('grant_revoked_retry')
@@ -344,10 +374,13 @@ async function decideRegistration(
 
 /**
  * Register one artifact-reference grant on behalf of its granting (source)
- * workspace. Authority and canonicality are resolved from the database first
- * (`resolveRegistrationAuthority`). Idempotent ONLY for an identical live
- * registration; a retry after revocation fails closed and never restores
- * access. Any other reuse of a registered grant id fails closed.
+ * workspace. The shared artifact-then-grant lock order and the database
+ * authority checks (`requireRegistrationAuthority`) run on EVERY path — a
+ * fresh insert, an idempotent replay, and the concurrent-insert fallback —
+ * so only a currently-authoritative issuer ever receives a grant state back.
+ * Idempotent ONLY for an identical live registration; a retry after
+ * revocation fails closed and never restores access. Any other reuse of a
+ * registered grant id fails closed.
  */
 export async function registerArtifactReferenceGrant(
   database: AgentHqDatabase,
@@ -357,13 +390,21 @@ export async function registerArtifactReferenceGrant(
 ): Promise<ArtifactReferenceGrantRegistrationResult> {
   validateRegistrationInput(sourceWorkspaceId, input)
   return database.transaction(async (transaction) => {
-    const decided = await decideRegistration(transaction, sourceWorkspaceId, input)
+    // Artifact first, then grant; nothing is decided before the caller's
+    // CURRENT issuer authority and the canonical artifact record hold.
+    const { artifact, grant } = await lockArtifactThenGrant(
+      transaction,
+      sourceWorkspaceId,
+      input.artifactId,
+      input.grantId
+    )
+    await requireRegistrationAuthority(transaction, sourceWorkspaceId, principal, input, artifact)
+
+    const decided = decideRegistration(sourceWorkspaceId, input, grant)
     if (decided) return decided
 
-    // A new registration persists nothing until authority and canonicality
-    // hold; the row's version and checksum are the artifact record's own.
-    await resolveRegistrationAuthority(transaction, sourceWorkspaceId, principal, input)
-
+    // A new registration persists the row under the artifact record's own
+    // version and checksum.
     const [inserted] = await transaction
       .insert(artifactReferenceGrants)
       .values({
@@ -381,8 +422,13 @@ export async function registerArtifactReferenceGrant(
     if (inserted) return { outcome: 'registered', state: grantStateOf(inserted) }
 
     // A concurrent registration won the unique grant id; resolve against the
-    // committed row under the same rules instead of duplicating it.
-    const replayed = await decideRegistration(transaction, sourceWorkspaceId, input)
+    // committed row under the same rules instead of duplicating it. The
+    // artifact lock is already held, so the re-read keeps the shared order.
+    const replayed = decideRegistration(
+      sourceWorkspaceId,
+      input,
+      await selectByGrantId(transaction, input.grantId)
+    )
     if (!replayed) reject('grant_registration_failed')
     return replayed
   })
@@ -409,12 +455,21 @@ export async function regrantArtifactReferenceGrant(
   validateRegistrationInput(sourceWorkspaceId, input)
   if (!isPositiveInteger(expectedRevision)) reject('grant_revision_conflict')
   return database.transaction(async (transaction) => {
-    const existing = await selectByGrantId(transaction, input.grantId)
+    // The authorization path's own lock order — artifact first, then grant,
+    // through the one shared helper — so a regrant and a concurrent
+    // authorization wait behind each other in the same order instead of each
+    // holding one lock and deadlocking on the other's.
+    const { artifact, grant: existing } = await lockArtifactThenGrant(
+      transaction,
+      sourceWorkspaceId,
+      input.artifactId,
+      input.grantId
+    )
     if (!existing) reject('grant_not_registered')
     if (!sameIdentity(existing, sourceWorkspaceId, input)) reject('grant_identity_conflict')
     if (existing.revision !== expectedRevision) reject('grant_revision_conflict')
 
-    await resolveRegistrationAuthority(transaction, sourceWorkspaceId, principal, input)
+    await requireRegistrationAuthority(transaction, sourceWorkspaceId, principal, input, artifact)
 
     if (existing.revokedAt === null) return { outcome: 'existing', state: grantStateOf(existing) }
     const [regranted] = await transaction
@@ -442,6 +497,10 @@ export async function revokeArtifactReferenceGrant(
 ): Promise<ArtifactReferenceGrantState | null> {
   if (!UUID.test(workspaceId) || !hasText(grantId)) reject('grant_identity_invalid')
   return database.transaction(async (transaction) => {
+    // Lock-order audit: revocation takes the grant row lock ONLY — it cannot
+    // know the artifact before reading the grant, and it acquires no second
+    // row lock afterwards — so it can never close a lock cycle with the
+    // artifact-first paths.
     const row = await selectByGrantId(transaction, grantId)
     if (!row) return null
     if (workspaceId !== row.sourceWorkspaceId && workspaceId !== row.audienceWorkspaceId)
@@ -487,10 +546,15 @@ export async function withArtifactReferenceGrantLocks<T>(
   )
     reject('grant_identity_invalid')
   return database.transaction(async (transaction) => {
-    // Artifact first: an unknown artifact has nothing to authorize against.
-    await lockLivableArtifact(transaction, scope.sourceWorkspaceId, scope.artifactId)
-
-    const row = await selectByGrantId(transaction, scope.grantId)
+    // Artifact first, then grant, through the same shared helper every
+    // mutation uses — an unknown artifact has nothing to authorize against,
+    // and no transaction can hold one lock while waiting on the other's.
+    const { grant: row } = await lockArtifactThenGrant(
+      transaction,
+      scope.sourceWorkspaceId,
+      scope.artifactId,
+      scope.grantId
+    )
     if (
       row &&
       (row.sourceWorkspaceId !== scope.sourceWorkspaceId || row.artifactId !== scope.artifactId)
