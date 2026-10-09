@@ -32,7 +32,14 @@ override still wins), and the production enablement in
 Coordination semantics: coordination comes only from supplied canonical
 lead-turn facts — the workspace lead's admitted intent identity plus its
 observed live execution — and never from a bound run, composer authority,
-or view routing. The turn counts only when bound to the observed workspace
+or view routing. An explicit handoff request posts admission
+(`createMessage` with `leadTurn: true` on the linked channel, fixed body
+text, stable per-session idempotency key) through the caller-supplied
+handler; the response receipt carries the admitted intent, and a response
+without one fails closed. Retries reuse the retained key so the server
+dedupes instead of minting a duplicate turn; single-flight admission and
+handoff-blocked-while-live complete the duplication defense. Awaiting
+admission shows a Check-status refresh instead of polling. The turn counts only when bound to the observed workspace
 lead agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
 workspace-scoped, active lifecycle): the model checks
 `turn.agentId === lead.id` plus designation and lifecycle, and an unbound
@@ -134,12 +141,13 @@ REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
 A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes
 and agent binding, binding/replacement matrix, gap rows, approval
 counting, a11y contract, action-machine and epoch admission;
-`chat-handoff-supplier.test.ts` lead-fact and taskId derivation;
+`chat-handoff-supplier.test.ts` lead-fact and taskId derivation,
+channel linkage, and awaiting flags;
 `chat-conversation-model.test.ts` session-cancel targeting, live draft
 preservation, and taskId projection; `lead-handoff-supply.test.ts`
 task-linked resolution matrix (no-link zero reads, unrelated ignored,
-foreign excluded, same-task ambiguity), epoch ordering, and
-resolver→derivation composition; `project-session-handoff-journey.test.ts`
+foreign excluded, same-task ambiguity), epoch ordering, admission body
+and key stability, and resolver→derivation composition; `project-session-handoff-journey.test.ts`
 joined real-register view-routing journey with reload persistence and
 fencing; mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
 over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only

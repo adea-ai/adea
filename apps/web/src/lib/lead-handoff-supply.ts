@@ -20,7 +20,7 @@ import type { HandoffLeadAgent, HandoffLeadTurn } from '@adea-ai/dev-view/chat'
  *  real AgentHqApiClient and by fixture fakes in tests. */
 export type LeadHandoffPort = Pick<
   AgentHqApiClient,
-  'getWorkspaceLead' | 'listChannels' | 'getChannelLeadTurn' | 'cancelLeadTurn'
+  'getWorkspaceLead' | 'listChannels' | 'getChannelLeadTurn' | 'cancelLeadTurn' | 'createMessage'
 >
 
 export type LeadHandoffUnresolvedReason =
@@ -29,7 +29,6 @@ export type LeadHandoffUnresolvedReason =
   | 'lead-unavailable'
   | 'no-channel'
   | 'ambiguous-channels'
-  | 'no-turn'
   | 'request-failed'
 
 export type LeadHandoffResolution =
@@ -42,6 +41,8 @@ export type LeadHandoffResolution =
   | Readonly<{
       status: 'resolved'
       leadAgent: HandoffLeadAgent
+      /** The exactly-one linked channel; present even with no turn yet. */
+      channelId: string
       leadTurn?: HandoffLeadTurn
     }>
 
@@ -145,10 +146,12 @@ export async function resolveLeadHandoffSupply(
   } catch {
     return { status: 'unresolved', reason: 'request-failed', leadAgent }
   }
-  if (!turn) return { status: 'unresolved', reason: 'no-turn', leadAgent }
+  const channelId = linked[0]!.id
+  if (!turn) return { status: 'resolved', leadAgent, channelId }
   return {
     status: 'resolved',
     leadAgent,
+    channelId,
     leadTurn: {
       intentId: turn.intentId,
       agentId: leadAgent.id,
@@ -157,4 +160,75 @@ export async function resolveLeadHandoffSupply(
       canCancel: CANCELLABLE_TURN_STATES.includes(turn.state),
     },
   }
+}
+
+/**
+ * Stable per-session idempotency keys for handoff admission: a retry of an
+ * unknown-outcome request reuses the retained key so the server dedupes to
+ * the same message and intent instead of minting a duplicate turn. Keys
+ * clear on confirmed success, so a deliberate later re-handoff mints
+ * fresh. Bounded like receipts; best-effort, never load-bearing for
+ * correctness beyond dedup.
+ */
+const MAX_PENDING_KEYS = 50
+const pendingRequestKeys = new Map<string, string>()
+
+export function acquireHandoffRequestKey(sessionId: string): string {
+  const existing = pendingRequestKeys.get(sessionId)
+  if (existing) return existing
+  const key = crypto.randomUUID()
+  if (pendingRequestKeys.size >= MAX_PENDING_KEYS) {
+    const oldest = pendingRequestKeys.keys().next()
+    if (!oldest.done) pendingRequestKeys.delete(oldest.value)
+  }
+  pendingRequestKeys.set(sessionId, key)
+  return key
+}
+
+export function confirmHandoffRequestKey(sessionId: string): void {
+  pendingRequestKeys.delete(sessionId)
+}
+
+/**
+ * Builds the explicit handoff request body: a human-readable admission
+ * sentence naming the exact target session. The machine linkage lives in
+ * the retained receipt plus the channel it posts to — never parsed out of
+ * prose. The shape is fixed so retries reuse it byte-for-byte under a
+ * stable idempotency key.
+ */
+export function buildHandoffRequestBody(runtimeSessionId: string): string {
+  return `Requesting lead coordination for direct session ${runtimeSessionId}.`
+}
+
+export type LeadHandoffRequest = Readonly<{
+  intentId: string
+  messageId: string
+  channelId: string
+}>
+
+/**
+ * Requests lead coordination through the canonical admission path: one
+ * message with `leadTurn: true` on the linked channel, fenced by the
+ * server's channel-write and lead-turn authorization. The response receipt
+ * carries the admitted intent; a response without one is a failed
+ * admission, never a silent success.
+ */
+export async function requestLeadHandoff(
+  port: LeadHandoffPort,
+  input: Readonly<{
+    workspaceId: string
+    channelId: string
+    runtimeSessionId: string
+    idempotencyKey: string
+  }>
+): Promise<LeadHandoffRequest> {
+  const response = await port.createMessage(input.workspaceId, input.channelId, {
+    leadTurn: true,
+    bodyText: buildHandoffRequestBody(input.runtimeSessionId),
+    idempotencyKey: input.idempotencyKey,
+  })
+  const intentId = response.leadTurn?.intentId
+  const messageId = response.message?.id
+  if (!intentId || !messageId) throw new Error('Lead admission did not return an intent')
+  return { intentId, messageId, channelId: input.channelId }
 }

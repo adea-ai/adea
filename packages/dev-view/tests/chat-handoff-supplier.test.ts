@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 import {
+  deriveDirectSessionHandoff,
   deriveHandoffInputFromConversation,
   deriveHandoffModeForSurface,
   resolveLeadCoordination,
@@ -246,6 +247,42 @@ describe('deriveHandoffInputFromConversation', () => {
       awaitingApproval: false,
     })
     expect(overridden.awaitingApproval).toBe(false)
+  })
+
+  test('a linked channel flows through for handoff availability', () => {
+    const linked = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadChannelId: 'channel-1',
+    })
+    expect(linked.mode).toBe('attached')
+    const view = deriveDirectSessionHandoff(linked)
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    const unlinked = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+    })
+    expect(deriveDirectSessionHandoff(unlinked).controls.handoff_to_lead.available).toBe(false)
+  })
+
+  test('a blocked observed turn flags awaiting admission', () => {
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn({ state: 'blocked' }),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(supplied.mode).toBe('attached')
+    expect(deriveDirectSessionHandoff(supplied).awaitingTurn).toBe(true)
+    const live = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: leadTurn(),
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    expect(deriveDirectSessionHandoff(live).awaitingTurn).toBe(false)
   })
 
   test('session type completeness is preserved for the derivation', () => {

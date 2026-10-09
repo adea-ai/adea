@@ -153,6 +153,56 @@ test('an unrelated channel never disables the linked handoff', async ({ page }) 
   expectNoErrors(errors)
 })
 
+test('explicit handoff admits through the canonical path with a stable key', async ({ page }) => {
+  const errors = await openHarness(page)
+  // No turn observed yet: the handoff button offers an explicit request.
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Handing off…', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Admission posts')).toHaveText('1')
+
+  // A transport failure keeps the key: retrying reuses it so the server
+  // dedupes instead of minting a duplicate turn.
+  await page.getByRole('button', { name: 'Reject admission' }).click()
+  await expect(page.getByRole('alert').getByText(/transport lost/)).toBeVisible()
+  const keyBefore = await page.getByLabel('Admission keys').textContent()
+  await page.getByRole('button', { name: 'Hand off to lead', exact: true }).click()
+  await expect(page.getByLabel('Admission posts')).toHaveText('2')
+  expect(await page.getByLabel('Admission keys').textContent()).toBe(
+    `${keyBefore},${keyBefore?.split(',')[0]}`
+  )
+
+  // The admission commits a blocked turn: requested state with a status
+  // check, then dispatch, then coordination.
+  await page.getByRole('button', { name: 'Resolve admission' }).click()
+  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Check lead status', exact: true })).toBeEnabled()
+  // The turn dispatches without pushing: the view stays requested until
+  // an explicit check re-reads it.
+  await page.getByRole('button', { name: 'Advance turn silently' }).click()
+  await expect(section(page).getByText(/Lead coordination unavailable/)).toBeVisible()
+  await page.getByRole('button', { name: 'Check lead status', exact: true }).click()
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Stop lead', exact: true }).click()
+  await page.getByRole('button', { name: 'Resolve lead cancel' }).click()
+  await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
+  expectNoErrors(errors)
+})
+
+test('a live observed turn blocks a second admission', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe live lead turn' }).click()
+  await expect(section(page).getByText('Coordination handoff', { exact: true })).toBeVisible()
+  const handoff = page.getByRole('button', { name: 'Hand off to lead', exact: true })
+  await expect(handoff).toBeDisabled()
+  await expect(page.locator(`#${await handoff.getAttribute('aria-describedby')}`)).toContainText(
+    'already handed off'
+  )
+  await expect(page.getByLabel('Admission posts')).toHaveText('0')
+  expectNoErrors(errors)
+})
+
 test('concurrent starts admit once: double activation never duplicates the cancel', async ({
   page,
 }) => {

@@ -32,7 +32,9 @@ function HandoffLiveSection(props: {
   view: DirectSessionHandoffView
   onLeadStop?: () => void | Promise<void>
   onSessionStop?: () => void | Promise<void>
+  onRequestHandoff?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
+  onRefreshLead?: () => void | Promise<void>
   leadUnwiredReason?: string
   actionState: () => HandoffActionState
 }): JSX.Element {
@@ -49,7 +51,9 @@ function HandoffLiveSection(props: {
       view={props.view}
       onLeadStop={props.onLeadStop}
       onSessionStop={props.onSessionStop}
+      onRequestHandoff={props.onRequestHandoff}
       onReconnect={props.onReconnect}
+      onRefreshLead={props.onRefreshLead}
       leadUnwiredReason={props.leadUnwiredReason}
       busyAction={busy()}
       actionError={error()}
@@ -84,7 +88,9 @@ export type ChatViewProps = Readonly<{
   handoff?: DirectSessionHandoffSupply
   onLeadStop?: () => void | Promise<void>
   onSessionStop?: () => void | Promise<void>
+  onRequestHandoff?: () => void | Promise<void>
   onReconnectHandoff?: () => void | Promise<void>
+  onRefreshLead?: () => void | Promise<void>
   readingPosition?: ChatTranscriptProps['readingPosition']
   onReadingPositionChange?: (
     identity: Readonly<{ runtimeSessionId: string; generation: number }>,
@@ -285,6 +291,15 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     return void runHandoffAction('session_stop', stop)
   }
 
+  // Requesting lead coordination runs the caller-supplied admission
+  // transport through the guarded runner: busy/error/epoch handling is
+  // identical to the stop actions, and the caller refreshes observed
+  // facts afterwards (directly or via onRefreshLead).
+  const requestHandoffAction = (): void | Promise<void> => {
+    if (!props.onRequestHandoff) return undefined
+    return void runHandoffAction('handoff_to_lead', () => props.onRequestHandoff?.())
+  }
+
   const reconnectHandoffAction = (): void | Promise<void> => {
     if (props.onReconnectHandoff) return props.onReconnectHandoff()
     if (!props.model) return undefined
@@ -307,6 +322,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         mode: supply.mode,
         leadTurn: supply.leadTurn,
         leadAgent: supply.leadAgent,
+        leadChannelId: supply.leadChannelId,
       })
     )
   }
@@ -361,6 +377,8 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             view={view()}
             onLeadStop={props.onLeadStop ? leadStopAction : undefined}
             onSessionStop={props.onSessionStop ?? (props.model ? sessionStopAction : undefined)}
+            onRequestHandoff={props.onRequestHandoff ? requestHandoffAction : undefined}
+            onRefreshLead={props.onRefreshLead}
             onReconnect={
               props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
             }
