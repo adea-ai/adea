@@ -415,10 +415,7 @@ export const managementOperations: Readonly<
     capability: null,
     confirmation: 'explicit',
     domain: 'project',
-    // #1218 owns the executor, restore route and lead tool that flip these lanes
-    // to `cloudLanes`; the catalog shape (api/revision/confirmation/audit/
-    // recovery) is the canonical exact-call contract from here on.
-    lanes: { desktop: notImplemented, lead: notImplemented, web: notImplemented },
+    lanes: cloudLanes,
     permission: 'workspace.update',
     recovery: 'version_conflict',
     revision: 'project_revision',

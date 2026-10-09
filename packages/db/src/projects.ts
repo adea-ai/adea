@@ -11,7 +11,8 @@ import {
   resolveProjectAccessScope,
   visibleProjectCondition,
 } from './project-access'
-import { channels, projects, workspaceMemberships } from './schema'
+import { archiveProjectChannels, lockProjectForStateChange } from './project-state-policy'
+import { projects, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
 type ProjectCreateInput = Readonly<{
@@ -238,35 +239,6 @@ export async function updateProject(
   })
 }
 
-async function archiveProjectChannels(
-  transaction: AgentHqTransaction,
-  workspaceId: string,
-  projectId: string,
-  principal: UserPrincipalRef
-) {
-  const projectChannels = await transaction
-    .select({ id: channels.id, version: channels.version })
-    .from(channels)
-    .where(
-      and(
-        eq(channels.workspaceId, workspaceId),
-        eq(channels.projectId, projectId),
-        eq(channels.lifecycleState, 'active')
-      )
-    )
-  for (const channel of projectChannels) {
-    await transaction
-      .update(channels)
-      .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
-      .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
-    await appendWorkspaceEvent(transaction, {
-      eventType: 'channel.archived',
-      payload: { actorUserId: principal.userId, channelId: channel.id, projectId },
-      workspaceId,
-    })
-  }
-}
-
 export async function archiveProject(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -282,6 +254,9 @@ export async function archiveProject(
       'Project unavailable'
     )
     requireProjectWrite(scope, projectId, 'Project unavailable')
+    // Project lock first, then channels in id order (the canonical order
+    // shared with soft delete and promotion).
+    await lockProjectForStateChange(transaction, workspaceId, projectId)
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const [archived] = await transaction
       .update(projects)
@@ -317,6 +292,8 @@ export async function softDeleteProject(
       'Project unavailable'
     )
     requireProjectWrite(scope, projectId, 'Project unavailable')
+    // Same canonical order as archive: project row, then its channels.
+    await lockProjectForStateChange(transaction, workspaceId, projectId)
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const now = new Date()
     const [deleted] = await transaction

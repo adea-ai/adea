@@ -23,6 +23,20 @@ assertions at admission and immediately before the effect.
 exact existing API binding, permission or Dev Runtime capability, revision
 anchor, confirmation style, audit surface, recovery contract and per-lane
 callable state, with typed unsupported reasons.
+`packages/types/src/management.ts` is the closed catalog. Each operation names:
+
+- its **domain** (`config`, `memory`, `project`, `worktree`, `session`) and
+  **surface** (`cloud` or `device`);
+- the exact **existing API** it executes through (`web` handler, desktop bridge
+  method, or a `dev.*` Dev Runtime registry operation);
+- its **workspace permission** (cloud) or Dev Runtime **capability** (device);
+- its **revision** anchor (`workspace_version`, `workspace_order`,
+  `memory_revision`, `project_order`, `project_revision`,
+  `worktree_generation`, `session_generation`, `plan_digest`), **confirmation**
+  style (`none`, `explicit`, `plan_commit`), **audit** surface and **recovery**
+  contract;
+- the callable state per **lane** (`web`, `desktop`, `lead`), where every
+  unsupported lane carries one of the typed reasons below.
 
 ## The gateway
 
@@ -232,6 +246,21 @@ Unsupported lanes: `device_required`, `upstream_authority_unavailable`,
   claim recovery, replay, mismatched binding, interrupted-claim reconciliation.
 - `apps/web/test/management-routing-boundary.test.ts` — no API route imports a
   management database function directly.
+- `packages/types/tests/management.test.ts` pins the catalog's shape, the
+  `dev.*` bindings against the generated operation registry, and the lane
+  classification.
+- `apps/web/test/management-gateway.test.ts` pins human/lead parity, the
+  fail-closed authority boundary, device refusal, denial attribution and the
+  bounded error projection.
+- `apps/web/test/management-operations.test.ts` pins executor wiring, the
+  version/order conflict contracts and the dedicated confirmation operations.
+- `apps/web/test/project-promotion-management.test.ts` pins the explicit
+  `project.promote` path: `workspace.update` authorization, exact revision,
+  typed stale-revision projection, unconfirmed refusal and lead-lane audit
+  parity.
+- `apps/web/test/lead-management-tools.test.ts` pins that the lead definitions
+  are exactly the inventory's lead-callable slice and that execution routes
+  through the same shared operations.
 
 ## Migration ordering gate
 

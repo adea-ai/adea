@@ -96,6 +96,7 @@ describe('management operation inventory (#1215)', () => {
 
   test('keeps shared cloud project operations callable on all lanes', () => {
     expect(managementOperationLanes('project.update')).toEqual(['web', 'desktop', 'lead'])
+    expect(managementOperationLanes('project.promote')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationLanes('config.workspace.update')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationSupport('project.delete', 'lead')).toEqual({ state: 'supported' })
   })

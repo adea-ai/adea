@@ -47,6 +47,7 @@ const LEAD_TOOL_METHODS = {
   projectArchive: 'project.archive',
   projectCreate: 'project.create',
   projectDelete: 'project.delete',
+  projectPromote: 'project.promote',
   projectMemberRemove: 'project.member.remove',
   projectMemberSet: 'project.member.set',
   projectReorder: 'project.reorder',
@@ -183,6 +184,14 @@ function leadToolBindingInput(
         input: { projectId: call.projectId, role: call.role },
         targetId: call.userId,
       }
+    case 'project.promote':
+      return {
+        input: {
+          confirmed: call.confirmed,
+          expectedUpdatedAt: call.expectedUpdatedAt,
+        },
+        targetId: call.projectId,
+      }
     case 'project.reorder':
       return { input: { projectIds: [...call.projectIds] }, targetId: null }
     case 'project.update':
@@ -244,6 +253,8 @@ function invoke(
       return operations.projectCreate({ ...inputOf(call), principal }, binding)
     case 'project.delete':
       return operations.projectDelete({ ...inputOf(call), principal }, binding)
+    case 'project.promote':
+      return operations.projectPromote({ ...inputOf(call), principal }, binding)
     case 'project.member.remove':
       return operations.projectMemberRemove({ ...inputOf(call), principal }, binding)
     case 'project.member.set':

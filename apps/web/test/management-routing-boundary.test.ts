@@ -12,6 +12,7 @@ const MANAGEMENT_DB_FUNCTIONS = new Set([
   'archiveProject',
   'archiveWorkspace',
   'createProject',
+  'promoteProjectState',
   'removeProjectMember',
   'reopenWorkspace',
   'reorderProjects',
@@ -92,7 +93,13 @@ describe('management routing boundary (#1215)', () => {
       join(import.meta.dir, '../src/server/management-composition.ts'),
       'utf8'
     )
-    for (const fn of ['archiveProject', 'createProject', 'softDeleteProject', 'updateProject'])
+    for (const fn of [
+      'archiveProject',
+      'createProject',
+      'promoteProjectState',
+      'softDeleteProject',
+      'updateProject',
+    ])
       expect(source).toContain(fn)
   })
 })

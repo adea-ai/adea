@@ -144,6 +144,49 @@ const PREDICATE_BLOCKER: Record<CleanupPredicate['kind'], DevErrorCode> = {
   archived_for: 'cleanup_blocked',
 }
 
+export type CleanupPolicyExpiry = 'none' | 'valid' | 'expired' | 'invalid'
+
+export type CleanupPolicyStanding =
+  | Readonly<{ standing: 'approved' }>
+  | Readonly<{ standing: 'not_approved' }>
+  | Readonly<{ standing: 'expired' }>
+  | Readonly<{ standing: 'invalid' }>
+
+/**
+ * One expiry decision shared by draft creation, approval and evaluation. A
+ * missing clock or a malformed timestamp is `invalid`, never "not expired":
+ * an unprovable lifetime can never authorize automatic cleanup.
+ */
+export function cleanupPolicyExpiry(
+  expiresAt: string | undefined,
+  nowMs: number
+): CleanupPolicyExpiry {
+  if (!Number.isFinite(nowMs)) return 'invalid'
+  if (expiresAt === undefined) return 'none'
+  const expiry = Date.parse(expiresAt)
+  if (!Number.isFinite(expiry)) return 'invalid'
+  return expiry <= nowMs ? 'expired' : 'valid'
+}
+
+/**
+ * Whether a policy may authorize automatic cleanup right now. `approved` is
+ * the only standing that authorizes anything; an invalid/expired lifetime and
+ * every non-approved state fail closed with a typed standing.
+ */
+export function cleanupPolicyStanding(
+  policy: Pick<CleanupPolicy, 'expiresAt' | 'state'>,
+  nowMs: number
+): CleanupPolicyStanding {
+  const expiry = cleanupPolicyExpiry(policy.expiresAt, nowMs)
+  if (expiry === 'invalid') return Object.freeze({ standing: 'invalid' as const })
+  if (policy.state !== 'approved')
+    return Object.freeze({
+      standing: policy.state === 'expired' ? ('expired' as const) : ('not_approved' as const),
+    })
+  if (expiry === 'expired') return Object.freeze({ standing: 'expired' as const })
+  return Object.freeze({ standing: 'approved' as const })
+}
+
 /** Pure predicate evaluation against the facts record. Every required fact
  * is a string; a missing fact fails that predicate (never defaults to
  * satisfied). */
@@ -231,8 +274,11 @@ export function createCleanupPolicyAuthority(
         throw devError('identity_mismatch', 'createDraft carries no resource binding')
       const body = devOperationDecoders['dev.cleanupPolicy.createDraft'].request(command.body)
       const expiresAt = body.expiresAt as string | undefined
-      if (expiresAt !== undefined && Date.parse(expiresAt) <= now())
-        throw devError('invalid_state', 'the policy expiry must be in the future')
+      // A malformed or non-future expiry is refused at the source, so an
+      // unprovable lifetime never reaches approval or evaluation.
+      const expiry = cleanupPolicyExpiry(expiresAt, now())
+      if (expiry === 'invalid' || expiry === 'expired')
+        throw devError('invalid_state', 'the policy expiry must be a valid future timestamp')
       const policy: StoredPolicy = {
         id: randomId(),
         scope: input.scope,
@@ -268,6 +314,9 @@ export function createCleanupPolicyAuthority(
         throw devError('already_completed', 'the policy is already approved')
       if (policy.state !== 'draft')
         throw devError('invalid_state', `a ${policy.state} policy cannot be approved`)
+      const expiry = cleanupPolicyExpiry(policy.expiresAt, now())
+      if (expiry === 'invalid' || expiry === 'expired')
+        throw devError('invalid_state', 'the policy lifetime is invalid or expired')
       // Approving automatic background cleanup is a destructive policy and
       // requires a proven single-use owner approval: without a verifier (or
       // with an invalid one) this fails closed.
@@ -341,12 +390,14 @@ export function createCleanupPolicyAuthority(
           'invalid_state',
           `a ${policy.state} policy cannot be evaluated for execution`
         )
-      const evaluatedAt = new Date(now()).toISOString()
-      const expired = policy.expiresAt !== undefined && Date.parse(policy.expiresAt) <= now()
+      const nowMs = now()
+      const standing = cleanupPolicyStanding(policy, nowMs)
+      const evaluatedAt = new Date(Number.isFinite(nowMs) ? nowMs : 0).toISOString()
       const worktreeId = body.worktreeId as string
-      const facts = expired ? undefined : await input.worktreeFacts?.(worktreeId)
+      const facts =
+        standing.standing === 'approved' ? await input.worktreeFacts?.(worktreeId) : undefined
       if (facts === undefined) {
-        // Fail closed: no provable facts, no automatic cleanup.
+        // Fail closed: no provable facts or lifetime, no automatic cleanup.
         return {
           policyId: policy.id,
           worktreeId,
@@ -355,9 +406,12 @@ export function createCleanupPolicyAuthority(
           blockers: [
             {
               code: 'capability_unavailable',
-              message: expired
-                ? 'the policy has expired and can no longer authorize automatic cleanup'
-                : 'worktree facts are unavailable, so the policy cannot be proven satisfied',
+              message:
+                standing.standing === 'expired'
+                  ? 'the policy has expired and can no longer authorize automatic cleanup'
+                  : standing.standing === 'invalid'
+                    ? 'the policy lifetime is malformed, so it cannot authorize automatic cleanup'
+                    : 'worktree facts are unavailable, so the policy cannot be proven satisfied',
             },
           ],
           evaluatedAt,

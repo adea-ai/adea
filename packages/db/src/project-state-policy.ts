@@ -1,35 +1,44 @@
-// Explicit project-state promotion (M14.03.2, adea#1218).
+// Explicit project-state promotion and the canonical project/channel state
+// transitions (M14.03.2, adea#1218).
 //
 // Archiving a project is a navigation state: its rows, members, channels and
 // history stay. Bringing it back is a deliberate, opt-in promotion, never a
 // side effect of a rename, a reorder or a lead tool call. This module is the
-// policy and the one transactional implementation:
+// policy and the canonical implementation:
 //
 // - `decideProjectStatePromotion` is pure. It refuses a missing or foreign
 //   project identically (existence never leaks), a soft-deleted project, an
 //   already-active project, a stale observed revision and any call without an
 //   explicit confirmation. `allowed` carries the exact visibility the
 //   project already had, so promotion never widens or narrows the audience.
+// - `archiveProjectChannels` and `restoreProjectChannels` are the one
+//   channel-cascade implementation shared by archive, soft delete and
+//   promotion. Both lock the project row first and the project's channels in
+//   id order, then compare-and-swap each channel's `version`, so concurrent
+//   state changes serialize in one lock order and a moved row aborts the
+//   whole transaction instead of writing a lost update.
+// - Channel archive provenance is explicit: the project cascade marks each
+//   channel it sleeps `project_cascade`, and promotion wakes exactly that set
+//   at +1 version. A channel archived independently carries `individual` and
+//   is never silently revived by a project promotion; it is restored only by
+//   an explicit individual channel action.
 // - `promoteProjectState` applies the decision inside one transaction with a
-//   compare-and-swap on the exact observed `updatedAt`, restores the channels
-//   the archive cascade slept at +1 version, and appends `project.restored`
-//   and `channel.restored` events. A failure rolls every step back, so a
-//   retry after a crash re-reads and either promotes once or reports the
-//   conflict; it never half-restores.
+//   compare-and-swap on the exact observed `updatedAt` and appends
+//   `project.restored` / `channel.restored` events. A failure rolls every
+//   step back, so a retry after a crash re-reads and either promotes once or
+//   reports the conflict; it never half-restores.
 //
-// The revision token is the row's `updatedAt` because the projects table has
-// no version column yet. Concurrency is still exact for this flow: the row is
-// locked (`for update`) for the decision and the update re-checks both the
-// observed timestamp and the archived state. The coordination note
-// `docs/plans/m14-03-management-action-contract.md` proposes the version column
-// and the route that routes this through the shared audited API lane (#1215).
+// The project revision token is the row's `updatedAt` because the projects
+// table has no version column yet; the row lock plus the compare-and-swap is
+// exact for this flow. `docs/plans/m14-03-management-action-contract.md`
+// records the proposed `projects.version` hardening.
 import type {
   ProjectLifecycleState,
   ProjectSummary,
   ProjectVisibility,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { requireProjectAccessScope, requireProjectWrite } from './project-access'
@@ -88,6 +97,18 @@ export class ProjectStatePromotionError extends Error {
   }
 }
 
+/**
+ * A project or channel row moved between the observation and its versioned
+ * write. The transaction rolls back; a retry re-observes instead of writing a
+ * lost update.
+ */
+export class ProjectStateConflictError extends Error {
+  constructor() {
+    super('Project state conflict')
+    this.name = 'ProjectStateConflictError'
+  }
+}
+
 function refuse(reason: ProjectStatePromotionRefusal): never {
   throw new ProjectStatePromotionError(reason)
 }
@@ -136,7 +157,135 @@ export function decideProjectStatePromotion(input: {
   }
 }
 
-/** Mirrors the `projects` row projection for a summary. Local so this lane
+/**
+ * Lock the project row before any channel row. Archive, soft delete and
+ * promotion all take the project lock first and then channels in id order, so
+ * concurrent state changes serialize in one lock order instead of racing or
+ * deadlocking.
+ */
+export async function lockProjectForStateChange(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  projectId: string
+): Promise<typeof projects.$inferSelect> {
+  const [row] = await transaction
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
+    .limit(1)
+    .for('update')
+  if (!row) throw new Error('Project unavailable')
+  return row
+}
+
+/**
+ * Archive every active channel of a project as the project cascade. The set
+ * is marked `project_cascade` so a later promotion knows exactly which
+ * channels it may wake; channels already archived individually stay
+ * `individual`. Each write bumps `version` only from the observed value.
+ */
+export async function archiveProjectChannels(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  projectId: string,
+  principal: UserPrincipalRef
+): Promise<number> {
+  const projectChannels = await transaction
+    .select({ id: channels.id, version: channels.version })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.projectId, projectId),
+        eq(channels.lifecycleState, 'active')
+      )
+    )
+    .orderBy(asc(channels.id))
+    .for('update')
+  for (const channel of projectChannels) {
+    const [archived] = await transaction
+      .update(channels)
+      .set({
+        archiveSource: 'project_cascade',
+        lifecycleState: 'archived',
+        updatedAt: new Date(),
+        version: channel.version + 1,
+      })
+      .where(
+        and(
+          eq(channels.id, channel.id),
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.lifecycleState, 'active'),
+          eq(channels.version, channel.version)
+        )
+      )
+      .returning({ id: channels.id })
+    if (!archived) throw new ProjectStateConflictError()
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'channel.archived',
+      payload: { actorUserId: principal.userId, channelId: channel.id, projectId },
+      workspaceId,
+    })
+  }
+  return projectChannels.length
+}
+
+/**
+ * Wake exactly the channels the project-archive cascade slept. Independent
+ * archives carried `individual` provenance and are left untouched, so a
+ * project promotion can never resurrect a channel the user archived on its
+ * own. The restored row resets to `individual` and bumps `version` only from
+ * the observed value.
+ */
+export async function restoreProjectChannels(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  projectId: string,
+  principal: UserPrincipalRef
+): Promise<number> {
+  const projectChannels = await transaction
+    .select({ id: channels.id, version: channels.version })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.projectId, projectId),
+        eq(channels.lifecycleState, 'archived'),
+        eq(channels.archiveSource, 'project_cascade')
+      )
+    )
+    .orderBy(asc(channels.id))
+    .for('update')
+  for (const channel of projectChannels) {
+    const [restored] = await transaction
+      .update(channels)
+      .set({
+        archiveSource: 'individual',
+        lifecycleState: 'active',
+        updatedAt: new Date(),
+        version: channel.version + 1,
+      })
+      .where(
+        and(
+          eq(channels.id, channel.id),
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.lifecycleState, 'archived'),
+          eq(channels.archiveSource, 'project_cascade'),
+          eq(channels.version, channel.version)
+        )
+      )
+      .returning({ id: channels.id })
+    if (!restored) throw new ProjectStateConflictError()
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'channel.restored',
+      payload: { actorUserId: principal.userId, channelId: channel.id, projectId },
+      workspaceId,
+    })
+  }
+  return projectChannels.length
+}
+
+/** Mirrors the `projects` row projection for a summary. Local so this module
  *  never edits the shared `projects.ts` summary mapper. */
 function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
   return Object.freeze({
@@ -153,44 +302,11 @@ function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
   })
 }
 
-/** Wake every channel the project archive cascade slept. A channel archived
- *  on its own before the project cannot be told apart from the cascade in the
- *  current schema, so promotion restores the project's archived channels and
- *  bumps each version; nothing is ever deleted. */
-async function promoteProjectChannels(
-  transaction: AgentHqTransaction,
-  workspaceId: string,
-  projectId: string,
-  principal: UserPrincipalRef
-): Promise<void> {
-  const projectChannels = await transaction
-    .select({ id: channels.id, version: channels.version })
-    .from(channels)
-    .where(
-      and(
-        eq(channels.workspaceId, workspaceId),
-        eq(channels.projectId, projectId),
-        eq(channels.lifecycleState, 'archived')
-      )
-    )
-  for (const channel of projectChannels) {
-    await transaction
-      .update(channels)
-      .set({ lifecycleState: 'active', updatedAt: new Date(), version: channel.version + 1 })
-      .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
-    await appendWorkspaceEvent(transaction, {
-      eventType: 'channel.restored',
-      payload: { actorUserId: principal.userId, channelId: channel.id, projectId },
-      workspaceId,
-    })
-  }
-}
-
 /**
  * Promote one archived project back to active. The caller must already hold
  * write access to the project (`requireProjectWrite`) and the observation
  * must be current; a stale token fails with `promotion_stale` and leaves the
- * archived row untouched.
+ * archived row and its channels untouched.
  */
 export async function promoteProjectState(
   database: AgentHqDatabase,
@@ -208,23 +324,16 @@ export async function promoteProjectState(
       'Project unavailable'
     )
     requireProjectWrite(scope, projectId, 'Project unavailable')
-    const [row] = await transaction
-      .select()
-      .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
-      .limit(1)
-      .for('update')
+    const row = await lockProjectForStateChange(transaction, workspaceId, projectId)
     const decision = decideProjectStatePromotion({
-      project: row
-        ? {
-            id: row.id,
-            workspaceId: row.workspaceId,
-            lifecycleState: row.lifecycleState,
-            visibility: row.visibility,
-            updatedAt: row.updatedAt.toISOString(),
-            deletedAt: row.deletedAt?.toISOString() ?? null,
-          }
-        : null,
+      project: {
+        id: row.id,
+        workspaceId: row.workspaceId,
+        lifecycleState: row.lifecycleState,
+        visibility: row.visibility,
+        updatedAt: row.updatedAt.toISOString(),
+        deletedAt: row.deletedAt?.toISOString() ?? null,
+      },
       authorizedWorkspaceId: workspaceId,
       expectedUpdatedAt: input.expectedUpdatedAt,
       confirmed: input.confirmed,
@@ -233,7 +342,7 @@ export async function promoteProjectState(
     const plan = decision.plan
     // Channels first and the project row second: an interrupted transaction
     // rolls both back, and a successful one commits one coherent restore.
-    await promoteProjectChannels(transaction, workspaceId, projectId, principal)
+    await restoreProjectChannels(transaction, workspaceId, projectId, principal)
     const [updated] = await transaction
       .update(projects)
       .set({ lifecycleState: 'active', updatedAt: new Date() })
