@@ -392,6 +392,17 @@ export function clearAccountScopedCache(queryClient: QueryClient): void {
  * account's rows. The key sits OUTSIDE the `['account']` prefix on purpose:
  * `clearAccountScopedCache` must not erase the owner marker that makes the
  * next reconciliation correct.
+ *
+ * The marker is ALSO immune to entry garbage collection for the client's
+ * whole lifetime (`gcTime: Infinity` defaults installed below). Without that,
+ * the default five-minute entry GC collects the marker — it is never
+ * observed, only read and written — while actively observed account rows
+ * (the inbox polls while open) stay alive indefinitely. Active queries would
+ * then outlive the owner marker, and the next remount would read a missing
+ * marker as a fresh baseline and adopt the new account over the previous
+ * account's rows without clearing. `setQueryDefaults` persists on the client
+ * itself (it survives `clear()` and every remount), so this is ownership for
+ * exactly the QueryClient's lifetime: a fresh client starts unowned.
  */
 const ACCOUNT_IDENTITY_OWNER_KEY = ['account-identity', 'owner'] as const
 
@@ -436,6 +447,10 @@ export function watchAccountIdentity(
   queryClient: QueryClient,
   principalId: Accessor<string | null | undefined>
 ): void {
+  // QueryClient-lifetime ownership: the marker must outlive every entry-GC
+  // sweep for as long as the client itself lives. Installed (idempotently)
+  // on every mount so clients built before this guard ever ran are covered.
+  queryClient.setQueryDefaults(ACCOUNT_IDENTITY_OWNER_KEY, { gcTime: Infinity })
   let previous: string | null | undefined = principalId()
   reconcileAccountCacheOwner(queryClient, previous)
   createEffect(() => {

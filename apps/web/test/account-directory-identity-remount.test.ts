@@ -330,4 +330,120 @@ if (isServer) {
       queryClient.clear()
     }
   })
+
+  test('a GC-collected owner marker never lets a remount adopt the previous rows', async () => {
+    // Mechanism model of the provider innocent of timing: every default but
+    // gcTime mirrors AgentHqQueryProvider, and the tiny gcTime stands in for
+    // the real five-minute entry GC that collects the NEVER-OBSERVED owner
+    // marker while actively observed account rows (the open inbox) stay alive
+    // indefinitely. Pre-fix this test fails: the remount reads a missing
+    // marker as a fresh baseline and serves A's inbox rows to B.
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false, gcTime: 30 },
+      },
+    })
+    const [session, setSession] = createSignal<DesktopSession | undefined>(accountA)
+    const client = buildSurfaceClient(session)
+    const navigationA = mountNavigation(queryClient, client, () => 'user-a', 'inbox')
+    // A second, navigation-independent observer keeps the inbox entries alive
+    // across the navigation unmount — the workspace mount outliving sign-out.
+    const background = createRoot((dispose) => {
+      createAccountInboxPages(client, { queryClient })
+      return dispose
+    })
+    try {
+      await settle()
+      expect(navigationA.pages.rows().map(({ id }) => id)).toEqual(['c1', 'c2'])
+      navigationA.dispose()
+      // Entry GC sweeps every unobserved entry — the owner marker pre-fix —
+      // while the observed inbox rows survive.
+      await new Promise((done) => setTimeout(done, 150))
+      setSession(accountB)
+      inboxPages = [[conversation('d1')]]
+      const navigationB = mountNavigation(queryClient, client, () => 'user-b', 'inbox')
+      try {
+        await settle()
+        expect(navigationB.pages.rows().map(({ id }) => id)).toEqual(['d1'])
+        expect(navigationB.pages.error()).toBeUndefined()
+      } finally {
+        navigationB.dispose()
+      }
+    } finally {
+      background()
+      queryClient.clear()
+    }
+  })
+
+  test('an A to B to A remount shows only each mount principal rows', async () => {
+    const queryClient = mountQueryClient()
+    const [session, setSession] = createSignal<DesktopSession | undefined>(accountA)
+    const client = buildSurfaceClient(session)
+    const seen: string[][] = []
+    const mountAs = async (sessionValue: DesktopSession, principal: string) => {
+      setSession(sessionValue)
+      const navigation = mountNavigation(queryClient, client, () => principal, 'inbox')
+      try {
+        await settle()
+        seen.push(navigation.pages.rows().map(({ id }) => id))
+      } finally {
+        navigation.dispose()
+      }
+    }
+    await mountAs(accountA, 'user-a')
+    inboxPages = [[conversation('d1')]]
+    await mountAs(accountB, 'user-b')
+    inboxPages = [[conversation('e1')]]
+    await mountAs(accountA, 'user-a')
+    expect(seen).toEqual([['c1', 'c2'], ['d1'], ['e1']])
+    expect(
+      calls
+        .filter(({ path }) => path === '/api/v1/account/conversations')
+        .map(({ authorization }) => authorization)
+    ).toEqual([
+      `Desktop ${accountA.credential}`,
+      `Desktop ${accountB.credential}`,
+      `Desktop ${accountA.credential}`,
+    ])
+  })
+
+  test('a parked first page resolving after the next mount never overwrites it', async () => {
+    const queryClient = mountQueryClient()
+    const [session, setSession] = createSignal<DesktopSession | undefined>(accountA)
+    const client = buildSurfaceClient(session)
+    const firstPageKey = accountQueryKeys.directory({ limit: 25 })
+
+    parkNextAgentsRequest = true
+    const navigationA = mountNavigation(queryClient, client, () => 'user-a', 'directory')
+    try {
+      await tick()
+      expect(calls).toHaveLength(1)
+      // The FIRST page is still in flight when the navigation drops and B mounts.
+      navigationA.dispose()
+      setSession(accountB)
+      directoryPages = [[agent('b1')]]
+      const navigationB = mountNavigation(queryClient, client, () => 'user-b', 'directory')
+      try {
+        await settle()
+        expect(navigationB.pages.rows().map(({ id }) => id)).toEqual(['b1'])
+        // A's first page lands late: cancelled and removed, it must neither
+        // repopulate the key nor disturb B's rows.
+        parkedAgents?.(Response.json({ agents: [agent('a1'), agent('a2')] }))
+        await settle()
+        expect(navigationB.pages.rows().map(({ id }) => id)).toEqual(['b1'])
+        expect(
+          queryClient
+            .getQueryData<{ agents: readonly AccountDirectoryAgent[] }>(firstPageKey)
+            ?.agents.map(({ id }) => id)
+        ).toEqual(['b1'])
+        expect(
+          calls.filter(({ authorization }) => authorization === `Desktop ${accountA.credential}`)
+        ).toHaveLength(1)
+      } finally {
+        navigationB.dispose()
+      }
+    } finally {
+      queryClient.clear()
+    }
+  })
 }
