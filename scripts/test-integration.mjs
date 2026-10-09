@@ -70,6 +70,7 @@ try {
   // entry. Integration also runs independently from the workspace build.
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
+  run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
     run(
       'docker',

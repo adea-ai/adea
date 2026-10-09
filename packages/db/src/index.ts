@@ -1,5 +1,10 @@
 import 'server-only'
 export {
+  compareMigrationSnapshots,
+  MigrationSnapshotIdentityError,
+  MigrationSnapshotStructureError,
+} from './migration-snapshot-comparator'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
@@ -26,6 +31,11 @@ export {
   setArtifactAvailability,
   type ArtifactCreateInput,
 } from './artifacts'
+export {
+  authorizeArtifactReferencePublication,
+  authorizeArtifactReferenceRetrieval,
+  readArtifactReferenceEvidence,
+} from './artifact-reference-policy'
 export {
   createDatabase,
   type AgentHqDatabase,
@@ -159,6 +169,17 @@ export {
   setProjectVisibility,
 } from './project-sharing'
 export {
+  decideGroupHistoryRead,
+  decideGroupPublication,
+  decideGroupSummaryRead,
+  decideGroupTurn,
+  evaluateGroupGrantWindow,
+  GROUP_CREATION_JOIN_SEQUENCE,
+  sameQualifiedAgentIdentity,
+  validateGroupCreation,
+  workspaceQualifiedAgentKey,
+} from './group-participation-policy'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
@@ -212,6 +233,11 @@ export {
   updateAgentPresentation,
 } from './agents'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  readCurrentLeadTurnProduct,
+  withCurrentLeadTurnProduct,
+  type CurrentLeadTurnProduct,
+} from './lead-turn-product'
 export {
   resolveLeadTurnAuthority,
   readLeadTurnRuntime,

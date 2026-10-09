@@ -34,6 +34,12 @@ export async function startCandidateLeadHostProcess(entry, options) {
       PI_CANDIDATE_WORKSPACE_ID: options.workspaceId,
       PI_CANDIDATE_WORKSPACE_SCOPE: String(options.workspaceScope === true),
       PI_CANDIDATE_PREPARE_FUNDING: String(options.prepareFunding === true),
+      ...(options.currentProductReader
+        ? {
+            PI_SELECTED_PRODUCT_READER_URL: options.currentProductReader.url,
+            PI_SELECTED_PRODUCT_READER_CREDENTIAL: options.currentProductReader.credential,
+          }
+        : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
