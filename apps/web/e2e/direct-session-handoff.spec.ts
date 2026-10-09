@@ -112,6 +112,19 @@ test('an observed live turn coordinates with distinct lead and session stops', a
   expectNoErrors(errors)
 })
 
+test('a turn from another agent never coordinates the session', async ({ page }) => {
+  const errors = await openHarness(page)
+  await page.getByRole('button', { name: 'Observe foreign turn' }).click()
+  // The turn names an agent other than the observed workspace lead: the
+  // session stays attached with the mismatch named, and no lead control
+  // or coordination badge is projected.
+  await expect(section(page).getByText('Attached · read-only reference')).toBeVisible()
+  await expect(section(page).getByText(/not bound to the active workspace lead/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Stop lead', exact: true })).toBeDisabled()
+  await expect(page.getByLabel('Lead turn state')).toHaveText('running')
+  expectNoErrors(errors)
+})
+
 test('concurrent starts admit once: double activation never duplicates the cancel', async ({
   page,
 }) => {
@@ -169,8 +182,8 @@ test('a late completion cannot mark the newly selected session coordinated', asy
 
   await page.getByRole('button', { name: 'Show session 1' }).click()
   // The dropped completion contributed nothing: session 1 shows the
-  // terminal turn from re-read facts (returned), not from the superseded
-  // receipt — the mode comes from stored facts, never stale local state.
+  // terminal turn from re-read facts (returned) — the mode comes from
+  // stored facts, never stale local state.
   await expect(section(page).getByText('Returned to user', { exact: true })).toBeVisible()
   expectNoErrors(errors)
 })

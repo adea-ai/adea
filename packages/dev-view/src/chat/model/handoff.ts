@@ -16,6 +16,7 @@
 // stopping the SESSION run (`dev.session.cancelHarness` on the bound run),
 // which is distinct from job/descendant cancellation (Control Plane
 // contracts, absent here). See docs/plans/m14-1177-handoff-boundary.md.
+import type { AgentLifecycleState } from '@adea-ai/types'
 import type { ChatConversation } from './types'
 import type { HarnessRun, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
@@ -65,9 +66,23 @@ export type HandoffLeadTurnState =
   | 'timed_out'
   | 'unknown'
 
+/**
+ * The observed workspace chief-of-staff: the designated lead agent record
+ * (`isWorkspaceLead`, workspace-scoped, active lifecycle). Mirrors the
+ * canonical agent projection without importing its packages: this surface
+ * projects observed facts, it never re-derives lead authority.
+ */
+export type HandoffLeadAgent = Readonly<{
+  id: string
+  isWorkspaceLead: boolean
+  lifecycleState: AgentLifecycleState
+}>
+
 export type HandoffLeadTurn = Readonly<{
   /** Canonical lead-turn intent id. Never invented: absent means unobserved. */
   intentId: string
+  /** The turn's owning agent id: must equal the workspace lead's id. */
+  agentId: string
   /** Live execution binding when dispatched. */
   dispatchId?: string
   state: HandoffLeadTurnState
@@ -143,10 +158,37 @@ export function resolveHarnessRunBinding(
   return { status: 'bound', run: candidate }
 }
 
+/**
+ * Binds an observed turn to the observed workspace lead. Both facts must be
+ * supplied and agree: the turn's owning agent must equal the designated
+ * active workspace lead. Anything else — a turn from another agent, a
+ * non-lead or inactive designation — is not chief-of-staff coordination,
+ * and the caller must not present it as such.
+ */
+export function resolveLeadCoordination(
+  leadTurn: HandoffLeadTurn | undefined,
+  leadAgent: HandoffLeadAgent | undefined
+): { bound: boolean; reason?: string } {
+  if (!leadTurn || !leadAgent) return { bound: false }
+  if (leadTurn.agentId !== leadAgent.id)
+    return { bound: false, reason: 'the observed turn belongs to another agent' }
+  if (!leadAgent.isWorkspaceLead)
+    return { bound: false, reason: 'the observed agent is not the designated workspace lead' }
+  if (leadAgent.lifecycleState !== 'active')
+    return {
+      bound: false,
+      reason: `the workspace lead is ${leadAgent.lifecycleState}, not active`,
+    }
+  return { bound: true }
+}
+
 export type DirectSessionHandoffInput = Readonly<{
   session: RuntimeSession
   activeHarnessRun?: HarnessRun
   leadTurn?: HandoffLeadTurn
+  leadAgent?: HandoffLeadAgent
+  /** A supplied turn failed the lead-agent binding check below. */
+  leadMismatch: boolean
   mode: DirectSessionHandoffMode
   connected: boolean
   generationCurrent: boolean
@@ -277,6 +319,9 @@ export function deriveDirectSessionHandoff(
     notice = `Lead coordination unavailable${
       input.leadTurn.reasonCode ? `: ${input.leadTurn.reasonCode}` : ''
     }. The session stays read-only.`
+  } else if (input.leadMismatch) {
+    notice =
+      'The supplied turn is not bound to the active workspace lead, so it grants no coordination. The session stays read-only.'
   }
 
   // Stopping the LEAD cancels the canonical lead turn through the
@@ -285,7 +330,7 @@ export function deriveDirectSessionHandoff(
   // cancellable. Every other case names its reason instead of failing
   // silently, and a missing turn fails closed with the integration gap.
   const leadStop = ((): HandoffControlState => {
-    if (!input.leadTurn)
+    if (!input.leadTurn || input.leadMismatch)
       return blocked(
         'No lead turn is bound to this session.',
         `Lead cancellation lives with the workspace lead. ${LEAD_INTEGRATION_GAP}`
@@ -391,7 +436,7 @@ export function deriveDirectSessionHandoff(
       projectId: input.session.projectId,
     },
     binding: binding.status,
-    ...(input.leadTurn === undefined
+    ...(input.leadTurn === undefined || input.leadMismatch
       ? {}
       : {
           coordination: {
@@ -437,22 +482,34 @@ export function deriveHandoffModeForSurface(
     archived: boolean
     connected: boolean
     generationCurrent: boolean
-    leadTurn?: HandoffLeadTurn
+    coordination: 'lead' | 'user' | undefined
   }>
 ): DirectSessionHandoffMode {
   if (input.archived || TERMINAL_SESSION_LIFECYCLES.includes(input.lifecycle))
     return 'one_time_review'
   if (!input.connected || !input.generationCurrent) return 'attached'
-  if (!input.leadTurn) return 'attached'
-  if (input.leadTurn.state === 'blocked' || input.leadTurn.state === 'unknown') return 'attached'
-  if (TERMINAL_LEAD_TURN_STATES.includes(input.leadTurn.state)) return 'returned_to_user'
-  return 'coordination_handoff'
+  if (input.coordination === 'lead') return 'coordination_handoff'
+  if (input.coordination === 'user') return 'returned_to_user'
+  return 'attached'
+}
+
+/**
+ * Maps a bound turn's observed state to its coordination holder: terminal
+ * turns released the session back to the user, anything else still
+ * coordinates under the lead. Blocked/unknown turns never reach here —
+ * the supplier attaches for those before consulting the holder.
+ */
+export function leadTurnCoordination(turn: HandoffLeadTurn): 'lead' | 'user' | undefined {
+  if (turn.state === 'blocked' || turn.state === 'unknown') return undefined
+  if (TERMINAL_LEAD_TURN_STATES.includes(turn.state)) return 'user'
+  return 'lead'
 }
 
 export type DirectSessionHandoffSupply = Readonly<{
   harnessRuns?: readonly HarnessRun[]
   mode?: DirectSessionHandoffMode
   leadTurn?: HandoffLeadTurn
+  leadAgent?: HandoffLeadAgent
 }>
 
 /**
@@ -473,6 +530,7 @@ export function deriveHandoffInputFromConversation(
     awaitingApproval?: boolean
     mode?: DirectSessionHandoffMode
     leadTurn?: HandoffLeadTurn
+    leadAgent?: HandoffLeadAgent
   }>
 ): DirectSessionHandoffInput {
   const generationCurrent = input.generationCurrent ?? true
@@ -496,6 +554,11 @@ export function deriveHandoffInputFromConversation(
       : { activeHarnessRunId: input.conversation.activeHarnessRunId }),
   }
   const staleView = input.conversation.status === 'stale_generation'
+  // The turn counts only when bound to the observed workspace lead. An
+  // unbound turn is stripped before derivation so it can neither drive a
+  // mode nor authorize lead-stop; the mismatch flag names it instead.
+  const coordination = resolveLeadCoordination(input.leadTurn, input.leadAgent)
+  const boundTurn = coordination.bound ? input.leadTurn : undefined
   const mode =
     input.mode ??
     (staleView || !generationCurrent
@@ -505,7 +568,7 @@ export function deriveHandoffInputFromConversation(
           archived: input.conversation.archived,
           connected: input.connected,
           generationCurrent,
-          leadTurn: input.leadTurn,
+          coordination: boundTurn === undefined ? undefined : leadTurnCoordination(boundTurn),
         }))
   const base: DirectSessionHandoffInput = {
     session,
@@ -517,7 +580,9 @@ export function deriveHandoffInputFromConversation(
             (run) => run.id === input.conversation.activeHarnessRunId
           ),
         }),
-    ...(input.leadTurn === undefined ? {} : { leadTurn: input.leadTurn }),
+    ...(boundTurn === undefined ? {} : { leadTurn: boundTurn }),
+    ...(input.leadAgent === undefined ? {} : { leadAgent: input.leadAgent }),
+    leadMismatch: !coordination.bound && input.leadTurn !== undefined,
     mode,
     connected: input.connected,
     generationCurrent: staleView ? false : generationCurrent,

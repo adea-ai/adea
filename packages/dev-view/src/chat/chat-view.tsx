@@ -306,6 +306,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         awaitingApproval: props.awaitingApproval,
         mode: supply.mode,
         leadTurn: supply.leadTurn,
+        leadAgent: supply.leadAgent,
       })
     )
   }

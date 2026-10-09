@@ -32,7 +32,15 @@ override still wins), and the production enablement in
 Coordination semantics: coordination comes only from supplied canonical
 lead-turn facts — the workspace lead's admitted intent identity plus its
 observed live execution — and never from a bound run, composer authority,
-or view routing. A user-created direct run is execution, not delegation:
+or view routing. The turn counts only when bound to the observed workspace
+lead agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
+workspace-scoped, active lifecycle): the model checks
+`turn.agentId === lead.id` plus designation and lifecycle, and an unbound
+turn is stripped before derivation so it can neither drive a mode nor
+authorize lead-stop — the mismatch is named instead. A caller that can
+observe turns (lead-turn reads) observes the agent through the same
+canonical roster (`getWorkspaceLead`); the check forces the full chain,
+so no run-as-lead alias can pass. A user-created direct run is execution, not delegation:
 launching or running never establishes lead coordination, and an ordinary
 chat<->Dev View input switch (`dev.session.transferInput`, which keeps its
 exact prior semantics and records nothing) never hands off. Stopping the

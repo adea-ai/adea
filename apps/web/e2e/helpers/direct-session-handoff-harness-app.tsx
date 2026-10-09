@@ -11,7 +11,18 @@
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { createMemo, createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
-import { ChatView, type ChatConversation, type HandoffLeadTurn } from '@adea-ai/dev-view/chat'
+import {
+  ChatView,
+  type ChatConversation,
+  type HandoffLeadAgent,
+  type HandoffLeadTurn,
+} from '@adea-ai/dev-view/chat'
+
+const LEAD_AGENT: HandoffLeadAgent = {
+  id: '00000000-0000-4000-8000-0000000000b2',
+  isWorkspaceLead: true,
+  lifecycleState: 'active',
+}
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 
 const SCOPE = {
@@ -229,6 +240,7 @@ function Harness() {
           onClick={() =>
             updateLeadTurn({
               intentId: '00000000-0000-4000-8000-0000000000a1',
+              agentId: LEAD_AGENT.id,
               dispatchId: 'dispatch_11111111111111111111111111111111',
               state: 'running',
               canCancel: true,
@@ -250,7 +262,21 @@ function Harness() {
         <Button type="button" onClick={() => updateLeadTurn(undefined)}>
           Clear lead turn
         </Button>
-        <Button type="button" onClick={() => resolveLeadCancel('cancelled')}>
+        <Button
+          type="button"
+          onClick={() =>
+            updateLeadTurn({
+              intentId: '00000000-0000-4000-8000-0000000000a1',
+              agentId: '00000000-0000-4000-8000-0000000000c3',
+              dispatchId: 'dispatch_11111111111111111111111111111111',
+              state: 'running',
+              canCancel: true,
+            })
+          }
+        >
+          Observe foreign turn
+        </Button>
+        <Button type="button" onClick={() => resolveLeadCancel()}>
           Resolve lead cancel
         </Button>
         <Button type="button" onClick={() => resolveSessionCancel()}>
@@ -285,7 +311,7 @@ function Harness() {
         model={model}
         autoAttach={false}
         connected={connected()}
-        handoff={{ harnessRuns: runs(), leadTurn: leadTurn() }}
+        handoff={{ harnessRuns: runs(), leadTurn: leadTurn(), leadAgent: LEAD_AGENT }}
         onLeadStop={cancelLeadTurn}
       />
     </main>
