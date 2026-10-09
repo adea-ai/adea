@@ -140,3 +140,21 @@ stay separate. Observations age without network polling; refresh and committed
 node events reconcile them. Inspecting a host changes no execution selection or
 history authority. Scope changes/close cancel unused queries and discard pages;
 failed refreshes do not retain a previous eligible presentation.
+
+Workspace General distinguishes the caller's stable personal root from additional
+workspaces. The root keeps editable identity controls and explains persistence;
+it never renders Delete workspace, even with a stale `canDelete` capability.
+Home defaults to a home icon; additional workspace marks default to a box. Emoji
+marks and workspace ordering remain user choices. The shared sidebar's existing
+inline New workspace field creates additional workspaces without account bindings.
+
+Workspace General includes Move up/Move down controls for every workspace,
+including the personal root. Ordering persists for the current member and never
+changes another member's list. Failures keep the prior position and show retry
+guidance. The active workspace stays selected after an order change.
+
+Active permanent workspace deletion is explicitly unavailable until a server-owned
+cleanup-completion verifier exists. General shows its availability notice and a
+disabled owner action; desktop headers or prepare intent cannot authorize it. Pending/restarted retries keep cloud
+and remaining local data. Blank additional workspaces have no seeded bindings;
+**Use device default** can still use existing device CLI authentication.

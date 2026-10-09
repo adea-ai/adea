@@ -49,16 +49,11 @@ authority remains withheld. Pull is not execution acceptance or a host receipt.
 
 Migration 0039 is the [relay retention expansion phase](../../docs/evidence/m11-relay-retention-schema.md).
 It adds a nullable purge marker, partial expiry index and expiry constraint before
-the matching application declaration/operator deploys. This application phase
-aligns the runtime declaration with that expanded snapshot; integrate both phases
-before generating further migrations.
-
-The [retention operator](../../docs/guides/relay-ciphertext-retention.md)
-uses an explicit workspace and direct application-role connection, defaults to
-dry-run, and preserves submission identity and execution/history state. Verify
-the approved target's schema readiness before deploying code that reads the
-column; parallel main-push migration and Worker jobs do not establish order.
-Nothing runs cleanup automatically.
+the matching application declaration/operator deploys. During this short staged
+rollout the generated snapshot is ahead of the runtime declaration: integrate
+the application phase before generating further migrations from that declaration.
+Verify the approved target's schema readiness before publishing code that reads
+the column; parallel main-push migration and Worker jobs do not establish order.
 
 Production rollback is forward-only: deploy an application rollback while the expanded schema is
 compatible, then add a reviewed corrective migration. Point-in-time restore is for data-loss
@@ -70,3 +65,66 @@ Migration 0042 adds the [workspace lead and direct-topic foundations](../../docs
 It preserves the staged 0041 schema and all legacy identities, history and audiences.
 Apply it before the new lead/topic API callers; a designation or canonical message
 is not model readiness or execution acceptance.
+
+## Permanent workspace deletion
+
+Active permanent deletion is unavailable until server-owned cleanup completion
+can be verified. `deleteWorkspace()` is owner-only and checks the current workspace
+name and version inside its transaction before refusing completion. Dormant
+final-deletion logic would remove memberships and authorization audit
+rows explicitly; root foreign-key cascades would prune workspace-owned data, encrypted
+replicas, events/outbox records, runtime node registrations and their credentials.
+A minimal `workspace_deletions` receipt keeps owner/id/creation-key/deletion time
+for safe retries and to prevent old creation keys from being
+recreated. Creation, bootstrap, deletion and guest claim transfers serialize on
+the owner row. Both guest claim paths transfer deletion receipts to the target
+account. The persistent personal workspace cannot be deleted or archived, including via a direct helper or retry; active additional-workspace deletion is blocked pending server-verifiable cleanup completion.
+
+Active-workspace deletion is currently unavailable. Both `beginWorkspaceDeletion`
+and `deleteWorkspace` require a server-owned cleanup-completion verifier, which
+has not been implemented, and fail closed with `workspace_deletion_cleanup_required`.
+No caller boolean, trusted desktop header, owner credential or
+`deletion_requested_at` timestamp proves local cleanup completion. New preparation
+does not create pending intent. Existing interrupted intent remains visible and
+frozen; retries retain the cloud root and local data. Receipt retries are accepted
+only when the cloud root is actually absent. Cascade tests use explicit disposable
+raw SQL fixtures, not a production authorization bypass.
+
+`control_plane_used_at` conservatively backfills existing workspace scopes.
+Mutating Control Plane credentials record external ownership before token issuance,
+conditional on no pending deletion. Used/unverified scopes, registered runtime
+nodes and queued/running/review tasks remain additional refusal reasons. Shared
+host authentication/state is retained. Native recovery cleanup can resume only
+from fresh owner proof that a historical cloud root is already deleted; a
+`cleanup_pending` response never authorizes archival, local purge or identity
+removal. No universal physical purge is claimed.
+
+## Personal workspace bootstrap
+
+`ensureBootstrapWorkspaces()` gives every signed-in user and guest one personal
+root, initially Home with a home icon and the established app defaults. The
+immutable settings boundary never accepts `isPersonal`. A partial owner unique
+index and active-root constraint prevent duplicate personal identities or
+archive/pending states. Additional creation produces a box icon and empty data,
+appends to the member's list, and never seeds accounts, projects or agents.
+All memberships, including Home, remain reorderable; bootstrap's default is the
+personal identity rather than list position.
+
+The production API regression uses the `react-server` condition to exercise its
+`server-only` database entry; both supported integration runners build that entry
+before executing the tests. Workspace migrations 0040/0041 preserve the 0039
+retention expansion in their snapshots without activating its runtime declaration.
+
+Migration 0041 recognizes only stable `default-home`/`default` creation metadata;
+it preserves customizations and content and restores a proven archived root.
+Legacy Work remains. Historical `claimed:<id>` metadata cannot prove which
+workspace was originally personal: bootstrap retains all of them and creates a
+separate Home once. Guest-to-new-account claims retain their root; existing
+account claims keep the account root and preserve the guest workspace as an
+additional workspace. Application bootstrap and both claims serialize owner
+identity decisions. No migration or onboarding operation connects an account.
+
+`reorderWorkspaces()` locks the member's user row, requires the complete live list
+with no duplicates or foreign IDs, and updates only that member's positions. It
+shares the creation/claim lock, and neither modifies workspace versions nor
+changes another user's membership order.

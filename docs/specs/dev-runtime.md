@@ -5682,6 +5682,81 @@ device connections pane and Connections › Cloud), deep-linked as
 the workspace settings dialog at the matching section and are rewritten to
 the canonical hash.
 
+Each signed-in user and guest receives exactly one persistent personal workspace,
+initially **Home** with a home icon and the established app defaults. Its persisted
+`is_personal` identity is independent of name, logo, accent and Virtual world;
+settings remain editable, and General’s **Move up / Move down** controls persist the member’s own workspace order. The API checks the complete current membership list, and ordering a shared workspace never changes another member’s list. It is the default
+workspace when no explicit workspace is selected, even after reordering. No
+account connection, project, agent or integration is created by this bootstrap.
+Additional workspaces use the existing **New workspace** inline name entry, a box
+icon, empty workspace data and no account bindings; they append to the user's
+list and can be reordered. An unbound harness still uses the established **Use
+device default** behavior; an empty binding document is not an explicit account
+connection, and this change does not expand authorization.
+
+Migration uses only stable legacy `default-home`/`default` metadata, preserving
+IDs, names, logos, accents, worlds, memberships, order and content. A proven
+archived root is restored; legacy Work is never removed or reseeded. Historical
+claims that lost seed metadata retain all their workspaces and gain a new personal
+Home at next bootstrap. First sign-in preserves the guest root. A guest claim
+into an account with its own root retains the account's personal identity and
+keeps the incoming guest workspace as an additional workspace, without dropping
+content. Owner locking, a partial unique index and an active-root check enforce
+a single persistent personal identity. Personal-root deletion/archive is refused
+in database helpers and API routes, including retries; the UI hides destruction
+even if a stale capability says it is allowed, and fresh native deletion proof is
+unavailable for the root.
+
+General shows a disabled owner-only **Delete workspace** action for additional
+workspaces with an explicit availability notice. Active permanent deletion is
+currently unavailable: the server lacks a native cleanup-completion verifier.
+Both prepare and final requests return `workspace_deletion_cleanup_required`,
+preserving the cloud root and data. Owner/name/version checks and personal-root
+protection remain authoritative. A caller boolean/header, desktop origin,
+owner credential, local receipt or prepare timestamp is never completion proof.
+No new pending intent is created. Historical deleted receipts are retryable only
+when the cloud root is absent; a receipt alongside an active root cannot produce
+`deleted` proof. Native historical recovery retains an empty creation fallback; the web keeps the
+established inline New workspace navigation. Home prevents a normal last-workspace
+flow. Chosen emoji marks remain intact.
+
+Native preflight uses signed-window commands and `workspace-deletions/cleanup.json`
+to fence admission and refuse live work, PTYs, browser/device lanes, unresolved
+managed worktrees and ambiguous ownership. Fresh active proof permits cancelling
+a prepared fence. A pending cloud intent authorizes no session archival, local
+purge or identity removal, including direct native calls, restart and repeated
+retry. Existing interrupted intents remain visible/frozen with **Retry cleanup**
+and truthful refusal. Historical already-deleted roots may resume scoped recovery
+cleanup from fresh owner proof. Completed receipts permanently fence stale writes.
+
+Recovery cleanup archives/detaches Adea's idle session projection and preserves
+harness-owned histories. It verifies indexed ciphertext, authenticated memory and
+injection overrides, scoped bindings/audits, root/grant/repository/worktree/policy
+records and proven completed journals, fingerprints, template caches and browser
+profiles. Managed clones use ownership-proven unbind/quarantine; failure retains
+recovery state. Shared profiles/vault keys, ordinary repositories/checkouts and
+unread legacy/corrupt ownership are retained. These foundations do not make active
+workspace deletion supported without a server-owned completion contract.
+
+Used/unverified Control Plane scope, any registered runtime node including
+revoked/offline nodes, queued/running/review tasks and browser inability to verify
+local resources are additional refusal reasons. Legacy scopes are conservatively
+marked used by migration. Mutating signed credential issuance records external
+ownership before minting and serializes against pending intent; reads/shared host
+authentication do not mark workspace resources. Workspace-wide Control Plane
+physical-purge receipts and all-device cleanup/acknowledgement contracts are also
+missing. No broad Control Plane infrastructure is introduced and no catalog,
+execution/history/evidence, cloud credential or marketplace installation purge is
+claimed. Running work is never silently terminated. Native/browser fixtures and
+raw database cascade fixtures do not establish packaged or deployed acceptance.
+
+Additional workspaces have no seeded account binding. Clearing a binding still
+means **Use device default** under ADR 0012, so existing device CLI sign-in may be
+used. There is no explicit “no account” policy mode in the current native resolver,
+nor verified personal/additional metadata in its membership-ID contract. Home's
+ready-to-use defaults and that existing fallback are preserved. Isolated account
+behavior requires a separate persisted policy and launch-path implementation.
+
 Client preference schema:
 
 ```ts

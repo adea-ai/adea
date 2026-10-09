@@ -2,10 +2,12 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq, gt, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
+import { personalWorkspaceInTransaction } from './workspaces'
 import {
   authIdentities,
   temporaryUserSessions,
   users,
+  workspaceDeletions,
   workspaceMemberships,
   workspaces,
 } from './schema'
@@ -153,6 +155,14 @@ export async function claimTemporaryUserSession(
       )
       .limit(1)
 
+    if (existingIdentity) {
+      await transaction
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, existingIdentity.userId))
+        .for('update')
+    }
+
     const [temporarySession] = await transaction
       .select({
         claimedAt: temporaryUserSessions.claimedAt,
@@ -187,6 +197,7 @@ export async function claimTemporaryUserSession(
         )
       )
       .limit(1)
+      .for('update')
     if (!temporary) throw new Error('Temporary workspace unavailable')
 
     const now = new Date()
@@ -208,6 +219,13 @@ export async function claimTemporaryUserSession(
     }
 
     const targetUserId = existingIdentity.userId
+    let targetHasPersonal = Boolean(await personalWorkspaceInTransaction(transaction, targetUserId))
+    await personalWorkspaceInTransaction(transaction, temporary.userId)
+    // A claimed guest's explicit deletions remain deleted after sign-in.
+    await transaction
+      .update(workspaceDeletions)
+      .set({ ownerUserId: targetUserId })
+      .where(eq(workspaceDeletions.ownerUserId, temporary.userId))
     const memberships = await transaction
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)
@@ -225,7 +243,7 @@ export async function claimTemporaryUserSession(
 
     for (const membership of memberships) {
       const [workspace] = await transaction
-        .select({ ownerUserId: workspaces.ownerUserId })
+        .select({ ownerUserId: workspaces.ownerUserId, isPersonal: workspaces.isPersonal })
         .from(workspaces)
         .where(eq(workspaces.id, membership.workspaceId))
         .limit(1)
@@ -261,11 +279,13 @@ export async function claimTemporaryUserSession(
         await transaction
           .update(workspaces)
           .set({
+            isPersonal: workspace.isPersonal && !targetHasPersonal,
             idempotencyKey: `claimed:${membership.workspaceId}`,
             ownerUserId: targetUserId,
             updatedAt: now,
           })
           .where(eq(workspaces.id, membership.workspaceId))
+        if (workspace.isPersonal) targetHasPersonal = true
       }
       await transaction
         .delete(workspaceMemberships)
@@ -342,9 +362,18 @@ export async function claimTemporaryUserSessionForUser(
         )
       )
       .limit(1)
+      .for('update')
     if (!temporary) throw new Error('Temporary workspace unavailable')
 
+    let targetHasPersonal = Boolean(
+      await personalWorkspaceInTransaction(transaction, target.userId)
+    )
+    await personalWorkspaceInTransaction(transaction, temporary.userId)
     const now = new Date()
+    await transaction
+      .update(workspaceDeletions)
+      .set({ ownerUserId: target.userId })
+      .where(eq(workspaceDeletions.ownerUserId, temporary.userId))
     const memberships = await transaction
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)
@@ -362,7 +391,7 @@ export async function claimTemporaryUserSessionForUser(
 
     for (const membership of memberships) {
       const [workspace] = await transaction
-        .select({ ownerUserId: workspaces.ownerUserId })
+        .select({ ownerUserId: workspaces.ownerUserId, isPersonal: workspaces.isPersonal })
         .from(workspaces)
         .where(eq(workspaces.id, membership.workspaceId))
         .limit(1)
@@ -398,11 +427,13 @@ export async function claimTemporaryUserSessionForUser(
         await transaction
           .update(workspaces)
           .set({
+            isPersonal: workspace.isPersonal && !targetHasPersonal,
             idempotencyKey: `claimed:${membership.workspaceId}`,
             ownerUserId: target.userId,
             updatedAt: now,
           })
           .where(eq(workspaces.id, membership.workspaceId))
+        if (workspace.isPersonal) targetHasPersonal = true
       }
       await transaction
         .delete(workspaceMemberships)

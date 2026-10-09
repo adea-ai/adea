@@ -1,7 +1,11 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../server/request-scope'
 import type { ApiWorkspaceCreateResponse } from '@adea-ai/api-client'
-import { createWorkspaceWithOwner, listWorkspacesForUser } from '@adea-ai/db'
+import {
+  createWorkspaceWithOwner,
+  ensureBootstrapWorkspaces,
+  listWorkspacesForUser,
+} from '@adea-ai/db'
 import type { WorkspaceSceneId } from '@adea-ai/types'
 
 import { applicationDatabase } from '../../../server/database'
@@ -48,6 +52,8 @@ async function post(request: Request) {
   if (
     !idempotencyKey ||
     idempotencyKey.length > 128 ||
+    idempotencyKey.startsWith('personal:') ||
+    ['default', 'default-home', 'default-work'].includes(idempotencyKey) ||
     !name ||
     name.length > 80 ||
     (scene !== 'home' && scene !== 'work')
@@ -55,6 +61,7 @@ async function post(request: Request) {
     return workspaceInvalidRequestResponse(request)
   }
 
+  await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
   const created = await createWorkspaceWithOwner(applicationDatabase(), {
     idempotencyKey,
     name,

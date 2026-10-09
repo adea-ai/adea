@@ -71,6 +71,9 @@ try {
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
+  // API regression cases exercise the production server handler through the
+  // compiled database entry, with the explicit server-only runtime condition.
+  run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
     run(
       'docker',
@@ -96,7 +99,17 @@ try {
   const timeoutMs = remoteTarget
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
-  run('bun', ['test', '--timeout', String(timeoutMs), ...integrationDirectories], environment)
+  run(
+    'bun',
+    [
+      '--conditions=react-server',
+      'test',
+      '--timeout',
+      String(timeoutMs),
+      ...integrationDirectories,
+    ],
+    environment
+  )
 } finally {
   if (startedLocalPostgres) {
     run('docker', ['compose', 'stop', 'postgres'], process.env)

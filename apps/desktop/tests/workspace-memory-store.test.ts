@@ -419,3 +419,37 @@ describe('memory_* trusted commands', () => {
     }
   })
 })
+
+describe('workspace memory deletion', () => {
+  test('purges active and pending entries and its injection preference; preserves a sibling and retries', () => {
+    withStore(({ dir, store }) => {
+      const own = store.create(WORKSPACE_A, { text: 'workspace owned' })
+      store.propose(WORKSPACE_A, { text: 'pending proposal' })
+      const sibling = store.create(WORKSPACE_B, { text: 'keep sibling' })
+      store.setInjectionEnabled(WORKSPACE_A, false)
+      store.setInjectionEnabled(WORKSPACE_B, false)
+      expect(store.purgeWorkspace(WORKSPACE_A)).toBe(2)
+      expect(store.list(WORKSPACE_A)).toEqual({
+        entries: [],
+        injectionEnabled: true,
+        unreadable: 0,
+      })
+      expect(store.list(WORKSPACE_B).entries).toEqual([sibling])
+      expect(store.injectionEnabled(WORKSPACE_B)).toBe(false)
+      expect(readdirSync(join(dir, 'memory'))).not.toContain(`${own.id}.json`)
+      expect(store.purgeWorkspace(WORKSPACE_A)).toBe(0)
+    })
+  })
+  test('refuses an unreadable or relabelled record before deleting any entry', () => {
+    withStore(({ dir, store }) => {
+      const own = store.create(WORKSPACE_A, { text: 'own' })
+      const sibling = store.create(WORKSPACE_B, { text: 'foreign' })
+      const file = join(dir, 'memory', `${sibling.id}.json`)
+      const record = JSON.parse(readFileSync(file, 'utf8'))
+      writeFileSync(file, JSON.stringify({ ...record, workspaceId: WORKSPACE_A }))
+      expect(codeOf(() => store.purgeWorkspace(WORKSPACE_A))).toBe('memory_unavailable')
+      expect(readdirSync(join(dir, 'memory'))).toContain(`${own.id}.json`)
+      expect(readdirSync(join(dir, 'memory'))).toContain(`${sibling.id}.json`)
+    })
+  })
+})

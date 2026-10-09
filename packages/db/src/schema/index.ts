@@ -4,6 +4,7 @@ export {
   authorizationAuditRecords,
   workspaceInvitationRole,
   workspaceInvitations,
+  workspaceDeletions,
   workspaceMemberships,
   workspaceRole,
   workspaces,

@@ -77,7 +77,8 @@ export function VirtualRoomControls(props: {
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrapData()?.activeWorkspace
+    bootstrapData()?.activeWorkspace ??
+    undefined
   const workspaceId = () => activeWorkspace()?.id
   const mutationWorkspaceId = () => workspaceId() ?? ''
   const projects = useProjectListQuery(client(), workspaceId)
@@ -115,7 +116,7 @@ export function VirtualRoomControls(props: {
   createEffect(() => {
     const data = bootstrapData()
     if (!persistenceReady() || !data || selectedWorkspaceId()) return
-    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
+    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace?.id ?? null)
   })
 
   // Leave every valid project, direct-agent, or group selection untouched. The

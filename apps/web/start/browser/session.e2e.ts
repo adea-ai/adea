@@ -17,7 +17,10 @@ test('guest cookies, durable writes and tenant isolation survive the host', asyn
     const a = await first.post('/api/workspaces/bootstrap')
     expect(a.status()).toBe(200)
     const bootstrap = await a.json()
-    expect(bootstrap.workspaces).toHaveLength(2)
+    // Bootstrap seeds exactly the persistent personal workspace now; the
+    // legacy Home+Work pair is gone.
+    expect(bootstrap.workspaces).toHaveLength(1)
+    expect(bootstrap.workspaces[0]).toMatchObject({ name: 'Home', isPersonal: true })
     expect(bootstrap.principal.temporary).toBe(true)
     const cookies = (await first.storageState()).cookies
     expect(cookies.some((cookie) => cookie.httpOnly && cookie.sameSite === 'Lax')).toBe(true)

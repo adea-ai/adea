@@ -29,6 +29,7 @@ export const workspacePermissions = [
   'workspace.read',
   'workspace.update',
   'workspace.archive',
+  'workspace.delete',
   'workspace.events.read',
   'membership.read',
   'membership.manage',
@@ -124,12 +125,18 @@ export type AgentSummary = {
 export const workspaceAccentIds = ['violet', 'blue', 'green', 'amber', 'cyan', 'pink'] as const
 export type WorkspaceAccentId = (typeof workspaceAccentIds)[number]
 
-/** A workspace mark: initials derived from the name, or one emoji grapheme. */
+/** A workspace mark. `monogram` is the legacy automatic workspace icon. */
 export type WorkspaceLogo =
   | Readonly<{ kind: 'monogram' }>
+  | Readonly<{ kind: 'home' | 'box' }>
   | Readonly<{ kind: 'emoji'; value: string }>
 
 export type WorkspaceSummary = {
+  /** Presentation capability only; permanent deletion rechecks ownership on the server. */
+  canDelete?: boolean
+  /** This caller's persistent personal workspace; independent of its presentation. */
+  isPersonal?: boolean
+  deletionPending?: boolean
   accent: WorkspaceAccentId | null
   id: string
   logo: WorkspaceLogo
