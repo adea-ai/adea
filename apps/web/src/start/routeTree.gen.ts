@@ -31,6 +31,7 @@ import { Route as ApiAuthDesktopExchangeRouteImport } from './routes/api/auth/de
 import { Route as ApiAuthDesktopLogoutRouteImport } from './routes/api/auth/desktop/logout'
 import { Route as ApiAuthDesktopRefreshRouteImport } from './routes/api/auth/desktop/refresh'
 import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desktop/revoke'
+import { Route as ApiInternalPiDurableManagementRouteImport } from './routes/api/internal/pi-durable/management'
 import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api/marketplace/installations/get'
 import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
@@ -219,6 +220,12 @@ const ApiAuthDesktopRevokeRoute = ApiAuthDesktopRevokeRouteImport.update({
   path: '/api/auth/desktop/revoke',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalPiDurableManagementRoute =
+  ApiInternalPiDurableManagementRouteImport.update({
+    id: '/api/internal/pi-durable/management',
+    path: '/api/internal/pi-durable/management',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiMarketplaceInstallationsGetRoute =
   ApiMarketplaceInstallationsGetRouteImport.update({
     id: '/api/marketplace/installations/get',
@@ -689,6 +696,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
@@ -786,6 +794,7 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
@@ -884,6 +893,7 @@ export interface FileRoutesById {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
@@ -983,6 +993,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
@@ -1080,6 +1091,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
@@ -1177,6 +1189,7 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
@@ -1271,6 +1284,7 @@ export interface RootRouteChildren {
   ApiAuthDesktopLogoutRoute: typeof ApiAuthDesktopLogoutRoute
   ApiAuthDesktopRefreshRoute: typeof ApiAuthDesktopRefreshRoute
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
+  ApiInternalPiDurableManagementRoute: typeof ApiInternalPiDurableManagementRoute
   ApiMarketplaceInstallationsGetRoute: typeof ApiMarketplaceInstallationsGetRoute
   ApiMarketplaceInstallationsUninstallRoute: typeof ApiMarketplaceInstallationsUninstallRoute
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
@@ -1452,6 +1466,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/auth/desktop/revoke'
       fullPath: '/api/auth/desktop/revoke'
       preLoaderRoute: typeof ApiAuthDesktopRevokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/pi-durable/management': {
+      id: '/api/internal/pi-durable/management'
+      path: '/api/internal/pi-durable/management'
+      fullPath: '/api/internal/pi-durable/management'
+      preLoaderRoute: typeof ApiInternalPiDurableManagementRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/marketplace/installations/get': {
@@ -2363,6 +2384,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthDesktopLogoutRoute: ApiAuthDesktopLogoutRoute,
   ApiAuthDesktopRefreshRoute: ApiAuthDesktopRefreshRoute,
   ApiAuthDesktopRevokeRoute: ApiAuthDesktopRevokeRoute,
+  ApiInternalPiDurableManagementRoute: ApiInternalPiDurableManagementRoute,
   ApiMarketplaceInstallationsGetRoute: ApiMarketplaceInstallationsGetRoute,
   ApiMarketplaceInstallationsUninstallRoute:
     ApiMarketplaceInstallationsUninstallRoute,

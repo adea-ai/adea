@@ -44,12 +44,12 @@ export function applicationManagementOperations(
         if (record.caller.kind !== 'lead') return
         // The user-principal decision is audited by `authorizeWorkspace`; this
         // second existing audit row attributes the inherited lead action to the
-        // exact lead Agent and turn without granting it anything.
+        // exact lead Agent, turn and consumed approval without granting it anything.
         await recordWorkspaceAuthorizationDecision(applicationDatabase(), {
           decision: record.decision,
           permission: record.permission,
-          principal: { agentId: record.caller.leadAgentId, kind: 'agent' },
-          reason: `${record.reason}:${record.operation}:${record.caller.intentId}`,
+          principal: { agentId: record.caller.decision.leadAgentId, kind: 'agent' },
+          reason: `${record.reason}:${record.operation}:${record.caller.decision.intentId}:${record.decisionId ?? record.caller.decision.decisionId}`,
           workspaceId: record.workspaceId,
         })
       },

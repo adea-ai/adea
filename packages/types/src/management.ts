@@ -17,7 +17,7 @@
  * This module has no I/O and no dependency on `@adea-ai/db` or the web app; it
  * is the shared vocabulary, not an executor.
  */
-import type { WorkspacePermission } from './index'
+import type { UserPrincipalRef, WorkspacePermission } from './index'
 
 /** The five management domains the parent issue (adea-ai/adea#1176) unifies. */
 export const managementDomains = ['config', 'memory', 'project', 'worktree', 'session'] as const
@@ -696,4 +696,275 @@ export function managementOperationLanes(id: ManagementOperationId): readonly Ma
   return Object.freeze(
     managementLanes.filter((lane) => managementOperations[id].lanes[lane] === 'supported')
   )
+}
+
+// ---------------------------------------------------------------------------
+// Exact-call bound lead authority (CP932 coordination contract)
+// ---------------------------------------------------------------------------
+
+/** Version of the immutable CP-issued lead management decision. */
+export const managementAuthoritySchemaVersion = 'adea-management-authority/v1' as const
+/** Version of the CP-to-Adea management call envelope. */
+export const managementCallSchemaVersion = 'adea-management-call/v1' as const
+/** Maximum decision lifetime; currentness is rechecked on every execution. */
+export const managementAuthorityMaxLifetimeMs = 300_000
+
+/**
+ * The exact-call identity a lead management decision is bound to. A decision
+ * for one operation, workspace, target or input can never authorize another.
+ *
+ * `inputDigest` is `sha256:` over the UTF-8 bytes of the canonical JSON of the
+ * operation input (see `managementCanonicalInput`): plain objects with keys
+ * sorted by code point, arrays in order, and only JSON-safe scalar values.
+ */
+export type ManagementCallBinding = Readonly<{
+  workspaceId: string
+  operation: ManagementOperationId
+  /** Canonical primary target (project id, member id, workspace id) or null. */
+  targetId: string | null
+  inputDigest: `sha256:${string}`
+}>
+
+/**
+ * An immutable, current, exact-call bound authorization/approval decision.
+ * The CP authority (CP932) persists and re-reads it; Adea only revalidates the
+ * returned decision against the call it is about to execute.
+ */
+export type ManagementAuthorityDecision = Readonly<{
+  schemaVersion: typeof managementAuthoritySchemaVersion
+  /** Opaque single-use approval identity the caller presented. */
+  authorityRef: string
+  decision: 'allowed' | 'denied'
+  decisionId: string
+  leadAgentId: string
+  intentId: string
+  /** The original user principal whose current workspace permission applies. */
+  principal: UserPrincipalRef
+  binding: ManagementCallBinding
+  /** Current CP authority/config revision the decision was issued against. */
+  authorityRevision: number
+  issuedAt: string
+  expiresAt: string
+}>
+
+/** Typed reasons a lead management decision is refused. */
+export const managementAuthorityReasonCodes = Object.freeze([
+  /** The upstream authority port is absent, threw or returned nothing. */
+  'authority_unavailable',
+  /** The decision shape or exact-call binding is malformed. */
+  'authority_malformed',
+  /** The decision was issued for a different operation/workspace/target/input. */
+  'authority_binding_mismatch',
+  /** The canonical decision is an explicit denial. */
+  'authority_denied',
+  /** The decision expired before this execution. */
+  'authority_expired',
+  /** The decision is not yet valid or its lifetime is unusable. */
+  'authority_not_yet_valid',
+  /** The single-use approval was already consumed. */
+  'authority_replay',
+] as const)
+export type ManagementAuthorityReasonCode = (typeof managementAuthorityReasonCodes)[number]
+
+export type ManagementAuthorityValidation =
+  | Readonly<{ state: 'valid'; decision: ManagementAuthorityDecision }>
+  | Readonly<{ state: 'invalid'; reason: ManagementAuthorityReasonCode }>
+
+const authorityKeys = [
+  'authorityRef',
+  'authorityRevision',
+  'binding',
+  'decision',
+  'decisionId',
+  'expiresAt',
+  'intentId',
+  'issuedAt',
+  'leadAgentId',
+  'principal',
+  'schemaVersion',
+] as const
+
+const bindingKeys = ['inputDigest', 'operation', 'targetId', 'workspaceId'] as const
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value)
+  return actual.length === keys.length && actual.every((key) => keys.includes(key))
+}
+
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength
+}
+
+function canonicalValue(value: unknown, depth: number): string | undefined {
+  if (depth > 32) return undefined
+  if (value === null) return 'null'
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return Number.isFinite(value) ? JSON.stringify(value) : undefined
+  if (Array.isArray(value)) {
+    const items = value.map((item) => canonicalValue(item, depth + 1))
+    return items.some((item) => item === undefined) ? undefined : `[${items.join(',')}]`
+  }
+  if (isPlainRecord(value)) {
+    const keys = Object.keys(value).toSorted()
+    const entries: string[] = []
+    for (const key of keys) {
+      const encoded = canonicalValue(value[key], depth + 1)
+      if (encoded === undefined) return undefined
+      entries.push(`${JSON.stringify(key)}:${encoded}`)
+    }
+    return `{${entries.join(',')}}`
+  }
+  return undefined
+}
+
+/**
+ * Canonical JSON for the exact-call input digest. Returns null for any value
+ * that is not JSON-safe (undefined, bigint, functions, non-finite numbers,
+ * class instances) so the caller fails closed instead of hashing a guess.
+ */
+export function managementCanonicalInput(input: unknown): string | null {
+  return canonicalValue(input, 0) ?? null
+}
+
+/** `sha256:<lowercase hex>` over the canonical input, or null when invalid. */
+export async function managementInputDigest(input: unknown): Promise<`sha256:${string}` | null> {
+  const canonical = managementCanonicalInput(input)
+  if (canonical === null) return null
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+  return `sha256:${[...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+/** Builds the exact-call binding; null when any identity field is unusable. */
+export async function managementCallBinding(input: {
+  workspaceId: string
+  operation: ManagementOperationId
+  targetId: string | null
+  input: unknown
+}): Promise<ManagementCallBinding | null> {
+  if (
+    !isManagementOperationId(input.operation) ||
+    !boundedString(input.workspaceId, 128) ||
+    (input.targetId !== null && !boundedString(input.targetId, 128))
+  )
+    return null
+  const inputDigest = await managementInputDigest(input.input)
+  if (!inputDigest) return null
+  return Object.freeze({
+    inputDigest,
+    operation: input.operation,
+    targetId: input.targetId,
+    workspaceId: input.workspaceId,
+  })
+}
+
+export function managementBindingsEqual(
+  left: ManagementCallBinding,
+  right: ManagementCallBinding
+): boolean {
+  return (
+    left.workspaceId === right.workspaceId &&
+    left.operation === right.operation &&
+    left.targetId === right.targetId &&
+    left.inputDigest === right.inputDigest
+  )
+}
+
+/** Strict, unknown-key-rejecting parse of a CP-issued decision. */
+export function parseManagementAuthorityDecision(
+  value: unknown
+): ManagementAuthorityDecision | null {
+  if (!isPlainRecord(value) || !hasExactKeys(value, authorityKeys)) return null
+  if (value.schemaVersion !== managementAuthoritySchemaVersion) return null
+  if (!boundedString(value.authorityRef, 128)) return null
+  if (value.decision !== 'allowed' && value.decision !== 'denied') return null
+  if (!boundedString(value.decisionId, 128)) return null
+  if (!boundedString(value.leadAgentId, 128)) return null
+  if (!boundedString(value.intentId, 128)) return null
+  const principal = value.principal
+  if (
+    !isPlainRecord(principal) ||
+    Object.keys(principal).length !== 2 ||
+    principal.kind !== 'user' ||
+    !boundedString(principal.userId, 128)
+  )
+    return null
+  const binding = value.binding
+  if (
+    !isPlainRecord(binding) ||
+    !hasExactKeys(binding, bindingKeys) ||
+    !boundedString(binding.workspaceId, 128) ||
+    !isManagementOperationId(binding.operation) ||
+    (binding.targetId !== null && !boundedString(binding.targetId, 128)) ||
+    typeof binding.inputDigest !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(binding.inputDigest)
+  )
+    return null
+  if (!Number.isSafeInteger(value.authorityRevision) || (value.authorityRevision as number) < 1)
+    return null
+  if (!boundedString(value.issuedAt, 64) || !boundedString(value.expiresAt, 64)) return null
+  return Object.freeze({
+    authorityRef: value.authorityRef,
+    authorityRevision: value.authorityRevision as number,
+    binding: Object.freeze({
+      inputDigest: binding.inputDigest as `sha256:${string}`,
+      operation: binding.operation,
+      targetId: binding.targetId as string | null,
+      workspaceId: binding.workspaceId,
+    }),
+    decision: value.decision,
+    decisionId: value.decisionId,
+    expiresAt: value.expiresAt,
+    intentId: value.intentId,
+    issuedAt: value.issuedAt,
+    leadAgentId: value.leadAgentId,
+    principal: Object.freeze({ kind: 'user' as const, userId: principal.userId }),
+    schemaVersion: managementAuthoritySchemaVersion,
+  })
+}
+
+/**
+ * Revalidates a parsed decision against the exact call about to execute.
+ * Returns a typed reason, or null when the decision authorizes this call now.
+ */
+export function validateManagementAuthorityDecision(
+  decision: ManagementAuthorityDecision,
+  expected: Readonly<{
+    binding: ManagementCallBinding
+    authorityRef: string
+    intentId: string
+    leadAgentId: string
+    now: number
+  }>
+): ManagementAuthorityReasonCode | null {
+  if (
+    decision.authorityRef !== expected.authorityRef ||
+    decision.intentId !== expected.intentId ||
+    decision.leadAgentId !== expected.leadAgentId
+  )
+    return 'authority_binding_mismatch'
+  if (!managementBindingsEqual(decision.binding, expected.binding))
+    return 'authority_binding_mismatch'
+  if (decision.decision !== 'allowed') return 'authority_denied'
+  const issued = Date.parse(decision.issuedAt)
+  const expires = Date.parse(decision.expiresAt)
+  const now = expected.now
+  if (
+    !Number.isFinite(issued) ||
+    !Number.isFinite(expires) ||
+    !Number.isSafeInteger(now) ||
+    issued > now
+  )
+    return 'authority_not_yet_valid'
+  if (expires <= now || expires <= issued || expires - issued > managementAuthorityMaxLifetimeMs)
+    return 'authority_expired'
+  return null
 }

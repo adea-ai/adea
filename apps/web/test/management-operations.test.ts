@@ -7,10 +7,12 @@ import {
   type ManagementAuditDecision,
   type ManagementCaller,
 } from '../src/server/management-gateway'
+import type { ManagementAuthorityDecision } from '@adea-ai/types/management'
 import {
   createManagementOperations,
   type ManagementExecutors,
 } from '../src/server/management-operations'
+import { MANAGEMENT_NOW, managementAuthorityDecision } from './helpers/management-authority'
 
 const WORKSPACE = '0f3a2e1c-0000-4000-8000-000000000001'
 const PROJECT = '0f3a2e1c-0000-4000-8000-000000000002'
@@ -31,6 +33,18 @@ const project = {
 }
 
 type ExecutorCall = Readonly<{ args: readonly unknown[]; name: string }>
+
+function leadCaller(decision: ManagementAuthorityDecision): ManagementCaller {
+  return {
+    decision,
+    kind: 'lead',
+    reference: {
+      authorityRef: decision.authorityRef,
+      intentId: decision.intentId,
+      leadAgentId: decision.leadAgentId,
+    },
+  }
+}
 
 function harness(caller: ManagementCaller) {
   const calls: ExecutorCall[] = []
@@ -79,7 +93,8 @@ function harness(caller: ManagementCaller) {
         audited.push(decision)
       },
     },
-    caller
+    caller,
+    () => MANAGEMENT_NOW
   )
   return {
     audited,
@@ -124,20 +139,24 @@ describe('shared management operations (#1215)', () => {
   })
 
   test('a lead project update takes the identical authorization and executor path', async () => {
-    const lead: ManagementCaller = {
-      authorityRef: 'authority-1',
-      intentId: 'intent-1',
-      kind: 'lead',
-      leadAgentId: 'agent-lead-1',
-    }
-    const run = harness(lead)
-    run.setResult('updateProject', { ...project, name: 'Lead rename' })
-    const outcome = await run.operations.projectUpdate({
-      name: 'Lead rename',
-      principal: PRINCIPAL,
-      projectId: PROJECT,
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Lead rename' },
+      operation: 'project.update',
+      targetId: PROJECT,
       workspaceId: WORKSPACE,
     })
+    const lead: ManagementCaller = leadCaller(decision)
+    const run = harness(lead)
+    run.setResult('updateProject', { ...project, name: 'Lead rename' })
+    const outcome = await run.operations.projectUpdate(
+      {
+        name: 'Lead rename',
+        principal: PRINCIPAL,
+        projectId: PROJECT,
+        workspaceId: WORKSPACE,
+      },
+      decision.binding
+    )
     expect(outcome).toEqual({
       ok: true,
       operation: 'project.update',
@@ -147,8 +166,11 @@ describe('shared management operations (#1215)', () => {
     expect(run.calls[0]?.name).toBe('updateProject')
     expect(run.audited).toEqual([
       {
+        authorityRef: decision.authorityRef,
+        binding: decision.binding,
         caller: lead,
         decision: 'allowed',
+        decisionId: decision.decisionId,
         operation: 'project.update',
         permission: 'workspace.update',
         principal: PRINCIPAL,
@@ -156,6 +178,27 @@ describe('shared management operations (#1215)', () => {
         workspaceId: WORKSPACE,
       },
     ])
+  })
+
+  test('a lead operation without its exact-call binding performs zero executor calls', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Lead rename' },
+      operation: 'project.update',
+      targetId: PROJECT,
+      workspaceId: WORKSPACE,
+    })
+    const run = harness(leadCaller(decision))
+    const outcome = await run.operations.projectUpdate({
+      name: 'Lead rename',
+      principal: PRINCIPAL,
+      projectId: PROJECT,
+      workspaceId: WORKSPACE,
+    })
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) throw new Error('unreachable')
+    expect(outcome.failure.reason).toBe('authority_binding_mismatch')
+    expect(run.authorized).toEqual([])
+    expect(run.calls).toEqual([])
   })
 
   test('maps a stale workspace revision to a typed failure without leaking detail', async () => {
