@@ -53,7 +53,9 @@ canonical register, drafts untouched); a stale receipt parks an explicit
 control conflict scoped to the parked generation (it clears when the
 conversation moves past it via refresh, never by blind retry at the same
 generation), and a late completion after a session switch commits nothing
-(session-identity fence plus per-session state reset). Lead-stop maps to the bound
+(session-identity fence plus a reset that fires only on an actual session
+change — never on a same-session refresh, which must preserve receipts and
+in-flight actions). Lead-stop maps to the bound
 `cancelHarness` control. Run binding is strict where run objects exist
 (same session, register-bound id, same scope, non-terminal) and falls back
 to the register id exactly as `cancelHarness` does where they do not — a
@@ -128,6 +130,13 @@ return, single-flight, stale/conflict/retry, late-completion fence,
 keyboard/focus activation, assistive-technology tree, narrow/200% text, and
 reduced motion — all on an ephemeral loopback harness server, no backend or
 database; no duplicate execution, no silent fallback, preserved authority).
+
+Currency rule (operation/view epoch): a receipt carries its session and
+committed generation and applies only while the canonical conversation
+shows it; an older receipt against a newer conversation falls back to
+attachment with a newer-ownership notice instead of overwriting. A same-
+session refresh preserves receipts and in-flight actions; only an actual
+session switch resets them.
 Related gates: [#40](https://github.com/adea-ai/adea/issues/40),
 [#43](https://github.com/adea-ai/adea/issues/43),
 [#811](https://github.com/adea-ai/adea/issues/811).

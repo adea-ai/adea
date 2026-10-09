@@ -5,24 +5,26 @@
 // review, explicit coordination handoff, and return-to-user. The model is pure
 // and component-free so tests pin it without DOM.
 //
-// Coordination semantics: while a harness run is bound, the lead holds
-// session coordination and this surface coordinates (`coordination_handoff`);
-// the confirmed `dev.session.transferInput` receipt moves coordination to
-// the user (`returned_to_user`). Composer input authority (who may type in a
-// box) is a different dimension and is deliberately not consulted here:
-// conflating the two made the production return transition unreachable.
-// With no run bound there is nothing to coordinate, so a live session
-// attaches read-only until a run exists.
+// Coordination is never inferred from a bound run or from composer input
+// authority: a user-created direct run is not proof of an explicit
+// chief-of-staff handoff, and who may type in a box is a different dimension
+// from who holds session coordination. The only path into a coordinating
+// mode is a confirmed `dev.session.transferInput` receipt (or an explicit
+// caller override): attached --handoff(chat→dev)--> coordination_handoff
+// --return(dev→chat)--> returned_to_user, and back again. A live session
+// with no receipt attaches read-only, even with a run bound.
 //
 // Authority boundary: Adea owns these presentation states, derived from
 // existing `RuntimeSession`/`HarnessRun` facts and the existing
 // `dev.session.*` operations. The persisted authoritative transition is
 // `dev.session.transferInput` (generation- and owner-version-fenced,
 // durable host snapshot, `session.input_transferred` event); the model never
-// invents ownership. Lead-turn/job/descendant cancellation beyond the bound
-// harness run requires the Control Plane J2 contract (control-plane#935:
-// durable cancel intent, generation-bound retry, exact
-// approval-before-effect, retained receipts, ambiguous-success
+// invents ownership. Currency is receipt-gated: a receipt applies only to
+// the session and generation it names, so a stale local receipt can never
+// overwrite newer canonical ownership. Lead-turn/job/descendant
+// cancellation beyond the bound harness run requires the Control Plane J2
+// contract (control-plane#935: durable cancel intent, generation-bound
+// retry, exact approval-before-effect, retained receipts, ambiguous-success
 // reconciliation). That contract is absent from `dev-runtime-operations.json`,
 // so job and descendant controls render unavailable with the exact missing
 // contract named — never silently mapped onto `dev.session.cancelHarness`.
@@ -38,9 +40,14 @@ export type DirectSessionHandoffMode =
   | 'coordination_handoff'
   | 'returned_to_user'
 
-export type HandoffControlKind = 'lead_stop' | 'job_cancel' | 'descendant_cancel' | 'return_to_user'
+export type HandoffControlKind =
+  | 'lead_stop'
+  | 'job_cancel'
+  | 'descendant_cancel'
+  | 'return_to_user'
+  | 'handoff_to_lead'
 
-export type HandoffActionKind = 'lead_stop' | 'return_to_user'
+export type HandoffActionKind = 'lead_stop' | 'return_to_user' | 'handoff_to_lead'
 
 export type HandoffControlState = Readonly<{
   available: boolean
@@ -48,10 +55,18 @@ export type HandoffControlState = Readonly<{
   remediation?: string
 }>
 
-/** Who holds session coordination. `lead` while a harness run is bound (the
- *  durable proof of lead-side execution); `user` only after a confirmed
- *  transfer receipt or an explicit caller override — never by default. */
-export type HandoffCoordination = 'lead' | 'user'
+/**
+ * The confirmed transfer receipt: the operation epoch (session generation
+ * the transfer committed at) plus its direction. Currency is decided by
+ * matching both against the current canonical session — never by recency
+ * of local state.
+ */
+export type HandoffReceipt = Readonly<{
+  sessionId: string
+  fromView: 'chat' | 'dev'
+  toView: 'chat' | 'dev'
+  generation: number
+}>
 
 /**
  * How the supplied harness-run candidate relates to the register binding.
@@ -108,10 +123,12 @@ export type DirectSessionHandoffInput = Readonly<{
   connected: boolean
   generationCurrent: boolean
   scopeAuthorized: boolean
-  coordination: HandoffCoordination
   hasUnsentDraft: boolean
   controlConflict: boolean
   awaitingApproval: boolean
+  /** A confirmed receipt exists but names an older generation than the
+   *  canonical session: newer ownership superseded it. */
+  supersededReceipt: boolean
 }>
 
 export type DirectSessionHandoffView = Readonly<{
@@ -171,6 +188,32 @@ function blocked(reason: string, remediation?: string): HandoffControlState {
   return disabled(reason, remediation)
 }
 
+function transportGuard(
+  input: DirectSessionHandoffInput,
+  action: string
+): HandoffControlState | undefined {
+  if (!input.connected)
+    return blocked(`${action} unavailable while offline.`, 'Reconnect the transcript to continue.')
+  if (!input.generationCurrent)
+    return blocked(`${action} unavailable for a stale generation.`, 'Resync the transcript first.')
+  if (input.controlConflict)
+    return blocked(
+      `${action} paused by a control conflict.`,
+      'Resolve the coordinator conflict first.'
+    )
+  if (!input.scopeAuthorized)
+    return blocked(
+      `${action} unavailable outside the authorized scope.`,
+      'Open the session in its authorized scope.'
+    )
+  if (input.session.archived)
+    return blocked(
+      `${action} unavailable for an archived session.`,
+      'Unarchive the session to coordinate it.'
+    )
+  return undefined
+}
+
 /**
  * Derives the handoff view for one preserved session. The same session,
  * generation, harness run, worktree, and project cross every mode — the
@@ -204,6 +247,9 @@ export function deriveDirectSessionHandoff(
   } else if (input.session.archived) {
     notice =
       'This session is archived. Controls stay paused until it is unarchived; history is preserved.'
+  } else if (input.supersededReceipt) {
+    notice =
+      'Coordination changed since the confirmed transfer; the receipt names older ownership. Refresh to coordinate from the current generation.'
   }
 
   // Lead-stop maps to the existing bound-harness control
@@ -218,31 +264,8 @@ export function deriveDirectSessionHandoff(
         'Lead control is not granted in this read-only state.',
         'Coordinate the session to enable lead controls.'
       )
-    if (!input.connected)
-      return blocked(
-        'Lead stop unavailable while offline.',
-        'Reconnect the transcript to continue.'
-      )
-    if (!input.generationCurrent)
-      return blocked(
-        'Lead stop unavailable for a stale generation.',
-        'Resync the transcript first.'
-      )
-    if (input.controlConflict)
-      return blocked(
-        'Lead stop paused by a control conflict.',
-        'Resolve the coordinator conflict first.'
-      )
-    if (!input.scopeAuthorized)
-      return blocked(
-        'Lead stop unavailable outside the authorized scope.',
-        'Open the session in its authorized scope.'
-      )
-    if (input.session.archived)
-      return blocked(
-        'Lead stop unavailable for an archived session.',
-        'Unarchive the session to coordinate it.'
-      )
+    const guard = transportGuard(input, 'Lead stop')
+    if (guard) return guard
     if (binding.status === 'stale')
       return blocked(
         'A newer harness run superseded this one; stopping it would miss the live run.',
@@ -266,44 +289,40 @@ export function deriveDirectSessionHandoff(
     return { available: true }
   })()
 
+  // Hand-off to the lead executes the persisted `dev.session.transferInput`
+  // toward the dev view. Offered from attachment (establishing coordination)
+  // and after a return (re-establishing it): the handoff cycle is explicit
+  // in both directions, never inferred.
+  const handoffToLead = ((): HandoffControlState => {
+    if (input.mode === 'coordination_handoff')
+      return blocked(
+        'Coordination is already handed off.',
+        'Return the session to hand it off again.'
+      )
+    if (input.mode !== 'attached' && input.mode !== 'returned_to_user')
+      return blocked(
+        'Hand-off applies from an attached or returned session.',
+        'Resolve the session state before handing off.'
+      )
+    const guard = transportGuard(input, 'Hand-off to lead')
+    if (guard) return guard
+    return { available: true }
+  })()
+
   // Return-to-user executes the persisted `dev.session.transferInput` to this
-  // surface. It is guarded exactly like lead-stop, and additionally requires
-  // the coordinating mode with the lead still holding coordination: the only
-  // path to user-held coordination is a confirmed transfer receipt, so an
-  // already-user-held session needs no transfer.
+  // surface. Available only inside an explicit coordination handoff: the
+  // only path to user-held coordination is a confirmed transfer, so an
+  // already-returned session needs no transfer.
   const returnToUser = ((): HandoffControlState => {
-    if (input.mode === 'returned_to_user' || input.coordination === 'user')
+    if (input.mode === 'returned_to_user')
       return blocked('Coordination is already user-held.', 'No transfer is needed.')
     if (input.mode !== 'coordination_handoff')
       return blocked(
         'Return to user applies from an active coordination handoff.',
         'Coordinate the session before returning it.'
       )
-    if (!input.connected)
-      return blocked(
-        'Return to user unavailable while offline.',
-        'Reconnect the transcript to continue.'
-      )
-    if (!input.generationCurrent)
-      return blocked(
-        'Return to user unavailable for a stale generation.',
-        'Resync the transcript first.'
-      )
-    if (input.controlConflict)
-      return blocked(
-        'Return to user paused by a control conflict.',
-        'Resolve the coordinator conflict first.'
-      )
-    if (!input.scopeAuthorized)
-      return blocked(
-        'Return to user unavailable outside the authorized scope.',
-        'Open the session in its authorized scope.'
-      )
-    if (input.session.archived)
-      return blocked(
-        'Return to user unavailable for an archived session.',
-        'Unarchive the session to coordinate it.'
-      )
+    const guard = transportGuard(input, 'Return to user')
+    if (guard) return guard
     return { available: true }
   })()
 
@@ -337,6 +356,7 @@ export function deriveDirectSessionHandoff(
       job_cancel: jobCancel,
       descendant_cancel: descendantCancel,
       return_to_user: returnToUser,
+      handoff_to_lead: handoffToLead,
     },
     ...(notice === undefined ? {} : { notice }),
     reconnectRequired,
@@ -350,13 +370,27 @@ export function deriveDirectSessionHandoff(
  *  terminal — a reconnect may resume coordination. */
 const TERMINAL_SESSION_LIFECYCLES: readonly string[] = ['completed', 'failed', 'cancelled']
 
+/** A transfer receipt currency decision against the current canonical
+ *  session: a receipt for this session at or past its generation is our
+ *  own unobserved commit (apply its direction); a receipt behind it is
+ *  superseded by newer canonical ownership (fall back, with notice). */
+function receiptCurrency(
+  receipt: HandoffReceipt | undefined,
+  session: RuntimeSession
+): 'current' | 'superseded' | 'absent' {
+  if (!receipt || receipt.sessionId !== session.id) return 'absent'
+  return receipt.generation >= session.generation ? 'current' : 'superseded'
+}
+
 /**
- * Derives the handoff mode from durable surface facts. No new persisted
- * field: archived/terminal sessions review; a stale or offline view attaches
- * read-only until resync; a live session with no bound run has nothing to
- * coordinate and attaches; otherwise the coordination holder decides — the
- * lead's bound run means an active handoff, the user's confirmed receipt
- * means returned.
+ * Derives the handoff mode from durable surface facts plus the latest
+ * transfer receipt. No receipt, no coordination: archived/terminal sessions
+ * review; a stale or offline view attaches read-only until resync; a live
+ * session without a current receipt attaches — even with a run bound, since
+ * a bound run alone proves execution, not an explicit handoff. Only a
+ * current receipt (or an explicit caller override) enters a coordinating
+ * mode, so newer canonical ownership can never be overwritten by stale
+ * local state.
  */
 export function deriveHandoffModeForSurface(
   input: Readonly<{
@@ -364,21 +398,28 @@ export function deriveHandoffModeForSurface(
     archived: boolean
     connected: boolean
     generationCurrent: boolean
-    runBound: boolean
-    coordination: HandoffCoordination
+    receipt: HandoffReceipt | undefined
+    sessionId: string
+    sessionGeneration: number
   }>
 ): DirectSessionHandoffMode {
   if (input.archived || TERMINAL_SESSION_LIFECYCLES.includes(input.lifecycle))
     return 'one_time_review'
   if (!input.connected || !input.generationCurrent) return 'attached'
-  if (!input.runBound) return 'attached'
-  return input.coordination === 'user' ? 'returned_to_user' : 'coordination_handoff'
+  if (
+    input.receipt &&
+    input.receipt.sessionId === input.sessionId &&
+    input.receipt.generation >= input.sessionGeneration
+  ) {
+    return input.receipt.toView === 'chat' ? 'returned_to_user' : 'coordination_handoff'
+  }
+  return 'attached'
 }
 
 export type DirectSessionHandoffSupply = Readonly<{
   harnessRuns?: readonly HarnessRun[]
   mode?: DirectSessionHandoffMode
-  coordination?: HandoffCoordination
+  receipt?: HandoffReceipt
   controlConflict?: boolean
 }>
 
@@ -386,9 +427,12 @@ export type DirectSessionHandoffSupply = Readonly<{
  * Production supplier: builds the handoff input from one canonical
  * `ChatConversation` plus surface facts. The run candidate is resolved by
  * the register binding (`activeHarnessRunId`) and never guessed; the draft
- * flag reads the live conversation draft; an explicit mode (e.g. the
- * confirmed post-transfer `returned_to_user`) overrides derivation, and an
- * explicit coordination marks user-held ownership the same way.
+ * flag reads the live conversation draft; an explicit mode overrides
+ * derivation, otherwise the latest transfer receipt decides currency — a
+ * superseded receipt falls back to attachment with a notice naming the
+ * newer ownership, and a retained transfer event at the current generation
+ * (e.g. after reload, when in-memory receipts are gone) explains the
+ * attachment instead of leaving it silent.
  */
 export function deriveHandoffInputFromConversation(
   input: Readonly<{
@@ -399,7 +443,7 @@ export function deriveHandoffInputFromConversation(
     harnessRuns?: readonly HarnessRun[]
     awaitingApproval?: boolean
     mode?: DirectSessionHandoffMode
-    coordination?: HandoffCoordination
+    receipt?: HandoffReceipt
     controlConflict?: boolean
   }>
 ): DirectSessionHandoffInput {
@@ -423,9 +467,8 @@ export function deriveHandoffInputFromConversation(
       ? {}
       : { activeHarnessRunId: input.conversation.activeHarnessRunId }),
   }
-  const coordination = input.coordination ?? 'lead'
   const staleView = input.conversation.status === 'stale_generation'
-  const runBound = input.conversation.activeHarnessRunId !== undefined
+  const currency = receiptCurrency(input.receipt, session)
   const mode =
     input.mode ??
     (staleView || !generationCurrent
@@ -435,10 +478,19 @@ export function deriveHandoffInputFromConversation(
           archived: input.conversation.archived,
           connected: input.connected,
           generationCurrent,
-          runBound,
-          coordination,
+          receipt:
+            currency === 'current' && input.receipt
+              ? {
+                  sessionId: input.receipt.sessionId,
+                  fromView: input.receipt.fromView,
+                  toView: input.receipt.toView,
+                  generation: input.receipt.generation,
+                }
+              : undefined,
+          sessionId: session.id,
+          sessionGeneration: session.generation,
         }))
-  return {
+  const base: DirectSessionHandoffInput = {
     session,
     ...(input.harnessRuns?.find((run) => run.id === input.conversation.activeHarnessRunId) ===
     undefined
@@ -452,12 +504,13 @@ export function deriveHandoffInputFromConversation(
     connected: input.connected,
     generationCurrent: staleView ? false : generationCurrent,
     scopeAuthorized: input.scopeAuthorized ?? true,
-    coordination,
     hasUnsentDraft:
       input.conversation.draft.trim().length > 0 || input.conversation.draftBlocks.length > 0,
     controlConflict: input.controlConflict ?? false,
     awaitingApproval: input.awaitingApproval ?? false,
+    supersededReceipt: currency === 'superseded',
   }
+  return base
 }
 
 /** Deterministic reason-element id for a control row. Pure so tests pin the
@@ -475,7 +528,9 @@ export function handoffControlReasonId(
           ? 'descendant'
           : kind === 'return_to_user'
             ? 'return'
-            : 'notice'
+            : kind === 'handoff_to_lead'
+              ? 'handoff'
+              : 'notice'
   return `${baseId}-${suffix}-reason`
 }
 
@@ -522,26 +577,29 @@ export type HandoffActionOutcome = 'completed' | 'rejected' | 'superseded'
  * start can never cause a second effect — the reducer tests alone cannot
  * prove this because they never gate an invocation. Late completions are
  * fenced by `isCurrent` (captured session identity): a superseded result
- * commits nothing, leaving cleanup to the session-switch reset.
+ * commits nothing, leaving cleanup to the session-switch reset. Success
+ * carries work's result to `onSuccess` (transfers pass their refreshed
+ * conversation so the caller can record the receipt).
  */
 export async function runHandoffActionOnce(
   input: Readonly<{
     current: () => HandoffActionState
     commit: (state: HandoffActionState) => void
     action: HandoffActionKind
-    work: () => void | Promise<void>
+    work: () => unknown | Promise<unknown>
     isCurrent?: () => boolean
     isConflict?: (error: unknown) => boolean
     onConflict?: () => void
-    onSuccess?: () => void
+    onSuccess?: (result: unknown) => void
   }>
 ): Promise<HandoffActionOutcome> {
   const before = input.current()
   const started = handoffActionReducer(before, { type: 'start', action: input.action })
   if (started === before) return 'rejected'
   input.commit(started)
+  let result: unknown
   try {
-    await input.work()
+    result = await input.work()
   } catch (error) {
     if (input.isCurrent && !input.isCurrent()) return 'superseded'
     const message = error instanceof Error ? error.message : 'Handoff action failed.'
@@ -551,6 +609,6 @@ export async function runHandoffActionOnce(
   }
   if (input.isCurrent && !input.isCurrent()) return 'superseded'
   input.commit(handoffActionReducer(started, { type: 'succeed' }))
-  input.onSuccess?.()
+  input.onSuccess?.(result)
   return 'completed'
 }

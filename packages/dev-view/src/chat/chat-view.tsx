@@ -19,7 +19,7 @@ import {
   type DirectSessionHandoffView,
   type HandoffActionKind,
   type HandoffActionState,
-  type HandoffCoordination,
+  type HandoffReceipt,
 } from './model/handoff'
 import { statusLabel } from './presentation'
 import './chat.css'
@@ -34,6 +34,7 @@ function HandoffLiveSection(props: {
   onLeadStop?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
   onReturnToUser?: () => void | Promise<void>
+  onHandoffToLead?: () => void | Promise<void>
   actionState: () => HandoffActionState
 }): JSX.Element {
   const busy = (): HandoffActionKind | undefined => {
@@ -50,6 +51,7 @@ function HandoffLiveSection(props: {
       onLeadStop={props.onLeadStop}
       onReconnect={props.onReconnect}
       onReturnToUser={props.onReturnToUser}
+      onHandoffToLead={props.onHandoffToLead}
       busyAction={busy()}
       actionError={error()}
     />
@@ -87,6 +89,7 @@ export type ChatViewProps = Readonly<{
   onLeadStop?: () => void | Promise<void>
   onReconnectHandoff?: () => void | Promise<void>
   onReturnToUser?: () => void | Promise<void>
+  onHandoffToLead?: () => void | Promise<void>
   readingPosition?: ChatTranscriptProps['readingPosition']
   onReadingPositionChange?: (
     identity: Readonly<{ runtimeSessionId: string; generation: number }>,
@@ -120,13 +123,14 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   )
   const [streamError, setStreamError] = createSignal<string | undefined>()
   const [mounted, setMounted] = createSignal(false)
-  // Handoff coordination state (#1177): the confirmed post-transfer mode,
-  // a control conflict observed from a stale transfer receipt, and the
-  // single-flight action machine. All reset when the selected session
-  // changes so one session's coordination never leaks into another's.
-  const [handoffModeOverride, setHandoffModeOverride] = createSignal<
-    DirectSessionHandoffView['mode'] | undefined
-  >(undefined)
+  // Handoff coordination state (#1177): the latest confirmed transfer
+  // receipt (operation epoch), a control conflict observed from a stale
+  // transfer receipt, and the single-flight action machine. Receipts carry
+  // their session and generation and apply only to matching canonical
+  // state, so stale local receipts can never overwrite newer ownership.
+  // All reset when the selected session changes so one session's
+  // coordination never leaks into another's.
+  const [handoffReceipt, setHandoffReceipt] = createSignal<HandoffReceipt | undefined>(undefined)
   // The generation a stale receipt parked a conflict against. The conflict
   // clears when the conversation moves past it (the concurrent commit was
   // observed via refresh), never by retrying blindly at the same generation.
@@ -231,21 +235,26 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     if (props.model) await props.model.cancel(props.conversation.runtimeSessionId)
   }
 
-  createEffect(
-    on(
-      () => props.conversation.runtimeSessionId,
-      () => {
-        setHandoffModeOverride(undefined)
-        setHandoffConflictGen(undefined)
-        setHandoffAction(initialHandoffActionState)
-      }
-    )
-  )
+  // Reset only when the SESSION changes: parent refreshes mint new
+  // conversation objects for the same session (new generation, new draft
+  // revision), and those must preserve receipts, conflicts, and in-flight
+  // actions — currency against the canonical generation decides. A bare
+  // `on(id)` effect cannot express this: it refires on every new object
+  // even with an identical id, wiping a busy transfer mid-flight.
+  let lastHandoffSessionId = props.conversation.runtimeSessionId
+  createEffect(() => {
+    const sessionId = props.conversation.runtimeSessionId
+    if (sessionId === lastHandoffSessionId) return
+    lastHandoffSessionId = sessionId
+    setHandoffReceipt(undefined)
+    setHandoffConflictGen(undefined)
+    setHandoffAction(initialHandoffActionState)
+  })
 
   const runHandoffAction = (
     action: HandoffActionKind,
-    work: () => void | Promise<void>,
-    onSuccess?: () => void
+    work: () => unknown | Promise<unknown>,
+    onSuccess?: (result: unknown) => void
   ): Promise<'completed' | 'rejected' | 'superseded'> => {
     // Fence on session identity only: a fast parent refresh may already show
     // the post-transfer generation (apply: it is our receipt), but a session
@@ -271,36 +280,50 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     return void runHandoffAction('lead_stop', stop)
   }
 
+  const recordTransferReceipt =
+    (fromView: 'chat' | 'dev', toView: 'chat' | 'dev') => (result: unknown) => {
+      // The confirmed receipt carries the refreshed canonical generation:
+      // it applies exactly while the conversation shows it, and goes
+      // superseded (never overwriting) once canonical ownership moves on.
+      const generation = (result as ChatConversation | undefined)?.generation
+      if (typeof generation !== 'number') return
+      setHandoffReceipt({
+        sessionId: props.conversation.runtimeSessionId,
+        fromView,
+        toView,
+        generation,
+      })
+    }
+
+  const transferThrough = (
+    action: 'return_to_user' | 'handoff_to_lead',
+    direction: { fromView: 'chat' | 'dev'; toView: 'chat' | 'dev' }
+  ): Promise<'completed' | 'rejected' | 'superseded'> => {
+    const transfer = props.model?.transfer
+    if (!transfer) return Promise.resolve('rejected')
+    return runHandoffAction(
+      action,
+      () => transfer(props.conversation.runtimeSessionId, direction),
+      recordTransferReceipt(direction.fromView, direction.toView)
+    )
+  }
+
   const returnToUserAction = (): void | Promise<void> => {
     if (props.onReturnToUser) return props.onReturnToUser()
-    const transfer = props.model?.transfer
-    if (!transfer) return undefined
-    // The persisted authoritative transition: input ownership moves to this
-    // (chat) surface via generation- and version-fenced transferInput. The
-    // confirmed receipt presents as returned-to-user; drafts survive because
-    // transfer never touches them (pinned by transfer tests).
-    return void runHandoffAction(
-      'return_to_user',
-      async () => {
-        await transfer(props.conversation.runtimeSessionId, { fromView: 'dev', toView: 'chat' })
-      },
-      () => setHandoffModeOverride('returned_to_user')
-    )
+    if (!props.model?.transfer) return undefined
+    return void transferThrough('return_to_user', { fromView: 'dev', toView: 'chat' })
+  }
+
+  const handoffToLeadAction = (): void | Promise<void> => {
+    if (props.onHandoffToLead) return props.onHandoffToLead()
+    if (!props.model?.transfer) return undefined
+    return void transferThrough('handoff_to_lead', { fromView: 'chat', toView: 'dev' })
   }
 
   const reconnectHandoffAction = (): void | Promise<void> => {
     if (props.onReconnectHandoff) return props.onReconnectHandoff()
     if (!props.model) return undefined
     return void attach()
-  }
-
-  const handoffCoordination = (): HandoffCoordination => {
-    const supply = props.handoff
-    if (supply?.coordination) return supply.coordination
-    // The only path to user-held coordination is a confirmed transfer
-    // receipt (or an explicit caller override): the default lead holds
-    // while its bound run proves lead-side execution.
-    return (handoffModeOverride() ?? supply?.mode) === 'returned_to_user' ? 'user' : 'lead'
   }
 
   const suppliedHandoffView = (): DirectSessionHandoffView | undefined => {
@@ -316,8 +339,8 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           availability !== 'stale_generation' && availability !== 'resync_required',
         harnessRuns: supply.harnessRuns,
         awaitingApproval: props.awaitingApproval,
-        mode: handoffModeOverride() ?? supply.mode,
-        coordination: handoffCoordination(),
+        mode: supply.mode,
+        receipt: supply.receipt ?? handoffReceipt(),
         controlConflict:
           supply.controlConflict ?? handoffConflictGen() === props.conversation.generation,
       })
@@ -378,6 +401,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             }
             onReturnToUser={
               props.onReturnToUser ?? (props.model?.transfer ? returnToUserAction : undefined)
+            }
+            onHandoffToLead={
+              props.onHandoffToLead ?? (props.model?.transfer ? handoffToLeadAction : undefined)
             }
             actionState={handoffAction}
           />

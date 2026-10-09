@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 import {
   deriveDirectSessionHandoff,
+  deriveHandoffModeForSurface,
   handoffActionReducer,
   handoffControlReasonId,
   HANDOFF_MODE_LABELS,
@@ -68,7 +69,6 @@ function input(overrides: Partial<DirectSessionHandoffInput> = {}): DirectSessio
     connected: true,
     generationCurrent: true,
     scopeAuthorized: true,
-    coordination: 'lead',
     hasUnsentDraft: false,
     controlConflict: false,
     awaitingApproval: false,
@@ -161,7 +161,7 @@ describe('direct-session handoff modes', () => {
 function coordinated(
   overrides: Partial<DirectSessionHandoffInput> = {}
 ): DirectSessionHandoffInput {
-  return input({ mode: 'coordination_handoff', coordination: 'lead', ...overrides })
+  return input({ mode: 'coordination_handoff', ...overrides })
 }
 
 describe('harness-run binding', () => {
@@ -263,18 +263,16 @@ describe('return-to-user guards', () => {
 
   test('read-only modes and already-returned states stay unavailable', () => {
     for (const mode of ['attached', 'one_time_review'] as const) {
-      const view = deriveDirectSessionHandoff(input({ mode, coordination: 'lead' }))
+      const view = deriveDirectSessionHandoff(input({ mode }))
       expect(view.controls.return_to_user.available).toBe(false)
     }
-    const returned = deriveDirectSessionHandoff(
-      input({ mode: 'returned_to_user', coordination: 'user' })
-    )
+    const returned = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
     expect(returned.controls.return_to_user.available).toBe(false)
     expect(returned.controls.return_to_user.reason).toMatch(/already/i)
   })
 
-  test('user-held coordination needs no transfer', () => {
-    const view = deriveDirectSessionHandoff(coordinated({ coordination: 'user' }))
+  test('an already-returned session needs no transfer', () => {
+    const view = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
     expect(view.controls.return_to_user.available).toBe(false)
     expect(view.controls.return_to_user.reason).toMatch(/already user-held/i)
   })
@@ -332,6 +330,7 @@ describe('assistive-technology content contract', () => {
     ]
     const kinds: readonly HandoffControlKind[] = [
       'lead_stop',
+      'handoff_to_lead',
       'job_cancel',
       'descendant_cancel',
       'return_to_user',
@@ -365,6 +364,7 @@ describe('assistive-technology content contract', () => {
   test('reason-element ids are deterministic and unique per row', () => {
     const kinds: readonly HandoffControlKind[] = [
       'lead_stop',
+      'handoff_to_lead',
       'job_cancel',
       'descendant_cancel',
       'return_to_user',
@@ -373,7 +373,7 @@ describe('assistive-technology content contract', () => {
       ...kinds.map((kind) => handoffControlReasonId('handoff-1', kind)),
       handoffControlReasonId('handoff-1', 'notice'),
     ])
-    expect(ids.size).toBe(5)
+    expect(ids.size).toBe(6)
     for (const id of ids) expect(id.startsWith('handoff-1-')).toBe(true)
     expect(handoffControlReasonId('handoff-2', 'lead_stop')).not.toBe(
       handoffControlReasonId('handoff-1', 'lead_stop')
@@ -563,5 +563,109 @@ describe('production action admission', () => {
       action,
       message: 'Handoff action failed.',
     })
+  })
+})
+
+describe('handoff-to-lead action', () => {
+  test('attached sessions offer an explicit handoff establishing coordination', () => {
+    const view = deriveDirectSessionHandoff(input({ mode: 'attached' }))
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+    expect(view.controls.return_to_user.available).toBe(false)
+    expect(view.controls.lead_stop.available).toBe(false)
+  })
+
+  test('an active handoff needs no second handoff; a return may re-hand off', () => {
+    const active = deriveDirectSessionHandoff(input({ mode: 'coordination_handoff' }))
+    expect(active.controls.handoff_to_lead.available).toBe(false)
+    expect(active.controls.handoff_to_lead.reason).toMatch(/already handed off/i)
+    const returned = deriveDirectSessionHandoff(input({ mode: 'returned_to_user' }))
+    expect(returned.controls.handoff_to_lead.available).toBe(true)
+  })
+
+  test('read-only review never offers handoff, and transport gates apply', () => {
+    const review = deriveDirectSessionHandoff(input({ mode: 'one_time_review' }))
+    expect(review.controls.handoff_to_lead.available).toBe(false)
+    for (const candidate of [
+      input({ mode: 'attached', connected: false }),
+      input({ mode: 'attached', generationCurrent: false }),
+      input({ mode: 'attached', controlConflict: true }),
+      input({ mode: 'attached', scopeAuthorized: false }),
+      input({ mode: 'attached', session: session({ archived: true }) }),
+    ]) {
+      const view = deriveDirectSessionHandoff(candidate)
+      const control = view.controls.handoff_to_lead
+      expect(control.available).toBe(false)
+      expect(typeof control.reason === 'string' && control.reason.length > 0).toBe(true)
+      expect(typeof control.remediation === 'string' && control.remediation.length > 0).toBe(true)
+    }
+  })
+})
+
+describe('receipt currency', () => {
+  const base = {
+    lifecycle: 'active',
+    archived: false,
+    connected: true,
+    generationCurrent: true,
+  } as const
+
+  test('a current receipt enters the coordinating mode of its direction', () => {
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: { sessionId: 's', fromView: 'chat', toView: 'dev', generation: 4 },
+        sessionId: 's',
+        sessionGeneration: 4,
+      })
+    ).toBe('coordination_handoff')
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 4 },
+        sessionId: 's',
+        sessionGeneration: 4,
+      })
+    ).toBe('returned_to_user')
+  })
+
+  test('a receipt newer than the props is our unobserved commit: it applies', () => {
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 5 },
+        sessionId: 's',
+        sessionGeneration: 4,
+      })
+    ).toBe('returned_to_user')
+  })
+
+  test('a receipt behind canonical ownership is superseded and never overwrites', () => {
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: { sessionId: 's', fromView: 'dev', toView: 'chat', generation: 4 },
+        sessionId: 's',
+        sessionGeneration: 6,
+      })
+    ).toBe('attached')
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: { sessionId: 'other', fromView: 'dev', toView: 'chat', generation: 6 },
+        sessionId: 's',
+        sessionGeneration: 6,
+      })
+    ).toBe('attached')
+  })
+
+  test('no receipt means attachment even with a bound run: runs prove execution, not handoff', () => {
+    expect(
+      deriveHandoffModeForSurface({
+        ...base,
+        receipt: undefined,
+        sessionId: 's',
+        sessionGeneration: 3,
+      })
+    ).toBe('attached')
   })
 })
