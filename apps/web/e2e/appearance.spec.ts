@@ -250,7 +250,7 @@ test.describe('appearance', () => {
 
     // The custom picker rejects unparseable input and normalizes valid colors.
     await editor(panel).locator('input[type="color"]').fill('#2563eb')
-    const hex = editor(panel).getByRole('textbox', { name: 'Custom accent' })
+    const hex = editor(panel).getByRole('textbox', { name: 'Custom accent', exact: true })
     await hex.fill('not-a-color')
     await hex.blur()
     await expect(hex).toHaveValue('not-a-color')
