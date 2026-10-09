@@ -24,6 +24,15 @@
 // the principal gate shape, `withRequestScope` request cleanup, the exported
 // account*Response request handlers, the application database and the real
 // @adea-ai/db queries, driven by the public @adea-ai/api-client.
+//
+// Coverage class: injected-seam route-flow tests. The caller here is the
+// public API client, and the principal is resolved out of real database
+// session rows — but the principal resolution itself is injected
+// (`resolutionFor`), requests never cross a network socket, and revocation
+// timing is staged through the handlers' own lookup seam. The complementary
+// class — real HTTP, the real cookie jar, the server's own session minting
+// and reconnect behaviour in a real browser — lives in
+// apps/web/e2e/account-directory-auth.spec.ts (the `test:e2e` lane).
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
