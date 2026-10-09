@@ -1978,7 +1978,8 @@ first asks for a repository. Worktree menus offer Rename (`dev.worktree.rename`,
 local title), Copy link (the leaf's Dev deep link), Open in Finder
 (`dev.files.openExternal` on the worktree root), Archive (`dev.worktree.archive`)
 and Delete (`dev.worktree.cleanupPlan`, then a destructive confirmation listing
-every planned step and any blocker before `dev.worktree.cleanupCommit`). The
+every planned step, the read-only cleanup consequences and any blocker before
+`dev.worktree.cleanupCommit`). The
 checkout menu offers Copy path and Open in Finder only; Share stays out until
 leaf sharing ships and "Switch branch…" stays behind its flag. Project menus
 offer Rename (cloud project update), Project settings (the cloud name and, for
@@ -2062,6 +2063,22 @@ draft → preflighted → approved → running → completed
 The plan contains immutable observed facts and their versions. Commit refuses
 if any fact changed. Retrying the same idempotency key resumes; it does not
 repeat a completed side effect.
+
+### Cleanup preview
+
+`dev.worktree.cleanupPlan` returns the immutable plan plus a read-only
+`consequences` list computed from the same observed facts: one entry per
+dirty, untracked, conflicted, unpushed, protected, leased, attached-owned,
+nested, external/dangerous or removal consequence, each with a stable `kind`,
+`blocking` and bounded `detail`. The list is display-only — it never
+authorizes execution — and the plan's `steps`, `blockers` and `digest` remain
+the only commit inputs. A plan whose selected steps include a destructive step
+requires a blocker-free preflight, while a narrowed plan of non-destructive
+steps (for example `prune_retained_data`) stays commit-eligible under the
+same blockers. The automatic policy path accepts no step outside
+`quarantine_worktree`, `unregister_worktree`, `delete_quarantine`,
+`delete_branch` and `prune_retained_data`, and a malformed or unprovable
+policy lifetime fails closed at evaluation.
 
 A reusable `CleanupPolicy` is `draft → approved → disabled|expired|superseded`.
 Only an authenticated user with the cleanup-policy capability may approve it.
