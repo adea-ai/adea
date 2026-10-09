@@ -3,26 +3,32 @@
  *
  * The workspace lead executes the same inventory operations as the human
  * controls, through the same {@link ManagementOperations} gateway. This module
- * only resolves the lead's inherited turn authority and maps a tool call onto
- * the shared operation; it never mints a principal or imports a database.
+ * resolves the lead's inherited turn authority, requires an immutable CP
+ * decision bound to the exact operation, workspace, target and input, and
+ * revalidates that binding locally before any authorization or executor call.
  *
- * A lead tool without a resolved upstream authority fails closed with the
- * typed `upstream_authority_unavailable` reason, and an operation that the
- * inventory does not mark callable on the lead lane is refused before any
- * authority lookup, so a missing upstream contract can never widen a grant.
+ * A malformed, absent, changed, expired, denied or replayed decision fails
+ * closed with a typed reason. The surface imports no database and mints no
+ * principal: it only forwards the decision's original user principal.
  *
  * No `server-only` marker: Bun-run unit tests import this module directly.
  */
 import type { UserPrincipalRef } from '@adea-ai/types'
 import {
   isManagementOperationId,
+  managementCallBinding,
   managementOperationSupport,
   managementOperations,
+  parseManagementAuthorityDecision,
+  validateManagementAuthorityDecision,
+  type ManagementAuthorityDecision,
+  type ManagementAuthorityReasonCode,
+  type ManagementCallBinding,
   type ManagementDomain,
   type ManagementOperationId,
 } from '@adea-ai/types/management'
 
-import type { ManagementCaller, ManagementOutcome } from './management-gateway'
+import type { ManagementCaller, ManagementFailure, ManagementOutcome } from './management-gateway'
 import type { ManagementOperations } from './management-operations'
 
 /** The immutable upstream turn authority reference a lead tool must carry. */
@@ -69,13 +75,17 @@ export type LeadManagementToolCall = {
 export type LeadManagementToolsDependencies = Readonly<{
   operationsFor(caller: ManagementCaller): ManagementOperations
   /**
-   * Resolves the canonical turn authority for this exact lead/authority/intent
-   * binding. Absent or unresolved authority fails closed; the adapter never
-   * fabricates one.
+   * Resolves the current immutable decision for this exact call. The upstream
+   * authority (CP932) must recheck current grants and atomically consume any
+   * single-use approval before returning; absent or unresolved authority fails
+   * closed. The adapter never fabricates one.
    */
   resolveAuthority?(
-    input: LeadManagementAuthority
-  ): Promise<Readonly<{ principal: UserPrincipalRef }> | null>
+    input: Readonly<LeadManagementAuthority & { binding: ManagementCallBinding }>
+  ): Promise<unknown>
+  /** Optional local single-use guard, defense in depth behind the CP store. */
+  consumeDecision?(decision: ManagementAuthorityDecision): Promise<boolean>
+  now?(): number
 }>
 
 /** The lead-callable slice of the inventory, derived from the same catalog. */
@@ -92,28 +102,125 @@ export function leadManagementToolDefinitions(): readonly LeadManagementToolDefi
   )
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function nonBlankString(field: unknown): field is string {
+  return typeof field === 'string' && field.trim().length > 0
+}
+
+/** Safe runtime read of the authority reference; never calls `.trim` on unknown. */
+function readAuthorityRef(
+  value: unknown
+): Readonly<{ authorityRef: string; intentId: string; leadAgentId: string }> | null {
+  if (!isPlainRecord(value)) return null
+  const { authorityRef, intentId, leadAgentId } = value
+  if (!nonBlankString(authorityRef) || !nonBlankString(intentId) || !nonBlankString(leadAgentId))
+    return null
+  return { authorityRef, intentId, leadAgentId }
+}
+
 function authorityFailure(
   operation: ManagementOperationId,
-  reason:
-    | 'device_required'
-    | 'not_implemented'
-    | 'upstream_authority_unavailable' = 'upstream_authority_unavailable'
+  reason: ManagementAuthorityReasonCode
 ): ManagementOutcome<never> {
   return Object.freeze({
     failure: Object.freeze({
-      ...(reason === 'upstream_authority_unavailable'
-        ? {
-            code: 'authority_required' as const,
-            message: 'Lead management authority is unavailable',
-          }
-        : {
-            code: 'unsupported' as const,
-            message: 'Management operation is not available on this lane',
-          }),
+      code: 'authority_required' as const,
+      message: 'Lead management authority is unavailable',
       operation,
       reason,
     }),
     ok: false,
+  })
+}
+
+function unsupportedFailure(
+  operation: ManagementOperationId,
+  reason: 'device_required' | 'not_implemented' | 'upstream_authority_unavailable'
+): ManagementOutcome<never> {
+  return Object.freeze({
+    failure: Object.freeze({
+      code: 'unsupported' as const,
+      message: 'Management operation is not available on this lane',
+      operation,
+      reason,
+    }),
+    ok: false,
+  })
+}
+
+function unavailableFailure(
+  operation: ManagementOperationId,
+  message: string
+): ManagementOutcome<never> {
+  return Object.freeze({
+    failure: Object.freeze({ code: 'unavailable' as const, message, operation }),
+    ok: false,
+  })
+}
+
+/** The exact canonical input object the decision's digest must cover. */
+function leadToolBindingInput(
+  call: LeadManagementToolCall
+): Readonly<{ input: Readonly<Record<string, unknown>>; targetId: string | null }> | null {
+  switch (call.operation) {
+    case 'project.archive':
+    case 'project.delete':
+      return { input: {}, targetId: call.projectId }
+    case 'project.create':
+      return {
+        input: {
+          iconKey: call.iconKey,
+          ...(call.id ? { id: call.id } : {}),
+          name: call.name,
+          ...(call.sourceKind ? { sourceKind: call.sourceKind } : {}),
+        },
+        targetId: call.id ?? null,
+      }
+    case 'project.member.remove':
+      return { input: { projectId: call.projectId }, targetId: call.userId }
+    case 'project.member.set':
+      return {
+        input: { projectId: call.projectId, role: call.role },
+        targetId: call.userId,
+      }
+    case 'project.reorder':
+      return { input: { projectIds: [...call.projectIds] }, targetId: null }
+    case 'project.update':
+      return {
+        input: {
+          ...(call.iconKey !== undefined ? { iconKey: call.iconKey } : {}),
+          ...(call.name !== undefined ? { name: call.name } : {}),
+          ...(call.sourceKind !== undefined ? { sourceKind: call.sourceKind } : {}),
+        },
+        targetId: call.projectId,
+      }
+    case 'project.visibility.set':
+      return { input: { visibility: call.visibility }, targetId: call.projectId }
+    case 'config.workspace.reopen':
+      return { input: {}, targetId: call.workspaceId }
+    case 'config.workspace.update':
+      return {
+        input: { expectedVersion: call.expectedVersion, ...call.update },
+        targetId: call.workspaceId,
+      }
+  }
+}
+
+/** Computes the exact-call binding the authority decision must match. */
+export async function leadManagementToolBinding(
+  call: LeadManagementToolCall
+): Promise<ManagementCallBinding | null> {
+  if (!isManagementOperationId(call.operation)) return null
+  const bindingInput = leadToolBindingInput(call)
+  if (!bindingInput) return null
+  return managementCallBinding({
+    input: bindingInput.input,
+    operation: call.operation,
+    targetId: bindingInput.targetId,
+    workspaceId: call.workspaceId,
   })
 }
 
@@ -130,29 +237,30 @@ function inputOf<Call extends LeadManagementToolCall>(
 function invoke(
   operations: ManagementOperations,
   call: LeadManagementToolCall,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  binding: ManagementCallBinding
 ): Promise<ManagementOutcome<unknown>> {
   switch (call.operation) {
     case 'project.archive':
-      return operations.projectArchive({ ...inputOf(call), principal })
+      return operations.projectArchive({ ...inputOf(call), principal }, binding)
     case 'project.create':
-      return operations.projectCreate({ ...inputOf(call), principal })
+      return operations.projectCreate({ ...inputOf(call), principal }, binding)
     case 'project.delete':
-      return operations.projectDelete({ ...inputOf(call), principal })
+      return operations.projectDelete({ ...inputOf(call), principal }, binding)
     case 'project.member.remove':
-      return operations.projectMemberRemove({ ...inputOf(call), principal })
+      return operations.projectMemberRemove({ ...inputOf(call), principal }, binding)
     case 'project.member.set':
-      return operations.projectMemberSet({ ...inputOf(call), principal })
+      return operations.projectMemberSet({ ...inputOf(call), principal }, binding)
     case 'project.reorder':
-      return operations.projectReorder({ ...inputOf(call), principal })
+      return operations.projectReorder({ ...inputOf(call), principal }, binding)
     case 'project.update':
-      return operations.projectUpdate({ ...inputOf(call), principal })
+      return operations.projectUpdate({ ...inputOf(call), principal }, binding)
     case 'project.visibility.set':
-      return operations.projectVisibilitySet({ ...inputOf(call), principal })
+      return operations.projectVisibilitySet({ ...inputOf(call), principal }, binding)
     case 'config.workspace.reopen':
-      return operations.workspaceReopen({ ...inputOf(call), principal })
+      return operations.workspaceReopen({ ...inputOf(call), principal }, binding)
     case 'config.workspace.update':
-      return operations.workspaceUpdate({ ...inputOf(call), principal })
+      return operations.workspaceUpdate({ ...inputOf(call), principal }, binding)
   }
 }
 
@@ -160,30 +268,60 @@ export async function executeLeadManagementTool(
   dependencies: LeadManagementToolsDependencies,
   call: LeadManagementToolCall
 ): Promise<ManagementOutcome<unknown>> {
-  // The runtime check duplicates the type-level union so a malformed caller
-  // (or an operation smuggled past the type) is refused before any authority
-  // lookup or executor call.
-  if (!isManagementOperationId(call.operation)) return authorityFailure('project.update')
-  const support = managementOperationSupport(call.operation, 'lead')
-  if (support.state === 'unsupported') return authorityFailure(call.operation, support.reason)
+  if (!isPlainRecord(call) || !isManagementOperationId(call.operation))
+    return authorityFailure('project.update', 'authority_malformed')
+  const operation = call.operation
+  const support = managementOperationSupport(operation, 'lead')
+  if (support.state === 'unsupported') return unsupportedFailure(operation, support.reason)
 
-  const authority = call.authority
-  const complete =
-    authority.authorityRef.trim().length > 0 &&
-    authority.intentId.trim().length > 0 &&
-    authority.leadAgentId.trim().length > 0
-  if (!complete) return authorityFailure(call.operation)
+  const authority = readAuthorityRef(call.authority)
+  if (!authority) return authorityFailure(operation, 'authority_malformed')
+  const binding = await leadManagementToolBinding(call)
+  if (!binding) return authorityFailure(operation, 'authority_malformed')
 
-  const resolved = dependencies.resolveAuthority
-    ? await dependencies.resolveAuthority(authority)
-    : null
-  if (!resolved?.principal) return authorityFailure(call.operation)
-
-  const caller: ManagementCaller = {
-    authorityRef: authority.authorityRef,
-    intentId: authority.intentId,
-    kind: 'lead',
-    leadAgentId: authority.leadAgentId,
+  let resolved: unknown
+  try {
+    resolved = dependencies.resolveAuthority
+      ? await dependencies.resolveAuthority({ ...authority, binding })
+      : null
+  } catch {
+    return authorityFailure(operation, 'authority_unavailable')
   }
-  return invoke(dependencies.operationsFor(caller), call, resolved.principal)
+  if (resolved === null || resolved === undefined)
+    return authorityFailure(operation, 'authority_unavailable')
+
+  const decision = parseManagementAuthorityDecision(resolved)
+  if (!decision) return authorityFailure(operation, 'authority_malformed')
+  const invalid = validateManagementAuthorityDecision(decision, {
+    authorityRef: authority.authorityRef,
+    binding,
+    intentId: authority.intentId,
+    leadAgentId: authority.leadAgentId,
+    now: dependencies.now?.() ?? Date.now(),
+  })
+  if (invalid) return authorityFailure(operation, invalid)
+
+  if (dependencies.consumeDecision) {
+    let consumed: boolean
+    try {
+      consumed = await dependencies.consumeDecision(decision)
+    } catch {
+      return authorityFailure(operation, 'authority_unavailable')
+    }
+    if (!consumed) return authorityFailure(operation, 'authority_replay')
+  }
+
+  let operations: ManagementOperations
+  try {
+    operations = dependencies.operationsFor({ decision, kind: 'lead', reference: authority })
+  } catch {
+    return unavailableFailure(operation, 'Management operations are unavailable')
+  }
+  try {
+    return await invoke(operations, call, decision.principal, binding)
+  } catch {
+    return unavailableFailure(operation, 'Management operation is unavailable')
+  }
 }
+
+export type { ManagementFailure }

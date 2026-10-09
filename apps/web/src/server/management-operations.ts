@@ -3,9 +3,10 @@
  *
  * Every cloud management operation below runs through the shared gateway
  * (`management-gateway.ts`), which applies the inventory's lane support,
- * authorization, revision/confirmation and audit contract to the exact
- * existing database API. HTTP routes and lead tools both call these functions,
- * so a management action cannot take a second, unaudited path.
+ * exact-call authority binding, authorization, revision/confirmation and audit
+ * contract to the exact existing database API. HTTP routes and lead tools both
+ * call these functions, so a management action cannot take a second,
+ * unaudited path.
  *
  * The executor map is injected: the composition module wires the real
  * `@adea-ai/db` functions, while focused tests substitute fakes without a
@@ -22,7 +23,7 @@ import type {
   WorkspaceSummary,
   WorkspaceUpdate,
 } from '@adea-ai/types'
-import type { ManagementOperationId } from '@adea-ai/types/management'
+import type { ManagementCallBinding, ManagementOperationId } from '@adea-ai/types/management'
 
 import type { ManagementGateway, ManagementOutcome } from './management-gateway'
 
@@ -97,9 +98,16 @@ export type ManagementExecutors = Readonly<{
   ): Promise<WorkspaceSummary>
 }>
 
+/**
+ * A lead caller must pass the exact-call binding its decision was issued for;
+ * a human caller omits it. The gateway refuses a lead invocation without it.
+ */
+export type ManagementBindingArgument = ManagementCallBinding | undefined
+
 export type ManagementOperations = Readonly<{
   projectArchive(
-    input: Readonly<{ principal: UserPrincipalRef; projectId: string; workspaceId: string }>
+    input: Readonly<{ principal: UserPrincipalRef; projectId: string; workspaceId: string }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<null>>
   projectCreate(
     input: Readonly<{
@@ -109,10 +117,12 @@ export type ManagementOperations = Readonly<{
       principal: UserPrincipalRef
       sourceKind?: ProjectSourceKind
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<ProjectSummary>>
   projectDelete(
-    input: Readonly<{ principal: UserPrincipalRef; projectId: string; workspaceId: string }>
+    input: Readonly<{ principal: UserPrincipalRef; projectId: string; workspaceId: string }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<null>>
   projectMemberRemove(
     input: Readonly<{
@@ -120,7 +130,8 @@ export type ManagementOperations = Readonly<{
       projectId: string
       userId: string
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<boolean>>
   projectMemberSet(
     input: Readonly<{
@@ -129,14 +140,16 @@ export type ManagementOperations = Readonly<{
       role: ProjectMemberRole
       userId: string
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<ProjectMemberSummary>>
   projectReorder(
     input: Readonly<{
       principal: UserPrincipalRef
       projectIds: readonly string[]
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<readonly ProjectSummary[]>>
   projectUpdate(
     input: Readonly<{
@@ -146,7 +159,8 @@ export type ManagementOperations = Readonly<{
       projectId: string
       sourceKind?: ProjectSourceKind
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<ProjectSummary>>
   projectVisibilitySet(
     input: Readonly<{
@@ -154,10 +168,12 @@ export type ManagementOperations = Readonly<{
       projectId: string
       visibility: ProjectVisibility
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<ProjectSummary>>
   workspaceReopen(
-    input: Readonly<{ principal: UserPrincipalRef; workspaceId: string }>
+    input: Readonly<{ principal: UserPrincipalRef; workspaceId: string }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<WorkspaceSummary>>
   workspaceUpdate(
     input: Readonly<{
@@ -165,7 +181,8 @@ export type ManagementOperations = Readonly<{
       principal: UserPrincipalRef
       update: WorkspaceUpdate
       workspaceId: string
-    }>
+    }>,
+    binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<WorkspaceSummary>>
 }>
 
@@ -179,9 +196,10 @@ function run<T>(
   gateway: ManagementGateway,
   operation: ManagementOperationId,
   input: Readonly<{ includeArchived?: boolean; principal: UserPrincipalRef; workspaceId: string }>,
+  binding: ManagementBindingArgument,
   execute: () => Promise<T>
 ) {
-  return gateway.run(operation, input, execute)
+  return gateway.run(operation, binding ? { ...input, binding } : input, execute)
 }
 
 export function createManagementOperations(
@@ -189,11 +207,12 @@ export function createManagementOperations(
 ): ManagementOperations {
   const { database, executors, gateway } = options
   return Object.freeze({
-    projectArchive: (input) =>
+    projectArchive: (input, binding) =>
       run(
         gateway,
         'project.archive',
         input,
+        binding,
         async () =>
           (await executors.archiveProject(
             database(),
@@ -202,8 +221,8 @@ export function createManagementOperations(
             input.principal
           )) ?? null
       ),
-    projectCreate: (input) =>
-      run(gateway, 'project.create', input, () =>
+    projectCreate: (input, binding) =>
+      run(gateway, 'project.create', input, binding, () =>
         executors.createProject(database(), input.workspaceId, input.principal, {
           iconKey: input.iconKey,
           ...(input.id ? { id: input.id } : {}),
@@ -211,11 +230,12 @@ export function createManagementOperations(
           ...(input.sourceKind ? { sourceKind: input.sourceKind } : {}),
         })
       ),
-    projectDelete: (input) =>
+    projectDelete: (input, binding) =>
       run(
         gateway,
         'project.delete',
         input,
+        binding,
         async () =>
           (await executors.softDeleteProject(
             database(),
@@ -224,8 +244,8 @@ export function createManagementOperations(
             input.principal
           )) ?? null
       ),
-    projectMemberRemove: (input) =>
-      run(gateway, 'project.member.remove', input, () =>
+    projectMemberRemove: (input, binding) =>
+      run(gateway, 'project.member.remove', input, binding, () =>
         executors.removeProjectMember(
           database(),
           input.workspaceId,
@@ -234,8 +254,8 @@ export function createManagementOperations(
           input.userId
         )
       ),
-    projectMemberSet: (input) =>
-      run(gateway, 'project.member.set', input, () =>
+    projectMemberSet: (input, binding) =>
+      run(gateway, 'project.member.set', input, binding, () =>
         executors.setProjectMember(
           database(),
           input.workspaceId,
@@ -247,20 +267,20 @@ export function createManagementOperations(
           }
         )
       ),
-    projectReorder: (input) =>
-      run(gateway, 'project.reorder', input, () =>
+    projectReorder: (input, binding) =>
+      run(gateway, 'project.reorder', input, binding, () =>
         executors.reorderProjects(database(), input.workspaceId, input.principal, input.projectIds)
       ),
-    projectUpdate: (input) =>
-      run(gateway, 'project.update', input, () =>
+    projectUpdate: (input, binding) =>
+      run(gateway, 'project.update', input, binding, () =>
         executors.updateProject(database(), input.workspaceId, input.projectId, input.principal, {
           ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
         })
       ),
-    projectVisibilitySet: (input) =>
-      run(gateway, 'project.visibility.set', input, () =>
+    projectVisibilitySet: (input, binding) =>
+      run(gateway, 'project.visibility.set', input, binding, () =>
         executors.setProjectVisibility(
           database(),
           input.workspaceId,
@@ -269,12 +289,12 @@ export function createManagementOperations(
           input.visibility
         )
       ),
-    workspaceReopen: (input) =>
-      run(gateway, 'config.workspace.reopen', { ...input, includeArchived: true }, () =>
+    workspaceReopen: (input, binding) =>
+      run(gateway, 'config.workspace.reopen', { ...input, includeArchived: true }, binding, () =>
         executors.reopenWorkspace(database(), input.workspaceId, input.principal)
       ),
-    workspaceUpdate: (input) =>
-      run(gateway, 'config.workspace.update', input, () =>
+    workspaceUpdate: (input, binding) =>
+      run(gateway, 'config.workspace.update', input, binding, () =>
         executors.updateWorkspace(database(), input.workspaceId, input.principal, {
           expectedVersion: input.expectedVersion,
           update: input.update,

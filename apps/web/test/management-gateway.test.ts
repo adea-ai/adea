@@ -8,17 +8,33 @@ import {
   type ManagementAuditDecision,
   type ManagementCaller,
 } from '../src/server/management-gateway'
+import type { ManagementAuthorityDecision } from '@adea-ai/types/management'
+import {
+  MANAGEMENT_NOW,
+  MANAGEMENT_PRINCIPAL,
+  MANAGEMENT_PROJECT,
+  MANAGEMENT_WORKSPACE,
+  managementAuthorityDecision,
+} from './helpers/management-authority'
 
-const WORKSPACE = '0f3a2e1c-0000-4000-8000-000000000001'
-const PROJECT = '0f3a2e1c-0000-4000-8000-000000000002'
-const PRINCIPAL: UserPrincipalRef = { kind: 'user', userId: 'user-1' }
+const PRINCIPAL: UserPrincipalRef = MANAGEMENT_PRINCIPAL
 
 const human: ManagementCaller = { kind: 'human' }
-const lead: ManagementCaller = {
-  authorityRef: 'lead-turn:authority',
-  intentId: 'intent-1',
-  kind: 'lead',
-  leadAgentId: 'agent-lead-1',
+
+function humanCaller(): ManagementCaller {
+  return human
+}
+
+function leadCaller(decision: ManagementAuthorityDecision): ManagementCaller {
+  return {
+    decision,
+    kind: 'lead',
+    reference: {
+      authorityRef: decision.authorityRef,
+      intentId: decision.intentId,
+      leadAgentId: decision.leadAgentId,
+    },
+  }
 }
 
 type AuthorizeCall = Readonly<{
@@ -28,7 +44,11 @@ type AuthorizeCall = Readonly<{
   workspaceId: string
 }>
 
-function dependencies(options?: { allowed?: boolean }) {
+function dependencies(options?: {
+  allowed?: boolean
+  auditThrows?: boolean
+  authorizeThrows?: boolean
+}) {
   const authorized: AuthorizeCall[] = []
   const audited: ManagementAuditDecision[] = []
   let executed = 0
@@ -37,10 +57,12 @@ function dependencies(options?: { allowed?: boolean }) {
     authorized,
     dependencies: {
       async authorize(input: AuthorizeCall) {
+        if (options?.authorizeThrows) throw new Error('authorization backend secret detail')
         authorized.push(input)
         return options?.allowed ?? true
       },
       async audit(record: ManagementAuditDecision) {
+        if (options?.auditThrows) throw new Error('audit backend secret detail')
         audited.push(record)
       },
     },
@@ -51,18 +73,30 @@ function dependencies(options?: { allowed?: boolean }) {
   }
 }
 
+function gatewayFor(harness: ReturnType<typeof dependencies>, caller: ManagementCaller) {
+  return createManagementGateway(harness.dependencies, caller, () => MANAGEMENT_NOW)
+}
+
 describe('shared management gateway (#1215)', () => {
   test('a human and a lead caller run the same operation through the same authorization', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const lead: ManagementCaller = leadCaller(decision)
+    const binding = decision.binding
+
     const runs = await Promise.all(
-      [human, lead].map(async (caller) => {
+      [humanCaller(), lead].map(async (caller) => {
         const harness = dependencies()
-        const gateway = createManagementGateway(harness.dependencies, caller)
+        const gateway = gatewayFor(harness, caller)
         const outcome = await gateway.run(
           'project.update',
-          { principal: PRINCIPAL, workspaceId: WORKSPACE },
+          { binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
           async () => {
             harness.countExecution()
-            return { projectId: PROJECT, updated: true }
+            return { projectId: MANAGEMENT_PROJECT, updated: true }
           }
         )
         return { harness, outcome }
@@ -72,13 +106,13 @@ describe('shared management gateway (#1215)', () => {
       expect(outcome).toEqual({
         ok: true,
         operation: 'project.update',
-        value: { projectId: PROJECT, updated: true },
+        value: { projectId: MANAGEMENT_PROJECT, updated: true },
       })
       expect(harness.authorized).toEqual([
         {
           permission: 'workspace.update',
           principal: PRINCIPAL,
-          workspaceId: WORKSPACE,
+          workspaceId: MANAGEMENT_WORKSPACE,
         },
       ])
       expect(harness.executed()).toBe(1)
@@ -88,47 +122,189 @@ describe('shared management gateway (#1215)', () => {
     expect(runs[0]!.harness.audited).toEqual([])
     expect(runs[1]!.harness.audited).toEqual([
       {
+        authorityRef: 'authority-1',
+        binding,
         caller: lead,
         decision: 'allowed',
+        decisionId: 'decision-1',
         operation: 'project.update',
         permission: 'workspace.update',
         principal: PRINCIPAL,
         reason: 'lead_management_allowed',
-        workspaceId: WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
       },
     ])
   })
 
-  test('a lead caller without resolved authority fails closed before authorization', async () => {
-    const harness = dependencies()
-    const gateway = createManagementGateway(harness.dependencies, {
-      kind: 'lead',
-      authorityRef: '',
-      intentId: '',
-      leadAgentId: '',
+  test('a decision bound to another workspace, target, operation or input never executes', async () => {
+    const cases = [
+      await managementAuthorityDecision({
+        input: { name: 'Renamed' },
+        operation: 'project.update',
+        targetId: MANAGEMENT_PROJECT,
+        workspaceId: '0f3a2e1c-0000-4000-8000-00000000aaaa',
+      }),
+      await managementAuthorityDecision({
+        input: { name: 'Renamed' },
+        operation: 'project.update',
+        targetId: '0f3a2e1c-0000-4000-8000-00000000bbbb',
+      }),
+      await managementAuthorityDecision({
+        input: { name: 'Renamed' },
+        operation: 'project.delete',
+        targetId: MANAGEMENT_PROJECT,
+      }),
+      await managementAuthorityDecision({
+        input: { name: 'Different' },
+        operation: 'project.update',
+        targetId: MANAGEMENT_PROJECT,
+      }),
+    ]
+    for (const decision of cases) {
+      const harness = dependencies()
+      const gateway = gatewayFor(harness, leadCaller(decision))
+      const outcome = await gateway.run(
+        'project.update',
+        { principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+        async () => {
+          harness.countExecution()
+          return 'executed'
+        }
+      )
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) throw new Error('unreachable')
+      expect(outcome.failure.reason).toBe('authority_binding_mismatch')
+      expect(harness.authorized).toEqual([])
+      expect(harness.audited).toEqual([])
+      expect(harness.executed()).toBe(0)
+    }
+  })
+
+  test('a lead caller without a decision or binding fails closed before authorization', async () => {
+    const noDecisionHarness = dependencies()
+    const noDecision = createManagementGateway(
+      noDecisionHarness.dependencies,
+      { decision: undefined as never, kind: 'lead', reference: undefined as never },
+      () => MANAGEMENT_NOW
+    )
+    const first = await noDecision.run(
+      'project.update',
+      { principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        noDecisionHarness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(first.ok).toBe(false)
+    if (first.ok) throw new Error('unreachable')
+    expect(first.failure.reason).toBe('authority_malformed')
+    expect(noDecisionHarness.authorized).toEqual([])
+    expect(noDecisionHarness.executed()).toBe(0)
+
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
     })
+    const noBindingHarness = dependencies()
+    const noBinding = createManagementGateway(
+      noBindingHarness.dependencies,
+      leadCaller(decision),
+      () => MANAGEMENT_NOW
+    )
+    const second = await noBinding.run(
+      'project.update',
+      { principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        noBindingHarness.countExecution()
+        return 'executed'
+      }
+    )
+    expect(second.ok).toBe(false)
+    if (second.ok) throw new Error('unreachable')
+    expect(second.failure.reason).toBe('authority_binding_mismatch')
+    expect(noBindingHarness.authorized).toEqual([])
+    expect(noBindingHarness.executed()).toBe(0)
+  })
+
+  test('denied, expired and future decisions map to typed reasons without executing', async () => {
+    const denied = await managementAuthorityDecision({
+      decision: 'denied',
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const expired = await managementAuthorityDecision({
+      expiresAt: new Date(MANAGEMENT_NOW - 1).toISOString(),
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const future = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      issuedAt: new Date(MANAGEMENT_NOW + 1_000).toISOString(),
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    for (const [decision, reason] of [
+      [denied, 'authority_denied'],
+      [expired, 'authority_expired'],
+      [future, 'authority_not_yet_valid'],
+    ] as const) {
+      const harness = dependencies()
+      const gateway = gatewayFor(harness, leadCaller(decision))
+      const outcome = await gateway.run(
+        'project.update',
+        { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+        async () => {
+          harness.countExecution()
+          return 'executed'
+        }
+      )
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) throw new Error('unreachable')
+      expect(outcome.failure.reason).toBe(reason)
+      expect(harness.authorized).toEqual([])
+      expect(harness.executed()).toBe(0)
+    }
+  })
+
+  test('a decision identity that does not match the resolver request is refused', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const harness = dependencies()
+    const gateway = createManagementGateway(
+      harness.dependencies,
+      {
+        decision: { ...decision, intentId: 'other-intent' },
+        kind: 'lead',
+        reference: {
+          authorityRef: decision.authorityRef,
+          intentId: decision.intentId,
+          leadAgentId: decision.leadAgentId,
+        },
+      },
+      () => MANAGEMENT_NOW
+    )
     const outcome = await gateway.run(
       'project.update',
-      { principal: PRINCIPAL, workspaceId: WORKSPACE },
-      async () => harness.countExecution()
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => 'executed'
     )
     expect(outcome.ok).toBe(false)
     if (outcome.ok) throw new Error('unreachable')
-    expect(outcome.failure).toMatchObject({
-      code: 'authority_required',
-      reason: 'upstream_authority_unavailable',
-    })
-    expect(harness.authorized).toEqual([])
-    expect(harness.audited).toEqual([])
-    expect(harness.executed()).toBe(0)
+    expect(outcome.failure.reason).toBe('authority_binding_mismatch')
   })
 
   test('device-only management is refused with a typed reason and no side effects', async () => {
     const harness = dependencies()
-    const gateway = createManagementGateway(harness.dependencies, lead)
+    const gateway = gatewayFor(harness, humanCaller())
     const outcome = await gateway.run(
       'memory.entry.update',
-      { principal: PRINCIPAL, workspaceId: WORKSPACE },
+      { principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
       async () => harness.countExecution()
     )
     expect(outcome.ok).toBe(false)
@@ -143,12 +319,48 @@ describe('shared management gateway (#1215)', () => {
     expect(harness.executed()).toBe(0)
   })
 
+  test('authorization and audit backend errors become bounded failures before execution', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    for (const options of [{ authorizeThrows: true }, { auditThrows: true }]) {
+      const harness = dependencies(options)
+      const gateway = gatewayFor(harness, leadCaller(decision))
+      const outcome = await gateway.run(
+        'project.update',
+        { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+        async () => {
+          harness.countExecution()
+          return 'executed'
+        }
+      )
+      expect(outcome.ok).toBe(false)
+      if (outcome.ok) throw new Error('unreachable')
+      expect(outcome.failure).toEqual({
+        code: 'unavailable',
+        message: options.auditThrows
+          ? 'Management audit is unavailable'
+          : 'Management authorization is unavailable',
+        operation: 'project.update',
+      })
+      expect(harness.executed()).toBe(0)
+      expect(JSON.stringify(outcome)).not.toContain('secret')
+    }
+  })
+
   test('denied authorization never executes and is attributed for a lead', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.delete',
+      targetId: MANAGEMENT_PROJECT,
+    })
     const harness = dependencies({ allowed: false })
-    const gateway = createManagementGateway(harness.dependencies, lead)
+    const gateway = gatewayFor(harness, leadCaller(decision))
     const outcome = await gateway.run(
       'project.delete',
-      { principal: PRINCIPAL, workspaceId: WORKSPACE },
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
       async () => harness.countExecution()
     )
     expect(outcome.ok).toBe(false)
@@ -157,23 +369,26 @@ describe('shared management gateway (#1215)', () => {
     expect(harness.executed()).toBe(0)
     expect(harness.audited).toEqual([
       {
-        caller: lead,
+        authorityRef: decision.authorityRef,
+        binding: decision.binding,
+        caller: leadCaller(decision),
         decision: 'denied',
+        decisionId: decision.decisionId,
         operation: 'project.delete',
         permission: 'workspace.update',
         principal: PRINCIPAL,
         reason: 'lead_management_denied',
-        workspaceId: WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
       },
     ])
   })
 
   test('reopen passes the archived authorization flag exactly once through the shared path', async () => {
     const harness = dependencies()
-    const gateway = createManagementGateway(harness.dependencies, human)
+    const gateway = gatewayFor(harness, humanCaller())
     await gateway.run(
       'config.workspace.reopen',
-      { includeArchived: true, principal: PRINCIPAL, workspaceId: WORKSPACE },
+      { includeArchived: true, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
       async () => 'reopened'
     )
     expect(harness.authorized).toEqual([
@@ -181,7 +396,7 @@ describe('shared management gateway (#1215)', () => {
         includeArchived: true,
         permission: 'workspace.update',
         principal: PRINCIPAL,
-        workspaceId: WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
       },
     ])
   })
@@ -193,6 +408,7 @@ describe('shared management gateway (#1215)', () => {
       ['Project order conflict', 'stale_revision'],
       ['Project id conflict', 'conflict'],
       ['Project sharing forbidden', 'forbidden'],
+      ['Project read-only', 'forbidden'],
       ['Project unavailable', 'unavailable'],
       ['Workspace unavailable', 'unavailable'],
       ['Workspace cleanup required', 'conflict'],

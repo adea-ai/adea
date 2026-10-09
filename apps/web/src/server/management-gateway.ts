@@ -5,12 +5,15 @@
  * this one gateway: the inventory decides whether the operation is callable on
  * the caller's lane, the shared authorization API decides access for the same
  * user principal both paths carry, and the existing executor performs the
- * mutation. The gateway never mints authority: a lead caller must already
- * carry a resolved upstream turn authority, and a missing one fails closed
- * with a typed reason.
+ * mutation. The gateway never mints authority: a lead caller must carry an
+ * immutable CP-issued decision that is revalidated against the exact operation,
+ * workspace, target and input binding before anything is authorized or run.
  *
  * Device-local operations stay on their authorized local APIs; a cloud caller
- * receives `device_required` instead of an inferred grant.
+ * receives `device_required` instead of an inferred grant. Every authority,
+ * authorization, audit and upstream failure is projected to a bounded typed
+ * failure; a mismatched decision performs zero authorization and zero
+ * executor calls.
  *
  * No `server-only` marker: Bun-run unit tests import this module directly.
  */
@@ -18,18 +21,28 @@ import type { UserPrincipalRef, WorkspacePermission } from '@adea-ai/types'
 import {
   managementOperationSupport,
   managementOperations,
+  validateManagementAuthorityDecision,
+  type ManagementAuthorityDecision,
+  type ManagementAuthorityReasonCode,
+  type ManagementCallBinding,
   type ManagementOperationId,
   type ManagementUnsupportedReason,
 } from '@adea-ai/types/management'
+
+export type ManagementAuthorityReference = Readonly<{
+  authorityRef: string
+  intentId: string
+  leadAgentId: string
+}>
 
 export type ManagementCaller =
   | Readonly<{ kind: 'human' }>
   | Readonly<{
       kind: 'lead'
-      /** Opaque upstream authority reference; proves the turn was admitted. */
-      authorityRef: string
-      intentId: string
-      leadAgentId: string
+      /** The exact authority reference the canonical turn resolved. */
+      reference: ManagementAuthorityReference
+      /** Immutable CP decision for the exact call; never a bare reference. */
+      decision: ManagementAuthorityDecision
     }>
 
 export type ManagementFailureCode =
@@ -40,11 +53,13 @@ export type ManagementFailureCode =
   | 'unavailable'
   | 'unsupported'
 
+export type ManagementFailureReason = ManagementAuthorityReasonCode | ManagementUnsupportedReason
+
 export type ManagementFailure = Readonly<{
   code: ManagementFailureCode
   message: string
   operation: ManagementOperationId
-  reason?: ManagementUnsupportedReason
+  reason?: ManagementFailureReason
 }>
 
 export type ManagementOutcome<T> =
@@ -60,6 +75,10 @@ export type ManagementAuditDecision = Readonly<{
   principal: UserPrincipalRef
   reason: 'lead_management_allowed' | 'lead_management_denied'
   workspaceId: string
+  /** Present only for a lead decision, naming the exact consumed approval. */
+  authorityRef?: string
+  decisionId?: string
+  binding?: ManagementCallBinding
 }>
 
 export type ManagementAuthorizationInput = Readonly<{
@@ -77,6 +96,8 @@ export type ManagementGatewayDependencies = Readonly<{
 }>
 
 export type ManagementRunInput = Readonly<{
+  /** Exact-call binding required for a lead caller and revalidated here. */
+  binding?: ManagementCallBinding
   includeArchived?: boolean
   principal: UserPrincipalRef
   workspaceId: string
@@ -151,7 +172,19 @@ export function managementFailure(
   })
 }
 
-function asUnsupported(
+function authorityFailure(
+  operation: ManagementOperationId,
+  reason: ManagementAuthorityReasonCode
+): ManagementFailure {
+  return Object.freeze({
+    code: 'authority_required' as const,
+    message: 'Lead management authority is unavailable',
+    operation,
+    reason,
+  })
+}
+
+function unsupportedFailure(
   operation: ManagementOperationId,
   reason: ManagementUnsupportedReason
 ): ManagementFailure {
@@ -165,7 +198,8 @@ function asUnsupported(
 
 export function createManagementGateway(
   dependencies: ManagementGatewayDependencies,
-  caller: ManagementCaller
+  caller: ManagementCaller,
+  now: () => number = Date.now
 ): ManagementGateway {
   return Object.freeze({
     caller,
@@ -177,42 +211,78 @@ export function createManagementGateway(
       const lane = caller.kind === 'lead' ? 'lead' : 'web'
       const support = managementOperationSupport(operation, lane)
       if (support.state === 'unsupported')
-        return Object.freeze({ failure: asUnsupported(operation, support.reason), ok: false })
+        return Object.freeze({ failure: unsupportedFailure(operation, support.reason), ok: false })
 
       if (caller.kind === 'lead') {
-        const complete =
-          caller.leadAgentId.trim().length > 0 &&
-          caller.intentId.trim().length > 0 &&
-          caller.authorityRef.trim().length > 0
-        if (!complete)
+        const decision = caller.decision
+        if (!decision || decision.schemaVersion !== 'adea-management-authority/v1')
           return Object.freeze({
-            failure: Object.freeze({
-              code: 'authority_required' as const,
-              message: 'Lead management authority is unavailable',
-              operation,
-              reason: 'upstream_authority_unavailable' as const,
-            }),
+            failure: authorityFailure(operation, 'authority_malformed'),
             ok: false,
           })
+        const binding = input.binding
+        if (!binding)
+          return Object.freeze({
+            failure: authorityFailure(operation, 'authority_binding_mismatch'),
+            ok: false,
+          })
+        const invalid =
+          validateManagementAuthorityDecision(decision, {
+            authorityRef: caller.reference.authorityRef,
+            binding,
+            intentId: caller.reference.intentId,
+            leadAgentId: caller.reference.leadAgentId,
+            now: now(),
+          }) ?? bindingOperationMismatch(operation, input, decision, binding)
+        if (invalid)
+          return Object.freeze({ failure: authorityFailure(operation, invalid), ok: false })
       }
 
       const permission = permissionFor(operation)
-      const allowed = await dependencies.authorize({
-        ...(input.includeArchived ? { includeArchived: true } : {}),
-        permission,
-        principal: input.principal,
-        workspaceId: input.workspaceId,
-      })
-      if (caller.kind === 'lead' && dependencies.audit)
-        await dependencies.audit({
-          caller,
-          decision: allowed ? 'allowed' : 'denied',
-          operation,
+      let allowed: boolean
+      try {
+        allowed = await dependencies.authorize({
+          ...(input.includeArchived ? { includeArchived: true } : {}),
           permission,
           principal: input.principal,
-          reason: allowed ? 'lead_management_allowed' : 'lead_management_denied',
           workspaceId: input.workspaceId,
         })
+      } catch {
+        return Object.freeze({
+          failure: Object.freeze({
+            code: 'unavailable' as const,
+            message: 'Management authorization is unavailable',
+            operation,
+          }),
+          ok: false,
+        })
+      }
+      if (caller.kind === 'lead' && dependencies.audit) {
+        try {
+          await dependencies.audit({
+            ...(caller.decision.authorityRef ? { authorityRef: caller.decision.authorityRef } : {}),
+            ...(input.binding ? { binding: input.binding } : {}),
+            caller,
+            decision: allowed ? 'allowed' : 'denied',
+            decisionId: caller.decision.decisionId,
+            operation,
+            permission,
+            principal: input.principal,
+            reason: allowed ? 'lead_management_allowed' : 'lead_management_denied',
+            workspaceId: input.workspaceId,
+          })
+        } catch {
+          // A lead action may not execute without its attribution record.
+          return Object.freeze({
+            failure: Object.freeze({
+              code: 'unavailable' as const,
+              message: 'Management audit is unavailable',
+              operation,
+            }),
+            ok: false,
+          })
+        }
+      }
       if (!allowed)
         return Object.freeze({
           failure: Object.freeze({
@@ -230,6 +300,23 @@ export function createManagementGateway(
       }
     },
   })
+}
+
+/** The binding must name the operation and workspace actually being run. */
+function bindingOperationMismatch(
+  operation: ManagementOperationId,
+  input: ManagementRunInput,
+  decision: ManagementAuthorityDecision,
+  binding: ManagementCallBinding
+): ManagementAuthorityReasonCode | null {
+  if (
+    binding.operation !== operation ||
+    binding.workspaceId !== input.workspaceId ||
+    decision.binding.workspaceId !== input.workspaceId ||
+    decision.binding.operation !== operation
+  )
+    return 'authority_binding_mismatch'
+  return null
 }
 
 function permissionFor(operation: ManagementOperationId): WorkspacePermission {
