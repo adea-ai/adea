@@ -6,12 +6,14 @@ import postgres from 'postgres'
 import { createGroupChannel, createMessage } from '../../src/conversations'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createContentRef } from '../../src/content-refs'
+import type { JsonObject } from '../../src/schema/conventions'
 import { createUserWithAuthIdentity, createTemporaryUserSession } from '../../src/identity'
 import {
   captureMigrationSnapshot,
   captureMigrationSnapshotInTransaction,
   type MigrationSnapshotCaptureIdentityInput,
   MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
+  PAYLOAD_CANONICAL_MAX_DEPTH,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
 import { setProjectMember } from '../../src/project-sharing'
@@ -26,6 +28,7 @@ import {
   tasks,
   temporaryUserSessions,
   users,
+  workspaceEvents,
   workspaceMemberships,
   workspaces,
 } from '../../src/schema'
@@ -61,6 +64,20 @@ const captureIdentity = (snapshotId: string): MigrationSnapshotCaptureIdentityIn
   snapshotId,
   source: 'integration',
 })
+
+/**
+ * A payload whose content sits entirely below the canonical depth cap: a
+ * skeleton of single-key objects with the leaf buried `PAYLOAD_CANONICAL_MAX_DEPTH + 8`
+ * levels down, so two such payloads are byte-identical above the cap and
+ * differ only where the digest's fold must still see them.
+ */
+const payloadNestedBelow = (leaf: string): JsonObject => {
+  let value: JsonObject = { leaf }
+  for (let depth = 0; depth < PAYLOAD_CANONICAL_MAX_DEPTH + 8; depth += 1) {
+    value = { layer: value }
+  }
+  return value
+}
 
 function capture(connection: DatabaseConnection, snapshotId: string, limitPerFamily?: number) {
   return captureMigrationSnapshot(connection.db, {
@@ -510,6 +527,59 @@ describe.skipIf(!connectionUrl)('migration snapshot capture', () => {
         })
       )
     } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  test('payloads differing only below the digest depth cap are typed digest drift', async () => {
+    const fixture = await buildFixture(connection)
+    const eventId = crypto.randomUUID()
+    // Identical above the canonical depth cap, different below it. The
+    // payload itself never travels; only its digest does, so the two captures
+    // differ in the document ONLY if the digest folds the deep content in.
+    try {
+      // The fixture's domain helpers may already have written events for this
+      // workspace; append after them to respect the per-workspace sequence.
+      const [{ nextSequence }] = await connection.db
+        .select({
+          nextSequence: sql<number>`coalesce(max(${workspaceEvents.workspaceSequence}), 0) + 1`,
+        })
+        .from(workspaceEvents)
+        .where(eq(workspaceEvents.workspaceId, fixture.workspace.id))
+      await connection.db.insert(workspaceEvents).values({
+        aggregateType: 'workspace',
+        eventType: 'capture.depth-probe',
+        id: eventId,
+        payload: payloadNestedBelow('before'),
+        schemaVersion: 1,
+        workspaceId: fixture.workspace.id,
+        workspaceSequence: nextSequence,
+      })
+      const before = await capture(connection, 'snapshot-before')
+      await connection.db
+        .update(workspaceEvents)
+        .set({ payload: payloadNestedBelow('after') })
+        .where(eq(workspaceEvents.id, eventId))
+      const after = await capture(connection, 'snapshot-after')
+
+      const comparison = compareMigrationSnapshots({
+        after: after.document,
+        before: before.document,
+      })
+      // Past the depth fold, identical skeletons with different deep leaves
+      // digest differently; under the old constant '"~depth"' marker this
+      // comparison came back identical.
+      expect(comparison.verdict).toBe('divergent')
+      expect(comparison.findings).toContainEqual(
+        expect.objectContaining({
+          detail: expect.objectContaining({ field: 'payloadDigest' }),
+          family: 'events',
+          findingClass: 'digest_drift',
+          stableId: eventId,
+        })
+      )
+    } finally {
+      await connection.db.delete(workspaceEvents).where(eq(workspaceEvents.id, eventId))
       await fixture.cleanup()
     }
   })
