@@ -149,6 +149,25 @@ describe('lead management tools (#1215)', () => {
     ])
   })
 
+  test('forwards the canonical request to the operation caller', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Lead rename' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const run = harness({ resolved: decision })
+    const canonicalRequest = { toolCallId: 'tlc_01JABCDEF0123456789ABCDEFG' }
+    await executeLeadManagementTool(run.dependencies, updateCall, canonicalRequest)
+    expect(run.callers).toEqual([
+      {
+        canonicalRequest,
+        decision,
+        kind: 'lead',
+        reference: AUTHORITY,
+      },
+    ])
+  })
+
   test('the resolver receives the exact-call binding, not just reference strings', async () => {
     const decision = await managementAuthorityDecision({
       input: { name: 'Lead rename' },

@@ -117,11 +117,15 @@ files):
    hosted graph lane shows the construction pattern in
    `apps/hosted-control-plane/src/hosted-graph-tool-operations.ts`.
 2. The CP host must include the canonical tool-call request in the management
-   call and bind it to the signed decision (for example a
-   `canonicalRequestDigest` claim covering the exact object Adea forwards), so
-   the Adea route seam can pass it to this client without Adea constructing or
-   interpreting it. Until that binding lands, the Adea seam refuses with
-   `authority_unavailable`.
+   call and sign a `canonicalRequestDigest` claim covering the exact object
+   Adea forwards. The Adea seam now implements that binding: the verifier
+   requires the `sha256:` digest claim, the route recomputes it over the body's
+   `canonicalRequest` and refuses a mismatch with
+   `authority_binding_mismatch`, then forwards the same opaque request to the
+   admission assertion and the effect assertion. Adea never constructs or
+   interprets the request. The CP decision issuer that emits the claim and the
+   management tool effect that posts to Adea remain CP-host work; the
+   production-composed Adea test proves the seam against a loopback CP route.
 
 `packages/pi-durable-adapter/src/composition.ts` (`tools.assertAuthority`) and
 `packages/pi-durable-adapter/src/effect-gate.ts` consume the authority at the

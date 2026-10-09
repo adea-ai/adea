@@ -43,6 +43,7 @@ async function fixture() {
     audience: 'adea-lead-management',
     audienceRef: 'audience:fixture',
     authorityRevision: 7,
+    canonicalRequestDigest: digest,
     credentialId: 'synthetic-management-credential',
     credentialKind: 'service',
     decision: 'allowed',
@@ -85,8 +86,9 @@ async function fixture() {
 
 test('accepts a signed exact-call decision and returns the immutable binding', async () => {
   const f = await fixture()
-  const decision = await f.verify(request(await f.signed()))
-  expect(decision).toEqual({
+  const verification = await f.verify(request(await f.signed()))
+  expect(verification?.canonicalRequestDigest).toBe(digest)
+  expect(verification?.decision).toEqual({
     approval: {
       audienceRef: 'audience:fixture',
       expiresAt: f.claims.approvalExpiresAt,
@@ -223,6 +225,8 @@ test('malformed binding and identity claims are denied', async () => {
     { approvalInteractionId: '' },
     { approvalAudienceRef: '' },
     { approvalExpiresAt: 'not-a-time' },
+    { canonicalRequestDigest: 'not-a-digest' },
+    { canonicalRequestDigest: `sha256:${'A'.repeat(64)}` },
     { actorUserId: 'not-a-uuid' },
     { actorUserId: 'user-1' },
     { decisionId: '' },

@@ -44,6 +44,8 @@ export type ManagementCaller =
       reference: ManagementAuthorityReference
       /** Immutable CP decision for the exact call; never a bare reference. */
       decision: ManagementAuthorityDecision
+      /** Opaque canonical CP tool-call request forwarded to the authority route. */
+      canonicalRequest?: unknown
     }>
 
 export type ManagementFailureCode =
@@ -299,6 +301,9 @@ export function createManagementGateway(
                 approval: caller.decision.approval,
                 audienceRef: caller.decision.audienceRef,
                 authorityRef: caller.decision.authorityRef,
+                ...(caller.canonicalRequest !== undefined
+                  ? { canonicalRequest: caller.canonicalRequest }
+                  : {}),
                 authorityRevision: caller.decision.authorityRevision,
                 binding: binding!,
                 decisionId: caller.decision.decisionId,

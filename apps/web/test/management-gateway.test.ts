@@ -500,6 +500,36 @@ describe('shared management gateway (#1215)', () => {
     })
   })
 
+  test('the effect assertion forwards the canonical request from the lead caller', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { name: 'Renamed' },
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    })
+    const canonicalRequest = { toolCallId: 'tlc_01JABCDEF0123456789ABCDEFG' }
+    const harness = dependencies()
+    const gateway = createManagementGateway(
+      harness.dependencies,
+      {
+        canonicalRequest,
+        decision,
+        kind: 'lead',
+        reference: {
+          authorityRef: decision.authorityRef,
+          intentId: decision.intentId,
+          leadAgentId: decision.leadAgentId,
+        },
+      },
+      () => MANAGEMENT_NOW
+    )
+    await gateway.run(
+      'project.update',
+      { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => 'executed'
+    )
+    expect(harness.assertCurrentCalls[0]?.request).toMatchObject({ canonicalRequest })
+  })
+
   test('a current-authority assertion that throws stops the effect', async () => {
     const decision = await managementAuthorityDecision({
       input: { name: 'Renamed' },

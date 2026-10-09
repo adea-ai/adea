@@ -32,6 +32,7 @@ const claimKeys = [
   'approvalExpiresAt',
   'approvalInteractionId',
   'audience',
+  'canonicalRequestDigest',
   'audienceRef',
   'authorityRevision',
   'credentialId',
@@ -75,9 +76,14 @@ export type LeadManagementTrust = Readonly<{
 }>
 
 export type LeadManagementServiceEnvironment = Readonly<{ PI_LEAD_MANAGEMENT_TRUST?: string }>
+export type LeadManagementServiceVerification = Readonly<{
+  decision: ManagementAuthorityDecision
+  /** Signed digest of the exact canonical CP tool-call request Adea forwards. */
+  canonicalRequestDigest: `sha256:${string}`
+}>
 export type LeadManagementServiceVerifier = (
   request: Request
-) => Promise<ManagementAuthorityDecision | null>
+) => Promise<LeadManagementServiceVerification | null>
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -118,8 +124,8 @@ export function createLeadManagementServiceVerifier(
         signature.byteLength !== 64
       )
         return null
-      const decision = decisionFromClaims(rawClaims, trust, now())
-      if (!decision) return null
+      const verification = verificationFromClaims(rawClaims, trust, now())
+      if (!verification) return null
       const key = await crypto.subtle.importKey(
         'jwk',
         { kty: 'OKP', crv: 'Ed25519', x: trust.publicJwk.x },
@@ -137,8 +143,8 @@ export function createLeadManagementServiceVerifier(
       const currentTrust = readTrust(environment)
       return currentTrust &&
         currentTrust.publicJwk.x === trust.publicJwk.x &&
-        decisionFromClaims(rawClaims, currentTrust, now())
-        ? decision
+        verificationFromClaims(rawClaims, currentTrust, now())
+        ? verification
         : null
     } catch {
       // Configuration, parsing and cryptographic failures are all denials.
@@ -147,11 +153,11 @@ export function createLeadManagementServiceVerifier(
   }
 }
 
-function decisionFromClaims(
+function verificationFromClaims(
   claims: Record<string, unknown>,
   trust: LeadManagementTrust,
   at: number
-): ManagementAuthorityDecision | null {
+): LeadManagementServiceVerification | null {
   if (
     claims.audience !== audience ||
     claims.credentialKind !== 'service' ||
@@ -175,6 +181,8 @@ function decisionFromClaims(
     return null
   const workspaceId = claims.workspaceIds[0]
   if (
+    typeof claims.canonicalRequestDigest !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(claims.canonicalRequestDigest) ||
     typeof workspaceId !== 'string' ||
     !trust.workspaceIds.includes(workspaceId) ||
     typeof claims.authorityRevision !== 'number' ||
@@ -213,7 +221,7 @@ function decisionFromClaims(
     approvalExpires <= at
   )
     return null
-  return parseManagementAuthorityDecision({
+  const decision = parseManagementAuthorityDecision({
     approval: {
       audienceRef: claims.approvalAudienceRef,
       expiresAt: claims.approvalExpiresAt,
@@ -241,6 +249,12 @@ function decisionFromClaims(
     principal: { kind: 'user', userId: claims.actorUserId },
     schemaVersion: managementAuthoritySchemaVersion,
   })
+  return decision
+    ? {
+        canonicalRequestDigest: claims.canonicalRequestDigest as `sha256:${string}`,
+        decision,
+      }
+    : null
 }
 
 function readTrust(environment: LeadManagementServiceEnvironment): LeadManagementTrust | null {
