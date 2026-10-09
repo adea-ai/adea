@@ -798,14 +798,26 @@ export type ManagementAuthorityValidation =
   | Readonly<{ state: 'valid'; decision: ManagementAuthorityDecision }>
   | Readonly<{ state: 'invalid'; reason: ManagementAuthorityReasonCode }>
 
-/** Version of the per-delivery CP current-authority request. */
-export const managementCurrentSchemaVersion = 'adea-management-current/v1' as const
+/**
+ * The canonical Pi Durable tool-authority boundaries (control-plane PR #1038,
+ * commit ed942840df125385e329f1af4d16c4699ec57fd5,
+ * apps/control-api/src/pi-durable/current-tool-authority.ts). The assertion is
+ * a repeatable currentness check: it returns void or throws, never consumes the
+ * approval and never returns a truthy grant. The durable effect claim is the
+ * single single-use owner.
+ */
+export const managementAuthorityBoundaries = [
+  'admission',
+  'approval',
+  'effect',
+  'publication',
+] as const
+export type ManagementAuthorityBoundary = (typeof managementAuthorityBoundaries)[number]
 
 /**
- * One per-delivery current-authority request sent to the CP932 consumption /
- * current-authority store. The CP must re-read current grants, revocation,
- * plan and approval state, atomically consume the single-use approval, and
- * return void or throw; it must never echo a caller-provided truthy grant.
+ * The exact-call identity the host supplies to its canonical current-authority
+ * owner. A CP host mapping projects the canonical CurrentPiDurableToolRequest
+ * into this shape; it is deliberately not a wire protocol.
  */
 export type ManagementCurrentAuthorityRequest = Readonly<{
   decisionId: string
@@ -822,9 +834,15 @@ export type ManagementCurrentAuthorityRequest = Readonly<{
   now: number
 }>
 
-/** Server-only current-authority port; resolves void or throws. */
+/**
+ * Server-only current-authority seam. Resolves void or throws, exactly like
+ * the canonical `assertCurrent(request, boundary)`. Repeatable: the route
+ * asserts at admission and the gateway reasserts at effect; neither call
+ * consumes anything.
+ */
 export type ManagementCurrentAuthority = (
-  request: ManagementCurrentAuthorityRequest
+  request: ManagementCurrentAuthorityRequest,
+  boundary: ManagementAuthorityBoundary
 ) => Promise<void>
 
 /**

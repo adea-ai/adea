@@ -5,22 +5,19 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { applicationDatabase } from '../../../../../server/database'
 import { createLeadManagementHandler } from '../../../../../server/lead-management-route'
 import { createLeadManagementServiceVerifier } from '../../../../../server/lead-management-service-auth'
-import { createManagementCurrentAuthority } from '../../../../../server/management-authority-current'
-import { applicationManagementOperations } from '../../../../../server/management-composition'
+import {
+  applicationManagementCurrentAuthority,
+  applicationManagementOperations,
+} from '../../../../../server/management-composition'
 import { withRequestScope } from '../../../../../server/request-scope'
 
 /**
- * The per-delivery CP current-authority owner is required and read from
- * operator configuration; without it every delivery fails closed.
+ * The canonical CP current-authority owner is a host mapping (control-plane
+ * PR #1038 `assertCurrent`); the same instance is passed to the route seam and
+ * to the gateway composition. Until that mapping is installed this port fails
+ * closed and no lead effect runs.
  */
-const assertCurrent = createManagementCurrentAuthority({
-  get PI_LEAD_MANAGEMENT_AUTHORITY_TOKEN() {
-    return process.env.PI_LEAD_MANAGEMENT_AUTHORITY_TOKEN
-  },
-  get PI_LEAD_MANAGEMENT_AUTHORITY_URL() {
-    return process.env.PI_LEAD_MANAGEMENT_AUTHORITY_URL
-  },
-})
+const assertCurrent = applicationManagementCurrentAuthority()
 
 const handler = createLeadManagementHandler({
   assertCurrent,
@@ -40,7 +37,7 @@ const handler = createLeadManagementHandler({
     }),
   complete: (decision, completion) =>
     completeManagementAuthorityDecision(applicationDatabase(), decision.decisionId, completion),
-  operationsFor: applicationManagementOperations,
+  operationsFor: (caller) => applicationManagementOperations(caller, { assertCurrent }),
   verify: createLeadManagementServiceVerifier({
     get PI_LEAD_MANAGEMENT_TRUST() {
       return process.env.PI_LEAD_MANAGEMENT_TRUST

@@ -21,16 +21,45 @@ import {
   updateWorkspace,
 } from '@adea-ai/db'
 
+import {
+  ManagementAuthorityError,
+  type ManagementCurrentAuthority,
+} from '@adea-ai/types/management'
+
 import { applicationDatabase } from './database'
 import { createManagementGateway, type ManagementCaller } from './management-gateway'
 import { createManagementOperations, type ManagementOperations } from './management-operations'
 import { authorizeWorkspace } from './workspace-authorization'
 
+export type ApplicationManagementComposition = Readonly<{
+  /**
+   * The host's canonical current-authority owner. The production CP host
+   * mapping supplies it (control-plane PR #1038 assertCurrent); the route and
+   * the gateway must receive the same instance.
+   */
+  assertCurrent?: ManagementCurrentAuthority
+  /** Test seam only; production omits it and uses the wall clock. */
+  now?: () => number
+}>
+
+/**
+ * Fail-closed until the CP host mapping is installed. The canonical owner is
+ * the Control Plane's `createPiDurableCurrentToolAuthority(...).assertCurrent`
+ * (PR #1038, ed942840); Adea never substitutes a local truthy grant.
+ */
+export function applicationManagementCurrentAuthority(): ManagementCurrentAuthority {
+  return async () => {
+    throw new ManagementAuthorityError('authority_unavailable')
+  }
+}
+
 export function applicationManagementOperations(
-  caller: ManagementCaller = { kind: 'human' }
+  caller: ManagementCaller = { kind: 'human' },
+  composition: ApplicationManagementComposition = {}
 ): ManagementOperations {
   const gateway = createManagementGateway(
     {
+      ...(composition.assertCurrent ? { assertCurrent: composition.assertCurrent } : {}),
       async authorize(input) {
         const decision = await authorizeWorkspace(
           input.principal,
@@ -54,7 +83,8 @@ export function applicationManagementOperations(
         })
       },
     },
-    caller
+    caller,
+    composition.now
   )
   return createManagementOperations({
     database: applicationDatabase,
