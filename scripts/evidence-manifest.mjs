@@ -1,22 +1,27 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Evidence manifest validator for Adea #1225 (parent #1183, M18.03).
 //
 // The manifest maps each requirement and each A01–A40 acceptance id to:
-//   1. repository evidence pinned to one exact commit: a test declaration that
-//      exists at that commit, or a recorded run whose bytes match a pinned hash;
-//   2. optionally, candidate records (packaged or deployed) whose source SHA and
-//      contract version are explicitly compatible with that commit.
-// Declaring a test proves the test exists, not that it passed. A run or candidate
-// record counts only when it says `passed`. Ids with no mapping stay `pending`;
-// nothing is inferred from neighbouring ids, file presence, or a green CI run.
+//   1. repository evidence, each reference naming a repository key declared in
+//      `repositories` (immutable identity = the repository's root commit, plus a
+//      pinned source SHA). A `test-reference` proves a test title is declared at
+//      that SHA. An `execution-reference` proves a recorded `passed` run. Only the
+//      latter can verify an id; a declaration alone is `repo-declared`.
+//   2. optionally, candidate records (packaged or deployed) that declare, for every
+//      repository the id references, the exact source SHA and a compatible contract.
+// Local checkouts are supplied by the caller. Each must have the declared root commit
+// in its history, or it is refused. Files are read only when they are regular, within
+// the root, and under MAX_EVIDENCE_BYTES. Unmapped ids stay `pending`.
 
 export const SCHEMA_VERSION = 1
 export const ISSUE = 1225
+export const HOME_REPOSITORY = 'adea'
+export const MAX_EVIDENCE_BYTES = 1024 * 1024
 
 /** Requirement ids named by #1225 traceability (`REQ 005,012,…`). */
 export const REQUIREMENT_IDS = Object.freeze(
@@ -58,14 +63,19 @@ export const REQUIRED_IDS = Object.freeze([...REQUIREMENT_IDS, ...ACCEPTANCE_IDS
 export const STATUS = Object.freeze({
   pending: 'pending',
   invalid: 'invalid',
+  repoDeclared: 'repo-declared',
   repoVerified: 'repo-verified',
   candidateCompatible: 'candidate-compatible',
 })
 
 const CHANNELS = new Set(['packaged', 'deployed'])
+const REGULAR_BLOB_MODES = new Set(['100644', '100755'])
 const SHA = /^[0-9a-f]{40}$/
 const SHA256 = /^[0-9a-f]{64}$/
 const TEST_FILE = /\.test\.(ts|tsx|mjs|js)$/
+const REPO_KEY = /^[a-z][a-z0-9-]{0,62}$/
+const REPO_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+const LS_TREE = /^(\d{6}) (\w+) ([0-9a-f]{40,64})\s+(-|\d+)\t([\s\S]*)$/
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
@@ -91,46 +101,106 @@ function parseJson(bytes) {
   }
 }
 
-/**
- * Default I/O: reads committed content from git (`<sha>:<path>`) and working-tree
- * artifacts from disk, confined to `root`.
- */
-export function repositoryIo(root) {
-  const git = (args, options = {}) =>
-    spawnSync('git', args, { cwd: root, maxBuffer: 32 * 1024 * 1024, ...options })
+/** One local checkout, read through git. Blobs come from committed trees, not the disk. */
+function gitCheckout(root) {
+  const git = (args, encoding) =>
+    spawnSync('git', args, { cwd: root, encoding, maxBuffer: MAX_EVIDENCE_BYTES * 4 })
   return {
     commitExists(sha) {
       return git(['cat-file', '-e', `${sha}^{commit}`]).status === 0
     },
-    readAtSha(sha, path) {
-      const result = git(['show', `${sha}:${path}`], { encoding: 'utf8' })
-      return result.status === 0 ? result.stdout : null
+    rootCommits(sha) {
+      const result = git(['rev-list', '--max-parents=0', sha], 'utf8')
+      if (result.status !== 0) return []
+      return result.stdout.split('\n').filter(Boolean)
     },
-    readWorking(path) {
-      const absolute = resolve(root, path)
-      if (!absolute.startsWith(resolve(root) + sep) || !existsSync(absolute)) return null
-      return readFileSync(absolute)
+    blobAtSha(sha, path) {
+      const listing = git(['ls-tree', '-l', '-z', sha, '--', path], 'utf8')
+      if (listing.status !== 0) return null
+      const match = listing.stdout
+        .split('\0')
+        .map((line) => LS_TREE.exec(line))
+        .filter(Boolean)
+        .find(([, , , , , name]) => name === path)
+      if (!match) return null
+      const [, mode, type, , size] = match
+      return {
+        regular: type === 'blob' && REGULAR_BLOB_MODES.has(mode),
+        mode,
+        size: size === '-' ? 0 : Number(size),
+        bytes: () => git(['cat-file', 'blob', `${sha}:${path}`]).stdout,
+      }
     },
   }
 }
 
-function checkTestEvidence(item, io, manifest) {
-  if (!TEST_FILE.test(item.path ?? '')) return 'test evidence must name a *.test.* file'
-  if (typeof item.name !== 'string' || item.name.length === 0) {
-    return 'test evidence must name the test title'
+/** Working-tree files under the home root. Symlinks resolving outside it are reported. */
+function workingFiles(root) {
+  const realRoot = realpathSync(root)
+  return (path) => {
+    let real
+    try {
+      real = realpathSync(resolve(realRoot, path))
+    } catch {
+      return null
+    }
+    if (!real.startsWith(realRoot + sep)) return { outside: true }
+    const stat = statSync(real)
+    return {
+      regular: stat.isFile(),
+      size: stat.size,
+      bytes: () => readFileSync(real),
+    }
   }
-  const source = io.readAtSha(manifest.sourceSha, item.path)
-  if (source === null) return `${item.path} does not exist at ${manifest.sourceSha}`
+}
+
+/**
+ * Default I/O. `mapping` maps repository keys to local checkout paths and must include
+ * the home repository, whose checkout also holds the working-tree artifact records.
+ * A repository key with no mapping has no checkout, so its references stay invalid.
+ */
+export function repositoryIo(mapping) {
+  const home = mapping[HOME_REPOSITORY]
+  if (typeof home !== 'string') throw new Error(`repository mapping needs ${HOME_REPOSITORY}`)
+  const checkouts = new Map(
+    Object.entries(mapping).map(([key, path]) => [key, gitCheckout(resolve(path))])
+  )
+  const workingFile = workingFiles(resolve(home))
+  return {
+    checkout: (repository) => checkouts.get(repository) ?? null,
+    workingFile,
+  }
+}
+
+function checkTestReference(item, checkout, manifest) {
+  if (!TEST_FILE.test(item.path)) return 'test-reference must name a *.test.* file'
+  if (typeof item.name !== 'string' || item.name.length === 0) {
+    return 'test-reference must name the test title'
+  }
+  const sha = manifest.repositories[item.repository].sourceSha
+  const blob = checkout.blobAtSha(sha, item.path)
+  if (blob === null) return `${item.repository}:${item.path} does not exist at ${sha}`
+  if (!blob.regular) return `${item.repository}:${item.path} is not a regular file`
+  if (blob.size > MAX_EVIDENCE_BYTES) {
+    return `${item.repository}:${item.path} exceeds ${MAX_EVIDENCE_BYTES} bytes`
+  }
+  const source = blob.bytes().toString('utf8')
   const quoted = [`'${item.name}'`, `"${item.name}"`, `\`${item.name}\``]
   if (!quoted.some((literal) => source.includes(literal))) {
-    return `test title "${item.name}" is not declared in ${item.path} at ${manifest.sourceSha}`
+    return `test title "${item.name}" is not declared in ${item.repository}:${item.path} at ${sha}`
   }
   return null
 }
 
 function readRecord(item, io) {
-  const bytes = io.readWorking(item.path)
-  if (bytes === null) return { problem: `${item.path} is missing` }
+  const file = io.workingFile(item.path)
+  if (file === null) return { problem: `${item.path} is missing` }
+  if (file.outside) return { problem: `${item.path} resolves outside the repository root` }
+  if (!file.regular) return { problem: `${item.path} is not a regular file` }
+  if (file.size > MAX_EVIDENCE_BYTES) {
+    return { problem: `${item.path} exceeds ${MAX_EVIDENCE_BYTES} bytes` }
+  }
+  const bytes = file.bytes()
   if (!SHA256.test(item.sha256 ?? '') || sha256Hex(bytes) !== item.sha256) {
     return { problem: `${item.path} does not match sha256` }
   }
@@ -140,84 +210,114 @@ function readRecord(item, io) {
   return { record: parsed.value }
 }
 
-function checkRunEvidence(item, id, io, manifest) {
+function checkExecutionReference(item, id, io, manifest) {
   const { record, problem } = readRecord(item, io)
   if (problem) return problem
-  if (record.sourceSha !== manifest.sourceSha) {
-    return `run record pins ${record.sourceSha}, manifest pins ${manifest.sourceSha}`
+  if (record.repository !== item.repository) {
+    return `execution record names repository ${record.repository}, reference names ${item.repository}`
   }
-  if (record.status !== 'passed') return `run record status is ${record.status}, not passed`
+  const sha = manifest.repositories[item.repository].sourceSha
+  if (record.sourceSha !== sha) {
+    return `execution record pins ${record.sourceSha}, ${item.repository} pins ${sha}`
+  }
+  if (record.status !== 'passed') return `execution record status is ${record.status}, not passed`
   if (typeof record.command !== 'string' || record.command.length === 0) {
-    return 'run record must name the command'
+    return 'execution record must name the command'
   }
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
-    return `run record does not list ${id}`
+    return `execution record does not list ${id}`
   }
   return null
 }
 
-function checkCandidateEvidence(item, id, io, manifest) {
+function checkCandidateEvidence(item, id, io, manifest, repositories) {
   const { record, problem } = readRecord(item, io)
   if (problem) return problem
   if (typeof record.candidateId !== 'string' || record.candidateId.length === 0) {
     return 'candidate record must name candidateId'
   }
+  const name = record.candidateId
   if (!CHANNELS.has(record.channel))
-    return `candidate channel ${record.channel} is not packaged or deployed`
-  if (record.sourceSha !== manifest.sourceSha) {
-    return `candidate ${record.candidateId} built from ${record.sourceSha}, manifest pins ${manifest.sourceSha}`
-  }
+    return `candidate ${name} channel ${record.channel} is not packaged or deployed`
   if (!manifest.compatibility.contractVersions.includes(record.contractVersion)) {
-    return `candidate ${record.candidateId} contract ${record.contractVersion} is not compatible`
+    return `candidate ${name} contract ${record.contractVersion} is not compatible`
   }
-  if (record.status !== 'passed')
-    return `candidate ${record.candidateId} status is ${record.status}`
+  if (record.status !== 'passed') return `candidate ${name} status is ${record.status}`
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
-    return `candidate ${record.candidateId} does not list ${id}`
+    return `candidate ${name} does not list ${id}`
+  }
+  if (!isObject(record.sources)) return `candidate ${name} must declare sources per repository`
+  for (const repository of repositories) {
+    const sha = manifest.repositories[repository].sourceSha
+    if (record.sources[repository] !== sha) {
+      return `candidate ${name} does not declare sources.${repository} = ${sha}`
+    }
   }
   return null
 }
 
 function evaluate(id, entry, io, manifest) {
   if (entry === undefined) return { status: STATUS.pending, reasons: ['no evidence mapped'] }
-
-  const reasons = []
-  if (entry.sourceSha !== manifest.sourceSha) {
-    reasons.push(`entry pins ${entry.sourceSha}, manifest pins ${manifest.sourceSha}`)
-  }
   if (entry.repoEvidence.length === 0) {
-    if (reasons.length > 0) return { status: STATUS.invalid, reasons }
+    if (entry.candidateEvidence.length > 0) {
+      return {
+        status: STATUS.invalid,
+        reasons: ['candidate evidence requires an execution-reference'],
+      }
+    }
     return { status: STATUS.pending, reasons: ['no repository evidence mapped'] }
   }
 
+  const reasons = []
+  const repositories = new Set()
+  let executions = 0
   for (const item of entry.repoEvidence) {
-    const path = item?.path
-    if (item?.kind !== 'test' && item?.kind !== 'run') {
-      reasons.push(`unknown repository evidence kind ${item?.kind}`)
+    if (safeRepoPath(item.path) === null) {
+      reasons.push(`unsafe evidence path ${String(item.path)}`)
       continue
     }
-    if (safeRepoPath(path) === null) {
-      reasons.push(`unsafe evidence path ${String(path)}`)
+    repositories.add(item.repository)
+    const checkout = io.checkout(item.repository)
+    if (checkout === null) {
+      reasons.push(`no local checkout mapped for repository ${item.repository}`)
       continue
     }
-    const problem =
-      item.kind === 'test'
-        ? checkTestEvidence(item, io, manifest)
-        : checkRunEvidence(item, id, io, manifest)
+    let problem
+    if (item.kind === 'test-reference') {
+      problem = checkTestReference(item, checkout, manifest)
+    } else if (item.kind === 'execution-reference') {
+      executions += 1
+      problem = checkExecutionReference(item, id, io, manifest)
+    } else {
+      problem = `unknown repository evidence kind ${item.kind}`
+    }
     if (problem) reasons.push(problem)
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
+
+  if (executions === 0) {
+    if (entry.candidateEvidence.length > 0) {
+      return {
+        status: STATUS.invalid,
+        reasons: ['candidate evidence requires an execution-reference'],
+      }
+    }
+    return {
+      status: STATUS.repoDeclared,
+      reasons: ['test declared, no execution-reference recorded'],
+    }
+  }
 
   if (entry.candidateEvidence.length === 0) {
     return { status: STATUS.repoVerified, reasons: ['candidate evidence pending'] }
   }
 
   for (const item of entry.candidateEvidence) {
-    if (item?.kind !== 'candidate' || safeRepoPath(item.path) === null) {
+    if (item?.kind !== 'candidate-reference' || safeRepoPath(item.path) === null) {
       reasons.push(`invalid candidate evidence reference for ${id}`)
       continue
     }
-    const problem = checkCandidateEvidence(item, id, io, manifest)
+    const problem = checkCandidateEvidence(item, id, io, manifest, repositories)
     if (problem) reasons.push(problem)
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
@@ -230,11 +330,38 @@ function manifestErrors(manifest, io) {
   if (manifest.schemaVersion !== SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${SCHEMA_VERSION}`)
   if (manifest.issue !== ISSUE) errors.push(`issue must be ${ISSUE}`)
-  if (typeof manifest.sourceSha !== 'string' || !SHA.test(manifest.sourceSha)) {
-    errors.push('sourceSha must be a 40-character lowercase commit SHA')
-  } else if (!io.commitExists(manifest.sourceSha)) {
-    errors.push(`sourceSha ${manifest.sourceSha} is not a commit in this repository`)
+
+  const repositories = manifest.repositories
+  if (!isObject(repositories) || Object.keys(repositories).length === 0) {
+    errors.push('repositories must be a non-empty object')
+  } else if (!Object.hasOwn(repositories, HOME_REPOSITORY)) {
+    errors.push(`repositories must include ${HOME_REPOSITORY}`)
   }
+  for (const [key, repo] of Object.entries(isObject(repositories) ? repositories : {})) {
+    if (!REPO_KEY.test(key)) {
+      errors.push(`repository key ${key} must be lowercase letters, digits, or dashes`)
+      continue
+    }
+    if (!isObject(repo) || typeof repo.name !== 'string' || !REPO_NAME.test(repo.name)) {
+      errors.push(`${key}.name must be owner/repo`)
+      continue
+    }
+    if (typeof repo.rootCommit !== 'string' || !SHA.test(repo.rootCommit)) {
+      errors.push(`${key}.rootCommit must be a 40-character lowercase commit SHA`)
+    }
+    if (typeof repo.sourceSha !== 'string' || !SHA.test(repo.sourceSha)) {
+      errors.push(`${key}.sourceSha must be a 40-character lowercase commit SHA`)
+      continue
+    }
+    const checkout = io.checkout(key)
+    if (checkout === null) continue
+    if (!checkout.commitExists(repo.sourceSha)) {
+      errors.push(`${key} sourceSha ${repo.sourceSha} is not a commit in its local checkout`)
+    } else if (!checkout.rootCommits(repo.sourceSha).includes(repo.rootCommit)) {
+      errors.push(`local checkout for ${key} is not ${repo.name} (root ${repo.rootCommit} absent)`)
+    }
+  }
+
   if (
     !isObject(manifest.compatibility) ||
     !Array.isArray(manifest.compatibility.contractVersions)
@@ -258,6 +385,16 @@ function manifestErrors(manifest, io) {
     seen.add(entry.id)
     if (!Array.isArray(entry.repoEvidence) || !Array.isArray(entry.candidateEvidence)) {
       errors.push(`${entry.id} must list repoEvidence and candidateEvidence arrays`)
+      continue
+    }
+    for (const item of entry.repoEvidence) {
+      if (
+        !isObject(item) ||
+        !isObject(repositories) ||
+        !Object.hasOwn(repositories, item.repository)
+      ) {
+        errors.push(`${entry.id} references unknown repository ${item?.repository}`)
+      }
     }
   }
   return errors
@@ -267,8 +404,7 @@ function manifestErrors(manifest, io) {
  * Validate a manifest against the #1225 id universe.
  *
  * Returns `{ ok, schemaErrors, results, counts }`. `ok` is false on any schema error
- * or invalid mapping. `strict` also requires every id to be candidate-compatible,
- * so an incomplete manifest passes only in its default, pending-tolerant mode.
+ * or invalid mapping. `strict` also requires every id to be candidate-compatible.
  */
 export function validateEvidenceManifest(manifest, io, { strict = false } = {}) {
   const schemaErrors = manifestErrors(manifest, io)
@@ -300,11 +436,23 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = process.argv.slice(2)
   const strict = args.includes('--strict')
   const json = args.includes('--json')
-  const manifestArg = args.find((arg) => !arg.startsWith('--')) ?? defaultManifest
-  const manifestPath = resolve(repoRoot, manifestArg)
+  const mapping = { [HOME_REPOSITORY]: repoRoot }
+  const positional = []
   try {
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]
+      if (arg === '--repo') {
+        const value = args[(index += 1)] ?? ''
+        const equals = value.indexOf('=')
+        if (equals <= 0) throw new Error('--repo expects key=path')
+        mapping[value.slice(0, equals)] = resolve(value.slice(equals + 1))
+      } else if (!arg.startsWith('--')) {
+        positional.push(arg)
+      }
+    }
+    const manifestPath = resolve(repoRoot, positional[0] ?? defaultManifest)
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-    const report = validateEvidenceManifest(manifest, repositoryIo(repoRoot), { strict })
+    const report = validateEvidenceManifest(manifest, repositoryIo(mapping), { strict })
     if (json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
     } else {

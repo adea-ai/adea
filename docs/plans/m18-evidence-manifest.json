@@ -3,10 +3,12 @@
   "issue": 1225,
   "parent": 1183,
   "milestone": "M18 — Pi Durable Migration & Cross-Product Acceptance",
-  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "baseline": {
-    "ref": "main",
-    "sha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b"
+  "repositories": {
+    "adea": {
+      "name": "adea-ai/adea",
+      "rootCommit": "663f2bd9133cd8bd3b4576224eb1caabf96cc34b",
+      "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b"
+    }
   },
   "compatibility": {
     "contractVersions": []
