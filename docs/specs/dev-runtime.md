@@ -2083,7 +2083,11 @@ policy lifetime fails closed at evaluation.
 A reusable `CleanupPolicy` is `draft → approved → disabled|expired|superseded`.
 Only an authenticated user with the cleanup-policy capability may approve it.
 Approval binds project, policy version, exact predicates, allowed step kinds,
-and optional expiry; editing any field creates a new draft/version. An automatic
+and optional expiry; editing any field creates a new draft/version. The
+draft's user-requested lifetime travels in the dedicated `policyExpiresAt`
+body field — the transport authority field named `expiresAt` stays forbidden
+in every command body — while the trusted stored/reply record keeps the
+`expiresAt` shape. An automatic
 policy MUST include `clean`, `pushed`, `pull_request_merged`,
 `no_active_leases`, and `no_active_owned_resources`; implementations may require
 additional predicates but may not omit these five. It MUST reread every

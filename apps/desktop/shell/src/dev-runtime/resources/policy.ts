@@ -273,10 +273,14 @@ export function createCleanupPolicyAuthority(
       if (command.resource !== undefined)
         throw devError('identity_mismatch', 'createDraft carries no resource binding')
       const body = devOperationDecoders['dev.cleanupPolicy.createDraft'].request(command.body)
-      const expiresAt = body.expiresAt as string | undefined
+      // `policyExpiresAt` is the dedicated user-requested policy lifetime. The
+      // transport authority field named `expiresAt` stays forbidden in every
+      // body by the shared decoder; the trusted stored/reply record keeps the
+      // established `expiresAt` shape.
+      const policyExpiresAt = body.policyExpiresAt as string | undefined
       // A malformed or non-future expiry is refused at the source, so an
       // unprovable lifetime never reaches approval or evaluation.
-      const expiry = cleanupPolicyExpiry(expiresAt, now())
+      const expiry = cleanupPolicyExpiry(policyExpiresAt, now())
       if (expiry === 'invalid' || expiry === 'expired')
         throw devError('invalid_state', 'the policy expiry must be a valid future timestamp')
       const policy: StoredPolicy = {
@@ -287,7 +291,7 @@ export function createCleanupPolicyAuthority(
         state: 'draft',
         predicates: structuredClone(body.predicates) as CleanupPredicate[],
         allowedSteps: structuredClone(body.allowedSteps) as CleanupPolicy['allowedSteps'],
-        ...(expiresAt !== undefined ? { expiresAt } : {}),
+        ...(policyExpiresAt !== undefined ? { expiresAt: policyExpiresAt } : {}),
       }
       policies = [...policies, policy]
       save()

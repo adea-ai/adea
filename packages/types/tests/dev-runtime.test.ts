@@ -1733,3 +1733,41 @@ describe('mutation plan preview consequences', () => {
     ).toThrow()
   })
 })
+
+describe('cleanup policy expiry request contract', () => {
+  const body = {
+    allowedSteps: ['prune_retained_data'] as const,
+    name: 'auto-clean merged',
+    predicates: [{ kind: 'clean' }] as const,
+    projectId: 'proj-1',
+  }
+
+  test('policy expiry uses a dedicated body field while authority expiresAt stays forbidden', () => {
+    expect(
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        policyExpiresAt: '2026-10-10T00:00:00.000Z',
+        predicates: [...body.predicates],
+      })
+    ).toMatchObject({ policyExpiresAt: '2026-10-10T00:00:00.000Z' })
+    // The transport authority field is still refused in every body.
+    expect(() =>
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        expiresAt: '2026-10-10T00:00:00.000Z',
+        predicates: [...body.predicates],
+      })
+    ).toThrow(/authority field is forbidden/)
+    // A malformed dedicated lifetime never reaches a handler.
+    expect(() =>
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        policyExpiresAt: 'not-a-date',
+        predicates: [...body.predicates],
+      })
+    ).toThrow()
+  })
+})
