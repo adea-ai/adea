@@ -13,11 +13,7 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { appendWorkspaceEvent } from './transactions'
-import {
-  hiddenUnreadCountByChannel,
-  readHiddenUnreadPublications,
-  readVisibleTopLevelFrontiers,
-} from './job-outbound-frontier'
+import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
 import {
   channelParticipants,
   channelReadStates,
@@ -264,14 +260,12 @@ export async function listReadStateForUser(
   const publicationChannelIds = channelRows
     .filter((row) => row.hasUnreadPublication)
     .map((row) => row.channelId)
-  const hiddenByChannel = hiddenUnreadCountByChannel(
-    publicationChannelIds.length
-      ? await readHiddenUnreadPublications(database, principal, {
-          channelIds: publicationChannelIds,
-          workspaceIds: [workspaceId],
-        })
-      : []
-  )
+  const hiddenByChannel = publicationChannelIds.length
+    ? await readHiddenUnreadCounts(database, principal, {
+        channelIds: publicationChannelIds,
+        workspaceIds: [workspaceId],
+      })
+    : new Map<string, number>()
 
   const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
   for (const row of threadRows) {

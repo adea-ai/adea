@@ -2,7 +2,7 @@ import type { AccountWorkspaceSummary, UserPrincipalRef } from '@adea-ai/types'
 import { sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { filterVisibleJobOutboundRows } from './job-outbound-read'
+import { readChannelsWithVisibleUnreadPublication } from './job-outbound-frontier'
 import {
   channelParticipants,
   channelReadStates,
@@ -22,13 +22,8 @@ type SummaryChannelRow = {
   channelId: string | null
   manuallyUnread: boolean
   mentions: number | string
+  hasUnreadPublication: boolean
   ordinaryUnread: boolean
-  publications: readonly {
-    executionRef: string | null
-    id: string
-    senderKind: string
-    senderSystemId: string | null
-  }[]
   sortOrder: number
   workspaceId: string
 }
@@ -48,10 +43,10 @@ type SummaryChannelRow = {
  * - `unreadChannels` counts channels with a live top-level message the user can
  *   see past their channel frontier, or that the user marked unread. A job
  *   publication is counted only while the user is authorized for it (#1217): the
- *   statement returns each channel's ordinary unread flag and its unread
- *   publications, and the publications are gated here, only when there are any.
- *   Thread-only replies do not count here; the in-workspace read state still
- *   reports them.
+ *   statement returns each channel's ordinary unread flag and whether it has an
+ *   unread publication, and only the channels that need it are checked, in pages,
+ *   against the same gates history applies. Thread-only replies do not count here;
+ *   the in-workspace read state still reports them.
  * - `mentions` counts live, unread top-level messages in those channels that
  *   mention the user (`message_mentions`). Publications carry no mentions.
  *
@@ -82,14 +77,8 @@ export async function accountWorkspaceSummaries(
             )
         )
       ) as "ordinaryUnread",
-      case when channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0) then (
-        select coalesce(json_agg(json_build_object(
-          'id', publication.id,
-          'executionRef', publication.execution_ref,
-          'senderKind', publication.sender_kind,
-          'senderSystemId', publication.sender_system_id
-        )), '[]'::json)
-        from ${messages} as publication
+      case when channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0) then exists (
+        select 1 from ${messages} as publication
         where publication.channel_id = channel.id
           and publication.workspace_id = channel.workspace_id
           and publication.thread_root_message_id is null
@@ -97,7 +86,7 @@ export async function accountWorkspaceSummaries(
           and publication.sender_kind = 'system'
           and publication.sender_system_id like 'job-outbound:v1:%'
           and publication.sequence > coalesce(read_state.last_read_sequence, 0)
-      ) else '[]'::json end as "publications",
+      ) else false end as "hasUnreadPublication",
       coalesce(mention.count, 0) as "mentions"
     from ${workspaceMemberships} as membership
     inner join ${workspaces} as workspace
@@ -148,23 +137,28 @@ export async function accountWorkspaceSummaries(
     order by membership.sort_order asc, membership.workspace_id asc
   `)
   const channelRows = [...rows]
-  // Gate only the publications the summary found. With none, this adds no statement.
-  const publications = channelRows.flatMap((row) => row.publications)
-  const authorized = new Set(
-    (publications.length
-      ? await filterVisibleJobOutboundRows(database, publications, principal.userId)
-      : []
-    ).map((row) => row.id)
+  // Only a channel with no unread flag and an unread publication needs the publication gates.
+  // With none, this adds no statement.
+  const candidates = channelRows.filter(
+    (row) =>
+      row.channelId !== null &&
+      !row.manuallyUnread &&
+      !row.ordinaryUnread &&
+      row.hasUnreadPublication
   )
+  const withVisiblePublication = candidates.length
+    ? await readChannelsWithVisibleUnreadPublication(database, principal, {
+        channelIds: candidates.map((row) => row.channelId!),
+        workspaceIds: [...new Set(candidates.map((row) => row.workspaceId))],
+      })
+    : new Set<string>()
 
   const summaries = new Map<string, { mentions: number; unreadChannels: number }>()
   for (const row of channelRows) {
     const summary = summaries.get(row.workspaceId) ?? { mentions: 0, unreadChannels: 0 }
     if (row.channelId !== null) {
       const unread =
-        row.manuallyUnread ||
-        row.ordinaryUnread ||
-        row.publications.some((publication) => authorized.has(publication.id))
+        row.manuallyUnread || row.ordinaryUnread || withVisiblePublication.has(row.channelId)
       if (unread) summary.unreadChannels += 1
       summary.mentions += Number(row.mentions)
     }

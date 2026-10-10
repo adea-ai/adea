@@ -13,11 +13,7 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import {
-  hiddenUnreadCountByChannel,
-  readHiddenUnreadPublications,
-  readVisibleTopLevelFrontiers,
-} from './job-outbound-frontier'
+import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
 import {
   channelParticipants,
   channelReadStates,
@@ -71,13 +67,12 @@ async function withPublicationAuthority(
     })
   )
   const flagged = rows.filter((row) => row.hasUnreadPublication).map((row) => row.id)
-  const hidden = flagged.length
-    ? await readHiddenUnreadPublications(database, principal, {
+  const hiddenByChannel = flagged.length
+    ? await readHiddenUnreadCounts(database, principal, {
         channelIds: flagged,
         workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
       })
-    : []
-  const hiddenByChannel = hiddenUnreadCountByChannel(hidden)
+    : new Map<string, number>()
   return rows.map((row) => ({
     ...row,
     latestTopLevelSequence: frontiers.get(row.id) ?? 0,

@@ -216,9 +216,9 @@ stream ends with `membership-revoked` straight away rather than at the next 30-s
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
 (membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
 most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
-the ids in the page, never one query per event. A job publication message in the page adds one
-publication-gate evaluation for the subscriber (the same reads history uses), bounded by the number of
-distinct publication messages in the page. Channel audience checks use indexed participant
+the ids in the page, never one query per event. The job publication messages in the page are
+gated together for the subscriber in one bulk pass (the same facts and decision history uses), so they
+add a fixed number of reads per page, not one evaluation per publication. Channel audience checks use indexed participant
 existence projections in those lookups, including for owners and admins. A page containing only
 project events needs only the access-scope reads. Idle polls
 read nothing extra.
@@ -302,10 +302,11 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   `channel_read_states.last_read_sequence` (missing state reads as 0), or that
   are marked `manually_unread`. A job publication is seen only while the caller
   is authorized for it under the publication gates; a hidden publication is not
-  unread (#1217). The check starts from `channels.latest_message_sequence` and
-  excludes the caller's hidden unread publications, which are read from the
-  unread range of channels that have unread. Thread-only replies do not make a
-  channel unread here; the in-workspace read state still counts them. `mentions`
+  unread (#1217). A channel with no ordinary or manual unread is checked for an
+  unread publication the caller may still see, in pages of 200 in message
+  sequence order, and the check stops once each such channel has one. Thread-only
+  replies do not make a channel unread here; the in-workspace read state still
+  counts them. `mentions`
   counts live, unread top-level messages in those channels that mention the
   caller (`message_mentions`, indexed by `message_mentions_user_idx`).
 - **The frontier column.** `channels.latest_message_sequence` (migration
@@ -314,7 +315,11 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   watermark mark-read writes, is the newest top-level message that reader can
   see (#1217). A hidden publication at the top is walked past to the newest
   visible message; the walk costs the hidden publications at the top of that
-  channel, in batches of 16 indexed rows.
+  channel, in batches of 64 indexed rows, each batch gated in one bulk pass.
+  Hidden unread publications are counted per channel in keyset pages of 200 on
+  the globally unique message sequence, each page gated in one bulk pass. Every
+  publication gate reads its facts for the whole page at once, so statements
+  grow with pages, not with publications.
   `createMessage` advances it with `GREATEST` in the insert transaction, so
   out-of-order commits never move it back; a thread reply leaves it alone.
   `deleteMessage` of the current newest top-level message moves it back to the

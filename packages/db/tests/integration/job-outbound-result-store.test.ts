@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
@@ -34,6 +34,8 @@ import {
   markThreadReadState,
 } from '../../src/read-state'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
+import { filterVisibleJobOutboundRows } from '../../src/job-outbound-read'
+import { UNREAD_PUBLICATION_PAGE, WALK_BATCH } from '../../src/job-outbound-frontier'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   completeTaskAndPublishOutboundResult,
@@ -78,7 +80,31 @@ import { createWorkspaceWithOwner } from '../../src/workspaces'
 const url = process.env.DATABASE_URL
 const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1`, revision: 0 }
 const NIL_UUID = '00000000-0000-4000-8000-000000000000'
+/** Publications in the large hidden run; more than one unread page and several walk batches. */
+const LARGE_HIDDEN_RUN = 210
+/** The statements one bulk gate issues, measured at 14 to 15; the bound leaves a little headroom. */
+const STATEMENTS_PER_GATE = 16
 const CHECKSUM = 'c'.repeat(64)
+
+/** Statements one call issues on its own connection, excluding connection setup. */
+async function statementsOf(run: (db: AgentHqDatabase) => Promise<unknown>) {
+  let statements = 0
+  const counting = postgres(process.env.DATABASE_URL!, {
+    debug: () => {
+      statements += 1
+    },
+    max: 1,
+    prepare: false,
+  })
+  try {
+    await counting`select 1`
+    statements = 0
+    await run(drizzle(counting, { schema }))
+    return statements
+  } finally {
+    await counting.end({ timeout: 5 })
+  }
+}
 
 describe.skipIf(!url)('job outbound publication and release on real data', () => {
   let connection: DatabaseConnection
@@ -2136,12 +2162,28 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     await expectSurfacesAgree(f, 'reader back in the channel')
   })
 
-  test('query counts do not grow with ordinary messages; they grow only with the job publications a reader must gate', async () => {
-    const f = await fixture({ complete: false })
+  /** Statements for each reader surface at this moment, for the fixture's reader and workspace. */
+  async function measureSurfaces(f: Fixture) {
     const reader = f.recipient.principal
     const workspaceId = f.destination.id
+    const log = await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)
+    return {
+      events: await statementsOf((db) =>
+        classifyWorkspaceEventsForUser(db, workspaceId, reader.userId, log)
+      ),
+      inbox: await statementsOf((db) => accountConversationInbox(db, reader)),
+      readState: await statementsOf((db) => listReadStateForUser(db, workspaceId, reader)),
+      search: await statementsOf((db) =>
+        searchWorkspaceForUser(db, workspaceId, reader, 'lumen', { limit: 100 })
+      ),
+      summary: await statementsOf((db) => accountWorkspaceSummaries(db, reader)),
+    }
+  }
+
+  test('query counts do not grow with ordinary messages; they grow only with the job publications a reader must gate', async () => {
+    const f = await fixture({ complete: false })
+    const workspaceId = f.destination.id
     const channelId = f.channelA.id
-    const databaseUrl = process.env.DATABASE_URL!
     const note = (bodyText: string) =>
       createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
         bodyText,
@@ -2164,41 +2206,6 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         },
         request
       )
-    /** Statements one call issues on its own connection, excluding connection setup. */
-    async function statementsOf(run: (db: AgentHqDatabase) => Promise<unknown>) {
-      let statements = 0
-      const counting = postgres(databaseUrl, {
-        debug: () => {
-          statements += 1
-        },
-        max: 1,
-        prepare: false,
-      })
-      try {
-        await counting`select 1`
-        statements = 0
-        await run(drizzle(counting, { schema }))
-        return statements
-      } finally {
-        await counting.end({ timeout: 5 })
-      }
-    }
-    /** Statements for each reader surface at this moment. */
-    async function measure() {
-      const log = await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)
-      return {
-        events: await statementsOf((db) =>
-          classifyWorkspaceEventsForUser(db, workspaceId, reader.userId, log)
-        ),
-        inbox: await statementsOf((db) => accountConversationInbox(db, reader)),
-        readState: await statementsOf((db) => listReadStateForUser(db, workspaceId, reader)),
-        search: await statementsOf((db) =>
-          searchWorkspaceForUser(db, workspaceId, reader, 'lumen', { limit: 100 })
-        ),
-        summary: await statementsOf((db) => accountWorkspaceSummaries(db, reader)),
-      }
-    }
-
     // One visible publication, then five ordinary messages.
     await completeAs(f.task, {
       artifact: null,
@@ -2208,9 +2215,9 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     })
     for (let index = 0; index < 5; index += 1) await note(`lumen ${index}`)
     // Ordinary frontier: the cost does not move with the number of ordinary messages.
-    const ordinaryFew = await measure()
+    const ordinaryFew = await measureSurfaces(f)
     for (let index = 0; index < 40; index += 1) await note(`lumen more ${index}`)
-    const ordinaryMany = await measure()
+    const ordinaryMany = await measureSurfaces(f)
     expect(ordinaryMany).toEqual(ordinaryFew)
 
     // A second publication, its artifact revoked. It is the frontier, so the walk past it runs.
@@ -2228,13 +2235,13 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       f.owner.principal,
       registration.grantId
     )
-    const walkPath = await measure()
+    const walkPath = await measureSurfaces(f)
 
     // Ordinary messages again: the frontier is ordinary, and one hidden publication is gated.
     for (let index = 0; index < 40; index += 1) await note(`lumen even more ${index}`)
-    const hiddenFew = await measure()
+    const hiddenFew = await measureSurfaces(f)
     for (let index = 0; index < 40; index += 1) await note(`lumen last ${index}`)
-    const hiddenMany = await measure()
+    const hiddenMany = await measureSurfaces(f)
     expect(hiddenMany).toEqual(hiddenFew)
 
     // A third hidden publication, now the frontier again: the walk path, one more gate.
@@ -2252,11 +2259,182 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       f.owner.principal,
       thirdRegistration.grantId
     )
-    const walkPathTwo = await measure()
+    const walkPathTwo = await measureSurfaces(f)
     // Growth is per publication a surface gates, never per ordinary message.
     for (const surface of Object.keys(ordinaryFew) as (keyof typeof ordinaryFew)[]) {
       expect(hiddenMany[surface]).toBeGreaterThanOrEqual(ordinaryMany[surface])
       expect(walkPathTwo[surface]).toBeGreaterThanOrEqual(walkPath[surface])
     }
   })
+
+  test('the batch gate agrees with the locked delivery decision for every publication state', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const channelId = f.channelA.id
+    const complete = (
+      job: { id: string; version: number },
+      request: JobOutboundCompletionRequest
+    ) =>
+      completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        request
+      )
+    // Visible: a summary-only publication, and one whose artifact grant is current.
+    const plain = await f.submitAnotherJob()
+    await complete(plain, {
+      artifact: null,
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'state plain',
+    })
+    const current = await registeredArtifact(f)
+    const granted = await f.submitAnotherJob()
+    await complete(granted, {
+      artifact: { artifactId: current.artifact.id, grantId: current.grantId },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'state granted',
+    })
+    // Hidden: a grant revoked after publication, and an artifact quarantined after publication.
+    const revokedRegistration = await registeredArtifact(f)
+    const revoked = await f.submitAnotherJob()
+    await complete(revoked, {
+      artifact: {
+        artifactId: revokedRegistration.artifact.id,
+        grantId: revokedRegistration.grantId,
+      },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'state revoked',
+    })
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      revokedRegistration.grantId
+    )
+    const quarantinedRegistration = await registeredArtifact(f)
+    const quarantined = await f.submitAnotherJob()
+    await complete(quarantined, {
+      artifact: {
+        artifactId: quarantinedRegistration.artifact.id,
+        grantId: quarantinedRegistration.grantId,
+      },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'state quarantined',
+    })
+    await setArtifactAvailability(
+      connection.db,
+      f.workspace.id,
+      quarantinedRegistration.artifact.id,
+      f.owner.principal,
+      'quarantined',
+      quarantinedRegistration.artifact.version
+    )
+
+    const rows = await connection.db
+      .select({
+        executionRef: messages.executionRef,
+        id: messages.id,
+        senderKind: messages.senderKind,
+        senderSystemId: messages.senderSystemId,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.channelId, channelId),
+          eq(messages.senderKind, 'system'),
+          inArray(messages.executionRef, [plain.id, granted.id, revoked.id, quarantined.id])
+        )
+      )
+    expect(rows).toHaveLength(4)
+    // The oracle is the locked delivery decision, one publication at a time.
+    const locked = new Set<string>()
+    for (const row of rows) {
+      const decision = await service().deliver(
+        { jobId: row.executionRef!, messageId: row.id, recipientUserId: reader.userId },
+        async () => {}
+      )
+      if (decision.action === 'deliver') locked.add(row.id)
+    }
+    const batch = new Set(
+      (await filterVisibleJobOutboundRows(connection.db, rows, reader.userId)).map((row) => row.id)
+    )
+    expect(locked.size).toBe(2)
+    expect([...batch].toSorted()).toEqual([...locked].toSorted())
+  })
+
+  test('a large hidden run is gated in pages: counts stay exact, and statements grow with pages, not publications', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    // Ordinary messages first, so the newest message after the run is a publication and the
+    // frontier walk reads through the whole hidden run.
+    for (let index = 0; index < 3; index += 1)
+      await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+        bodyText: `lumen ordinary ${index}`,
+        idempotencyKey: `note-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      })
+    const baseline = await measureSurfaces(f)
+    for (let index = 0; index < LARGE_HIDDEN_RUN; index += 1) {
+      const job = await f.submitAnotherJob()
+      await completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        { artifact: null, artifactPolicy: 'require', channelId, summary: `lumen run ${index}` }
+      )
+    }
+    // The roster moves twice and ends with the reader listed. Each publication is bound to a
+    // revision that is no longer current, so all of them are hidden at once; the notes stay visible.
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal],
+      await rosterVersion(channelId)
+    )
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal, { kind: 'user', userId: reader.userId }],
+      await rosterVersion(channelId)
+    )
+
+    await expectSurfacesAgree(f, 'large hidden run')
+    const state = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )
+    expect(state?.topLevelUnreadCount).toBe(3)
+    expect(await historyOf(reader, workspaceId, channelId)).toHaveLength(3)
+
+    // Each surface pays for the walk's batches and the scan's pages, one bulk gate each. The
+    // hidden run is never gated once per publication.
+    const gates =
+      Math.ceil(LARGE_HIDDEN_RUN / WALK_BATCH) +
+      Math.ceil(LARGE_HIDDEN_RUN / UNREAD_PUBLICATION_PAGE)
+    const hidden = await measureSurfaces(f)
+    for (const surface of Object.keys(baseline) as (keyof typeof baseline)[])
+      expect(hidden[surface] - baseline[surface]).toBeLessThanOrEqual(gates * STATEMENTS_PER_GATE)
+  }, 900_000)
 })

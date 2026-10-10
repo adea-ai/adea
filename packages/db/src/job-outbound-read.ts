@@ -9,25 +9,21 @@
  */
 import { and, desc, eq, isNull, like } from 'drizzle-orm'
 
-import { readCurrentArtifactReferenceGrant } from './artifact-reference-grants'
 import { readArtifactReferenceEvidence } from './artifact-reference-policy'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import {
-  decodeJobOutboundBinding,
-  isJobOutboundSenderValue,
-  jobOutboundMessageKeyPrefix,
-} from './job-outbound-binding'
+import { decodeJobOutboundBinding, jobOutboundMessageKeyPrefix } from './job-outbound-binding'
 import type {
   JobOutboundAccess,
   JobOutboundAudience,
   JobOutboundJobSource,
   JobOutboundPublication,
 } from './job-outbound-result-policy'
+import type { JobOutboundDeliveryResolution, JobOutboundReads } from './job-outbound-result-service'
 import {
-  createJobOutboundResultService,
-  type JobOutboundDeliveryResolution,
-  type JobOutboundReads,
-} from './job-outbound-result-service'
+  deliveryClaimFor,
+  isJobPublicationRow,
+  readerVisiblePublicationIds,
+} from './job-outbound-visibility'
 import {
   artifactReferenceGrants,
   artifacts,
@@ -308,28 +304,16 @@ export async function resolveJobOutboundDelivery(
     .from(artifactReferenceGrants)
     .where(eq(artifactReferenceGrants.grantId, binding.grant.grantId))
     .limit(1)
-  if (!row) return { claim: { authority: { kind: 'workspace_grant' }, grant: null }, scope: null }
   return {
-    claim: {
-      authority: { kind: 'workspace_grant' },
-      grant: {
-        artifactId: row.artifactId,
-        audienceWorkspaceId: row.audienceWorkspaceId,
-        checksumSha256: row.checksumSha256,
-        expiresAt: row.expiresAt,
-        grantId: row.grantId,
-        revokedAt: null,
-        revision: binding.grant.revision,
-        sourceWorkspaceId: row.sourceWorkspaceId,
-        version: row.version,
-      },
-    },
-    scope: {
-      artifactId: binding.artifact.artifactId,
-      grantId: binding.grant.grantId,
-      revision: binding.grant.revision,
-      sourceWorkspaceId: binding.artifact.sourceWorkspaceId,
-    },
+    claim: deliveryClaimFor(binding, row),
+    scope: row
+      ? {
+          artifactId: binding.artifact.artifactId,
+          grantId: binding.grant.grantId,
+          revision: binding.grant.revision,
+          sourceWorkspaceId: binding.artifact.sourceWorkspaceId,
+        }
+      : null,
   }
 }
 
@@ -364,40 +348,12 @@ export async function readJobOutboundPublicationMessageId(
 export const JOB_OUTBOUND_HISTORY_SYSTEM_ID = 'job-outbound'
 
 /**
- * Whether one job publication may be shown to one reader now. History is a read,
- * so it runs the delivery gates without a lock and reflects current state at the
- * read instant: a revoked grant, a removed membership, a lost source authority, a
- * roster change, or an edited or deleted publication all hide it. Delivery remains
- * the locked gate that releases an artifact.
- */
-export async function isJobOutboundPublicationVisible(
-  database: Database,
-  input: Readonly<{ jobId: string; messageId: string; readerUserId: string }>
-): Promise<boolean> {
-  const service = createJobOutboundResultService<Database>({
-    authorize: async (scope, run) => {
-      const grantState = scope
-        ? await readCurrentArtifactReferenceGrant(database, {
-            grantId: scope.grantId,
-            revision: scope.revision,
-          })
-        : null
-      return run({ grantState, reads: jobOutboundReadsFor(database), transaction: database })
-    },
-    clock: () => new Date().toISOString(),
-    resolveDelivery: (resolution) => resolveJobOutboundDelivery(database, resolution),
-  })
-  const decision = await service.deliver(
-    { jobId: input.jobId, messageId: input.messageId, recipientUserId: input.readerUserId },
-    async () => {}
-  )
-  return decision.action === 'deliver'
-}
-
-/**
  * Keeps the rows a reader may see. Job publications are shown only while the reader
  * is currently authorized for them, using the same gates as delivery; every other
- * message passes unchanged. The row shape is the subset the gate needs.
+ * message passes unchanged. The publications in the page are decided together, so the
+ * statement count depends on the page's distinct workspaces and artifacts, not on its
+ * size. A publication that cannot be proven is hidden. The row shape is the subset the
+ * gate needs.
  */
 export async function filterVisibleJobOutboundRows<
   T extends {
@@ -407,20 +363,8 @@ export async function filterVisibleJobOutboundRows<
     senderSystemId: string | null
   },
 >(database: Database, rows: readonly T[], readerUserId: string): Promise<T[]> {
-  const visible: T[] = []
-  for (const row of rows) {
-    if (row.senderKind !== 'system' || !isJobOutboundSenderValue(row.senderSystemId)) {
-      visible.push(row)
-    } else if (
-      row.executionRef &&
-      (await isJobOutboundPublicationVisible(database, {
-        jobId: row.executionRef,
-        messageId: row.id,
-        readerUserId,
-      }))
-    ) {
-      visible.push(row)
-    }
-  }
-  return visible
+  const publications = rows.filter(isJobPublicationRow)
+  if (!publications.length) return [...rows]
+  const visible = await readerVisiblePublicationIds(database, publications, readerUserId)
+  return rows.filter((row) => !isJobPublicationRow(row) || visible.has(row.id))
 }

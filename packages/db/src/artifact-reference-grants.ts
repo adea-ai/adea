@@ -597,6 +597,17 @@ export async function readCurrentArtifactReferenceGrant(
     .from(artifactReferenceGrants)
     .where(eq(artifactReferenceGrants.grantId, presented.grantId))
     .limit(1)
-  if (!row || row.revision !== presented.revision) return null
-  return grantStateOf(row)
+  return row ? currentGrantStateOf(row, presented.revision) : null
+}
+
+/**
+ * The stored state of one grant row when the presented revision is still its revision, or null
+ * when it moved. Bulk readers use it on the rows they fetched, so they decide exactly as the
+ * single-grant reader does.
+ */
+export function currentGrantStateOf(
+  row: GrantRow,
+  presentedRevision: number
+): ArtifactReferenceGrantState | null {
+  return row.revision === presentedRevision ? grantStateOf(row) : null
 }

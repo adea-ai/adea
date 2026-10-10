@@ -6,26 +6,32 @@
  * the reader. Visibility is decided by the canonical publication gates that history and
  * delivery apply (`filterVisibleJobOutboundRows`); nothing here widens access.
  *
- * Bounds. The stored frontier `channels.latest_message_sequence` is the starting point and
- * is indexed. A channel whose newest top-level message is ordinary costs nothing more. A
- * walk past hidden publications reads the channel index downwards in batches of
- * WALK_BATCH and stops at the first ordinary message or visible publication, so it costs
- * the hidden publications at the top of that channel. Hidden unread publications come from
- * the unread range of channels that have unread, the same range the unread count scans.
+ * Bounds. Every read is a page, and each page is gated in one bulk pass, so the statement
+ * count grows with pages, never with publications.
+ * - The stored frontier `channels.latest_message_sequence` is the starting point and is
+ *   indexed. A channel whose newest top-level message is ordinary costs nothing more.
+ * - A walk past hidden publications reads the channel index downwards in batches of
+ *   WALK_BATCH, gates each batch once, and stops at the first ordinary message or visible
+ *   publication. It costs the hidden publications at the top of that channel, in batches.
+ * - Unread publications are scanned in keyset pages of UNREAD_PUBLICATION_PAGE, in message
+ *   sequence order. Only per-channel counts are kept between pages, never the rows.
  * Nothing reads history below a reader's watermark or above a visible message.
  */
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, desc, eq, inArray, isNull, like, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { isJobOutboundSenderValue, JOB_OUTBOUND_SENDER_PREFIX } from './job-outbound-binding'
+import { JOB_OUTBOUND_SENDER_PREFIX, isJobOutboundSenderValue } from './job-outbound-binding'
 import { filterVisibleJobOutboundRows } from './job-outbound-read'
 import { channelReadStates, channels, messages } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
-/** Walk batch size: one indexed read per batch of the channel's top-level messages. */
-const WALK_BATCH = 16
+/** Walk batch size: one indexed read and one bulk gate per batch of top-level messages. */
+export const WALK_BATCH = 64
+
+/** Unread publications read and gated per page of a scan. */
+export const UNREAD_PUBLICATION_PAGE = 200
 
 type MessageFact = Readonly<{
   channelId: string
@@ -103,13 +109,17 @@ async function walkVisibleFrom(
       .orderBy(desc(messages.sequence))
       .limit(WALK_BATCH)
     if (!batch.length) return 0
-    // Newest first, and each publication gated only when reached: the walk stops at the first
-    // ordinary message or visible publication, so it never gates the rest of the batch.
+    // Newest first, the walk stops at the first ordinary message, so only the run of publications
+    // above it is gated, in one bulk pass. Nothing below that message is read or gated.
+    const run: MessageFact[] = []
     for (const row of batch) {
-      if (!isPublication(row)) return row.sequence
-      if ((await authorizedPublicationIds(database, principal.userId, [row])).has(row.id))
-        return row.sequence
+      run.push(row)
+      if (!isPublication(row)) break
     }
+    const visible = new Set(
+      (await filterVisibleJobOutboundRows(database, run, principal.userId)).map((row) => row.id)
+    )
+    for (const row of run) if (visible.has(row.id)) return row.sequence
     cursor = batch.at(-1)!.sequence
   }
 }
@@ -203,61 +213,110 @@ export async function readVisibleTopLevelFrontiers(
   return frontiers
 }
 
+/** One page of a scan: the publications read, and the ids of those the reader may still see. */
+export type UnreadPublicationPage = Readonly<{
+  rows: readonly MessageFact[]
+  visibleIds: ReadonlySet<string>
+}>
+
 /**
- * Unread job publications the reader may no longer see, per channel: the live top-level
- * publications past the reader's read watermark that fail the publication gates. Ordinary
- * messages are never returned. `workspaceIds` bounds the scan; `channelIds`, when given,
- * narrows it further.
+ * Walks the job publications past each channel's read watermark in pages of
+ * UNREAD_PUBLICATION_PAGE, in message sequence order, and gates each page in one bulk pass.
+ * `visit` receives each page and returns true to stop. Only one page is held at a time.
+ * `workspaceIds` bounds the scan; `channelIds`, when given, narrows it further.
  */
-export async function readHiddenUnreadPublications(
+export async function scanUnreadJobPublications(
+  database: Database,
+  principal: UserPrincipalRef,
+  scope: Readonly<{ channelIds?: readonly string[]; workspaceIds: readonly string[] }>,
+  visit: (page: UnreadPublicationPage) => boolean
+): Promise<void> {
+  if (!scope.workspaceIds.length || scope.channelIds?.length === 0) return
+  // Starts from the channels that have unread, so the scan covers the unread range of those
+  // channels and nothing older. The message sequence is unique, so it pages without ties.
+  let after = 0
+  for (;;) {
+    const rows: MessageFact[] = await database
+      .select(messageFact)
+      .from(channels)
+      .leftJoin(
+        channelReadStates,
+        and(
+          eq(channelReadStates.workspaceId, channels.workspaceId),
+          eq(channelReadStates.userId, principal.userId),
+          eq(channelReadStates.channelId, channels.id)
+        )
+      )
+      .innerJoin(
+        messages,
+        and(
+          eq(messages.channelId, channels.id),
+          eq(messages.workspaceId, channels.workspaceId),
+          sql`${messages.sequence} > coalesce(${channelReadStates.lastReadSequence}, 0)`
+        )
+      )
+      .where(
+        and(
+          inArray(channels.workspaceId, [...scope.workspaceIds]),
+          ...(scope.channelIds ? [inArray(channels.id, [...scope.channelIds])] : []),
+          sql`${channels.latestMessageSequence} > coalesce(${channelReadStates.lastReadSequence}, 0)`,
+          isNull(messages.threadRootMessageId),
+          isNull(messages.deletedAt),
+          eq(messages.senderKind, 'system'),
+          like(messages.senderSystemId, `${JOB_OUTBOUND_SENDER_PREFIX}%`),
+          gt(messages.sequence, after)
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(UNREAD_PUBLICATION_PAGE)
+    if (!rows.length) return
+    const visibleIds = new Set(
+      (await filterVisibleJobOutboundRows(database, rows, principal.userId)).map((row) => row.id)
+    )
+    if (visit({ rows, visibleIds })) return
+    if (rows.length < UNREAD_PUBLICATION_PAGE) return
+    after = rows[rows.length - 1]!.sequence
+  }
+}
+
+/**
+ * Unread job publications the reader may no longer see, counted per channel. Only the counts
+ * are kept, page by page, so the memory held does not grow with the number of publications.
+ */
+export async function readHiddenUnreadCounts(
   database: Database,
   principal: UserPrincipalRef,
   scope: Readonly<{ channelIds?: readonly string[]; workspaceIds: readonly string[] }>
-): Promise<ReadonlyArray<Readonly<{ channelId: string; messageId: string; sequence: number }>>> {
-  if (!scope.workspaceIds.length) return []
-  // Starts from the channels that have unread, so the message scan is the unread range of
-  // those channels and nothing older.
-  const rows: MessageFact[] = await database
-    .select(messageFact)
-    .from(channels)
-    .leftJoin(
-      channelReadStates,
-      and(
-        eq(channelReadStates.workspaceId, channels.workspaceId),
-        eq(channelReadStates.userId, principal.userId),
-        eq(channelReadStates.channelId, channels.id)
-      )
-    )
-    .innerJoin(
-      messages,
-      and(
-        eq(messages.channelId, channels.id),
-        eq(messages.workspaceId, channels.workspaceId),
-        sql`${messages.sequence} > coalesce(${channelReadStates.lastReadSequence}, 0)`
-      )
-    )
-    .where(
-      and(
-        inArray(channels.workspaceId, [...scope.workspaceIds]),
-        ...(scope.channelIds ? [inArray(channels.id, [...scope.channelIds])] : []),
-        sql`${channels.latestMessageSequence} > coalesce(${channelReadStates.lastReadSequence}, 0)`,
-        isNull(messages.threadRootMessageId),
-        isNull(messages.deletedAt),
-        eq(messages.senderKind, 'system'),
-        like(messages.senderSystemId, `${JOB_OUTBOUND_SENDER_PREFIX}%`)
-      )
-    )
-  const authorized = await authorizedPublicationIds(database, principal.userId, rows)
-  return rows
-    .filter((row) => !authorized.has(row.id))
-    .map((row) => ({ channelId: row.channelId, messageId: row.id, sequence: row.sequence }))
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  await scanUnreadJobPublications(database, principal, scope, ({ rows, visibleIds }) => {
+    for (const row of rows)
+      if (!visibleIds.has(row.id)) counts.set(row.channelId, (counts.get(row.channelId) ?? 0) + 1)
+    return false
+  })
+  return counts
 }
 
-/** Hidden unread publication counts per channel, from `readHiddenUnreadPublications`. */
-export function hiddenUnreadCountByChannel(
-  hidden: ReadonlyArray<Readonly<{ channelId: string }>>
-): Map<string, number> {
-  const counts = new Map<string, number>()
-  for (const row of hidden) counts.set(row.channelId, (counts.get(row.channelId) ?? 0) + 1)
-  return counts
+/**
+ * Of `channelIds`, the channels with at least one unread job publication the reader is still
+ * authorized for. The scan stops once every channel has one.
+ */
+export async function readChannelsWithVisibleUnreadPublication(
+  database: Database,
+  principal: UserPrincipalRef,
+  scope: Readonly<{ channelIds: readonly string[]; workspaceIds: readonly string[] }>
+): Promise<Set<string>> {
+  const pending = new Set(scope.channelIds)
+  const found = new Set<string>()
+  if (!pending.size) return found
+  await scanUnreadJobPublications(
+    database,
+    principal,
+    { channelIds: [...pending], workspaceIds: scope.workspaceIds },
+    ({ rows, visibleIds }) => {
+      for (const row of rows) if (visibleIds.has(row.id)) found.add(row.channelId)
+      return found.size === pending.size
+    }
+  )
+  return found
 }
