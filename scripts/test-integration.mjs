@@ -4,13 +4,17 @@ import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const root = resolve(import.meta.dirname, '..')
+// The local target follows the same host-port override compose.yml honours (ADEA_POSTGRES_PORT,
+// default 55432). A fixed port here would point the lane at whatever else owns that port.
+const localDatabasePort = process.env.ADEA_POSTGRES_PORT || '55432'
+if (!/^\d+$/.test(localDatabasePort)) {
+  throw new Error(`ADEA_POSTGRES_PORT must be a port number, got "${localDatabasePort}"`)
+}
+const localDatabaseOrigin = `127.0.0.1:${localDatabasePort}/agent_hq?sslmode=disable`
 const localDatabaseEnvironment = {
-  DATABASE_URL:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_URL_UNPOOLED:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_MIGRATION_URL:
-    'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
+  DATABASE_URL: `postgresql://agent_hq_local_app:agent_hq_local_app@${localDatabaseOrigin}`,
+  DATABASE_URL_UNPOOLED: `postgresql://agent_hq_local_app:agent_hq_local_app@${localDatabaseOrigin}`,
+  DATABASE_MIGRATION_URL: `postgresql://agent_hq_local_migration:agent_hq_local_migration@${localDatabaseOrigin}`,
 }
 
 const integrationDirectories = readdirSync(resolve(root, 'packages'), { withFileTypes: true })
@@ -197,6 +201,24 @@ if (usesExplicitDatabase) {
 const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
+
+// CI is strict and fails before any build or container work. The lane must name its isolated
+// target (the Neon lane supplies DATABASE_URL) and must be able to provision the throwaway
+// capture instance. Outside CI the local defaults stay opt-in: compose on the local port, and
+// the capture proofs and rehearsals skip when Docker is absent.
+if (ciEnvironment) {
+  if (!usesExplicitDatabase) {
+    throw new Error(
+      'DATABASE_URL is required in CI. The integration lane does not fall back to the local compose database in CI; supply the isolated test target.'
+    )
+  }
+  if (!dockerDaemonAvailable()) {
+    throw new Error(
+      'Docker is required in CI: the migration-snapshot capture proofs and the cutover and candidate rehearsals need the throwaway capture instance and must not skip.'
+    )
+  }
+}
+
 let startedLocalPostgres = false
 let captureProvisioning = null
 let primaryFailure
@@ -248,7 +270,7 @@ try {
     )
   } else {
     console.warn(
-      `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned and the migration-snapshot capture proofs will skip`
+      `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned, so the migration-snapshot capture proofs and the cutover and candidate rehearsals will skip`
     )
   }
 
