@@ -10,6 +10,13 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 
 const repoDrizzle = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle')
 const connectionUrl = process.env.DATABASE_URL
+// Live replay needs a scratch database, which needs CREATEDB — deliberately
+// absent from the provisioned application roles (see scripts/test-integration.mjs).
+// The integration runner provisions a throwaway superuser container per run and
+// exports its admin URL here; without it this proof skips cleanly, exactly like
+// the migration-snapshot capture proofs. The timestamp-order invariant itself is
+// asserted statically (no database) in tests/unit/migration-journal.test.ts.
+const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 
 /**
  * Journal-timestamp upgrade guard (#1177 rechaining follow-up).
@@ -49,90 +56,95 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
     }
   })
 
-  test('an existing database at 0050 still applies 0051 exactly once', async () => {
-    // A private database for this test only: sibling suites share the
-    // server but never this name, and it is dropped afterwards.
-    const url = new URL(connectionUrl!)
-    const name = `handoff_mig_${crypto.randomUUID().slice(0, 8).replaceAll('-', '')}`
-    if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error('unsafe generated database name')
-    admin = postgres(
-      `${url.protocol}//${url.username}${url.password ? `:${url.password}` : ''}@${url.host}/postgres`,
-      {
-        max: 1,
-        connect_timeout: 10,
-        prepare: false,
+  test.skipIf(!provisioningUrl)(
+    'an existing database at 0050 still applies 0051 exactly once',
+    async () => {
+      // A private database on the throwaway provisioning instance only:
+      // sibling suites share the application database but never this name,
+      // and it is dropped afterwards. Never the application database itself.
+      const url = new URL(provisioningUrl!)
+      const name = `handoff_mig_${crypto.randomUUID().slice(0, 8).replaceAll('-', '')}`
+      if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error('unsafe generated database name')
+      admin = postgres(
+        `${url.protocol}//${url.username}${url.password ? `:${url.password}` : ''}@${url.host}/postgres`,
+        {
+          max: 1,
+          connect_timeout: 10,
+          prepare: false,
+        }
+      )
+      await admin.unsafe(`CREATE DATABASE "${name}"`) // validated generated name only
+      url.pathname = `/${name}`
+      databaseUrl = url.toString()
+      // Stage the predecessor-only chain: every migration through 0050 with
+      // the journal truncated there, like a database migrated before 0051
+      // existed.
+      staged = mkdtempSync(join(tmpdir(), 'pi-1177-mig-'))
+      const sqlFiles = (await Array.fromAsync(new Bun.Glob('00*.sql').scan(repoDrizzle))).toSorted()
+      const predecessor = sqlFiles.filter((file) => !file.startsWith('0051_'))
+      expect(predecessor.length).toBeGreaterThan(0)
+      for (const file of predecessor) cpSync(join(repoDrizzle, file), join(staged, file))
+      const journal = JSON.parse(
+        readFileSync(join(repoDrizzle, 'meta', '_journal.json'), 'utf8')
+      ) as {
+        entries: Array<{ idx: number; tag: string }>
       }
-    )
-    await admin.unsafe(`CREATE DATABASE "${name}"`) // validated generated name only
-    url.pathname = `/${name}`
-    databaseUrl = url.toString()
-    // Stage the predecessor-only chain: every migration through 0050 with
-    // the journal truncated there, like a database migrated before 0051
-    // existed.
-    staged = mkdtempSync(join(tmpdir(), 'pi-1177-mig-'))
-    const sqlFiles = (await Array.fromAsync(new Bun.Glob('00*.sql').scan(repoDrizzle))).toSorted()
-    const predecessor = sqlFiles.filter((file) => !file.startsWith('0051_'))
-    expect(predecessor.length).toBeGreaterThan(0)
-    for (const file of predecessor) cpSync(join(repoDrizzle, file), join(staged, file))
-    const journal = JSON.parse(
-      readFileSync(join(repoDrizzle, 'meta', '_journal.json'), 'utf8')
-    ) as {
-      entries: Array<{ idx: number; tag: string }>
-    }
-    const truncated = {
-      ...journal,
-      entries: journal.entries.filter((entry) => entry.idx <= 50),
-    }
-    expect(truncated.entries).toHaveLength(51)
-    mkdirSync(join(staged, 'meta'), { recursive: true })
-    writeFileSync(join(staged, 'meta', '_journal.json'), JSON.stringify(truncated, null, 2))
+      const truncated = {
+        ...journal,
+        entries: journal.entries.filter((entry) => entry.idx <= 50),
+      }
+      expect(truncated.entries).toHaveLength(51)
+      mkdirSync(join(staged, 'meta'), { recursive: true })
+      writeFileSync(join(staged, 'meta', '_journal.json'), JSON.stringify(truncated, null, 2))
 
-    first = createDatabase(databaseUrl)
-    await migrate(first.db, {
-      migrationsFolder: staged,
-      migrationsSchema: 'app',
-      migrationsTable: '__drizzle_migrations',
-    })
-    const applied = await first.db.execute(
-      sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
-    )
-    expect(applied[0]!.n as number).toBe(51)
-    // Separate lifetime: close before the upgrade, like a redeployed process.
-    await first.close()
-    first = undefined
+      first = createDatabase(databaseUrl)
+      await migrate(first.db, {
+        migrationsFolder: staged,
+        migrationsSchema: 'app',
+        migrationsTable: '__drizzle_migrations',
+      })
+      const applied = await first.db.execute(
+        sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
+      )
+      expect(applied[0]!.n as number).toBe(51)
+      // Separate lifetime: close before the upgrade, like a redeployed process.
+      await first.close()
+      first = undefined
 
-    second = createDatabase(databaseUrl)
-    await migrate(second.db, {
-      migrationsFolder: repoDrizzle,
-      migrationsSchema: 'app',
-      migrationsTable: '__drizzle_migrations',
-    })
+      second = createDatabase(databaseUrl)
+      await migrate(second.db, {
+        migrationsFolder: repoDrizzle,
+        migrationsSchema: 'app',
+        migrationsTable: '__drizzle_migrations',
+      })
 
-    const columns = await second.db.execute(sql`
+      const columns = await second.db.execute(sql`
       SELECT column_name FROM information_schema.columns
       WHERE table_schema = 'app' AND table_name = 'lead_turn_intents'
         AND column_name LIKE 'handoff%' ORDER BY 1`)
-    expect(columns.map((row) => row.column_name as string)).toEqual([
-      'handoff_target_generation',
-      'handoff_target_session_id',
-      'handoff_target_task_id',
-    ])
-    const guard = await second.db.execute(sql`
+      expect(columns.map((row) => row.column_name as string)).toEqual([
+        'handoff_target_generation',
+        'handoff_target_session_id',
+        'handoff_target_task_id',
+      ])
+      const guard = await second.db.execute(sql`
       SELECT conname FROM pg_constraint
       WHERE conrelid = 'app.lead_turn_intents'::regclass
         AND conname = 'lead_turn_intents_handoff_target_valid'`)
-    expect(guard).toHaveLength(1)
-    const unique = await second.db.execute(sql`
+      expect(guard).toHaveLength(1)
+      const unique = await second.db.execute(sql`
       SELECT indexname FROM pg_indexes WHERE schemaname = 'app'
         AND tablename = 'lead_turn_intents'
         AND indexname = 'lead_turn_intents_target_unique'`)
-    expect(unique).toHaveLength(1)
-    const appliedJournal = await second.db.execute(
-      sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
-    )
-    expect(appliedJournal[0]!.n as number).toBe(52)
-    const dupes = await second.db.execute(sql`
+      expect(unique).toHaveLength(1)
+      const appliedJournal = await second.db.execute(
+        sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
+      )
+      expect(appliedJournal[0]!.n as number).toBe(52)
+      const dupes = await second.db.execute(sql`
       SELECT hash FROM app.__drizzle_migrations GROUP BY hash HAVING count(*) > 1`)
-    expect(dupes).toHaveLength(0)
-  }, 120_000)
+      expect(dupes).toHaveLength(0)
+    },
+    120_000
+  )
 })

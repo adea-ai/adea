@@ -205,7 +205,10 @@ Guarded twice: `migration-journal.test.ts` (static monotonicity,
 contiguity, tag/file correspondence) and
 `migration-journal-order.test.ts` (real-Postgres upgrade replay:
 migrate through 0050, close/reopen, apply the complete chain,
-columns/check/index present, journal row exactly once). Both guards
+columns/check/index present, journal row exactly once — on the
+throwaway provisioning container, since the provisioned application
+roles deliberately lack CREATEDB; without provisioning it skips
+cleanly, same convention as the capture proofs). Both guards
 were proven to fire on the broken timestamp before the fix landed.
 `chat-handoff-model/supplier.test.ts` claim-vs-binding matrix
 (forged 9999 unbound, binding-elsewhere unbound, requested vs

@@ -1,6 +1,11 @@
 import { expect, test } from 'bun:test'
-import { conversationErrorResponse } from '../src/server/conversation-request'
-import type { WorkspacePrincipalResolution } from '../src/server/workspace-principal'
+// NOTE (lane #1215 provenance): this file imports the server-only
+// conversation boundary, so it cannot load under bun's browser export
+// condition with the top-level unit glob. It runs with the
+// route-flow integration lane instead:
+//   bun test --conditions=react-server apps/web/test/integration/lead-turn-conflict.test.ts
+import { conversationErrorResponse } from '../../src/server/conversation-request'
+import type { WorkspacePrincipalResolution } from '../../src/server/workspace-principal'
 
 test('changed requested-model replay is an explicit conflict with no runtime or credential details', async () => {
   const response = conversationErrorResponse(
