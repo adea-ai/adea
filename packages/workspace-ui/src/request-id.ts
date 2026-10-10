@@ -18,3 +18,21 @@ export function createClientRequestId(source: RandomSource | undefined = globalT
   const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
+
+export function leadRequestedChoicesKey(
+  choices: import('./lead-model-request').LeadRequestedChoices
+) {
+  return JSON.stringify(
+    Object.fromEntries(
+      (['lead', 'child'] as const)
+        .filter((role) => choices[role])
+        .map((role) => [
+          role,
+          {
+            connectionRef: choices[role]!.connectionRef,
+            providerModel: choices[role]!.providerModel,
+          },
+        ])
+    )
+  )
+}

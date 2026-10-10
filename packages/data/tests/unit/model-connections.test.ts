@@ -24,8 +24,10 @@ test('model registration and revocation refresh inventory without treating mutat
     },
   } as unknown as AgentHqModelConnectionsClient
   const queries = new QueryClient()
-  queries.setQueryData(modelConnectionsQueryKeys.list('workspace'), { connections: [] })
-  queries.setQueryData(modelConnectionsQueryKeys.list('other'), { connections: [] })
+  const workspaceInventoryKey = modelConnectionsQueryKeys.listForClient('workspace', 1)
+  const otherInventoryKey = modelConnectionsQueryKeys.listForClient('other', 2)
+  queries.setQueryData(workspaceInventoryKey, { connections: [] })
+  queries.setQueryData(otherInventoryKey, { connections: [] })
   const create = modelConnectionsMutationOptions.create(client, queries, 'workspace')
   const revoke = modelConnectionsMutationOptions.revoke(client, queries, 'workspace')
   const registerInput = {
@@ -40,10 +42,8 @@ test('model registration and revocation refresh inventory without treating mutat
   }
   expect(await create.mutationFn(registerInput)).toEqual({ connection: { models: [] } })
   await create.onSuccess()
-  expect(
-    queries.getQueryState(modelConnectionsQueryKeys.list('workspace'))?.isInvalidated
-  ).toBeTrue()
-  expect(queries.getQueryState(modelConnectionsQueryKeys.list('other'))?.isInvalidated).toBeFalse()
+  expect(queries.getQueryState(workspaceInventoryKey)?.isInvalidated).toBeTrue()
+  expect(queries.getQueryState(otherInventoryKey)?.isInvalidated).toBeFalse()
   await revoke.mutationFn(revokeInput)
   await revoke.onSuccess()
   expect(received).toEqual([
@@ -51,6 +51,26 @@ test('model registration and revocation refresh inventory without treating mutat
     { workspaceId: 'workspace', input: revokeInput },
   ])
   queries.clear()
+})
+
+test('model inventory cache identity is isolated between signed clients under one workspace', async () => {
+  const first = { listModelConnections: async () => ({ owner: 'first' }) }
+  const replacement = { listModelConnections: async () => ({ owner: 'replacement' }) }
+  const firstOptions = modelConnectionsQueryOptions.list(
+    first as unknown as AgentHqModelConnectionsClient,
+    'workspace'
+  )
+  const replacementOptions = modelConnectionsQueryOptions.list(
+    replacement as unknown as AgentHqModelConnectionsClient,
+    'workspace'
+  )
+
+  expect(firstOptions.queryKey).not.toEqual(replacementOptions.queryKey)
+  expect(
+    firstOptions.queryKey.slice(0, modelConnectionsQueryKeys.list('workspace').length)
+  ).toEqual(modelConnectionsQueryKeys.list('workspace'))
+  expect(await firstOptions.queryFn()).toEqual({ owner: 'first' })
+  expect(await replacementOptions.queryFn()).toEqual({ owner: 'replacement' })
 })
 
 test('funding query keys bind every accepted execution reference and never use a role default', () => {
