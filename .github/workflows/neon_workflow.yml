@@ -258,19 +258,15 @@ jobs:
                 }
                 found.set(branch.name, branch.id);
               }
-              // An absent pagination key means a single page. Any other pagination value must be an
-              // object with a next field: null ends the traversal, a non-empty string continues it.
+              // Per the Neon OpenAPI, CursorPagination is an object whose optional next string is absent on
+              // the last page. An absent pagination key is also read as a single page. A present pagination
+              // value must be an object, and a present next must be a non-empty string.
               const pagination = body.pagination;
-              if (pagination !== undefined) {
-                if (!pagination || typeof pagination !== "object" || Array.isArray(pagination)) {
-                  throw new Error("Listing Neon branches returned malformed pagination");
-                }
-                if (!Object.hasOwn(pagination, "next")) {
-                  throw new Error("Listing Neon branches returned pagination without a next field");
-                }
+              if (pagination !== undefined && (!pagination || typeof pagination !== "object" || Array.isArray(pagination))) {
+                throw new Error("Listing Neon branches returned malformed pagination");
               }
-              const next = pagination === undefined ? null : pagination.next;
-              if (next === null) break;
+              const next = pagination === undefined ? undefined : pagination.next;
+              if (next === undefined) break;
               if (typeof next !== "string" || next === "") {
                 throw new Error("Listing Neon branches returned a malformed cursor");
               }
