@@ -22,6 +22,8 @@ includes #1246 (artifact-reference grants) and #1251 (directory empty-state cove
 exact command. Every mapped id is `partial`: the cited tests cover part of the criterion, and the gaps are
 listed on the entry. Nothing is certified: `certification: incomplete (0 of 64 candidate-compatible)`.
 
+The two DB-backed receipts for A09 (`packages/db/tests/integration/artifact-reference-service.test.ts` and `apps/web/test/integration/artifact-reference-routes.test.ts`) ran against a disposable local database. It came from `compose.yml` and `infra/postgres/init` under its own compose project, and it was torn down afterwards. `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `DATABASE_MIGRATION_URL` pointed at its application and migration roles. `database-health` and `db:verify` passed first. The commands in the receipts record the bun flags and the file, not that environment. The shared local database is not used for receipts.
+
 ## Repositories and identity
 
 `repositories` maps a key to `{ name, rootCommit, sourceSha }`:

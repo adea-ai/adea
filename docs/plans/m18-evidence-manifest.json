@@ -824,7 +824,7 @@
       "id": "A09",
       "coverage": "partial",
       "gaps": [
-        "the exact-version share into a group is covered at policy level and by the merged service and route integration tests (#1246), which have no receipt yet; a group send path is not tested"
+        "the exact-version share into a group is covered at policy level and by DB-backed service and route integration receipts (#1246, at e8b75daa); a group send path is not tested"
       ],
       "sourceReferences": [
         {
@@ -892,6 +892,18 @@
           "repository": "adea",
           "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__artifact-reference-policy.test.execution.json",
           "sha256": "2f831a9e6621184b8d621f5d80fda716510ae4cff4c89100293d628d822d2ee1"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__integration__artifact-reference-service.test.execution.json",
+          "sha256": "11df9fce3d3db820e6d8d4c4d5777f8581ec644c6ef05ccef71e63a412e55f2d"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__integration__artifact-reference-routes.test.execution.json",
+          "sha256": "2b1ac6bd4154f04fd206617f1a4892f2092f9edef4a1b46780d3a5c56df123f2"
         }
       ],
       "candidateEvidence": []
