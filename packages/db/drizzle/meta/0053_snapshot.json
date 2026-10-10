@@ -1,5 +1,5 @@
 {
-  "id": "2b2e2c81-f2f8-45e1-98d3-fb2086b57179",
+  "id": "43d8701e-9c9d-4d53-82e8-3da364b82941",
   "prevId": "abcf1389-e765-4580-bf5b-5ce5379f6061",
   "version": "7",
   "dialect": "postgresql",
@@ -209,11 +209,11 @@
         },
         "addressed_agent_turns_label_valid": {
           "name": "addressed_agent_turns_label_valid",
-          "value": "\"app\".\"addressed_agent_turns\".\"addressed_label\" = \"app\".\"addressed_agent_turns\".\"workspace_id\"::text || ':' || \"app\".\"addressed_agent_turns\".\"agent_id\"::text"
+          "value": "length(btrim(\"app\".\"addressed_agent_turns\".\"addressed_label\")) > 0"
         },
         "addressed_agent_turns_state_valid": {
           "name": "addressed_agent_turns_state_valid",
-          "value": "\"app\".\"addressed_agent_turns\".\"state\" in ('claimed','responded','superseded','cancelled')"
+          "value": "\"app\".\"addressed_agent_turns\".\"state\" in ('claimed','dispatching','responded','superseded','cancelled')"
         },
         "addressed_agent_turns_response_valid": {
           "name": "addressed_agent_turns_response_valid",
