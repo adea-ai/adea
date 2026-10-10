@@ -19,8 +19,8 @@ CREATE TABLE "app"."addressed_agent_turns" (
 	CONSTRAINT "addressed_agent_turns_causal_unique" UNIQUE("causal_id"),
 	CONSTRAINT "addressed_agent_turns_revision_valid" CHECK ("app"."addressed_agent_turns"."dispatch_revision" between 1 and 9007199254740991),
 	CONSTRAINT "addressed_agent_turns_depth_valid" CHECK ("app"."addressed_agent_turns"."depth" >= 0 and "app"."addressed_agent_turns"."max_depth" >= 0 and "app"."addressed_agent_turns"."max_turns" >= 1),
-	CONSTRAINT "addressed_agent_turns_label_valid" CHECK ("app"."addressed_agent_turns"."addressed_label" = "app"."addressed_agent_turns"."workspace_id"::text || ':' || "app"."addressed_agent_turns"."agent_id"::text),
-	CONSTRAINT "addressed_agent_turns_state_valid" CHECK ("app"."addressed_agent_turns"."state" in ('claimed','responded','superseded','cancelled')),
+	CONSTRAINT "addressed_agent_turns_label_valid" CHECK (length(btrim("app"."addressed_agent_turns"."addressed_label")) > 0),
+	CONSTRAINT "addressed_agent_turns_state_valid" CHECK ("app"."addressed_agent_turns"."state" in ('claimed','dispatching','responded','superseded','cancelled')),
 	CONSTRAINT "addressed_agent_turns_response_valid" CHECK (("app"."addressed_agent_turns"."state" = 'responded' and "app"."addressed_agent_turns"."response_message_id" is not null) or ("app"."addressed_agent_turns"."state" != 'responded' and "app"."addressed_agent_turns"."response_message_id" is null))
 );
 --> statement-breakpoint

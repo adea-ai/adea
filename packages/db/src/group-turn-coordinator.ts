@@ -11,7 +11,7 @@ import { evaluateGroupGrantWindow } from './group-participation-policy'
 import type { GroupAdmission } from '@adea-ai/types'
 import { createLeadTurn } from './lead-turns'
 import { addressedAgentTurns, type AddressedAgentTurn } from './schema/addressed-agent-turns'
-import { messages, workspaceMemberships } from './schema'
+import { agents, messages, workspaceMemberships } from './schema'
 
 export type { AddressedAgentTurn } from './schema/addressed-agent-turns'
 
@@ -346,6 +346,15 @@ export async function claimAddressedTurn(
     if (decision.action === 'deny') throw new AddressedTurnError(decision.reason)
     if ((await countTriggerTree(store, input.triggerMessageId)) >= budget.maxTurns)
       throw new AddressedTurnError('turn_budget_exhausted')
+    // The label binds the VERIFIED source workspace from the registry —
+    // never the conversation host. A foreign Agent keeps its home label
+    // while the row's workspace column keeps host ownership.
+    const [agentHome] = await store
+      .select({ workspaceId: agents.workspaceId })
+      .from(agents)
+      .where(eq(agents.id, input.agentId))
+      .limit(1)
+    if (!agentHome) throw new AddressedTurnError('agent_unknown')
     const causalId = causalIdForAddressedTurn(
       input.triggerMessageId,
       input.agentId,
@@ -354,7 +363,7 @@ export async function claimAddressedTurn(
     const inserted = await store
       .insert(addressedAgentTurns)
       .values({
-        addressedLabel: `${workspaceId}:${input.agentId}`,
+        addressedLabel: `${agentHome.workspaceId}:${input.agentId}`,
         agentId: input.agentId,
         causalId,
         channelId: input.channelId,
@@ -382,12 +391,12 @@ export async function claimAddressedTurn(
 }
 
 /**
- * Records the single response for a claimed turn through the canonical
- * publication bar: the response must be a real message in this exact
- * channel sent by the claimed Agent, and the recorder must hold effective
- * human participation right now. Arbitrary message IDs, foreign channels
- * and wrong senders fail closed; redeliveries converge on the retained
- * response.
+ * Records the single response for a claimed or dispatched turn through the
+ * canonical publication bar: the response must be a real message in this
+ * exact channel sent by the claimed Agent, and the recorder must hold
+ * effective human participation right now. Arbitrary message IDs, foreign
+ * channels and wrong senders fail closed; redeliveries converge on the
+ * retained response.
  */
 export async function recordAddressedTurnResponse(
   database: AgentHqDatabase,
@@ -436,7 +445,7 @@ export async function recordAddressedTurnResponse(
         and(
           eq(addressedAgentTurns.id, turnId),
           eq(addressedAgentTurns.workspaceId, workspaceId),
-          eq(addressedAgentTurns.state, 'claimed')
+          sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
         )
       )
       .returning()
@@ -453,58 +462,101 @@ export async function recordAddressedTurnResponse(
   })
 }
 
+/** Test barrier hooks for dispatch; production callers omit them. */
+export type GroupTurnDispatchBarrier = Readonly<{
+  /**
+   * Runs after the claim converges and before the atomic dispatch
+   * decision, while no row lock is held — lets parked race tests commit
+   * a supersede first and prove no intent is minted.
+   */
+  beforeDispatchDecision?: () => Promise<void>
+}>
+
 /**
  * Thin dispatch toward real Pi-backed execution through the existing
  * lead-turn adapter (partial #1179 slice: only the currently resolved group
  * lead can dispatch today; addressed non-lead turns stay claimed and a
  * second runtime is never invented here). Claims first (durable, with full
- * human proof), then dispatches with a causal idempotency key so
- * redispatch converges on one intent.
+ * human proof), then binds to current retained state and the live
+ * canonical trigger inside one atomic decision, mints through the adapter
+ * with a causal idempotency key (redispatch converges), and finalizes the
+ * response binding — no synthetic human prompt, no duplicated content.
  */
 export async function dispatchAddressedTurn(
   database: AgentHqDatabase,
   workspaceId: string,
   principal: UserPrincipalRef,
   input: AddressedTurnClaimInput,
-  options: Readonly<{ now: string; budget?: AddressedTurnBudget }> = { now: '' }
+  options: Readonly<{
+    now: string
+    budget?: AddressedTurnBudget
+    barrier?: GroupTurnDispatchBarrier
+  }> = { now: '' }
 ) {
   const claim = await claimAddressedTurn(database, workspaceId, principal, input, options)
-  // The durable dispatch path is bound to CURRENT retained state and the
-  // canonical trigger/context — never to a stale decision. A superseded,
-  // cancelled or already-responded claim dispatches nothing: retries
-  // converge on the retained outcome instead of minting fresh intents.
-  // Concurrency is handled at the existing boundaries (the claim's trigger
-  // lock plus the lead-turn adapter's causal idempotency replay), so no
-  // second runtime is invented here.
+  await options.barrier?.beforeDispatchDecision?.()
+  // The addressed Agent must be the currently resolved lead BEFORE the
+  // atomic decision flips anything: a failed dispatch leaves the claim
+  // `claimed` (supersede-able), never stranded mid-flight. The adapter
+  // re-resolves the lead inside its own transaction as defense in depth.
   const now = options.now || new Date().toISOString()
-  const [retained] = await database
-    .select()
-    .from(addressedAgentTurns)
-    .where(
-      and(
-        eq(addressedAgentTurns.id, claim.turn.id),
-        eq(addressedAgentTurns.workspaceId, workspaceId)
-      )
-    )
-    .limit(1)
-  if (!retained) throw new AddressedTurnError('turn_claim_unresolved')
-  if (retained.state === 'superseded') throw new AddressedTurnError('turn_superseded')
-  if (retained.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
-  if (retained.state === 'responded') throw new AddressedTurnError('turn_already_responded')
-  const [trigger] = await database
-    .select({ channelId: messages.channelId, deletedAt: messages.deletedAt })
-    .from(messages)
-    .where(and(eq(messages.id, retained.triggerMessageId), eq(messages.workspaceId, workspaceId)))
-    .limit(1)
-  if (!trigger || trigger.deletedAt || trigger.channelId !== retained.channelId)
-    throw new AddressedTurnError('turn_trigger_unknown')
   const leadAgentId = await resolveGroupLeadAgentId(database, workspaceId, input.channelId, now)
   if (leadAgentId !== input.agentId) throw new AddressedTurnError('turn_not_lead')
-  const intent = await createLeadTurn(database, workspaceId, input.channelId, principal, {
-    bodyText: `Addressed turn ${claim.turn.causalId}`,
-    idempotencyKey: `turn-dispatch:${claim.turn.causalId}`,
-    mentions: [],
+  // Atomic dispatch admission: the claim row locks with the decision, so a
+  // supersede that commits first wins and no intent is minted; a supersede
+  // arriving after the flip finds a non-claimed row and skips it. Either
+  // order is safe, and crash recovery is redispatch (the adapter's causal
+  // idempotency key replays the same intent).
+  const admitted = await database.transaction(async (transaction) => {
+    const store = asStore(transaction)
+    const [locked] = await store
+      .select()
+      .from(addressedAgentTurns)
+      .where(
+        and(
+          eq(addressedAgentTurns.id, claim.turn.id),
+          eq(addressedAgentTurns.workspaceId, workspaceId)
+        )
+      )
+      .limit(1)
+      .for('update')
+    if (!locked) throw new AddressedTurnError('turn_claim_unresolved')
+    if (locked.state === 'superseded') throw new AddressedTurnError('turn_superseded')
+    if (locked.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
+    if (locked.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+    const [trigger] = await store
+      .select({ channelId: messages.channelId, deletedAt: messages.deletedAt })
+      .from(messages)
+      .where(and(eq(messages.id, locked.triggerMessageId), eq(messages.workspaceId, workspaceId)))
+      .limit(1)
+    if (!trigger || trigger.deletedAt || trigger.channelId !== locked.channelId)
+      throw new AddressedTurnError('turn_trigger_unknown')
+    const flipped = await store
+      .update(addressedAgentTurns)
+      .set({ state: 'dispatching' })
+      .where(
+        and(
+          eq(addressedAgentTurns.id, locked.id),
+          eq(addressedAgentTurns.workspaceId, workspaceId),
+          eq(addressedAgentTurns.state, locked.state)
+        )
+      )
+      .returning()
+    if (!flipped[0]) throw new AddressedTurnError('turn_claim_unresolved')
+    return flipped[0]
   })
+  // Faithful dispatch record: the message mentions the addressed Agent
+  // (existing participant reference) and points at the canonical trigger
+  // by id. Trigger content is never duplicated and no prompt is invented.
+  const intent = await createLeadTurn(database, workspaceId, input.channelId, principal, {
+    bodyText: `Addressed turn ${admitted.causalId} for trigger message ${admitted.triggerMessageId}`,
+    idempotencyKey: `turn-dispatch:${admitted.causalId}`,
+    mentions: [{ agentId: input.agentId, kind: 'agent' }],
+  })
+  // The turn stays `dispatching`: the Agent's actual answer is recorded
+  // later through recordAddressedTurnResponse (which accepts `dispatching`
+  // turns). Lead-turn messages are human-sent dispatch records, never the
+  // Agent's response, so finalizing here would forge the binding.
   return { claim, intent }
 }
 

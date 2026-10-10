@@ -40,8 +40,11 @@ export const addressedAgentTurns = appSchema.table(
       .notNull()
       .references(() => agents.id, { onDelete: 'restrict' }),
     /**
-     * Workspace-qualified addressed label (`<workspaceId>:<agentId>`) shown
-     * to participants; the foreign keys stay authoritative.
+     * Workspace-qualified addressed label (`<sourceWorkspaceId>:<agentId>`)
+     * shown to participants. The source workspace is the Agent's verified
+     * home — never the conversation host. The `workspace_id` column keeps
+     * the HOST workspace for conversation ownership; the two are equal
+     * only for home Agents.
      */
     addressedLabel: text('addressed_label').notNull(),
     /** Deterministic causal ID: `turn:<triggerMessageId>:<agentId>:<revision>`. */
@@ -74,13 +77,10 @@ export const addressedAgentTurns = appSchema.table(
       'addressed_agent_turns_depth_valid',
       sql`${table.depth} >= 0 and ${table.maxDepth} >= 0 and ${table.maxTurns} >= 1`
     ),
-    check(
-      'addressed_agent_turns_label_valid',
-      sql`${table.addressedLabel} = ${table.workspaceId}::text || ':' || ${table.agentId}::text`
-    ),
+    check('addressed_agent_turns_label_valid', sql`length(btrim(${table.addressedLabel})) > 0`),
     check(
       'addressed_agent_turns_state_valid',
-      sql`${table.state} in ('claimed','responded','superseded','cancelled')`
+      sql`${table.state} in ('claimed','dispatching','responded','superseded','cancelled')`
     ),
     check(
       'addressed_agent_turns_response_valid',

@@ -702,6 +702,14 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     )
     expect(dispatched.claim.status).toBe('claimed')
     expect(dispatched.intent.message.channelId).toBe(channelId)
+    // Faithful dispatch record: the addressed Agent is mentioned through
+    // the existing participant reference, the body points at the canonical
+    // trigger by id, and trigger content is never duplicated or invented.
+    expect(dispatched.intent.message.mentions).toContainEqual(
+      expect.objectContaining({ agentId: lead.id })
+    )
+    expect(dispatched.intent.message.bodyText).toContain(trigger.id)
+    expect(dispatched.intent.message.bodyText).not.toContain('please answer')
     // Redispatch converges: same claim row, same intent message.
     const again = await dispatchAddressedTurn(
       connection.db,
@@ -728,5 +736,155 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
         { now: new Date().toISOString() }
       )
     ).rejects.toBeInstanceOf(AddressedTurnError)
+  })
+
+  T('parked dispatch loses to a committed supersede: no intent is minted', async () => {
+    // Two-connection linearizability at the existing admission boundary:
+    // the dispatch parks after claiming but before its atomic decision;
+    // a supersede that commits first wins and the resumed dispatch mints
+    // nothing. No second runtime, no extra lock service — the claim row's
+    // own lock plus the conditional flip decide the order.
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    // The agent must be the resolved lead so the dispatch would mint if
+    // the supersede did not win first.
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const second = createDatabase(connectionUrl!)
+    try {
+      let release!: () => void
+      let markParked!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const parkedPromise = new Promise<void>((resolve) => {
+        markParked = resolve
+      })
+      const dispatching = dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+        barrier: {
+          beforeDispatchDecision: async () => {
+            markParked()
+            await gate
+          },
+        },
+        now: NOW,
+      })
+      await parkedPromise
+      expect(await supersedeAddressedTurns(second.db, f.workspace.id, f.channelId)).toBe(1)
+      release()
+      await expect(dispatching).rejects.toMatchObject({
+        name: 'AddressedTurnError',
+        reason: 'turn_superseded',
+      })
+      const intents = await connection.db
+        .select({ id: schema.leadTurnIntents.id })
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+      expect(intents).toHaveLength(0)
+    } finally {
+      await second.close()
+    }
+  })
+
+  T('same-named agents from two sources keep distinct source labels', async () => {
+    // The label binds the verified SOURCE workspace while the row keeps
+    // host ownership: an authorized foreign Agent never wears the host's
+    // identity, even when display names collide.
+    const owner = await user('label-owner')
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Labels home',
+      owner,
+    })
+    const otherOwner = await user('label-other')
+    const other = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Labels away',
+      owner: otherOwner,
+    })
+    const echoHome = await createAgent(connection.db, workspace.id, owner, {
+      name: 'Echo',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    const echoAway = await createAgent(connection.db, other.workspace.id, otherOwner, {
+      name: 'Echo',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    const channelId = crypto.randomUUID()
+    await createGroupChannelWithGrants(connection.db, workspace.id, owner, {
+      candidates: groupCreationCandidatesFromGrants(workspace.id, {
+        audienceGrants: [
+          {
+            expiresAt: null,
+            grantId: 'gra_owner',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            participant: owner,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+        enlistmentGrants: [
+          {
+            agent: { agentId: echoHome.id, workspaceId: workspace.id },
+            expiresAt: null,
+            grantId: 'gra_home',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            revision: 1,
+            revokedAt: null,
+          },
+          {
+            agent: { agentId: echoAway.id, workspaceId: other.workspace.id },
+            expiresAt: null,
+            grantId: 'gra_away',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+      }),
+      channelId,
+      idempotencyKey: crypto.randomUUID(),
+      now: NOW,
+      title: 'Group',
+    })
+    const trigger = await postGroupChannelMessage(
+      connection.db,
+      workspace.id,
+      channelId,
+      owner,
+      owner,
+      {
+        message: { bodyText: 'answer please', idempotencyKey: crypto.randomUUID() },
+        mode: 'direct',
+      },
+      { now: NOW }
+    )
+    const home = await claimAddressedTurn(
+      connection.db,
+      workspace.id,
+      owner,
+      claimInput(channelId, trigger.id, echoHome.id, owner),
+      { now: NOW }
+    )
+    const away = await claimAddressedTurn(
+      connection.db,
+      workspace.id,
+      owner,
+      claimInput(channelId, trigger.id, echoAway.id, owner, { dispatchRevision: 2 }),
+      { now: NOW }
+    )
+    expect(home.status).toBe('claimed')
+    expect(away.status).toBe('claimed')
+    expect(home.turn.addressedLabel).toBe(`${workspace.id}:${echoHome.id}`)
+    expect(away.turn.addressedLabel).toBe(`${other.workspace.id}:${echoAway.id}`)
+    expect(home.turn.workspaceId).toBe(workspace.id)
+    expect(away.turn.workspaceId).toBe(workspace.id)
   })
 })
