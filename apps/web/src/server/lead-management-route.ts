@@ -69,13 +69,53 @@ const unavailable = () =>
     { status: 404, headers: { 'cache-control': 'private, no-store' } }
   )
 
-async function readBody(request: Request): Promise<unknown> {
-  const declared = Number(request.headers.get('content-length') ?? '0')
-  if (Number.isFinite(declared) && declared > BODY_LIMIT_BYTES) return undefined
+/**
+ * Reads the call body with a hard byte bound, counting bytes as they arrive. A declared length
+ * that is malformed or over the limit is refused, an understated or absent length is still bounded
+ * by the bytes actually read, and the reader is cancelled on overflow or when the request aborts.
+ * Undefined means refused: nothing is parsed, so no authority or effect can follow.
+ */
+async function readBoundedBody(request: Request): Promise<unknown> {
+  const declared = request.headers.get('content-length')
+  if (declared !== null) {
+    const length = Number(declared)
+    if (!Number.isSafeInteger(length) || length < 0 || length > BODY_LIMIT_BYTES) return undefined
+  }
+  const stream = request.body
+  if (!stream) return undefined
+  const reader = stream.getReader()
+  const signal = request.signal
+  const onAbort = () => {
+    void reader.cancel().catch(() => undefined)
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  const chunks: Uint8Array[] = []
+  let size = 0
   try {
-    const text = await request.text()
-    if (text.length > BODY_LIMIT_BYTES) return undefined
-    return JSON.parse(text) as unknown
+    for (;;) {
+      if (signal.aborted) return undefined
+      const chunk = await reader.read()
+      if (signal.aborted) return undefined
+      if (chunk.done) break
+      size += chunk.value.byteLength
+      if (size > BODY_LIMIT_BYTES) return undefined
+      chunks.push(chunk.value)
+    }
+  } catch {
+    return undefined
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+    await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown
   } catch {
     return undefined
   }
@@ -291,10 +331,11 @@ export function createLeadManagementHandler(dependencies: LeadManagementRouteDep
   return async (request: Request): Promise<Response> => {
     try {
       if (request.method !== 'POST') return unavailable()
-      const body = await readBody(request)
-      if (body === undefined) return unavailable()
+      // Authenticate from the headers alone before any body byte is read.
       const verification = await dependencies.verify(request)
       if (!verification) return unavailable()
+      const body = await readBoundedBody(request)
+      if (body === undefined) return unavailable()
       const decision = verification.decision
       const authority: LeadManagementAuthority = {
         authorityRef: decision.authorityRef,
