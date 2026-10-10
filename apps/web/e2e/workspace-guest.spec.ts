@@ -280,6 +280,10 @@ test('the new-workspace draft states creation context and cancels cleanly', asyn
   })
 
   await page.goto('/?view=virtual')
+  // Below 48rem the contextual sidebar is a sheet: open it through the toolbar entry
+  // the accordion test uses, then dismiss it at the end.
+  const narrow = (page.viewportSize()?.width ?? 1280) < 768
+  if (narrow) await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
   const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
   await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible({
     timeout: 20_000,
@@ -298,4 +302,11 @@ test('the new-workspace draft states creation context and cancels cleanly', asyn
   await page.keyboard.press('Escape')
   await expect(workspaceNav.getByLabel('New workspace name')).toHaveCount(0)
   await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
+  if (narrow) {
+    // The draft's Escape returns focus to the page; move it back into the sheet so the
+    // sheet's own Escape dismiss applies, as it does after the sheet opens.
+    await workspaceNav.getByRole('button', { name: 'New workspace' }).focus()
+    await page.keyboard.press('Escape')
+    await expect(workspaceNav).toBeHidden()
+  }
 })
