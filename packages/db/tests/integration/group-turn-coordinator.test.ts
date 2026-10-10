@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
+import { eq } from 'drizzle-orm'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -23,6 +24,7 @@ import {
   revokeGroupGrant,
 } from '../../src/group-channels'
 import { createTemporaryUserSession } from '../../src/identity'
+import * as schema from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
@@ -449,6 +451,82 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
         { now: NOW }
       )
     ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_trigger_forged' })
+  })
+
+  T('a revoked principal cannot obtain even a duplicate turn', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    await revokeGroupGrant(connection.db, f.workspace.id, f.channelId, f.owner, {
+      grantId: 'gra_owner',
+      kind: 'audience',
+      revokedAt: new Date().toISOString(),
+    })
+    // The retained claim exists, but the revoked principal is revalidated
+    // before any duplicate is handed back — budget state is irrelevant.
+    await expect(
+      claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+        now: new Date().toISOString(),
+      })
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_not_participant' })
+  })
+
+  T('a forged principal cannot obtain even a duplicate turn', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    // A live outsider replays the owner's exact triple with their own
+    // identity: unbound to the canonical trigger, they are rejected
+    // before the duplicate short-circuit.
+    const outsider = await user('outsider')
+    await expect(
+      claimAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        outsider,
+        { ...input, addressedBy: outsider },
+        { now: new Date().toISOString() }
+      )
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_trigger_forged' })
+  })
+
+  T('superseded claims never dispatch, even after the agent becomes lead', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    // Non-lead addressed turns stay claimed: no intent is minted.
+    await expect(
+      dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, { now: NOW })
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_not_lead' })
+    const intentsBefore = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    // Human input supersedes the stale claim; promoting the agent to lead
+    // afterwards must not resurrect it — the retry binds to retained
+    // state, not to a fresh synthetic message.
+    expect(await supersedeAddressedTurns(connection.db, f.workspace.id, f.channelId)).toBe(1)
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    await expect(
+      dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, { now: NOW })
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_superseded' })
+    const intentsAfter = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intentsAfter).toHaveLength(intentsBefore.length)
   })
 
   T('human input supersedes stale claims; reconnect replays live work in order', async () => {
