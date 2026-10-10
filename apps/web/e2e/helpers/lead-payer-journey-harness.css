@@ -3,4 +3,5 @@
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
 @source './lead-payer-journey-harness-app.tsx';
+@source './lead-role-choices-connected-harness-app.tsx';
 @source '../../../../packages/workspace-ui/src/lead-turn-controls.tsx';

@@ -528,6 +528,65 @@ describe('harness preferences and the root default (#400)', () => {
     }
   }, 60_000)
 
+  test('a workspace-chosen non-Pi default launches with managed Pi absent and never bootstraps it', async () => {
+    const installationId = randomUUID()
+    let bootstrapCalls = 0
+    const shell = await boot({
+      archiveResolver: async () => {
+        bootstrapCalls += 1
+        return DEFAULT_ARCHIVE()
+      },
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      // Managed Pi is not installed on this host and is never installed here.
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
+      const session = await createSession(shell.host(), channel)
+      const preference = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      expect(preference).toMatchObject({
+        harnessInstallationId: installationId,
+        enabled: true,
+        default: true,
+      })
+
+      // The workspace-chosen non-Pi default launches on its own authority:
+      // no managed-Pi install/ensure path is consulted or bootstrapped.
+      const launched = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(launched).toMatchObject({
+        runtimeSessionId: session.id,
+        installationId,
+        state: 'starting',
+      })
+      expect(bootstrapCalls).toBe(0)
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   test('a disabled default is never auto-launched; resolution falls back to the root default', async () => {
     const installationId = randomUUID()
     const shell = await boot({

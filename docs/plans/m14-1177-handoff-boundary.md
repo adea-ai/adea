@@ -1,0 +1,408 @@
+# M14.04 handoff boundary — Adea #1177 with Control Plane #935
+
+- Adea issue: [#1177](https://github.com/adea-ai/adea/issues/1177) — direct-session handoff and job controls.
+- Control Plane counterparts: [J2 #935](https://github.com/adea-ai/control-plane/issues/935) (cancellation/effects),
+  [J3 #936](https://github.com/adea-ai/control-plane/issues/936) (native bridges),
+  [J4 #937](https://github.com/adea-ai/control-plane/issues/937) (budgets/progress).
+- Adea dependencies: [#1173](https://github.com/adea-ai/adea/issues/1173) (first lead-to-child journey),
+  [#1176](https://github.com/adea-ai/adea/issues/1176) (unified management; executable children
+  [#1215](https://github.com/adea-ai/adea/issues/1215) / [#1218](https://github.com/adea-ai/adea/issues/1218)).
+- Out of scope for this slice: [#1211](https://github.com/adea-ai/adea/issues/1211) chooser/composer
+  production selection, and the external global directory.
+
+## What this slice owns (Adea)
+
+Presentation states over one preserved canonical `RuntimeSession`, its
+transcript, its bound harness run, and its accepted execution location:
+
+- `attached` — read-only session reference; grants no control.
+- `one_time_review` — a single review pass; takes no control, starts no work.
+- `coordination_handoff` — an explicitly observed live lead turn coordinates.
+- `returned_to_user` — the observed lead turn ended; the user owns the session.
+
+Implementation: `packages/dev-view/src/chat/model/handoff.ts`
+(`deriveDirectSessionHandoff`, strict run binding, lead/session guards,
+`deriveHandoffModeForSurface` / `deriveHandoffInputFromConversation`
+production supplier, single-flight admission with a monotonic view/action
+epoch), `packages/dev-view/src/chat/handoff-controls.tsx`, default supplier
+plus model-backed actions in `ChatView` (`handoff` config; full `handoffView`
+override still wins), and the production enablement in
+`apps/web/src/components/desktop-first-run-chat.tsx`.
+
+Coordination semantics: caller handoff targets are REQUESTED
+REFERENCES, never observed authority. A retained request — or even a
+running lead turn — alone MUST NOT make the UI or status claim
+native-session coordination. Coordination establishes at exactly one
+place: the effect boundary, where a runtime-validated execution
+binding observed in THIS session meets the retained claim (same
+session, current generation). Everything else is tracking, planning,
+or explicitly unavailable — never coordination.
+Concretely, an explicit handoff request posts admission
+(`createMessage` with `leadTurn: true` plus the structured
+`handoffTarget` `{runtimeSessionId, taskId, expectedGeneration}`)
+on the lead's exactly-one active task-less direct channel —
+task-scoped channels cannot admit (server `lockAuthority`), so they
+can never coordinate either. The server verifies the claimed task is
+visible, stamps the triple on the intent, and returns it on the
+receipt; the client verifies the receipt names the requesting session
+and refreshes from the exact intent (`getLeadTurnStatus`), never by
+task-wide re-resolution. A response without a retained target, or
+with another session's target, fails closed. Reads return the latest
+retained request for tracking (generation-then-sequence among retained
+requests); ordering confers nothing — coordination needs the effect
+boundary regardless of what reads return. Unknown-outcome retries
+recover the canonically retained request server-side (the COMPLETE
+triple — session, generation, task — must match; a same-session
+claim naming another task fails closed as a target mismatch; a
+changed explicit choice fails as a model selection conflict),
+backed by a partial unique target context — no client-held request
+identity exists to evict or lose on reload. A different generation
+always mints anew. Concurrent same-target admissions serialize on
+the channel FOR UPDATE lock (createLeadTurn is the sole inserter),
+so the unique index is a backstop with no recovery branch of its
+own. Single-flight admission and handoff-blocked-while-live
+complete the duplication defense. Awaiting admission shows a
+Check-status refresh instead of polling.
+The turn coordinates only when bound to the observed workspace lead
+agent (`HandoffLeadAgent`: designated `isWorkspaceLead`,
+workspace-scoped, active lifecycle) AND to this exact session by
+claim (retained target names it) AND by effect (a runtime-observed
+execution binding names it, at the live generation). Targetless,
+foreign, generation-stale, or binding-less turns are stripped before
+derivation so none can drive a mode or authorize lead-stop — the
+mismatch is named instead. An outstanding own-session request that
+is not yet effect-bound shows as REQUESTED (tracked, Check
+available), never as coordinated. The
+binding also compares generations against the LIVE session: a retained
+target naming another generation (older or fabricated-newer) does not
+coordinate, so display currency never trusts retained ordering. A caller that can
+observe turns (lead-turn reads) observes the agent through the same
+canonical roster (`getWorkspaceLead`); the check forces the full chain,
+so no run-as-lead alias can pass. A user-created direct run is execution, not delegation:
+launching or running never establishes lead coordination, and an ordinary
+chat<->Dev View input switch (`dev.session.transferInput`, which keeps its
+exact prior semantics and records nothing) never hands off. Stopping the
+LEAD cancels the canonical lead turn through the caller-supplied handler;
+stopping the SESSION run cancels the bound harness run; job and descendant
+cancellation stay disabled pending their Control Plane contracts. No
+dev-side coordination is invented, stored, or inferred anywhere: a live
+session without explicitly observed lead-turn facts attaches read-only
+even with a run bound.
+
+## What Adea does NOT own (Control Plane and lead admission)
+
+Lead-turn admission, dispatch, execution, and cancellation live with the
+workspace lead and the Control Plane lead-turn domain (intents keyed
+`lead-turn:<id>`, dispatch/execution/attempt identity, cancellable versus
+terminal states per the canonical contract). Session-side handoff and
+return have no authorized coordination path from the dev surface, so both
+rows fail closed with this gap named instead of performing a view
+relabel. No new `dev.*` operation was added in this slice and no Control
+Plane code was edited; the earlier slice's `transferCoordination`
+experiment and its retained fields were fully reverted (operations
+registry, generated metadata, host handler, session DTO, spec text) once
+review established that the desktop host cannot resolve lead identity or
+lead acceptance.
+
+## Exact contract status with the CP #935 owner (verified 2026-10-09)
+
+Control-plane#935 is still open and `docs/specs/dev-runtime-operations.json`
+carries no durable job-cancel intent, generation-bound retry, or effect
+receipt operations. Coordination outcome: Adea implements against
+confirmed existing contracts only (`transferInput` for view routing,
+`cancelHarness` for the bound run, lead-turn reads/cancel owned by their
+canonical paths) and keeps job and descendant controls disabled with the
+exact missing J2/J4 contract named. No `dev.*` operation was invented and
+no Control Plane code was edited.
+
+The following must still be supplied (versioned, generation-bound,
+idempotent) before Adea can enable the currently-disabled job and descendant
+controls. Names are the handshake proposal for the CP owner to confirm or
+replace — Adea implements against the confirmed contract, not this draft:
+
+1. **Durable job-cancel intent** — persist cancel intent against the exact
+   job attempt/generation; report `pending` until the executor confirms;
+   lead-stop does not cancel children. Required fields: job id, attempt,
+   generation, idempotency key, actor, reason; reply: intent receipt with
+   `pending`/`confirmed` state.
+2. **Generation-bound retry** — reconcile uncertain effects before retry;
+   fence late old-attempt events from current state and publication.
+3. **Approval-before-effect** — stable effect keys, retained receipts, and
+   exact current approvals checked before every protected effect.
+4. **Attribution and notify** — durably attribute direct child commands and
+   notify the coordination owner; cover races, redelivery, and
+   crash-after-effect (tests A16–A20).
+
+J3 (#936) and J4 (#937) contracts (qualified native routes, transport
+fencing, transactional child budgets, coalesced progress) are tracked by
+their owners and are not preconditions for this presentation slice beyond
+the disabled states above.
+
+Production wiring (`apps/web/src/lib/lead-handoff-supply.ts`,
+`desktop-first-run-chat.tsx`): for the selected session's cloud task id,
+the chat host resolves the designated lead (`getWorkspaceLead`), the one
+active direct channel referencing both that lead and that task
+(`listChannels` filtered by lead agent plus task id), and that channel's
+turn (`getChannelLeadTurn`), then maps the observed facts onto the
+handoff supply and binds lead-stop to `cancelLeadTurn`, refreshing local
+facts from the cancel receipt. The shared task id is the retained
+session↔lead relationship both sides already persist (task-scoped dev
+sessions carry it; task-scoped lead channels carry it); channels for
+other tasks are irrelevant, so several lead conversations elsewhere
+never disable an explicitly linked handoff. A session without a task
+costs zero reads; a missing link, an ambiguous task link, a missing
+turn, or any transport failure resolves to an explicit `unresolved`
+reason and the surface attaches with the gap rows. Resolution re-runs
+per selected session/task key under a monotonic epoch plus the existing
+lifecycle fence, so overlapping resolutions and post-cancel reads apply
+in order and a late response can never overwrite newer facts. A
+lead-aware host (Dev entry or a channel-bound surface) can supply the
+same facts plus the canonical cancel handler through the existing
+`handoff` config; until then the gap rows state exactly this.
+
+## Coordination
+
+API boundaries are coordinated with the CP #935 owner through the linked
+issues. This slice records the handshake above and ships the truthful
+disabled states; integration lands when the CP contract is confirmed.
+
+Shared lead-turn paths (DeepSeek1215 model-selection integration, through
+root): this slice narrows `createLeadTurn`/intent retention for the exact
+handoff target alongside 1215's `requestedModelSelections` work. Owned
+hunks are the `handoffTarget` key in `parseLeadTurnMode`, its parse-or-400
+and forward in the messages route, the `targetSessionId` latest query,
+`ApiHandoffTarget` plus the target fields on the create/receipt/status
+shapes, the target columns/check/partial-unique on `leadTurnIntents`, the
+recovery/supersede logic and exact-target read in `createLeadTurn`, the
+target on the runtime authority and status projection, and the
+one-word `requireVisibleTask`/`messageSummary` exports. Untouched:
+`lockAuthority`, 1215's selections hunks, and every shared test file (all
+new coverage lives in new files). `lockAuthority`'s task-channel refusal
+is load-bearing for the direct-channel admission rule and was not relaxed.
+
+Migration: this branch is rebased onto the ACTUAL group ancestry
+`2e26c30` (main → `0045_agent-edit-revisions` → artifact1207 exact
+`39d412f6` → combined1230 `3e1dcfa1` → group `0049/0050`), so the
+combined REAL schema (predecessor columns plus the handoff target
+columns) lives in-checkout — no copied chain files, no hand-built
+snapshot. `0051_lead_handoff_target` (three nullable target columns,
+validity check, partial unique target index) was generated by
+drizzle-kit from that combined schema; its table state was verified
+identical to the earlier surgical draft in every aspect (columns,
+checks, indexes, uniques, FKs), then the draft files were deleted.
+Proven by migrating the full 0000→0051 chain from zero on disposable
+Postgres plus `db:verify` (52 applied) and the target DB tests against
+that chain DB. Predecessor source (role/management/group) is
+untouched; only the 0051 hunk plus the journal append need root
+sequencing at merge. The lane's provisional `0045` never merged:
+main's own 0045 is untouched.
+
+Journal timestamp (incremental blocker fix): the generated 0051 entry
+carried an older `when` than the authoritative 0050 entry, which
+Drizzle's PostgreSQL migrator reads as already-superseded and silently
+skips on upgrade. Only the 0051 `when` was changed (to predecessor-max plus 1000; one-line journal diff, history otherwise byte-identical).
+Guarded twice: `migration-journal.test.ts` (static monotonicity,
+contiguity, tag/file correspondence) and
+`migration-journal-order.test.ts` (real-Postgres upgrade replay:
+migrate through 0050, close/reopen, apply the complete chain,
+columns/check/index present, journal row exactly once — on the
+throwaway provisioning container, since the provisioned application
+roles deliberately lack CREATEDB; without provisioning it skips
+cleanly, same convention as the capture proofs). Both guards
+were proven to fire on the broken timestamp before the fix landed.
+`chat-handoff-model/supplier.test.ts` claim-vs-binding matrix
+(forged 9999 unbound, binding-elsewhere unbound, requested vs
+mismatch notices, handoff gating on claims); mounted
+mismatched-binding exclusion plus the full requested→check→live
+journey with effect-bound fixtures.
+
+## Session authority (defect-1 fix)
+
+The cloud admission path holds no session facts by design (no session
+registry), so a bare session id can never prove binding, currency, or
+control permission there. Every handoff request therefore passes the
+existing authenticated desktop/runtime command boundary FIRST
+(`resolveHandoffSessionAuthority` over `dev.session.get` +
+`dev.capability.snapshot`, the same authority fencing
+`dev.session.cancelHarness`): the session must exist, belong to the
+requesting scope, carry the claimed task, be live, sit at the observed
+generation, and the caller must hold `dev.session.manage`. The request
+is built from the authority-returned triple (actual current generation),
+and any refusal fails closed before any admission post exists. No
+desktop-shell changes were needed: `dev.session.get` already returns
+the full record and the capability snapshot already reports manage.
+
+Host-to-server trust, precisely bounded: the `Authorization: Desktop`
+credential scheme proves desktop LOGIN (vault-held shell credential,
+PKCE `adea://` issuance in `apps/web/src/server/desktop-auth.ts`,
+revocable/expiring `desktop_sessions`, origin-gated; sent in
+`packages/api-client/src/index.ts`, configured in
+`apps/web/src/lib/desktop-runtime.ts`) — it does NOT prove the
+session authority ran or that session/task/generation is current,
+and a desktop-authenticated caller can bypass client preflight.
+The `hostMediated` flag therefore records channel only, never
+vetting: it narrows forgery to credential holders (defense in
+depth — the messages route 400s unmediated targets early and
+`createLeadTurn` enforces mediation for every caller; the
+group-lane caller is targetless and unaffected), but a mediated
+forgery IS retained as a request. What forgery cannot do is
+coordinate: coordination needs the effect binding, so even a fully
+retained forged future only ever reads as one more tracked request.
+The route handler is now proven too: the POST body moved verbatim
+into `apps/web/src/server/channel-message-post.ts` (thin file-route
+wrapper left behind, following the `handleLeadTurnRequest` pattern),
+and `apps/web/test/integration/lead-handoff-route.test.ts` drives
+the real handler over real Postgres — forged/expired/unmediated/
+cross-workspace direct POSTs fail closed with nothing retained.
+Server-side identity chain, end to end: Desktop credential (valid,
+unrevoked, unexpired user) → workspace membership + conversation
+write → host-mediated channel → direct-agent task-less DM bound to
+the workspace lead with live audience → task visible in this
+workspace and project-readable → structural target → complete
+triple. The desktop session id itself stays an opaque claim —
+there is no server-side session/worktree registry (verified: no
+such tables), so session existence/ownership on the host is proven
+by the client authority gate before admission and by effect
+observation after; host attestation of sessions remains the open
+dependency, contained by never coordinating off claims.
+
+## Operational today vs awaiting CP935 control integration
+
+OPERATIONAL (proven by the suites named in Traceability):
+attachment and planning views; requested-reference tracking with
+receipt verification, server recovery, and Check-by-receipt;
+stale-claim display naming both generations with re-request;
+own-session lead-stop (intent-scoped, actor-gated, never session
+runs or descendants) with terminal history and re-engage;
+explicit unavailability states naming the missing proof
+(execution elsewhere vs no explicit observation vs stale claim);
+own-intent cancellation through the canonical actor-gated path
+(via the lead surface, independent of coordination);
+fail-closed admission (validation, task visibility, mediation,
+complete-target and selection identity); latest-retained
+request reads (ordering among retained requests confers nothing);
+direct-POST fence proven at the HTTP layer (forged Desktop 401,
+expired credential 401, unmediated target 400 with nothing
+retained, cross-workspace channel/task fail-closed, target-specific:
+untargeted lead turns still admit); stale attempts mint anew but
+never surface as target-latest (channel recency may surface the
+stale row, which the derivation names as stale with re-request);
+exact repeats dedupe to one retained intent; non-privileged
+callers fail before target resolution (runtime.invoke is
+owner/admin-only, so the hidden-project task check stands as
+defense-in-depth behind admission authority); turn-initiation
+guidance in the notice area (what requesting does, retained
+request alone never coordinates); lead-status polling on the
+shared 30s visible-only cadence while a turn is unsettled
+(offline/hidden issue no reads, reconnects re-read, failures keep
+last state, manual check stays).
+CP935 status: target observation shapes merged (requestedTarget
+untrusted routing annotation + observedTarget session/task from
+verified records, no generation field by design). The Adea
+surface wires the merged receipt through the production path —
+adapter lookup projection (validated, malformed omitted), product
+latest/latestForTarget attach (fail-soft omit on absent/throwing/
+mismatched lookup), api-client optional fields, supply mapping,
+and requested-notice display — and labels it at every layer as
+control-plane-reported, unverified, generation-less, never
+coordination evidence. Adea sends no target at dispatch; CP
+echoes only what its own records verify. Field mapping across
+the boundary: Adea handoffTarget{runtimeSessionId,taskId,
+observedGeneration} is the claim; CP observedTarget{sessionId,
+taskId} is execution location in CP namespace (never equal to a
+desktop UUID by construction); Adea runtimeSessionId (ses_) carries
+the dispatch-time CP observation via binding/recovery, while CP
+observedTarget carries the lookup-time one — agreement is
+consistency evidence between two reads, never authority.
+AWAITING canonical CP935 control integration (issue stays OPEN;
+nothing here claims complete while coordination is unavailable):
+control-plane#935 (M13.02, open, 0xPlayerOne-filed, unassigned,
+no implementing PR; sibling #937 budgets/progress; our #1177
+linked from its timeline) must carry the target end to end before
+any native coordination claim is honest. Missing fields, exact:
+
+- REQUEST: target session id, task id, expected generation on
+  prepare (`pi-durable.lead.prepare`, today `{intentId}` only),
+  dispatch (`pi-durable.lead.dispatch`, today
+  `{intentId, preparationRef}` only), and the composed
+  `LeadRuntimeAuthority`/`LeadPreparedSelection` inputs that feed
+  them (`apps/web/src/server/lead-turn-{runtime,composition}.ts`).
+- RECEIPT: the claimed triple echoed beside intent/attempt in
+  lookup (`pi-durable.lead.lookup`), status, observation
+  (`LeadRuntimeBinding`), and the DB `binding_valid`-style check
+  (`packages/db/src/schema/lead-turn-runtime.ts`), verified
+  TOGETHER at the effect boundary.
+- AUTHORITY: who reports the target session's CURRENT generation
+  at effect time (no such read exists for these sessions).
+  No zero-change promises: landing the above is real CP + Adea
+  surface work for root to assign (task/ownership discovery
+  complete; not delegated). Until then the derivation's binding
+  gate stays closed and the UI states it plainly.
+  Explicit choices are identity too: the retained-target return
+  applies 1215's `sameRequestedRoleModelSelections` check first, so
+  a changed choice replays as `model selection conflict` exactly
+  like the message-idempotency path — never a silent old receipt
+  (proven by focused replay).
+
+## Effect-boundary path (actual E2E, existing infrastructure)
+
+Admission (`createLeadTurn`, intent + `handoffTarget` claim) →
+prepare (`prepareLeadTurnRuntime`, funding-confirmed selection) →
+dispatch (`dispatchLeadTurn`, adapter mints execution) → observe
+(`observeLeadTurnRuntime`, adapter-reported `LeadRuntimeBinding`
+with CP-observed `runtimeSessionId`, immutable once set) → runtime
+row (`lead_turn_runtime`) → snapshot (`projection` in
+`apps/web/src/server/lead-turn-runtime.ts` surfaces BOTH the
+admission claim and the observed binding) → `latest`/`status`
+routes → supply mapping → `resolveLeadClaim` (request tracking)
+vs `resolveLeadCoordination` (claim + observed==session +
+generation). Neither the dispatch authority nor the binding
+carries a target session, and nothing tells CP the session — so
+with existing infrastructure the observed binding cannot match a
+claim except by CP-side coincidence. That is exactly why
+coordination stays unavailable until CP935 carries the target.
+
+## Traceability
+
+REQ 032, 080–088, 095, 096, 104, 110, 130–136. Tests A12–A14, A18, A21,
+A23–A25, A33 (this slice: `chat-handoff-model.test.ts` lead-turn modes
+and agent binding, binding/replacement matrix, gap rows, approval
+counting, a11y contract, action-machine and epoch admission;
+`chat-handoff-supplier.test.ts` lead-fact and taskId derivation,
+channel linkage, awaiting flags, and foreign/targetless exclusion;
+`chat-conversation-model.test.ts` session-cancel targeting, live draft
+preservation, and taskId projection; `lead-handoff-supply.test.ts`
+direct-channel selection matrix (no-link zero reads, task-carrying
+channels ignored, foreign excluded, several DMs ambiguous), exact-target
+supply exclusion, epoch ordering, admission target post with receipt
+verification and fresh keys, and resolver→derivation composition;
+`lead-turn-handoff-target.test.ts` (real Postgres) exact retention,
+two-sessions-one-task isolation, newer-unrelated-channel isolation,
+reload recovery, generation ordering (mint-anew, newest-wins),
+same-session/generation task-mismatch rejection, cross-workspace task
+rejection, concurrent single-commit via serialization, malformed/phantom
+fail-closed, legacy back-compat;
+`chat-handoff-authority.test.ts` authority gate (phantom, scope, task,
+archived, ACTUAL stale generation, control permission, host refusal);
+mounted Playwright authority refusals (stale/wrong-task/revoked/phantom,
+zero posts) plus derivation generation gating (fabricated-newer and
+superseded-older display nothing); `project-session-handoff-journey.test.ts`
+joined real-register view-routing journey with reload persistence and
+fencing; mounted Playwright `apps/web/e2e/direct-session-handoff.spec.ts`
+over `e2e/helpers/direct-session-handoff-harness-app.tsx`: read-only
+attach default, linked journey with distinct lead/session stops,
+unlinked and ambiguous sessions, single-flight, replacement
+retargeting, late-completion, ABA busy, and out-of-order resolution
+fences, reload of re-read facts, keyboard/focus, AT tree, narrow/200%
+text, reduced motion — the mounted file on an ephemeral loopback
+harness server, no backend or database; no duplicate execution, no
+silent fallback, preserved authority).
+
+Currency rule (operation/view epoch): completions carry the view/action
+epoch captured at admission — every session switch and every admitted
+start advances it, so late completions commit nothing once replaced
+(A-B-A safe). A same-session refresh preserves facts and in-flight
+actions; only an actual session switch resets them.
+Related gates: [#40](https://github.com/adea-ai/adea/issues/40),
+[#43](https://github.com/adea-ai/adea/issues/43),
+[#811](https://github.com/adea-ai/adea/issues/811).

@@ -1,3 +1,17 @@
+/** Requested immutable metadata refs; never accepted execution or funding authority. */
+export type ApiRequestedRoleModelSelections = Readonly<{
+  lead?: Readonly<{ selectionRef: string; selectionRevision: number }>
+  child?: Readonly<{ selectionRef: string; selectionRevision: number }>
+}>
+/** Structured handoff target retained on the admission intent: the exact direct
+ *  session this turn coordinates, the server-verified task authority, and the
+ *  generation observed at admission. Absent for legacy targetless admissions. */
+export type ApiHandoffTarget = Readonly<{
+  runtimeSessionId: string
+  taskId?: string
+  observedGeneration: number
+}>
+
 /** Product projection; runtime state is observed, never inferred from Message persistence. */
 export type LeadTurnRuntimeState =
   | 'starting'
@@ -33,6 +47,17 @@ export type ApiLeadTurnStatus = Readonly<{
   preparationExpiresAt?: string
   /** Reference to the canonical runtime session, not a second session record. */
   runtimeSessionId?: string
+  /** Exact admission target retained on the intent; absent for legacy admissions. */
+  handoffTarget?: ApiHandoffTarget
+  /** Control-plane-reported execution observation (session + task) attached
+   *  by display reads when a live lookup returned one. Execution location
+   *  from control-plane records — never target authority, and never
+   *  carrying a generation. Absent when unobserved, unreachable, or
+   *  unconfigured. */
+  observedTarget?: Readonly<{
+    sessionId: string
+    taskId: string
+  }>
   observedAt?: string
   cancelRequestedAt?: string
   publishedMessageId?: string

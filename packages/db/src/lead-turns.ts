@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { createMessage } from './conversations'
+import {
+  parseRequestedRoleModelSelections,
+  sameRequestedRoleModelSelections,
+  type RequestedRoleModelSelections,
+} from './lead-model-selections'
+import { createMessage, messageSummary, requireVisibleTask } from './conversations'
 import {
   agents,
   channelParticipants,
@@ -25,7 +30,47 @@ type Input = Omit<
   | 'taskId'
   | 'threadRootMessageId'
   | 'replyToMessageId'
->
+> & { handoffTarget?: HandoffTarget } & {
+  requestedModelSelections?: RequestedRoleModelSelections
+}
+
+/** Structured handoff target: the exact direct session this admission coordinates. */
+export type HandoffTarget = Readonly<{
+  runtimeSessionId: string
+  taskId: string
+  expectedGeneration: number
+}>
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Validates the caller-supplied handoff target; the task itself is resolved server-side. */
+export function parseHandoffTarget(value: unknown): HandoffTarget | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid lead turn')
+  const record = value as Record<string, unknown>
+  if (
+    !Object.keys(record).every(
+      (key) => key === 'runtimeSessionId' || key === 'taskId' || key === 'expectedGeneration'
+    )
+  )
+    throw new Error('Invalid lead turn')
+  const { runtimeSessionId, taskId, expectedGeneration } = record
+  if (
+    typeof runtimeSessionId !== 'string' ||
+    !runtimeSessionId.trim() ||
+    runtimeSessionId.trim().length > 256
+  )
+    throw new Error('Invalid lead turn')
+  if (typeof taskId !== 'string' || !UUID_PATTERN.test(taskId)) throw new Error('Invalid lead turn')
+  if (
+    typeof expectedGeneration !== 'number' ||
+    !Number.isSafeInteger(expectedGeneration) ||
+    expectedGeneration < 0
+  )
+    throw new Error('Invalid lead turn')
+  return { runtimeSessionId: runtimeSessionId.trim(), taskId, expectedGeneration }
+}
 
 function receipt(intent: Intent) {
   return Object.freeze({
@@ -35,6 +80,15 @@ function receipt(intent: Intent) {
     dispatchKey: intent.dispatchKey,
     state: 'blocked' as const,
     reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' as const,
+    ...(intent.handoffTargetSessionId !== null && intent.handoffTargetGeneration !== null
+      ? {
+          handoffTarget: {
+            runtimeSessionId: intent.handoffTargetSessionId,
+            ...(intent.handoffTargetTaskId !== null ? { taskId: intent.handoffTargetTaskId } : {}),
+            observedGeneration: intent.handoffTargetGeneration,
+          },
+        }
+      : {}),
   })
 }
 
@@ -166,20 +220,31 @@ function assertPinned(
     throw new Error('Lead turn version conflict')
 }
 
-/** Message, message event, and blocked dispatch intent commit as one durable unit. */
+/** Message, message event, and blocked dispatch intent commit as one durable unit.
+ *
+ *  A structured handoff target is accepted only over the authenticated
+ *  desktop-host channel (`options.hostMediated`, asserted by the route from
+ *  a validated Desktop credential): the cloud holds no session facts, so a
+ *  bare session id can never prove binding, currency, or control
+ *  permission here. Unmediated target claims fail closed before anything
+ *  is retained, which keeps every retained target host-channeled by
+ *  construction — reads never see a forged binding. */
 export async function createLeadTurn(
   database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  input: Input
+  input: Input,
+  options: Readonly<{ hostMediated?: boolean }> = {}
 ) {
   const allowed = new Set([
     'artifactIds',
     'bodyContentRefId',
     'bodyText',
+    'handoffTarget',
     'idempotencyKey',
     'mentions',
+    'requestedModelSelections',
   ])
   if (
     Object.keys(input).some((key) => !allowed.has(key)) ||
@@ -187,10 +252,63 @@ export async function createLeadTurn(
     input.idempotencyKey.length > 128
   )
     throw new Error('Invalid lead turn')
+  if (input.handoffTarget !== undefined && options.hostMediated !== true)
+    throw new Error('Lead turn target requires host mediation')
+  const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
+  const handoffTarget = parseHandoffTarget(input.handoffTarget)
+  const {
+    requestedModelSelections: _requested,
+    handoffTarget: _handoffTarget,
+    ...messageInput
+  } = input
   return database.transaction(async (tx) => {
     const authority = await lockAuthority(tx, workspaceId, channelId, principal)
+    // The claimed task is server-resolved authority: it must be a visible
+    // task, and it is stamped on the intent so later reads can tell a
+    // retargeted or phantom task from the admitted one.
+    if (handoffTarget) await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
+    // Canonical recovery before another admission: a retained intent for the
+    // exact target context dedupes reload/eviction retries without any
+    // client-held request identity. The COMPLETE retained target must match:
+    // same session and generation but a different task is a contradictory
+    // claim about one context and fails closed. A different generation
+    // mints anew (ordering, never ground truth: the session host alone
+    // knows current generation, and display currency is decided where the
+    // live generation is known). Serialization note: createLeadTurn is the
+    // sole inserter and holds the channel FOR UPDATE lock (lockAuthority)
+    // before any insert, so concurrent same-target admissions serialize and
+    // the loser always finds the winner here; the partial unique target
+    // index below is the backstop, not a path with its own recovery.
+    if (handoffTarget) {
+      const retained = await findTargetIntent(
+        tx,
+        workspaceId,
+        channelId,
+        handoffTarget.runtimeSessionId,
+        handoffTarget.expectedGeneration
+      )
+      if (retained) {
+        assertPinned(retained, authority)
+        if (retained.handoffTargetTaskId !== handoffTarget.taskId)
+          throw new Error('Lead turn target mismatch')
+        // Explicit choices are identity too: a changed selection must hit
+        // the same conflict the message-idempotency path reports, never a
+        // silent return of the old receipt.
+        if (
+          !sameRequestedRoleModelSelections(
+            retained.requestedModelSelections ?? undefined,
+            requestedModelSelections
+          )
+        )
+          throw new Error('Lead turn model selection conflict')
+        return {
+          message: await requireIntentMessage(tx, workspaceId, retained),
+          leadTurn: receipt(retained),
+        }
+      }
+    }
     const message = await createMessage(tx, workspaceId, channelId, principal, {
-      ...input,
+      ...messageInput,
       sender: principal,
       leadTurn: true,
     })
@@ -201,23 +319,104 @@ export async function createLeadTurn(
       .where(eq(leadTurnIntents.messageId, message.id))
     if (existing) {
       assertPinned(existing, authority)
+      if (
+        !sameRequestedRoleModelSelections(
+          existing.requestedModelSelections ?? undefined,
+          requestedModelSelections
+        )
+      )
+        throw new Error('Lead turn model selection conflict')
       return { message, leadTurn: receipt(existing) }
     }
     const id = randomUUID()
-    const [intent] = await tx
+    const [inserted] = await tx
       .insert(leadTurnIntents)
       .values({
         ...authority,
         id,
         dispatchKey: `lead-turn:${id}`,
+        requestedModelSelections: requestedModelSelections ?? null,
+        ...(handoffTarget
+          ? {
+              handoffTargetSessionId: handoffTarget.runtimeSessionId,
+              handoffTargetGeneration: handoffTarget.expectedGeneration,
+              handoffTargetTaskId: handoffTarget.taskId,
+            }
+          : {}),
         messageId: message.id,
         workspaceId,
         channelId,
       })
       .returning()
-    if (!intent) throw new Error('Lead turn unavailable')
-    return { message, leadTurn: receipt(intent) }
+    if (!inserted) throw new Error('Lead turn unavailable')
+    return { message, leadTurn: receipt(inserted) }
   })
+}
+
+/** Retained intent for one complete target context, if any. At most one row
+ *  can match: the partial unique target index enforces a single intent per
+ *  (workspace, channel, session, generation). */
+async function findTargetIntent(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  targetSessionId: string,
+  targetGeneration: number
+): Promise<Intent | undefined> {
+  const [retained] = await tx
+    .select({ intent: leadTurnIntents })
+    .from(leadTurnIntents)
+    .innerJoin(messages, eq(messages.id, leadTurnIntents.messageId))
+    .where(
+      and(
+        eq(leadTurnIntents.workspaceId, workspaceId),
+        eq(leadTurnIntents.channelId, channelId),
+        eq(leadTurnIntents.handoffTargetSessionId, targetSessionId),
+        eq(leadTurnIntents.handoffTargetGeneration, targetGeneration),
+        isNull(messages.deletedAt)
+      )
+    )
+    .limit(1)
+  return retained?.intent
+}
+
+/** Latest retained intent for one exact target session, newest generation first. */
+async function findLatestTargetIntent(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  targetSessionId: string
+): Promise<Intent | undefined> {
+  const [retained] = await tx
+    .select({ intent: leadTurnIntents })
+    .from(leadTurnIntents)
+    .innerJoin(messages, eq(messages.id, leadTurnIntents.messageId))
+    .where(
+      and(
+        eq(leadTurnIntents.workspaceId, workspaceId),
+        eq(leadTurnIntents.channelId, channelId),
+        eq(leadTurnIntents.handoffTargetSessionId, targetSessionId),
+        isNull(messages.deletedAt)
+      )
+    )
+    .orderBy(desc(leadTurnIntents.handoffTargetGeneration), sql`${messages.sequence} desc`)
+    .limit(1)
+  return retained?.intent
+}
+
+async function requireIntentMessage(tx: AgentHqTransaction, workspaceId: string, intent: Intent) {
+  const [message] = await tx
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.id, intent.messageId),
+        eq(messages.workspaceId, workspaceId),
+        isNull(messages.deletedAt)
+      )
+    )
+  if (!message) throw new Error('Lead turn unavailable')
+  return messageSummary(tx, message)
 }
 
 /** Inspection is authorized against live authority, never a persisted grant. */
@@ -299,6 +498,30 @@ export async function withAuthorizedLeadTurn<T>(
     if (!message || message.senderUserId !== intent.actorUserId || !workspace)
       throw new Error('Lead turn unavailable')
     return operation(tx, intent, message, workspace.id)
+  })
+}
+
+/** Exact-target read: the latest retained intent for one session, never a task-wide latest.
+ *  Reload recovery uses the retained target identity, never browser session state. */
+export async function getLatestLeadTurnForTarget(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  targetSessionId: string,
+  principal: UserPrincipalRef
+) {
+  return database.transaction(async (tx) => {
+    await lockAuthority(tx, workspaceId, channelId, principal, false)
+    const retained = await findLatestTargetIntent(tx, workspaceId, channelId, targetSessionId)
+    if (!retained) return null
+    return withAuthorizedLeadTurn(
+      tx,
+      workspaceId,
+      retained.id,
+      principal,
+      false,
+      async (_tx, intent) => receipt(intent)
+    )
   })
 }
 

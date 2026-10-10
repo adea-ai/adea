@@ -4,7 +4,9 @@ import {
   FirstRunOnboarding,
   DevWorkspaceSidebar,
   devBindingsFromProjection,
+  handoffTurnNeedsRefresh,
   resolveDevSelection,
+  resolveHandoffSessionAuthority,
 } from '@adea-ai/dev-view/chat'
 import type { DesktopTeamChat } from './workspace-navigation'
 import type {
@@ -12,7 +14,16 @@ import type {
   ChatConversationModel,
   DevWorkspaceNavHost,
   FirstRunFacts,
+  HandoffLeadAgent,
+  HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
+import {
+  createOrderedScope,
+  leadTurnCanCancel,
+  requestLeadHandoff,
+  resolveLeadHandoffSupply,
+} from '../lib/lead-handoff-supply'
+import { createLeadStatusPoll } from '../lib/lead-handoff-poll'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -264,6 +275,175 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // runtime session selection.
   bindDesktopChatPresentation('chat', () => conversation()?.runtimeSessionId)
 
+  // Workspace-lead handoff supply (#1177): resolved from canonical
+  // services for the active conversation's workspace — the designated
+  // lead agent, its direct channel turn, and the canonical cancel path.
+  // Keyed on workspace+session+task identity (not object identity) so
+  // draft edits and same-session refreshes never refetch; the monotonic
+  // epoch orders overlapping resolutions and cancels so an older response
+  // can never overwrite newer facts for the same session. A late
+  // resolution for a superseded selection is dropped by the lifecycle
+  // fence first.
+  const [leadSupply, setLeadSupply] = createSignal<{
+    turn?: HandoffLeadTurn
+    agent?: HandoffLeadAgent
+    channelId?: string
+  }>({})
+  const leadScope = createOrderedScope()
+  let lastLeadKey = ''
+  const applyLeadResolution = (
+    resolution: Awaited<ReturnType<typeof resolveLeadHandoffSupply>>
+  ): void => {
+    if (resolution.status !== 'resolved') {
+      setLeadSupply(resolution.leadAgent ? { agent: resolution.leadAgent } : {})
+      return
+    }
+    setLeadSupply({
+      turn: resolution.leadTurn,
+      agent: resolution.leadAgent,
+      channelId: resolution.channelId,
+    })
+  }
+  const resolveLeadSupply = (force: boolean): void => {
+    const activeConversation = conversation()
+    if (!activeConversation) return
+    const workspaceId = activeConversation.scope.workspaceId
+    const sessionId = activeConversation.runtimeSessionId
+    const taskId = activeConversation.taskId
+    const key = `${workspaceId}${sessionId}${taskId ?? ''}`
+    if (!force && key === lastLeadKey) return
+    lastLeadKey = key
+    const request = lifecycle.current()
+    const epoch = leadScope.begin()
+    setLeadSupply({})
+    void resolveLeadHandoffSupply(props.client, workspaceId, taskId, {
+      runtimeSessionId: sessionId,
+    }).then((resolution) => {
+      if (!lifecycle.isCurrent(request)) return
+      if (!leadScope.isCurrent(epoch)) return
+      if (conversation()?.runtimeSessionId !== sessionId) return
+      applyLeadResolution(resolution)
+    })
+  }
+  createEffect(() => {
+    resolveLeadSupply(false)
+  })
+
+  // Lead-status polling (#1177): while an unsettled turn is observed —
+  // awaiting admission, dispatching, or live — re-read on the shared 30s
+  // visible-only cadence so the surface converges without a manual check.
+  // Terminal turns stop the poll; hidden windows and offline browsers
+  // issue no reads; reconnects re-read once. Overlaps stay safe: supply
+  // application is epoch-guarded, so a late poll commits nothing.
+  createLeadStatusPoll(
+    () => resolveLeadSupply(true),
+    () => handoffTurnNeedsRefresh(leadSupply().turn?.state)
+  )
+
+  // Explicit handoff request (#1177): first the session authority gate
+  // (existence, scope, task binding, liveness, ACTUAL current generation,
+  // control permission — all read from the host record, never claimed),
+  // then admission with the authority-returned triple, receipt
+  // verification, and an exact-intent refresh — never task-wide
+  // re-resolution. Unknown-outcome retries recover the retained intent
+  // server-side, so no client-held request identity can be evicted or
+  // lost on reload.
+  const requestWorkspaceHandoff = async (): Promise<void> => {
+    const supply = leadSupply()
+    const activeConversation = conversation()
+    const channelId = supply.channelId
+    const taskId = activeConversation?.taskId
+    if (!activeConversation || !channelId || !taskId)
+      throw new Error('Handoff request unavailable.')
+    const workspaceId = activeConversation.scope.workspaceId
+    const sessionId = activeConversation.runtimeSessionId
+    const request = lifecycle.current()
+    const epoch = leadScope.begin()
+    const authority = await resolveHandoffSessionAuthority(
+      props.runtime,
+      activeConversation.scope,
+      {
+        runtimeSessionId: sessionId,
+        taskId,
+        observedGeneration: activeConversation.generation,
+      }
+    )
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
+    const confirmation = await requestLeadHandoff(props.client, {
+      workspaceId,
+      channelId,
+      runtimeSessionId: authority.runtimeSessionId,
+      taskId: authority.taskId,
+      expectedGeneration: authority.generation,
+    })
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
+    // The confirmation is used, not discarded: re-read the exact retained
+    // intent so the surface binds to it rather than to a task-wide latest.
+    const status = await props.client.getLeadTurnStatus(workspaceId, confirmation.intentId)
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== sessionId) return
+    const observed = status.leadTurn
+    if (observed.handoffTarget?.runtimeSessionId !== sessionId)
+      throw new Error('Lead admission returned another target.')
+    const agentId = supply.turn?.agentId ?? leadSupply().agent?.id
+    if (!agentId) throw new Error('Handoff request unavailable.')
+    setLeadSupply((previous) => ({
+      ...previous,
+      turn: {
+        intentId: observed.intentId,
+        agentId,
+        ...(observed.dispatchId !== undefined ? { dispatchId: observed.dispatchId } : {}),
+        state: observed.state,
+        canCancel: leadTurnCanCancel(observed.state),
+        ...(observed.handoffTarget !== undefined
+          ? {
+              handoffTarget: {
+                runtimeSessionId: observed.handoffTarget.runtimeSessionId,
+                ...(observed.handoffTarget.taskId !== undefined
+                  ? { taskId: observed.handoffTarget.taskId }
+                  : {}),
+                observedGeneration: observed.handoffTarget.observedGeneration,
+              },
+            }
+          : {}),
+      },
+    }))
+  }
+
+  const cancelWorkspaceLead = async (): Promise<void> => {
+    const supply = leadSupply()
+    const turn = supply.turn
+    const activeConversation = conversation()
+    if (!turn || !activeConversation) return
+    const workspaceId = activeConversation.scope.workspaceId
+    const request = lifecycle.current()
+    // The cancel is newer than any in-flight read: advance the epoch so a
+    // late resolution cannot overwrite the receipt applied below.
+    const epoch = leadScope.begin()
+    const response = await props.client.cancelLeadTurn(workspaceId, turn.intentId)
+    if (!lifecycle.isCurrent(request)) return
+    if (!leadScope.isCurrent(epoch)) return
+    if (conversation()?.runtimeSessionId !== activeConversation.runtimeSessionId) return
+    // Refresh local facts from the canonical cancel receipt instead of
+    // refetching: the response carries the turn's terminal state.
+    const next = response.leadTurn
+    setLeadSupply((previous) => ({
+      ...previous,
+      turn: {
+        intentId: next.intentId,
+        agentId: turn.agentId,
+        ...(next.dispatchId !== undefined ? { dispatchId: next.dispatchId } : {}),
+        state: next.state as HandoffLeadTurn['state'],
+        canCancel: false,
+      },
+    }))
+  }
+
   createEffect(() => {
     // These reads make auth/workspace changes start a fresh scoped load even
     // when the parent keeps the Chat entry mounted across a route switch.
@@ -465,6 +645,20 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                         conversation={active()}
                         model={state().model}
                         onJumpToTerminal={props.onOpenDev}
+                        // #1177 production handoff supply: the view derives from
+                        // the live conversation plus canonical workspace-lead
+                        // facts resolved above; session-stop and reconnect
+                        // stay model-backed, lead cancellation runs the
+                        // canonical lead-turn cancel path, and handoff
+                        // requests run the canonical admission path.
+                        handoff={{
+                          leadTurn: leadSupply().turn,
+                          leadAgent: leadSupply().agent,
+                          leadChannelId: leadSupply().channelId,
+                        }}
+                        onLeadStop={leadSupply().turn ? cancelWorkspaceLead : undefined}
+                        onRequestHandoff={requestWorkspaceHandoff}
+                        onRefreshLead={() => resolveLeadSupply(true)}
                         readingPosition={props.modelHost.readingPosition(state().scope, active())}
                         onReadingPositionChange={(identity, position) => {
                           if (!lifecycle.isCurrent(request)) return

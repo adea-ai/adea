@@ -42,6 +42,8 @@ import type {
 import { normalizeChatDraft } from '../draft'
 
 export * from './commands'
+export * from './handoff'
+export * from './handoff-authority'
 export * from './transcript'
 export * from './types'
 
@@ -208,6 +210,7 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
+      ...(session.taskId !== undefined ? { taskId: session.taskId } : {}),
       draft: draft.text,
       draftBlocks: draft.blocks,
       events,
@@ -798,6 +801,7 @@ export function createChatConversationModel(
       mutateSession(runtimeSessionId, 'dev.session.resumeHarness', harnessRunId),
     cancel: (runtimeSessionId, harnessRunId) =>
       mutateSession(runtimeSessionId, 'dev.session.cancelHarness', harnessRunId),
+
     archive,
     unarchive,
     send,

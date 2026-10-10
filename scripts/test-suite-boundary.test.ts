@@ -111,6 +111,27 @@ describe('test suite boundaries', () => {
     }
   })
 
+  test('keeps the direct-session handoff journey (#1177) in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const journeys = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' && args.includes('apps/web/e2e/direct-session-handoff.spec.ts')
+    )
+    expect(journeys).toBeDefined()
+  })
+
   test('keeps the cross-product session journeys (#1223) in the normal E2E shard', () => {
     const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
       "import { spawnSync } from 'node:child_process'",

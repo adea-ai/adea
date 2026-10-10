@@ -230,6 +230,50 @@ export {
   workspaceQualifiedAgentKey,
 } from './group-participation-policy'
 export {
+  ABSENT_GRANT_WINDOW,
+  admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  authorizeGroupChannelTurnNow,
+  createGroupChannelWithGrants,
+  decideGroupChannelHistoryReadNow,
+  decideGroupChannelPublicationNow,
+  decideGroupChannelSummaryReadNow,
+  getGroupMessageForUser,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
+  listGroupChannelMessagesForUser,
+  liveGroupClock,
+  loadGroupAdmission,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+  partitionGroupChannelHistory,
+  postGroupChannelMessage,
+  postGroupChannelMessageInTransaction,
+  requireGroupManagementAuthority,
+  resolveAdmissionWindow,
+  revokeGroupGrant,
+  setGroupChannelParticipantsInTransaction,
+  setGroupChannelParticipantsWithGrants,
+  shareGroupHistory,
+  type GroupChannelCreateInput,
+  type GroupChannelDirectPostInput,
+  type GroupChannelGate,
+  type GroupChannelLeadPostInput,
+  type GroupChannelPostInput,
+  type GroupChannelSetParticipantsInput,
+  type GroupClock,
+  type GroupFenceOptions,
+  type GroupGrantKind,
+  type GroupPostBarrier,
+  type GroupRosterBarrier,
+  type GroupStoreDatabase,
+} from './group-channels'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
@@ -267,6 +311,13 @@ export {
   type WorkspaceRole,
 } from './workspaces'
 export {
+  claimManagementAuthorityDecision,
+  completeManagementAuthorityDecision,
+  type ManagementAuthorityClaim,
+  type ManagementAuthorityClaimInput,
+  type ManagementAuthorityCompletion,
+} from './management-authority-consumption'
+export {
   archiveProject,
   createProject,
   getProjectForUser,
@@ -277,6 +328,20 @@ export {
   softDeleteProject,
   updateProject,
 } from './projects'
+export { projectSummary } from './project-summary'
+export {
+  archiveProjectChannels,
+  decideProjectStatePromotion,
+  lockProjectForStateChange,
+  promoteProjectState,
+  ProjectStateConflictError,
+  ProjectStatePromotionError,
+  restoreProjectChannels,
+  type ProjectStatePromotionDecision,
+  type ProjectStatePromotionObservation,
+  type ProjectStatePromotionPlan,
+  type ProjectStatePromotionRefusal,
+} from './project-state-policy'
 export {
   archiveAgent,
   assignAgentToProject,
@@ -290,7 +355,24 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  AGENT_AUTHORITY_FIELDS,
+  AgentPersonaPolicyError,
+  decideAgentPersonaChange,
+  type AgentAuthoritySnapshot,
+  type AgentPersonaChange,
+  type AgentPersonaDecision,
+  type AgentPersonaPlan,
+  type AgentPersonaRefusalReason,
+} from './agent-persona-policy'
+export {
+  createLeadTurn,
+  getLatestLeadTurnForTarget,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+  parseHandoffTarget,
+  type HandoffTarget,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,
@@ -347,3 +429,5 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+
+export * from './lead-model-selections'

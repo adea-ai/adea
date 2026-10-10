@@ -71,6 +71,80 @@ describe.skipIf(!connectionUrl)('canonical lead-turn intent', () => {
     return { owner, workspace, lead, topic, input, admit }
   }
 
+  test('changed requested role pins conflict without changing canonical message or intent', async () => {
+    const f = await fixture()
+    const lead = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 }
+    const child = { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 }
+    const input = { ...f.input, requestedModelSelections: { lead, child } }
+    const first = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      input
+    )
+    const replay = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      { ...input, requestedModelSelections: { child, lead } }
+    )
+    expect(replay.leadTurn).toEqual(first.leadTurn)
+    for (const requestedModelSelections of [
+      { lead: { ...lead, selectionRevision: 2 }, child },
+      { lead: child, child },
+      { lead },
+    ])
+      await expect(
+        createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
+          ...input,
+          requestedModelSelections,
+        })
+      ).rejects.toThrow('model selection conflict')
+    await expect(f.admit()).rejects.toThrow('model selection conflict')
+    const stored = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.requestedModelSelections).toEqual({ lead, child })
+    expect(
+      await connection.db.select().from(messages).where(eq(messages.channelId, f.topic.id))
+    ).toHaveLength(1)
+  })
+
+  test('requested role column rejects snapshots, empty choices and unsafe revisions', async () => {
+    const f = await fixture()
+    const first = await f.admit()
+    const valid = { child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 1 } }
+    await connection.db
+      .update(leadTurnIntents)
+      .set({ requestedModelSelections: valid })
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    for (const invalid of [
+      {},
+      { direct: valid.child },
+      { lead: { ...valid.child, credentialRef: 'caller-credential' } },
+      { lead: { ...valid.child, selectionRevision: 0 } },
+      { lead: { ...valid.child, selectionRevision: 9007199254740992 } },
+      { lead: null },
+    ]) {
+      await expect(
+        Promise.resolve(
+          connection.db.execute(
+            sql`update app.lead_turn_intents set requested_model_selections = ${JSON.stringify(invalid)}::jsonb where id = ${first.leadTurn.intentId}`
+          )
+        )
+      ).rejects.toMatchObject({ cause: { code: '23514' } })
+    }
+    const [stored] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    expect(stored?.requestedModelSelections).toEqual(valid)
+  })
+
   test('concurrent retry commits one canonical message, one blocked intent and one event', async () => {
     const f = await fixture()
     const results = await Promise.all(Array.from({ length: 4 }, f.admit))
