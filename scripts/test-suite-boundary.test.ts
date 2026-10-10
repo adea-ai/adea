@@ -184,6 +184,13 @@ describe('test suite boundaries', () => {
     expect(neonWorkflow).not.toContain('packages/auth test:integration')
   })
 
+  test('forwards the integration shard to Bun and keeps the route flow on shard 1', () => {
+    const runner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
+    expect(runner).toContain('`--shard=${shardSpec}`')
+    expect(runner).toContain("shardSpec.startsWith('1/')")
+    expect(runner).toContain('ADEA_INTEGRATION_SHARD must look like 1/2')
+  })
+
   test('builds desktop releases entirely on GitHub-hosted runners', () => {
     const workflow = readFileSync(resolve(root, '.github/workflows/release-assets.yml'), 'utf8')
     expect(workflow).not.toContain('self-hosted')

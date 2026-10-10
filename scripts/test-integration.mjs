@@ -233,6 +233,20 @@ try {
   const timeoutMs = remoteTarget
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
+  // ADEA_INTEGRATION_SHARD=<index>/<total> runs one Bun --shard slice of the package suites, so a
+  // lane can split the suite across independent databases. Unset runs everything. The route-flow
+  // suite belongs to shard 1 only, so it is never run twice.
+  const shardSpec = process.env.ADEA_INTEGRATION_SHARD
+  if (shardSpec) {
+    const match = /^([1-9]\d*)\/([1-9]\d*)$/u.exec(shardSpec)
+    if (!match || Number(match[1]) > Number(match[2])) {
+      throw new Error(
+        `ADEA_INTEGRATION_SHARD must look like 1/2 with index <= total, got ${shardSpec}`
+      )
+    }
+  }
+  const shardArgs = shardSpec ? [`--shard=${shardSpec}`] : []
+  const runsRouteFlow = !shardSpec || shardSpec.startsWith('1/')
   // Test-only provisioning for the capture proofs, independent of DATABASE_URL
   // (see startCaptureProvisioning). Without docker the proofs skip cleanly;
   // with docker a failed provisioning fails the lane instead of silently
@@ -253,6 +267,7 @@ try {
       'test',
       '--timeout',
       String(timeoutMs),
+      ...shardArgs,
       ...integrationDirectories,
     ],
     environment
@@ -262,14 +277,22 @@ try {
   // built before provisioning), so it must be built on a clean checkout before
   // the route tests run. Like the builds above, this keeps integration
   // runnable independently from a workspace-wide turbo build.
-  run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
-  // The runner sets the react-server condition for the route-flow modules;
-  // the shared database environment and the same latency-sized ceiling apply.
-  run(
-    'bun',
-    ['test', '--conditions=react-server', '--timeout', String(timeoutMs), ...routeFlowDirectories],
-    environment
-  )
+  if (runsRouteFlow) {
+    run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+    // The runner sets the react-server condition for the route-flow modules;
+    // the shared database environment and the same latency-sized ceiling apply.
+    run(
+      'bun',
+      [
+        'test',
+        '--conditions=react-server',
+        '--timeout',
+        String(timeoutMs),
+        ...routeFlowDirectories,
+      ],
+      environment
+    )
+  }
 } catch (error) {
   primaryFailure = error
 }
