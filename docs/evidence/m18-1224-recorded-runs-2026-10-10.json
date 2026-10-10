@@ -1,0 +1,31 @@
+{
+  "ACC-01": {
+    "status": "blocked",
+    "reason": "The axe audit needs the Dev View dev server. On this host the Vite dev server reported ready only after 344,152 ms, the first HTTP request got no response for 580 s, and the process was gone afterwards. No surface was scanned.",
+    "command": "bun scripts/audit-a11y-dev-view.mjs --base-url http://127.0.0.1:3217 --artifact artifacts/a11y/axe-dev-view.json --strict",
+    "revision": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+    "exitCode": 124
+  },
+  "ACC-02": {
+    "status": "blocked",
+    "reason": "Playwright's managed web server timed out after 120,000 ms waiting for http://127.0.0.1:3217 (E2E_PORT=3217). No test in dev-view-a11y-certification.spec.ts ran. A manually started dev server on the same port did not answer in time either.",
+    "command": "E2E_PORT=3217 PLAYWRIGHT_HEADLESS=1 bunx playwright test --config=playwright.config.ts apps/web/e2e/dev-view-a11y-certification.spec.ts",
+    "revision": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+    "exitCode": 1
+  },
+  "PERF-05": {
+    "status": "measured",
+    "seconds": 192,
+    "command": "bun run --cwd apps/web build",
+    "revision": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+    "exitCode": 0,
+    "detail": "One cold full build on this host: cf-typegen, sync-assets, vite build, check-ui-sources. ADR-0010 cites about 7 s for the same unit; this run does not support that figure."
+  },
+  "OPS-10": {
+    "status": "measured",
+    "command": "node scripts/check-docs.mjs",
+    "revision": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+    "exitCode": 0,
+    "detail": "Docs boundary check passes on main. No rollout or rollback runbook exists under docs/ (see the rollout-runbooks probe)."
+  }
+}
