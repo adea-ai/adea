@@ -20,8 +20,9 @@ import { workspaces } from './workspaces'
 
 /**
  * Immutable, server-owned admission intent. Contains references only, never model auth or bodies.
- * `rollback_fenced_at` is the only post-admission field: set once by the rollback fence (M18.01.3,
- * #1220), never cleared, and nullable so pre-fence readers and writers remain compatible.
+ * The `rollback_fence*` columns are the only post-admission fields. They are set together, once,
+ * by the rollback fence (M18.01.3, #1220) and never cleared. Each is nullable so pre-fence readers
+ * and writers remain compatible, and a CHECK keeps the attribution all-or-nothing (REQ 154).
  */
 export const leadTurnIntents = appSchema.table(
   'lead_turn_intents',
@@ -66,6 +67,12 @@ export const leadTurnIntents = appSchema.table(
     state: text('state').default('blocked').notNull(),
     reasonCode: text('reason_code').default('ADMISSION_SERVICE_UNAVAILABLE').notNull(),
     rollbackFencedAt: timestamp('rollback_fenced_at', { mode: 'date', withTimezone: true }),
+    rollbackFenceActorKind: text('rollback_fence_actor_kind'),
+    rollbackFenceActorRef: text('rollback_fence_actor_ref'),
+    rollbackFenceReason: text('rollback_fence_reason'),
+    rollbackFenceAuthority: jsonb('rollback_fence_authority').$type<
+      Readonly<Record<string, unknown>>
+    >(),
     ...timestampColumns(),
   },
   (table) => [
@@ -114,6 +121,22 @@ export const leadTurnIntents = appSchema.table(
           sql` and `
         )}
       )`
+    ),
+    check(
+      'lead_turn_intents_rollback_fence_complete',
+      sql`(${table.rollbackFencedAt} is null and ${table.rollbackFenceActorKind} is null and ${table.rollbackFenceActorRef} is null and ${table.rollbackFenceReason} is null and ${table.rollbackFenceAuthority} is null) or (${table.rollbackFencedAt} is not null and ${table.rollbackFenceActorKind} is not null and ${table.rollbackFenceActorRef} is not null and ${table.rollbackFenceReason} is not null and ${table.rollbackFenceAuthority} is not null)`
+    ),
+    check(
+      'lead_turn_intents_rollback_fence_actor_valid',
+      sql`${table.rollbackFenceActorKind} is null or (${table.rollbackFenceActorKind} = 'user' and ${table.rollbackFenceActorRef} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') or (${table.rollbackFenceActorKind} = 'operator' and ${table.rollbackFenceActorRef} ~ '^[a-z0-9][a-z0-9._:-]{0,127}$')`
+    ),
+    check(
+      'lead_turn_intents_rollback_fence_reason_valid',
+      sql`${table.rollbackFenceReason} is null or ${table.rollbackFenceReason} in ('operator_intervention', 'rollback_cohort')`
+    ),
+    check(
+      'lead_turn_intents_rollback_fence_authority_valid',
+      sql`${table.rollbackFenceAuthority} is null or (jsonb_typeof(${table.rollbackFenceAuthority}) = 'object' and (${table.rollbackFenceAuthority}->>'schemaVersion') is not distinct from '1')`
     ),
     index('lead_turn_intents_workspace_channel_idx').on(table.workspaceId, table.channelId),
     // Exactly one admission per target context and attempt: concurrent same-target admissions

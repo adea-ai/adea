@@ -1,9 +1,11 @@
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { withAuthorizedLeadTurn } from './lead-turns'
+import { withReadAuthorizedLeadTurn } from './lead-turns'
+import { channels } from './schema/conversations'
 import { leadTurnIntents } from './schema/lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
+import { workspaceMemberships } from './schema/workspaces'
 
 // Rollback readers and uncertain-effect fencing for lead turns (M18.01.3, #1220).
 //
@@ -12,6 +14,10 @@ import { leadTurnRuntime } from './schema/lead-turn-runtime'
 // Observation, binding recovery, cancellation and publication of an already-recorded result stay
 // available, because they reconcile evidence rather than create a new effect. Fencing never
 // rewrites state, dispatch identity, runtime session or publication evidence.
+//
+// Attribution (REQ 154): the fence records who applied it, why, when, and the authority it relied
+// on. All of it is written in the same statement as the fence, and a database CHECK rejects a
+// partial fence. Readers get the attribution with the evidence.
 //
 // Fail closed: a non-terminal admission that is not fenced is `fence_required`, and an observed row
 // that does not match a known evidence shape is `blocked_unclassifiable`. Neither is ever read as
@@ -30,6 +36,15 @@ export type LeadTurnRollbackDisposition =
   | 'terminal_retained'
   /** Evidence does not match a known shape. Preserved as-is and never resumed. */
   | 'blocked_unclassifiable'
+
+const dispositions: readonly LeadTurnRollbackDisposition[] = [
+  'fence_required',
+  'no_effect_recorded',
+  'reconcile_uncertain_effect',
+  'in_flight_fenced',
+  'terminal_retained',
+  'blocked_unclassifiable',
+]
 
 export type LeadTurnRollbackEvidence = Readonly<{
   fenced: boolean
@@ -87,61 +102,220 @@ export async function assertLeadTurnNotFenced(
   if (!intent || intent.rollbackFencedAt) throw new Error('LEAD_TURN_FENCED')
 }
 
+export const leadTurnRollbackFenceReasons = ['operator_intervention', 'rollback_cohort'] as const
+export type LeadTurnRollbackFenceReason = (typeof leadTurnRollbackFenceReasons)[number]
+
+/**
+ * `user` is a workspace owner or admin acting through a server surface. `operator` is a trusted
+ * in-process operations caller that has no workspace membership. Both are attributed by reference.
+ */
+export type LeadTurnRollbackFenceActor =
+  | Readonly<{ kind: 'user'; principal: UserPrincipalRef }>
+  | Readonly<{ kind: 'operator'; operatorId: string }>
+
+export type LeadTurnRollbackFenceRequest = Readonly<{
+  actor: LeadTurnRollbackFenceActor
+  reason: LeadTurnRollbackFenceReason
+}>
+
+/** Retained authority the fence relied on, captured in the same transaction as the fence. */
+export type LeadTurnRollbackFenceAuthority = Readonly<{
+  schemaVersion: 1
+  workspaceId: string
+  actorMembershipId: string | null
+  actorRole: 'owner' | 'admin' | null
+  channelId: string
+  channelVersion: number
+  channelLifecycleState: 'active' | 'archived'
+  runtimeState: string | null
+  disposition: LeadTurnRollbackDisposition
+}>
+
+export type LeadTurnRollbackAttribution = Readonly<{
+  fencedAt: string
+  actor: Readonly<{ kind: 'user'; userId: string } | { kind: 'operator'; operatorId: string }>
+  reason: LeadTurnRollbackFenceReason
+  authority: LeadTurnRollbackFenceAuthority
+}>
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const operatorIdPattern = /^[a-z0-9][a-z0-9._:-]{0,127}$/
+
+/** Rejects a malformed request before any database work, so no partial attribution can exist. */
+export function assertLeadTurnRollbackFenceRequest(request: LeadTurnRollbackFenceRequest) {
+  if (!(leadTurnRollbackFenceReasons as readonly string[]).includes(request.reason))
+    throw new Error('INVALID_ROLLBACK_FENCE_REQUEST')
+  if (request.actor.kind === 'user') {
+    if (!uuidPattern.test(request.actor.principal.userId))
+      throw new Error('INVALID_ROLLBACK_FENCE_REQUEST')
+    return
+  }
+  if (request.actor.kind !== 'operator' || !operatorIdPattern.test(request.actor.operatorId))
+    throw new Error('INVALID_ROLLBACK_FENCE_REQUEST')
+}
+
+/** Fail-closed parse of retained authority. Unknown or malformed evidence is never trusted. */
+export function parseLeadTurnRollbackAuthority(value: unknown): LeadTurnRollbackFenceAuthority {
+  const record = value as Record<string, unknown> | null
+  if (
+    typeof record !== 'object' ||
+    record === null ||
+    record.schemaVersion !== 1 ||
+    typeof record.workspaceId !== 'string' ||
+    !(record.actorMembershipId === null || typeof record.actorMembershipId === 'string') ||
+    !(record.actorRole === null || record.actorRole === 'owner' || record.actorRole === 'admin') ||
+    typeof record.channelId !== 'string' ||
+    !Number.isSafeInteger(record.channelVersion) ||
+    (record.channelVersion as number) < 1 ||
+    (record.channelLifecycleState !== 'active' && record.channelLifecycleState !== 'archived') ||
+    !(record.runtimeState === null || typeof record.runtimeState === 'string') ||
+    !dispositions.includes(record.disposition as LeadTurnRollbackDisposition)
+  )
+    throw new Error('LEAD_TURN_FENCE_EVIDENCE_INVALID')
+  return record as unknown as LeadTurnRollbackFenceAuthority
+}
+
+type FenceRow = Readonly<{
+  rollbackFencedAt: Date | null
+  rollbackFenceActorKind: string | null
+  rollbackFenceActorRef: string | null
+  rollbackFenceReason: string | null
+  rollbackFenceAuthority: unknown
+}>
+
+function attributionOf(row: FenceRow): LeadTurnRollbackAttribution | undefined {
+  if (!row.rollbackFencedAt) return undefined
+  const { rollbackFenceActorKind: kind, rollbackFenceActorRef: ref } = row
+  const reason = row.rollbackFenceReason
+  if (
+    !ref ||
+    !(kind === 'user' || kind === 'operator') ||
+    !(leadTurnRollbackFenceReasons as readonly string[]).includes(reason ?? '')
+  )
+    throw new Error('LEAD_TURN_FENCE_EVIDENCE_INVALID')
+  return {
+    fencedAt: row.rollbackFencedAt.toISOString(),
+    actor: kind === 'user' ? { kind, userId: ref } : { kind, operatorId: ref },
+    reason: reason as LeadTurnRollbackFenceReason,
+    authority: parseLeadTurnRollbackAuthority(row.rollbackFenceAuthority),
+  }
+}
+
+async function resolveFenceActor(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  actor: LeadTurnRollbackFenceActor
+): Promise<Readonly<{ membershipId: string | null; role: 'owner' | 'admin' | null }>> {
+  if (actor.kind === 'operator') return { membershipId: null, role: null }
+  const [member] = await tx
+    .select({ id: workspaceMemberships.id, role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, actor.principal.userId)
+      )
+    )
+    .for('share')
+  if (!member) throw new Error('Lead turn unavailable')
+  if (member.role !== 'owner' && member.role !== 'admin')
+    throw new Error('ROLLBACK_FENCE_FORBIDDEN')
+  return { membershipId: member.id, role: member.role }
+}
+
 export type LeadTurnRollbackFence = Readonly<{
   intentId: string
   disposition: LeadTurnRollbackDisposition
   fenced: boolean
-  rollbackFencedAt?: string
+  /** True when an earlier fence already held. The original attribution is returned, not replaced. */
+  alreadyFenced: boolean
+  attribution?: LeadTurnRollbackAttribution
 }>
 
 /**
  * Trusted rollback boundary, called by server rollback tooling and never by a user principal.
- * Applies the fence to a non-terminal admission and returns the classification of the evidence
- * that now exists. Repeated calls keep the first fence time. Terminal admissions are not written.
+ * A user actor must currently be a workspace owner or admin, checked under lock in the same
+ * transaction as the write. The first fence keeps its attribution; later calls return it unchanged.
+ * Terminal admissions are not written.
  */
-export function fenceLeadTurnForRollback(
+export async function fenceLeadTurnForRollback(
   database: AgentHqDatabase,
   workspaceId: string,
-  intentId: string
+  intentId: string,
+  request: LeadTurnRollbackFenceRequest
 ): Promise<LeadTurnRollbackFence> {
+  assertLeadTurnRollbackFenceRequest(request)
   return database.transaction(async (tx) => {
     const [intent] = await tx
-      .select({ id: leadTurnIntents.id, rollbackFencedAt: leadTurnIntents.rollbackFencedAt })
+      .select()
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
       .for('update')
     if (!intent) throw new Error('Lead turn unavailable')
+    const actor = await resolveFenceActor(tx, workspaceId, request.actor)
+    const [channel] = await tx
+      .select({
+        id: channels.id,
+        version: channels.version,
+        lifecycleState: channels.lifecycleState,
+      })
+      .from(channels)
+      .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
+      .for('share')
+    if (!channel) throw new Error('Lead turn unavailable')
     const [row] = await tx
       .select()
       .from(leadTurnRuntime)
       .where(eq(leadTurnRuntime.intentId, intentId))
       .for('update')
-    if (row && terminalStates.includes(row.state)) {
-      const fenced = intent.rollbackFencedAt !== null
+    if (intent.rollbackFencedAt) {
       return {
         intentId,
-        disposition: classifyLeadTurnRollback({ fenced, runtime: row }),
-        fenced,
-        ...(intent.rollbackFencedAt
-          ? { rollbackFencedAt: intent.rollbackFencedAt.toISOString() }
-          : {}),
+        disposition: classifyLeadTurnRollback({ fenced: true, runtime: row }),
+        fenced: true,
+        alreadyFenced: true,
+        attribution: attributionOf(intent),
       }
     }
-    let fencedAt = intent.rollbackFencedAt
-    if (!fencedAt) {
-      const [updated] = await tx
-        .update(leadTurnIntents)
-        .set({ rollbackFencedAt: new Date() })
-        .where(eq(leadTurnIntents.id, intentId))
-        .returning({ rollbackFencedAt: leadTurnIntents.rollbackFencedAt })
-      fencedAt = updated?.rollbackFencedAt ?? null
+    if (row && terminalStates.includes(row.state)) {
+      return {
+        intentId,
+        disposition: classifyLeadTurnRollback({ fenced: false, runtime: row }),
+        fenced: false,
+        alreadyFenced: false,
+      }
     }
-    if (!fencedAt) throw new Error('Lead turn unavailable')
+    const disposition = classifyLeadTurnRollback({ fenced: true, runtime: row })
+    const authority: LeadTurnRollbackFenceAuthority = {
+      schemaVersion: 1,
+      workspaceId,
+      actorMembershipId: actor.membershipId,
+      actorRole: actor.role,
+      channelId: channel.id,
+      channelVersion: channel.version,
+      channelLifecycleState: channel.lifecycleState,
+      runtimeState: row?.state ?? null,
+      disposition,
+    }
+    const [updated] = await tx
+      .update(leadTurnIntents)
+      .set({
+        rollbackFencedAt: new Date(),
+        rollbackFenceActorKind: request.actor.kind,
+        rollbackFenceActorRef:
+          request.actor.kind === 'user' ? request.actor.principal.userId : request.actor.operatorId,
+        rollbackFenceReason: request.reason,
+        rollbackFenceAuthority: authority,
+      })
+      .where(and(eq(leadTurnIntents.id, intentId), isNull(leadTurnIntents.rollbackFencedAt)))
+      .returning()
+    if (!updated) throw new Error('Lead turn unavailable')
     return {
       intentId,
-      disposition: classifyLeadTurnRollback({ fenced: true, runtime: row }),
+      disposition,
       fenced: true,
-      rollbackFencedAt: fencedAt.toISOString(),
+      alreadyFenced: false,
+      attribution: attributionOf(updated),
     }
   })
 }
@@ -149,9 +323,10 @@ export function fenceLeadTurnForRollback(
 export type LeadTurnRollbackState = Readonly<{
   intentId: string
   messageId: string
+  channelLifecycleState: 'active' | 'archived'
   disposition: LeadTurnRollbackDisposition
   fenced: boolean
-  rollbackFencedAt?: string
+  attribution?: LeadTurnRollbackAttribution
   runtime?: Readonly<{
     state: string
     executionId: string
@@ -164,9 +339,9 @@ export type LeadTurnRollbackState = Readonly<{
 }>
 
 /**
- * Rollback reader for the admitted actor or an authorized participant. It reads retained evidence
- * through the same live authority as every other lead-turn reader, so a denied user gets the same
- * unavailable answer and learns nothing about the fence.
+ * Rollback reader for the admitted actor or a current participant. It uses the read authority
+ * path, so authorized archived history stays observable while every effect remains denied. A
+ * denied user gets the same unavailable answer and learns nothing about the fence.
  */
 export function readLeadTurnRollbackState(
   database: AgentHqDatabase,
@@ -174,18 +349,18 @@ export function readLeadTurnRollbackState(
   intentId: string,
   principal: UserPrincipalRef
 ): Promise<LeadTurnRollbackState> {
-  return withAuthorizedLeadTurn(
+  return withReadAuthorizedLeadTurn(
     database,
     workspaceId,
     intentId,
     principal,
-    false,
-    async (tx, intent) => {
+    async (tx, intent, _message, _controlPlaneWorkspaceId, channel) => {
       const [row] = await tx
         .select()
         .from(leadTurnRuntime)
         .where(eq(leadTurnRuntime.intentId, intent.id))
       const fenced = intent.rollbackFencedAt !== null
+      const attribution = attributionOf(intent)
       const runtime = row
         ? {
             state: row.state,
@@ -200,11 +375,10 @@ export function readLeadTurnRollbackState(
       return {
         intentId: intent.id,
         messageId: intent.messageId,
+        channelLifecycleState: channel.lifecycleState,
         disposition: classifyLeadTurnRollback({ fenced, runtime: row }),
         fenced,
-        ...(intent.rollbackFencedAt
-          ? { rollbackFencedAt: intent.rollbackFencedAt.toISOString() }
-          : {}),
+        ...(attribution ? { attribution } : {}),
         ...(runtime ? { runtime } : {}),
       }
     }

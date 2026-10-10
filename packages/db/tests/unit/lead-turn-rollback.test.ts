@@ -1,8 +1,86 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  assertLeadTurnRollbackFenceRequest,
   classifyLeadTurnRollback,
   type LeadTurnRollbackEvidence,
+  parseLeadTurnRollbackAuthority,
 } from '../../src/lead-turn-rollback'
+
+const userId = '0f8b7c2e-1a2b-4c3d-8e9f-001122334455'
+const authority = {
+  schemaVersion: 1,
+  workspaceId: '5c1e2d3f-4a5b-4c6d-8e7f-998877665544',
+  actorMembershipId: 'mem_1',
+  actorRole: 'owner',
+  channelId: '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+  channelVersion: 2,
+  channelLifecycleState: 'archived',
+  runtimeState: null,
+  disposition: 'no_effect_recorded',
+}
+
+describe('REQ 154 fence request and authority validation', () => {
+  test('accepts a workspace user and a trusted operator with a well-formed id', () => {
+    expect(() =>
+      assertLeadTurnRollbackFenceRequest({
+        actor: { kind: 'user', principal: { kind: 'user', userId } },
+        reason: 'rollback_cohort',
+      })
+    ).not.toThrow()
+    expect(() =>
+      assertLeadTurnRollbackFenceRequest({
+        actor: { kind: 'operator', operatorId: 'ops:rollback-1' },
+        reason: 'operator_intervention',
+      })
+    ).not.toThrow()
+  })
+
+  test('refuses an unknown reason, a malformed user id and a malformed operator id before any write', () => {
+    for (const request of [
+      {
+        actor: { kind: 'user' as const, principal: { kind: 'user' as const, userId } },
+        reason: 'retry_forever' as never,
+      },
+      {
+        actor: {
+          kind: 'user' as const,
+          principal: { kind: 'user' as const, userId: 'not-a-uuid' },
+        },
+        reason: 'rollback_cohort' as const,
+      },
+      {
+        actor: { kind: 'operator' as const, operatorId: 'Bad Operator Id' },
+        reason: 'operator_intervention' as const,
+      },
+      {
+        actor: { kind: 'operator' as const, operatorId: 'x'.repeat(129) },
+        reason: 'operator_intervention' as const,
+      },
+    ]) {
+      expect(() => assertLeadTurnRollbackFenceRequest(request)).toThrow(
+        'INVALID_ROLLBACK_FENCE_REQUEST'
+      )
+    }
+  })
+
+  test('parses well-formed retained authority and fails closed on any other shape', () => {
+    expect(parseLeadTurnRollbackAuthority(authority)).toEqual(authority)
+    for (const malformed of [
+      null,
+      'authority',
+      { ...authority, schemaVersion: 2 },
+      { ...authority, schemaVersion: undefined },
+      { ...authority, channelLifecycleState: 'deleted' },
+      { ...authority, actorRole: 'member' },
+      { ...authority, channelVersion: 0 },
+      { ...authority, disposition: 'resume_anyway' },
+    ]) {
+      expect(() => parseLeadTurnRollbackAuthority(malformed)).toThrow(
+        'LEAD_TURN_FENCE_EVIDENCE_INVALID'
+      )
+    }
+  })
+})
 
 type Binding = {
   dispatchId: string | null

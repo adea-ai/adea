@@ -1,5 +1,5 @@
 {
-  "id": "2c576dc4-651f-46a5-809d-3928620b55eb",
+  "id": "1fb88c91-f93f-4e47-ac62-fcb3ea60c466",
   "prevId": "d3d6dcb4-79df-41a8-b462-b8ad46622768",
   "version": "7",
   "dialect": "postgresql",
@@ -3874,6 +3874,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "rollback_fence_actor_kind": {
+          "name": "rollback_fence_actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_actor_ref": {
+          "name": "rollback_fence_actor_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_reason": {
+          "name": "rollback_fence_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_authority": {
+          "name": "rollback_fence_authority",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4074,6 +4098,22 @@
         "lead_turn_intents_requested_models_valid": {
           "name": "lead_turn_intents_requested_models_valid",
           "value": "\"app\".\"lead_turn_intents\".\"requested_model_selections\" is null or (\n        jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\") = 'object'\n        and \"app\".\"lead_turn_intents\".\"requested_model_selections\" <> '{}'::jsonb\n        and (\"app\".\"lead_turn_intents\".\"requested_model_selections\" - 'lead' - 'child') = '{}'::jsonb\n        and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'lead') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'lead'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          )) and (not (\"app\".\"lead_turn_intents\".\"requested_model_selections\" ? 'child') or (\n            jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') = 'object'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRef' and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child' ? 'selectionRevision'\n            and ((\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child') - 'selectionRef' - 'selectionRevision') = '{}'::jsonb\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRef') = 'string'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'\n            and jsonb_typeof(\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->'selectionRevision') = 'number'\n            and \"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision' ~ '^[0-9]+$'\n            and (\"app\".\"lead_turn_intents\".\"requested_model_selections\"->'child'->>'selectionRevision')::numeric between 1 and 9007199254740991\n          ))\n      )"
+        },
+        "lead_turn_intents_rollback_fence_complete": {
+          "name": "lead_turn_intents_rollback_fence_complete",
+          "value": "(\"app\".\"lead_turn_intents\".\"rollback_fenced_at\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is null) or (\"app\".\"lead_turn_intents\".\"rollback_fenced_at\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is not null)"
+        },
+        "lead_turn_intents_rollback_fence_actor_valid": {
+          "name": "lead_turn_intents_rollback_fence_actor_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is null or (\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" = 'user' and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') or (\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" = 'operator' and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" ~ '^[a-z0-9][a-z0-9._:-]{0,127}$')"
+        },
+        "lead_turn_intents_rollback_fence_reason_valid": {
+          "name": "lead_turn_intents_rollback_fence_reason_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is null or \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" in ('operator_intervention', 'rollback_cohort')"
+        },
+        "lead_turn_intents_rollback_fence_authority_valid": {
+          "name": "lead_turn_intents_rollback_fence_authority_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is null or (jsonb_typeof(\"app\".\"lead_turn_intents\".\"rollback_fence_authority\") = 'object' and (\"app\".\"lead_turn_intents\".\"rollback_fence_authority\"->>'schemaVersion') is not distinct from '1')"
         }
       },
       "isRLSEnabled": false
