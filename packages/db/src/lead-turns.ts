@@ -57,7 +57,11 @@ async function lockAuthority(
   channelId: string,
   principal: UserPrincipalRef,
   requireAudienceMemberships = true,
-  clock: () => string = liveLeadClock
+  clock: () => string = liveLeadClock,
+  // When provided, the resolved lead must equal the expected addressed
+  // Agent INSIDE this same transaction: a lead change racing admission
+  // denies instead of launching a different Agent.
+  expectedAgentId?: string
 ) {
   const [workspace] = await tx
     .select({ id: workspaces.id })
@@ -124,6 +128,8 @@ async function lockAuthority(
       : null
   const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
   if (!leadAgentId) throw new Error('Lead turn unavailable')
+  if (expectedAgentId !== undefined && leadAgentId !== expectedAgentId)
+    throw new Error('Lead turn unavailable')
   // Tool authority is source-scoped: a group lead Agent is pinned in its
   // own home workspace (proved at enlist time), never the host's. Direct
   // channels keep their bound agent; the row read is identical either way.
@@ -325,6 +331,96 @@ export async function createLeadTurn(
     // every effect with zero rows surviving.
     await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
     return { message, leadTurn: receipt(intent) }
+  })
+}
+
+/**
+ * Addressed dispatch admission for group channels (M15.02, adea-ai/adea#1179).
+ * Reuses the canonical admission boundary above — same lockAuthority (with
+ * the expected addressed Agent enforced inside the transaction), same
+ * freshness gates, same intent shape — but attaches the intent to the
+ * ALREADY-STORED human trigger message instead of minting another human
+ * message. No body is invented and no content is duplicated: the trigger
+ * row stays the single source of content and context, linked by
+ * `messageId`. Concurrent first-time admits converge on one row through
+ * the message-unique key plus a reselect, exactly like duplicate claims.
+ */
+export async function admitAddressedLeadTurn(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{
+    triggerMessageId: string
+    expectedAgentId: string
+    requestedModelSelections?: RequestedRoleModelSelections
+  }>,
+  options: Readonly<{ clock?: () => string }> = {}
+): Promise<{ leadTurn: ReturnType<typeof receipt>; triggerMessageId: string }> {
+  const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
+  const clock = options.clock ?? liveLeadClock
+  return database.transaction(async (tx) => {
+    const authority = await lockAuthority(
+      tx,
+      workspaceId,
+      channelId,
+      principal,
+      true,
+      clock,
+      input.expectedAgentId
+    )
+    const [trigger] = await tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.id, input.triggerMessageId),
+          eq(messages.workspaceId, workspaceId),
+          eq(messages.channelId, channelId),
+          isNull(messages.deletedAt)
+        )
+      )
+      .limit(1)
+      .for('share')
+    if (!trigger) throw new Error('Lead turn unavailable')
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+    const [existing] = await tx
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.messageId, trigger.id))
+    if (existing) {
+      assertPinned(existing, authority)
+      if (
+        !sameRequestedRoleModelSelections(
+          existing.requestedModelSelections ?? undefined,
+          requestedModelSelections
+        )
+      )
+        throw new Error('Lead turn model selection conflict')
+      await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+      return { leadTurn: receipt(existing), triggerMessageId: trigger.id }
+    }
+    const id = randomUUID()
+    const [inserted] = await tx
+      .insert(leadTurnIntents)
+      .values({
+        ...authority,
+        id,
+        dispatchKey: `lead-turn:${id}`,
+        requestedModelSelections: requestedModelSelections ?? null,
+        messageId: trigger.id,
+        workspaceId,
+        channelId,
+      })
+      .onConflictDoNothing()
+      .returning()
+    const intent =
+      inserted ??
+      (await tx.select().from(leadTurnIntents).where(eq(leadTurnIntents.messageId, trigger.id)))[0]
+    if (!intent) throw new Error('Lead turn unavailable')
+    assertPinned(intent, authority)
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+    return { leadTurn: receipt(intent), triggerMessageId: trigger.id }
   })
 }
 

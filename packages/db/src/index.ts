@@ -370,7 +370,12 @@ export {
   type AgentPersonaPlan,
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  admitAddressedLeadTurn,
+  createLeadTurn,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,

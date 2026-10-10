@@ -9,7 +9,7 @@ import {
 } from './group-participation-store'
 import { evaluateGroupGrantWindow } from './group-participation-policy'
 import type { GroupAdmission } from '@adea-ai/types'
-import { createLeadTurn } from './lead-turns'
+import { admitAddressedLeadTurn } from './lead-turns'
 import { addressedAgentTurns, type AddressedAgentTurn } from './schema/addressed-agent-turns'
 import { agents, messages, workspaceMemberships } from './schema'
 
@@ -497,8 +497,9 @@ export async function dispatchAddressedTurn(
   await options.barrier?.beforeDispatchDecision?.()
   // The addressed Agent must be the currently resolved lead BEFORE the
   // atomic decision flips anything: a failed dispatch leaves the claim
-  // `claimed` (supersede-able), never stranded mid-flight. The adapter
-  // re-resolves the lead inside its own transaction as defense in depth.
+  // `claimed` (supersede-able), never stranded mid-flight. The canonical
+  // admission below re-enforces the expected Agent inside its own
+  // transaction as defense in depth against a racing lead change.
   const now = options.now || new Date().toISOString()
   const leadAgentId = await resolveGroupLeadAgentId(database, workspaceId, input.channelId, now)
   if (leadAgentId !== input.agentId) throw new AddressedTurnError('turn_not_lead')
@@ -507,7 +508,7 @@ export async function dispatchAddressedTurn(
   // arriving after the flip finds a non-claimed row and skips it. Either
   // order is safe, and crash recovery is redispatch (the adapter's causal
   // idempotency key replays the same intent).
-  const admitted = await database.transaction(async (transaction) => {
+  await database.transaction(async (transaction) => {
     const store = asStore(transaction)
     const [locked] = await store
       .select()
@@ -543,20 +544,20 @@ export async function dispatchAddressedTurn(
       )
       .returning()
     if (!flipped[0]) throw new AddressedTurnError('turn_claim_unresolved')
-    return flipped[0]
   })
-  // Faithful dispatch record: the message mentions the addressed Agent
-  // (existing participant reference) and points at the canonical trigger
-  // by id. Trigger content is never duplicated and no prompt is invented.
-  const intent = await createLeadTurn(database, workspaceId, input.channelId, principal, {
-    bodyText: `Addressed turn ${admitted.causalId} for trigger message ${admitted.triggerMessageId}`,
-    idempotencyKey: `turn-dispatch:${admitted.causalId}`,
-    mentions: [{ agentId: input.agentId, kind: 'agent' }],
+  // Canonical admission: the intent attaches to the already-stored human
+  // trigger — no new human message, no invented prompt, no duplicated
+  // content. The expected Agent is enforced inside the admission
+  // transaction, so a lead swap racing admission cannot launch another
+  // Agent. Message count is unchanged by dispatch, by construction.
+  const intent = await admitAddressedLeadTurn(database, workspaceId, input.channelId, principal, {
+    expectedAgentId: input.agentId,
+    triggerMessageId: input.triggerMessageId,
   })
   // The turn stays `dispatching`: the Agent's actual answer is recorded
   // later through recordAddressedTurnResponse (which accepts `dispatching`
-  // turns). Lead-turn messages are human-sent dispatch records, never the
-  // Agent's response, so finalizing here would forge the binding.
+  // turns). The admission minted no message, so there is nothing human-sent
+  // to mistake for the Agent's response.
   return { claim, intent }
 }
 
