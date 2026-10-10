@@ -135,6 +135,33 @@ Two handlers expose this slice. Route files only delegate to them, and
 These routes do not dispatch cleanup, and no period is configured. The period
 decision is recorded separately in `docs/guides/retention-period-decision.md`.
 
+## Source-level cleanup executor (#1243)
+
+`runRetentionCleanupExecutor` (`packages/db/src/retention-cleanup-executor.ts`)
+composes a cleanup run behind the gate. The gate decides under the subject lock,
+and only `cleanup_ready` with a live generation reaches a store. Deletion and
+read-back run in the gate's transaction. Receipts are submitted after the commit,
+through the caller's signed submission port, and each one waits until the
+database clock has passed its observation.
+
+- Each required coverage kind is a `RetentionCleanupStorePort` (delete and
+  residual count). The executor fails before the gate if a port is missing.
+- A store that does not complete stops the run, so later stores keep their data.
+  A residual after read-back stops it as well.
+- The delete observation precedes its own deletion. The read-back observation is
+  strictly later, which is what the gate's ordering requires.
+- Holds, revocations, reference registrations, and reconciliation changes for the
+  subject block on the gate's lock and serialize against the commit.
+
+What this slice does not establish: a reference registered after the commit is
+not fenced by retention authority. Verification is still refused while the
+reference lives, but replicas that were already deleted are not restored. Fencing
+registration needs a change in the grant module, which another owner maintains.
+This is a decision for root.
+
+The executor is exercised only against owned replicas in a disposable schema. No
+production store is wired, no period is chosen, and nothing is scheduled.
+
 ## Not implemented here
 
 - Deletion execution, executors, backup expiry, export, or any scheduler. No

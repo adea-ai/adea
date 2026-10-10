@@ -628,7 +628,16 @@ export type RetentionGateInput = Readonly<{
   workspaceId: string
 }>
 
-export type RetentionGateContext = Readonly<{ now: string }>
+/**
+ * What a callback may use while the gate's locks are held: the decision instant,
+ * the transaction to act in, and the live generation the decision was made under
+ * (null only when no authority is current).
+ */
+export type RetentionGateContext = Readonly<{
+  authorization: Readonly<{ expiresAt: string; grantedAt: string; id: string }> | null
+  now: string
+  transaction: AgentHqTransaction
+}>
 
 /**
  * Decide one subject's deletion under locks and run `callback` with that
@@ -747,7 +756,17 @@ export async function withRetentionDeletionGate<T>(
       if (error instanceof RetentionPolicyError) reject('invalid_input')
       throw error
     }
-    return callback(decision, { now })
+    return callback(decision, {
+      authorization: authority
+        ? Object.freeze({
+            expiresAt: authority.expiresAt.toISOString(),
+            grantedAt: authority.grantedAt.toISOString(),
+            id: authority.id,
+          })
+        : null,
+      now,
+      transaction,
+    })
   })
 }
 

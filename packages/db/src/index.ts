@@ -39,6 +39,14 @@ export {
   purgeExpiredTaskSubmissionCiphertext,
 } from './task-submission-retention'
 export {
+  runRetentionCleanupExecutor,
+  type RetentionCleanupExecution,
+  type RetentionCleanupStorePort,
+  type RetentionCleanupStoreOutcome,
+  type RetentionCleanupSubject,
+  type RetentionReceiptDraft,
+} from './retention-cleanup-executor'
+export {
   CLEANUP_COVERAGE_KINDS,
   evaluateRetentionDeletion,
   MAX_RETENTION_PERIOD_DAYS,
