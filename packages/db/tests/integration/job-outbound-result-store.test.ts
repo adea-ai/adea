@@ -36,6 +36,7 @@ import {
 } from '../../src/read-state'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import { readerVisibleThreadRootIds } from '../../src/job-outbound-visibility'
+import { createContentRef } from '../../src/content-refs'
 import { filterVisibleJobOutboundRows } from '../../src/job-outbound-read'
 import { UNREAD_PUBLICATION_PAGE, WALK_BATCH } from '../../src/job-outbound-frontier'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -2573,6 +2574,36 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(stored.map((row) => row.id).toSorted()).toEqual(
       [t.jobReplyOne.id, t.jobReplyTwo.id].toSorted()
     )
+    // A hidden reply cannot be changed or deleted by the reader, and the version check does not
+    // reveal it: a wrong version is also refused as unavailable.
+    for (const version of [t.jobReplyOne.version, t.jobReplyOne.version + 7]) {
+      await expect(
+        editMessage(
+          connection.db,
+          workspaceId,
+          t.jobReplyOne.id,
+          reader,
+          { bodyText: 'changed' },
+          version
+        )
+      ).rejects.toThrow('Message unavailable')
+      await expect(
+        deleteMessage(connection.db, workspaceId, t.jobReplyOne.id, reader, version)
+      ).rejects.toThrow('Message unavailable')
+    }
+    const [unchanged] = await connection.db
+      .select({
+        bodyText: messages.bodyText,
+        deletedAt: messages.deletedAt,
+        version: messages.version,
+      })
+      .from(messages)
+      .where(eq(messages.id, t.jobReplyOne.id))
+    expect(unchanged).toEqual({
+      bodyText: 'bravo reply one',
+      deletedAt: null,
+      version: t.jobReplyOne.version,
+    })
     await expectSurfacesAgree(f, 'job thread hidden')
 
     // Authority returns: the replies return under the same ids. The stored watermark still stands, so
@@ -2744,6 +2775,76 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const many = await measure()
     expect(many).toEqual(few)
   }, 300_000)
+
+  test('a search fills its window from the messages the reader may see: hidden publications take no place in it', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    // Three matching publications, older than the visible match, and a page of one result: the
+    // window is two raw matches, which the three hidden publications would fill on their own.
+    for (let index = 0; index < 3; index += 1) {
+      const job = await f.submitAnotherJob()
+      await completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        { artifact: null, artifactPolicy: 'require', channelId, summary: `lumen hidden ${index}` }
+      )
+    }
+    await setOriginalActorRole(f, 'member')
+    const visible = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'lumen visible',
+      idempotencyKey: `visible-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+    })
+    const page = await searchWorkspaceForUser(connection.db, workspaceId, reader, 'lumen', {
+      limit: 1,
+    })
+    expect(
+      page.results.flatMap((result) => (result.kind === 'message' ? [result.id] : []))
+    ).toEqual([visible.id])
+  }, 120_000)
+
+  test('an encrypted reply in a hidden thread is not reported as a private result while the thread is hidden', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const publicationId = await publishTo(f, channelId, 'hint root')
+    const contentId = crypto.randomUUID()
+    await createContentRef(connection.db, workspaceId, f.owner.principal, {
+      availability: 'offline',
+      contentType: 'message_body',
+      digestSha256: 'b'.repeat(64),
+      id: contentId,
+      keyVersion: 1,
+      schemaVersion: 1,
+      sensitivity: 'restricted',
+      storagePolicy: 'local_authority',
+      synchronizationPolicy: 'local_only',
+    })
+    await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyContentRefId: contentId,
+      idempotencyKey: `private-reply-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+      threadRootMessageId: publicationId,
+    })
+    const privateHint = async () =>
+      (await searchWorkspaceForUser(connection.db, workspaceId, reader, 'hint', { limit: 50 }))
+        .privateResultsUnavailable
+    expect(await privateHint()).toBe(true)
+    await setOriginalActorRole(f, 'member')
+    expect(await privateHint()).toBe(false)
+    await setOriginalActorRole(f, 'owner')
+    expect(await privateHint()).toBe(true)
+  })
 
   test('a large hidden run is gated in pages: counts stay exact, and statements grow with pages, not publications', async () => {
     const f = await fixture({ complete: false })

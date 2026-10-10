@@ -1189,6 +1189,9 @@ export async function editMessage(
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
     await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
+    // A message the writer cannot see is unavailable to change, before any version check can tell.
+    if ((await filterVisibleMessageRows(transaction, [message], principal.userId)).length === 0)
+      throw new Error('Message unavailable')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1234,6 +1237,9 @@ export async function deleteMessage(
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
     await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
+    // A message the writer cannot see is unavailable to change, before any version check can tell.
+    if ((await filterVisibleMessageRows(transaction, [message], principal.userId)).length === 0)
+      throw new Error('Message unavailable')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()

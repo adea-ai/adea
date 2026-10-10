@@ -1,7 +1,8 @@
 import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } from '@adea-ai/types'
-import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, asc, eq, gt, ilike, inArray, isNotNull, isNull, not, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
+import { JOB_OUTBOUND_SENDER_PREFIX } from './job-outbound-binding'
 import {
   requireProjectAccessScope,
   visibleProjectCondition,
@@ -9,7 +10,7 @@ import {
 } from './project-access'
 import { filterVisibleMessageRows } from './job-outbound-read'
 import { listAccessibleChannelIds } from './read-state'
-import { searchPageWindow } from './search-paging'
+import { SEARCH_CANDIDATE_LIMIT, searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
 
 function pattern(query: string) {
@@ -31,6 +32,154 @@ function compare(left: WorkspaceSearchResult, right: WorkspaceSearchResult) {
     left.kind.localeCompare(right.kind) ||
     left.id.localeCompare(right.id)
   )
+}
+
+/** Raw message rows read per page of a search; the scan stops at SEARCH_CANDIDATE_LIMIT rows in all. */
+const SEARCH_MESSAGE_PAGE = 100
+/** The smallest page, so a small window still reads past a few hidden matches in one page. */
+const SEARCH_MIN_PAGE = 25
+
+/** The message fields a search result needs, plus the sequence the scan pages on. */
+const messageCandidateFields = {
+  bodyText: messages.bodyText,
+  channelId: messages.channelId,
+  channelTitle: channels.title,
+  executionRef: messages.executionRef,
+  id: messages.id,
+  projectId: channels.projectId,
+  senderKind: messages.senderKind,
+  senderSystemId: messages.senderSystemId,
+  sequence: messages.sequence,
+  taskId: messages.taskId,
+  threadRootMessageId: messages.threadRootMessageId,
+}
+
+/** Whether a message row is a job publication, by its system sender, in SQL. */
+const publicationRowCondition = sql`(${messages.senderKind} = 'system' and ${messages.senderSystemId} like ${`${JOB_OUTBOUND_SENDER_PREFIX}%`})`
+
+type MessageCandidate = Readonly<{
+  bodyText: string | null
+  channelId: string
+  channelTitle: string
+  executionRef: string | null
+  id: string
+  projectId: string | null
+  senderKind: string
+  senderSystemId: string | null
+  sequence: number
+  taskId: string | null
+  threadRootMessageId: string | null
+}>
+
+/**
+ * The first `needed` matching messages the reader may see, in sequence order. Pages of raw rows
+ * are read in keyset order and gated in one bulk pass each. The raw rows scanned are capped at
+ * SEARCH_CANDIDATE_LIMIT, so a long run of hidden matches costs its pages, not an unbounded read.
+ */
+async function visibleMessageCandidates(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  channelIds: readonly string[],
+  like: string,
+  needed: number
+) {
+  const visible: MessageCandidate[] = []
+  if (!channelIds.length) return visible
+  let after = 0
+  let scanned = 0
+  while (visible.length < needed && scanned < SEARCH_CANDIDATE_LIMIT) {
+    // A page is never smaller than a small window, so hidden matches are read past in a few pages.
+    const pageSize = Math.min(
+      SEARCH_MESSAGE_PAGE,
+      Math.max(needed - visible.length, SEARCH_MIN_PAGE),
+      SEARCH_CANDIDATE_LIMIT - scanned
+    )
+    const page: MessageCandidate[] = await database
+      .select(messageCandidateFields)
+      .from(messages)
+      .innerJoin(channels, eq(channels.id, messages.channelId))
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          inArray(messages.channelId, [...channelIds]),
+          isNull(messages.deletedAt),
+          isNotNull(messages.bodyText),
+          ilike(messages.bodyText, like),
+          gt(messages.sequence, after)
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(pageSize)
+    if (!page.length) break
+    scanned += page.length
+    after = page.at(-1)!.sequence
+    visible.push(...(await filterVisibleMessageRows(database, page, principal.userId)))
+    if (page.length < pageSize) break
+  }
+  return visible.slice(0, needed)
+}
+
+/**
+ * Whether the reader can see any message with encrypted content in the searched channels. A
+ * top-level message is visible with its channel, so one indexed probe settles it. Replies and job
+ * publications are gated, a page at a time, until one is visible or the scan budget is spent.
+ */
+async function hasVisiblePrivateMessage(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  channelIds: readonly string[]
+): Promise<boolean> {
+  if (!channelIds.length) return false
+  const ordinary = await database
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.workspaceId, workspaceId),
+        inArray(messages.channelId, [...channelIds]),
+        isNull(messages.deletedAt),
+        isNotNull(messages.bodyContentRefId),
+        isNull(messages.threadRootMessageId),
+        not(publicationRowCondition)
+      )
+    )
+    .limit(1)
+  if (ordinary.length) return true
+  let after = 0
+  let scanned = 0
+  while (scanned < SEARCH_CANDIDATE_LIMIT) {
+    const pageSize = Math.min(SEARCH_MESSAGE_PAGE, SEARCH_CANDIDATE_LIMIT - scanned)
+    const page = await database
+      .select({
+        executionRef: messages.executionRef,
+        id: messages.id,
+        senderKind: messages.senderKind,
+        senderSystemId: messages.senderSystemId,
+        sequence: messages.sequence,
+        threadRootMessageId: messages.threadRootMessageId,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          inArray(messages.channelId, [...channelIds]),
+          isNull(messages.deletedAt),
+          isNotNull(messages.bodyContentRefId),
+          gt(messages.sequence, after),
+          or(isNotNull(messages.threadRootMessageId), publicationRowCondition)
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(pageSize)
+    if (!page.length) return false
+    scanned += page.length
+    after = page.at(-1)!.sequence
+    if ((await filterVisibleMessageRows(database, page, principal.userId)).length > 0) return true
+    if (page.length < pageSize) return false
+  }
+  return false
 }
 
 export async function searchWorkspaceForUser(
@@ -63,15 +212,7 @@ export async function searchWorkspaceForUser(
   const scopedChannelIds = options.channelId ? [options.channelId] : allowedChannelIds
   const like = pattern(normalized)
 
-  const [
-    projectRows,
-    channelRows,
-    agentRows,
-    taskRows,
-    artifactRows,
-    messageCandidates,
-    privateRows,
-  ] = await Promise.all([
+  const [projectRows, channelRows, agentRows, taskRows, artifactRows] = await Promise.all([
     options.channelId
       ? Promise.resolve([])
       : database
@@ -155,53 +296,25 @@ export async function searchWorkspaceForUser(
           )
           .orderBy(asc(artifacts.filename), asc(artifacts.id))
           .limit(candidateLimit),
-    !scopedChannelIds.length
-      ? Promise.resolve([])
-      : database
-          .select({
-            bodyText: messages.bodyText,
-            channelId: messages.channelId,
-            channelTitle: channels.title,
-            executionRef: messages.executionRef,
-            id: messages.id,
-            senderKind: messages.senderKind,
-            senderSystemId: messages.senderSystemId,
-            projectId: channels.projectId,
-            taskId: messages.taskId,
-            threadRootMessageId: messages.threadRootMessageId,
-          })
-          .from(messages)
-          .innerJoin(channels, eq(channels.id, messages.channelId))
-          .where(
-            and(
-              eq(messages.workspaceId, workspaceId),
-              inArray(messages.channelId, scopedChannelIds),
-              isNull(messages.deletedAt),
-              isNotNull(messages.bodyText),
-              ilike(messages.bodyText, like)
-            )
-          )
-          .orderBy(asc(messages.sequence), asc(messages.id))
-          .limit(candidateLimit),
-    !scopedChannelIds.length
-      ? Promise.resolve([])
-      : database
-          .select({ id: messages.id })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.workspaceId, workspaceId),
-              inArray(messages.channelId, scopedChannelIds),
-              isNull(messages.deletedAt),
-              isNotNull(messages.bodyContentRefId)
-            )
-          )
-          .limit(1),
   ])
 
-  // Job publications match only while the reader is currently authorized for them, and a reply
-  // matches only while its thread root is visible to the reader.
-  const messageRows = await filterVisibleMessageRows(database, messageCandidates, principal.userId)
+  // Messages are matched in sequence order, keeping only the ones the reader may see, until the
+  // page's window is full or the scan budget is spent. A hidden job publication never takes a
+  // place in the window.
+  const messageRows = await visibleMessageCandidates(
+    database,
+    workspaceId,
+    principal,
+    scopedChannelIds,
+    like,
+    offset + limit + 1
+  )
+  const privateResultsUnavailable = await hasVisiblePrivateMessage(
+    database,
+    workspaceId,
+    principal,
+    scopedChannelIds
+  )
   const results: WorkspaceSearchResult[] = [
     ...projectRows.map((row) => ({
       id: row.id,
@@ -261,7 +374,7 @@ export async function searchWorkspaceForUser(
     searchPageWindow({ limit, offset, resultCount: results.length }).nextOffset !== undefined
   return Object.freeze({
     ...(hasMore ? { nextOffset: offset + limit } : {}),
-    privateResultsUnavailable: privateRows.length > 0,
+    privateResultsUnavailable,
     results: Object.freeze(page),
   })
 }

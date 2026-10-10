@@ -324,6 +324,14 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   audience (for example a moved roster revision) does not return them. A new
   reply into a hidden thread is refused as a missing message. The check is
   one root read and one publication gate per page, not per thread.
+- **Changes follow visibility.** Editing or deleting a message the caller cannot see is refused as
+  `Message unavailable` before any version check, so a wrong version reveals nothing and nothing
+  changes. A lead turn on a message the caller cannot see is `Lead turn unavailable`.
+- **Search fills its window from visible matches.** Matching messages are read in sequence order
+  and gated a page at a time until the page's window is full, or the scan budget (5051 raw rows)
+  is spent. A hidden publication or a reply in a hidden thread never takes a place in the window.
+  `privateResultsUnavailable` is set only when the caller can see an encrypted-content message, so
+  a hidden one is never reported.
 - **The frontier column.** `channels.latest_message_sequence` (migration
   `0031`) is the newest live top-level message sequence, 0 when there is none.
   It is the stored starting point only: the frontier a reader is shown, and the
