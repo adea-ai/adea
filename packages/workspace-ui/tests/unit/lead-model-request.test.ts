@@ -107,6 +107,11 @@ test('no explicit choice invokes no metadata; child-only never inherits lead', a
     await f.resolver.resolve('workspace', 'child', { child: f.choice }, () => true)
   ).not.toHaveProperty('lead')
 })
+test('a child-only request reads only the child role: no lead resolution and no other metadata call', async () => {
+  const f = fixture()
+  await f.resolver.resolve('workspace', 'child-only', { child: f.choice }, () => true)
+  expect(f.calls).toEqual(['list', { role: 'child', override: f.choice }])
+})
 test('unready choice, invalid accepted response and changed audience fail without retained fallback', async () => {
   const f = fixture()
   f.setReady(false)
