@@ -140,6 +140,8 @@ export type WorkspaceLogo =
 export type WorkspaceSummary = {
   /** Presentation capability only; permanent deletion rechecks ownership on the server. */
   canDelete?: boolean
+  /** Presentation capability only; archive rechecks ownership and Home protection on the server. */
+  canArchive?: boolean
   /** This caller's persistent personal workspace; independent of its presentation. */
   isPersonal?: boolean
   deletionPending?: boolean

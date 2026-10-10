@@ -27,6 +27,7 @@ import {
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { Toaster } from '@adea-ai/ui/components/ui/toast'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { PanelRightClose, PanelRightOpen, Users, Inbox as InboxIcon } from 'lucide-solid'
@@ -228,6 +229,7 @@ const SourceControlView = lazyComponent(
             }
             toolbarMount={entryProps.toolbarMount}
             onOpenDev={entryProps.onOpenDev}
+            hostToaster
           />
         )
       }
@@ -1296,6 +1298,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <a class="workspace-skip-link" href={view() === 'dev' ? '#dev-center' : '#workspace-main'}>
         Skip to workspace content
       </a>
+      {/* The frame's one default toast stack. It sits above every view and the global workspace
+          overlay, so a notice raised in Chat, Virtual or Dev is shown wherever the person is.
+          SourceControlApp, embedded in the Source Control app, sends its notices here (hostToaster) rather
+          than mounting a second stack. Portalled so no view's stacking context can bury it. */}
+      <Portal>
+        <Toaster position="bottom-right" />
+      </Portal>
       <WorkspaceTopBar
         hideSidebarToggle={designerActive() || chatShellBootstrapFallback()}
         platform={props.platform}

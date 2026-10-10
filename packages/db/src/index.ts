@@ -246,6 +246,7 @@ export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './e
 export {
   addWorkspaceMembership,
   archiveWorkspace,
+  listArchivedWorkspacesForOwner,
   deleteWorkspace,
   beginWorkspaceDeletion,
   WorkspaceCleanupRequiredError,
