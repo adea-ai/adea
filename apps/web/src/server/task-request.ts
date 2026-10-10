@@ -5,7 +5,7 @@ import {
   archiveTask,
   assignTask,
   cancelTask,
-  completeTask,
+  completeTaskFromRequest,
   moveTaskToProject,
   queueTask,
   reviewTask,
@@ -132,6 +132,7 @@ export async function handleTaskAction(
   const database = applicationDatabase()
   try {
     let task
+    let outboundPublication: ApiTaskResponse['outboundPublication']
     switch (action) {
       case 'archive':
         task = await archiveTask(database, workspaceId, taskId, resolution.principal, command)
@@ -151,9 +152,22 @@ export async function handleTaskAction(
       case 'cancel':
         task = await cancelTask(database, workspaceId, taskId, resolution.principal, command)
         break
-      case 'complete':
-        task = await completeTask(database, workspaceId, taskId, resolution.principal, command)
+      case 'complete': {
+        // A completion may carry one outbound result for a group channel. It is validated
+        // before any effect, and it completes and publishes in one transaction.
+        const outcome = await completeTaskFromRequest({
+          body,
+          command,
+          database,
+          principal: resolution.principal,
+          taskId,
+          workspaceId,
+        })
+        if (outcome.kind === 'invalid') return workspaceInvalidRequestResponse(request)
+        task = outcome.task
+        outboundPublication = outcome.outboundPublication
         break
+      }
       case 'queue':
         task = await queueTask(database, workspaceId, taskId, resolution.principal, command)
         break
@@ -234,7 +248,7 @@ export async function handleTaskAction(
         break
       }
     }
-    const payload: ApiTaskResponse = { task }
+    const payload: ApiTaskResponse = outboundPublication ? { outboundPublication, task } : { task }
     return workspaceJsonResponse(payload, resolution, request)
   } catch (error) {
     return taskErrorResponse(error, resolution, request)

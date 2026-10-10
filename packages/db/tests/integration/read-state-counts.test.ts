@@ -449,7 +449,8 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
     }
 
     // Two for the project access scope, then one channel aggregate and one
-    // thread aggregate — never one per channel, thread, or message.
+    // thread aggregate — never one per channel, thread, or message. Once there
+    // are threads, one more read checks their roots' visibility, for all of them.
     const small = await countQueries(bob)
     expect(small.queries).toBe(4)
     expect(small.result).toEqual(bobState)
@@ -461,7 +462,7 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       await post(workspaceId, channelId, owner, { threadRootMessageId: root.id })
     }
     const large = await countQueries(bob)
-    expect(large.queries).toBe(4)
+    expect(large.queries).toBe(5)
     expect(large.result).toHaveLength(6)
     expect(large.result).toEqual(await reference(workspaceId, bob))
   })
