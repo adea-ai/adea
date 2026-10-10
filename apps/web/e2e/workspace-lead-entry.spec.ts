@@ -52,6 +52,10 @@ type MountOptions = {
   models?: boolean
   /** The Work lead already exists with an approved profile. */
   availableLead?: boolean
+  /** Model inventory is readable but binds no execution target. */
+  targetless?: boolean
+  /** A lead model is already selected in the workspace defaults. */
+  leadModelSelected?: boolean
 }
 type LeadState = {
   /** Work workspace lead (the primary fixture). */
@@ -128,7 +132,7 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
     posts: 0,
     gets: 0,
     home: { lead: leadFor(homeWorkspace.id, true), posts: 0, gets: 0 },
-    defaults: { revision: 1 },
+    defaults: { revision: 1, ...(options.leadModelSelected ? { lead: readyChoice } : {}) },
     defaultsRequests: 0,
     profileSaves: 0,
     profileSaveAgentId: null,
@@ -178,7 +182,9 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
       return route.fulfill({
         contentType: 'application/json',
         json: options.models
-          ? readyInventory(canManage)
+          ? options.targetless
+            ? { ...readyInventory(canManage), target: null }
+            : readyInventory(canManage)
           : { availability: 'unavailable', canManage, target: null, connections: [] },
       })
     if (body.action === 'defaults.get' || body.action === 'defaults.set') {
@@ -546,4 +552,60 @@ test('an auto-provisioned lead reaches Customize, and its profile save updates t
   expect(
     await page.evaluate(() => (window as unknown as { journeyDocument?: string }).journeyDocument)
   ).toBe('same')
+})
+
+test('a bound execution target is shown as placement, alongside the lead audience', async ({
+  page,
+}) => {
+  await mountShell(page, { models: true })
+  await openAgents(page)
+  const main = page.locator('#workspace-main')
+  await expect(main.getByTestId('lead-setup-state')).toHaveAttribute('data-state', 'unconfigured', {
+    timeout: 30_000,
+  })
+  await expect(main.getByTestId('lead-placement')).toHaveAttribute('data-state', 'bound')
+  await expect(main.getByTestId('lead-placement')).toHaveText('Remote host · Pi durable')
+  await expect(main.getByTestId('lead-audience')).toContainText('Visible to workspace members')
+})
+
+test('a selected lead model with no bound execution target never infers placement and stays fail-closed', async ({
+  page,
+}) => {
+  const state = await mountShell(page, {
+    availableLead: true,
+    models: true,
+    targetless: true,
+    leadModelSelected: true,
+  })
+  await openAgents(page)
+  const main = page.locator('#workspace-main')
+  await expect(main.getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked',
+    {
+      timeout: 30_000,
+    }
+  )
+  await expect(main.getByTestId('lead-placement')).toHaveAttribute('data-state', 'unknown')
+  await expect(main.getByTestId('lead-placement')).toContainText(
+    'Placement is not inferred from model selection'
+  )
+  expect(state.posts).toBe(0)
+})
+
+test('without a model inventory the lead shows unknown placement and no inferred audience', async ({
+  page,
+}) => {
+  await mountShell(page, { availableLead: true })
+  await openAgents(page)
+  const main = page.locator('#workspace-main')
+  await expect(main.getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked',
+    {
+      timeout: 30_000,
+    }
+  )
+  await expect(main.getByTestId('lead-placement')).toHaveAttribute('data-state', 'unknown')
+  await expect(main.getByTestId('lead-audience')).toContainText('Visible to workspace members')
 })

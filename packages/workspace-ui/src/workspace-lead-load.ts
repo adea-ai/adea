@@ -5,6 +5,10 @@ import type {
   ApiWorkspaceModelDefaults,
 } from '@adea-ai/api-client/model-connections'
 import { projectWorkspaceLeadSetup, type WorkspaceLeadSetup } from './workspace-lead-setup'
+import {
+  projectWorkspaceLeadPresentation,
+  type WorkspaceLeadPresentation,
+} from './workspace-lead-presentation'
 
 export type WorkspaceLeadClient = Pick<
   AgentHqApiClient,
@@ -12,7 +16,11 @@ export type WorkspaceLeadClient = Pick<
 >
 
 export type WorkspaceLeadLoad =
-  | Readonly<{ current: true; setup: WorkspaceLeadSetup }>
+  | Readonly<{
+      current: true
+      setup: WorkspaceLeadSetup
+      presentation: WorkspaceLeadPresentation
+    }>
   | Readonly<{ current: false }>
 
 const STALE: WorkspaceLeadLoad = { current: false }
@@ -60,6 +68,7 @@ export async function loadWorkspaceLeadSetup(input: {
         connections,
         defaults,
       }),
+      presentation: projectWorkspaceLeadPresentation({ lead: null, leadKnown: false, connections }),
     }
   let lead = leadRead.value.lead
   let provisioning: 'failed' | undefined
@@ -92,5 +101,6 @@ export async function loadWorkspaceLeadSetup(input: {
       connections,
       defaults,
     }),
+    presentation: projectWorkspaceLeadPresentation({ lead, connections }),
   }
 }

@@ -4,6 +4,7 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { loadWorkspaceLeadSetup, type WorkspaceLeadClient } from './workspace-lead-load'
 import { workspaceLeadRevision } from './workspace-lead-revision'
 import type { WorkspaceLeadSetup } from './workspace-lead-setup'
+import type { WorkspaceLeadPresentation } from './workspace-lead-presentation'
 
 /**
  * Canonical lead setup status for one workspace. A workspace change, a retry, a
@@ -22,6 +23,7 @@ export function WorkspaceLeadStatus(props: {
   onSignIn?: () => void
 }) {
   const [setup, setSetup] = createSignal<WorkspaceLeadSetup>()
+  const [presentation, setPresentation] = createSignal<WorkspaceLeadPresentation>()
   const [attempt, setAttempt] = createSignal(0)
   let token = 0
 
@@ -33,6 +35,7 @@ export function WorkspaceLeadStatus(props: {
     void workspaceLeadRevision(workspaceId)
     const request = (token += 1)
     setSetup(undefined)
+    setPresentation(undefined)
     loadWorkspaceLeadSetup({
       client,
       workspaceId,
@@ -40,7 +43,10 @@ export function WorkspaceLeadStatus(props: {
       onProvisioned: () => props.onProvisioned?.(),
     }).then(
       (result) => {
-        if (result.current && request === token) setSetup(result.setup)
+        if (result.current && request === token) {
+          setSetup(result.setup)
+          setPresentation(result.presentation)
+        }
       },
       () => {
         if (request === token)
@@ -60,6 +66,24 @@ export function WorkspaceLeadStatus(props: {
             <p role="status" data-testid="lead-setup-state" data-state={current().state}>
               {current().detail}
             </p>
+            <Show when={presentation()}>
+              {(shown) => (
+                <dl class="grid gap-1" data-testid="lead-presentation">
+                  <div>
+                    <dt>Audience</dt>
+                    <dd data-testid="lead-audience">
+                      {shown().audience.label}. {shown().audience.detail}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Placement</dt>
+                    <dd data-testid="lead-placement" data-state={shown().placement.state}>
+                      {shown().placement.label}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </Show>
             <Show
               when={current().state === 'provisioning_failed' || current().state === 'unavailable'}
             >
