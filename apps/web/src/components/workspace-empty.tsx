@@ -6,7 +6,7 @@ import { Label } from '@adea-ai/ui/components/ui/label'
 import {
   describeWorkspaceCreationContext,
   type WorkspaceCreationContext,
-} from '../lib/workspace-creation-context'
+} from '@adea-ai/workspace-nav/workspace-nav'
 
 export function WorkspaceEmpty(props: {
   onCreate(name: string): Promise<void>

@@ -31,6 +31,7 @@ export function WorkspaceDraftRow(props: {
   const uniqueId = createUniqueId()
   const errorId = `workspace-nav-draft-error-${uniqueId}`
   const hintId = `workspace-nav-draft-hint-${uniqueId}`
+  const contextId = `workspace-nav-draft-context-${uniqueId}`
   let input: HTMLInputElement | undefined
   let settled = false
   let submittedName: string | undefined
@@ -76,7 +77,9 @@ export function WorkspaceDraftRow(props: {
           }}
           aria-label="New workspace name"
           aria-invalid={props.error ? true : undefined}
-          aria-describedby={props.error ? `${errorId} ${hintId}` : hintId}
+          aria-describedby={
+            props.error ? `${errorId} ${hintId} ${contextId}` : `${hintId} ${contextId}`
+          }
           aria-busy={props.pending ? true : undefined}
           placeholder="New workspace name"
           value={name()}
@@ -101,7 +104,7 @@ export function WorkspaceDraftRow(props: {
       <Text variant="caption" tone="muted" id={hintId} class="ms-7">
         Enter to create · Esc to cancel
       </Text>
-      <Text variant="caption" tone="muted" class="ms-7">
+      <Text variant="caption" tone="muted" id={contextId} class="ms-7">
         {describeWorkspaceCreationContext(props.creationContext)}
       </Text>
       <Show when={props.error}>
