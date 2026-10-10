@@ -208,7 +208,7 @@ async function requireChannel(
  * channel of a hidden project is answered like a missing one; a viewer of a
  * members-only project reads but cannot write (`Project read-only`).
  */
-async function requireChannelAccess(
+export async function requireChannelAccess(
   database: Database,
   workspaceId: string,
   channelId: string,
@@ -1091,13 +1091,17 @@ async function createMessageWithTextPolicy(
         .values(
           artifactIds.map((artifactId) => ({ artifactId, messageId: created.id, workspaceId }))
         )
+    // A job publication is written by the system. Its event names no acting user: the
+    // original actor is in the binding, which only publication delivery reads.
+    const jobPublication =
+      input.sender.kind === 'system' && isJobOutboundSenderValue(input.sender.systemId.trim())
     await appendWorkspaceEvent(transaction, {
       eventType: 'message.created',
       payload: {
-        actorUserId: principal.userId,
         channelId,
         messageId: created.id,
         sequence: created.sequence,
+        ...(jobPublication ? {} : { actorUserId: principal.userId }),
       },
       workspaceId,
     })

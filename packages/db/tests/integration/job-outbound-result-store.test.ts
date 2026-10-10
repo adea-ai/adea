@@ -21,6 +21,8 @@ import {
   setChannelParticipants,
 } from '../../src/conversations'
 import { searchWorkspaceForUser } from '../../src/search'
+import { listWorkspaceEventsAfter } from '../../src/event-log'
+import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   completeTaskAndPublishOutboundResult,
@@ -1032,6 +1034,25 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       )
   }
 
+  /**
+   * Adds a user to the destination channel's roster. A requester must reach the channel to
+   * complete an outbound result into it, so admin requesters are made participants here.
+   */
+  async function joinChannel(f: Fixture, userId: string) {
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      [
+        f.owner.principal,
+        { kind: 'user', userId: f.recipient.principal.userId },
+        { kind: 'user', userId },
+      ],
+      await rosterVersion(f.channelA.id)
+    )
+  }
+
   /** A real user with a membership in the source and/or destination workspace. */
   async function newUser(
     f: Fixture,
@@ -1188,6 +1209,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
   test('a source admin who did not submit the job may complete and publish; the message is authored as the original actor', async () => {
     const f = await fixture({ complete: false })
     const admin = await newUser(f, { destination: 'member', source: 'admin' })
+    await joinChannel(f, admin.userId)
     const outcome = await completeJob(f, crypto.randomUUID(), outboundRequest(f), { actor: admin })
     const messageId = outcome.publication.messageId
     if (!messageId) throw new Error('expected a canonical message')
@@ -1310,6 +1332,103 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
 
     await expect(completeJob(f, key, request)).rejects.toThrow('Task idempotency conflict')
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a requester who can complete the source task but cannot reach the destination channel is refused; the Task and the publication are unchanged', async () => {
+    const f = await fixture({ complete: false })
+    // Source admin (so may complete the source Task) and destination workspace member who is
+    // not a participant of the participant-only channel.
+    const requester = await newUser(f, { destination: 'member', source: 'admin' })
+    // Proof of source-side authority: the requester completes an unrelated Task.
+    const other = await createTask(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      { objective: 'Other objective', title: 'Other task' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    const otherDone = await completeTask(connection.db, f.workspace.id, other.id, requester, {
+      expectedVersion: other.version,
+      idempotencyKey: crypto.randomUUID(),
+      requestId: crypto.randomUUID(),
+    })
+    expect(otherDone.lifecycleState).toBe('completed')
+
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+    await expect(completeJob(f, key, outboundRequest(f), { actor: requester })).rejects.toThrow(
+      'Channel unavailable'
+    )
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    // The original actor, a participant, completes under the same key: the refusal reserved nothing.
+    const published = await completeJob(f, key, outboundRequest(f))
+    expect(published.publication).toMatchObject({ decision: { action: 'publish' } })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([
+      { id: published.publication.messageId },
+    ])
+  })
+
+  test('a job publication event names no actor and follows current authorization: delivered while authorized, withheld after revocation, live and on replay', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const outcome = await publishArtifact(f, reg)
+    const messageId = outcome.messageId!
+    const ordinary = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      {
+        bodyText: 'Ordinary update.',
+        idempotencyKey: `ordinary-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      }
+    )
+    const reader = f.recipient.principal.userId
+    const log = await listWorkspaceEventsAfter(connection.db, f.destination.id, 0, 200)
+    const publicationEvent = log.find(
+      (event) => event.eventType === 'message.created' && event.aggregateId === messageId
+    )!
+    const ordinaryEvent = log.find(
+      (event) => event.eventType === 'message.created' && event.aggregateId === ordinary.id
+    )!
+    expect(publicationEvent.actor).toBeNull()
+    expect(publicationEvent.payload).not.toHaveProperty('actorUserId')
+    expect(ordinaryEvent.actor).toEqual({ id: f.owner.principal.userId, kind: 'user' })
+
+    const classify = (events: readonly (typeof log)[number][]) =>
+      classifyWorkspaceEventsForUser(connection.db, f.destination.id, reader, events)
+    expect(await classify([publicationEvent])).toEqual([
+      { event: publicationEvent, kind: 'deliver' },
+    ])
+
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    expect(await classify([publicationEvent])).toEqual([
+      { kind: 'withheld', workspaceSequence: publicationEvent.workspaceSequence },
+    ])
+
+    // Replay from the start of the log: the publication stays withheld, and nothing names it.
+    const replay = await classify(
+      await listWorkspaceEventsAfter(connection.db, f.destination.id, 0, 200)
+    )
+    expect(replay).toContainEqual({
+      kind: 'withheld',
+      workspaceSequence: publicationEvent.workspaceSequence,
+    })
+    expect(JSON.stringify(replay)).not.toContain(messageId)
+    expect(
+      replay.some(
+        (delivery) => delivery.kind === 'deliver' && delivery.event.aggregateId === ordinary.id
+      )
+    ).toBe(true)
   })
 
   test('a held publication commits the completion and writes nothing; a retry converges to one message once the grant is restored', async () => {
@@ -1450,6 +1569,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
   test('a retry after the caller loses source authority is refused and writes nothing new', async () => {
     const f = await fixture({ complete: false })
     const admin = await newUser(f, { destination: 'member', source: 'admin' })
+    await joinChannel(f, admin.userId)
     const key = crypto.randomUUID()
     const first = await completeJob(f, key, outboundRequest(f), { actor: admin })
     const messageId = first.publication.messageId

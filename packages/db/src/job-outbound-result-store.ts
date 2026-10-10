@@ -12,7 +12,7 @@ import {
   ArtifactReferenceGrantError,
   withArtifactReferenceGrantLocks,
 } from './artifact-reference-grants'
-import { createMessage } from './conversations'
+import { createMessage, requireChannelAccess } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { encodeJobOutboundBinding, jobOutboundMessageKey } from './job-outbound-binding'
 import {
@@ -351,6 +351,18 @@ async function completeForPublication(
     )
   )
     throw new Error('Job outbound unavailable')
+  // The requester must also pass the canonical channel-write policy for the destination
+  // channel: membership, project write, and participation in a participant-only channel.
+  // The message is authored as the original actor, so without this check the requester
+  // could publish into a channel the requester cannot reach. A refusal throws here, before
+  // the Task completes, and rolls the whole transaction back.
+  await requireChannelAccess(
+    transaction,
+    input.destinationWorkspaceId,
+    input.channelId,
+    principal,
+    'write'
+  )
   return completeTask(transaction, workspaceId, taskId, principal, command, {
     outboundRequest: canonicalOutboundRequest(request, job.originalActorUserId),
   })

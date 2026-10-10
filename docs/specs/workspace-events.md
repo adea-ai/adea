@@ -65,7 +65,10 @@ Message or Task body content, prompts, provider output, ciphertext, key
 envelopes, credentials, signed locations or URLs, or transient token/data
 streams, and it is bounded in size. Events also record the aggregate, the acting
 principal (derived from the payload's `actorUserId`/`ownerUserId`), and an
-optional correlation id.
+optional correlation id. A job publication (a system-sender message written by
+job outbound release, #1217) records no acting principal: its `message.created`
+payload carries no `actorUserId`, because the original actor exists only in the
+publication binding, which delivery reads and history never shows.
 
 ### Explicit Agent profile changes
 
@@ -195,6 +198,10 @@ the channel's project for `channelId`; the message's channel for every `messageI
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
 Channel, message, thread/reply and content references also require current channel audience access.
+A job publication message also requires current publication authorization for the subscriber: the
+same gates history and delivery apply (the artifact grant, the original actor's source authority, the
+subscriber's destination membership, and the channel roster at the bound revision). A publication the
+subscriber is not currently authorized for is withheld, live and on replay, and the frame names nothing.
 Workspace owners and admins retain their project privileges but cannot bypass a participant-only
 channel's audience. Removing a participant therefore withholds that channel's replay events as well
 as future events; archived conversation history follows the same current audience check.
@@ -209,7 +216,9 @@ stream ends with `membership-revoked` straight away rather than at the next 30-s
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
 (membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
 most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
-the ids in the page, never one query per event. Channel audience checks use indexed participant
+the ids in the page, never one query per event. A job publication message in the page adds one
+publication-gate evaluation for the subscriber (the same reads history uses), bounded by the number of
+distinct publication messages in the page. Channel audience checks use indexed participant
 existence projections in those lookups, including for owners and admins. A page containing only
 project events needs only the access-scope reads. Idle polls
 read nothing extra.
