@@ -13,8 +13,8 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
   messageMentions,
@@ -143,21 +143,19 @@ const inboxSelection = sql`
     coalesce(mention.count, 0) as "unreadMentions"
   `
 
-const inboxAuthorization = (userId: string) => sql`
+const inboxAuthorization = (userId: string, inForceGroupIds: readonly string[]) => sql`
     from ${workspaceMemberships} as membership
     inner join ${workspaces} as workspace
       on workspace.id = membership.workspace_id and workspace.deleted_at is null
     join ${channels} as channel
       on channel.workspace_id = membership.workspace_id
-      and (
-        channel.visibility = 'workspace'
-        or exists (
-          select 1 from ${channelParticipants} as participant
-          where participant.channel_id = channel.id
-            and participant.principal_kind = 'user'
-            and participant.user_id = ${userId}
-        )
-      )
+      and ${userChannelVisibility({
+        channelId: sql.raw('channel.id'),
+        inForceGroupIds,
+        kind: sql.raw('channel.kind'),
+        userId,
+        visibility: sql.raw('channel.visibility'),
+      })}
       and (
         channel.project_id is null
         or membership.role in ('owner', 'admin')
@@ -251,6 +249,9 @@ export async function accountConversationInbox(
   options: Readonly<AccountDirectoryPageInput> = {}
 ): Promise<AccountConversationInboxPage> {
   const limit = accountDirectoryPageLimit(options.limit)
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const after = options.after ? decodeAccountInboxCursor(options.after) : null
   const lifecycle = options.includeArchived ? sql`true` : sql`channel.lifecycle_state = 'active'`
   // The search predicate sits INSIDE the authorization statement: it filters
@@ -266,7 +267,7 @@ export async function accountConversationInbox(
     : sql``
   const rows = await database.execute<InboxRow>(sql`
     select ${inboxSelection}
-    ${inboxAuthorization(principal.userId)}
+    ${inboxAuthorization(principal.userId, inForce)}
     and ${lifecycle}
     ${search}
     ${cursor}
@@ -305,11 +306,14 @@ export async function findAccountConversation(
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<AccountConversationInboxEntry | null> {
   if (!isAccountResourceId(conversationId)) return null
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const lifecycle =
     options.includeArchived === false ? sql`channel.lifecycle_state = 'active'` : sql`true`
   const [row] = await database.execute<InboxRow>(sql`
     select ${inboxSelection}
-    ${inboxAuthorization(principal.userId)}
+    ${inboxAuthorization(principal.userId, inForce)}
     and ${lifecycle}
     and channel.id = ${conversationId}::uuid
     limit 1

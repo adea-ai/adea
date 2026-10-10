@@ -44,6 +44,8 @@ export function conversationErrorResponse(
     })
   if (
     message === 'Primary Project Channel required' ||
+    // A group's visibility is fixed to participants: a change to workspace visibility is refused.
+    message === 'Channel participant policy conflict' ||
     message.endsWith('thread conflict') ||
     message.endsWith('reply conflict')
   )

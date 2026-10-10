@@ -8,13 +8,17 @@ import {
 } from './integration-inventory.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+// The local target follows the same host-port override compose.yml honours (ADEA_POSTGRES_PORT,
+// default 55432). A fixed port here would point the lane at whatever else owns that port.
+const localDatabasePort = process.env.ADEA_POSTGRES_PORT || '55432'
+if (!/^\d+$/.test(localDatabasePort)) {
+  throw new Error(`ADEA_POSTGRES_PORT must be a port number, got "${localDatabasePort}"`)
+}
+const localDatabaseOrigin = `127.0.0.1:${localDatabasePort}/agent_hq?sslmode=disable`
 const localDatabaseEnvironment = {
-  DATABASE_URL:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_URL_UNPOOLED:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_MIGRATION_URL:
-    'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
+  DATABASE_URL: `postgresql://agent_hq_local_app:agent_hq_local_app@${localDatabaseOrigin}`,
+  DATABASE_URL_UNPOOLED: `postgresql://agent_hq_local_app:agent_hq_local_app@${localDatabaseOrigin}`,
+  DATABASE_MIGRATION_URL: `postgresql://agent_hq_local_migration:agent_hq_local_migration@${localDatabaseOrigin}`,
 }
 
 // ADEA_INTEGRATION_SHARD=<index>/<total> runs one explicit slice of the package suites, so a lane
@@ -40,6 +44,26 @@ function run(command, args, environment) {
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}`)
   }
+}
+
+// The host port a running compose postgres actually publishes. The runner connects to the port it
+// computed, so this is read back rather than trusted.
+function composePublishedPostgresPort() {
+  const result = spawnSync('docker', ['compose', 'port', 'postgres', '5432'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  if (result.error || result.status !== 0) {
+    throw new Error('Could not read the published port of the running local postgres service')
+  }
+  const port = result.stdout.trim().split(/\r?\n/).at(-1)?.split(':').at(-1)
+  if (!port) {
+    throw new Error(
+      `Unreadable published port for the running local postgres: ${result.stdout.trim()}`
+    )
+  }
+  return port
 }
 
 function runningComposeServices() {
@@ -71,6 +95,8 @@ function runningComposeServices() {
 const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
 const captureProvisioningImage =
   'public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+// CI never skips the capture proofs or the cutover rehearsal for lack of Docker: the lane fails.
+const ciEnvironment = process.env.CI === 'true' || process.env.CI === '1'
 
 function dockerDaemonAvailable() {
   const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
@@ -188,6 +214,30 @@ if (usesExplicitDatabase) {
 const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
+
+// CI is strict and fails before any build or container work when the throwaway capture instance
+// cannot be provisioned: the capture proofs and rehearsals must not skip. Outside CI the local
+// defaults stay opt-in, and the proofs skip when Docker is absent. An explicit DATABASE_URL is
+// deliberately NOT required here: the hosted Test / Integration job runs this runner without one
+// and deliberately uses the local compose target, so requiring it would fail every pull request.
+if (ciEnvironment && !dockerDaemonAvailable()) {
+  throw new Error(
+    'Docker is required in CI: the migration-snapshot capture proofs and the cutover and candidate rehearsals need the throwaway capture instance and must not skip.'
+  )
+}
+
+// A running local postgres must be the instance this target names. The runner connects to the
+// port it computed, so a project already publishing another port (or a second checkout sharing the
+// default project name) would otherwise be reused silently. Fail before any build instead.
+if (!usesExplicitDatabase && runningComposeServices().includes('postgres')) {
+  const publishedPort = composePublishedPostgresPort()
+  if (publishedPort !== localDatabasePort) {
+    throw new Error(
+      `The compose project "${process.env.COMPOSE_PROJECT_NAME ?? 'agent-hq (compose.yml default)'}" already runs postgres on host port ${publishedPort}, but this local target is port ${localDatabasePort}. Set COMPOSE_PROJECT_NAME and ADEA_POSTGRES_PORT to one isolated project and port; the runner does not connect to an instance it cannot match.`
+    )
+  }
+}
+
 let startedLocalPostgres = false
 let captureProvisioning = null
 let primaryFailure
@@ -233,9 +283,13 @@ try {
   captureProvisioning = startCaptureProvisioning()
   if (captureProvisioning) {
     environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl
+  } else if (ciEnvironment) {
+    throw new Error(
+      `Docker is unavailable in CI; ${captureProvisioningDatabaseUrlVariable} cannot be provisioned, so the migration-snapshot capture proofs and the cutover rehearsal would be skipped. Failing the lane instead.`
+    )
   } else {
     console.warn(
-      `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned and the migration-snapshot capture proofs will skip`
+      `Docker is unavailable; ${captureProvisioningDatabaseUrlVariable} is not provisioned, so the migration-snapshot capture proofs and the cutover and candidate rehearsals will skip`
     )
   }
 

@@ -206,7 +206,8 @@ export class MigrationSnapshotCaptureInputError extends Error {
 
 // ─── Input validation and domain resolution ──────────────────────────────────
 
-function requireCaptureIdentity(
+/** Validates the capture identity exactly as the canonical capture does; a legacy capture reuses it. */
+export function requireCaptureIdentity(
   identity: MigrationSnapshotCaptureIdentityInput
 ): MigrationSnapshotIdentity {
   if (typeof identity !== 'object' || identity === null) {
@@ -233,7 +234,8 @@ function requireCaptureIdentity(
   })
 }
 
-function requireCaptureBound(value: number | undefined): number {
+/** Validates the per-family bound exactly as the canonical capture does; a legacy capture reuses it. */
+export function requireCaptureBound(value: number | undefined): number {
   const bound = value ?? MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION
   if (
     !Number.isSafeInteger(bound) ||

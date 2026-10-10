@@ -1,0 +1,30 @@
+{
+  "dependency": {
+    "pullRequest": 1246,
+    "status": "merged",
+    "mergeCommit": "34a3eaad69b6f2d671fd802bfe21bb629e7609ff",
+    "title": "feat(db): wire artifact-reference grants into publication and retrieval (#1216)"
+  },
+  "sourceCommit": "34a3eaad69b6f2d671fd802bfe21bb629e7609ff",
+  "files": {
+    "packages/db/src/artifact-reference-policy.ts": {
+      "sha256": "960b655f8cd7c1a5cb7a796c1f36cf36ad204c4c77a2d290f4981cbf1bf2c95b"
+    },
+    "packages/db/src/artifact-reference-service.ts": {
+      "sha256": "909f5ad62bfdf69dadea08e60745bcd8a2e5bd5aeb587a88e93bc86759c96102"
+    },
+    "packages/db/src/artifact-reference-grants.ts": {
+      "sha256": "3071496294b07778a3a541fc20832d2496610c6b47e608eaa75333ebb351ca8a"
+    },
+    "packages/db/src/artifacts.ts": {
+      "sha256": "a47befac85a43a2d6b5574bf2ba555de80da35c70af015ba48c8ee2c99d0b5d0"
+    },
+    "packages/db/src/schema/artifact-reference-grants.ts": {
+      "sha256": "8064a4465b5b99db90659cc61e484104852ab666b589c56b9549b37ac5fd078c"
+    },
+    "packages/types/src/artifact-reference.ts": {
+      "sha256": "a4db0d00b1095955bf0510fa86d9aec20c04d2d471a62151cff907ddb707cd19"
+    }
+  },
+  "note": "Exact audience-side publication and retrieval source. The tests import these modules; the test fails if any pinned file differs from its digest. No authorization logic is copied into the fixture."
+}

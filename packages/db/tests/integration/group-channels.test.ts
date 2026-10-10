@@ -59,13 +59,14 @@ const NOW = '2026-10-08T12:00:00.000Z'
 const LATER = '2026-10-08T13:00:00.000Z'
 
 /**
- * Bounded test: the repo sizes integration deadlines to the target (30s
- * local, larger remote) instead of the 5s file-direct default, because
- * drive-to-publish flows issue dozens of sequential round-trips. Same
- * assertions, explicit ceiling — never a skip or a weakening.
+ * Bounded test: an explicit per-test ceiling — never a skip or a weakening.
+ * The ceiling must clear the remote target: a per-test timeout overrides the
+ * runner's `--timeout`, and drive-to-publish flows issue dozens of sequential
+ * round-trips that Neon's 50-150ms latency pushes past 30s (the 120s the
+ * migration suites pin). Loopback runs finish far inside it.
  */
 function T(name: string, fn: () => Promise<void>) {
-  test(name, fn, 30_000)
+  test(name, fn, 120_000)
 }
 
 describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
@@ -626,15 +627,11 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
         (entry) => entry.participant.kind === 'user' && entry.participant.userId === stranger.userId
       )
     ).toBe(false)
-    const page = await listGroupChannelMessagesForUser(
-      connection.db,
-      f.workspace.id,
-      channelId,
-      stranger,
-      {},
-      LATER
-    )
-    expect(page.messages).toHaveLength(0)
+    // The channel gate reads the canonical admission, so the bare row refuses the channel itself
+    // rather than returning an empty page.
+    await expect(
+      listGroupChannelMessagesForUser(connection.db, f.workspace.id, channelId, stranger, {}, LATER)
+    ).rejects.toThrow('Channel unavailable')
   })
 
   T('concurrent creation under one idempotency key yields one channel and one roster', async () => {
