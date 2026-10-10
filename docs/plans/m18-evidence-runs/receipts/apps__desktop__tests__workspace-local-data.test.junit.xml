@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="6" assertions="20" failures="0" skipped="0" time="0.054663">
-  <testsuite name="apps/desktop/tests/workspace-local-data.test.ts" file="apps/desktop/tests/workspace-local-data.test.ts" tests="6" assertions="20" failures="0" skipped="0" time="0.037135">
-    <testsuite name="workspace device data ownership" file="apps/desktop/tests/workspace-local-data.test.ts" line="56" tests="3" assertions="12" failures="0" skipped="0" time="0.016">
-      <testcase name="purges only the workspace and its registry records, leaves sibling and reusable data, and retries" classname="workspace device data ownership" time="0.012355" file="apps/desktop/tests/workspace-local-data.test.ts" line="57" assertions="7" />
-      <testcase name="rejects a ciphertext symlink before touching memory or an outside file" classname="workspace device data ownership" time="0.002294" file="apps/desktop/tests/workspace-local-data.test.ts" line="95" assertions="3" />
-      <testcase name="rejects another authority scope for the same workspace instead of claiming full cleanup" classname="workspace device data ownership" time="0.002017" file="apps/desktop/tests/workspace-local-data.test.ts" line="107" assertions="2" />
+<testsuites name="bun test" tests="6" assertions="20" failures="0" skipped="0" time="0.438935">
+  <testsuite name="apps/desktop/tests/workspace-local-data.test.ts" file="apps/desktop/tests/workspace-local-data.test.ts" tests="6" assertions="20" failures="0" skipped="0" time="0.36464">
+    <testsuite name="workspace device data ownership" file="apps/desktop/tests/workspace-local-data.test.ts" line="56" tests="3" assertions="12" failures="0" skipped="0" time="0.265">
+      <testcase name="purges only the workspace and its registry records, leaves sibling and reusable data, and retries" classname="workspace device data ownership" time="0.153044" file="apps/desktop/tests/workspace-local-data.test.ts" line="57" assertions="7" />
+      <testcase name="rejects a ciphertext symlink before touching memory or an outside file" classname="workspace device data ownership" time="0.059783" file="apps/desktop/tests/workspace-local-data.test.ts" line="95" assertions="3" />
+      <testcase name="rejects another authority scope for the same workspace instead of claiming full cleanup" classname="workspace device data ownership" time="0.053254" file="apps/desktop/tests/workspace-local-data.test.ts" line="107" assertions="2" />
     </testsuite>
-    <testcase name="detaches reverse account-profile links but preserves reusable credentials and sibling bindings" classname="" time="0.004286" file="apps/desktop/tests/workspace-local-data.test.ts" line="124" assertions="2" />
-    <testcase name="retains a failed managed-clone recovery record and does not purge unrelated data" classname="" time="0.002333" file="apps/desktop/tests/workspace-local-data.test.ts" line="153" assertions="3" />
-    <testcase name="refuses an unindexed ciphertext and a symlinked parent before physical cleanup" classname="" time="0.002857" file="apps/desktop/tests/workspace-local-data.test.ts" line="164" assertions="3" />
+    <testcase name="detaches reverse account-profile links but preserves reusable credentials and sibling bindings" classname="" time="0.046476" file="apps/desktop/tests/workspace-local-data.test.ts" line="124" assertions="2" />
+    <testcase name="retains a failed managed-clone recovery record and does not purge unrelated data" classname="" time="0.00912" file="apps/desktop/tests/workspace-local-data.test.ts" line="153" assertions="3" />
+    <testcase name="refuses an unindexed ciphertext and a symlinked parent before physical cleanup" classname="" time="0.007479" file="apps/desktop/tests/workspace-local-data.test.ts" line="164" assertions="3" />
   </testsuite>
 </testsuites>

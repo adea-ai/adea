@@ -1,7 +1,7 @@
 {
   "repository": "adea",
-  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "sourceSha": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+  "executedAtHead": "9fb30c495ca9a4d7e680c24746924cc264e93203",
   "file": "apps/web/test/agent-profile-availability.test.ts",
   "command": "bun test apps/web/test/agent-profile-availability.test.ts --reporter=junit",
   "exitCode": 0,
@@ -13,6 +13,6 @@
   "ids": ["A34", "REQ-005", "REQ-119"],
   "receipt": {
     "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-availability.test.junit.xml",
-    "sha256": "dcfea7850b0d4e6c2cbe7ff437b77c7d4dcb1af0190e03a649ce2c941555c103"
+    "sha256": "10ed64a6cf5ab156fd0f706ac5a5835ce19b66ae3f8ead116e8391ca9e6a717c"
   }
 }

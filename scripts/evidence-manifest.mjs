@@ -7,16 +7,22 @@ import { fileURLToPath } from 'node:url'
 // Evidence manifest validator for Adea #1225 (parent #1183, M18.03).
 //
 // The manifest maps each requirement and each A01–A40 acceptance id to:
-//   1. repository evidence, each reference naming a repository key declared in
-//      `repositories` (immutable identity = the repository's root commit, plus a
-//      pinned source SHA). A `test-reference` proves a test title is declared at
-//      that SHA. An `execution-reference` proves a recorded `passed` run. Only the
-//      latter can verify an id; a declaration alone is `repo-declared`.
-//   2. optionally, candidate records (packaged or deployed) that declare, for every
-//      repository the id references, the exact source SHA and a compatible contract.
-// Local checkouts are supplied by the caller. Each must have the declared root commit
-// in its history, or it is refused. Files are read only when they are regular, within
-// the root, and under MAX_EVIDENCE_BYTES. Unmapped ids stay `pending`.
+//   1. repository evidence. Each reference names a repository key declared in
+//      `repositories`; the key's `rootCommit` is its immutable identity, and its
+//      `sourceSha` is the one revision every reference must resolve at.
+//      - `test-reference`: a test title appears in a *.test.* file at that revision.
+//        This is a source-text match, so it also matches comments and strings.
+//      - `execution-reference`: a recorded run at exactly that revision (`exitCode` 0,
+//        status `passed`) whose JUnit receipt lists the title as passing.
+//      Only runner-verified titles count. A declaration alone never verifies an id.
+//   2. candidate records (packaged or deployed). A candidate declares the exact
+//      source SHA of every repository the id references, a compatible contract
+//      version, and a passing JUnit receipt of its own.
+// `coverage: complete` is only accepted with criteria, each citing runner-verified
+// tests, and no gaps. Anything else stays `pending` with its gaps listed. Local
+// checkouts are supplied by the caller and must contain the declared root commit.
+// Files are read only when they are regular, within the root, and under
+// MAX_EVIDENCE_BYTES. Unmapped ids stay `pending`.
 
 export const SCHEMA_VERSION = 1
 export const ISSUE = 1225
@@ -63,7 +69,6 @@ export const REQUIRED_IDS = Object.freeze([...REQUIREMENT_IDS, ...ACCEPTANCE_IDS
 export const STATUS = Object.freeze({
   pending: 'pending',
   invalid: 'invalid',
-  repoDeclared: 'repo-declared',
   repoVerified: 'repo-verified',
   candidateCompatible: 'candidate-compatible',
 })
@@ -222,8 +227,9 @@ const unescapeXml = (text) =>
   text.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => XML_ENTITIES[name])
 
 /**
- * Runner-produced JUnit receipt: per-testcase pass or fail. A testcase with a failure,
- * error, or skipped child is not passing. Returns null when the XML has no testcases.
+ * Runner-produced JUnit receipt: one entry per testcase. A testcase with a failure,
+ * error, or skipped child is not passing. Counts are per testcase, so a duplicated
+ * title is counted twice. Returns null when the XML has no testcases.
  */
 export function parseJunit(xml) {
   const passed = new Set()
@@ -247,9 +253,29 @@ export function parseJunit(xml) {
 }
 
 /**
- * A recorded run plus its receipt. The record is a claim; the receipt is the runner's
- * output, and its counts must match the claim. The record's executedAtHead must be a
- * commit in the repository's checkout. Returns the titles the receipt shows passing.
+ * A receipt is the runner's output. Its per-testcase counts must equal the claimed
+ * summary. Returns the titles it lists as passing and as failing.
+ */
+function checkReceipt(receiptRef, summary, io) {
+  if (!isObject(receiptRef) || safeRepoPath(receiptRef.path) === null) {
+    return { problem: 'a receipt must name a path and sha256' }
+  }
+  const receipt = readBytes(receiptRef, io)
+  if (receipt.problem) return { problem: `receipt ${receipt.problem}` }
+  const junit = parseJunit(Buffer.from(receipt.bytes).toString('utf8'))
+  if (junit === null) return { problem: `receipt ${receiptRef.path} is not JUnit testcases` }
+  if (junit.passCount !== summary?.pass || junit.failCount !== summary?.fail) {
+    return {
+      problem: `receipt counts ${junit.passCount}/${junit.failCount} do not match record summary`,
+    }
+  }
+  const passing = new Set([...junit.passed].filter((title) => !junit.failed.has(title)))
+  return { passing, failed: junit.failed }
+}
+
+/**
+ * A recorded run bound to the pinned revision. The record is a claim, so its receipt
+ * must match it. `executedAtHead` must equal the pinned SHA, not merely exist.
  */
 function checkExecutionReference(item, id, io, manifest) {
   const { record, problem } = readRecord(item, io)
@@ -263,8 +289,15 @@ function checkExecutionReference(item, id, io, manifest) {
   if (record.sourceSha !== sha) {
     return { problem: `execution record pins ${record.sourceSha}, ${item.repository} pins ${sha}` }
   }
-  if (record.status !== 'passed')
+  if (record.executedAtHead !== sha) {
+    return { problem: `executedAtHead ${record.executedAtHead} is not the pinned ${sha}` }
+  }
+  if (record.status !== 'passed') {
     return { problem: `execution record status is ${record.status}, not passed` }
+  }
+  if (record.exitCode !== 0) {
+    return { problem: `execution record exit code is ${record.exitCode}, not 0` }
+  }
   if (typeof record.command !== 'string' || record.command.length === 0) {
     return { problem: 'execution record must name the command' }
   }
@@ -274,33 +307,16 @@ function checkExecutionReference(item, id, io, manifest) {
   if (safeRepoPath(record.file) === null || !TEST_FILE.test(record.file)) {
     return { problem: 'execution record must name a *.test.* file' }
   }
-  const checkout = io.checkout(item.repository)
-  if (!checkout.commitExists(record.executedAtHead)) {
-    return { problem: `executedAtHead ${record.executedAtHead} is not a commit in the checkout` }
-  }
-  if (!isObject(item.receipt) || safeRepoPath(item.receipt.path) === null) {
-    return { problem: 'execution-reference must name a receipt' }
-  }
-  const receipt = readBytes({ path: item.receipt.path, sha256: item.receipt.sha256 }, io)
-  if (receipt.problem) return { problem: `receipt ${receipt.problem}` }
-  const junit = parseJunit(Buffer.from(receipt.bytes).toString('utf8'))
-  if (junit === null) return { problem: `receipt ${item.receipt.path} is not JUnit testcases` }
-  if (junit.passCount !== record.summary?.pass || junit.failCount !== record.summary?.fail) {
-    return {
-      problem: `receipt counts ${junit.passCount}/${junit.failCount} do not match record summary`,
-    }
-  }
-  return {
-    file: record.file,
-    passed: new Set([...junit.passed].filter((title) => !junit.failed.has(title))),
-  }
+  const receipt = checkReceipt(item.receipt, record.summary, io)
+  if (receipt.problem) return { problem: receipt.problem }
+  return { file: record.file, passing: receipt.passing }
 }
 
 function sourceProblems(entry, io, manifest) {
   const problems = []
   for (const ref of entry.sourceReferences ?? []) {
-    if (safeRepoPath(ref?.path) === null) {
-      problems.push(`unsafe source reference ${String(ref?.path)}`)
+    if (safeRepoPath(ref.path) === null) {
+      problems.push(`unsafe source reference ${String(ref.path)}`)
       continue
     }
     const checkout = io.checkout(ref.repository)
@@ -316,6 +332,7 @@ function sourceProblems(entry, io, manifest) {
   return problems
 }
 
+/** A candidate's own passing receipt: every testcase it lists must pass, and it lists some. */
 function checkCandidateEvidence(item, id, io, manifest, repositories) {
   const { record, problem } = readRecord(item, io)
   if (problem) return problem
@@ -323,12 +340,14 @@ function checkCandidateEvidence(item, id, io, manifest, repositories) {
     return 'candidate record must name candidateId'
   }
   const name = record.candidateId
-  if (!CHANNELS.has(record.channel))
+  if (!CHANNELS.has(record.channel)) {
     return `candidate ${name} channel ${record.channel} is not packaged or deployed`
+  }
   if (!manifest.compatibility.contractVersions.includes(record.contractVersion)) {
     return `candidate ${name} contract ${record.contractVersion} is not compatible`
   }
   if (record.status !== 'passed') return `candidate ${name} status is ${record.status}`
+  if (record.exitCode !== 0) return `candidate ${name} exit code is ${record.exitCode}, not 0`
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
     return `candidate ${name} does not list ${id}`
   }
@@ -339,8 +358,18 @@ function checkCandidateEvidence(item, id, io, manifest, repositories) {
       return `candidate ${name} does not declare sources.${repository} = ${sha}`
     }
   }
+  const receipt = checkReceipt(item.receipt, record.summary, io)
+  if (receipt.problem) return `candidate ${name} ${receipt.problem}`
+  if (receipt.failed.size > 0 || receipt.passing.size === 0) {
+    return `candidate ${name} test result is not all passing`
+  }
   return null
 }
+
+const intersect = (previous, next) =>
+  previous === undefined ? next : new Set([...previous].filter((title) => next.has(title)))
+
+const isVerified = (test, receipts) => receipts.get(test.path)?.has(test.name) === true
 
 function evaluate(id, entry, io, manifest) {
   if (entry === undefined) return { status: STATUS.pending, reasons: ['no evidence mapped'] }
@@ -360,6 +389,7 @@ function evaluate(id, entry, io, manifest) {
 
   const reasons = []
   const repositories = new Set()
+  // File -> titles that passed in every execution-reference for that file.
   const receipts = new Map()
   const tests = []
   let executions = 0
@@ -382,17 +412,15 @@ function evaluate(id, entry, io, manifest) {
       executions += 1
       const result = checkExecutionReference(item, id, io, manifest)
       if (result.problem) reasons.push(result.problem)
-      else receipts.set(result.file, result.passed)
+      else receipts.set(result.file, intersect(receipts.get(result.file), result.passing))
     } else {
       reasons.push(`unknown repository evidence kind ${item.kind}`)
     }
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
 
-  // Declarations are matched in source text, which also matches comments and strings.
-  // Only a title that the receipt shows passing counts as runner-verified.
-  const verified = tests.filter((test) => receipts.get(test.path)?.has(test.name)).length
-  const sourceOnly = tests.length - verified
+  const verified = tests.filter((test) => isVerified(test, receipts))
+  const unverified = tests.filter((test) => !isVerified(test, receipts))
 
   if (executions === 0) {
     if (entry.candidateEvidence.length > 0) {
@@ -401,18 +429,18 @@ function evaluate(id, entry, io, manifest) {
         reasons: ['candidate evidence requires an execution-reference'],
       }
     }
-    if (entry.coverage === 'partial') {
+    if (entry.coverage === 'complete') {
       return {
-        status: STATUS.pending,
-        reasons: ['declaration only, no execution-reference', ...gapReasons],
+        status: STATUS.invalid,
+        reasons: ['complete coverage requires an execution-reference'],
       }
     }
     return {
-      status: STATUS.repoDeclared,
-      reasons: ['test declared, no execution-reference recorded'],
+      status: STATUS.pending,
+      reasons: ['declaration only, no execution-reference', ...gapReasons],
     }
   }
-  if (verified === 0) {
+  if (verified.length === 0) {
     return {
       status: STATUS.invalid,
       reasons: ['no test-reference is a passing title in its receipt'],
@@ -429,11 +457,25 @@ function evaluate(id, entry, io, manifest) {
     return {
       status: STATUS.pending,
       reasons: [
-        `runner-verified titles: ${verified}, source-text-only titles: ${sourceOnly} (weaker)`,
+        `runner-verified titles: ${verified.length}, source-text-only titles: ${unverified.length} (weaker)`,
         ...gapReasons,
       ],
     }
   }
+
+  // Complete coverage is a claim. Every declared test must have passed in its receipt,
+  // and every criterion must cite runner-verified tests from this entry.
+  const failures = unverified.map(
+    (test) => `test-reference is not a passing title in its receipt: ${test.path} "${test.name}"`
+  )
+  for (const criterion of entry.criteria ?? []) {
+    const evidenced = criterion.tests.every((ref) =>
+      verified.some((test) => test.path === ref.path && test.name === ref.name)
+    )
+    if (!evidenced)
+      failures.push(`criterion not evidenced by runner-verified tests: ${criterion.text}`)
+  }
+  if (failures.length > 0) return { status: STATUS.invalid, reasons: failures }
 
   if (entry.candidateEvidence.length === 0) {
     return { status: STATUS.repoVerified, reasons: ['candidate evidence pending'] }
@@ -449,6 +491,24 @@ function evaluate(id, entry, io, manifest) {
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
   return { status: STATUS.candidateCompatible, reasons: [] }
+}
+
+function criteriaErrors(entry) {
+  const errors = []
+  for (const criterion of entry.criteria ?? []) {
+    const valid =
+      isObject(criterion) &&
+      typeof criterion.text === 'string' &&
+      criterion.text.length > 0 &&
+      Array.isArray(criterion.tests) &&
+      criterion.tests.length > 0 &&
+      criterion.tests.every(
+        (ref) => isObject(ref) && typeof ref.path === 'string' && typeof ref.name === 'string'
+      )
+    if (!valid)
+      errors.push(`${entry.id} criterion must name text and at least one test {path, name}`)
+  }
+  return errors
 }
 
 function manifestErrors(manifest, io) {
@@ -524,6 +584,16 @@ function manifestErrors(manifest, io) {
       ) {
         errors.push(`${entry.id} partial coverage must list gaps`)
       }
+    } else {
+      if (entry.gaps !== undefined) errors.push(`${entry.id} complete coverage must not list gaps`)
+      if (!Array.isArray(entry.criteria) || entry.criteria.length === 0) {
+        errors.push(`${entry.id} complete coverage must list criteria`)
+      }
+    }
+    if (entry.criteria !== undefined && !Array.isArray(entry.criteria)) {
+      errors.push(`${entry.id} criteria must be an array`)
+    } else {
+      errors.push(...criteriaErrors(entry))
     }
     for (const item of entry.repoEvidence) {
       if (
@@ -532,6 +602,22 @@ function manifestErrors(manifest, io) {
         !Object.hasOwn(repositories, item.repository)
       ) {
         errors.push(`${entry.id} references unknown repository ${item?.repository}`)
+      }
+    }
+    if (entry.sourceReferences !== undefined) {
+      if (!Array.isArray(entry.sourceReferences)) {
+        errors.push(`${entry.id} sourceReferences must be an array`)
+      } else {
+        for (const ref of entry.sourceReferences) {
+          if (
+            !isObject(ref) ||
+            typeof ref.path !== 'string' ||
+            !isObject(repositories) ||
+            !Object.hasOwn(repositories, ref.repository)
+          ) {
+            errors.push(`${entry.id} source reference must name a declared repository and path`)
+          }
+        }
       }
     }
   }
@@ -570,6 +656,31 @@ function countStatuses(results) {
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const defaultManifest = 'docs/plans/m18-evidence-manifest.json'
 
+/** Human summary: the revisions checked, every invalid id, and the explicit certification state. */
+function summarize(manifest, report) {
+  const lines = []
+  const revisions = Object.entries(manifest.repositories ?? {})
+    .map(([key, repo]) => `${key}@${repo?.sourceSha}`)
+    .join(' ')
+  lines.push(`revisions: ${revisions}`)
+  lines.push(JSON.stringify(report.counts))
+  for (const error of report.schemaErrors) lines.push(`schema: ${error}`)
+  for (const result of report.results.filter((r) => r.status === STATUS.invalid)) {
+    lines.push(`${result.id}: ${result.reasons.join('; ')}`)
+  }
+  if (report.schemaErrors.length === 0) {
+    const pending = report.results.filter((r) => r.status === STATUS.pending).map((r) => r.id)
+    if (pending.length > 0) lines.push(`pending: ${pending.join(' ')}`)
+    const certified = report.counts[STATUS.candidateCompatible]
+    lines.push(
+      certified === REQUIRED_IDS.length
+        ? 'certification: complete'
+        : `certification: incomplete (${certified} of ${REQUIRED_IDS.length} candidate-compatible)`
+    )
+  }
+  return lines.join('\n')
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   const strict = args.includes('--strict')
@@ -591,18 +702,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const manifestPath = resolve(repoRoot, positional[0] ?? defaultManifest)
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     const report = validateEvidenceManifest(manifest, repositoryIo(mapping), { strict })
-    if (json) {
-      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    } else {
-      process.stdout.write(`${JSON.stringify(report.counts)}\n`)
-      for (const error of report.schemaErrors) process.stdout.write(`schema: ${error}\n`)
-      for (const result of report.results.filter((r) => r.status === STATUS.invalid)) {
-        process.stdout.write(`${result.id}: ${result.reasons.join('; ')}\n`)
-      }
-      if (strict && report.schemaErrors.length === 0) {
-        const open = REQUIRED_IDS.length - report.counts[STATUS.candidateCompatible]
-        process.stdout.write(`strict: ${open} id(s) not candidate-compatible\n`)
-      }
+    process.stdout.write(
+      json ? `${JSON.stringify(report, null, 2)}\n` : `${summarize(manifest, report)}\n`
+    )
+    if (strict && report.schemaErrors.length === 0 && !report.ok) {
+      process.stdout.write('strict: not every id is candidate-compatible\n')
     }
     process.exitCode = report.ok ? 0 : 1
   } catch (error) {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="2" assertions="24" failures="0" skipped="0" time="0.03769">
-  <testsuite name="packages/api-client/tests/unit/model-connections.test.ts" file="packages/api-client/tests/unit/model-connections.test.ts" tests="2" assertions="24" failures="0" skipped="0" time="0.005683">
-    <testcase name="model registration and revocation send only existing vault pins and CAS identity" classname="" time="0.002064" file="packages/api-client/tests/unit/model-connections.test.ts" line="4" assertions="4" />
-    <testcase name="model metadata methods reuse canonical auth and encode workspace without provider secrets" classname="" time="0.000827" file="packages/api-client/tests/unit/model-connections.test.ts" line="40" assertions="20" />
+<testsuites name="bun test" tests="2" assertions="24" failures="0" skipped="0" time="0.06413">
+  <testsuite name="packages/api-client/tests/unit/model-connections.test.ts" file="packages/api-client/tests/unit/model-connections.test.ts" tests="2" assertions="24" failures="0" skipped="0" time="0.013208">
+    <testcase name="model registration and revocation send only existing vault pins and CAS identity" classname="" time="0.005868" file="packages/api-client/tests/unit/model-connections.test.ts" line="4" assertions="4" />
+    <testcase name="model metadata methods reuse canonical auth and encode workspace without provider secrets" classname="" time="0.00182" file="packages/api-client/tests/unit/model-connections.test.ts" line="40" assertions="20" />
   </testsuite>
 </testsuites>

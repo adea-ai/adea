@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="8" assertions="54" failures="0" skipped="0" time="0.195052">
-  <testsuite name="apps/web/test/agent-profile-pin.test.ts" file="apps/web/test/agent-profile-pin.test.ts" tests="8" assertions="54" failures="0" skipped="0" time="0.157409">
-    <testsuite name="immutable public AgentProfile adoption" file="apps/web/test/agent-profile-pin.test.ts" line="103" tests="4" assertions="17" failures="0" skipped="0" time="0.016">
-      <testcase name="resolves the exact pin and returns only provenance metadata" classname="immutable public AgentProfile adoption" time="0.009161" file="apps/web/test/agent-profile-pin.test.ts" line="104" assertions="4" />
-      <testcase name="refuses deprecated, revoked, draft and superseded versions without resolving" classname="immutable public AgentProfile adoption" time="0.002705" file="apps/web/test/agent-profile-pin.test.ts" line="122" assertions="8" />
-      <testcase name="rejects foreign ownership and mismatched immutable resolution" classname="immutable public AgentProfile adoption" time="0.003945" file="apps/web/test/agent-profile-pin.test.ts" line="131" assertions="4" />
-      <testcase name="requires public approval without echoing provider text" classname="immutable public AgentProfile adoption" time="0.002476" file="apps/web/test/agent-profile-pin.test.ts" line="144" assertions="1" />
+<testsuites name="bun test" tests="8" assertions="54" failures="0" skipped="0" time="1.441304">
+  <testsuite name="apps/web/test/agent-profile-pin.test.ts" file="apps/web/test/agent-profile-pin.test.ts" tests="8" assertions="54" failures="0" skipped="0" time="1.342222">
+    <testsuite name="immutable public AgentProfile adoption" file="apps/web/test/agent-profile-pin.test.ts" line="103" tests="4" assertions="17" failures="0" skipped="0" time="0.209">
+      <testcase name="resolves the exact pin and returns only provenance metadata" classname="immutable public AgentProfile adoption" time="0.043925" file="apps/web/test/agent-profile-pin.test.ts" line="104" assertions="4" />
+      <testcase name="refuses deprecated, revoked, draft and superseded versions without resolving" classname="immutable public AgentProfile adoption" time="0.074977" file="apps/web/test/agent-profile-pin.test.ts" line="122" assertions="8" />
+      <testcase name="rejects foreign ownership and mismatched immutable resolution" classname="immutable public AgentProfile adoption" time="0.055169" file="apps/web/test/agent-profile-pin.test.ts" line="131" assertions="4" />
+      <testcase name="requires public approval without echoing provider text" classname="immutable public AgentProfile adoption" time="0.037944" file="apps/web/test/agent-profile-pin.test.ts" line="144" assertions="1" />
     </testsuite>
-    <testsuite name="authorized profile mutation route" file="apps/web/test/agent-profile-pin.test.ts" line="217" tests="4" assertions="37" failures="0" skipped="0" time="0.005">
-      <testcase name="writes only an approved exact reference with the expected revision" classname="authorized profile mutation route" time="0.002002" file="apps/web/test/agent-profile-pin.test.ts" line="218" assertions="4" />
-      <testcase name="refuses unauthorized or unknown Agents before catalog access" classname="authorized profile mutation route" time="0.000389" file="apps/web/test/agent-profile-pin.test.ts" line="231" assertions="9" />
-      <testcase name="rejects caller-asserted state, malformed references and stale edits" classname="authorized profile mutation route" time="0.000457" file="apps/web/test/agent-profile-pin.test.ts" line="246" assertions="12" />
-      <testcase name="lifecycle, approval and outage refusals never persist a pin" classname="authorized profile mutation route" time="0.003739" file="apps/web/test/agent-profile-pin.test.ts" line="268" assertions="12" />
+    <testsuite name="authorized profile mutation route" file="apps/web/test/agent-profile-pin.test.ts" line="217" tests="4" assertions="37" failures="0" skipped="0" time="0.17">
+      <testcase name="writes only an approved exact reference with the expected revision" classname="authorized profile mutation route" time="0.003553" file="apps/web/test/agent-profile-pin.test.ts" line="218" assertions="4" />
+      <testcase name="refuses unauthorized or unknown Agents before catalog access" classname="authorized profile mutation route" time="0.000634" file="apps/web/test/agent-profile-pin.test.ts" line="231" assertions="9" />
+      <testcase name="rejects caller-asserted state, malformed references and stale edits" classname="authorized profile mutation route" time="0.000727" file="apps/web/test/agent-profile-pin.test.ts" line="246" assertions="12" />
+      <testcase name="lifecycle, approval and outage refusals never persist a pin" classname="authorized profile mutation route" time="0.167129" file="apps/web/test/agent-profile-pin.test.ts" line="268" assertions="12" />
     </testsuite>
   </testsuite>
 </testsuites>

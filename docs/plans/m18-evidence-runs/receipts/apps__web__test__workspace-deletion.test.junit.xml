@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="3" assertions="15" failures="0" skipped="0" time="0.03287">
-  <testsuite name="apps/web/test/workspace-deletion.test.ts" file="apps/web/test/workspace-deletion.test.ts" tests="3" assertions="15" failures="0" skipped="0" time="0.00402">
-    <testcase name="permanent deletion requires the current name and a positive version" classname="" time="0.000315" file="apps/web/test/workspace-deletion.test.ts" line="13" assertions="9" />
-    <testcase name="rejects cross-site deletion but allows the trusted desktop and same origin" classname="" time="0.001231" file="apps/web/test/workspace-deletion.test.ts" line="31" assertions="4" />
-    <testcase name="only the explicit preparation phase is recognized; unknown phase claims cannot finalize cleanup" classname="" time="0.00005" file="apps/web/test/workspace-deletion.test.ts" line="40" assertions="2" />
+<testsuites name="bun test" tests="3" assertions="15" failures="0" skipped="0" time="0.120368">
+  <testsuite name="apps/web/test/workspace-deletion.test.ts" file="apps/web/test/workspace-deletion.test.ts" tests="3" assertions="15" failures="0" skipped="0" time="0.006132">
+    <testcase name="permanent deletion requires the current name and a positive version" classname="" time="0.000461" file="apps/web/test/workspace-deletion.test.ts" line="13" assertions="9" />
+    <testcase name="rejects cross-site deletion but allows the trusted desktop and same origin" classname="" time="0.001373" file="apps/web/test/workspace-deletion.test.ts" line="31" assertions="4" />
+    <testcase name="only the explicit preparation phase is recognized; unknown phase claims cannot finalize cleanup" classname="" time="0.000051" file="apps/web/test/workspace-deletion.test.ts" line="40" assertions="2" />
   </testsuite>
 </testsuites>

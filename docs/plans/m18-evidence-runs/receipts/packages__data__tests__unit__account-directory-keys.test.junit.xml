@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="3" assertions="13" failures="0" skipped="0" time="0.1145">
-  <testsuite name="packages/data/tests/unit/account-directory-keys.test.ts" file="packages/data/tests/unit/account-directory-keys.test.ts" tests="3" assertions="13" failures="0" skipped="0" time="0.080303">
-    <testcase name="directory and inbox keys sit outside the per-workspace prefix" classname="" time="0.000095" file="packages/data/tests/unit/account-directory-keys.test.ts" line="22" assertions="5" />
-    <testcase name="a workspace switch keeps cached directory and inbox pages" classname="" time="0.001952" file="packages/data/tests/unit/account-directory-keys.test.ts" line="37" assertions="3" />
-    <testcase name="query options read the directory and inbox through the account client" classname="" time="0.000234" file="packages/data/tests/unit/account-directory-keys.test.ts" line="55" assertions="5" />
+<testsuites name="bun test" tests="3" assertions="13" failures="0" skipped="0" time="0.232377">
+  <testsuite name="packages/data/tests/unit/account-directory-keys.test.ts" file="packages/data/tests/unit/account-directory-keys.test.ts" tests="3" assertions="13" failures="0" skipped="0" time="0.175694">
+    <testcase name="directory and inbox keys sit outside the per-workspace prefix" classname="" time="0.000203" file="packages/data/tests/unit/account-directory-keys.test.ts" line="22" assertions="5" />
+    <testcase name="a workspace switch keeps cached directory and inbox pages" classname="" time="0.010243" file="packages/data/tests/unit/account-directory-keys.test.ts" line="37" assertions="3" />
+    <testcase name="query options read the directory and inbox through the account client" classname="" time="0.000399" file="packages/data/tests/unit/account-directory-keys.test.ts" line="55" assertions="5" />
   </testsuite>
 </testsuites>

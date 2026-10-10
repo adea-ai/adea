@@ -1,7 +1,7 @@
 {
   "repository": "adea",
-  "sourceSha": "34e173df7bf4654d53e2b4daed5ff41239cafd8b",
-  "executedAtHead": "2634441eafe87c9185e80461342e96bb7073032c",
+  "sourceSha": "9fb30c495ca9a4d7e680c24746924cc264e93203",
+  "executedAtHead": "9fb30c495ca9a4d7e680c24746924cc264e93203",
   "file": "apps/desktop/tests/workspace-local-data.test.ts",
   "command": "bun test apps/desktop/tests/workspace-local-data.test.ts --reporter=junit",
   "exitCode": 0,
@@ -13,6 +13,6 @@
   "ids": ["A27", "A38", "REQ-059"],
   "receipt": {
     "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__workspace-local-data.test.junit.xml",
-    "sha256": "fe12a96228f58054f59f20d7a13b74bb91490d73c8348e3fc138c18c39d02d45"
+    "sha256": "f795b7bb9c31a737998dc32fbdafc6a3e7cd7fe38eca7a6fc78df20ee6582f9b"
   }
 }

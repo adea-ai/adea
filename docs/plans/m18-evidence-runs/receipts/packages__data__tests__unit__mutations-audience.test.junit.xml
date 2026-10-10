@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="2" assertions="3" failures="0" skipped="0" time="0.10993">
-  <testsuite name="packages/data/tests/unit/mutations-audience.test.ts" file="packages/data/tests/unit/mutations-audience.test.ts" tests="2" assertions="3" failures="0" skipped="0" time="0.078678">
-    <testcase name="an accepted message response arriving after audience revocation cannot restore its body" classname="" time="0.002571" file="packages/data/tests/unit/mutations-audience.test.ts" line="26" assertions="1" />
-    <testcase name="late channel and read-state mutations cannot recreate revoked cache entries" classname="" time="0.000627" file="packages/data/tests/unit/mutations-audience.test.ts" line="49" assertions="2" />
+<testsuites name="bun test" tests="2" assertions="3" failures="0" skipped="0" time="0.282933">
+  <testsuite name="packages/data/tests/unit/mutations-audience.test.ts" file="packages/data/tests/unit/mutations-audience.test.ts" tests="2" assertions="3" failures="0" skipped="0" time="0.220474">
+    <testcase name="an accepted message response arriving after audience revocation cannot restore its body" classname="" time="0.006099" file="packages/data/tests/unit/mutations-audience.test.ts" line="26" assertions="1" />
+    <testcase name="late channel and read-state mutations cannot recreate revoked cache entries" classname="" time="0.002395" file="packages/data/tests/unit/mutations-audience.test.ts" line="49" assertions="2" />
   </testsuite>
 </testsuites>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="1" assertions="7" failures="0" skipped="0" time="0.037269">
-  <testsuite name="packages/api-client/tests/unit/runtime-node-delivery.test.ts" file="packages/api-client/tests/unit/runtime-node-delivery.test.ts" tests="1" assertions="7" failures="0" skipped="0" time="0.003404">
-    <testcase name="outbound node pulls carry only signed proof and never user credentials or redirects" classname="" time="0.001447" file="packages/api-client/tests/unit/runtime-node-delivery.test.ts" line="4" assertions="7" />
+<testsuites name="bun test" tests="1" assertions="7" failures="0" skipped="0" time="0.044582">
+  <testsuite name="packages/api-client/tests/unit/runtime-node-delivery.test.ts" file="packages/api-client/tests/unit/runtime-node-delivery.test.ts" tests="1" assertions="7" failures="0" skipped="0" time="0.005662">
+    <testcase name="outbound node pulls carry only signed proof and never user credentials or redirects" classname="" time="0.002942" file="packages/api-client/tests/unit/runtime-node-delivery.test.ts" line="4" assertions="7" />
   </testsuite>
 </testsuites>
