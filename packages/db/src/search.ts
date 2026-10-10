@@ -7,7 +7,7 @@ import {
   visibleProjectCondition,
   visibleTaskCondition,
 } from './project-access'
-import { filterVisibleJobOutboundRows } from './job-outbound-read'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import { listAccessibleChannelIds } from './read-state'
 import { searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
@@ -199,12 +199,9 @@ export async function searchWorkspaceForUser(
           .limit(1),
   ])
 
-  // Job publications match only while the reader is currently authorized for them.
-  const messageRows = await filterVisibleJobOutboundRows(
-    database,
-    messageCandidates,
-    principal.userId
-  )
+  // Job publications match only while the reader is currently authorized for them, and a reply
+  // matches only while its thread root is visible to the reader.
+  const messageRows = await filterVisibleMessageRows(database, messageCandidates, principal.userId)
   const results: WorkspaceSearchResult[] = [
     ...projectRows.map((row) => ({
       id: row.id,

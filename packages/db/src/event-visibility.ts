@@ -10,8 +10,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import type { WorkspaceEventView } from './event-log'
-import { isJobOutboundSenderValue } from './job-outbound-binding'
-import { filterVisibleJobOutboundRows } from './job-outbound-read'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import { resolveProjectAccessScope } from './project-access'
 import { artifacts, channelParticipants, channels, contentRefs, messages, tasks } from './schema'
 
@@ -134,6 +133,7 @@ export async function classifyWorkspaceEventsForUser(
             projectId: channels.projectId,
             senderKind: messages.senderKind,
             senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
           })
           .from(messages)
@@ -196,19 +196,14 @@ export async function classifyWorkspaceEventsForUser(
     contentRows.map((row) => [row.id, [row.taskProjectId, row.channelProjectId]])
   )
   const readableChannels = new Map(channelRows.map((row) => [row.id, row.canReadChannel]))
-  // A job publication is readable only while the subscriber is currently authorized for it:
-  // the same gates history and delivery apply. Its channel audience alone does not admit it.
-  const publications = messageRows.filter(
-    (row) => row.senderKind === 'system' && isJobOutboundSenderValue(row.senderSystemId)
-  )
-  const authorizedPublications = new Set(
-    (await filterVisibleJobOutboundRows(database, publications, userId)).map((row) => row.id)
+  // A job publication is readable only while the subscriber is currently authorized for it, and a
+  // reply only while its thread root is: the same gates history applies. Channel audience alone
+  // admits neither.
+  const visibleMessages = new Set(
+    (await filterVisibleMessageRows(database, messageRows, userId)).map((row) => row.id)
   )
   const readableMessages = new Map(
-    messageRows.map((row) => [
-      row.id,
-      row.canReadChannel && (!publications.includes(row) || authorizedPublications.has(row.id)),
-    ])
+    messageRows.map((row) => [row.id, row.canReadChannel && visibleMessages.has(row.id)])
   )
   const readableContent = new Map(
     contentRows.map((row) => [row.id, !row.messageId || row.canReadChannel])

@@ -22,6 +22,7 @@ import type { JobOutboundDeliveryResolution, JobOutboundReads } from './job-outb
 import {
   deliveryClaimFor,
   isJobPublicationRow,
+  readerVisibleThreadRootIds,
   readerVisiblePublicationIds,
 } from './job-outbound-visibility'
 import {
@@ -367,4 +368,32 @@ export async function filterVisibleJobOutboundRows<
   if (!publications.length) return [...rows]
   const visible = await readerVisiblePublicationIds(database, publications, readerUserId)
   return rows.filter((row) => !isJobPublicationRow(row) || visible.has(row.id))
+}
+
+/**
+ * Keeps the messages a reader may see: `filterVisibleJobOutboundRows` for publications, then the
+ * thread rule. A reply is shown only while its thread root is visible, so a hidden job publication
+ * hides its thread and every reply in it. The replies stay stored; this only decides what the reader
+ * is shown. Roots are decided together, one batch per page.
+ */
+export async function filterVisibleMessageRows<
+  T extends {
+    executionRef: string | null
+    id: string
+    senderKind: string
+    senderSystemId: string | null
+    threadRootMessageId?: string | null
+  },
+>(database: Database, rows: readonly T[], readerUserId: string): Promise<T[]> {
+  const visible = await filterVisibleJobOutboundRows(database, rows, readerUserId)
+  const roots = [
+    ...new Set(
+      visible.flatMap((row) => (row.threadRootMessageId ? [row.threadRootMessageId] : []))
+    ),
+  ]
+  if (!roots.length) return visible
+  const visibleRoots = await readerVisibleThreadRootIds(database, roots, readerUserId)
+  return visible.filter(
+    (row) => !row.threadRootMessageId || visibleRoots.has(row.threadRootMessageId)
+  )
 }

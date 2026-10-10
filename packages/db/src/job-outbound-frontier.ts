@@ -18,12 +18,13 @@
  * Nothing reads history below a reader's watermark or above a visible message.
  */
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, asc, desc, eq, gt, inArray, isNull, like, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, like, lt, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { JOB_OUTBOUND_SENDER_PREFIX, isJobOutboundSenderValue } from './job-outbound-binding'
 import { filterVisibleJobOutboundRows } from './job-outbound-read'
-import { channelReadStates, channels, messages } from './schema'
+import { readerVisibleThreadRootIds } from './job-outbound-visibility'
+import { channelReadStates, channels, messages, threadReadStates } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
@@ -319,4 +320,66 @@ export async function readChannelsWithVisibleUnreadPublication(
     }
   )
   return found
+}
+
+/**
+ * Unread thread replies the reader may no longer see, per channel. A thread counts as read state
+ * counts it: the replies past its watermark, plus one for a manual mark. Only the threads with
+ * unread are read, one row each, and their roots are decided in one batch. A visible thread is
+ * left to the caller's own count, so this returns only what must be subtracted.
+ */
+export async function readHiddenThreadUnreadCounts(
+  database: Database,
+  principal: UserPrincipalRef,
+  scope: Readonly<{ channelIds: readonly string[]; workspaceIds: readonly string[] }>
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  if (!scope.channelIds.length || !scope.workspaceIds.length) return counts
+  const threads = await database
+    .select({
+      channelId: messages.channelId,
+      manuallyUnread: threadReadStates.manuallyUnread,
+      threadRootMessageId: messages.threadRootMessageId,
+      unread:
+        sql<number>`count(*) filter (where ${messages.sequence} > coalesce(${threadReadStates.lastReadSequence}, 0))`.mapWith(
+          Number
+        ),
+    })
+    .from(messages)
+    .leftJoin(
+      threadReadStates,
+      and(
+        eq(threadReadStates.workspaceId, messages.workspaceId),
+        eq(threadReadStates.userId, principal.userId),
+        eq(threadReadStates.threadRootMessageId, messages.threadRootMessageId)
+      )
+    )
+    .where(
+      and(
+        inArray(messages.workspaceId, [...scope.workspaceIds]),
+        inArray(messages.channelId, [...scope.channelIds]),
+        isNotNull(messages.threadRootMessageId),
+        isNull(messages.deletedAt)
+      )
+    )
+    .groupBy(
+      messages.channelId,
+      messages.threadRootMessageId,
+      threadReadStates.lastReadSequence,
+      threadReadStates.manuallyUnread
+    )
+    .having(
+      sql`count(*) filter (where ${messages.sequence} > coalesce(${threadReadStates.lastReadSequence}, 0)) > 0 or coalesce(${threadReadStates.manuallyUnread}, false)`
+    )
+  const visibleRoots = await readerVisibleThreadRootIds(
+    database,
+    threads.map((thread) => thread.threadRootMessageId!),
+    principal.userId
+  )
+  for (const thread of threads) {
+    if (visibleRoots.has(thread.threadRootMessageId!)) continue
+    const unread = thread.unread + (thread.manuallyUnread ? 1 : 0)
+    counts.set(thread.channelId, (counts.get(thread.channelId) ?? 0) + unread)
+  }
+  return counts
 }

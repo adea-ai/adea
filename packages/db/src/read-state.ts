@@ -14,6 +14,7 @@ import {
 } from './project-access'
 import { appendWorkspaceEvent } from './transactions'
 import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
+import { readerVisibleThreadRootIds } from './job-outbound-visibility'
 import {
   channelParticipants,
   channelReadStates,
@@ -106,7 +107,9 @@ async function requireChannel(
  *   over the unread messages alone, so a read channel costs no message access.
  * - Threads. One row per thread root with at least one live reply, grouped by
  *   (channel, thread root) with that user's thread read state, carrying the
- *   newest reply sequence and the replies past the thread's read frontier.
+ *   newest reply sequence and the replies past the thread's read frontier. A thread
+ *   whose root the reader cannot currently see (a job publication) is left out
+ *   whole, with its unread count; its replies and watermark are kept, not reset.
  *
  * This used to load every live message of every accessible channel into the
  * application and count there, on every GET and after every mark.
@@ -267,8 +270,16 @@ export async function listReadStateForUser(
       })
     : new Map<string, number>()
 
+  // A thread is shown, and counted, only while its root is visible to the reader. A hidden root
+  // leaves the thread out whole: its replies stay stored and its watermark is not touched.
+  const visibleThreadRoots = await readerVisibleThreadRootIds(
+    database,
+    threadRows.map((row) => row.threadRootMessageId),
+    principal.userId
+  )
   const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
   for (const row of threadRows) {
+    if (!visibleThreadRoots.has(row.threadRootMessageId)) continue
     const thread: ThreadReadStateSummary = Object.freeze({
       lastReadSequence: row.lastReadSequence ?? 0,
       latestSequence: row.latestSequence,
@@ -481,10 +492,11 @@ export async function markThreadReadState(
         )
       )
       .limit(1)
-    // The root's visibility does not gate its thread: a reply is an ordinary message that
-    // history, counts, search and notifications show regardless of the root, so the thread
-    // can be marked read. A hidden publication affects only itself.
+    // A thread whose root the reader cannot see is unavailable, as a missing root is. Its
+    // watermark is not written, so its replies are still unread when the root returns.
     if (!root) throw new Error('Read state unavailable')
+    if (!(await readerVisibleThreadRootIds(transaction, [root.id], principal.userId)).has(root.id))
+      throw new Error('Read state unavailable')
     const latest = await latestThreadSequence(
       transaction,
       workspaceId,
@@ -655,8 +667,15 @@ export async function markAllChannelsRead(
       })
     }
 
+    // Mark-all does not run past a thread whose root the reader cannot see: its watermark stays,
+    // so its replies are unread again when the root is visible.
+    const visibleThreadRoots = await readerVisibleThreadRootIds(
+      transaction,
+      threadFrontiers.flatMap((row) => (row.threadRootMessageId ? [row.threadRootMessageId] : [])),
+      principal.userId
+    )
     for (const row of threadFrontiers) {
-      if (!row.threadRootMessageId) continue
+      if (!row.threadRootMessageId || !visibleThreadRoots.has(row.threadRootMessageId)) continue
       const existing = existingThreadByRoot.get(row.threadRootMessageId)
       // Mark-all-read must also respect monotonicity when repairing a
       // previously rewound frontier.

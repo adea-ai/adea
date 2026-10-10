@@ -19,7 +19,8 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { isJobOutboundSenderValue } from './job-outbound-binding'
-import { filterVisibleJobOutboundRows, JOB_OUTBOUND_HISTORY_SYSTEM_ID } from './job-outbound-read'
+import { filterVisibleMessageRows, JOB_OUTBOUND_HISTORY_SYSTEM_ID } from './job-outbound-read'
+import { readerVisibleThreadRootIds } from './job-outbound-visibility'
 import { reopenTasksForChannelMessage } from './tasks'
 import { appendWorkspaceEvent } from './transactions'
 import {
@@ -1016,6 +1017,11 @@ async function createMessageWithTextPolicy(
       const root = await requireMessage(transaction, workspaceId, input.threadRootMessageId)
       if (root.channelId !== channelId || root.threadRootMessageId)
         throw new Error('Message thread conflict')
+      // A writer cannot join a thread they cannot see; it is refused as a missing message.
+      if (
+        !(await readerVisibleThreadRootIds(transaction, [root.id], principal.userId)).has(root.id)
+      )
+        throw new Error('Message unavailable')
       if (reply && (reply.threadRootMessageId ?? reply.id) !== root.id)
         throw new Error('Message thread conflict')
     }
@@ -1139,7 +1145,7 @@ export async function listMessagesForUser(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
-  const visible = await filterVisibleJobOutboundRows(database, page, principal.userId)
+  const visible = await filterVisibleMessageRows(database, page, principal.userId)
   const reads = await readMessageChildReads(
     database,
     workspaceId,
@@ -1164,8 +1170,9 @@ export async function getMessageForUser(
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
   await requireChannelAccess(database, workspaceId, message.channelId, principal)
-  // A publication the reader is no longer authorized for is indistinguishable from a missing message.
-  if ((await filterVisibleJobOutboundRows(database, [message], principal.userId)).length === 0)
+  // A publication the reader is no longer authorized for, and a reply in such a thread, are
+  // indistinguishable from a missing message.
+  if ((await filterVisibleMessageRows(database, [message], principal.userId)).length === 0)
     throw new Error('Message unavailable')
   return messageSummary(database, message)
 }

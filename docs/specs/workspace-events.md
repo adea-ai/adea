@@ -198,6 +198,10 @@ the channel's project for `channelId`; the message's channel for every `messageI
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
 Channel, message, thread/reply and content references also require current channel audience access.
+A thread reply also requires its thread root to be visible to the subscriber under the same rules: a
+reply whose root is a job publication the subscriber is no longer authorized for is withheld, live and on
+replay, exactly as the publication itself is. The replies stay stored; they are delivered again when
+current authorization permits, and their watermark is never reset.
 A job publication message also requires current publication authorization for the subscriber: the
 same gates history and delivery apply (the artifact grant, the original actor's source authority, the
 subscriber's destination membership, and the channel roster at the bound revision). A publication the
@@ -306,9 +310,20 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   unread publication the caller may still see, in pages of 200 in message
   sequence order, and the check stops once each such channel has one. Thread-only
   replies do not make a channel unread here; the in-workspace read state still
-  counts them. `mentions`
+  counts them, but only for threads whose root the caller can see (below). `mentions`
   counts live, unread top-level messages in those channels that mention the
   caller (`message_mentions`, indexed by `message_mentions_user_idx`).
+- **Threads follow their root.** A reply is shown in history, search and read
+  state, and counted in thread and inbox unread, only while its thread root is
+  visible to the caller under the publication gates (#1217). A thread whose root
+  is a job publication the caller is no longer authorized for, or a root that is
+  missing, not top-level, or malformed, is omitted whole: no root id, reply or
+  count from it reaches the caller. Its replies stay stored, and its watermark is
+  not written by a direct mark or by mark-all. Authority that returns shows the
+  same replies under the same ids, unread past the stored watermark. A revoked
+  audience (for example a moved roster revision) does not return them. A new
+  reply into a hidden thread is refused as a missing message. The check is
+  one root read and one publication gate per page, not per thread.
 - **The frontier column.** `channels.latest_message_sequence` (migration
   `0031`) is the newest live top-level message sequence, 0 when there is none.
   It is the stored starting point only: the frontier a reader is shown, and the

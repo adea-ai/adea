@@ -526,3 +526,38 @@ export async function readerVisiblePublicationIds(
   }
   return visible
 }
+
+/**
+ * The thread roots among `rootIds` that the reader may see now. An ordinary root stays visible
+ * as before. A job publication root is visible only while the publication gate admits it, the
+ * same decision history applies to the root itself. A root that is missing, is not top-level,
+ * or cannot be proven fails closed: it is absent from the result. One statement reads the roots,
+ * and the publication gate runs once for all of them.
+ */
+export async function readerVisibleThreadRootIds(
+  database: Database,
+  rootIds: readonly string[],
+  readerUserId: string
+): Promise<ReadonlySet<string>> {
+  const ids = unique(rootIds.filter(isUuid))
+  if (!ids.length || !isUuid(readerUserId)) return new Set()
+  const roots = await database
+    .select({
+      executionRef: messages.executionRef,
+      id: messages.id,
+      senderKind: messages.senderKind,
+      senderSystemId: messages.senderSystemId,
+    })
+    .from(messages)
+    .where(and(inArray(messages.id, ids), isNull(messages.threadRootMessageId)))
+  const visiblePublications = await readerVisiblePublicationIds(
+    database,
+    roots.filter(isJobPublicationRow),
+    readerUserId
+  )
+  return new Set(
+    roots
+      .filter((root) => !isJobPublicationRow(root) || visiblePublications.has(root.id))
+      .map((root) => root.id)
+  )
+}

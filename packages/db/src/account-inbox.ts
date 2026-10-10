@@ -13,7 +13,11 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
+import {
+  readHiddenThreadUnreadCounts,
+  readHiddenUnreadCounts,
+  readVisibleTopLevelFrontiers,
+} from './job-outbound-frontier'
 import {
   channelParticipants,
   channelReadStates,
@@ -67,15 +71,25 @@ async function withPublicationAuthority(
     })
   )
   const flagged = rows.filter((row) => row.hasUnreadPublication).map((row) => row.id)
+  const workspaceIds = [...new Set(rows.map((row) => row.workspaceId))]
   const hiddenByChannel = flagged.length
-    ? await readHiddenUnreadCounts(database, principal, {
-        channelIds: flagged,
-        workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
+    ? await readHiddenUnreadCounts(database, principal, { channelIds: flagged, workspaceIds })
+    : new Map<string, number>()
+  // Threads whose root the reader cannot see are not counted. A page with no unread thread
+  // needs no thread read at all.
+  const hiddenThreadsByChannel = rows.some((row) => Number(row.threadUnreadCount) > 0)
+    ? await readHiddenThreadUnreadCounts(database, principal, {
+        channelIds: rows.map((row) => row.id),
+        workspaceIds,
       })
     : new Map<string, number>()
   return rows.map((row) => ({
     ...row,
     latestTopLevelSequence: frontiers.get(row.id) ?? 0,
+    threadUnreadCount: Math.max(
+      0,
+      Number(row.threadUnreadCount) - (hiddenThreadsByChannel.get(row.id) ?? 0)
+    ),
     topLevelUnreadCount: Math.max(
       0,
       Number(row.topLevelUnreadCount) - (hiddenByChannel.get(row.id) ?? 0)

@@ -30,10 +30,12 @@ import { accountWorkspaceSummaries } from '../../src/account-summary'
 import { listWorkspaceEventsAfter } from '../../src/event-log'
 import {
   listReadStateForUser,
+  markAllChannelsRead,
   markChannelReadState,
   markThreadReadState,
 } from '../../src/read-state'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
+import { readerVisibleThreadRootIds } from '../../src/job-outbound-visibility'
 import { filterVisibleJobOutboundRows } from '../../src/job-outbound-read'
 import { UNREAD_PUBLICATION_PAGE, WALK_BATCH } from '../../src/job-outbound-frontier'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -57,6 +59,7 @@ import {
   taskMutations,
   taskSubmissions,
   tasks,
+  threadReadStates,
   workspaceMemberships,
 } from '../../src/schema'
 import {
@@ -1608,15 +1611,18 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read', 0)
     expect(await channelRead()).toMatchObject({ lastReadSequence: ordinarySeq })
 
-    // The thread of a hidden publication still marks: its replies are ordinary, visible messages.
-    await markThreadReadState(
-      connection.db,
-      f.destination.id,
-      f.channelA.id,
-      published.messageId!,
-      reader,
-      'read'
-    )
+    // The thread of a hidden publication is unavailable to mark: its root is not visible, so its
+    // replies are not shown, counted or marked, and its watermark is left as it was.
+    await expect(
+      markThreadReadState(
+        connection.db,
+        f.destination.id,
+        f.channelA.id,
+        published.messageId!,
+        reader,
+        'read'
+      )
+    ).rejects.toThrow('Read state unavailable')
 
     // A regrant does not revive a publication: it stays bound to the revision it was published
     // under, so it remains hidden, and nothing about it turns unread again.
@@ -2113,9 +2119,12 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     )
     await expectSurfacesAgree(f, 'job two revoked')
 
-    // The thread of the hidden job can be marked: its replies are visible, so their unread count clears.
-    await markThreadReadState(connection.db, workspaceId, channelId, publicationTwo, reader, 'read')
-    await expectSurfacesAgree(f, 'thread of the hidden job marked read')
+    // The thread of the hidden job cannot be marked while its root is hidden; its replies are not
+    // shown in any surface, and the surfaces still agree with the reader's history.
+    await expect(
+      markThreadReadState(connection.db, workspaceId, channelId, publicationTwo, reader, 'read')
+    ).rejects.toThrow('Read state unavailable')
+    await expectSurfacesAgree(f, 'thread of the hidden job refused')
 
     // Watermarks are monotonic: an older sequence cannot rewind the channel frontier.
     const watermark = async () =>
@@ -2372,6 +2381,369 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(locked.size).toBe(2)
     expect([...batch].toSorted()).toEqual([...locked].toSorted())
   })
+
+  /** An ordinary thread and a thread rooted in the job publication, both in channel A. */
+  async function mixedThreads(f: Fixture) {
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const post = (principal: UserPrincipalRef, bodyText: string, threadRootMessageId?: string) =>
+      createMessage(connection.db, workspaceId, channelId, principal, {
+        bodyText,
+        idempotencyKey: `thread-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: principal.userId },
+        ...(threadRootMessageId ? { threadRootMessageId } : {}),
+      })
+    const ordinaryRoot = await post(f.owner.principal, 'alpha root')
+    const ordinaryReply = await post(f.recipient.principal, 'alpha reply', ordinaryRoot.id)
+    const publicationId = await publishTo(f, channelId, 'bravo root')
+    const jobReplyOne = await post(f.owner.principal, 'bravo reply one', publicationId)
+    const jobReplyTwo = await post(f.recipient.principal, 'bravo reply two', publicationId)
+    return { jobReplyOne, jobReplyTwo, ordinaryReply, ordinaryRoot, publicationId }
+  }
+
+  /** The reader's history in channel A, with each message's thread root. */
+  async function threadedHistory(reader: UserPrincipalRef, workspaceId: string, channelId: string) {
+    return (await historyOf(reader, workspaceId, channelId)).map((message) => ({
+      id: message.id,
+      threadRootMessageId: message.threadRootMessageId,
+    }))
+  }
+
+  /** Each message.created event in the log, as the reader's stream delivers it. */
+  async function deliveryOfMessages(reader: UserPrincipalRef, workspaceId: string) {
+    const log = await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 500)
+    const delivered = await classifyWorkspaceEventsForUser(
+      connection.db,
+      workspaceId,
+      reader.userId,
+      log
+    )
+    const kinds = new Map<string, string>()
+    log.forEach((event, index) => {
+      if (event.eventType === 'message.created')
+        kinds.set(String(event.payload.messageId), delivered![index]!.kind)
+    })
+    return kinds
+  }
+
+  /** The stored thread watermark of one reader in one thread, read from the table. */
+  async function storedThreadWatermark(reader: UserPrincipalRef, threadRootMessageId: string) {
+    const [row] = await connection.db
+      .select({ lastReadSequence: threadReadStates.lastReadSequence })
+      .from(threadReadStates)
+      .where(
+        and(
+          eq(threadReadStates.userId, reader.userId),
+          eq(threadReadStates.threadRootMessageId, threadRootMessageId)
+        )
+      )
+      .limit(1)
+    return row?.lastReadSequence ?? null
+  }
+
+  async function setOriginalActorRole(f: Fixture, role: 'owner' | 'member') {
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role })
+      .where(
+        and(
+          eq(workspaceMemberships.userId, f.owner.principal.userId),
+          eq(workspaceMemberships.workspaceId, f.workspace.id)
+        )
+      )
+  }
+
+  test('a mixed thread is shown whole while its job publication is authorized: history, read state, search, inbox and events agree', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const t = await mixedThreads(f)
+
+    const history = await threadedHistory(reader, workspaceId, channelId)
+    expect(history.map((message) => message.id).toSorted()).toEqual(
+      [t.ordinaryRoot, t.ordinaryReply, t.publicationId, t.jobReplyOne, t.jobReplyTwo]
+        .map((message) => (typeof message === 'string' ? message : message.id))
+        .toSorted()
+    )
+    expect(history.find((message) => message.id === t.jobReplyOne.id)).toEqual({
+      id: t.jobReplyOne.id,
+      threadRootMessageId: t.publicationId,
+    })
+    const state = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )!
+    expect(
+      state.threads.map((thread) => [thread.threadRootMessageId, thread.unreadCount]).toSorted()
+    ).toEqual(
+      [
+        [t.ordinaryRoot.id, 1],
+        [t.publicationId, 2],
+      ].toSorted()
+    )
+    const inbox = (await accountConversationInbox(connection.db, reader)).conversations.find(
+      (row) => row.id === channelId
+    )!
+    expect(inbox.threadUnreadCount).toBe(3)
+    const bravo = await searchWorkspaceForUser(connection.db, workspaceId, reader, 'bravo', {
+      limit: 100,
+    })
+    expect(
+      bravo.results.flatMap((result) => (result.kind === 'message' ? [result.id] : [])).toSorted()
+    ).toEqual([t.publicationId, t.jobReplyOne.id, t.jobReplyTwo.id].toSorted())
+    const kinds = await deliveryOfMessages(reader, workspaceId)
+    for (const id of [t.jobReplyOne.id, t.jobReplyTwo.id, t.ordinaryReply.id])
+      expect(kinds.get(id)).toBe('deliver')
+    await expectSurfacesAgree(f, 'mixed threads, authorized')
+  })
+
+  test('revoked job thread: history, read state, search, inbox, events and marks hide it; mark-all cannot run past it; its replies return with the authority, watermark intact', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const t = await mixedThreads(f)
+    // Authorized: the reader reads the job thread through its first reply. That watermark must survive.
+    await markThreadReadState(
+      connection.db,
+      workspaceId,
+      channelId,
+      t.publicationId,
+      reader,
+      'read',
+      t.jobReplyOne.sequence
+    )
+    const watermarkBefore = await storedThreadWatermark(reader, t.publicationId)
+    expect(watermarkBefore).toBe(t.jobReplyOne.sequence)
+    const ordinaryThreadBefore = (await listReadStateForUser(connection.db, workspaceId, reader))
+      .find((row) => row.channelId === channelId)!
+      .threads.find((thread) => thread.threadRootMessageId === t.ordinaryRoot.id)
+
+    // Source authority lost: the original actor is no longer an owner or admin, so the publication,
+    // and with it the thread, is hidden.
+    await setOriginalActorRole(f, 'member')
+    const history = await threadedHistory(reader, workspaceId, channelId)
+    expect(history.map((message) => message.id).toSorted()).toEqual(
+      [t.ordinaryRoot.id, t.ordinaryReply.id].toSorted()
+    )
+    expect(JSON.stringify(history)).not.toContain(t.publicationId)
+    const stateHidden = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )!
+    expect(stateHidden.threads.map((thread) => thread.threadRootMessageId)).toEqual([
+      t.ordinaryRoot.id,
+    ])
+    expect(stateHidden.threadUnreadCount).toBe(1)
+    // The ordinary thread is unchanged by the hidden one.
+    expect(
+      stateHidden.threads.find((thread) => thread.threadRootMessageId === t.ordinaryRoot.id)
+    ).toEqual(ordinaryThreadBefore)
+    expect(JSON.stringify(stateHidden)).not.toContain(t.publicationId)
+    expect(
+      (await accountConversationInbox(connection.db, reader)).conversations.find(
+        (row) => row.id === channelId
+      )!.threadUnreadCount
+    ).toBe(1)
+    const bravo = await searchWorkspaceForUser(connection.db, workspaceId, reader, 'bravo', {
+      limit: 100,
+    })
+    expect(bravo.results.filter((result) => result.kind === 'message')).toEqual([])
+    const kinds = await deliveryOfMessages(reader, workspaceId)
+    expect(kinds.get(t.jobReplyOne.id)).toBe('withheld')
+    expect(kinds.get(t.jobReplyTwo.id)).toBe('withheld')
+    expect(kinds.get(t.ordinaryReply.id)).toBe('deliver')
+    await expect(
+      getMessageForUser(connection.db, workspaceId, t.jobReplyOne.id, reader)
+    ).rejects.toThrow('Message unavailable')
+
+    // Marks cannot run past the hidden thread: a direct mark is refused, and mark-all advances only
+    // the ordinary thread. The hidden thread's stored watermark does not move.
+    await expect(
+      markThreadReadState(connection.db, workspaceId, channelId, t.publicationId, reader, 'read')
+    ).rejects.toThrow('Read state unavailable')
+    await markAllChannelsRead(connection.db, workspaceId, reader)
+    expect(await storedThreadWatermark(reader, t.publicationId)).toBe(watermarkBefore)
+    expect(await storedThreadWatermark(reader, t.ordinaryRoot.id)).toBe(t.ordinaryReply.sequence)
+
+    // Stored, not deleted: both replies are still in the database.
+    const stored = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.threadRootMessageId, t.publicationId))
+    expect(stored.map((row) => row.id).toSorted()).toEqual(
+      [t.jobReplyOne.id, t.jobReplyTwo.id].toSorted()
+    )
+    await expectSurfacesAgree(f, 'job thread hidden')
+
+    // Authority returns: the replies return under the same ids. The stored watermark still stands, so
+    // only the reply past it is unread.
+    await setOriginalActorRole(f, 'owner')
+    const restored = await threadedHistory(reader, workspaceId, channelId)
+    expect(restored.map((message) => message.id).toSorted()).toEqual(
+      [t.ordinaryRoot, t.ordinaryReply, t.publicationId, t.jobReplyOne, t.jobReplyTwo]
+        .map((message) => (typeof message === 'string' ? message : message.id))
+        .toSorted()
+    )
+    const stateRestored = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )!
+    expect(
+      stateRestored.threads.find((thread) => thread.threadRootMessageId === t.publicationId)
+    ).toMatchObject({
+      lastReadSequence: t.jobReplyOne.sequence,
+      unreadCount: 1,
+    })
+    expect(await storedThreadWatermark(reader, t.publicationId)).toBe(watermarkBefore)
+    await expectSurfacesAgree(f, 'job thread restored')
+  })
+
+  test('a revoked audience hides a job thread for good: a reply is refused, the replies stay stored, and restoring the owner does not return them', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const t = await mixedThreads(f)
+    // The roster moves twice and ends with the reader listed. Every publication bound to the old
+    // revision is now hidden, and the reader keeps the ordinary thread.
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal],
+      await rosterVersion(channelId)
+    )
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal, { kind: 'user', userId: reader.userId }],
+      await rosterVersion(channelId)
+    )
+    const history = await threadedHistory(reader, workspaceId, channelId)
+    expect(history.map((message) => message.id).toSorted()).toEqual(
+      [t.ordinaryRoot.id, t.ordinaryReply.id].toSorted()
+    )
+    expect(JSON.stringify(history)).not.toContain(t.publicationId)
+    const kinds = await deliveryOfMessages(reader, workspaceId)
+    expect(kinds.get(t.jobReplyTwo.id)).toBe('withheld')
+    // A reply cannot join a thread the writer cannot see; it is refused as a missing message.
+    await expect(
+      createMessage(connection.db, workspaceId, channelId, reader, {
+        bodyText: 'bravo late reply',
+        idempotencyKey: `late-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: reader.userId },
+        threadRootMessageId: t.publicationId,
+      })
+    ).rejects.toThrow('Message unavailable')
+    // Replies stay stored, and the owner's authority does not return them: the audience revision moved.
+    await setOriginalActorRole(f, 'member')
+    await setOriginalActorRole(f, 'owner')
+    expect(
+      (await threadedHistory(reader, workspaceId, channelId)).map((message) => message.id)
+    ).not.toContain(t.jobReplyOne.id)
+    const stored = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.threadRootMessageId, t.publicationId))
+    expect(stored).toHaveLength(2)
+    await expectSurfacesAgree(f, 'audience revoked')
+  })
+
+  test('a malformed job root hides its thread, and a root that is missing or not top-level fails closed', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const t = await mixedThreads(f)
+    expect(
+      await readerVisibleThreadRootIds(
+        connection.db,
+        [t.ordinaryRoot.id, t.publicationId],
+        reader.userId
+      )
+    ).toEqual(new Set([t.ordinaryRoot.id, t.publicationId]))
+    // Missing, and a reply named as a root: neither is provably visible, so neither is shown.
+    expect(
+      await readerVisibleThreadRootIds(
+        connection.db,
+        [crypto.randomUUID(), t.jobReplyOne.id],
+        reader.userId
+      )
+    ).toEqual(new Set())
+    // A job publication whose binding no longer decodes: the gate denies it, and its thread goes with it.
+    await connection.db
+      .update(messages)
+      .set({ senderSystemId: 'job-outbound:v1:malformed' })
+      .where(eq(messages.id, t.publicationId))
+    expect(
+      (await threadedHistory(reader, workspaceId, channelId))
+        .map((message) => message.id)
+        .toSorted()
+    ).toEqual([t.ordinaryRoot.id, t.ordinaryReply.id].toSorted())
+    const state = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )!
+    expect(state.threads.map((thread) => thread.threadRootMessageId)).toEqual([t.ordinaryRoot.id])
+    expect(JSON.stringify(state)).not.toContain(t.publicationId)
+  })
+
+  test('the thread rule costs a fixed number of statements, however many threads the reader must gate', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const log = () => listWorkspaceEventsAfter(connection.db, workspaceId, 0, 500)
+    const threadedJob = async (index: number) => {
+      const job = await f.submitAnotherJob()
+      const outcome = await completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        { artifact: null, artifactPolicy: 'require', channelId, summary: `bravo thread ${index}` }
+      )
+      await createMessage(connection.db, workspaceId, channelId, reader, {
+        bodyText: `bravo reply ${index}`,
+        idempotencyKey: `reply-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: reader.userId },
+        threadRootMessageId: outcome.publication.messageId!,
+      })
+    }
+    async function measure() {
+      const events = await log()
+      return {
+        events: await statementsOf((db) =>
+          classifyWorkspaceEventsForUser(db, workspaceId, reader.userId, events)
+        ),
+        history: await statementsOf((db) =>
+          listMessagesForUser(db, workspaceId, channelId, reader, { limit: 100 })
+        ),
+        inbox: await statementsOf((db) => accountConversationInbox(db, reader)),
+        readState: await statementsOf((db) => listReadStateForUser(db, workspaceId, reader)),
+        search: await statementsOf((db) =>
+          searchWorkspaceForUser(db, workspaceId, reader, 'bravo', { limit: 100 })
+        ),
+      }
+    }
+    const threadCount = async () =>
+      (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+        (row) => row.channelId === channelId
+      )!.threads.length
+    for (let index = 0; index < 2; index += 1) await threadedJob(index)
+    expect(await threadCount()).toBe(2)
+    const few = await measure()
+    for (let index = 2; index < 12; index += 1) await threadedJob(index)
+    expect(await threadCount()).toBe(12)
+    const many = await measure()
+    expect(many).toEqual(few)
+  }, 300_000)
 
   test('a large hidden run is gated in pages: counts stay exact, and statements grow with pages, not publications', async () => {
     const f = await fixture({ complete: false })
