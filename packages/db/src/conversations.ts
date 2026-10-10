@@ -11,7 +11,11 @@ import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
-import { decideGroupHistoryRead, decideGroupTurn } from './group-participation-policy'
+import {
+  decideGroupHistoryRead,
+  decideGroupTurn,
+  evaluateGroupGrantWindow,
+} from './group-participation-policy'
 import {
   admissionForParticipant,
   loadGroupAdmission,
@@ -128,6 +132,38 @@ async function requireActiveAgent(database: Database, workspaceId: string, agent
     )
     .limit(1)
   if (!agent) throw new Error('Agent unavailable')
+}
+
+/**
+ * Agent sender standing for group channels (M15.01 scope reconciliation).
+ * The host workspace never vouches for foreign Agents: the sender must be
+ * active in its own home workspace AND hold an effective enlistment in this
+ * group. Unenlisted or inactive senders fail like a missing channel.
+ */
+async function requireGroupAgentSender(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  agentId: string
+) {
+  const [agent] = await database
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), eq(agents.lifecycleState, 'active')))
+    .limit(1)
+  if (!agent) throw new Error('Agent unavailable')
+  const admission = await loadGroupAdmission(
+    database,
+    workspaceId,
+    channelId,
+    { agentId, kind: 'agent' },
+    {}
+  )
+  if (
+    !admission ||
+    evaluateGroupGrantWindow(admission.grant, new Date().toISOString()) !== 'effective'
+  )
+    throw new Error('Channel unavailable')
 }
 
 async function requireWorkspaceUser(database: Database, workspaceId: string, userId: string) {
@@ -1179,7 +1215,13 @@ async function createMessageWithTextPolicy(
         .limit(1)
         .for('update')
     }
-    await validateSender(transaction, workspaceId, input.sender)
+    // Group agent senders prove standing through their enlistment (checked
+    // just below), never through host membership — validateSender keeps the
+    // host-workspace rule for every other lane.
+    if (!(channel.kind === 'group' && input.sender.kind === 'agent'))
+      await validateSender(transaction, workspaceId, input.sender)
+    if (channel.kind === 'group' && input.sender.kind === 'agent')
+      await requireGroupAgentSender(transaction, workspaceId, channelId, input.sender.agentId)
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
     const artifactIds = [...new Set(input.artifactIds ?? [])].toSorted()

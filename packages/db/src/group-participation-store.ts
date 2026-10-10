@@ -180,11 +180,14 @@ export function audienceGrantFromRow(
 
 export function enlistmentGrantFromRow(
   channelId: string,
-  workspaceId: string,
-  row: typeof groupEnlistmentGrants.$inferSelect
+  row: typeof groupEnlistmentGrants.$inferSelect,
+  agentWorkspaceId: string
 ): GroupAgentEnlistmentGrant {
   return {
-    agent: { agentId: row.agentId, workspaceId },
+    // The Agent's true source workspace, resolved from the registry — never
+    // the host workspace. The transactional layer proves at enlist time that
+    // this matches the grant's claimed source, so the label cannot drift.
+    agent: { agentId: row.agentId, workspaceId: agentWorkspaceId },
     expiresAt: row.expiresAt,
     grantId: row.grantId,
     groupId: channelId,
@@ -218,13 +221,23 @@ async function selectGrants(
         eq(groupEnlistmentGrants.channelId, channelId)
       )
     )
-  const [audienceRows, enlistmentRows] = await Promise.all([
+  const [audienceRows, enlistmentRows, agentHomes] = await Promise.all([
     forUpdate ? audienceQuery.for('update') : audienceQuery,
     forUpdate ? enlistmentQuery.for('update') : enlistmentQuery,
+    database.select({ agentId: agents.id, workspaceId: agents.workspaceId }).from(agents),
   ])
+  const homeWorkspaceByAgent = new Map(agentHomes.map((row) => [row.agentId, row.workspaceId]))
   return {
     audience: audienceRows.map((row) => audienceGrantFromRow(channelId, row)),
-    enlistment: enlistmentRows.map((row) => enlistmentGrantFromRow(channelId, workspaceId, row)),
+    enlistment: enlistmentRows.map((row) =>
+      enlistmentGrantFromRow(
+        channelId,
+        row,
+        // Fail-closed: an enlistment whose Agent row is gone proves no home
+        // workspace, and every consumer treats the grant as absent.
+        homeWorkspaceByAgent.get(row.agentId) ?? ''
+      )
+    ),
   }
 }
 
@@ -308,9 +321,12 @@ export async function loadGroupAdmission(
 
 /**
  * The group's lead agent for a lead turn: the exactly-one enlisted Agent that
- * is the workspace lead (active, standalone) with an effective enlistment at
- * `now`. Fail-closed null on zero, several, revoked, stale or non-lead
- * enlistments. Read-only; the shared lead-turn writer consumes the id.
+ * is a workspace lead (active, standalone) with an effective enlistment at
+ * `now` — resolved in the Agent's own source workspace, never the host's.
+ * Tool authority stays source-scoped: the host workspace confers no
+ * capabilities over foreign Agents. Fail-closed null on zero, several,
+ * revoked, stale or non-lead enlistments. Read-only; the shared lead-turn
+ * writer consumes the id.
  */
 export async function resolveGroupLeadAgentId(
   database: GroupStoreDatabase,
@@ -330,7 +346,6 @@ export async function resolveGroupLeadAgentId(
       .where(
         and(
           eq(agents.id, admission.participant.agentId),
-          eq(agents.workspaceId, workspaceId),
           eq(agents.isWorkspaceLead, true),
           eq(agents.lifecycleState, 'active'),
           isNull(agents.projectId)
@@ -607,32 +622,50 @@ export async function requireGroupParticipantLiveness(
   workspaceId: string,
   participant: ConversationParticipantRef
 ) {
-  if (participant.kind === 'user') {
-    const [membership] = await database
-      .select({ id: workspaceMemberships.id })
-      .from(workspaceMemberships)
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, participant.userId)
-        )
-      )
-      .limit(1)
-    if (!membership) throw new Error('Conversation participant unavailable')
-    return
-  }
-  const [agent] = await database
-    .select({ id: agents.id })
-    .from(agents)
+  // Humans participate through host membership — their only authority
+  // anchor. Agents never pass through here: their standing is proven
+  // against their own source workspace by requireAgentEnlistmentSource.
+  if (participant.kind === 'agent') throw new Error('Agent unavailable')
+  const [membership] = await database
+    .select({ id: workspaceMemberships.id })
+    .from(workspaceMemberships)
     .where(
       and(
-        eq(agents.id, participant.agentId),
-        eq(agents.workspaceId, workspaceId),
-        eq(agents.lifecycleState, 'active')
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, participant.userId)
       )
     )
     .limit(1)
-  if (!agent) throw new Error('Agent unavailable')
+  if (!membership) throw new Error('Conversation participant unavailable')
+}
+
+/**
+ * Source-workspace standing for an enlisted Agent (M15.01 scope
+ * reconciliation, adea-ai/adea#1178). The host workspace never confers
+ * authority over foreign Agents, so liveness is proven where the Agent
+ * actually lives: the row must exist, be active, and its true home
+ * workspace must equal the grant's claimed source. A spoofed source, an
+ * unknown id or an inactive Agent fails the whole roster with a typed
+ * `GroupCreationError` and zero writes — never by host equality.
+ */
+export async function requireAgentEnlistmentSource(
+  database: GroupStoreDatabase,
+  candidateIndex: number,
+  agentId: string,
+  claimedWorkspaceId: string
+) {
+  const participant = { agentId, kind: 'agent' } as const
+  const reject = (reason: 'agent_unknown' | 'agent_inactive' | 'grant_workspace_mismatch') => {
+    throw new GroupCreationError([{ candidateIndex, participant, reason, scope: 'candidate' }])
+  }
+  const [agent] = await database
+    .select({ lifecycleState: agents.lifecycleState, workspaceId: agents.workspaceId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+  if (!agent) return reject('agent_unknown')
+  if (agent.lifecycleState !== 'active') return reject('agent_inactive')
+  if (agent.workspaceId !== claimedWorkspaceId) return reject('grant_workspace_mismatch')
 }
 
 /**

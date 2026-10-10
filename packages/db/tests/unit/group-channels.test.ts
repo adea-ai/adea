@@ -589,14 +589,18 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
       revokedAt: null,
     })
     expect(
-      enlistmentGrantFromRow('grp_1', 'wsp_adea', {
-        agentId: 'agt_doc',
-        expiresAt: null,
-        grantId: 'gra_doc',
-        issuedAt: ISSUED,
-        revokedAt: null,
-        revision: 2,
-      } as never)
+      enlistmentGrantFromRow(
+        'grp_1',
+        {
+          agentId: 'agt_doc',
+          expiresAt: null,
+          grantId: 'gra_doc',
+          issuedAt: ISSUED,
+          revokedAt: null,
+          revision: 2,
+        } as never,
+        'wsp_adea'
+      )
     ).toEqual({
       agent: { agentId: 'agt_doc', workspaceId: 'wsp_adea' },
       expiresAt: null,
