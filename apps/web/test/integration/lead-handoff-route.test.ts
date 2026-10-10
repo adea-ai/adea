@@ -28,7 +28,6 @@ const connectionUrl = process.env.DATABASE_URL
  * and the react-server condition:
  *
  *   DATABASE_URL=... bun test --conditions=react-server \
- *     --preload ./apps/web/test/integration/setup.ts \
  *     apps/web/test/integration/lead-handoff-route.test.ts
  */
 const call = (

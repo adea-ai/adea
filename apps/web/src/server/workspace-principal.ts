@@ -10,7 +10,6 @@ import {
 import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { applicationDatabase } from './database'
-import { createStartRequestContext } from './auth-request-context'
 import { emailAllowlistConfigured, isAllowedEmail } from './allowed-emails'
 import { desktopPrincipalMapping, resolveDesktopSessionPrincipal } from './desktop-auth'
 import { resolveOrProvisionDesktopPrincipal } from './desktop-principal'
@@ -67,6 +66,13 @@ export async function resolveWorkspacePrincipal(
   const credential = readTemporaryCredential(request)
   let authentication: AuthResult | null = null
   try {
+    // The framework request-context module evaluates client-gated framework
+    // entrypoints at import time, which keeps the whole server graph out of
+    // server-runtime tests. It is loaded here — inside the only branch that
+    // uses it — instead of at module scope: production behavior is identical
+    // (same factory, first Neon-account call), and non-account paths never
+    // evaluate the framework at all.
+    const { createStartRequestContext } = await import('./auth-request-context')
     authentication = await createNeonServerAdapter(createStartRequestContext).getSession()
   } catch {
     // Account persistence is optional. A missing provider configuration must not block guests.
