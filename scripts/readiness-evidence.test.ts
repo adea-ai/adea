@@ -524,6 +524,33 @@ describe('measurement provenance', () => {
     ).toMatchObject({ status: 'invalid' })
   })
 
+  test('a check-client run that exited nonzero is invalid, whatever its fields say', () => {
+    expect(
+      byId(build({ bundle: { ...passingBundle(repo.second), exitCode: 1 } }), 'PERF-01')
+    ).toMatchObject({ status: 'invalid', exitCode: 1 })
+    expect(byId(build({ bundle: passingBundle(repo.second) }), 'PERF-01').status).toBe('pass')
+  })
+
+  test('an axe pass recorded without its validated artifact is never certified', () => {
+    const recordedAxe = (status: string, exitCode: number) => ({
+      'ACC-01': { status, reason: 'no server', revision: repo.second, command: AUDIT, exitCode },
+    })
+    expect(byId(build({ recorded: recordedAxe('pass', 0) }), 'ACC-01')).toMatchObject({
+      status: 'invalid',
+      observed: { status: 'pass' },
+    })
+    expect(byId(build({ recorded: recordedAxe('partial', 0) }), 'ACC-01').status).toBe('invalid')
+    expect(byId(build({ recorded: recordedAxe('blocked', 1) }), 'ACC-01').status).toBe('blocked')
+    expect(byId(build({ recorded: recordedAxe('fail', 2) }), 'ACC-01').status).toBe('fail')
+    // A validated artifact decides. The recorded pass is only context.
+    expect(
+      byId(
+        build({ axe: axe(repo.second, 0, auditArtifact()), recorded: recordedAxe('pass', 0) }),
+        'ACC-01'
+      )
+    ).toMatchObject({ status: 'pass', recorded: { status: 'pass' } })
+  })
+
   test('a recorded run cannot overwrite the identity of its criterion', () => {
     const run = (id: string, fields: Json) => ({
       [id]: {

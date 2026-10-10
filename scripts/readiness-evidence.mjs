@@ -558,6 +558,16 @@ export function buildMeasurements(inventory, options) {
       case 'bundle': {
         if (!bundleSource) return record({ status: 'not-run', reason: 'no bundle report supplied' })
         const keys = evaluateBundle(bundle.report, method.keys)
+        // check-client throws, exits nonzero and prints no report when a budget is exceeded.
+        // A report that arrives with a nonzero exit is not a measurement, whatever its fields say.
+        if (bundleSource.exitCode !== 0)
+          return record(
+            settle(bundleSource, {
+              status: 'invalid',
+              reason: `check-client exited ${bundleSource.exitCode}; its report is not a measurement`,
+              keys,
+            })
+          )
         return record(settle(bundleSource, { status: bundleStatus(keys), keys }))
       }
       case 'axe': {
@@ -567,6 +577,15 @@ export function buildMeasurements(inventory, options) {
         }
         if (recorded[criterion.id]) {
           const { source, verdict } = recordedRun(criterion, recorded[criterion.id])
+          // Without its validated audit artifact, an axe run can be recorded as blocked or failed,
+          // never as a pass. A recorded pass is kept as observed and reported as invalid.
+          if (['pass', 'partial'].includes(verdict.status))
+            return record({
+              ...source,
+              status: 'invalid',
+              reason: `a recorded axe ${verdict.status} needs its validated audit artifact (--axe)`,
+              observed: verdict,
+            })
           return record(settle(source, verdict))
         }
         return record({ status: 'not-run', reason: 'no axe artifact or recorded run supplied' })
