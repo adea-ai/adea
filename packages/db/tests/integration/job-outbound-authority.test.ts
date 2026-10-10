@@ -51,7 +51,7 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
    * A granting workspace with a submitted, not yet completed job and a live artifact; an
    * audience whose owner is the job's original actor, and whose member is the reader.
    */
-  async function fixture(grantExpiresAt: string | null) {
+  async function fixture() {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
@@ -168,20 +168,23 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
       sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
     })
-    const grantId = `grant-${crypto.randomUUID()}`
-    await registerArtifactReferenceGrant(connection.db, source.id, owner.principal, {
-      artifactId: artifact.id,
-      audienceWorkspaceId: destination.id,
-      checksumSha256: CHECKSUM,
-      expiresAt: grantExpiresAt,
-      grantId,
-      version: artifact.version,
-    })
     return {
       artifact,
       channel,
       destination,
-      grantId,
+      /** Registers this job's artifact grant to the audience. `expiresAt` null never expires. */
+      async registerGrant(expiresAt: string | null) {
+        const grantId = `grant-${crypto.randomUUID()}`
+        await registerArtifactReferenceGrant(connection.db, source.id, owner.principal, {
+          artifactId: artifact.id,
+          audienceWorkspaceId: destination.id,
+          checksumSha256: CHECKSUM,
+          expiresAt,
+          grantId,
+          version: artifact.version,
+        })
+        return grantId
+      },
       owner,
       recipient,
       source,
@@ -194,6 +197,7 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
   /** Completes the job through the production path, naming the artifact, with an optional seam. */
   function completeWith(
     f: Fixture,
+    grantId: string,
     summary: string,
     seams: Parameters<typeof completeTaskAndPublishOutboundResult>[6] = {}
   ) {
@@ -208,7 +212,7 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
         requestId: crypto.randomUUID(),
       },
       {
-        artifact: { artifactId: f.artifact.id, grantId: f.grantId },
+        artifact: { artifactId: f.artifact.id, grantId },
         artifactPolicy: 'require',
         channelId: f.channel.id,
         summary,
@@ -290,15 +294,28 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
     throw new Error(`no "${fragment}" queued behind backend ${holderPid}`)
   }
 
-  test('a publication whose grant expires while its write is parked commits nothing, and the Task still completes', async () => {
-    const expiresAt = new Date(Date.now() + 1_500).toISOString()
-    const f = await fixture(expiresAt)
-    const outcome = await completeWith(f, 'PARKED_SUMMARY', {
-      // The write is judged, then parked past the grant's expiry, then committed or held.
+  test('a publication admitted by the first judgment is refused by the second when its grant expires while the write is parked', async () => {
+    const f = await fixture()
+    // Set just before completion, so the first judgment runs inside the grant's lifetime.
+    const expiresAt = new Date(Date.now() + 3_000).toISOString()
+    const expiresMs = Date.parse(expiresAt)
+    const grantId = await f.registerGrant(expiresAt)
+    const seam = { advancedPastMs: 0, enteredMs: 0, entries: 0 }
+    const outcome = await completeWith(f, grantId, 'PARKED_SUMMARY', {
       beforePublicationWrite: async () => {
-        await sleep(Math.max(0, Date.parse(expiresAt) + 150 - Date.now()))
+        // Reached only when the first judgment admitted publication.
+        seam.entries += 1
+        seam.enteredMs = Date.now()
+        await sleep(Math.max(0, expiresMs + 150 - Date.now()))
+        seam.advancedPastMs = Date.now()
       },
     })
+    // The first judgment admitted publication: the seam was entered, while the grant was still live.
+    expect(seam.entries).toBe(1)
+    expect(seam.enteredMs).toBeLessThan(expiresMs)
+    // The seam then advanced past expiry...
+    expect(seam.advancedPastMs).toBeGreaterThanOrEqual(expiresMs)
+    // ...so the second judgment refuses the publication.
     expect(outcome.publication).toMatchObject({
       decision: { action: 'hold', reason: 'grant_expired' },
       messageId: null,
@@ -321,8 +338,9 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
   }, 30_000)
 
   test('a revocation that arrives while a reader is parked waits for the read; the read is ordered before it, and the next read hides the publication', async () => {
-    const f = await fixture(null)
-    const published = await completeWith(f, 'VISIBLE_SUMMARY')
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'VISIBLE_SUMMARY')
     expect(published.publication).toMatchObject({ decision: { action: 'publish' } })
     const messageId = published.publication.messageId!
     expect(await visibleFor(f, messageId)).toEqual([messageId])
@@ -330,16 +348,19 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
     // The reader parks at its source-membership read, on its own connection.
     const parked = parkMembership(f.source.id, f.owner.principal.userId)
     const holderPid = await parked.held
+    // Held outside the try: a failed assertion below cannot leave either promise unsettled.
+    let read: Promise<string[]> | undefined
+    let revocation: Promise<void> | undefined
     let revocationSettled = false
     try {
-      const read = visibleFor(f, messageId)
+      read = visibleFor(f, messageId)
       await waitQueuedBehind(holderPid, 'workspace_memberships')
       // Revocation arrives while the read is parked, and must wait for that read.
-      const revocation = revokeArtifactReferenceGrant(
+      revocation = revokeArtifactReferenceGrant(
         connection.db,
         f.source.id,
         f.owner.principal,
-        f.grantId
+        grantId
       ).then(() => {
         revocationSettled = true
       })
@@ -350,23 +371,25 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       expect(await read).toEqual([messageId])
       await revocation
     } finally {
+      // Open the gate first, then settle every promise this test started.
       parked.release()
-      await parked.done.catch(() => {})
+      await Promise.allSettled([read, revocation, parked.done])
     }
     // Once the revocation has committed, no read shows the publication.
     expect(await visibleFor(f, messageId)).toEqual([])
   }, 30_000)
 
   test('concurrent readers and a revocation over shared grants all settle, and none reopens a revoked publication', async () => {
-    const f = await fixture(null)
-    const published = await completeWith(f, 'SHARED_SUMMARY')
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'SHARED_SUMMARY')
     const messageId = published.publication.messageId!
     const reads = Array.from({ length: 6 }, () => visibleFor(f, messageId))
     const revocation = revokeArtifactReferenceGrant(
       connection.db,
       f.source.id,
       f.owner.principal,
-      f.grantId
+      grantId
     )
     const [results] = await Promise.all([Promise.all(reads), revocation])
     // Each read is either before the revocation (visible) or after it (hidden). Nothing else.
