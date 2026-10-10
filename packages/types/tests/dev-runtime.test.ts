@@ -9,6 +9,7 @@ import {
   decodeWorkspaceRunSummary,
   MAX_WORKSPACE_RUN_SUMMARY_ITEMS,
   decodeDevCommand,
+  decodeDevMutationPlan,
   decodeDevReply,
   decodeRootBookmark,
   decodeHarnessInstallation,
@@ -1674,6 +1675,98 @@ describe('repository registry DTOs (#398 follow-up)', () => {
         projectId: '00000000-0000-4000-8000-000000000020',
         expectedVersion: 2,
         archived: 'yes',
+      })
+    ).toThrow()
+  })
+})
+
+describe('mutation plan preview consequences', () => {
+  const plan = {
+    blockers: [],
+    consequences: [
+      {
+        blocking: false,
+        detail: 'the worktree folder is moved to quarantine',
+        kind: 'worktree_removal',
+      },
+      { blocking: true, detail: 'uncommitted changes', kind: 'uncommitted_changes' },
+    ],
+    digest: 'a'.repeat(64),
+    expiresAt: '2026-10-09T00:00:00.000Z',
+    factVersions: { factsDigest: 'b'.repeat(64) },
+    id: '00000000-0000-4000-8000-0000000000aa',
+    operation: 'dev.worktree.cleanupCommit',
+    requiredApprovalIds: [],
+    resource: { generation: 4, id: '00000000-0000-4000-8000-0000000000bb', kind: 'worktree' },
+    scope: {
+      accountId: '00000000-0000-4000-8000-000000000001',
+      runtimeNodeId: '00000000-0000-4000-8000-000000000002',
+      workspaceId: '00000000-0000-4000-8000-000000000003',
+    },
+    steps: [],
+  }
+
+  test('decodes the read-only consequence preview and stays backward compatible', () => {
+    expect(decodeDevMutationPlan(plan).consequences).toEqual(plan.consequences)
+    const { consequences: _omitted, ...legacy } = plan
+    expect(decodeDevMutationPlan(legacy).consequences).toBeUndefined()
+  })
+
+  test('refuses unknown, extra, or wrong-typed consequence fields', () => {
+    expect(() =>
+      decodeDevMutationPlan({
+        ...plan,
+        consequences: [{ blocking: 'yes', detail: 'x', kind: 'worktree_removal' }],
+      })
+    ).toThrow()
+    expect(() =>
+      decodeDevMutationPlan({
+        ...plan,
+        consequences: [{ blocking: false, detail: 42, kind: 'worktree_removal' }],
+      })
+    ).toThrow()
+    expect(() =>
+      decodeDevMutationPlan({
+        ...plan,
+        consequences: [{ blocking: false, detail: 'x', kind: 'worktree_removal', path: '/tmp' }],
+      })
+    ).toThrow()
+  })
+})
+
+describe('cleanup policy expiry request contract', () => {
+  const body = {
+    allowedSteps: ['prune_retained_data'] as const,
+    name: 'auto-clean merged',
+    predicates: [{ kind: 'clean' }] as const,
+    projectId: 'proj-1',
+  }
+
+  test('policy expiry uses a dedicated body field while authority expiresAt stays forbidden', () => {
+    expect(
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        policyExpiresAt: '2026-10-10T00:00:00.000Z',
+        predicates: [...body.predicates],
+      })
+    ).toMatchObject({ policyExpiresAt: '2026-10-10T00:00:00.000Z' })
+    // The transport authority field is still refused in every body.
+    expect(() =>
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        expiresAt: '2026-10-10T00:00:00.000Z',
+        predicates: [...body.predicates],
+      })
+    ).toThrow(/authority field is forbidden/)
+    // A malformed dedicated lifetime never reaches a handler.
+    expect(() =>
+      devOperationDecoders['dev.cleanupPolicy.createDraft'].request({
+        ...body,
+        allowedSteps: [...body.allowedSteps],
+        policyExpiresAt: 'not-a-date',
+        predicates: [...body.predicates],
       })
     ).toThrow()
   })

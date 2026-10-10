@@ -50,7 +50,13 @@ test('private product read authenticates before DB work and rejects caller actor
   expect((await createLeadProductReaderHandler(dependencies)(request())).status).toBe(404)
   expect(reads).toBe(0)
   const handler = createLeadProductReaderHandler({ ...dependencies, verify: async () => true })
-  for (const field of ['canonicalActorPrincipalId', 'selectionRef', 'profileId', 'schemaVersion'])
+  for (const field of [
+    'canonicalActorPrincipalId',
+    'selectionRef',
+    'requestedModelSelections',
+    'profileId',
+    'schemaVersion',
+  ])
     expect((await handler(request({ ...selectors, [field]: 'caller-assertion' }))).status).toBe(404)
   expect(reads).toBe(0)
   expect((await handler(request({ ...selectors, workspaceId: 'not-a-workspace' }))).status).toBe(
@@ -187,4 +193,29 @@ test('final service verification and response construction remain inside canonic
   const response = await pending
   expect(response.status).toBe(200)
   expect(locked).toBe(false)
+})
+
+test('stored requested role references enter exact trusted evidence and scope binding only', async () => {
+  const requestedModelSelections = {
+    lead: { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 },
+    child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 },
+  }
+  let current = product
+  const handler = createLeadProductReaderHandler({
+    lifetimeMs: 300_000,
+    now: () => now,
+    verify: async () => true,
+    withCurrent: async (_w, _i, disclose) => disclose(current),
+  })
+  const original = await (await handler(request())).json()
+  current = { ...product, requestedModelSelections }
+  const explicit = await (await handler(request())).json()
+  expect(explicit.requestedModelSelections).toEqual(requestedModelSelections)
+  expect(explicit.scopeRef).not.toBe(original.scopeRef)
+  expect(explicit.canonicalActorPrincipalId).toBe(original.canonicalActorPrincipalId)
+  expect(explicit.expiresAt).toBe(original.expiresAt)
+  current = { ...product, requestedModelSelections: { child: requestedModelSelections.child } }
+  const childOnly = await (await handler(request())).json()
+  expect(childOnly.requestedModelSelections).toEqual({ child: requestedModelSelections.child })
+  expect(childOnly.scopeRef).not.toBe(explicit.scopeRef)
 })

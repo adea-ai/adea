@@ -215,6 +215,54 @@ export {
   workspaceQualifiedAgentKey,
 } from './group-participation-policy'
 export {
+  ABSENT_GRANT_WINDOW,
+  admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  authorizeGroupChannelTurnNow,
+  createGroupChannelWithGrants,
+  decideGroupChannelHistoryReadNow,
+  decideGroupChannelPublicationNow,
+  decideGroupChannelSummaryReadNow,
+  getGroupMessageForUser,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
+  GroupPublicationHoldError,
+  listGroupChannelMessagesForUser,
+  liveGroupClock,
+  loadGroupAdmission,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+  partitionGroupChannelHistory,
+  postGroupChannelMessage,
+  postGroupChannelMessageInTransaction,
+  publishGroupLeadResult,
+  requireGroupManagementAuthority,
+  resolveAdmissionWindow,
+  resolveGroupLeadAgent,
+  revokeGroupGrant,
+  setGroupChannelParticipantsInTransaction,
+  setGroupChannelParticipantsWithGrants,
+  shareGroupHistory,
+  type GroupChannelCreateInput,
+  type GroupChannelDirectPostInput,
+  type GroupChannelGate,
+  type GroupChannelLeadPostInput,
+  type GroupChannelPostInput,
+  type GroupChannelSetParticipantsInput,
+  type GroupClock,
+  type GroupFenceOptions,
+  type GroupGrantKind,
+  type GroupLeadPublicationInput,
+  type GroupPostBarrier,
+  type GroupRosterBarrier,
+  type GroupStoreDatabase,
+} from './group-channels'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
@@ -251,6 +299,13 @@ export {
   type WorkspaceRole,
 } from './workspaces'
 export {
+  claimManagementAuthorityDecision,
+  completeManagementAuthorityDecision,
+  type ManagementAuthorityClaim,
+  type ManagementAuthorityClaimInput,
+  type ManagementAuthorityCompletion,
+} from './management-authority-consumption'
+export {
   archiveProject,
   createProject,
   getProjectForUser,
@@ -261,6 +316,20 @@ export {
   softDeleteProject,
   updateProject,
 } from './projects'
+export { projectSummary } from './project-summary'
+export {
+  archiveProjectChannels,
+  decideProjectStatePromotion,
+  lockProjectForStateChange,
+  promoteProjectState,
+  ProjectStateConflictError,
+  ProjectStatePromotionError,
+  restoreProjectChannels,
+  type ProjectStatePromotionDecision,
+  type ProjectStatePromotionObservation,
+  type ProjectStatePromotionPlan,
+  type ProjectStatePromotionRefusal,
+} from './project-state-policy'
 export {
   archiveAgent,
   assignAgentToProject,
@@ -274,6 +343,16 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
+export {
+  AGENT_AUTHORITY_FIELDS,
+  AgentPersonaPolicyError,
+  decideAgentPersonaChange,
+  type AgentAuthoritySnapshot,
+  type AgentPersonaChange,
+  type AgentPersonaDecision,
+  type AgentPersonaPlan,
+  type AgentPersonaRefusalReason,
+} from './agent-persona-policy'
 export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
@@ -350,3 +429,5 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+
+export * from './lead-model-selections'

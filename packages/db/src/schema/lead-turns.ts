@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, index, integer, jsonb, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import type { RequestedRoleModelSelections } from '../lead-model-selections'
 import { agents } from './agents'
 import { channels, messages } from './conversations'
 import { entityId, timestampColumns } from './conventions'
@@ -39,6 +40,9 @@ export const leadTurnIntents = appSchema.table(
     channelVersion: integer('channel_version').notNull(),
     channelVisibility: text('channel_visibility').notNull(),
     audience: jsonb('audience').$type<readonly string[]>().notNull(),
+    requestedModelSelections: jsonb(
+      'requested_model_selections'
+    ).$type<RequestedRoleModelSelections>(),
     dispatchKey: text('dispatch_key').notNull(),
     state: text('state').default('blocked').notNull(),
     reasonCode: text('reason_code').default('ADMISSION_SERVICE_UNAVAILABLE').notNull(),
@@ -84,6 +88,31 @@ export const leadTurnIntents = appSchema.table(
     check(
       'lead_turn_intents_rollback_fence_authority_valid',
       sql`${table.rollbackFenceAuthority} is null or (jsonb_typeof(${table.rollbackFenceAuthority}) = 'object' and (${table.rollbackFenceAuthority}->>'schemaVersion') is not distinct from '1')`
+    ),
+    check(
+      'lead_turn_intents_requested_models_valid',
+      sql`${table.requestedModelSelections} is null or (
+        jsonb_typeof(${table.requestedModelSelections}) = 'object'
+        and ${table.requestedModelSelections} <> '{}'::jsonb
+        and (${table.requestedModelSelections} - 'lead' - 'child') = '{}'::jsonb
+        and ${sql.join(
+          ['lead', 'child'].map((role) => {
+            const key = sql.raw("'" + role + "'")
+            const choice = sql`${table.requestedModelSelections}->${key}`
+            return sql`(not (${table.requestedModelSelections} ? ${key}) or (
+            jsonb_typeof(${choice}) = 'object'
+            and ${choice} ? 'selectionRef' and ${choice} ? 'selectionRevision'
+            and ((${choice}) - 'selectionRef' - 'selectionRevision') = '{}'::jsonb
+            and jsonb_typeof(${choice}->'selectionRef') = 'string'
+            and ${choice}->>'selectionRef' ~ '^msel_[a-f0-9]{32}$'
+            and jsonb_typeof(${choice}->'selectionRevision') = 'number'
+            and ${choice}->>'selectionRevision' ~ '^[0-9]+$'
+            and (${choice}->>'selectionRevision')::numeric between 1 and 9007199254740991
+          ))`
+          }),
+          sql` and `
+        )}
+      )`
     ),
     index('lead_turn_intents_workspace_channel_idx').on(table.workspaceId, table.channelId),
   ]

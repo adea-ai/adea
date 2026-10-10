@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
 import { createRuntimeResultMessage } from './conversations'
+import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
 import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -80,7 +81,12 @@ export function resolveLeadTurnAuthority(
   purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
   const authority = (
-    intent: { id: string; messageId: string; actorUserId: string },
+    intent: {
+      id: string
+      messageId: string
+      actorUserId: string
+      requestedModelSelections: unknown
+    },
     controlPlaneWorkspaceId: string
   ) => ({
     intentId: intent.id,
@@ -88,6 +94,9 @@ export function resolveLeadTurnAuthority(
     workspaceId,
     controlPlaneWorkspaceId,
     originalActorRef: `user:${intent.actorUserId}` as const,
+    // #1232: absent means the workspace lead default; a present reference is the exact immutable choice.
+    requestedLeadSelection:
+      parseRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined)?.lead ?? null,
   })
   return purpose === 'effect'
     ? withAuthorizedLeadTurn(

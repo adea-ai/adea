@@ -11,6 +11,21 @@ const observed = (patch: Partial<ApiLeadTurnStatus> = {}): ApiLeadTurnStatus => 
   ...patch,
 })
 
+test('a refused requested model says nothing ran and no other model was substituted', () => {
+  const value = leadTurnPresentation(
+    observed({
+      state: 'blocked',
+      availability: 'unavailable',
+      reasonCode: 'REQUESTED_MODEL_MISMATCH',
+    }),
+    true
+  )
+  expect(value.notice?.kind).toBe('model')
+  expect(value.notice?.text).toContain('nothing ran')
+  expect(value.notice?.text).toContain('no other model was substituted')
+  expect(value.notice?.text).toContain('draft are preserved')
+})
+
 test('unavailable reads preserve a last report without presenting setup or a new action', () => {
   const value = leadTurnPresentation(
     observed({ availability: 'unavailable', reasonCode: 'RUNTIME_UNAVAILABLE' }),

@@ -1,5 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import {
+  parseRequestedRoleModelSelections,
+  type RequestedRoleModelSelections,
+} from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
 import { rollbackFenceEmission, type LeadTurnRollbackFenceEmission } from './lead-turn-rollback'
@@ -31,6 +35,7 @@ export type CurrentLeadTurnProduct = Readonly<{
   prompt: string
   rollbackFence: LeadTurnRollbackFenceEmission | null
   dispatchPermitted: boolean
+  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 /**
@@ -111,6 +116,13 @@ export async function withCurrentLeadTurnProduct<T>(
             prompt: message.bodyText,
             rollbackFence: rollbackFenceEmission(intent),
             dispatchPermitted: intent.rollbackFencedAt === null,
+            ...(intent.requestedModelSelections === null
+              ? {}
+              : {
+                  requestedModelSelections: parseRequestedRoleModelSelections(
+                    intent.requestedModelSelections
+                  ),
+                }),
           })
         )
       }

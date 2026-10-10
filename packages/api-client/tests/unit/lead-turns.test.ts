@@ -22,9 +22,20 @@ test('explicit lead-turn message retains its blocked receipt and retry key', asy
     bodyText: 'Canonical body',
     idempotencyKey: 'stable-request',
     leadTurn: true,
+    requestedModelSelections: {
+      lead: { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 },
+      child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 },
+    },
   })
   expect(request!.headers.get('idempotency-key')).toBe('stable-request')
-  expect(await request!.json()).toEqual({ bodyText: 'Canonical body', leadTurn: true })
+  expect(await request!.json()).toEqual({
+    bodyText: 'Canonical body',
+    leadTurn: true,
+    requestedModelSelections: {
+      lead: { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 },
+      child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 },
+    },
+  })
   expect(response.leadTurn).toEqual(leadTurn)
   expect(response.leadTurn).not.toHaveProperty('executionRef')
 })
