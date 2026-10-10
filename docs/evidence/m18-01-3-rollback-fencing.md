@@ -68,6 +68,15 @@ On `app.lead_turn_intents`, all new columns are nullable with no default:
   migration, following the plpgsql precedent in `0033`. drizzle does not model triggers.
 - No index. Writes go only through `fenceLeadTurnForRollback`.
 
+**Delta after #1229 (requested role selections).** PR #1229 carries
+`0047_requested_role_model_selections`, which adds `lead_turn_intents.requested_model_selections` and
+its check. This branch's columns, checks and trigger have different names, so there is no SQL overlap.
+Once #1229 is the canonical predecessor, the delta is: rename this migration to
+`0048_lead_turn_rollback_fence.sql`; restore `_journal.json` from main plus #1229, then add idx 48 with
+a later `when`; regenerate the snapshot so `0048_snapshot.json` chains to #1229's `0047` snapshot; keep
+the SQL and trigger unchanged; and rerun `db:check` and `db:verify` on the stacked branch. This PR does
+not renumber it.
+
 ## Emitted field contract (signed current product reader)
 
 The only CP-facing seam is the existing signed route `POST /api/internal/pi-durable/lead-product/current`
@@ -149,12 +158,51 @@ A terminal admission is not written. It returns `fenced: false` with its classif
 
 ## CP contract (control-plane #940 / #942): not integration-safe yet
 
-The control plane owns its own persistence. It cannot read Adea's `lead_turn_intents` table, so it
-needs the fence through the existing signed reader above. This is the only seam. The following
-remain pending in the CP repo and are not implemented here.
+### What was verified against the real CP consumer (read-only)
 
-1. **Refuse on the fenced shape.** CP must treat `schemaVersion: pi-lead-intent-fence/v1` as a
-   refusal to dispatch and must not parse it as an admission. An unknown schema also means refuse.
+Control-plane checkout `Adea/control-plane` at `ec742819` (HEAD). Its working tree had unrelated
+uncommitted edits, which were not touched. The contract test in `apps/web/test/lead-product-contract.test.ts`
+runs CP's own `ProductionLeadProductEvidenceSchema` and `createProductionProductHttpReader` against the
+golden fixtures in `apps/web/test/contracts/`, when `CONTROL_PLANE_CHECKOUT` points at a checkout. Result:
+
+- Unfenced v1 body: the strict parser accepts it, and `readCurrent` returns evidence.
+- Fence-only body (`pi-lead-intent-fence/v1`): the strict parser rejects it, and `readCurrent`
+  throws `PI_PRODUCT_READER_UNAVAILABLE`. Effects therefore fail closed.
+- CP's `NodePiDurableLeadAdmission.resolveIntent` and `assertCurrent` (`pi-durable/node-admission.ts`)
+  call `#evidence()` for every operation, including `status`, `progress` and `cancel`, and map any failure
+  to `PI_LEAD_UNAVAILABLE`. Read-safe observation of a fenced admission is therefore refused today.
+  Changing the Adea response alone does not fix that.
+
+### Coordinated change required in the control plane (not implemented here)
+
+1. **Split the evidence gate by operation** in `node-admission.ts`:
+   - `prepare` and `dispatch`: full v1 evidence required, and a fenced admission is refused.
+   - `status` and `progress`: require `execution:read`, the service principal in `allowedPrincipalIds`
+     and `scopeRef` equal to the retained marker's `scopeRef`. Skip the full-evidence digest check for
+     fenced admissions, because the full evidence is not emitted for them.
+   - `cancel`: require `execution:cancel`, the service principal in `allowedPrincipalIds`, and
+     `canonicalActorPrincipalId` equal to the retained marker's actor. Cancellation stays actor-authorized.
+2. **Accept the fence-only variant** in `production-product-http.ts` and `production-lead-product.ts`.
+   Parse `pi-lead-intent-fence/v1` strictly and return a typed fenced result, not `undefined` and not a
+   throw. Only the operations in item 1 may consume that result.
+3. **Keep archived publication and archived admissions denied.** Adea returns 404 for archived
+   admissions, which CP reads as unavailable. Archived observation for CP is a separate decision.
+
+### Required Adea-side change (blocked, see the status note below)
+
+The fence-only body must also carry the pins and identity that item 1 needs: `authorityRevision`
+(the channel version), `canonicalActorPrincipalId`, `scopeRef` and `allowedPrincipalIds`. These are
+identity and pin fields only, with no prompt, profile or message content. The unfenced path does not
+change. The change is in `apps/web/src/server/lead-product-reader.ts`: compute the actor and scope
+before the fence branch, and move the freshness check after it. The edit was denied by the auto-mode
+permission classifier, so it was not applied. The branch's handler is at the committed version, and
+the fence-only fixture is at its current shape. A follow-up contract fixture update will be needed
+when it lands.
+
+### Remaining CP obligations
+
+1. **Refuse on the fenced shape.** Treat `schemaVersion: pi-lead-intent-fence/v1` as a refusal to
+   dispatch and never parse it as an admission. An unknown schema also means refuse.
 2. **Enforce at every CP claim.** CP must check its own stored fence in the same transaction that
    claims a dispatch, resume or restart for that admission. A fenced claim is refused. This covers
    every current CP reader and dispatcher that can create or resume an attempt.
@@ -202,5 +250,9 @@ applied, `db:verify` passed (48 applied migrations).
 test/*.test.ts start/ui-tailwind-sources.test.ts`): 442 pass, 0 fail (72 files).
 - Root `format:check`: exit 0. Root `oxlint --deny-warnings`: exit 0. `packages/db` typecheck and
   `apps/web` typecheck: exit 0.
+- Cross-product contract (`apps/web/test/lead-product-contract.test.ts`): 10 pass with
+  `CONTROL_PLANE_CHECKOUT` set to the control-plane checkout at `ec742819`. The drift guard and CP
+  parser and reader tests both run there. Without a checkout the CP-consumer tests skip, and the drift
+  guard passes (1 pass, 2 skip). CI does not set the variable, so the consumer tests skip in CI.
 - Not run in this pass: root `typecheck` via turbo (the pre-commit hook runs it on commit), root
   `test:coverage`, Playwright E2E, packaged and desktop suites, performance, soak, and root `build`.
