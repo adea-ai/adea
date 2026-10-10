@@ -580,6 +580,16 @@ export async function dispatchAddressedTurn(
  * outsider, never another agent. Terminal states are terminal: a
  * `responded` turn already has its response, a `superseded` one is already
  * dead, and re-cancelling a `cancelled` turn converges on itself.
+ *
+ * Lock-ordering contract (one consistent order: channel before claims —
+ * and here, no nesting at all): the claim flip commits FIRST in its own
+ * transaction holding only the claim row, and only afterwards does the
+ * retained-intent cancellation run in a separate transaction. The outer
+ * transaction therefore never holds the claim lock while wanting the
+ * channel lock, so no application-level cycle with admission (which
+ * takes channel-then-claim) can form — the two serialize instead of
+ * deadlocking, with no reliance on abort detection.
+ *
  * When the claim bound a retained intent, cancellation is requested
  * through the EXISTING lead intent/execution boundary
  * (`requestLeadTurnCancellation`): it succeeds only when an executor
@@ -593,7 +603,7 @@ export async function cancelAddressedTurn(
   principal: UserPrincipalRef,
   turnId: string
 ): Promise<{ state: string; runtimeCancelRequested: boolean }> {
-  return database.transaction(async (transaction) => {
+  const flipped = await database.transaction(async (transaction) => {
     const store = asStore(transaction)
     const [turn] = await store
       .select()
@@ -611,10 +621,10 @@ export async function cancelAddressedTurn(
       turn.addresserUserId === principal.userId ||
       (await isWorkspaceManager(store, workspaceId, principal.userId))
     if (!allowed) throw new AddressedTurnError('turn_cancel_unauthorized')
-    if (turn.state === 'cancelled') return { runtimeCancelRequested: false, state: 'cancelled' }
+    if (turn.state === 'cancelled') return { already: true as const, turn }
     if (turn.state === 'responded') throw new AddressedTurnError('turn_already_responded')
     if (turn.state === 'superseded') throw new AddressedTurnError('turn_superseded')
-    const flipped = await store
+    const updated = await store
       .update(addressedAgentTurns)
       .set({ state: 'cancelled' })
       .where(
@@ -624,22 +634,27 @@ export async function cancelAddressedTurn(
           sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
         )
       )
-      .returning({ id: addressedAgentTurns.id })
-    if (!flipped[0]) throw new AddressedTurnError('turn_claim_unresolved')
-    let runtimeCancelRequested = false
-    if (turn.intentId && turn.addresserUserId === principal.userId) {
-      try {
-        await requestLeadTurnCancellation(database, workspaceId, turn.intentId, principal)
-        runtimeCancelRequested = true
-      } catch {
-        // No executor holds this intent (never runtime-dispatched, already
-        // terminal there, or otherwise unavailable): the claim flip above
-        // still stands; the outcome reports it instead of failing.
-        runtimeCancelRequested = false
-      }
-    }
-    return { runtimeCancelRequested, state: 'cancelled' }
+      .returning()
+    if (!updated[0]) throw new AddressedTurnError('turn_claim_unresolved')
+    return { already: false as const, turn }
   })
+  if (flipped.already) return { runtimeCancelRequested: false, state: 'cancelled' }
+  // Separate transaction AFTER the flip commits: nothing is held while
+  // the intent boundary takes its own locks (see contract above).
+  const { intentId, addresserUserId } = flipped.turn
+  let runtimeCancelRequested = false
+  if (intentId && addresserUserId === principal.userId) {
+    try {
+      await requestLeadTurnCancellation(database, workspaceId, intentId, principal)
+      runtimeCancelRequested = true
+    } catch {
+      // No executor holds this intent (never runtime-dispatched, already
+      // terminal there, or otherwise unavailable): the claim flip above
+      // still stands; the outcome reports it instead of failing.
+      runtimeCancelRequested = false
+    }
+  }
+  return { runtimeCancelRequested, state: 'cancelled' }
 }
 
 /**
