@@ -262,6 +262,31 @@ Pre-fence code ignores the fence.
 
 ## Validation
 
+**Real product proof for pinned v2 (`apps/web/test/integration/lead-product-fence-v2.test.ts`).** Runs only with
+`PINNED_FENCE_V2_DATABASE_URL`, which must name a database with the `pinned_fence_v2_` prefix. The database is
+created for the run and migrated with the repository's own migrator (`packages/db` `verify-migrations`: 52
+migrations, verification passed). The reader is the real handler, with the real DB reader and the real
+service-token verifier. Tokens are signed in memory with generated Ed25519 keys, so no operator configuration
+changes. The external CP runtime adapter is a stub, and it is the only fake. Results: 9 pass, 0 fail.
+
+- Matching: the retained v1 unfenced pins still match the v2 body after the fence. Status, progress and
+  original-actor cancel succeed through the real product service.
+- Original actor only: another admin cannot cancel, and the adapter is not called.
+- New effects: prepare, dispatch, a new attempt and publication are refused before any runtime call.
+- Concurrent actor change (membership removed while the reader runs): the read is either the matching body or
+  404, and status and cancel are refused afterwards.
+- Concurrent ownership change (role downgraded below `runtime.invoke`): read and cancel are refused.
+- Concurrent placement change: the database refuses moving the workspace lead or its topic into a project
+  (`agents_workspace_lead_standalone`). The retained pins still match.
+- Concurrent audience change (a participant added during the read): the read is either the matching body or 404. Afterwards the reader refuses, so a retained scopeRef cannot be revalidated.
+- Wrong principal, wrong workspace and wrong intent: no pins, and no lookup for a verification failure.
+- v1 and the exact v2 discriminator: a strict reference parser rejects the v1 fixture, extra fields, a trailing
+  space in the discriminator and an unknown version. It accepts the emitted v2 body and the v2 fixture.
+
+Race outcomes observed on one run: membership removal and role downgrade each returned 404 for the racing read.
+The participant add returned 404, and the placement race returned the matching v2 body, since the placement
+write was refused. No response mixed states.
+
 **Pinned v2 and fenced publication proof (this head).**
 
 - `packages/db` unit: 229 pass, 0 fail.
