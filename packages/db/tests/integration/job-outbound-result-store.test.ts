@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+
+import * as schema from '../../src/schema'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 import type { UserPrincipalRef } from '@adea-ai/types'
 
@@ -10,7 +14,7 @@ import {
   registerArtifactReferenceGrant,
   revokeArtifactReferenceGrant,
 } from '../../src/artifact-reference-grants'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   createGroupChannel,
   createMessage,
@@ -208,7 +212,62 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         requestId: crypto.randomUUID(),
         expectedVersion: task.version,
       })
-    return { agent, channelA, channelB, destination, owner, recipient, task, workspace }
+    // A further job in the same workspaces, submitted but not completed, so a second publication
+    // can be made through the production completion path.
+    async function submitAnotherJob() {
+      const extra = await createTask(
+        connection.db,
+        workspace.id,
+        owner.principal,
+        {
+          agentId: agent.id,
+          projectId: project.id,
+          title: 'Second outbound job',
+          objective: 'SECOND_PROMPT_SENTINEL',
+        },
+        { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+      )
+      const extraRequestId = crypto.randomUUID()
+      const extraEnvelope = await sealRemoteContent({
+        keyId,
+        recipientPublicKey: encryption.publicKey,
+        aad: {
+          workspaceId: workspace.id,
+          runtimeNodeId: node.id,
+          requestId: extraRequestId,
+          payloadType: 'command.input',
+          schemaVersion: 1,
+          issuedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+        plaintext: new TextEncoder().encode('SECOND_CONTEXT_SENTINEL'),
+      })
+      await enqueueTaskSubmission(
+        connection.db,
+        workspace.id,
+        extra.id,
+        owner.principal,
+        { runtimeNodeId: node.id, queueWhenOffline: false, profile, envelope: extraEnvelope },
+        {
+          idempotencyKey: crypto.randomUUID(),
+          requestId: extraRequestId,
+          expectedVersion: extra.version,
+        }
+      )
+      return extra
+    }
+
+    return {
+      agent,
+      channelA,
+      channelB,
+      destination,
+      owner,
+      recipient,
+      submitAnotherJob,
+      task,
+      workspace,
+    }
   }
 
   type Fixture = Awaited<ReturnType<typeof fixture>>
@@ -1523,17 +1582,15 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read', 0)
     expect(await channelRead()).toMatchObject({ lastReadSequence: ordinarySeq })
 
-    // A hidden publication cannot be the root of a thread the reader marks.
-    await expect(
-      markThreadReadState(
-        connection.db,
-        f.destination.id,
-        f.channelA.id,
-        published.messageId!,
-        reader,
-        'read'
-      )
-    ).rejects.toThrow('Read state unavailable')
+    // The thread of a hidden publication still marks: its replies are ordinary, visible messages.
+    await markThreadReadState(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      published.messageId!,
+      reader,
+      'read'
+    )
 
     // A regrant does not revive a publication: it stays bound to the revision it was published
     // under, so it remains hidden, and nothing about it turns unread again.
@@ -1798,5 +1855,408 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       'Job outbound unavailable'
     )
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+  })
+
+  // -- Mixed ordinary and job messages under audience changes ---------------------------
+  // The reader's own history is the ground truth. Every surface must agree with it: read
+  // state (counts, frontier, thread counts), the account summary and inbox, search, and
+  // event notifications for the reader.
+
+  /** The messages the reader can see in the channel, read through their own history, every page. */
+  async function historyOf(reader: UserPrincipalRef, workspaceId: string, channelId: string) {
+    const visible: {
+      bodyText: string | null
+      id: string
+      sequence: number
+      threadRootMessageId: string | null
+    }[] = []
+    let afterSequence: number | undefined
+    for (;;) {
+      const page = await listMessagesForUser(connection.db, workspaceId, channelId, reader, {
+        limit: 100,
+        ...(afterSequence === undefined ? {} : { afterSequence }),
+      })
+      for (const message of page.messages)
+        visible.push({
+          bodyText: message.bodyText ?? null,
+          id: message.id,
+          sequence: message.sequence,
+          threadRootMessageId: message.threadRootMessageId ?? null,
+        })
+      if (!page.nextAfterSequence) return visible
+      afterSequence = page.nextAfterSequence
+    }
+  }
+
+  /** Asserts every surface agrees with the reader's own history at this step. */
+  async function expectSurfacesAgree(f: Fixture, step: string) {
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const state = (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+      (row) => row.channelId === channelId
+    )
+    // No channel access means no history and no channel state; both sides must say so.
+    const visible = state ? await historyOf(reader, workspaceId, channelId) : []
+    const topLevel = visible.filter((message) => message.threadRootMessageId === null)
+    const watermark = state?.lastReadSequence ?? 0
+    const topLevelUnreadCount = topLevel.filter((message) => message.sequence > watermark).length
+    const frontier = Math.max(0, ...topLevel.map((message) => message.sequence))
+    const roots = [
+      ...new Set(visible.flatMap((message) => message.threadRootMessageId ?? [])),
+    ].toSorted()
+    const threadsExpected = roots.map((root) => {
+      const threadWatermark =
+        state?.threads.find((thread) => thread.threadRootMessageId === root)?.lastReadSequence ?? 0
+      return [
+        root,
+        visible.filter(
+          (message) => message.threadRootMessageId === root && message.sequence > threadWatermark
+        ).length,
+      ]
+    })
+    const threadsObserved = (state?.threads ?? [])
+      .map((thread) => [thread.threadRootMessageId, thread.unreadCount])
+      .toSorted(([left], [right]) => String(left).localeCompare(String(right)))
+    expect({
+      step,
+      frontier: state?.latestTopLevelSequence ?? 0,
+      threads: threadsObserved,
+      topLevelUnreadCount: state?.topLevelUnreadCount ?? 0,
+      unread: state?.unread ?? false,
+    }).toEqual({
+      step,
+      frontier,
+      threads: threadsExpected,
+      topLevelUnreadCount,
+      unread: topLevelUnreadCount > 0 || threadsExpected.some(([, count]) => Number(count) > 0),
+    })
+
+    // Account summary and inbox: a channel is unread only for visible top-level or manual unread.
+    const summary = (await accountWorkspaceSummaries(connection.db, reader)).find(
+      (row) => row.workspaceId === workspaceId
+    )
+    expect({ step, unreadChannels: summary?.unreadChannels ?? 0 }).toEqual({
+      step,
+      unreadChannels: topLevelUnreadCount > 0 || Boolean(state?.manuallyUnread) ? 1 : 0,
+    })
+    const inbox = (await accountConversationInbox(connection.db, reader)).conversations.find(
+      (row) => row.id === channelId
+    )
+    expect({
+      step,
+      inbox: inbox
+        ? {
+            latest: inbox.latestTopLevelSequence,
+            topLevelUnreadCount: inbox.topLevelUnreadCount,
+            unread: inbox.unread,
+          }
+        : null,
+    }).toEqual({
+      step,
+      inbox: state
+        ? {
+            latest: frontier,
+            topLevelUnreadCount,
+            unread:
+              topLevelUnreadCount > 0 || threadsExpected.some(([, count]) => Number(count) > 0),
+          }
+        : null,
+    })
+
+    // Search: exactly the visible messages that contain the term.
+    const hits = (
+      await searchWorkspaceForUser(connection.db, workspaceId, reader, 'lumen', { limit: 100 })
+    ).results
+      .flatMap((result) => (result.kind === 'message' ? [result.id] : []))
+      .toSorted()
+    const expectedHits = visible
+      .filter((message) => (message.bodyText ?? '').toLowerCase().includes('lumen'))
+      .map((message) => message.id)
+      .toSorted()
+    expect({ step, hits }).toEqual({ step, hits: expectedHits })
+
+    // Event notifications: a message.created is delivered exactly when its message is visible.
+    const log = await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)
+    const deliveries = await classifyWorkspaceEventsForUser(
+      connection.db,
+      workspaceId,
+      reader.userId,
+      log
+    )
+    const notified = log.flatMap((event, index) =>
+      event.eventType === 'message.created' && deliveries?.[index]?.kind === 'deliver'
+        ? [event]
+        : []
+    )
+    expect({ step, notified: notified.map((event) => event.aggregateId).toSorted() }).toEqual({
+      step,
+      notified: visible.map((message) => message.id).toSorted(),
+    })
+    // Job publication events name no actor, and the hidden ones never reach the reader.
+    const systemMessages = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.channelId, channelId), eq(messages.senderKind, 'system')))
+    const visibleIds = new Set(visible.map((message) => message.id))
+    const hiddenPublicationIds = systemMessages
+      .map((row) => row.id)
+      .filter((id) => !visibleIds.has(id))
+    for (const event of notified)
+      if (
+        event.aggregateType === 'message' &&
+        event.aggregateId &&
+        !visibleIds.has(event.aggregateId)
+      )
+        throw new Error(`hidden publication notified at ${step}`)
+    for (const event of notified)
+      if (systemMessages.some((row) => row.id === event.aggregateId))
+        expect(event.payload).not.toHaveProperty('actorUserId')
+    const leak = JSON.stringify({ notified, hits, inbox })
+    for (const hidden of hiddenPublicationIds) expect(leak).not.toContain(hidden)
+  }
+
+  test('mixed ordinary and job messages under audience changes: counts, frontier, search, thread marks and event notifications agree with the reader’s own history', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const note = (bodyText: string, threadRootMessageId?: string) =>
+      createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+        bodyText,
+        idempotencyKey: `note-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+        ...(threadRootMessageId ? { threadRootMessageId } : {}),
+      })
+    const completeAs = (
+      job: { id: string; version: number },
+      request: JobOutboundCompletionRequest
+    ) =>
+      completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        request
+      )
+
+    // Ordinary history, then the first job, authorized.
+    await note('lumen alpha')
+    const root = await note('root note')
+    await note('lumen reply', root.id)
+    const first = await completeAs(f.task, {
+      artifact: null,
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'lumen published one',
+    })
+    expect(first.publication.decision.action).toBe('publish')
+    await expectSurfacesAgree(f, 'job one authorized')
+
+    // The reader reads everything: nothing is unread.
+    await markChannelReadState(connection.db, workspaceId, channelId, reader, 'read')
+    await expectSurfacesAgree(f, 'read through')
+
+    // A new ordinary message, then a second job with an artifact, then a reply to that job.
+    await note('lumen beta')
+    const second = await f.submitAnotherJob()
+    const registration = await registeredArtifact(f)
+    const published = await completeAs(second, {
+      artifact: { artifactId: registration.artifact.id, grantId: registration.grantId },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'lumen published two',
+    })
+    expect(published.publication.decision.action).toBe('publish')
+    const publicationTwo = published.publication.messageId!
+    await note('lumen reply to two', publicationTwo)
+    await expectSurfacesAgree(f, 'job two authorized, with a reply to it')
+
+    // Audience change: the source revokes the second job's grant. Job two is hidden; its reply is
+    // an ordinary message in the channel and stays visible.
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      registration.grantId
+    )
+    await expectSurfacesAgree(f, 'job two revoked')
+
+    // The thread of the hidden job can be marked: its replies are visible, so their unread count clears.
+    await markThreadReadState(connection.db, workspaceId, channelId, publicationTwo, reader, 'read')
+    await expectSurfacesAgree(f, 'thread of the hidden job marked read')
+
+    // Watermarks are monotonic: an older sequence cannot rewind the channel frontier.
+    const watermark = async () =>
+      (await listReadStateForUser(connection.db, workspaceId, reader)).find(
+        (row) => row.channelId === channelId
+      )?.lastReadSequence ?? 0
+    const before = await watermark()
+    await markChannelReadState(connection.db, workspaceId, channelId, reader, 'read', 0)
+    expect(await watermark()).toBe(before)
+    await markChannelReadState(connection.db, workspaceId, channelId, reader, 'read')
+    expect(await watermark()).toBeGreaterThanOrEqual(before)
+    await expectSurfacesAgree(f, 'read through the visible frontier')
+
+    // Audience change: the reader leaves the channel. Nothing from it is visible, counted or
+    // notified, and the account summary and inbox drop it.
+    const channelRevision = async () =>
+      (
+        await connection.db
+          .select({ version: channels.version })
+          .from(channels)
+          .where(eq(channels.id, channelId))
+          .limit(1)
+      )[0]!.version
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal],
+      await channelRevision()
+    )
+    await expectSurfacesAgree(f, 'reader removed from the channel')
+
+    // Back in: ordinary messages are visible again. Both jobs stay hidden, because a publication
+    // is bound to the roster revision it was published under.
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal, { kind: 'user', userId: reader.userId }],
+      await channelRevision()
+    )
+    await expectSurfacesAgree(f, 'reader back in the channel')
+  })
+
+  test('query counts do not grow with ordinary messages; they grow only with the job publications a reader must gate', async () => {
+    const f = await fixture({ complete: false })
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const databaseUrl = process.env.DATABASE_URL!
+    const note = (bodyText: string) =>
+      createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+        bodyText,
+        idempotencyKey: `note-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      })
+    const completeAs = (
+      job: { id: string; version: number },
+      request: JobOutboundCompletionRequest
+    ) =>
+      completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        job.id,
+        f.owner.principal,
+        {
+          expectedVersion: job.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        },
+        request
+      )
+    /** Statements one call issues on its own connection, excluding connection setup. */
+    async function statementsOf(run: (db: AgentHqDatabase) => Promise<unknown>) {
+      let statements = 0
+      const counting = postgres(databaseUrl, {
+        debug: () => {
+          statements += 1
+        },
+        max: 1,
+        prepare: false,
+      })
+      try {
+        await counting`select 1`
+        statements = 0
+        await run(drizzle(counting, { schema }))
+        return statements
+      } finally {
+        await counting.end({ timeout: 5 })
+      }
+    }
+    /** Statements for each reader surface at this moment. */
+    async function measure() {
+      const log = await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)
+      return {
+        events: await statementsOf((db) =>
+          classifyWorkspaceEventsForUser(db, workspaceId, reader.userId, log)
+        ),
+        inbox: await statementsOf((db) => accountConversationInbox(db, reader)),
+        readState: await statementsOf((db) => listReadStateForUser(db, workspaceId, reader)),
+        search: await statementsOf((db) =>
+          searchWorkspaceForUser(db, workspaceId, reader, 'lumen', { limit: 100 })
+        ),
+        summary: await statementsOf((db) => accountWorkspaceSummaries(db, reader)),
+      }
+    }
+
+    // One visible publication, then five ordinary messages.
+    await completeAs(f.task, {
+      artifact: null,
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'lumen one',
+    })
+    for (let index = 0; index < 5; index += 1) await note(`lumen ${index}`)
+    // Ordinary frontier: the cost does not move with the number of ordinary messages.
+    const ordinaryFew = await measure()
+    for (let index = 0; index < 40; index += 1) await note(`lumen more ${index}`)
+    const ordinaryMany = await measure()
+    expect(ordinaryMany).toEqual(ordinaryFew)
+
+    // A second publication, its artifact revoked. It is the frontier, so the walk past it runs.
+    const second = await f.submitAnotherJob()
+    const registration = await registeredArtifact(f)
+    await completeAs(second, {
+      artifact: { artifactId: registration.artifact.id, grantId: registration.grantId },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'lumen two',
+    })
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      registration.grantId
+    )
+    const walkPath = await measure()
+
+    // Ordinary messages again: the frontier is ordinary, and one hidden publication is gated.
+    for (let index = 0; index < 40; index += 1) await note(`lumen even more ${index}`)
+    const hiddenFew = await measure()
+    for (let index = 0; index < 40; index += 1) await note(`lumen last ${index}`)
+    const hiddenMany = await measure()
+    expect(hiddenMany).toEqual(hiddenFew)
+
+    // A third hidden publication, now the frontier again: the walk path, one more gate.
+    const third = await f.submitAnotherJob()
+    const thirdRegistration = await registeredArtifact(f)
+    await completeAs(third, {
+      artifact: { artifactId: thirdRegistration.artifact.id, grantId: thirdRegistration.grantId },
+      artifactPolicy: 'require',
+      channelId,
+      summary: 'lumen three',
+    })
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      thirdRegistration.grantId
+    )
+    const walkPathTwo = await measure()
+    // Growth is per publication a surface gates, never per ordinary message.
+    for (const surface of Object.keys(ordinaryFew) as (keyof typeof ordinaryFew)[]) {
+      expect(hiddenMany[surface]).toBeGreaterThanOrEqual(ordinaryMany[surface])
+      expect(walkPathTwo[surface]).toBeGreaterThanOrEqual(walkPath[surface])
+    }
   })
 })

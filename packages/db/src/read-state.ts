@@ -18,7 +18,6 @@ import {
   readHiddenUnreadPublications,
   readVisibleTopLevelFrontiers,
 } from './job-outbound-frontier'
-import { filterVisibleJobOutboundRows } from './job-outbound-read'
 import {
   channelParticipants,
   channelReadStates,
@@ -477,12 +476,7 @@ export async function markThreadReadState(
   await database.transaction(async (transaction) => {
     await requireChannel(transaction, workspaceId, channelId, principal)
     const [root] = await transaction
-      .select({
-        executionRef: messages.executionRef,
-        id: messages.id,
-        senderKind: messages.senderKind,
-        senderSystemId: messages.senderSystemId,
-      })
+      .select({ id: messages.id })
       .from(messages)
       .where(
         and(
@@ -493,10 +487,10 @@ export async function markThreadReadState(
         )
       )
       .limit(1)
+    // The root's visibility does not gate its thread: a reply is an ordinary message that
+    // history, counts, search and notifications show regardless of the root, so the thread
+    // can be marked read. A hidden publication affects only itself.
     if (!root) throw new Error('Read state unavailable')
-    // A job publication root is marked only while the principal is authorized for it.
-    const authorizedRoot = await filterVisibleJobOutboundRows(transaction, [root], principal.userId)
-    if (!authorizedRoot.length) throw new Error('Read state unavailable')
     const latest = await latestThreadSequence(
       transaction,
       workspaceId,

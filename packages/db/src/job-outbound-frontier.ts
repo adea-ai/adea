@@ -103,9 +103,12 @@ async function walkVisibleFrom(
       .orderBy(desc(messages.sequence))
       .limit(WALK_BATCH)
     if (!batch.length) return 0
-    const authorized = await authorizedPublicationIds(database, principal.userId, batch)
+    // Newest first, and each publication gated only when reached: the walk stops at the first
+    // ordinary message or visible publication, so it never gates the rest of the batch.
     for (const row of batch) {
-      if (!isPublication(row) || authorized.has(row.id)) return row.sequence
+      if (!isPublication(row)) return row.sequence
+      if ((await authorizedPublicationIds(database, principal.userId, [row])).has(row.id))
+        return row.sequence
     }
     cursor = batch.at(-1)!.sequence
   }
