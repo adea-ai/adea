@@ -35,7 +35,7 @@ user IDs or workspace foreign keys.
 (M18.02, #1221). Periods are unset until approved, so every deletion is refused by default.
 Verified completion needs trusted delete and read-check receipts for every required coverage kind.
 Durable holds, deletion authority, and cleanup receipts live in `retention_*` tables
-(migration 0047). `src/retention-cleanup.ts` composes the gate over them. Both are described
+(migration 0052). `src/retention-cleanup.ts` composes the gate over them. Both are described
 in the [retention policy guide](../../docs/guides/retention-policy.md).
 
 ## Migration workflow

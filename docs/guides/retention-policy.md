@@ -66,7 +66,7 @@ candidates throw `RetentionPolicyError` with a code only.
 
 ## Durable storage and the stored gate
 
-Migration `0047_retention_cleanup_authority` adds three tables, and
+Migration `0052_retention_cleanup_authority` adds three tables, and
 `packages/db/src/retention-cleanup.ts` composes the pure gate over them:
 
 - `retention_holds`: active while `released_at` is null.
@@ -99,6 +99,14 @@ Time is the database clock. Every operation for one subject takes the same
 transaction-scoped advisory lock. Artifact gates lock the artifact row first, in
 the order reference registration uses. Active references for artifacts are the
 live rows of `artifact_reference_grants`.
+
+Numbering: 0052 is reserved for retention after the canonical 0047-0051 chain
+(#1229, #1230, #1232, #1244). Its journal `when` is later than 0051's, which
+drizzle requires for the migration to be applied on an upgraded database. The
+snapshot chains to the canonical 0051 snapshot, so it is valid only once that
+chain lands unchanged. Until then, do not run `db:generate` on this branch: the
+branch source does not contain the canonical group and rollback schema, so a
+diff would propose dropping those tables.
 
 ## Not implemented here
 
