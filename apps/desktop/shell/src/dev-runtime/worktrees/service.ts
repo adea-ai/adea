@@ -82,7 +82,7 @@ import {
 import {
   buildCleanupPlan,
   canonicalPlanJson,
-  DESTRUCTIVE_CLEANUP_STEPS,
+  cleanupSelectionBlocked,
   factsChanged,
   type CleanupFacts,
   type CleanupPlan,
@@ -1613,11 +1613,9 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     refusePrimary(recordAtPlan, 'cleaned up')
     const repo = findRepo(input.scope, recordAtPlan.repoId)
     await proveRepoLayout(repo)
-    // A destructive step may only run from a blocker-free plan.
-    if (
-      input.plan.blockers.length > 0 &&
-      input.plan.selectedSteps.some((step) => DESTRUCTIVE_CLEANUP_STEPS.includes(step))
-    ) {
+    // A destructive step may only run from a blocker-free plan; the one
+    // canonical selection gate is shared with the preview.
+    if (cleanupSelectionBlocked(input.plan.blockers, input.plan.selectedSteps)) {
       throw new WorktreeError(
         'cleanup_blocked',
         `cleanup is blocked by ${input.plan.blockers.length} preflight condition(s): ` +

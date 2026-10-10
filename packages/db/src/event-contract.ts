@@ -64,6 +64,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'channel.archived': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.created': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.read': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
+  'channel.restored': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.unread': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'channel.updated': { schemaVersion: 2, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'content.availability_changed': {
@@ -87,6 +88,7 @@ export const WORKSPACE_EVENT_CONTRACTS = {
     aggregateIdKey: 'projectId',
   },
   'project.reordered': { schemaVersion: 1, aggregateType: 'project' },
+  'project.restored': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
   'project.updated': { schemaVersion: 1, aggregateType: 'project', aggregateIdKey: 'projectId' },
   'project.visibility_changed': {
     schemaVersion: 1,

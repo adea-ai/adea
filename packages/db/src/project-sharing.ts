@@ -5,10 +5,11 @@ import type {
   ProjectVisibility,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { canReadProject, requireProjectAccessScope } from './project-access'
+import { projectSummary } from './project-summary'
 import { projectMembers, projects, users, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
@@ -75,7 +76,11 @@ export async function setProjectVisibility(
         ? [project]
         : await transaction
             .update(projects)
-            .set({ updatedAt: new Date(), visibility })
+            .set({
+              updatedAt: new Date(),
+              version: sql`${projects.version} + 1`,
+              visibility,
+            })
             .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
             .returning()
     if (!updated) throw new Error(UNAVAILABLE)
@@ -86,18 +91,7 @@ export async function setProjectVisibility(
         workspaceId,
       })
     }
-    return Object.freeze({
-      createdAt: updated.createdAt.toISOString(),
-      iconKey: updated.iconKey,
-      id: updated.id,
-      lifecycleState: updated.lifecycleState,
-      name: updated.name,
-      sortOrder: updated.sortOrder,
-      sourceKind: updated.sourceKind,
-      updatedAt: updated.updatedAt.toISOString(),
-      visibility: updated.visibility,
-      workspaceId: updated.workspaceId,
-    })
+    return projectSummary(updated)
   })
 }
 
