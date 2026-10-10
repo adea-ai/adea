@@ -1,17 +1,23 @@
+import { randomUUID } from 'node:crypto'
+
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiChannelResponse } from '@adea-ai/api-client'
+import type { GroupAudienceGrant, GroupAgentEnlistmentGrant } from '@adea-ai/types'
 import {
   createDirectAgentChannel,
   createDirectAgentTopic,
-  createGroupChannel,
+  createGroupChannelWithGrants,
   createProjectChannel,
+  groupCreationCandidatesFromGrants,
   listChannelsForUser,
 } from '@adea-ai/db'
 
 import {
   conversationErrorResponse,
   isConversationUuid,
+  parseGroupAudienceGrant,
+  parseGroupEnlistmentGrant,
 } from '../../../../../../server/conversation-request'
 import { applicationDatabase } from '../../../../../../server/database'
 import {
@@ -110,11 +116,72 @@ async function post(request: Request, { params }: Context) {
         )
       }
     } else {
-      channel = await createGroupChannel(applicationDatabase(), workspaceId, resolution.principal, {
-        idempotencyKey,
-        ...(isConversationUuid(body.taskId) ? { taskId: body.taskId } : {}),
-        title: body.title,
-      })
+      // Grant-gated groups: task bindings are rejected (groups isolate from
+      // task authority), the creator is founded explicitly, and every extra
+      // participant needs an explicit grant already bound to the new group.
+      if (
+        body.taskId !== undefined ||
+        Object.keys(body).some(
+          (key) =>
+            !['kind', 'title', 'channelId', 'audienceGrants', 'enlistmentGrants'].includes(key)
+        )
+      )
+        return workspaceInvalidRequestResponse(request)
+      const channelId =
+        body.channelId !== undefined
+          ? isConversationUuid(body.channelId)
+            ? (body.channelId as string)
+            : null
+          : randomUUID()
+      const audienceInputs = Array.isArray(body.audienceGrants) ? body.audienceGrants : []
+      const enlistmentInputs = Array.isArray(body.enlistmentGrants) ? body.enlistmentGrants : []
+      if (
+        channelId === null ||
+        (!Array.isArray(body.audienceGrants) && body.audienceGrants !== undefined) ||
+        (!Array.isArray(body.enlistmentGrants) && body.enlistmentGrants !== undefined) ||
+        audienceInputs.length + enlistmentInputs.length > 100
+      )
+        return workspaceInvalidRequestResponse(request)
+      const audienceGrants: GroupAudienceGrant[] = []
+      for (const input of audienceInputs) {
+        const grant = parseGroupAudienceGrant(input)
+        if (!grant || grant.groupId !== channelId) return workspaceInvalidRequestResponse(request)
+        audienceGrants.push(grant)
+      }
+      const enlistmentGrants: GroupAgentEnlistmentGrant[] = []
+      for (const input of enlistmentInputs) {
+        const grant = parseGroupEnlistmentGrant(input)
+        if (!grant || grant.groupId !== channelId) return workspaceInvalidRequestResponse(request)
+        enlistmentGrants.push(grant)
+      }
+      const issuedAt = new Date().toISOString()
+      const created = await createGroupChannelWithGrants(
+        applicationDatabase(),
+        workspaceId,
+        resolution.principal,
+        {
+          candidates: groupCreationCandidatesFromGrants(workspaceId, {
+            audienceGrants: [
+              {
+                expiresAt: null,
+                grantId: `founder-${resolution.principal.userId}`,
+                groupId: channelId,
+                issuedAt,
+                participant: resolution.principal,
+                revision: 1,
+                revokedAt: null,
+              },
+              ...audienceGrants,
+            ],
+            enlistmentGrants,
+          }),
+          channelId,
+          idempotencyKey,
+          now: issuedAt,
+          title: body.title,
+        }
+      )
+      channel = created.channel
     }
     const payload: ApiChannelResponse = { channel }
     return workspaceJsonResponse(payload, resolution, request, { status: 201 })

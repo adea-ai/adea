@@ -1,5 +1,5 @@
 import type { ProjectSourceKind, ProjectSummary, UserPrincipalRef } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNull, max } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
@@ -11,7 +11,9 @@ import {
   resolveProjectAccessScope,
   visibleProjectCondition,
 } from './project-access'
-import { channels, projects, workspaceMemberships } from './schema'
+import { archiveProjectChannels, lockProjectForStateChange } from './project-state-policy'
+import { projectSummary } from './project-summary'
+import { projects, workspaceMemberships } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
 type ProjectCreateInput = Readonly<{
@@ -40,21 +42,6 @@ export function isProjectSourceKind(value: unknown): value is ProjectSourceKind 
 
 export function isProjectId(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value)
-}
-
-function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
-  return Object.freeze({
-    createdAt: row.createdAt.toISOString(),
-    iconKey: row.iconKey,
-    id: row.id,
-    lifecycleState: row.lifecycleState,
-    name: row.name,
-    sortOrder: row.sortOrder,
-    sourceKind: row.sourceKind,
-    updatedAt: row.updatedAt.toISOString(),
-    visibility: row.visibility,
-    workspaceId: row.workspaceId,
-  })
 }
 
 async function requireMembership(
@@ -225,6 +212,7 @@ export async function updateProject(
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
         ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
         updatedAt: new Date(),
+        version: sql`${projects.version} + 1`,
       })
       .where(activeProjectFilter(workspaceId, projectId))
       .returning()
@@ -236,35 +224,6 @@ export async function updateProject(
     })
     return projectSummary(updated)
   })
-}
-
-async function archiveProjectChannels(
-  transaction: AgentHqTransaction,
-  workspaceId: string,
-  projectId: string,
-  principal: UserPrincipalRef
-) {
-  const projectChannels = await transaction
-    .select({ id: channels.id, version: channels.version })
-    .from(channels)
-    .where(
-      and(
-        eq(channels.workspaceId, workspaceId),
-        eq(channels.projectId, projectId),
-        eq(channels.lifecycleState, 'active')
-      )
-    )
-  for (const channel of projectChannels) {
-    await transaction
-      .update(channels)
-      .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
-      .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
-    await appendWorkspaceEvent(transaction, {
-      eventType: 'channel.archived',
-      payload: { actorUserId: principal.userId, channelId: channel.id, projectId },
-      workspaceId,
-    })
-  }
 }
 
 export async function archiveProject(
@@ -282,10 +241,17 @@ export async function archiveProject(
       'Project unavailable'
     )
     requireProjectWrite(scope, projectId, 'Project unavailable')
+    // Project lock first, then channels in id order (the canonical order
+    // shared with soft delete and promotion).
+    await lockProjectForStateChange(transaction, workspaceId, projectId)
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const [archived] = await transaction
       .update(projects)
-      .set({ lifecycleState: 'archived', updatedAt: new Date() })
+      .set({
+        lifecycleState: 'archived',
+        updatedAt: new Date(),
+        version: sql`${projects.version} + 1`,
+      })
       .where(activeProjectFilter(workspaceId, projectId))
       .returning({ id: projects.id })
     if (!archived) throw new Error('Project unavailable')
@@ -317,11 +283,18 @@ export async function softDeleteProject(
       'Project unavailable'
     )
     requireProjectWrite(scope, projectId, 'Project unavailable')
+    // Same canonical order as archive: project row, then its channels.
+    await lockProjectForStateChange(transaction, workspaceId, projectId)
     await archiveProjectChannels(transaction, workspaceId, projectId, principal)
     const now = new Date()
     const [deleted] = await transaction
       .update(projects)
-      .set({ deletedAt: now, lifecycleState: 'archived', updatedAt: now })
+      .set({
+        deletedAt: now,
+        lifecycleState: 'archived',
+        updatedAt: now,
+        version: sql`${projects.version} + 1`,
+      })
       .where(
         and(
           eq(projects.id, projectId),
@@ -373,7 +346,11 @@ export async function reorderProjects(
     for (const [index, projectId] of projectIds.entries()) {
       await transaction
         .update(projects)
-        .set({ sortOrder: slots[index]!, updatedAt: new Date() })
+        .set({
+          sortOrder: slots[index]!,
+          updatedAt: new Date(),
+          version: sql`${projects.version} + 1`,
+        })
         .where(and(eq(projects.id, projectId), eq(projects.workspaceId, workspaceId)))
     }
     await appendWorkspaceEvent(transaction, {

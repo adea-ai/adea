@@ -13,6 +13,8 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /** Exact requested lead choice from the immutable intent; null or absent means workspace default. */
+  requestedLeadSelection?: Readonly<{ selectionRef: string; selectionRevision: number }> | null
 }>
 export type LeadRuntimeBinding = Readonly<{
   schemaVersion: 'pi-lead-dispatch/v1'
@@ -121,6 +123,19 @@ function binding(value: unknown, intentId: string, prior?: LeadRuntimeStored): L
     runtimeSessionId: value.runtimeSessionId as string,
   }
 }
+const REQUESTED_MODEL_MISMATCH = 'REQUESTED_MODEL_MISMATCH'
+/** A requested lead choice is exact: any other prepared selection or revision is not admissible. */
+function requestedLeadMatches(
+  authority: LeadRuntimeAuthority,
+  value: Readonly<{ selectionRef: string; selectionRevision: number }>
+) {
+  const requested = authority.requestedLeadSelection
+  return (
+    !requested ||
+    (requested.selectionRef === value.selectionRef &&
+      requested.selectionRevision === value.selectionRevision)
+  )
+}
 function prepared(value: LeadPreparedSelection, authority: LeadRuntimeAuthority, now: Date) {
   if (
     value.intentId !== authority.intentId ||
@@ -206,7 +221,9 @@ export function createLeadTurnRuntime(
         scope,
         error instanceof Error && error.message === 'RUNTIME_RESPONSE_INVALID'
           ? 'RUNTIME_RESPONSE_INVALID'
-          : 'RUNTIME_UNAVAILABLE'
+          : error instanceof Error && error.message === REQUESTED_MODEL_MISMATCH
+            ? 'REQUESTED_MODEL_MISMATCH'
+            : 'RUNTIME_UNAVAILABLE'
       )
     }
   }
@@ -216,7 +233,10 @@ export function createLeadTurnRuntime(
       const authority = await store.authorize(scope, true)
       if (!adapter?.prepare) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       return guarded(scope, async () => {
-        await store.prepare(scope, prepared(await adapter.prepare!(authority), authority, now()))
+        const selected = prepared(await adapter.prepare!(authority), authority, now())
+        // Refuse before any preparation is stored: the runtime may not substitute another model.
+        if (!requestedLeadMatches(authority, selected)) throw new Error(REQUESTED_MODEL_MISMATCH)
+        await store.prepare(scope, selected)
       })
     },
     async dispatch(scope: LeadRuntimeScope) {
@@ -249,6 +269,7 @@ export function createLeadTurnRuntime(
           authority,
           now()
         )
+        if (!requestedLeadMatches(authority, accepted)) throw new Error(REQUESTED_MODEL_MISMATCH)
         const pin = prepared(
           await options.authorizeConfirmedStart!(authority, accepted),
           authority,

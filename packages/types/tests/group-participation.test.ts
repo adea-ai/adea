@@ -21,6 +21,8 @@ describe('group participation type contracts', () => {
 
   test('enumerates every creation rejection reason', () => {
     expect(groupCreationRejectionReasons).toEqual([
+      'agent_inactive',
+      'agent_unknown',
       'audience_empty',
       'audience_requires_human',
       'duplicate_participant',
@@ -32,6 +34,7 @@ describe('group participation type contracts', () => {
       'grant_not_yet_issued',
       'grant_revision_invalid',
       'grant_revoked',
+      'grant_workspace_mismatch',
       'group_id_missing',
       'group_workspace_missing',
       'participant_cross_tenant',
