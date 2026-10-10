@@ -2774,7 +2774,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await threadCount()).toBe(12)
     const many = await measure()
     expect(many).toEqual(few)
-  }, 300_000)
+  })
 
   test('a search fills its window from the messages the reader may see: hidden publications take no place in it', async () => {
     const f = await fixture({ complete: false })
@@ -2810,7 +2810,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(
       page.results.flatMap((result) => (result.kind === 'message' ? [result.id] : []))
     ).toEqual([visible.id])
-  }, 120_000)
+  })
 
   test('an encrypted reply in a hidden thread is not reported as a private result while the thread is hidden', async () => {
     const f = await fixture()
@@ -2909,5 +2909,5 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const hidden = await measureSurfaces(f)
     for (const surface of Object.keys(baseline) as (keyof typeof baseline)[])
       expect(hidden[surface] - baseline[surface]).toBeLessThanOrEqual(gates * STATEMENTS_PER_GATE)
-  }, 900_000)
+  })
 })
