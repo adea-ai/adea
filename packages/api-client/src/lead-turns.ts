@@ -1,3 +1,9 @@
+/** Requested immutable metadata refs; never accepted execution or funding authority. */
+export type ApiRequestedRoleModelSelections = Readonly<{
+  lead?: Readonly<{ selectionRef: string; selectionRevision: number }>
+  child?: Readonly<{ selectionRef: string; selectionRevision: number }>
+}>
+
 /** Product projection; runtime state is observed, never inferred from Message persistence. */
 export type LeadTurnRuntimeState =
   | 'starting'
@@ -16,6 +22,7 @@ export type LeadTurnReasonCode =
   | 'RUNTIME_RESPONSE_INVALID'
   | 'PUBLICATION_WITHHELD'
   | 'FUNDING_CONFIRMATION_REQUIRED'
+  | 'REQUESTED_MODEL_MISMATCH'
 export type ApiLeadTurnStatus = Readonly<{
   schemaVersion: 'adea-lead-turn/v1'
   intentId: string

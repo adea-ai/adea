@@ -26,6 +26,14 @@ export function leadTurnPresentation(turn: ApiLeadTurnStatus | null, preparation
         text: 'Answer publication is withheld by current authorization. Refresh checks the existing outcome without starting another model call. Your saved message and draft are preserved.',
       },
     }
+  if (turn.reasonCode === 'REQUESTED_MODEL_MISMATCH')
+    return {
+      label: labels[turn.state],
+      notice: {
+        kind: 'model',
+        text: 'The model you chose could not be prepared, so nothing ran and no other model was substituted. Choose a model again or use the workspace default. Your saved message and draft are preserved.',
+      },
+    }
   if (turn.state === 'blocked')
     return {
       label: labels[turn.state],

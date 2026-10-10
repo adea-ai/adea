@@ -8,6 +8,7 @@ export function createComposerSubmissionIdentity(createKey: () => string) {
       bodyText: string
       artifactIds: readonly string[]
       mentions: readonly unknown[]
+      submissionContext?: string
     }) {
       const next = JSON.stringify(input)
       if (next !== signature) {

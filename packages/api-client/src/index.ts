@@ -178,6 +178,7 @@ export type ApiAccountSummaryResponse = AccountSummary
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type {
   ApiLeadTurnStatus,
+  ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,
   ApiChannelLeadTurnResponse,
   ApiLeadTurnProgress,
@@ -210,6 +211,7 @@ export type ApiMessagePage = Readonly<{
 export type ApiMessageCreateInput = Readonly<{
   /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
   leadTurn?: true
+  requestedModelSelections?: import('./lead-turns').ApiRequestedRoleModelSelections
   artifactIds?: readonly string[]
   bodyContentRefId?: string
   bodyText?: string
@@ -246,6 +248,17 @@ export type ApiProjectUpdateInput = Readonly<{
   iconKey?: string
   name?: string
   sourceKind?: ProjectSourceKind
+}>
+
+/**
+ * Explicit project-state promotion (archived → active). `expectedVersion` is
+ * the integer `ProjectSummary.version` the caller observed and `confirmed` is
+ * the owner's opt-in; neither has a default, so an unconfirmed or stale call
+ * fails.
+ */
+export type ApiProjectRestoreInput = Readonly<{
+  confirmed: true
+  expectedVersion: number
 }>
 
 export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>
@@ -1043,6 +1056,22 @@ export class AgentHqApiClient {
     return this.request<ApiProjectArchiveResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
       { method: 'DELETE' }
+    )
+  }
+
+  /** Explicitly promote an archived project back to active at the observed revision. */
+  async restoreProject(
+    workspaceId: string,
+    projectId: string,
+    input: ApiProjectRestoreInput
+  ): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/restore`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
     )
   }
 

@@ -33,6 +33,7 @@ export function MessageComposer(props: {
   channelId: string
   disabled?: boolean
   draft: string
+  submissionContext?: string
   onDraftChange: (value: string) => void
   onSubmit: (submission: ComposerSubmission) => Promise<void | ComposerSubmissionOutcome>
   /** The thread this composer replies to, drawn as the shared reply strip. */
@@ -84,7 +85,11 @@ export function MessageComposer(props: {
       }
       const outcome = await props.onSubmit({
         ...content,
-        idempotencyKey: submissionIdentity.key({ channelId, ...content }),
+        idempotencyKey: submissionIdentity.key({
+          channelId,
+          ...content,
+          submissionContext: props.submissionContext,
+        }),
       })
       if (
         !disposed &&

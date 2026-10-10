@@ -29,9 +29,21 @@ if (process.argv.includes('--plan')) {
   process.exit(0)
 }
 
-function run(command, args, environment) {
+// The opt-in joined proof (apps/web/test/control-plane-joined) mounts one pinned control-plane
+// checkout. It is not part of the default lanes: `--control-plane-joined` runs only that proof,
+// on this lane's provisioning, and a missing checkout fails the run instead of skipping it.
+const controlPlaneJoined = process.argv.includes('--control-plane-joined')
+const controlPlaneJoinedDirectory = resolve(root, 'apps', 'web', 'test', 'control-plane-joined')
+const controlPlaneSource = process.env.ADEA_CONTROL_PLANE_SOURCE
+if (controlPlaneJoined && !controlPlaneSource) {
+  throw new Error(
+    'ADEA_CONTROL_PLANE_SOURCE must name a checkout of the pinned control-plane revision (apps/web/test/control-plane-joined/control-plane-source.json)'
+  )
+}
+
+function run(command, args, environment, cwd = root) {
   const result = spawnSync(command, args, {
-    cwd: root,
+    cwd,
     encoding: 'utf8',
     env: environment,
     stdio: 'inherit',
@@ -239,27 +251,9 @@ try {
     )
   }
 
-  run(
-    'bun',
-    [
-      '--conditions=react-server',
-      'test',
-      '--timeout',
-      String(timeoutMs),
-      ...plan.packageFiles.map((file) => resolve(root, file)),
-    ],
-    environment
-  )
-  // The route flow imports the compiled @adea-ai/api-client entry (the package
-  // suites above read their own src relatively; the database entry is already
-  // built before provisioning), so it must be built on a clean checkout before
-  // the route tests run. Like the builds above, this keeps integration
-  // runnable independently from a workspace-wide turbo build.
-  if (plan.routeFiles.length > 0) {
-    run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
-    // The apps/web route-flow tests run under the react-server export condition, which the runner
-    // supplies: the route modules carry the `server-only` marker and cannot initialize under bun's
-    // default conditions. The shared database environment and the same latency-sized ceiling apply.
+  if (controlPlaneJoined) {
+    // Run from the control-plane checkout so its sources compile under its own TypeScript
+    // configuration (decorators); the Adea modules load by relative path from this directory.
     run(
       'bun',
       [
@@ -267,10 +261,45 @@ try {
         '--conditions=react-server',
         '--timeout',
         String(timeoutMs),
-        ...plan.routeFiles.map((file) => resolve(root, file)),
+        controlPlaneJoinedDirectory,
+      ],
+      { ...environment, ADEA_CONTROL_PLANE_SOURCE: controlPlaneSource },
+      controlPlaneSource
+    )
+  } else {
+    run(
+      'bun',
+      [
+        '--conditions=react-server',
+        'test',
+        '--timeout',
+        String(timeoutMs),
+        ...plan.packageFiles.map((file) => resolve(root, file)),
       ],
       environment
     )
+    // The route flow imports the compiled @adea-ai/api-client entry (the package
+    // suites above read their own src relatively; the database entry is already
+    // built before provisioning), so it must be built on a clean checkout before
+    // the route tests run. Like the builds above, this keeps integration
+    // runnable independently from a workspace-wide turbo build.
+    if (plan.routeFiles.length > 0) {
+      run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+      // The apps/web route-flow tests run under the react-server export condition, which the runner
+      // supplies: the route modules carry the `server-only` marker and cannot initialize under bun's
+      // default conditions. The shared database environment and the same latency-sized ceiling apply.
+      run(
+        'bun',
+        [
+          'test',
+          '--conditions=react-server',
+          '--timeout',
+          String(timeoutMs),
+          ...plan.routeFiles.map((file) => resolve(root, file)),
+        ],
+        environment
+      )
+    }
   }
 } catch (error) {
   primaryFailure = error
