@@ -1,83 +1,55 @@
-// Read-only legacy snapshot capture for explicitly versioned historical schemas (#1222).
+// Read-only capture of an explicitly versioned historical schema (#1222).
 //
-// The canonical capture (`captureMigrationSnapshot`, #1248) projects today's typed schema. On a
-// database that has not yet applied a later migration, a typed projection can name a column or a
-// relation the database does not have, so the capture cannot run there. This module reads the same
-// contract records with explicit SQL, but only for a schema version that is registered here and
-// verified against the database before a single row is read:
+// The canonical capture (`captureMigrationSnapshot`, #1248) reads the 20 families registered here
+// correctly on a database that stops before 0046; the populated parity proof is in
+// migration-cutover-rehearsal.test.ts. What the canonical capture does not do is say which schema it
+// read, or refuse a schema it was not written for. This module adds exactly that, around the
+// canonical readers, and nothing else:
 //
-//   1. the version id is known (an unknown id is refused);
-//   2. the applied migration metadata matches the registered journal prefix (count and digest);
-//   3. every column the version's readers name exists (a missing one is refused, by name);
-//   4. the application-schema catalog fingerprint matches the registered version (drift is refused).
+//   1. the requested version is registered;
+//   2. the applied migrations are exactly the registered prefix (count and digest);
+//   3. every column the verification manifest names exists;
+//   4. the application-schema catalog matches the registered fingerprint;
+//   5. only then, the canonical capture runs over the verified schema.
 //
-// Nothing is substituted. A family the historical schema does not define is reported as
-// `absentBySchema` (the schema defines no table for it), and a family this path does not read is
-// reported as `notInLegacyRegistry`. Both are absent from the document, which the comparator reads
-// as an unknown domain, never as zero records. Records keep the #1248 contract shape, so the same
-// comparator compares a legacy `before` document with a canonical `after` document.
+// Steps 2 to 5 run in one repeatable-read, read-only transaction, so the schema that was verified is
+// the schema that was read. Provenance reports what was captured, what is absent by schema, and what
+// this path does not read. A family is never reported as empty when it was not read.
 
 import { createHash } from 'node:crypto'
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 
-import {
-  MIGRATION_SNAPSHOT_FORMAT_VERSION,
-  MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION,
-  migrationSnapshotFamilies,
-  type MigrationSnapshotDocument,
-  type MigrationSnapshotFamily,
-  type MigrationSnapshotIdentity,
-  type MigrationSnapshotRecord,
-  type MigrationSnapshotSection,
-  type MigrationSnapshotSections,
-} from '@adea-ai/types'
+import type { MigrationSnapshotDocument, MigrationSnapshotFamily } from '@adea-ai/types'
 
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
-  collectBoundedRecords,
+  captureMigrationSnapshotInTransaction,
   MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG,
-  migrationSnapshotEventPayloadDigestField,
+  requireCaptureBound,
+  requireCaptureIdentity,
   type MigrationSnapshotCaptureIdentityInput,
 } from './migration-snapshot-capture'
 
-type Row = Readonly<Record<string, unknown>>
-
-/** The statement capability the readers share: a database or a read-only transaction. */
-type Executor = Pick<AgentHqDatabase, 'execute'>
-
-/** A read the historical reader performs: one table and the columns it names. */
-type FamilyReads = Readonly<Record<string, readonly string[]>>
-
-type FamilyReader = Readonly<{
-  reads: FamilyReads
-  fetch: (limit: number, offset: number) => SQL
-  toRecord: (row: Row, capturedAt: Date) => MigrationSnapshotRecord
-}>
-
-/** The historical schema's migration metadata: where it lives and what it must contain. */
-type MigrationMetadata = Readonly<{
-  schema: string
-  table: string
-  count: number
-  /** sha256 over the applied migration hashes, in journal order, joined by newlines. */
-  digest: string
-}>
+const APP = 'app'
 
 /** A family the historical schema does not define: its table must be absent, and the reason is schema-defined. */
 export type AbsentFamily = Readonly<{ table: string; reason: string }>
 
 export type LegacySchemaVersion = Readonly<{
   id: string
-  /** The journal entry this version ends before (exclusive). */
+  /** The journal entry this version stops before (exclusive). */
   before: string
-  migrations: MigrationMetadata
+  migrations: Readonly<{ schema: string; table: string; count: number; digest: string }>
   /** sha256 over the application schema's (table, column, type, nullability) rows. */
   catalogFingerprint: string
+  /** Columns the canonical readers of the captured families name, by table, verified before any read. */
+  requiredColumns: Readonly<Record<string, readonly string[]>>
+  /** The families the canonical capture reads for this version. */
+  capturedFamilies: readonly MigrationSnapshotFamily[]
   /** Families whose defining table does not exist in this version, with the schema-defined reason. */
   absentBySchema: Readonly<Partial<Record<MigrationSnapshotFamily, AbsentFamily>>>
-  /** Families this legacy path does not read, with the reason (unavailable evidence, not zero). */
+  /** Families this path does not read, with the reason (unavailable evidence, never zero). */
   notInLegacyRegistry: Readonly<Partial<Record<MigrationSnapshotFamily, string>>>
-  readers: Readonly<Partial<Record<MigrationSnapshotFamily, FamilyReader>>>
 }>
 
 export type LegacySnapshotRefusalCode =
@@ -85,8 +57,9 @@ export type LegacySnapshotRefusalCode =
   | 'migration_metadata_mismatch'
   | 'missing_required_column'
   | 'unknown_schema_version'
+  | 'registry_family_not_captured'
 
-/** A refusal is typed and carries no partial document. */
+/** A typed refusal. It carries no partial document. */
 export class LegacySnapshotRefusal extends Error {
   readonly code: LegacySnapshotRefusalCode
 
@@ -104,7 +77,7 @@ export type LegacySnapshotProvenance = Readonly<{
   captured: readonly MigrationSnapshotFamily[]
   absentBySchema: Readonly<Partial<Record<MigrationSnapshotFamily, AbsentFamily>>>
   notInLegacyRegistry: Readonly<Partial<Record<MigrationSnapshotFamily, string>>>
-  /** The per-family limit the sections were captured under. */
+  /** The per-family bound the sections were captured under. */
   limit: number
 }>
 
@@ -113,587 +86,45 @@ export type LegacySnapshotCaptureResult = Readonly<{
   provenance: LegacySnapshotProvenance
 }>
 
-const APP = 'app'
+/** The statement capability the verification shares: a database or a transaction. */
+type Executor = Pick<AgentHqDatabase, 'execute'>
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
 }
 
-function ident(name: string) {
-  return sql.identifier(name)
-}
-
-function columnList(columns: readonly string[]): SQL {
-  return sql.join(
-    columns.map((column) => ident(column)),
-    sql`, `
-  )
-}
-
-function qualified(table: string): SQL {
-  return sql`${ident(APP)}.${ident(table)}`
-}
-
-/** A plain one-table reader: explicit columns, explicit ordering, bounded by `limit`/`offset`. */
-function singleTable(table: string, columns: readonly string[], orderBy: readonly string[]) {
-  return (limit: number, offset: number): SQL =>
-    sql`select ${columnList(columns)} from ${qualified(table)} order by ${columnList(orderBy)} limit ${limit} offset ${offset}`
-}
-
-/** Driver integers arrive as strings for bigint columns; a value outside the safe range stays a string. */
-function numberOf(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
-  return Number.isSafeInteger(parsed) ? parsed : (value as number)
-}
-
-function nullableText(value: unknown): string | null {
-  return value === null || value === undefined ? null : (value as string)
-}
-
-function invitationState(row: Row, now: Date): 'accepted' | 'expired' | 'pending' | 'revoked' {
-  if (row.accepted_at) return 'accepted'
-  if (row.revoked_at) return 'revoked'
-  // Raw driver rows carry timestamps as text; the comparison is on the instant, not the text.
-  const expiresAt =
-    row.expires_at instanceof Date ? row.expires_at : new Date(String(row.expires_at))
-  return expiresAt.getTime() <= now.getTime() ? 'expired' : 'pending'
-}
-
 /**
- * The 0000–0045 schema: main before `0046_artifact_reference_grants`. Its tables and columns were
- * read from a database migrated to exactly that prefix, and the readers name only those columns.
+ * The 0000–0045 schema: main before `0046_artifact_reference_grants`. The captured families were
+ * verified to read through the canonical capture on a database migrated to exactly that prefix (the
+ * populated parity proof). The catalog fingerprint and migration digest were read from that database.
  */
-const PRE_0046_READERS: Partial<Record<MigrationSnapshotFamily, FamilyReader>> = {
-  agents: {
-    reads: { agents: ['id', 'lifecycle_state', 'project_id', 'workspace_id'] },
-    fetch: singleTable('agents', ['id', 'lifecycle_state', 'project_id', 'workspace_id'], ['id']),
-    toRecord: (row) =>
-      ({
-        agentId: row.id,
-        family: 'agents',
-        lifecycleState: row.lifecycle_state,
-        projectId: nullableText(row.project_id),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  channelParticipants: {
-    reads: {
-      channel_participants: ['agent_id', 'channel_id', 'principal_kind', 'user_id', 'workspace_id'],
-    },
-    fetch: singleTable(
-      'channel_participants',
-      ['agent_id', 'channel_id', 'principal_kind', 'user_id', 'workspace_id'],
-      ['channel_id', 'principal_kind', 'user_id', 'agent_id']
-    ),
-    toRecord: (row) =>
-      ({
-        channelId: row.channel_id,
-        family: 'channelParticipants',
-        principalId: row.user_id ?? row.agent_id,
-        principalKind: row.principal_kind,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  channels: {
-    reads: { channels: ['id', 'project_id', 'visibility', 'workspace_id'] },
-    fetch: singleTable('channels', ['id', 'project_id', 'visibility', 'workspace_id'], ['id']),
-    toRecord: (row) =>
-      ({
-        channelId: row.id,
-        family: 'channels',
-        projectId: nullableText(row.project_id),
-        visibility: row.visibility,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  contentRefs: {
-    reads: {
-      content_refs: [
-        'availability',
-        'digest_sha256',
-        'id',
-        'key_version',
-        'message_id',
-        'revision',
-        'task_id',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'content_refs',
-      [
-        'availability',
-        'digest_sha256',
-        'id',
-        'key_version',
-        'message_id',
-        'revision',
-        'task_id',
-        'workspace_id',
-      ],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        availability: row.availability,
-        contentRefId: row.id,
-        digestSha256: row.digest_sha256,
-        family: 'contentRefs',
-        keyVersion: numberOf(row.key_version),
-        messageId: nullableText(row.message_id),
-        revision: numberOf(row.revision),
-        taskId: nullableText(row.task_id),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  contentReplicas: {
-    reads: {
-      content_replicas: [
-        'availability',
-        'content_ref_id',
-        'deleted_at',
-        'digest_sha256',
-        'id',
-        'replica_kind',
-        'revision',
-        'schema_version',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'content_replicas',
-      [
-        'availability',
-        'content_ref_id',
-        'deleted_at',
-        'digest_sha256',
-        'id',
-        'replica_kind',
-        'revision',
-        'schema_version',
-        'workspace_id',
-      ],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        availability: row.availability,
-        contentRefId: row.content_ref_id,
-        deleted: row.deleted_at !== null && row.deleted_at !== undefined,
-        digestSha256: row.digest_sha256,
-        family: 'contentReplicas',
-        replicaId: row.id,
-        replicaKind: row.replica_kind,
-        revision: numberOf(row.revision),
-        schemaVersion: numberOf(row.schema_version),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  events: {
-    reads: {
-      workspace_events: [
-        'event_type',
-        'id',
-        'payload',
-        'schema_version',
-        'workspace_id',
-        'workspace_sequence',
-      ],
-    },
-    fetch: singleTable(
-      'workspace_events',
-      ['event_type', 'id', 'payload', 'schema_version', 'workspace_id', 'workspace_sequence'],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        eventId: row.id,
-        eventType: row.event_type,
-        family: 'events',
-        payloadDigest: migrationSnapshotEventPayloadDigestField(row.payload),
-        schemaVersion: numberOf(row.schema_version),
-        workspaceId: row.workspace_id,
-        workspaceSequence: numberOf(row.workspace_sequence),
-      }) as MigrationSnapshotRecord,
-  },
-  executionAttempts: {
-    reads: {
-      task_execution_attempts: [
-        'attempt',
-        'location_kind',
-        'runtime_node_id',
-        'task_id',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'task_execution_attempts',
-      ['attempt', 'location_kind', 'runtime_node_id', 'task_id', 'workspace_id'],
-      ['task_id', 'attempt']
-    ),
-    toRecord: (row) =>
-      ({
-        attempt: numberOf(row.attempt),
-        family: 'executionAttempts',
-        locationKind: row.location_kind,
-        runtimeNodeId: nullableText(row.runtime_node_id),
-        taskId: row.task_id,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  identityBindings: {
-    reads: { auth_identities: ['provider', 'subject', 'user_id'] },
-    fetch: singleTable(
-      'auth_identities',
-      ['provider', 'subject', 'user_id'],
-      ['provider', 'subject']
-    ),
-    toRecord: (row) =>
-      ({
-        family: 'identityBindings',
-        provider: row.provider,
-        subject: row.subject,
-        userId: row.user_id,
-      }) as MigrationSnapshotRecord,
-  },
-  invitations: {
-    reads: {
-      workspace_invitations: [
-        'accepted_at',
-        'expires_at',
-        'id',
-        'invited_by_user_id',
-        'revoked_at',
-        'role',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'workspace_invitations',
-      [
-        'accepted_at',
-        'expires_at',
-        'id',
-        'invited_by_user_id',
-        'revoked_at',
-        'role',
-        'workspace_id',
-      ],
-      ['id']
-    ),
-    toRecord: (row, capturedAt) =>
-      ({
-        family: 'invitations',
-        invitationId: row.id,
-        invitedByUserId: row.invited_by_user_id,
-        role: row.role,
-        state: invitationState(row, capturedAt),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  leadTurnRuntime: {
-    reads: {
-      lead_turn_runtime: [
-        'attempt_id',
-        'cancel_requested_at',
-        'execution_id',
-        'intent_id',
-        'published_message_id',
-        'runtime_session_id',
-        'state',
-      ],
-    },
-    fetch: singleTable(
-      'lead_turn_runtime',
-      [
-        'attempt_id',
-        'cancel_requested_at',
-        'execution_id',
-        'intent_id',
-        'published_message_id',
-        'runtime_session_id',
-        'state',
-      ],
-      ['intent_id']
-    ),
-    toRecord: (row) =>
-      ({
-        attemptId: row.attempt_id,
-        cancelRequested: row.cancel_requested_at !== null && row.cancel_requested_at !== undefined,
-        executionId: row.execution_id,
-        family: 'leadTurnRuntime',
-        intentId: row.intent_id,
-        publishedMessageId: nullableText(row.published_message_id),
-        runtimeSessionId: nullableText(row.runtime_session_id),
-        state: row.state,
-      }) as MigrationSnapshotRecord,
-  },
-  memberships: {
-    reads: { workspace_memberships: ['role', 'user_id', 'workspace_id'] },
-    fetch: singleTable(
-      'workspace_memberships',
-      ['role', 'user_id', 'workspace_id'],
-      ['workspace_id', 'user_id']
-    ),
-    toRecord: (row) =>
-      ({
-        family: 'memberships',
-        role: row.role,
-        userId: row.user_id,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  messages: {
-    reads: {
-      messages: ['channel_id', 'deleted_at', 'id', 'thread_root_message_id', 'workspace_id'],
-    },
-    fetch: singleTable(
-      'messages',
-      ['channel_id', 'deleted_at', 'id', 'thread_root_message_id', 'workspace_id'],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        channelId: row.channel_id,
-        deleted: row.deleted_at !== null && row.deleted_at !== undefined,
-        family: 'messages',
-        messageId: row.id,
-        threadRootMessageId: nullableText(row.thread_root_message_id),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  projectMembers: {
-    reads: { project_members: ['project_id', 'role', 'user_id', 'workspace_id'] },
-    fetch: singleTable(
-      'project_members',
-      ['project_id', 'role', 'user_id', 'workspace_id'],
-      ['project_id', 'user_id']
-    ),
-    toRecord: (row) =>
-      ({
-        family: 'projectMembers',
-        projectId: row.project_id,
-        role: row.role,
-        userId: row.user_id,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  projects: {
-    reads: { projects: ['id', 'visibility', 'workspace_id'] },
-    fetch: singleTable('projects', ['id', 'visibility', 'workspace_id'], ['id']),
-    toRecord: (row) =>
-      ({
-        family: 'projects',
-        projectId: row.id,
-        visibility: row.visibility,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  readState: {
-    reads: {
-      channel_read_states: [
-        'channel_id',
-        'last_read_sequence',
-        'manually_unread',
-        'user_id',
-        'workspace_id',
-      ],
-      thread_read_states: [
-        'channel_id',
-        'last_read_sequence',
-        'manually_unread',
-        'thread_root_message_id',
-        'user_id',
-        'workspace_id',
-      ],
-    },
-    fetch: (limit, offset) =>
-      sql`
-        select frontiers.workspace_id, frontiers.user_id, frontiers.channel_id,
-          frontiers.thread_root_message_id, frontiers.last_read_sequence, frontiers.manually_unread
-        from (
-          select ${ident('workspace_id')}, ${ident('user_id')}, ${ident('channel_id')},
-            null::uuid as thread_root_message_id, ${ident('last_read_sequence')}, ${ident('manually_unread')}
-          from ${qualified('channel_read_states')}
-          union all
-          select ${ident('workspace_id')}, ${ident('user_id')}, ${ident('channel_id')},
-            ${ident('thread_root_message_id')}, ${ident('last_read_sequence')}, ${ident('manually_unread')}
-          from ${qualified('thread_read_states')}
-        ) frontiers
-        order by frontiers.workspace_id, frontiers.user_id, frontiers.channel_id,
-          frontiers.thread_root_message_id
-        limit ${limit} offset ${offset}`,
-    toRecord: (row) =>
-      ({
-        channelId: row.channel_id,
-        family: 'readState',
-        lastReadSequence: numberOf(row.last_read_sequence),
-        manuallyUnread: row.manually_unread === true,
-        threadRootMessageId: nullableText(row.thread_root_message_id),
-        userId: row.user_id,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  runtimeNodes: {
-    reads: {
-      runtime_nodes: [
-        'id',
-        'kind',
-        'pairing_state',
-        'platform',
-        'revoked_at',
-        'software_version',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'runtime_nodes',
-      ['id', 'kind', 'pairing_state', 'platform', 'revoked_at', 'software_version', 'workspace_id'],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        family: 'runtimeNodes',
-        kind: row.kind,
-        pairingState: row.pairing_state,
-        platform: row.platform,
-        revoked: row.revoked_at !== null && row.revoked_at !== undefined,
-        runtimeNodeId: row.id,
-        softwareVersion: row.software_version,
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  taskSubmissions: {
-    reads: {
-      task_submissions: [
-        'agent_id',
-        'ciphertext_purged_at',
-        'id',
-        'location_kind',
-        'profile_id',
-        'profile_revision',
-        'profile_version',
-        'runtime_node_id',
-        'state',
-        'task_id',
-        'task_version',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'task_submissions',
-      [
-        'agent_id',
-        'ciphertext_purged_at',
-        'id',
-        'location_kind',
-        'profile_id',
-        'profile_revision',
-        'profile_version',
-        'runtime_node_id',
-        'state',
-        'task_id',
-        'task_version',
-        'workspace_id',
-      ],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        agentId: row.agent_id,
-        ciphertextPurged:
-          row.ciphertext_purged_at !== null && row.ciphertext_purged_at !== undefined,
-        family: 'taskSubmissions',
-        locationKind: row.location_kind,
-        profileId: row.profile_id,
-        profileRevision: numberOf(row.profile_revision),
-        profileVersion: row.profile_version,
-        runtimeNodeId: row.runtime_node_id,
-        state: row.state,
-        submissionId: row.id,
-        taskId: row.task_id,
-        taskVersion: numberOf(row.task_version),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  tasks: {
-    reads: {
-      tasks: [
-        'channel_id',
-        'creator_user_id',
-        'id',
-        'lifecycle_state',
-        'message_id',
-        'project_id',
-        'thread_root_message_id',
-        'version',
-        'workspace_id',
-      ],
-    },
-    fetch: singleTable(
-      'tasks',
-      [
-        'channel_id',
-        'creator_user_id',
-        'id',
-        'lifecycle_state',
-        'message_id',
-        'project_id',
-        'thread_root_message_id',
-        'version',
-        'workspace_id',
-      ],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        channelId: nullableText(row.channel_id),
-        creatorUserId: row.creator_user_id,
-        family: 'tasks',
-        lifecycleState: row.lifecycle_state,
-        messageId: nullableText(row.message_id),
-        projectId: nullableText(row.project_id),
-        taskId: row.id,
-        threadRootMessageId: nullableText(row.thread_root_message_id),
-        version: numberOf(row.version),
-        workspaceId: row.workspace_id,
-      }) as MigrationSnapshotRecord,
-  },
-  temporarySessions: {
-    reads: { temporary_user_sessions: ['claimed_at', 'id', 'user_id'] },
-    fetch: singleTable('temporary_user_sessions', ['claimed_at', 'id', 'user_id'], ['id']),
-    toRecord: (row) =>
-      ({
-        claimed: row.claimed_at !== null && row.claimed_at !== undefined,
-        family: 'temporarySessions',
-        sessionId: row.id,
-        userId: row.user_id,
-      }) as MigrationSnapshotRecord,
-  },
-  workspaces: {
-    reads: {
-      workspaces: ['control_plane_workspace_id', 'deleted_at', 'id', 'owner_user_id'],
-    },
-    fetch: singleTable(
-      'workspaces',
-      ['control_plane_workspace_id', 'deleted_at', 'id', 'owner_user_id'],
-      ['id']
-    ),
-    toRecord: (row) =>
-      ({
-        archived: row.deleted_at !== null && row.deleted_at !== undefined,
-        controlPlaneWorkspaceId: row.control_plane_workspace_id,
-        family: 'workspaces',
-        ownerUserId: row.owner_user_id,
-        workspaceId: row.id,
-      }) as MigrationSnapshotRecord,
-  },
-}
+const PRE_0046_CAPTURED: readonly MigrationSnapshotFamily[] = [
+  'agents',
+  'channelParticipants',
+  'channels',
+  'contentRefs',
+  'contentReplicas',
+  'events',
+  'executionAttempts',
+  'identityBindings',
+  'invitations',
+  'leadTurnRuntime',
+  'memberships',
+  'messages',
+  'projectMembers',
+  'projects',
+  'readState',
+  'runtimeNodes',
+  'taskSubmissions',
+  'tasks',
+  'temporarySessions',
+  'workspaces',
+]
 
 /**
  * The registered historical schemas. A version is selected only when its migration metadata, its
- * required columns and its catalog fingerprint all match the database. The fingerprint and digest are
- * pinned from a database migrated to exactly the prefix; `legacy-snapshot.test.ts` re-derives both.
+ * required columns and its catalog fingerprint all match the database. The digest and fingerprint are
+ * pinned; `migration-snapshot-legacy.test.ts` re-derives both from a database migrated to the prefix.
  */
 export const LEGACY_MIGRATION_SNAPSHOT_VERSIONS: Readonly<Record<string, LegacySchemaVersion>> =
   Object.freeze({
@@ -707,6 +138,128 @@ export const LEGACY_MIGRATION_SNAPSHOT_VERSIONS: Readonly<Record<string, LegacyS
         digest: 'c39ab928239ccc9a60d656baf10236d06666b98fca153c169a492ba22fedd0ed',
       },
       catalogFingerprint: 'a2b90292c3af9aed5d8584e5c0a01792870a8bf57cfba7da4d4ec65388451b67',
+      requiredColumns: {
+        agents: ['id', 'lifecycle_state', 'project_id', 'workspace_id'],
+        auth_identities: ['provider', 'subject', 'user_id'],
+        channel_participants: [
+          'agent_id',
+          'channel_id',
+          'principal_kind',
+          'user_id',
+          'workspace_id',
+        ],
+        channel_read_states: [
+          'channel_id',
+          'last_read_sequence',
+          'manually_unread',
+          'user_id',
+          'workspace_id',
+        ],
+        channels: ['id', 'project_id', 'visibility', 'workspace_id'],
+        content_refs: [
+          'availability',
+          'digest_sha256',
+          'id',
+          'key_version',
+          'message_id',
+          'revision',
+          'task_id',
+          'workspace_id',
+        ],
+        content_replicas: [
+          'availability',
+          'content_ref_id',
+          'deleted_at',
+          'digest_sha256',
+          'id',
+          'replica_kind',
+          'revision',
+          'schema_version',
+          'workspace_id',
+        ],
+        lead_turn_runtime: [
+          'attempt_id',
+          'cancel_requested_at',
+          'execution_id',
+          'intent_id',
+          'published_message_id',
+          'runtime_session_id',
+          'state',
+        ],
+        messages: ['channel_id', 'deleted_at', 'id', 'thread_root_message_id', 'workspace_id'],
+        project_members: ['project_id', 'role', 'user_id', 'workspace_id'],
+        projects: ['id', 'visibility', 'workspace_id'],
+        runtime_nodes: [
+          'id',
+          'kind',
+          'pairing_state',
+          'platform',
+          'revoked_at',
+          'software_version',
+          'workspace_id',
+        ],
+        task_execution_attempts: [
+          'attempt',
+          'location_kind',
+          'runtime_node_id',
+          'task_id',
+          'workspace_id',
+        ],
+        task_submissions: [
+          'agent_id',
+          'ciphertext_purged_at',
+          'id',
+          'location_kind',
+          'profile_id',
+          'profile_revision',
+          'profile_version',
+          'runtime_node_id',
+          'state',
+          'task_id',
+          'task_version',
+          'workspace_id',
+        ],
+        tasks: [
+          'channel_id',
+          'creator_user_id',
+          'id',
+          'lifecycle_state',
+          'message_id',
+          'project_id',
+          'thread_root_message_id',
+          'version',
+          'workspace_id',
+        ],
+        temporary_user_sessions: ['claimed_at', 'id', 'user_id'],
+        thread_read_states: [
+          'channel_id',
+          'last_read_sequence',
+          'manually_unread',
+          'thread_root_message_id',
+          'user_id',
+          'workspace_id',
+        ],
+        workspace_events: [
+          'event_type',
+          'id',
+          'payload',
+          'schema_version',
+          'workspace_id',
+          'workspace_sequence',
+        ],
+        workspace_invitations: [
+          'accepted_at',
+          'expires_at',
+          'id',
+          'invited_by_user_id',
+          'revoked_at',
+          'role',
+          'workspace_id',
+        ],
+        workspace_memberships: ['role', 'user_id', 'workspace_id'],
+        workspaces: ['control_plane_workspace_id', 'deleted_at', 'id', 'owner_user_id'],
+      },
+      capturedFamilies: PRE_0046_CAPTURED,
       absentBySchema: {
         artifactReferenceGrants: {
           table: 'artifact_reference_grants',
@@ -716,18 +269,10 @@ export const LEGACY_MIGRATION_SNAPSHOT_VERSIONS: Readonly<Record<string, LegacyS
       },
       notInLegacyRegistry: {
         nativeSessions:
-          'requires the native-session inventory source, which the legacy path does not read',
+          'requires the native-session inventory source, which the legacy path does not supply',
       },
-      readers: PRE_0046_READERS,
     },
   })
-
-/** Every family the version reads, in contract order. */
-export function legacyCapturedFamilies(
-  version: LegacySchemaVersion
-): readonly MigrationSnapshotFamily[] {
-  return migrationSnapshotFamilies.filter((family) => version.readers[family] !== undefined)
-}
 
 function requireVersion(versionId: string): LegacySchemaVersion {
   const version = Object.prototype.hasOwnProperty.call(
@@ -745,25 +290,11 @@ function requireVersion(versionId: string): LegacySchemaVersion {
   return version
 }
 
-function requireIdentity(input: MigrationSnapshotCaptureIdentityInput): MigrationSnapshotIdentity {
-  for (const field of ['rehearsalId', 'snapshotId', 'source'] as const) {
-    if (typeof input[field] !== 'string' || input[field].trim().length === 0) {
-      throw new Error(`legacy snapshot identity.${field} must be a non-empty string`)
-    }
-  }
-  return Object.freeze({
-    formatVersion: MIGRATION_SNAPSHOT_FORMAT_VERSION,
-    rehearsalId: input.rehearsalId,
-    snapshotId: input.snapshotId,
-    source: input.source,
-  })
-}
-
 /** Migration metadata: the applied hashes must be exactly the registered prefix. */
 async function verifyMigrations(tx: Executor, version: LegacySchemaVersion): Promise<void> {
   const { schema, table, count, digest } = version.migrations
   const rows = (await tx.execute(
-    sql`select hash from ${ident(schema)}.${ident(table)} order by id`
+    sql`select hash from ${sql.identifier(schema)}.${sql.identifier(table)} order by id`
   )) as unknown as { hash: string }[]
   const actual = sha256(rows.map((row) => row.hash).join('\n'))
   if (rows.length !== count || actual !== digest) {
@@ -774,25 +305,19 @@ async function verifyMigrations(tx: Executor, version: LegacySchemaVersion): Pro
   }
 }
 
-/** Every column the registered readers name must exist before any reader runs. */
-async function verifyRequiredColumns(
-  tx: Executor,
-  version: LegacySchemaVersion,
-  families: readonly MigrationSnapshotFamily[]
-): Promise<void> {
+/** Every column the verification manifest names must exist before the canonical readers run. */
+async function verifyRequiredColumns(tx: Executor, version: LegacySchemaVersion): Promise<void> {
   const present = (await tx.execute(
     sql`select table_name, column_name from information_schema.columns where table_schema = ${APP}`
   )) as unknown as { table_name: string; column_name: string }[]
   const have = new Set(present.map((row) => `${row.table_name}.${row.column_name}`))
-  for (const family of families) {
-    for (const [table, columns] of Object.entries(version.readers[family]!.reads)) {
-      for (const column of columns) {
-        if (!have.has(`${table}.${column}`)) {
-          throw new LegacySnapshotRefusal(
-            'missing_required_column',
-            `"${version.id}" requires ${APP}.${table}.${column} for ${family}, which the database does not have`
-          )
-        }
+  for (const [table, columns] of Object.entries(version.requiredColumns)) {
+    for (const column of columns) {
+      if (!have.has(`${table}.${column}`)) {
+        throw new LegacySnapshotRefusal(
+          'missing_required_column',
+          `"${version.id}" requires ${APP}.${table}.${column}, which the database does not have`
+        )
       }
     }
   }
@@ -848,8 +373,9 @@ async function verifyCatalog(tx: Executor, version: LegacySchemaVersion): Promis
 }
 
 /**
- * Read-only capture of one registered historical schema version. Verification and every read run in
- * one repeatable-read, read-only transaction, so the verified schema is the schema that was read.
+ * Verified, read-only capture of one registered historical schema version. The input is validated by
+ * the canonical validators before any database read, and verification and the canonical capture run
+ * in one repeatable-read, read-only transaction.
  */
 export async function captureLegacyMigrationSnapshot(
   database: AgentHqDatabase,
@@ -860,41 +386,34 @@ export async function captureLegacyMigrationSnapshot(
   }>
 ): Promise<LegacySnapshotCaptureResult> {
   const version = requireVersion(input.versionId)
-  const identity = requireIdentity(input.identity)
-  const limit = input.limitPerFamily ?? MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION
-  const families = legacyCapturedFamilies(version)
-  const capturedAt = input.identity.capturedAt
+  requireCaptureIdentity(input.identity)
+  const limit = requireCaptureBound(input.limitPerFamily)
 
-  return database.transaction(async (tx) => {
+  return database.transaction(async (tx: AgentHqTransaction) => {
     await verifyMigrations(tx, version)
-    await verifyRequiredColumns(tx, version, families)
+    await verifyRequiredColumns(tx, version)
     await verifyCatalog(tx, version)
 
-    const sections: Partial<Record<MigrationSnapshotFamily, MigrationSnapshotSection>> = {}
-    for (const family of families) {
-      const reader = version.readers[family]!
-      const { records, truncated } = await collectBoundedRecords({
-        fetchPage: async (offset, rowsBound) =>
-          (await tx.execute(reader.fetch(rowsBound, offset))) as unknown as Row[],
-        limit,
-        toRecord: (row) => reader.toRecord(row as Row, capturedAt),
-      })
-      sections[family] = Object.freeze({
-        limit,
-        records: Object.freeze(records),
-        truncated,
-      })
+    const captured = await captureMigrationSnapshotInTransaction(tx, {
+      identity: input.identity,
+      limitPerFamily: limit,
+      requestedDomains: version.capturedFamilies,
+    })
+    const notCaptured = captured.domains.filter((domain) => domain.status !== 'captured')
+    if (notCaptured.length > 0) {
+      throw new LegacySnapshotRefusal(
+        'registry_family_not_captured',
+        `"${version.id}" registers families the canonical capture did not read: ${notCaptured
+          .map((domain) => domain.domain)
+          .join(', ')}`
+      )
     }
 
-    const document: MigrationSnapshotDocument = Object.freeze({
-      identity,
-      sections: Object.freeze(sections) as MigrationSnapshotSections,
-    })
     return Object.freeze({
-      document,
+      document: captured.document,
       provenance: Object.freeze({
         absentBySchema: version.absentBySchema,
-        captured: families,
+        captured: version.capturedFamilies,
         catalogFingerprint: version.catalogFingerprint,
         limit,
         migrations: Object.freeze({

@@ -26,7 +26,6 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 import {
   captureLegacyMigrationSnapshot,
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
-  legacyCapturedFamilies,
 } from '../../src/migration-snapshot-legacy'
 import { listReadStateForUser } from '../../src/read-state'
 import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
@@ -282,7 +281,7 @@ const ids = (rows: readonly { id: string }[] | 'denied') =>
  * The families both sides of the cutover capture, from the registered pre-0046 version. Every other
  * family is recorded as absent by schema or not read by the legacy path, never as empty.
  */
-const COMPARED_FAMILIES = legacyCapturedFamilies(LEGACY_MIGRATION_SNAPSHOT_VERSIONS['pre-0046']!)
+const COMPARED_FAMILIES = LEGACY_MIGRATION_SNAPSHOT_VERSIONS['pre-0046']!.capturedFamilies
 /** Contract families outside the compared scope: the comparator reports each as unknown, never as zero. */
 const UNPROVEN_FAMILIES = migrationSnapshotFamilies
   .filter((family) => !COMPARED_FAMILIES.includes(family))

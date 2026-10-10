@@ -8,7 +8,6 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   captureLegacyMigrationSnapshot,
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
-  legacyCapturedFamilies,
   LegacySnapshotRefusal,
 } from '../../src/migration-snapshot-legacy'
 import {
@@ -87,7 +86,7 @@ describe.skipIf(!provisioned)('registered legacy snapshot capture (#1222)', () =
       identity: IDENTITY,
       versionId: 'pre-0046',
     })
-    const families = [...legacyCapturedFamilies(LEGACY_MIGRATION_SNAPSHOT_VERSIONS['pre-0046']!)]
+    const families = [...LEGACY_MIGRATION_SNAPSHOT_VERSIONS['pre-0046']!.capturedFamilies]
     expect(Object.keys(result.document.sections).toSorted()).toEqual(families.toSorted())
     for (const family of families) {
       const section = result.document.sections[family]!
