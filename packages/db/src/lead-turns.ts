@@ -410,16 +410,25 @@ async function lockArchivedAccess(
 }
 
 /**
- * Canonical historical access for an existing channel. Active channels keep the full pinned
- * lockAuthority checks unchanged. Archived channels use lockArchivedAccess and are never
- * admissible for a new effect.
+ * How an existing admission is reached. `read` never admits a group. `bind` writes the canonical
+ * dispatch binding and `cancel` requests cancellation; both admit an active group only for its
+ * original claim holder, with the full current authority of lockAuthority.
+ */
+export type HistoricalLeadTurnAccess = 'bind' | 'cancel' | 'read'
+
+/**
+ * Canonical historical access for an existing channel. Active direct channels keep their pinned
+ * checks: `cancel` requires the full audience and role check, while `read` and `bind` keep the
+ * participant check. Archived channels use lockArchivedAccess and are never admissible for a new
+ * effect. Archived group admissions are denied for every access.
  */
 async function lockHistoricalChannel(
   tx: AgentHqTransaction,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  requireAudienceMemberships: boolean
+  access: HistoricalLeadTurnAccess,
+  claimHolderUserId: string | null
 ): Promise<HistoricalAccess> {
   const [channel] = await tx
     .select({
@@ -432,13 +441,21 @@ async function lockHistoricalChannel(
     })
     .from(channels)
     .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
-  // Group admissions (#1232) share this boundary. An active group admission takes the same current group
-  // authority as an effect (effective admission, live lead, participants, audience and role) through
-  // lockAuthority, so cancellation and reads cannot be granted by anything weaker. Archived group admissions
-  // stay denied: the archived check pins a direct agent, and no group history rule exists yet.
-  if (!channel || channel.taskId || (channel.kind !== 'direct_agent' && channel.kind !== 'group'))
+  // Group admissions (#1232) are reachable only through `bind` and `cancel`, and only for the original
+  // claim holder. An active group then takes the same current authority as an effect (effective
+  // admission, live lead, participants, audience and role) through lockAuthority. Reads never reach a
+  // group. Archived group admissions stay denied: the archived check pins a direct agent, and no group
+  // history rule exists yet.
+  if (
+    !channel ||
+    channel.taskId ||
+    (channel.kind !== 'direct_agent' && !(channel.kind === 'group' && access !== 'read'))
+  )
     throw new Error('Lead turn unavailable')
-  if (channel.kind === 'group' && channel.lifecycleState !== 'active')
+  if (
+    channel.kind === 'group' &&
+    (channel.lifecycleState !== 'active' || claimHolderUserId !== principal.userId)
+  )
     throw new Error('Lead turn unavailable')
   const summary: HistoricalChannel = {
     id: channel.id,
@@ -446,6 +463,7 @@ async function lockHistoricalChannel(
     version: channel.version,
     lifecycleState: channel.lifecycleState,
   }
+  const requireAudienceMemberships = access === 'cancel' || channel.kind === 'group'
   if (channel.lifecycleState === 'active') {
     const authority = await lockAuthority(
       tx,
@@ -456,7 +474,7 @@ async function lockHistoricalChannel(
     )
     return { lifecycleState: 'active', channel: summary, authority }
   }
-  await lockArchivedAccess(tx, workspaceId, channelId, principal, requireAudienceMemberships)
+  await lockArchivedAccess(tx, workspaceId, channelId, principal, access === 'cancel')
   return { lifecycleState: 'archived', channel: summary }
 }
 
@@ -489,7 +507,14 @@ export async function getLeadTurnForUser(
         )
       )
     if (!message) throw new Error('Lead turn unavailable')
-    const access = await lockHistoricalChannel(tx, workspaceId, message.channelId, principal, false)
+    const access = await lockHistoricalChannel(
+      tx,
+      workspaceId,
+      message.channelId,
+      principal,
+      'read',
+      null
+    )
     const [liveMessage] = await tx
       .select({ id: messages.id })
       .from(messages)
@@ -559,18 +584,19 @@ export type HistoricalLeadTurnChannel = Readonly<{
 }>
 
 /**
- * Canonical boundary for an existing admission that is observed, reconciled or cancelled. It
- * never admits a new effect. With `mutation` false, any current participant may read, observe or
- * recover binding. With `mutation` true, only the original actor may cancel, and only with the
- * same permission and audience checks as active mutations. Archived channels stay observable and
- * reconcilable; their new effects remain denied by withAuthorizedLeadTurn.
+ * Canonical boundary for an existing admission that is read, bound or cancelled. It never admits a
+ * new effect. `read` is direct-only. `bind` lets any current direct participant record the dispatch
+ * binding, and lets an active group's original claim holder record it with current group authority.
+ * `cancel` is the original actor's cancellation, with the same group and audience checks. Archived
+ * direct channels stay observable and reconcilable; their new effects remain denied by
+ * withAuthorizedLeadTurn.
  */
 export async function withHistoricalLeadTurn<T>(
   database: Database,
   workspaceId: string,
   intentId: string,
   principal: UserPrincipalRef,
-  mutation: boolean,
+  purpose: HistoricalLeadTurnAccess,
   operation: (
     tx: AgentHqTransaction,
     intent: Intent,
@@ -584,14 +610,15 @@ export async function withHistoricalLeadTurn<T>(
       .select()
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
-    if (!intent || (mutation && intent.actorUserId !== principal.userId))
+    if (!intent || (purpose === 'cancel' && intent.actorUserId !== principal.userId))
       throw new Error('Lead turn unavailable')
     const access = await lockHistoricalChannel(
       tx,
       workspaceId,
       intent.channelId,
       principal,
-      mutation
+      purpose,
+      intent.actorUserId
     )
     assertHistoricalIntent(intent, access)
     const [message] = await tx
@@ -627,7 +654,7 @@ export async function getLatestLeadTurnForChannel(
   principal: UserPrincipalRef
 ) {
   return database.transaction(async (tx) => {
-    await lockHistoricalChannel(tx, workspaceId, channelId, principal, false)
+    await lockHistoricalChannel(tx, workspaceId, channelId, principal, 'read', null)
     const [latest] = await tx
       .select({ id: leadTurnIntents.id })
       .from(leadTurnIntents)
@@ -647,7 +674,7 @@ export async function getLatestLeadTurnForChannel(
       workspaceId,
       latest.id,
       principal,
-      false,
+      'read',
       async (_tx, intent) => receipt(intent)
     )
   })

@@ -59,8 +59,8 @@ export function createLeadTurnProduct(
           principal(scope),
           purpose
         ),
-      read: (scope) =>
-        readLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope)),
+      read: (scope, purpose) =>
+        readLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope), purpose),
       prepare: (scope, pin) =>
         prepareLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope), pin),
       pending: (scope, pin) =>

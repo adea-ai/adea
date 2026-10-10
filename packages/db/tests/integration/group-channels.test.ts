@@ -13,11 +13,16 @@ import {
   editMessage,
   listMessagesForUser,
 } from '../../src/conversations'
-import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
+import {
+  createLeadTurn,
+  getLatestLeadTurnForChannel,
+  getLeadTurnForUser,
+} from '../../src/lead-turns'
 import {
   markLeadTurnDispatchPending,
   observeLeadTurnRuntime,
   prepareLeadTurnRuntime,
+  readLeadTurnRuntime,
   requestLeadTurnCancellation,
   resolveLeadTurnAuthority,
 } from '../../src/lead-turn-runtime'
@@ -899,8 +904,8 @@ async function groupLeadAdmission(
   return { channelId, intentId: posted.leadTurn.intentId }
 }
 
-/** Prepares, dispatches and binds one attempt as the claim holder, so cancellation has a runtime binding. */
-async function bindGroupAttempt(
+/** Prepares and marks one attempt pending as the claim holder, returning the ids the canonical dispatch records. */
+async function prepareGroupAttempt(
   f: Awaited<ReturnType<typeof isolatedFixture>>,
   intentId: string,
   actor: UserPrincipalRef
@@ -909,12 +914,13 @@ async function bindGroupAttempt(
     f.local.db,
     f.workspace.id,
     intentId,
-    actor
+    actor,
+    'effect'
   )
-  const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+  const ids = uniqueRuntimeIds()
   const selection = {
-    attemptId,
-    executionId,
+    attemptId: ids.attemptId,
+    executionId: ids.executionId,
     expiresAt: '2027-01-01T00:00:00.000Z',
     intentId,
     preparationRef: `prep_${'c'.repeat(32)}`,
@@ -924,15 +930,34 @@ async function bindGroupAttempt(
   }
   await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, actor, selection)
   await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, actor, selection)
+  return ids
+}
+
+/** Records the canonical dispatch binding as the claim holder, so cancellation has a runtime binding. */
+async function bindGroupAttempt(
+  f: Awaited<ReturnType<typeof isolatedFixture>>,
+  intentId: string,
+  actor: UserPrincipalRef
+) {
+  const ids = await prepareGroupAttempt(f, intentId, actor)
   await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, actor, {
-    attemptId,
-    dispatchId,
-    executionId,
+    attemptId: ids.attemptId,
+    dispatchId: ids.dispatchId,
+    executionId: ids.executionId,
     intentId,
     observedAt: NOW,
-    runtimeSessionId,
+    runtimeSessionId: ids.runtimeSessionId,
     state: 'running',
   })
+  return ids.dispatchId
+}
+
+async function dispatchIdOf(f: Awaited<ReturnType<typeof isolatedFixture>>, intentId: string) {
+  const [row] = await f.local.db
+    .select({ dispatchId: schema.leadTurnRuntime.dispatchId })
+    .from(schema.leadTurnRuntime)
+    .where(eq(schema.leadTurnRuntime.intentId, intentId))
+  return row?.dispatchId ?? null
 }
 
 async function cancelRequestedAt(f: Awaited<ReturnType<typeof isolatedFixture>>, intentId: string) {
@@ -941,6 +966,14 @@ async function cancelRequestedAt(f: Awaited<ReturnType<typeof isolatedFixture>>,
     .from(schema.leadTurnRuntime)
     .where(eq(schema.leadTurnRuntime.intentId, intentId))
   return row?.at ?? null
+}
+
+async function archiveGroup(f: Awaited<ReturnType<typeof isolatedFixture>>, channelId: string) {
+  const [channel] = await f.local.db
+    .select({ version: schema.channels.version })
+    .from(schema.channels)
+    .where(eq(schema.channels.id, channelId))
+  await archiveChannel(f.local.db, f.workspace.id, channelId, f.owner, channel!.version)
 }
 
 describe('durable binding, fences and shared read boundary', () => {
@@ -2674,7 +2707,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
       const selection = {
@@ -2797,7 +2831,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
       const selection = {
@@ -2932,7 +2967,8 @@ describe('durable binding, fences and shared read boundary', () => {
           f.local.db,
           f.workspace.id,
           intentId,
-          f.owner
+          f.owner,
+          'effect'
         )
         const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
         const selection = {
@@ -3216,9 +3252,15 @@ describe('durable binding, fences and shared read boundary', () => {
         })
         await requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
         expect(await cancelRequestedAt(f, intentId)).not.toBeNull()
-        const state = await readLeadTurnRollbackState(f.local.db, f.workspace.id, intentId, f.owner)
-        expect(state).toMatchObject({ fenced: true })
-        expect(state.attribution).toEqual(fence.attribution)
+        const [fenced] = await f.local.db
+          .select({
+            fencedAt: schema.leadTurnIntents.rollbackFencedAt,
+            actorRef: schema.leadTurnIntents.rollbackFenceActorRef,
+          })
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.id, intentId))
+        expect(fenced!.fencedAt?.toISOString()).toBe(fence.attribution.fencedAt)
+        expect(fenced!.actorRef).toBe(f.owner.userId)
       } finally {
         await f.local.close()
       }
@@ -3244,6 +3286,250 @@ describe('durable binding, fences and shared read boundary', () => {
           requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
         ).rejects.toThrow('Lead turn unavailable')
         expect(await cancelRequestedAt(f, intentId)).toBeNull()
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group cancellation: an archived group refuses a repeat cancel and keeps the request recorded before archiving',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        await bindGroupAttempt(f, intentId, f.owner)
+        await requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
+        const recorded = await cancelRequestedAt(f, intentId)
+        expect(recorded).not.toBeNull()
+        await archiveGroup(f, channelId)
+        await expect(
+          requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await cancelRequestedAt(f, intentId)).toEqual(recorded)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group cancellation: an archived group refuses a non-holder participant, and the binding is kept',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        await bindGroupAttempt(f, intentId, f.owner)
+        await archiveGroup(f, channelId)
+        await expect(
+          requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.member)
+        ).rejects.toThrow('Lead turn unavailable')
+        await expect(
+          resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.member, 'cancel')
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await cancelRequestedAt(f, intentId)).toBeNull()
+        const [binding] = await f.local.db
+          .select({ dispatchId: schema.leadTurnRuntime.dispatchId })
+          .from(schema.leadTurnRuntime)
+          .where(eq(schema.leadTurnRuntime.intentId, intentId))
+        expect(binding?.dispatchId).not.toBeNull()
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group binding: the claim holder records the canonical dispatch, and cancellation then records the request',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { intentId } = await groupLeadAdmission(f, f.owner)
+        const dispatchId = await bindGroupAttempt(f, intentId, f.owner)
+        expect(await dispatchIdOf(f, intentId)).toBe(dispatchId)
+        await requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
+        expect(await cancelRequestedAt(f, intentId)).not.toBeNull()
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group binding: a participant who is not the claim holder cannot record the dispatch, and nothing is bound',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { intentId } = await groupLeadAdmission(f, f.owner)
+        const ids = await prepareGroupAttempt(f, intentId, f.owner)
+        await expect(
+          observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.member, {
+            attemptId: ids.attemptId,
+            dispatchId: ids.dispatchId,
+            executionId: ids.executionId,
+            intentId,
+            observedAt: NOW,
+            runtimeSessionId: ids.runtimeSessionId,
+            state: 'running',
+          })
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await dispatchIdOf(f, intentId)).toBeNull()
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group binding: a revoked audience grant stops the claim holder from cancelling, and the bound dispatch is kept',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        const dispatchId = await bindGroupAttempt(f, intentId, f.owner)
+        await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+          grantId: 'gra_person_0',
+          kind: 'audience',
+          revokedAt: LATER,
+        })
+        await expect(
+          requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, f.owner)
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await cancelRequestedAt(f, intentId)).toBeNull()
+        expect(await dispatchIdOf(f, intentId)).toBe(dispatchId)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group binding: a claim holder who loses workspace membership cannot cancel, and the bound dispatch is kept',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const admin = (
+          await createTemporaryUserSession(f.local.db, {
+            credentialDigest: `admin-${crypto.randomUUID()}`,
+            expiresAt: new Date(Date.now() + 60_000),
+          })
+        ).principal
+        await addWorkspaceMembership(f.local.db, f.workspace.id, admin, 'admin')
+        const { intentId } = await groupLeadAdmission(f, admin, [admin])
+        const dispatchId = await bindGroupAttempt(f, intentId, admin)
+        await f.local.db
+          .delete(schema.workspaceMemberships)
+          .where(
+            and(
+              eq(schema.workspaceMemberships.workspaceId, f.workspace.id),
+              eq(schema.workspaceMemberships.userId, admin.userId)
+            )
+          )
+        await expect(
+          requestLeadTurnCancellation(f.local.db, f.workspace.id, intentId, admin)
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await cancelRequestedAt(f, intentId)).toBeNull()
+        expect(await dispatchIdOf(f, intentId)).toBe(dispatchId)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group binding: an archived group refuses a dispatch binding by the claim holder, and nothing is recorded',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        const ids = await prepareGroupAttempt(f, intentId, f.owner)
+        await archiveGroup(f, channelId)
+        await expect(
+          observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+            attemptId: ids.attemptId,
+            dispatchId: ids.dispatchId,
+            executionId: ids.executionId,
+            intentId,
+            observedAt: NOW,
+            runtimeSessionId: ids.runtimeSessionId,
+            state: 'running',
+          })
+        ).rejects.toThrow('Lead turn unavailable')
+        expect(await dispatchIdOf(f, intentId)).toBeNull()
+        expect(await cancelRequestedAt(f, intentId)).toBeNull()
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group read purposes: a mutation purpose reads a bound group only for its claim holder, and archiving denies both',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        const dispatchId = await bindGroupAttempt(f, intentId, f.owner)
+        for (const purpose of ['cancel', 'effect'] as const) {
+          const row = await readLeadTurnRuntime(
+            f.local.db,
+            f.workspace.id,
+            intentId,
+            f.owner,
+            purpose
+          )
+          expect(row?.dispatchId).toBe(dispatchId)
+          await expect(
+            readLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.member, purpose)
+          ).rejects.toThrow('Lead turn unavailable')
+        }
+        await expect(
+          readLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.member)
+        ).rejects.toThrow('Lead turn unavailable')
+        await archiveGroup(f, channelId)
+        for (const purpose of ['cancel', 'effect'] as const) {
+          await expect(
+            readLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, purpose)
+          ).rejects.toThrow('Lead turn unavailable')
+        }
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'group read regression: historical read APIs refuse an active group admission before and after binding, for its claim holder and a participant',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const { channelId, intentId } = await groupLeadAdmission(f, f.owner)
+        const [intent] = await f.local.db
+          .select({ messageId: schema.leadTurnIntents.messageId })
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.id, intentId))
+        const refuseReads = async () => {
+          for (const who of [f.owner, f.member]) {
+            await expect(
+              getLeadTurnForUser(f.local.db, f.workspace.id, intent!.messageId, who)
+            ).rejects.toThrow('Lead turn unavailable')
+            await expect(
+              getLatestLeadTurnForChannel(f.local.db, f.workspace.id, channelId, who)
+            ).rejects.toThrow('Lead turn unavailable')
+            await expect(
+              resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, who)
+            ).rejects.toThrow('Lead turn unavailable')
+            await expect(
+              readLeadTurnRuntime(f.local.db, f.workspace.id, intentId, who)
+            ).rejects.toThrow('Lead turn unavailable')
+            await expect(
+              readLeadTurnRollbackState(f.local.db, f.workspace.id, intentId, who)
+            ).rejects.toThrow('Lead turn unavailable')
+          }
+        }
+        await refuseReads()
+        await bindGroupAttempt(f, intentId, f.owner)
+        await refuseReads()
       } finally {
         await f.local.close()
       }
@@ -3327,7 +3613,7 @@ describe('durable binding, fences and shared read boundary', () => {
           selectionRef: `msel_${'e'.repeat(32)}`,
           selectionRevision: 1,
           workspaceId: (
-            await resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.owner)
+            await resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.owner, 'effect')
           ).controlPlaneWorkspaceId,
         }
         await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
@@ -3721,7 +4007,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const selection = {
         attemptId,
@@ -3833,7 +4120,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const selection = {
         attemptId,

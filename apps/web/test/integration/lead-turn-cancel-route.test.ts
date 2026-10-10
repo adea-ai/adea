@@ -78,6 +78,12 @@ type Who = { cookie: string; principal: { kind: 'user'; userId: string } }
 const hex32 = () => crypto.randomUUID().replaceAll('-', '')
 const crockford = () => hex32().slice(0, 26).toUpperCase()
 
+// Each case issues dozens of sequential round-trips, so it gets an explicit 30s ceiling instead of the
+// 5s file-direct default (same convention as group-channels). Assertions are unchanged.
+function T(name: string, fn: () => Promise<void>) {
+  test(name, fn, 30_000)
+}
+
 describe.skipIf(!databaseUrl)('group lead cancellation through the real route handler', () => {
   let db: any
   let closeConnection: () => Promise<void>
@@ -213,13 +219,7 @@ describe.skipIf(!databaseUrl)('group lead cancellation through the real route ha
       intentId,
       runtimeSessionId,
     }
-    if (options.archive) {
-      const [channel] = await db
-        .select({ version: schema.channels.version })
-        .from(schema.channels)
-        .where(eq(schema.channels.id, channelId))
-      await schema.archiveChannel(db, workspace.id, channelId, owner.principal, channel!.version)
-    }
+    if (options.archive) await archiveGroup({ channelId, owner, workspace })
     const outsider = await session()
     await schema.createWorkspaceWithOwner(db, {
       idempotencyKey: crypto.randomUUID(),
@@ -237,37 +237,75 @@ describe.skipIf(!databaseUrl)('group lead cancellation through the real route ha
     return row?.at ?? null
   }
 
-  test('the claim holder cancels through the route, a repeat converges, and other principals are refused without an adapter call', async () => {
-    const f = await groupAdmission()
-    const callsBefore = adapterCalls.length
+  async function archiveGroup(group: { channelId: string; owner: Who; workspace: { id: string } }) {
+    const [channel] = await db
+      .select({ version: schema.channels.version })
+      .from(schema.channels)
+      .where(eq(schema.channels.id, group.channelId))
+    await schema.archiveChannel(
+      db,
+      group.workspace.id,
+      group.channelId,
+      group.owner.principal,
+      channel!.version
+    )
+  }
 
-    const first = await cancel(f.owner, f.workspace.id, f.intentId)
-    expect(first.status).toBe(200)
-    expect(first.body.leadTurn?.state).toBe('cancelling')
-    expect(adapterCalls.length).toBe(callsBefore + 1)
-    const recorded = await cancelRequestedAt(f.intentId)
-    expect(recorded).not.toBeNull()
+  T(
+    'the claim holder cancels through the route, a repeat converges, and other principals are refused without an adapter call',
+    async () => {
+      const f = await groupAdmission()
+      const callsBefore = adapterCalls.length
 
-    const repeat = await cancel(f.owner, f.workspace.id, f.intentId)
-    expect(repeat.status).toBe(200)
-    expect(await cancelRequestedAt(f.intentId)).toEqual(recorded)
+      const first = await cancel(f.owner, f.workspace.id, f.intentId)
+      expect(first.status).toBe(200)
+      expect(first.body.leadTurn?.state).toBe('cancelling')
+      expect(adapterCalls.length).toBe(callsBefore + 1)
+      const recorded = await cancelRequestedAt(f.intentId)
+      expect(recorded).not.toBeNull()
 
-    const callsAfterOwner = adapterCalls.length
-    const admin = await cancel(f.admin, f.workspace.id, f.intentId)
-    expect(admin.status).toBe(404)
-    expect(admin.body.code).toBe('workspace_unavailable')
-    const outsider = await cancel(f.outsider, f.workspace.id, f.intentId)
-    expect(outsider.status).toBe(404)
-    expect(adapterCalls.length).toBe(callsAfterOwner)
-  })
+      const repeat = await cancel(f.owner, f.workspace.id, f.intentId)
+      expect(repeat.status).toBe(200)
+      expect(await cancelRequestedAt(f.intentId)).toEqual(recorded)
 
-  test('an archived group admission is refused at the route, and the adapter is not called', async () => {
-    const f = await groupAdmission({ archive: true })
-    const callsBefore = adapterCalls.length
-    const refused = await cancel(f.owner, f.workspace.id, f.intentId)
-    expect(refused.status).toBe(404)
-    expect(refused.body.code).toBe('workspace_unavailable')
-    expect(adapterCalls.length).toBe(callsBefore)
-    expect(await cancelRequestedAt(f.intentId)).toBeNull()
-  })
+      const callsAfterOwner = adapterCalls.length
+      const admin = await cancel(f.admin, f.workspace.id, f.intentId)
+      expect(admin.status).toBe(404)
+      expect(admin.body.code).toBe('workspace_unavailable')
+      const outsider = await cancel(f.outsider, f.workspace.id, f.intentId)
+      expect(outsider.status).toBe(404)
+      expect(adapterCalls.length).toBe(callsAfterOwner)
+    }
+  )
+
+  T(
+    'an archived group admission is refused at the route, and the adapter is not called',
+    async () => {
+      const f = await groupAdmission({ archive: true })
+      const callsBefore = adapterCalls.length
+      const refused = await cancel(f.owner, f.workspace.id, f.intentId)
+      expect(refused.status).toBe(404)
+      expect(refused.body.code).toBe('workspace_unavailable')
+      expect(adapterCalls.length).toBe(callsBefore)
+      expect(await cancelRequestedAt(f.intentId)).toBeNull()
+    }
+  )
+
+  T(
+    'an archived group refuses a repeat cancel after an earlier active cancel, and the adapter is not called again',
+    async () => {
+      const f = await groupAdmission()
+      const first = await cancel(f.owner, f.workspace.id, f.intentId)
+      expect(first.status).toBe(200)
+      const recorded = await cancelRequestedAt(f.intentId)
+      expect(recorded).not.toBeNull()
+      await archiveGroup({ channelId: f.channelId, owner: f.owner, workspace: f.workspace })
+      const callsBefore = adapterCalls.length
+      const refused = await cancel(f.owner, f.workspace.id, f.intentId)
+      expect(refused.status).toBe(404)
+      expect(refused.body.code).toBe('workspace_unavailable')
+      expect(adapterCalls.length).toBe(callsBefore)
+      expect(await cancelRequestedAt(f.intentId)).toEqual(recorded)
+    }
+  )
 })

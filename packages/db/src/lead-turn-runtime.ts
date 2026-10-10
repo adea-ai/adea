@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createRuntimeResultMessage } from './conversations'
 import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
@@ -117,30 +117,41 @@ export function resolveLeadTurnAuthority(
         workspaceId,
         intentId,
         principal,
-        purpose === 'cancel',
+        purpose,
         async (_tx, intent, _message, cpWorkspaceId) => authority(intent, cpWorkspaceId)
       )
 }
+async function readStoredRuntime(
+  tx: AgentHqTransaction,
+  intent: { id: string; messageId: string }
+) {
+  const [row] = await tx
+    .select()
+    .from(leadTurnRuntime)
+    .where(eq(leadTurnRuntime.intentId, intent.id))
+  return row ? summary(row, intent.messageId) : undefined
+}
+
+/**
+ * Stored runtime row. `read` is the default direct-only historical access. A mutation purpose is
+ * for the runtime operation that has itself authorized it: `cancel` for the claim holder's active
+ * group cancellation, or `effect` for the actor's prepare and dispatch. Each keeps its own
+ * boundary check; no other purpose reaches a group.
+ */
 export function readLeadTurnRuntime(
   database: AgentHqDatabase,
   workspaceId: string,
   intentId: string,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
-  return withHistoricalLeadTurn(
-    database,
-    workspaceId,
-    intentId,
-    principal,
-    false,
-    async (tx, intent) => {
-      const [row] = await tx
-        .select()
-        .from(leadTurnRuntime)
-        .where(eq(leadTurnRuntime.intentId, intent.id))
-      return row ? summary(row, intent.messageId) : undefined
-    }
-  )
+  return purpose === 'effect'
+    ? withAuthorizedLeadTurn(database, workspaceId, intentId, principal, true, (tx, intent) =>
+        readStoredRuntime(tx, intent)
+      )
+    : withHistoricalLeadTurn(database, workspaceId, intentId, principal, purpose, (tx, intent) =>
+        readStoredRuntime(tx, intent)
+      )
 }
 /** Caller identifiers are selectors only; exact accepted product authority is resolved server-side. */
 export async function authorizeLeadTurnFundingBinding(
@@ -299,7 +310,7 @@ export function observeLeadTurnRuntime(
     workspaceId,
     intentId,
     principal,
-    false,
+    'bind',
     async (tx, intent) => {
       const [row] = await tx
         .select()
@@ -341,7 +352,7 @@ export function recoverLeadTurnRuntimeBinding(
     workspaceId,
     intentId,
     principal,
-    false,
+    'bind',
     async (tx, intent) => {
       const [row] = await tx
         .select()
@@ -375,7 +386,7 @@ export function requestLeadTurnCancellation(
     workspaceId,
     intentId,
     principal,
-    true,
+    'cancel',
     async (tx, intent) => {
       const [row] = await tx
         .select()
