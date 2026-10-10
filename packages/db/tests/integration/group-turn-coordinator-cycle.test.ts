@@ -142,23 +142,46 @@ function abortCode(error: unknown): string {
   )
 }
 
-/** Drain an owned task within bounds; never throws, never hangs the test. */
-async function drainWithin(promise: Promise<unknown> | null, ms: number): Promise<void> {
-  if (!promise) return
-  promise.catch(() => {})
-  await Promise.race([
-    promise.then(
-      () => undefined,
-      () => undefined
-    ),
-    new Promise((resolve) => setTimeout(resolve, ms)),
-  ])
-}
-
 /**
- * Bounded await for startup gates (parked promises): observes a startup
- * failure with a labeled error instead of waiting forever.
+ * The single bounded-settle helper: clears its timer on every path and
+ * exposes the outcome instead of turning timeouts into success. Replaces
+ * the older drain/close helpers (which leaked timer handles and hid
+ * timeouts). A settled task — fulfilled or rejected — reports `settled`;
+ * only an actual bound expiry reports `timeout`.
  */
+async function settleOwned(
+  promise: Promise<unknown> | null,
+  ms: number,
+  label: string
+): Promise<'settled' | 'timeout' | 'absent'> {
+  if (!promise) return 'absent'
+  let done = false
+  promise.then(
+    () => {
+      done = true
+    },
+    () => {
+      done = true
+    }
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      promise.then(
+        () => undefined,
+        () => undefined
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`settle timeout: ${label}`)), ms)
+      }),
+    ])
+  } catch {
+    // Timeout (or a race lost to it): fall through to the done flag.
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+  return done ? 'settled' : 'timeout'
+}
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
   try {
@@ -173,12 +196,32 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   }
 }
 
-/** Bounded pool close: never hangs the test even with an open backend. */
-async function closeBounded(pool: DatabaseConnection): Promise<void> {
-  await Promise.race([
-    pool.close().catch(() => {}),
-    new Promise((resolve) => setTimeout(resolve, 5000)),
-  ])
+/**
+ * Bounded pool close with confirmation. The close must settle within
+ * bounds, and a probe query afterwards must reject (proving the pool no
+ * longer serves backends) instead of the test merely assuming it.
+ */
+async function closeOwned(
+  pool: DatabaseConnection | null,
+  ms: number,
+  label: string
+): Promise<'closed' | 'close-timeout' | 'close-still-usable' | 'absent'> {
+  if (!pool) return 'absent'
+  const outcome = await settleOwned(
+    pool.close().then(
+      () => undefined,
+      () => undefined
+    ),
+    ms,
+    `close:${label}`
+  )
+  if (outcome !== 'settled') return 'close-timeout'
+  try {
+    await pool.db.execute(sql`SELECT 1 AS one`)
+    return 'close-still-usable'
+  } catch {
+    return 'closed'
+  }
 }
 
 describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', () => {
@@ -274,6 +317,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let holderDone = false
     let holding: Promise<unknown> | null = null
     let cancelling: Promise<unknown> | null = null
+    let cleanup: Record<string, string> | null = null
     try {
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
@@ -377,8 +421,8 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       // observed code must be exactly 57014 — anything else (commit,
       // 40P01) would contradict the proven parked state.
       await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`)
-      await drainWithin(holding, 5000)
-      await drainWithin(cancelling, 5000)
+      expect(await settleOwned(holding, 5000, 'holding')).toBe('settled')
+      expect(await settleOwned(cancelling, 5000, 'cancelling')).toBe('settled')
       expect(holderCode).toBe('aborted:57014')
       await expect(cancelling).resolves.toEqual({
         runtimeCancelRequested: false,
@@ -393,18 +437,29 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     } finally {
       // Bounded reliable cleanup in strict order: release the JS gate
       // (lets a merely-parked holder commit), cut ONLY the owned backend
-      // when it is still unsettled, drain owned tasks within bounds, then
-      // close every owned pool. A parked holder can never hang close.
+      // when it is still unsettled, drain owned tasks with exposed
+      // outcomes, then close every owned pool — each attempted even if
+      // another fails (no helper here throws). A parked holder can never
+      // hang close.
       releaseHolder?.()
       if (!holderDone && holderPid !== 0) {
         await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
       }
-      await drainWithin(holding, 5000)
-      await drainWithin(cancelling, 5000)
-      await closeBounded(holder)
-      await closeBounded(canceller)
-      await closeBounded(observer)
+      cleanup = {
+        cancelling: await settleOwned(cancelling, 5000, 'cancelling'),
+        closeCanceller: await closeOwned(canceller, 5000, 'canceller'),
+        closeHolder: await closeOwned(holder, 5000, 'holder'),
+        closeObserver: await closeOwned(observer, 5000, 'observer'),
+        holding: await settleOwned(holding, 5000, 'holding'),
+      }
     }
+    expect(cleanup).toEqual({
+      cancelling: 'settled',
+      closeCanceller: 'closed',
+      closeHolder: 'closed',
+      closeObserver: 'closed',
+      holding: 'settled',
+    })
   })
 
   T('admission waits on a held claim lock, then proceeds typed', async () => {
@@ -430,6 +485,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let holderDone = false
     let holding: Promise<unknown> | null = null
     let dispatching: Promise<unknown> | null = null
+    let cleanup: Record<string, string> | null = null
     try {
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
@@ -474,7 +530,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         )
       }, 'own-holder claim wait')
       releaseHolder()
-      await drainWithin(holding, 5000)
+      expect(await settleOwned(holding, 5000, 'holding')).toBe('settled')
       const done = (await dispatching) as { claim: { status: string } }
       expect(done.claim.status).toBe('duplicate')
       const [row] = await connection.db
@@ -494,12 +550,21 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       if (!holderDone && holderPid !== 0) {
         await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
       }
-      await drainWithin(holding, 5000)
-      await drainWithin(dispatching, 5000)
-      await closeBounded(holder)
-      await closeBounded(runner)
-      await closeBounded(observer)
+      cleanup = {
+        closeHolder: await closeOwned(holder, 5000, 'holder'),
+        closeObserver: await closeOwned(observer, 5000, 'observer'),
+        closeRunner: await closeOwned(runner, 5000, 'runner'),
+        dispatching: await settleOwned(dispatching, 5000, 'dispatching'),
+        holding: await settleOwned(holding, 5000, 'holding'),
+      }
     }
+    expect(cleanup).toEqual({
+      closeHolder: 'closed',
+      closeObserver: 'closed',
+      closeRunner: 'closed',
+      dispatching: 'settled',
+      holding: 'settled',
+    })
   })
 
   T('terminal flip committed mid-wait denies admission with a typed reason', async () => {
@@ -521,6 +586,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let holderDone = false
     let holding: Promise<unknown> | null = null
     let dispatching: Promise<unknown> | null = null
+    let cleanup: Record<string, string> | null = null
     try {
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
@@ -572,7 +638,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         )
       }, 'own-holder claim wait')
       releaseHolder()
-      await drainWithin(holding, 5000)
+      expect(await settleOwned(holding, 5000, 'holding')).toBe('settled')
       await expect(dispatching).rejects.toMatchObject({
         name: 'AddressedTurnError',
         reason: 'turn_cancelled',
@@ -588,12 +654,21 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       if (!holderDone && holderPid !== 0) {
         await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
       }
-      await drainWithin(holding, 5000)
-      await drainWithin(dispatching, 5000)
-      await closeBounded(holder)
-      await closeBounded(runner)
-      await closeBounded(observer)
+      cleanup = {
+        closeHolder: await closeOwned(holder, 5000, 'holder'),
+        closeObserver: await closeOwned(observer, 5000, 'observer'),
+        closeRunner: await closeOwned(runner, 5000, 'runner'),
+        dispatching: await settleOwned(dispatching, 5000, 'dispatching'),
+        holding: await settleOwned(holding, 5000, 'holding'),
+      }
     }
+    expect(cleanup).toEqual({
+      closeHolder: 'closed',
+      closeObserver: 'closed',
+      closeRunner: 'closed',
+      dispatching: 'settled',
+      holding: 'settled',
+    })
   })
 
   T('mixed dispatch/post/cancel load settles with exact typed outcomes', async () => {
@@ -607,6 +682,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       .set({ isWorkspaceLead: true })
       .where(eq(schema.agents.id, f.lead.id))
     const runner = createDatabase(connectionUrl!)
+    let cleanup: Record<string, string> | null = null
     try {
       for (let round = 0; round < 3; round += 1) {
         const revision = 80 + round
@@ -679,8 +755,11 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
       }
     } finally {
-      await closeBounded(runner)
+      cleanup = {
+        closeRunner: await closeOwned(runner, 5000, 'runner'),
+      }
     }
+    expect(cleanup).toEqual({ closeRunner: 'closed' })
   })
 
   T('observer failure still releases parks and closes pools boundedly', async () => {
@@ -694,8 +773,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let releaseHolder: (() => void) | null = null
     let holderDone = false
     let holding: Promise<unknown> | null = null
-    let releasedFlag = false
-    let drainedFlag = false
+    let cleanup: Record<string, string> | null = null
     try {
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
@@ -741,16 +819,19 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       expect(observedErr).not.toBeNull()
     } finally {
       releaseHolder?.()
-      releasedFlag = true
       // The observer is dead here by design; the holder was merely parked
       // on a JS gate (no SQL wait), so release alone drains it — bounded.
-      await drainWithin(holding, 5000)
-      drainedFlag = true
-      await closeBounded(holder)
-      await closeBounded(observer)
+      cleanup = {
+        closeHolder: await closeOwned(holder, 5000, 'holder'),
+        closeObserver: await closeOwned(observer, 5000, 'observer'),
+        holding: await settleOwned(holding, 5000, 'holding'),
+      }
     }
-    expect(releasedFlag).toBe(true)
-    expect(drainedFlag).toBe(true)
+    expect(cleanup).toEqual({
+      closeHolder: 'closed',
+      closeObserver: 'closed',
+      holding: 'settled',
+    })
     expect(holderDone).toBe(true)
     // The suite stays usable: a fresh pool connects and works.
     const fresh = createDatabase(connectionUrl!)
@@ -758,7 +839,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       const [one] = await fresh.db.execute(sql`SELECT 1 AS one`)
       expect((one as { one: number }).one).toBe(1)
     } finally {
-      await closeBounded(fresh)
+      expect(await closeOwned(fresh, 5000, 'fresh')).toBe('closed')
     }
   })
 
@@ -787,9 +868,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let holderDone = false
     let holding: Promise<unknown> | null = null
     let cancelling: Promise<unknown> | null = null
-    let releasedFlag = false
-    let cutFlag = false
-    let drainedFlag = false
+    let cleanup: Record<string, string> | null = null
     try {
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
@@ -845,10 +924,14 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         )
       }, 'nested channel wait')
       releaseHolder()
-      releasedFlag = true
+      // Strict: the HOLDER's own claim wait (its pid + the
+      // addressed-turn statement) — the nested channel wait also
+      // matches blockedBy and must not satisfy this.
       await waitFor(async () => {
         const waits = await lockWaits(observer)
-        return waits.some((wait) => wait.pid === holderPid || wait.blockedBy.includes(holderPid))
+        return waits.some(
+          (wait) => wait.pid === holderPid && wait.query.includes('"addressed_agent_turns"')
+        )
       }, 'holder claim wait')
       // INJECTED FAILURE: the test dies here with the true cycle parked.
       // finally below is the only cleanup that runs.
@@ -857,20 +940,28 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       expect((error as Error).message).toBe('injected mid-cycle failure')
     } finally {
       releaseHolder?.()
+      let cut: string = 'absent'
       if (!holderDone && holderPid !== 0) {
         await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
-        cutFlag = true
+        cut = 'cut'
       }
-      await drainWithin(holding, 5000)
-      await drainWithin(cancelling, 5000)
-      drainedFlag = true
-      await closeBounded(holder)
-      await closeBounded(canceller)
-      await closeBounded(observer)
+      cleanup = {
+        cancelling: await settleOwned(cancelling, 5000, 'cancelling'),
+        closeCanceller: await closeOwned(canceller, 5000, 'canceller'),
+        closeHolder: await closeOwned(holder, 5000, 'holder'),
+        closeObserver: await closeOwned(observer, 5000, 'observer'),
+        cut,
+        holding: await settleOwned(holding, 5000, 'holding'),
+      }
     }
-    expect(releasedFlag).toBe(true)
-    expect(cutFlag).toBe(true)
-    expect(drainedFlag).toBe(true)
+    expect(cleanup).toEqual({
+      cancelling: 'settled',
+      closeCanceller: 'closed',
+      closeHolder: 'closed',
+      closeObserver: 'closed',
+      cut: 'cut',
+      holding: 'settled',
+    })
     expect(holderDone).toBe(true)
     expect(holderCode).toBe('aborted:57014')
   })
