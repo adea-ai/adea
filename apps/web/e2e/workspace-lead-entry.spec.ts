@@ -454,3 +454,18 @@ test('refreshing agent models in workspace settings reloads the Agents lead stat
   )
   expect(state.posts).toBe(1)
 })
+
+test('the lead status sits inside the roster padding, under the header', async ({ page }) => {
+  await mountShell(page)
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toBeVisible({ timeout: 30_000 })
+  const directory = await page.locator('section.conventional-directory').boundingBox()
+  const header = await page.locator('.conventional-surface-header').boundingBox()
+  const status = await leadStatus(page).boundingBox()
+  expect(directory).not.toBeNull()
+  expect(header).not.toBeNull()
+  expect(status).not.toBeNull()
+  // Inside the directory's left padding, and below the header rather than flush to the top.
+  expect(status!.x).toBeGreaterThanOrEqual(directory!.x + 16)
+  expect(status!.y).toBeGreaterThanOrEqual(header!.y + header!.height)
+})
