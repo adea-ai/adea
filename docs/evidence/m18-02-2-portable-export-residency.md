@@ -190,7 +190,9 @@ API.
   `scripts/smoke/capture-provisioning-run.mjs`: the sentinel name is fixed before the first side effect,
   the cleanup scope covers a refused, partial or failed start, the child is signalled only if it was
   spawned (SIGTERM, then a bounded SIGKILL), and the sentinel and the instance the child named are both
-  removed by exact name, even when the other removal fails. The fault paths run without Docker in
+  removed by exact name, even when the other removal fails. OWNED and READY are read only as complete
+  lines. An inspection that fails for any reason other than Docker's absent-container answer for that
+  name is an error, never proof of removal. The fault paths run without Docker in
   `scripts/capture-provisioning-smoke-faults.test.ts`, which is in the unit lane. The real-Docker test
   sits outside `scripts/*.test.ts`, so the unit lane never starts Docker. Run it through the
   heavy-validation wrapper: `fleet-heavy -- bun test scripts/smoke/capture-provisioning.smoke.test.ts`.

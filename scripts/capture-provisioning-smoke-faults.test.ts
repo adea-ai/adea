@@ -20,9 +20,14 @@ type DockerReply = { error?: Error; status: number | null; stderr: string; stdou
 
 // Keeps the names Docker holds, and answers the run, inspect and rm calls the lifecycle makes. `run: 'refused'`
 // fails the start and creates nothing. `run: 'partial'` fails the start after creating the container, as a daemon
-// can. `removeFails` makes removal fail for the names it selects.
+// can. `removeFails` makes removal fail for the names it selects. `inspectFails` makes inspection fail, with an
+// error that is not Docker's absent-container answer, for the names it selects.
 function fakeDocker(
-  plan: { removeFails?: (name: string) => boolean; run?: 'partial' | 'refused' } = {}
+  plan: {
+    inspectFails?: (name: string) => boolean
+    removeFails?: (name: string) => boolean
+    run?: 'partial' | 'refused'
+  } = {}
 ) {
   const present = new Set<string>()
   const calls: string[][] = []
@@ -37,6 +42,13 @@ function fakeDocker(
     }
     if (args[0] === 'container') {
       const name = args.at(-1)!
+      if (plan.inspectFails?.(name))
+        return {
+          status: 1,
+          stderr:
+            'Error response from daemon: permission denied while trying to connect to the Docker daemon socket',
+          stdout: '',
+        }
       if (!present.has(name)) return { status: 1, stderr: `No such object: ${name}`, stdout: '' }
       return { status: 0, stderr: '', stdout: args.includes('--format') ? 'true\n' : '' }
     }
@@ -52,6 +64,8 @@ function fakeDocker(
 }
 
 type ChildOptions = {
+  // Raw stdout pieces, sent as they are. When absent, each line is sent with its newline.
+  chunks?: string[]
   closeStdout?: boolean
   ignoresKill?: boolean
   ignoresTerm?: boolean
@@ -79,7 +93,9 @@ function fakeChild(lines: string[], options: ChildOptions = {}) {
     stdout: new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder()
-        for (const line of lines) controller.enqueue(encoder.encode(`${line}\n`))
+        for (const piece of options.chunks ?? lines.map((line) => `${line}\n`)) {
+          controller.enqueue(encoder.encode(piece))
+        }
         if (options.closeStdout) controller.close()
       },
     }),
@@ -259,5 +275,49 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0]).toContain('the helper child ended before OWNED')
     expect(messages[1]).toContain(`removing ${sentinelOf(fake.calls)} failed`)
+  })
+
+  test('a name split across stdout chunks is read only once its line is complete', async () => {
+    // The first chunk ends inside the hexadecimal name. A prefix match would name the wrong container.
+    const fake = fakeDocker()
+    const child = fakeChild([], {
+      chunks: [`OWNED ${owned.slice(0, 20)}`, `${owned.slice(20)}\n`, `READY ${owned} 1\n`],
+      onTerm: () => fake.present.delete(owned),
+    })
+    const observed = await runOwnedSmoke({
+      bounds: fastBounds,
+      childPath: '/not-used',
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    expect(observed).toMatchObject({ owned, removed: true, running: true, signal: 'SIGTERM' })
+    expect(removalsOf(fake.calls)).toEqual([owned, observed.sentinel])
+  })
+
+  test('an inspect failure other than the absent-container answer is an error, not proof of removal', async () => {
+    // The helper has stopped its instance, and then inspection of that instance fails for a reason other than
+    // "no such container". The lifecycle must not read that as removed.
+    let stopped = false
+    const fake = fakeDocker({ inspectFails: (name) => name === owned && stopped })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => {
+        stopped = true
+        fake.present.delete(owned)
+      },
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    expect(messagesOf(error)).toEqual([
+      `inspecting ${owned} failed: Error response from daemon: permission denied while trying to connect to the Docker daemon socket`,
+    ])
+    expect(removalsOf(fake.calls)).toEqual([owned, sentinelOf(fake.calls)])
   })
 })

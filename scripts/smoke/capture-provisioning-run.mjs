@@ -21,8 +21,10 @@ export const smokeBounds = Object.freeze({
   removeMs: 60_000,
 })
 
-const ownedPattern = /OWNED (adea-capture-prov-[0-9a-f]+)/
-const readyPattern = /READY (adea-capture-prov-[0-9a-f]+) 1/
+// The helper names its instance with a fixed prefix and twelve hex digits. A line counts only when it matches whole,
+// so a name is never read from part of a line.
+const ownedLine = /^OWNED (adea-capture-prov-[0-9a-f]{12})$/
+const readyLine = /^READY (adea-capture-prov-[0-9a-f]{12}) 1$/
 
 // The default Docker command. It is killed with SIGKILL on timeout, so the bound holds only if the killed client exits.
 export function dockerCommand(args, timeoutMs) {
@@ -52,21 +54,30 @@ async function within(work, ms, what) {
   }
 }
 
-// Reads one child's stdout in order, so the OWNED and READY lines come from the same stream.
+// Reads one child's stdout as complete lines. A line is complete only once its newline has arrived, so a name split
+// across chunks is never matched in part. The text after the last newline waits for the next chunk.
 function lineReader(stream) {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
-  let pending = ''
+  let fragment = ''
+  const lines = []
   return async (label, pattern) => {
     for (;;) {
-      const match = pending.match(pattern)
-      if (match) {
-        pending = pending.slice(match.index + match[0].length)
-        return match
+      const index = lines.findIndex((line) => pattern.test(line))
+      if (index !== -1) {
+        const consumed = lines.splice(0, index + 1)
+        return consumed[index].match(pattern)
       }
       const { value, done } = await reader.read()
-      if (done) throw new Error(`the helper child ended before ${label}: ${pending}`)
-      pending += decoder.decode(value, { stream: true })
+      if (done) {
+        throw new Error(
+          `the helper child ended before ${label}: ${[...lines, fragment].join('\n')}`
+        )
+      }
+      fragment += decoder.decode(value, { stream: true })
+      const parts = fragment.split('\n')
+      fragment = parts.pop()
+      lines.push(...parts)
     }
   }
 }
@@ -94,6 +105,24 @@ async function stopChild(child, bounds) {
   }
 }
 
+// Docker's answer for a container that does not exist, naming that container. Only this answer proves absence. Any
+// other failure, including a nonzero exit without this message, is an error.
+function absentAnswer(result, name) {
+  return (
+    result.status !== 0 &&
+    (result.stderr.includes(`No such container: ${name}`) ||
+      result.stderr.includes(`No such object: ${name}`))
+  )
+}
+
+// What a Docker command that did not succeed reported.
+function failureText(result) {
+  return (
+    result.stderr.trim() ||
+    (result.signal ? `ended by ${result.signal}` : `exit code ${result.status}`)
+  )
+}
+
 // Runs the lifecycle and returns what it observed. It throws the failure when the run fails, and throws the failure
 // together with every cleanup error when cleanup fails too.
 export async function runOwnedSmoke({
@@ -110,23 +139,26 @@ export async function runOwnedSmoke({
   let ownedName
   let failure
 
-  const inspect = (args) => {
+  // Inspection finds the container present, finds it absent, or fails. Only Docker's absent-container answer for this
+  // name counts as absent. Every other failure throws, so a failing Docker can never pass for a removed container.
+  const inspect = (name, format) => {
+    const args = format === undefined ? [name] : ['--format', format, name]
     const result = docker(['container', 'inspect', ...args], bounds.dockerCommandMs)
-    if (result.error) throw new Error(`inspecting ${args.at(-1)} failed: ${result.error.message}`)
-    return result
+    if (result.error) throw new Error(`inspecting ${name} failed: ${result.error.message}`)
+    if (result.status === 0) return { present: true, stdout: result.stdout }
+    if (absentAnswer(result, name)) return { present: false, stdout: '' }
+    throw new Error(`inspecting ${name} failed: ${failureText(result)}`)
   }
   const isRunning = (name) => {
-    const result = inspect(['--format', '{{.State.Running}}', name])
-    return result.status === 0 && result.stdout.trim() === 'true'
+    const state = inspect(name, '{{.State.Running}}')
+    return state.present && state.stdout.trim() === 'true'
   }
-  const exists = (name) => inspect([name]).status === 0
+  const exists = (name) => inspect(name).present
   const removeNamed = (name) => {
     const result = docker(['rm', '-f', name], bounds.removeMs)
     if (result.error) throw new Error(`removing ${name} failed: ${result.error.message}`)
-    if (result.status === 0 || result.stderr.includes('No such container')) return
-    throw new Error(
-      `removing ${name} failed: ${result.stderr.trim() || `exit code ${result.status}`}`
-    )
+    if (result.status === 0 || absentAnswer(result, name)) return
+    throw new Error(`removing ${name} failed: ${failureText(result)}`)
   }
   const startSentinel = () => {
     const result = docker(
@@ -136,9 +168,7 @@ export async function runOwnedSmoke({
     if (result.error)
       throw new Error(`starting the sentinel container failed: ${result.error.message}`)
     if (result.status !== 0) {
-      throw new Error(
-        `starting the sentinel container failed: ${result.stderr.trim() || `exit code ${result.status}`}`
-      )
+      throw new Error(`starting the sentinel container failed: ${failureText(result)}`)
     }
   }
 
@@ -148,14 +178,14 @@ export async function runOwnedSmoke({
     const lines = lineReader(child.stdout)
     ownedName = (
       await within(
-        lines('OWNED', ownedPattern),
+        lines('OWNED', ownedLine),
         bounds.ownedMs,
         'the helper child naming its instance'
       )
     )[1]
     observed.owned = ownedName
     const ready = (
-      await within(lines('READY', readyPattern), bounds.readyMs, 'the helper child becoming ready')
+      await within(lines('READY', readyLine), bounds.readyMs, 'the helper child becoming ready')
     )[1]
     if (ready !== ownedName)
       throw new Error(`the helper child named ${ownedName} and then reported ${ready}`)
