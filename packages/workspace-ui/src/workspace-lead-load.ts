@@ -1,6 +1,7 @@
 import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
 import type {
   ApiModelConnectionsResponse,
+  ApiModelDefaultsResponse,
   ApiWorkspaceModelDefaults,
 } from '@adea-ai/api-client/model-connections'
 import { projectWorkspaceLeadSetup, type WorkspaceLeadSetup } from './workspace-lead-setup'
@@ -22,9 +23,11 @@ function failureOf(error: unknown): 'auth_required' | 'unavailable' {
 
 /**
  * Loads lead setup for one workspace. The lead is provisioned only when no lead
- * exists, and only while the caller's scope is still current, immediately before
- * the write. A result that lands after a scope switch is reported as stale and
- * must not be applied. Inventory or defaults read failures fail closed.
+ * exists, the client's manage hint allows it, and the scope is still current
+ * immediately before the write. The server re-checks `workspace.update` on every
+ * write; the hint only avoids a request that cannot succeed. A result that lands
+ * after a scope switch is reported as stale and must not be applied. Inventory or
+ * defaults read failures fail closed.
  */
 export async function loadWorkspaceLeadSetup(input: {
   client: WorkspaceLeadClient
@@ -32,7 +35,7 @@ export async function loadWorkspaceLeadSetup(input: {
   isCurrent(): boolean
 }): Promise<WorkspaceLeadLoad> {
   const { client, workspaceId } = input
-  const [leadRead, connections, defaults] = await Promise.all([
+  const [leadRead, connections, defaultsPage] = await Promise.all([
     client.getWorkspaceLead(workspaceId).then(
       (value) => ({ ok: true as const, value }),
       (error: unknown) => ({ ok: false as const, error })
@@ -40,10 +43,12 @@ export async function loadWorkspaceLeadSetup(input: {
     client.listModelConnections(workspaceId).catch((): ApiModelConnectionsResponse | null => null),
     client
       .getWorkspaceModelDefaults(workspaceId)
-      .then((page) => page.defaults)
-      .catch((): ApiWorkspaceModelDefaults | null => null),
+      .catch((): ApiModelDefaultsResponse | null => null),
   ])
   if (!input.isCurrent()) return STALE
+  const defaults: ApiWorkspaceModelDefaults | null | undefined = defaultsPage?.defaults
+  // Only an explicit `false` from either inventory read denies provisioning.
+  const denied = connections?.canManage === false || defaultsPage?.canManage === false
   if (!leadRead.ok)
     return {
       current: true,
@@ -56,8 +61,9 @@ export async function loadWorkspaceLeadSetup(input: {
     }
   let lead = leadRead.value.lead
   let provisioning: 'failed' | undefined
-  let failure: 'auth_required' | undefined
-  if (!lead) {
+  let failure: 'auth_required' | 'not_permitted' | undefined
+  if (!lead && denied) failure = 'not_permitted'
+  else if (!lead) {
     // The scope check sits immediately before the write.
     if (!input.isCurrent()) return STALE
     try {

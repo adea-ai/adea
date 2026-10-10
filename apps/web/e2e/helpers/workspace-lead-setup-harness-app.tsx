@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js'
+import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 
 import { AgentHqApiClient } from '@adea-ai/api-client'
@@ -8,6 +8,7 @@ import {
   type FirstRunFacts,
 } from '@adea-ai/dev-view/chat'
 
+import { markWorkspaceLeadChanged } from '../../../../packages/workspace-ui/src/workspace-lead-revision'
 import { WorkspaceLeadStatus } from '../../../../packages/workspace-ui/src/workspace-lead-status'
 
 type Lead = Record<string, unknown> | null
@@ -48,10 +49,11 @@ const readyInventory = {
 }
 const unavailableInventory = {
   availability: 'unavailable',
-  canManage: false,
+  canManage: true,
   target: null,
   connections: [],
 }
+const memberInventory = { ...unavailableInventory, canManage: false }
 const readyDefaults = {
   availability: 'available',
   canManage: true,
@@ -60,7 +62,8 @@ const readyDefaults = {
     lead: { connectionRef: `mconn_${'a'.repeat(32)}`, providerModel: 'fixture-model' },
   },
 }
-const unavailableDefaults = { availability: 'unavailable', canManage: false, defaults: null }
+const unavailableDefaults = { availability: 'unavailable', canManage: true, defaults: null }
+const memberDefaults = { availability: 'unavailable', canManage: false, defaults: null }
 
 function activeLead(workspaceId: string): Record<string, unknown> {
   return {
@@ -77,7 +80,7 @@ function activeLead(workspaceId: string): Record<string, unknown> {
 }
 
 const workspaces: Record<string, Fixture> = {
-  // Empty workspace: entry must provision the structural lead, which stays unconfigured.
+  // Empty workspace: entry provisions the structural lead, which stays unconfigured.
   'ws-a': {
     lead: null,
     failWrites: 0,
@@ -113,9 +116,18 @@ const workspaces: Record<string, Fixture> = {
     inventory: unavailableInventory,
     defaults: unavailableDefaults,
   },
+  // Workspace member without manage rights: no lead, and no write may be attempted.
+  'ws-f': {
+    lead: null,
+    failWrites: 0,
+    inventory: memberInventory,
+    defaults: memberDefaults,
+  },
 }
 
 const writes: string[] = []
+let leadReads = 0
+let parked = 0
 const holds: {
   workspaceId: string
   method: string
@@ -129,8 +141,6 @@ function json(body: unknown, status = 200): Response {
     headers: { 'content-type': 'application/json' },
   })
 }
-
-let parked = 0
 
 function gate(workspaceId: string, method: string): Promise<void> {
   const hold = holds.find((item) => item.workspaceId === workspaceId && item.method === method)
@@ -149,6 +159,7 @@ const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<
   if (url.pathname.endsWith('/agents/lead')) {
     await gate(workspaceId, method)
     if (method === 'GET') {
+      leadReads += 1
       if (ws.reads401) return json({ code: 'workspace_unavailable', message: 'expired' }, 401)
       return json({ lead: ws.lead })
     }
@@ -191,6 +202,7 @@ const port = {
 
 function App() {
   const [workspaceId, setWorkspaceId] = createSignal('ws-b')
+  const [mounted, setMounted] = createSignal(true)
   window.leadHarness = {
     select: (next) => setWorkspaceId(next),
     hold: (next, method) => {
@@ -203,9 +215,13 @@ function App() {
     release: () => {
       for (const hold of holds.splice(0)) hold.release()
     },
+    unmount: () => setMounted(false),
+    remount: () => setMounted(true),
+    bump: () => markWorkspaceLeadChanged(workspaceId()),
     report: () => ({
       selected: workspaceId(),
       parked,
+      leadReads,
       writes: [...writes],
       conversations,
       signIns,
@@ -213,13 +229,15 @@ function App() {
   }
   return (
     <main>
-      <WorkspaceLeadStatus
-        client={client}
-        workspaceId={workspaceId()}
-        onSignIn={() => {
-          signIns += 1
-        }}
-      />
+      <Show when={mounted()}>
+        <WorkspaceLeadStatus
+          client={client}
+          workspaceId={workspaceId()}
+          onSignIn={() => {
+            signIns += 1
+          }}
+        />
+      </Show>
       <FirstRunOnboarding
         facts={facts}
         port={port}
@@ -238,9 +256,13 @@ declare global {
       select(workspaceId: string): void
       hold(workspaceId: string, method: string): void
       release(): void
+      unmount(): void
+      remount(): void
+      bump(): void
       report(): {
         selected: string
         parked: number
+        leadReads: number
         writes: string[]
         conversations: number
         signIns: number

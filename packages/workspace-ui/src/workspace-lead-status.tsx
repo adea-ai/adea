@@ -1,11 +1,13 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { loadWorkspaceLeadSetup, type WorkspaceLeadClient } from './workspace-lead-load'
+import { workspaceLeadRevision } from './workspace-lead-revision'
 import type { WorkspaceLeadSetup } from './workspace-lead-setup'
 
 /**
- * Canonical lead setup status for one workspace. Each workspace change starts a
- * new scoped load; an earlier load that settles after the switch cannot apply.
+ * Canonical lead setup status for one workspace. Each workspace change, retry, or
+ * lead-relevant change elsewhere starts a new scoped load; an earlier load that
+ * settles after that point cannot apply.
  */
 export function WorkspaceLeadStatus(props: {
   client: WorkspaceLeadClient
@@ -20,6 +22,7 @@ export function WorkspaceLeadStatus(props: {
     const workspaceId = props.workspaceId
     const client = props.client
     void attempt()
+    void workspaceLeadRevision(workspaceId)
     const request = (token += 1)
     setSetup(undefined)
     loadWorkspaceLeadSetup({ client, workspaceId, isCurrent: () => request === token }).then(

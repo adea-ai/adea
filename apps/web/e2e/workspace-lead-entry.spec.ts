@@ -37,7 +37,7 @@ type LeadState = {
   gets: number
 }
 
-async function mountShell(page: Page): Promise<LeadState> {
+async function mountShell(page: Page, canManage = true): Promise<LeadState> {
   const state: LeadState = { lead: null, postsFail: 0, posts: 0, gets: 0 }
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
@@ -65,7 +65,7 @@ async function mountShell(page: Page): Promise<LeadState> {
       contentType: 'application/json',
       json: {
         availability: 'unavailable',
-        canManage: false,
+        canManage,
         target: null,
         connections: [],
         defaults: null,
@@ -185,4 +185,48 @@ test('a failed lead provisioning shows a retryable error while the roster stays 
     'unconfigured'
   )
   expect(state.posts).toBe(2)
+})
+
+test('a member without manage rights sees the lead as not set up and the roster stays usable', async ({
+  page,
+}) => {
+  const state = await mountShell(page, false)
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'not_permitted',
+    { timeout: 30_000 }
+  )
+  await expect(leadStatus(page).getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  await expect(page.getByText('Research Agent').first()).toBeVisible()
+  expect(state.posts).toBe(0)
+})
+
+test('refreshing agent models in workspace settings reloads the Agents lead status behind it', async ({
+  page,
+}) => {
+  const state = await mountShell(page)
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'unconfigured',
+    { timeout: 30_000 }
+  )
+
+  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
+  const details = page.getByRole('dialog', { name: 'Work workspace settings' })
+  await expect(details).toBeVisible()
+  await details.getByRole('tab', { name: 'Connections', exact: true }).click()
+  await expect(details.getByRole('heading', { name: 'Agent models' })).toBeVisible()
+  // Both lead statuses (the pane's and the Agents surface's) have settled.
+  await expect(details.getByTestId('lead-setup-state')).toBeVisible()
+  const before = state.gets
+
+  await details.getByRole('button', { name: 'Refresh models', exact: true }).click()
+  await expect.poll(() => state.gets).toBeGreaterThan(before)
+  await expect(page.locator('#workspace-main').getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'unconfigured'
+  )
+  expect(state.posts).toBe(1)
 })

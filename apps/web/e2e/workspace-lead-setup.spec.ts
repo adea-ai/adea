@@ -123,3 +123,54 @@ test('a failed provisioning shows a retryable error, then retry provisions the l
   expect(await page.evaluate(() => window.leadHarness.report().writes)).toEqual(['ws-e', 'ws-e'])
   expect(errors).toEqual([])
 })
+
+test('a member without manage rights sees the lead as not set up and no write is attempted', async ({
+  page,
+}) => {
+  const errors = await mount(page)
+  await page.evaluate(() => window.leadHarness.select('ws-f'))
+  await expect(leadState(page)).toHaveAttribute('data-state', 'not_permitted')
+  await expect(leadState(page)).toContainText('A workspace admin can set one up')
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  expect(await page.evaluate(() => window.leadHarness.report().writes)).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('a lead write that completes after the status closes is persisted once and not duplicated on reopen', async ({
+  page,
+}) => {
+  const errors = await mount(page)
+  await page.evaluate(() => {
+    window.leadHarness.hold('ws-a', 'POST')
+    window.leadHarness.select('ws-a')
+  })
+  await expect.poll(() => page.evaluate(() => window.leadHarness.report().parked)).toBe(1)
+
+  // The delayed write is in flight when the settings surface closes.
+  await page.evaluate(() => window.leadHarness.unmount())
+  await expect(leadState(page)).toHaveCount(0)
+  await page.evaluate(() => window.leadHarness.release())
+  await expect.poll(() => page.evaluate(() => window.leadHarness.report().writes)).toEqual(['ws-a'])
+
+  // Reopening reads the persisted lead and does not write again.
+  await page.evaluate(() => window.leadHarness.remount())
+  await expect(leadState(page)).toHaveAttribute('data-state', 'unconfigured')
+  expect(await page.evaluate(() => window.leadHarness.report().writes)).toEqual(['ws-a'])
+  expect(errors).toEqual([])
+})
+
+test('a saved change elsewhere reloads a mounted lead status for the same workspace', async ({
+  page,
+}) => {
+  const errors = await mount(page)
+  await page.evaluate(() => window.leadHarness.select('ws-b'))
+  await expect(leadState(page)).toHaveAttribute('data-state', 'setup_ready')
+  const before = await page.evaluate(() => window.leadHarness.report().leadReads)
+
+  await page.evaluate(() => window.leadHarness.bump())
+  await expect
+    .poll(() => page.evaluate(() => window.leadHarness.report().leadReads))
+    .toBe(before + 1)
+  await expect(leadState(page)).toHaveAttribute('data-state', 'setup_ready')
+  expect(errors).toEqual([])
+})

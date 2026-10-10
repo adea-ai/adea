@@ -15,6 +15,7 @@ import { projectRoleModel, type SelectableModel } from './lead-model-state'
 export type WorkspaceLeadSetup =
   | Readonly<{ state: 'auth_required'; detail: string }>
   | Readonly<{ state: 'unavailable'; detail: string }>
+  | Readonly<{ state: 'not_permitted'; detail: string }>
   | Readonly<{ state: 'missing'; detail: string }>
   | Readonly<{ state: 'provisioning_failed'; detail: string }>
   | Readonly<{ state: 'inactive'; detail: string }>
@@ -24,8 +25,8 @@ export type WorkspaceLeadSetup =
 
 export function projectWorkspaceLeadSetup(input: {
   lead: AgentSummary | null | undefined
-  /** A read or session failure; never reads as a lead. */
-  failure?: 'auth_required' | 'unavailable'
+  /** A read or session failure, or a missing manage permission; never reads as a lead. */
+  failure?: 'auth_required' | 'unavailable' | 'not_permitted'
   /** Provisioning outcome from the protected lead route; `failed` never reads as a lead. */
   provisioning?: 'failed'
   connections: unknown
@@ -35,6 +36,11 @@ export function projectWorkspaceLeadSetup(input: {
     return { state: 'auth_required', detail: 'Sign in to set up the workspace lead.' }
   if (input.failure === 'unavailable')
     return { state: 'unavailable', detail: 'Lead status could not be read. Try again.' }
+  if (input.failure === 'not_permitted')
+    return {
+      state: 'not_permitted',
+      detail: 'This workspace has no lead yet. A workspace admin can set one up.',
+    }
   const lead = input.lead
   if (!lead || lead.isWorkspaceLead !== true) {
     return input.provisioning === 'failed'
