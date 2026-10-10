@@ -34,8 +34,10 @@ of the criterion, and the gaps are listed on the entry. Nothing is certified:
 
 - `coverage` is required. `partial` must list `gaps` and cannot carry candidates; its
   status is always `pending`. `complete` must list `criteria` and no `gaps`.
-- `criteria` is `[{ text, tests: [{ path, name }] }]`. A criterion is evidenced only if every
-  listed test is a runner-verified `test-reference` in the same entry.
+- `criteria` is `[{ text, tests: [{ repository, path, name }] }]`. A criterion is evidenced only if
+  every listed test is a runner-verified `test-reference` with the same repository, path, and title.
+  Repository identity is part of every match: the same path and title in another repository never
+  matches.
 - `sourceReferences` (`[{ repository, path }]`) are merged source files that must exist at
   `sourceSha`. They are context, not evidence.
 
@@ -50,11 +52,12 @@ of the criterion, and the gaps are listed on the entry. Nothing is certified:
 summary, ids[] }` (a claim) and a JUnit receipt written by the runner (the output). Both
   must match their hashes. Exact revision: `sourceSha` and `executedAtHead` must equal the
   pinned SHA. `status` must be `passed` and `exitCode` 0. The receipt's per-testcase counts
-  must equal `summary`. A title counts only if it passes in every execution-reference for
-  its file.
+  must equal `summary`. Receipts are scoped to the reference's repository and file: a title counts
+  only if it passes in every execution-reference for that repository and file.
 - `{ kind: "candidate-reference", path, sha256, receipt: { path, sha256 } }`: a packaged or
   deployed record `{ candidateId, channel, contractVersion, status, exitCode, ids[], sources,
-summary }`. `sources` must equal the pinned SHA for every repository the id references. The
+summary }`. `sources` must equal the pinned SHA for every repository the id references, including the
+  repositories of its `sourceReferences`. The
   contract version must be listed in `compatibility.contractVersions`. Its own receipt must
   show every testcase passing.
 

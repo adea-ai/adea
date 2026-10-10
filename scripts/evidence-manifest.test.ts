@@ -25,7 +25,7 @@ const TEST_TITLE = 'validates every mapped id'
 const testRef = { kind: 'test-reference', repository: 'adea', path: TEST_PATH, name: TEST_TITLE }
 const criterionA01 = {
   text: 'the designated lead is the only lead',
-  tests: [{ path: TEST_PATH, name: TEST_TITLE }],
+  tests: [{ repository: 'adea', path: TEST_PATH, name: TEST_TITLE }],
 }
 
 const sha256Of = (bytes) => createHash('sha256').update(bytes).digest('hex')
@@ -234,7 +234,7 @@ describe('schema and repository identity', () => {
     expect(
       validateEvidenceManifest(manifest([{ ...entry, criteria: [{ text: 'x', tests: [] }] }]), io)
         .schemaErrors
-    ).toEqual(['A01 criterion must name text and at least one test {path, name}'])
+    ).toEqual(['A01 criterion must name text and at least one test {repository, path, name}'])
   })
 
   test('references must name a declared repository; source references are validated the same way', () => {
@@ -433,13 +433,16 @@ describe('complete and partial coverage', () => {
     expect(
       statusOf(validateEvidenceManifest(manifest([declaredOnly]), withDeclared), 'A01').reasons
     ).toEqual([
-      `test-reference is not a passing title in its receipt: ${TEST_PATH} "declared but never run"`,
+      `test-reference is not a passing title in its receipt: adea:${TEST_PATH} "declared but never run"`,
     ])
 
     const unevidenced = {
       ...entry,
       criteria: [
-        { text: 'a criterion no test covers', tests: [{ path: TEST_PATH, name: 'missing' }] },
+        {
+          text: 'a criterion no test covers',
+          tests: [{ repository: 'adea', path: TEST_PATH, name: 'missing' }],
+        },
       ],
     }
     expect(statusOf(validateEvidenceManifest(manifest([unevidenced]), io), 'A01').reasons).toEqual([
@@ -646,5 +649,84 @@ describe('parseJunit', () => {
     expect([...parsed.failed].toSorted()).toEqual(['broken', 'errored'])
     expect([parsed.passCount, parsed.failCount]).toEqual([4, 2])
     expect(parseJunit('<testsuites></testsuites>')).toBeNull()
+  })
+})
+
+describe('cross-repository identity', () => {
+  const OTHER_ROOT = '8'.repeat(40)
+  const manifestWithControlPlane = (entries) =>
+    manifest(entries, {
+      repositories: {
+        adea: ADEA,
+        'control-plane': {
+          name: 'adea-ai/control-plane',
+          rootCommit: OTHER_ROOT,
+          sourceSha: OTHER_SHA,
+        },
+      },
+    })
+  const controlPlane = (blobs) =>
+    checkoutFake({ commits: [OTHER_SHA], roots: { [OTHER_SHA]: [OTHER_ROOT] }, blobs })
+
+  test('a passing receipt in one repository never verifies the same path and title in another', () => {
+    const run = runFor('artifacts/a01-run')
+    const io = fixtureIo({
+      checkouts: {
+        adea: checkoutFake({ blobs: testBlobs() }),
+        'control-plane': controlPlane({
+          [`${OTHER_SHA}:${TEST_PATH}`]: { content: `test('${TEST_TITLE}', () => {})` },
+        }),
+      },
+      working: run.files,
+    })
+    const crossTest = {
+      kind: 'test-reference',
+      repository: 'control-plane',
+      path: TEST_PATH,
+      name: TEST_TITLE,
+    }
+    const entry = {
+      id: 'A01',
+      coverage: 'complete',
+      criteria: [
+        {
+          text: 'the control-plane copy is evidenced',
+          tests: [{ repository: 'control-plane', path: TEST_PATH, name: TEST_TITLE }],
+        },
+      ],
+      repoEvidence: [testRef, crossTest, run.ref],
+      candidateEvidence: [],
+    }
+    const report = validateEvidenceManifest(manifestWithControlPlane([entry]), io)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      `test-reference is not a passing title in its receipt: control-plane:${TEST_PATH} "${TEST_TITLE}"`,
+      'criterion not evidenced by runner-verified tests: the control-plane copy is evidenced',
+    ])
+    expect(report.ok).toBe(false)
+  })
+
+  test('a candidate must pin the source of every repository an id cites, including source references', () => {
+    const run = runFor('artifacts/a01-run')
+    const candidate = candidateFor('pkg-1')
+    const io = fixtureIo({
+      checkouts: {
+        adea: checkoutFake({ blobs: testBlobs() }),
+        'control-plane': controlPlane({ [`${OTHER_SHA}:src/source.ts`]: { content: 'export {}' } }),
+      },
+      working: { ...run.files, ...candidate.files },
+    })
+    const entry = {
+      id: 'A01',
+      coverage: 'complete',
+      criteria: [criterionA01],
+      repoEvidence: [testRef, run.ref],
+      sourceReferences: [{ repository: 'control-plane', path: 'src/source.ts' }],
+      candidateEvidence: [candidate.ref],
+    }
+    const report = validateEvidenceManifest(manifestWithControlPlane([entry]), io)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      `candidate pkg-1 does not declare sources.control-plane = ${OTHER_SHA}`,
+    ])
+    expect(report.ok).toBe(false)
   })
 })

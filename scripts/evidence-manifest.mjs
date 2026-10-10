@@ -369,7 +369,10 @@ function checkCandidateEvidence(item, id, io, manifest, repositories) {
 const intersect = (previous, next) =>
   previous === undefined ? next : new Set([...previous].filter((title) => next.has(title)))
 
-const isVerified = (test, receipts) => receipts.get(test.path)?.has(test.name) === true
+/** Receipts are scoped to one repository: the same path in another repository never matches. */
+const receiptKey = (repository, path) => JSON.stringify([repository, path])
+const isVerified = (test, receipts) =>
+  receipts.get(receiptKey(test.repository, test.path))?.has(test.name) === true
 
 function evaluate(id, entry, io, manifest) {
   if (entry === undefined) return { status: STATUS.pending, reasons: ['no evidence mapped'] }
@@ -389,7 +392,7 @@ function evaluate(id, entry, io, manifest) {
 
   const reasons = []
   const repositories = new Set()
-  // File -> titles that passed in every execution-reference for that file.
+  // Repository + file -> titles that passed in every execution-reference for that file.
   const receipts = new Map()
   const tests = []
   let executions = 0
@@ -412,12 +415,16 @@ function evaluate(id, entry, io, manifest) {
       executions += 1
       const result = checkExecutionReference(item, id, io, manifest)
       if (result.problem) reasons.push(result.problem)
-      else receipts.set(result.file, intersect(receipts.get(result.file), result.passing))
+      else {
+        const key = receiptKey(item.repository, result.file)
+        receipts.set(key, intersect(receipts.get(key), result.passing))
+      }
     } else {
       reasons.push(`unknown repository evidence kind ${item.kind}`)
     }
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
+  for (const ref of entry.sourceReferences ?? []) repositories.add(ref.repository)
 
   const verified = tests.filter((test) => isVerified(test, receipts))
   const unverified = tests.filter((test) => !isVerified(test, receipts))
@@ -466,11 +473,15 @@ function evaluate(id, entry, io, manifest) {
   // Complete coverage is a claim. Every declared test must have passed in its receipt,
   // and every criterion must cite runner-verified tests from this entry.
   const failures = unverified.map(
-    (test) => `test-reference is not a passing title in its receipt: ${test.path} "${test.name}"`
+    (test) =>
+      `test-reference is not a passing title in its receipt: ${test.repository}:${test.path} "${test.name}"`
   )
   for (const criterion of entry.criteria ?? []) {
     const evidenced = criterion.tests.every((ref) =>
-      verified.some((test) => test.path === ref.path && test.name === ref.name)
+      verified.some(
+        (test) =>
+          test.repository === ref.repository && test.path === ref.path && test.name === ref.name
+      )
     )
     if (!evidenced)
       failures.push(`criterion not evidenced by runner-verified tests: ${criterion.text}`)
@@ -493,7 +504,8 @@ function evaluate(id, entry, io, manifest) {
   return { status: STATUS.candidateCompatible, reasons: [] }
 }
 
-function criteriaErrors(entry) {
+/** A criterion cites tests by repository, path, and title; the repository must be declared. */
+function criteriaErrors(entry, repositories) {
   const errors = []
   for (const criterion of entry.criteria ?? []) {
     const valid =
@@ -503,10 +515,22 @@ function criteriaErrors(entry) {
       Array.isArray(criterion.tests) &&
       criterion.tests.length > 0 &&
       criterion.tests.every(
-        (ref) => isObject(ref) && typeof ref.path === 'string' && typeof ref.name === 'string'
+        (ref) =>
+          isObject(ref) &&
+          typeof ref.repository === 'string' &&
+          typeof ref.path === 'string' &&
+          typeof ref.name === 'string'
       )
     if (!valid)
-      errors.push(`${entry.id} criterion must name text and at least one test {path, name}`)
+      errors.push(
+        `${entry.id} criterion must name text and at least one test {repository, path, name}`
+      )
+    else
+      for (const ref of criterion.tests) {
+        if (!Object.hasOwn(repositories, ref.repository)) {
+          errors.push(`${entry.id} criterion names undeclared repository ${ref.repository}`)
+        }
+      }
   }
   return errors
 }
@@ -593,7 +617,7 @@ function manifestErrors(manifest, io) {
     if (entry.criteria !== undefined && !Array.isArray(entry.criteria)) {
       errors.push(`${entry.id} criteria must be an array`)
     } else {
-      errors.push(...criteriaErrors(entry))
+      errors.push(...criteriaErrors(entry, isObject(repositories) ? repositories : {}))
     }
     for (const item of entry.repoEvidence) {
       if (
