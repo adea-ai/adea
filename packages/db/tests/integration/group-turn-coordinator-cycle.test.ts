@@ -155,6 +155,32 @@ async function drainWithin(promise: Promise<unknown> | null, ms: number): Promis
   ])
 }
 
+/**
+ * Bounded await for startup gates (parked promises): observes a startup
+ * failure with a labeled error instead of waiting forever.
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** Bounded pool close: never hangs the test even with an open backend. */
+async function closeBounded(pool: DatabaseConnection): Promise<void> {
+  await Promise.race([
+    pool.close().catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
+}
+
 describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', () => {
   let connection: DatabaseConnection
   beforeAll(() => {
@@ -259,6 +285,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       holding = (async () => {
         try {
           await holder.db.transaction(async (tx) => {
+            // Owned backstop: any stuck SQL wait in this transaction
+            // self-aborts with 57014 well inside the test ceiling.
+            await tx.execute(sql`SET LOCAL statement_timeout = '10s'`)
             const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
             holderPid = (self as { pid: number }).pid
             await tx
@@ -290,7 +319,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
         holderDone = true
       })()
-      await holderParkedPromise
+      await withTimeout(holderParkedPromise, 8000, 'holderParked')
 
       // CANCELLER: real production cancel. Outer flips the claim
       // (uncommitted) and stays open across the nested intent-cancel,
@@ -372,9 +401,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       }
       await drainWithin(holding, 5000)
       await drainWithin(cancelling, 5000)
-      await holder.close().catch(() => {})
-      await canceller.close().catch(() => {})
-      await observer.close().catch(() => {})
+      await closeBounded(holder)
+      await closeBounded(canceller)
+      await closeBounded(observer)
     }
   })
 
@@ -412,6 +441,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       holding = (async () => {
         try {
           await holder.db.transaction(async (tx) => {
+            // Owned backstop: any stuck SQL wait in this transaction
+            // self-aborts with 57014 well inside the test ceiling.
+            await tx.execute(sql`SET LOCAL statement_timeout = '10s'`)
             const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
             holderPid = (self as { pid: number }).pid
             await tx
@@ -428,7 +460,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
         holderDone = true
       })()
-      await holderParkedPromise
+      await withTimeout(holderParkedPromise, 8000, 'holderParked')
       dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
         now: NOW,
       })
@@ -464,9 +496,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       }
       await drainWithin(holding, 5000)
       await drainWithin(dispatching, 5000)
-      await holder.close().catch(() => {})
-      await runner.close().catch(() => {})
-      await observer.close().catch(() => {})
+      await closeBounded(holder)
+      await closeBounded(runner)
+      await closeBounded(observer)
     }
   })
 
@@ -500,6 +532,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       holding = (async () => {
         try {
           await holder.db.transaction(async (tx) => {
+            // Owned backstop: any stuck SQL wait in this transaction
+            // self-aborts with 57014 well inside the test ceiling.
+            await tx.execute(sql`SET LOCAL statement_timeout = '10s'`)
             const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
             holderPid = (self as { pid: number }).pid
             await tx
@@ -521,7 +556,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
         holderDone = true
       })()
-      await holderParkedPromise
+      await withTimeout(holderParkedPromise, 8000, 'holderParked')
       dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
         now: NOW,
       })
@@ -555,9 +590,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       }
       await drainWithin(holding, 5000)
       await drainWithin(dispatching, 5000)
-      await holder.close().catch(() => {})
-      await runner.close().catch(() => {})
-      await observer.close().catch(() => {})
+      await closeBounded(holder)
+      await closeBounded(runner)
+      await closeBounded(observer)
     }
   })
 
@@ -644,7 +679,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
       }
     } finally {
-      await runner.close().catch(() => {})
+      await closeBounded(runner)
     }
   })
 
@@ -672,6 +707,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       holding = (async () => {
         try {
           await holder.db.transaction(async (tx) => {
+            // Owned backstop: any stuck SQL wait in this transaction
+            // self-aborts with 57014 well inside the test ceiling.
+            await tx.execute(sql`SET LOCAL statement_timeout = '10s'`)
             await tx
               .select({ id: schema.channels.id })
               .from(schema.channels)
@@ -691,7 +729,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
         holderDone = true
       })()
-      await holderParkedPromise
+      await withTimeout(holderParkedPromise, 8000, 'holderParked')
       // INJECTED FAILURE: the observer pool dies before any observation.
       await observer.close()
       let observedErr: unknown = null
@@ -708,8 +746,8 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       // on a JS gate (no SQL wait), so release alone drains it — bounded.
       await drainWithin(holding, 5000)
       drainedFlag = true
-      await holder.close().catch(() => {})
-      await observer.close().catch(() => {})
+      await closeBounded(holder)
+      await closeBounded(observer)
     }
     expect(releasedFlag).toBe(true)
     expect(drainedFlag).toBe(true)
@@ -720,7 +758,120 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       const [one] = await fresh.db.execute(sql`SELECT 1 AS one`)
       expect((one as { one: number }).one).toBe(1)
     } finally {
-      await fresh.close()
+      await closeBounded(fresh)
     }
+  })
+
+  T('injected mid-cycle failure still cuts, drains and closes boundedly', async () => {
+    // Failure-cleanup regression: a REAL cycle is staged (holder waits the
+    // claim held by an open cancel, nested waits the channel held by the
+    // holder — both proven), then an injected failure skips the manual cut.
+    // finally alone must release, cut the exact owned backend, drain and
+    // close within bounds; flags prove each stage ran.
+    const f = await leadGroup()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner)
+    const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(pre.status).toBe('claimed')
+    const dispatched = await dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(dispatched.claim.status).toBe('duplicate')
+    const holder = createDatabase(connectionUrl!)
+    const canceller = createDatabase(connectionUrl!)
+    const observer = createDatabase(connectionUrl!)
+    let releaseHolder: (() => void) | null = null
+    let holderPid = 0
+    let holderCode: string | null = null
+    let holderDone = false
+    let holding: Promise<unknown> | null = null
+    let cancelling: Promise<unknown> | null = null
+    let releasedFlag = false
+    let cutFlag = false
+    let drainedFlag = false
+    try {
+      let holderParked!: () => void
+      const holderGate = new Promise<void>((resolve) => {
+        releaseHolder = resolve
+      })
+      const holderParkedPromise = new Promise<void>((resolve) => {
+        holderParked = resolve
+      })
+      holding = (async () => {
+        try {
+          await holder.db.transaction(async (tx) => {
+            await tx.execute(sql`SET LOCAL statement_timeout = '10s'`)
+            const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
+            holderPid = (self as { pid: number }).pid
+            await tx
+              .select({ id: schema.channels.id })
+              .from(schema.channels)
+              .where(
+                and(
+                  eq(schema.channels.id, f.channelId),
+                  eq(schema.channels.workspaceId, f.workspace.id)
+                )
+              )
+              .limit(1)
+              .for('update')
+            holderParked()
+            await holderGate
+            await tx
+              .select({ id: schema.addressedAgentTurns.id })
+              .from(schema.addressedAgentTurns)
+              .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
+              .limit(1)
+              .for('update')
+          })
+          holderCode = 'committed'
+        } catch (error) {
+          holderCode = `aborted:${abortCode(error)}`
+        }
+        holderDone = true
+      })()
+      await withTimeout(holderParkedPromise, 8000, 'holderParked')
+      cancelling = cancelAddressedTurn(
+        canceller.db,
+        f.workspace.id,
+        f.owner,
+        dispatched.claim.turn.id
+      )
+      cancelling.catch(() => {})
+      await waitFor(async () => {
+        const waits = await lockWaits(observer)
+        return waits.some(
+          (wait) => wait.query.includes('"channels"') && wait.blockedBy.includes(holderPid)
+        )
+      }, 'nested channel wait')
+      releaseHolder()
+      releasedFlag = true
+      await waitFor(async () => {
+        const waits = await lockWaits(observer)
+        return waits.some((wait) => wait.pid === holderPid || wait.blockedBy.includes(holderPid))
+      }, 'holder claim wait')
+      // INJECTED FAILURE: the test dies here with the true cycle parked.
+      // finally below is the only cleanup that runs.
+      throw new Error('injected mid-cycle failure')
+    } catch (error) {
+      expect((error as Error).message).toBe('injected mid-cycle failure')
+    } finally {
+      releaseHolder?.()
+      if (!holderDone && holderPid !== 0) {
+        await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
+        cutFlag = true
+      }
+      await drainWithin(holding, 5000)
+      await drainWithin(cancelling, 5000)
+      drainedFlag = true
+      await closeBounded(holder)
+      await closeBounded(canceller)
+      await closeBounded(observer)
+    }
+    expect(releasedFlag).toBe(true)
+    expect(cutFlag).toBe(true)
+    expect(drainedFlag).toBe(true)
+    expect(holderDone).toBe(true)
+    expect(holderCode).toBe('aborted:57014')
   })
 })
