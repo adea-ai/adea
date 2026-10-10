@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path'
 const helper = resolve(import.meta.dir, 'capture-provisioning.mjs')
 
 // Records every call to its log, answers the helper's subcommands, and honours SHIM_RM for removal.
+// The hang mode replaces the shell with sleep, so a killed removal leaves no process behind.
 const dockerShim = `#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 case "$1" in
@@ -28,21 +29,24 @@ case "$1" in
   rm)
     if [ "$SHIM_RM" = "missing" ]; then echo "Error response from daemon: No such container: $3" >&2; exit 1; fi
     if [ "$SHIM_RM" = "fail" ]; then echo "permission denied" >&2; exit 1; fi
+    if [ "$SHIM_RM" = "hang" ]; then exec sleep 600; fi
     exit 0 ;;
   *) exit 1 ;;
 esac
 `
 
-// A process that starts the helper with no register callback, then behaves as the mode says.
+// A process that starts the helper with no register callback and a 500 ms removal bound, then behaves as the
+// mode says. The natural mode ends with no stop call, so the exit listener does the removal.
 const childProgram = `import { spawnSync } from 'node:child_process'
 import { startCaptureProvisioning } from ${JSON.stringify(helper)}
 const mode = process.argv[2]
-const handle = startCaptureProvisioning()
+const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500 })
 if (!handle) { console.log('NULL'); process.exit(3) }
 console.log('READY ' + handle.containerName)
 if (mode === 'normal') { handle.stop(); process.exit(0) }
 if (mode === 'twice') { handle.stop(); handle.stop(); process.exit(0) }
 if (mode === 'error') { throw new Error('boom after start') }
+if (mode === 'exit-seven') process.exitCode = 7
 if (mode === 'idle') setInterval(() => {}, 1000)
 if (mode === 'stopped-idle') { handle.stop(); setInterval(() => {}, 1000) }
 if (mode === 'blocking') { spawnSync('sleep', ['2']); handle.stop(); setTimeout(() => { console.log('LOOP-CONTINUED'); process.exit(0) }, 500) }
@@ -94,7 +98,7 @@ function environmentFor(mode: string, extra: Record<string, string> = {}) {
       ...process.env,
       PATH: `${shimDir}:${process.env.PATH ?? ''}`,
       SHIM_LOG: log,
-      SHIM_RM: mode === 'missing' || mode === 'fail' ? mode : 'ok',
+      SHIM_RM: ['missing', 'fail', 'hang'].includes(mode) ? mode : 'ok',
       ...extra,
     } as Record<string, string>,
   }
@@ -199,6 +203,44 @@ describe('capture provisioning helper', () => {
     const stderr = await new Response(child.stderr).text()
     expect(name).toBeDefined()
     expect(stderr).toContain(`removing the throwaway capture provisioning container ${name} failed`)
+  })
+
+  test('a natural exit without stop removes exactly the container and exits 0', async () => {
+    const { environment, log } = environmentFor('ok')
+    const { child, name } = await startChild('natural', environment)
+    expect(await child.exited).toBe(0)
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('a natural exit whose removal fails exits 1 and names the container', async () => {
+    const { environment, log } = environmentFor('fail')
+    const { child, name } = await startChild('natural', environment)
+    expect(await child.exited).toBe(1)
+    const stderr = await new Response(child.stderr).text()
+    expect(stderr).toContain(`removing the throwaway capture provisioning container ${name} failed`)
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('a natural exit whose removal hangs is bounded, exits 1, and names the container', async () => {
+    const { environment, log } = environmentFor('hang')
+    const started = Date.now()
+    const { child, name } = await startChild('natural', environment)
+    expect(await child.exited).toBe(1)
+    expect(Date.now() - started).toBeLessThan(15_000)
+    const stderr = await new Response(child.stderr).text()
+    expect(stderr).toContain(
+      `removing the throwaway capture provisioning container ${name} timed out after 500 ms`
+    )
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  }, 30_000)
+
+  test('an existing failure status is kept when the removal fails', async () => {
+    const { environment, log } = environmentFor('fail')
+    const { child, name } = await startChild('exit-seven', environment)
+    expect(await child.exited).toBe(7)
+    const stderr = await new Response(child.stderr).text()
+    expect(stderr).toContain(`removing the throwaway capture provisioning container ${name} failed`)
+    expect(removals(log)).toEqual([`rm -f ${name}`])
   })
 
   test('without Docker the helper starts nothing and removes nothing', async () => {

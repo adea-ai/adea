@@ -174,8 +174,9 @@ API.
 - Interrupt cleanup: the helper removes the instance it created exactly once, on a normal exit, on an
   error exit, and on SIGINT or SIGTERM. Removal is by that container's exact name. Nothing scans for or
   removes other containers, and no other process is signalled. A signal ends the process by the same
-  signal after removal, and the runner re-raises the command's signal the same way. A failed removal
-  names the container and fails the run.
+  signal after removal, and the runner re-raises the command's signal the same way. A removal that
+  fails, or outlives its 30-second bound (killed with SIGKILL), names the container and fails the run.
+  A natural exit whose removal fails exits 1; a failure status that is already set is kept.
 - Interrupt limits: a signal that arrives during a blocking Docker call (`docker run`, the port read,
   the readiness probe, or a caller's own synchronous wait) is handled when that call returns, and the
   container is removed then. A caller that calls `process.exit` synchronously in that window exits with
@@ -185,7 +186,9 @@ API.
 - Tests: `scripts/capture-provisioning.test.ts` runs the subprocess and signal cases against a fake
   `docker` on `PATH`, so it needs no daemon and runs in the unit lane. `scripts/smoke/capture-provisioning.smoke.test.ts`
   is the one real-Docker check: one helper instance, a sentinel container with the same name shape, and
-  SIGTERM. It asserts that only the helper's container is removed. It sits outside
+  SIGTERM. It asserts that only the helper's container is removed. It signals only the child it spawned,
+  with SIGTERM and then a bounded SIGKILL, and removes its named instances by exact name in `finally`.
+  It sits outside
   `scripts/*.test.ts`, so the unit lane never starts Docker. Run it through the heavy-validation wrapper:
   `fleet-heavy -- bun test scripts/smoke/capture-provisioning.smoke.test.ts`.
 

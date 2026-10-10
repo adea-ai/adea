@@ -27,6 +27,9 @@ export const captureProvisioningImage = 'postgres:18-alpine'
 // created.
 const interruptSignals = ['SIGINT', 'SIGTERM']
 
+// Bounds one removal, so a stuck Docker daemon cannot hold the caller, or a heavy-validation slot, forever.
+const defaultRemovalTimeoutMs = 30_000
+
 export function dockerDaemonAvailable() {
   const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
     encoding: 'utf8',
@@ -50,22 +53,32 @@ export function dockerCaptureRun(args, what, timeoutMs) {
 }
 
 // Removes one container by its exact name. A container Docker reports as absent
-// is already removed. Any other failure throws and names the container, so a
-// leaked instance fails the run and the operator knows which one to remove.
-function removeNamedContainer(name) {
+// is already removed. A removal that outlives its bound is killed with SIGKILL
+// and throws, and every other failure throws too. Each error names the container,
+// so a leaked instance fails the run and the operator knows which one to remove.
+function removeNamedContainer(name, timeoutMs) {
   const result = spawnSync('docker', ['rm', '-f', name], {
     encoding: 'utf8',
+    // SIGKILL, because the bound holds only if the killed client exits.
+    killSignal: 'SIGKILL',
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: timeoutMs,
   })
-  if (result.error) throw result.error
+  const subject = `removing the throwaway capture provisioning container ${name}`
+  if (result.error?.code === 'ETIMEDOUT') {
+    throw new Error(`${subject} timed out after ${timeoutMs} ms`)
+  }
+  if (result.error) throw new Error(`${subject} failed: ${result.error.message}`)
   if (result.status === 0 || result.stderr.includes('No such container')) return
-  throw new Error(
-    `removing the throwaway capture provisioning container ${name} failed: ${result.stderr.trim() || `exit code ${result.status}`}`
-  )
+  const detail =
+    result.stderr.trim() ||
+    (result.signal ? `ended by ${result.signal}` : `exit code ${result.status}`)
+  throw new Error(`${subject} failed: ${detail}`)
 }
 
 // Ties one handle's removal to the process. The exit listener covers a normal exit and an error exit (an
-// uncaught exception also emits `exit`), and it is detached once the handle is stopped. The signal listeners
+// uncaught exception also emits `exit`), and it is detached once the handle is stopped. A removal that fails
+// there turns an exit that would succeed into status 1, and keeps a failure status that is already set. The signal listeners
 // stay attached for the life of the process: a SIGINT or SIGTERM removes the instance once, detaches the
 // signal listeners, and re-raises the signal, so the process ends by that signal. A signal that arrives while
 // the caller is blocked in a synchronous Docker call is dispatched when the event loop next runs, so it still
@@ -73,11 +86,13 @@ function removeNamedContainer(name) {
 // signal and let the process carry on, so they are kept. Removal is idempotent per handle, so the instance is
 // stopped exactly once however these paths interleave.
 function attachRemoval(handle) {
-  const onExit = () => {
+  const onExit = (code) => {
     try {
       handle.stop()
     } catch (error) {
       console.error(error.message)
+      // The instance may still be running, so an exit that would succeed must not report success.
+      if (code === 0) process.exitCode = 1
     }
   }
   const signalListeners = interruptSignals.map((signal) => [
@@ -104,9 +119,13 @@ function attachRemoval(handle) {
  * slow or failed start can never leak the container. The stop throws on failure
  * so the caller can report it: a leaked container must fail a green run instead
  * of being ignored. The handle also removes its container on a normal exit, an
- * error exit, and SIGINT or SIGTERM, and only that container.
+ * error exit, and SIGINT or SIGTERM, and only that container. `removalTimeoutMs`
+ * bounds each removal.
  */
-export function startCaptureProvisioning(register = () => {}) {
+export function startCaptureProvisioning(
+  register = () => {},
+  { removalTimeoutMs = defaultRemovalTimeoutMs } = {}
+) {
   if (!dockerDaemonAvailable()) return null
   // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
   const password = randomBytes(24).toString('hex')
@@ -119,7 +138,7 @@ export function startCaptureProvisioning(register = () => {}) {
       if (stopped) return
       stopped = true
       detachExit()
-      removeNamedContainer(name)
+      removeNamedContainer(name, removalTimeoutMs)
     },
   }
   const detachExit = attachRemoval(handle)
