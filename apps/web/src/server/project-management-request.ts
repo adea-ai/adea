@@ -39,6 +39,11 @@ export async function updateProjectRequest(
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
+  // `request.json()` may legally return null, an array or a primitive; only a
+  // plain object can carry the update fields. Reject the rest before any
+  // property check so `in` can never throw on a non-object candidate.
+  if (body === null || typeof body !== 'object' || Array.isArray(body))
+    return workspaceInvalidRequestResponse(request)
   const candidate = body as Record<string, unknown>
   const input: ApiProjectUpdateInput = {}
   for (const field of ['iconKey', 'name'] as const) {

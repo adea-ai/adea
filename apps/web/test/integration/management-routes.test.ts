@@ -376,7 +376,7 @@ describe('management human and lead routes (#1215)', () => {
           method: 'PATCH',
         }
       )
-    const params = Promise.resolve({ projectId: project.id, workspaceId: workspaceA })
+    const params = { projectId: project.id, workspaceId: workspaceA }
     const response = await scopeModule.withRequestScope(() =>
       projectRequestModule.updateProjectRequest(
         routeRequest(
@@ -431,6 +431,48 @@ describe('management human and lead routes (#1215)', () => {
     const stillUnchanged = await getProjectForUser(connection.db, workspaceA, project.id, owner)
     expect(stillUnchanged?.name).toBe('Route renamed')
     expect(stillUnchanged?.version).toBe(project.version + 1)
+  })
+
+  test('non-object request bodies are invalid requests with zero mutation', async () => {
+    const project = await createProject(connection.db, workspaceA, owner, {
+      iconKey: 'box',
+      name: 'Invalid body before',
+    })
+    const session = await scopeModule.withRequestScope(() =>
+      desktopAuthModule.desktopSessionService().issue({
+        email: 'owner@example.test',
+        providerExpiresAt: Date.now() + 3_600_000,
+        providerSessionId: 'provider-session-invalid-body',
+        userId: owner.userId,
+      })
+    )
+    const params = { projectId: project.id, workspaceId: workspaceA }
+    for (const body of [null, [], 'text', 3, true]) {
+      const response = await scopeModule.withRequestScope(() =>
+        projectRequestModule.updateProjectRequest(
+          new Request(
+            `https://adea-fixture.invalid/api/v1/workspaces/${workspaceA}/projects/${project.id}`,
+            {
+              body: JSON.stringify(body),
+              headers: {
+                authorization: `Desktop ${session.credential}`,
+                'content-type': 'application/json',
+                origin: 'http://127.0.0.1:1420',
+                'x-adea-client': 'desktop',
+                'x-adea-desktop-session': session.sessionId,
+              },
+              method: 'PATCH',
+            }
+          ),
+          { params }
+        )
+      )
+      expect(response.status, JSON.stringify(body)).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+      const after = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+      expect(after?.name, JSON.stringify(body)).toBe('Invalid body before')
+      expect(after?.version, JSON.stringify(body)).toBe(project.version)
+    }
   })
 
   test('the durable lead boundary asserts current authority and applies one effect', async () => {
