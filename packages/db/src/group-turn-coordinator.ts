@@ -503,85 +503,50 @@ export async function dispatchAddressedTurn(
 ) {
   const claim = await claimAddressedTurn(database, workspaceId, principal, input, options)
   await options.barrier?.beforeDispatchDecision?.()
-  // The addressed Agent must be the currently resolved lead BEFORE the
-  // atomic decision flips anything: a failed dispatch leaves the claim
-  // `claimed` (supersede-able), never stranded mid-flight. The canonical
-  // admission below re-enforces the expected Agent inside its own
-  // transaction as defense in depth against a racing lead change.
+  // The addressed Agent must be the currently resolved lead BEFORE
+  // admission: a failed dispatch leaves the claim untouched
+  // (supersede-able), never stranded mid-flight. The canonical admission
+  // below re-enforces the expected Agent inside its own transaction as
+  // defense in depth against a racing lead change.
   const now = options.now || new Date().toISOString()
   const leadAgentId = await resolveGroupLeadAgentId(database, workspaceId, input.channelId, now)
   if (leadAgentId !== input.agentId) throw new AddressedTurnError('turn_not_lead')
-  // Atomic dispatch admission: the claim row locks with the decision, so a
-  // supersede that commits first wins and no intent is minted; a supersede
-  // arriving after the flip finds a non-claimed row and skips it. Either
-  // order is safe, and crash recovery is redispatch (the adapter's causal
-  // idempotency key replays the same intent).
-  await database.transaction(async (transaction) => {
-    const store = asStore(transaction)
-    const [locked] = await store
-      .select()
-      .from(addressedAgentTurns)
-      .where(
-        and(
-          eq(addressedAgentTurns.id, claim.turn.id),
-          eq(addressedAgentTurns.workspaceId, workspaceId)
+  // One serialization boundary: the admission transaction locks the claim
+  // row first, verifies it is live, flips it to `dispatching`, mints (or
+  // replays) the intent bound to the canonical trigger, and binds the
+  // intent id — atomically. A terminal transition that commits first wins
+  // with zero mint; one arriving after loses the row race with zero
+  // effect. Crash recovery is redispatch (same intent, rebound). The
+  // turn stays `dispatching`: the Agent's actual answer records later.
+  // The admission minted no message, so there is nothing human-sent to
+  // mistake for the Agent's response.
+  let intent
+  try {
+    intent = await admitAddressedLeadTurn(database, workspaceId, input.channelId, principal, {
+      claim: { id: claim.turn.id },
+      expectedAgentId: input.agentId,
+      triggerMessageId: input.triggerMessageId,
+    })
+  } catch (error) {
+    // The admission reports only generic unavailability: re-read retained
+    // state once, on the failure path, to keep the typed contract.
+    if (error instanceof Error && error.message === 'Lead turn unavailable') {
+      const [retained] = await database
+        .select({ state: addressedAgentTurns.state })
+        .from(addressedAgentTurns)
+        .where(
+          and(
+            eq(addressedAgentTurns.id, claim.turn.id),
+            eq(addressedAgentTurns.workspaceId, workspaceId)
+          )
         )
-      )
-      .limit(1)
-      .for('update')
-    if (!locked) throw new AddressedTurnError('turn_claim_unresolved')
-    if (locked.state === 'superseded') throw new AddressedTurnError('turn_superseded')
-    if (locked.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
-    if (locked.state === 'responded') throw new AddressedTurnError('turn_already_responded')
-    const [trigger] = await store
-      .select({ channelId: messages.channelId, deletedAt: messages.deletedAt })
-      .from(messages)
-      .where(and(eq(messages.id, locked.triggerMessageId), eq(messages.workspaceId, workspaceId)))
-      .limit(1)
-    if (!trigger || trigger.deletedAt || trigger.channelId !== locked.channelId)
-      throw new AddressedTurnError('turn_trigger_unknown')
-    const flipped = await store
-      .update(addressedAgentTurns)
-      .set({ state: 'dispatching' })
-      .where(
-        and(
-          eq(addressedAgentTurns.id, locked.id),
-          eq(addressedAgentTurns.workspaceId, workspaceId),
-          eq(addressedAgentTurns.state, locked.state)
-        )
-      )
-      .returning()
-    if (!flipped[0]) throw new AddressedTurnError('turn_claim_unresolved')
-  })
-  // Canonical admission: the intent attaches to the already-stored human
-  // trigger — no new human message, no invented prompt, no duplicated
-  // content. The expected Agent is enforced inside the admission
-  // transaction, so a lead swap racing admission cannot launch another
-  // Agent. Message count is unchanged by dispatch, by construction.
-  const intent = await admitAddressedLeadTurn(database, workspaceId, input.channelId, principal, {
-    expectedAgentId: input.agentId,
-    triggerMessageId: input.triggerMessageId,
-  })
-  // Bind the minted intent to the claim for precise cancellation.
-  // Crash window (minted but unbound) converges: redispatch replays the
-  // same intent idempotently and rebinds it.
-  await database.transaction(async (transaction) => {
-    const store = asStore(transaction)
-    await store
-      .update(addressedAgentTurns)
-      .set({ intentId: intent.leadTurn.intentId })
-      .where(
-        and(
-          eq(addressedAgentTurns.id, claim.turn.id),
-          eq(addressedAgentTurns.workspaceId, workspaceId),
-          eq(addressedAgentTurns.state, 'dispatching')
-        )
-      )
-  })
-  // The turn stays `dispatching`: the Agent's actual answer is recorded
-  // later through recordAddressedTurnResponse (which accepts `dispatching`
-  // turns). The admission minted no message, so there is nothing human-sent
-  // to mistake for the Agent's response.
+        .limit(1)
+      if (retained?.state === 'superseded') throw new AddressedTurnError('turn_superseded')
+      if (retained?.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
+      if (retained?.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+    }
+    throw error
+  }
   return { claim, intent }
 }
 
@@ -615,13 +580,16 @@ export async function cancelAddressedTurn(
       .limit(1)
       .for('update')
     if (!turn) throw new AddressedTurnError('turn_claim_unresolved')
-    if (turn.state === 'cancelled') return { runtimeCancelRequested: false, state: 'cancelled' }
-    if (turn.state === 'responded') throw new AddressedTurnError('turn_already_responded')
-    if (turn.state === 'superseded') throw new AddressedTurnError('turn_superseded')
+    // Authority first — even for terminal rows: an outsider guessing an
+    // already-cancelled turn id gets `turn_cancel_unauthorized`, never a
+    // successful cancellation response.
     const allowed =
       turn.addresserUserId === principal.userId ||
       (await isWorkspaceManager(store, workspaceId, principal.userId))
     if (!allowed) throw new AddressedTurnError('turn_cancel_unauthorized')
+    if (turn.state === 'cancelled') return { runtimeCancelRequested: false, state: 'cancelled' }
+    if (turn.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+    if (turn.state === 'superseded') throw new AddressedTurnError('turn_superseded')
     const flipped = await store
       .update(addressedAgentTurns)
       .set({ state: 'cancelled' })
