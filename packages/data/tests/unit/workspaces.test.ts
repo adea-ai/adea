@@ -105,6 +105,30 @@ function bootstrap(workspaces: readonly (typeof workspace)[]) {
   }
 }
 
+describe('workspace archive contract', () => {
+  test('archive removes the archived detail cache and refreshes every workspace query', async () => {
+    const queryClient = new QueryClient()
+    const archived: string[] = []
+    queryClient.setQueryData(workspaceQueryKeys.detail(workspace.id), {
+      agents: [],
+      tasks: [],
+      workspace,
+    })
+    const api = client({
+      archiveWorkspace: async (workspaceId: string) => {
+        archived.push(workspaceId)
+        return { archived: true as const, workspaceId }
+      },
+    })
+    const options = workspaceMutationOptions.archive(api, queryClient)
+
+    await options.onSuccess(await options.mutationFn(workspace.id), workspace.id)
+
+    expect(archived).toEqual([workspace.id])
+    expect(queryClient.getQueryData(workspaceQueryKeys.detail(workspace.id))).toBeUndefined()
+  })
+})
+
 describe('workspace identity mutations', () => {
   test('deletion removes every workspace cache and selects a remaining workspace; the last deletion stays empty', async () => {
     const queryClient = new QueryClient()

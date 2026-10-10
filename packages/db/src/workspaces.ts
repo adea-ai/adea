@@ -51,6 +51,7 @@ function workspaceSummary(
 ): WorkspaceSummary {
   return Object.freeze({
     canDelete: row.ownerUserId === userId && !isPersonalWorkspace(row),
+    canArchive: row.ownerUserId === userId && !isPersonalWorkspace(row),
     isPersonal: row.isPersonal && row.ownerUserId === userId,
     ...(row.deletionRequestedAt ? { deletionPending: true } : {}),
     accent: (row.accent as WorkspaceAccentId | null) ?? null,

@@ -876,6 +876,13 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  archive: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (workspaceId: string) => client.archiveWorkspace(workspaceId),
+    onSuccess: async (_result: unknown, workspaceId: string) => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(workspaceId) })
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
+    },
+  }),
   reopen: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (workspaceId: string) => client.reopenWorkspace(workspaceId),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['reopenWorkspace']>>) => {
@@ -988,6 +995,16 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.archive(client, queryClient))
+}
+
+export function useReopenWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.reopen(client, queryClient))
 }
 
 export function useDeleteWorkspaceMutation(client: AgentHqApiClient) {

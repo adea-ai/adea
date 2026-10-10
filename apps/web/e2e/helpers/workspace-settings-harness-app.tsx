@@ -7,6 +7,7 @@ import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-
 import { workspaceSettingsSectionFromHash } from '@adea-ai/workspace-ui/workspace-settings-section'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
+import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
@@ -32,6 +33,42 @@ const transcription: TranscriptionProvider = {
   async start() {
     throw new Error('Transcription is outside this permission fixture')
   },
+}
+
+const harnessRoot = () => document.querySelector('#harness-root')!
+const countCall = (name: string) => {
+  const next = Number(harnessRoot().getAttribute(name) ?? 0) + 1
+  harnessRoot().setAttribute(name, String(next))
+  return next
+}
+
+/**
+ * The archive fixture's contract: archive and reopen answer from data attributes on the root, so the
+ * spec can stage success, a refusal, a transient failure and a repeated click without a server.
+ */
+function archiveFixtureClient(): AgentHqApiClient {
+  return {
+    async archiveWorkspace(workspaceId: string) {
+      countCall('data-archive-calls')
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const mode = harnessRoot().getAttribute('data-archive-mode')
+      if (mode === 'unavailable')
+        throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+      if (mode === 'error')
+        throw new ApiClientError(
+          'Workspace could not be archived. Try again.',
+          500,
+          'workspace_archive_failed'
+        )
+      return { archived: true as const, workspaceId }
+    },
+    async reopenWorkspace(workspaceId: string) {
+      countCall('data-reopen-calls')
+      return {
+        workspace: { ...initialWorkspace, id: workspaceId, canArchive: true },
+      }
+    },
+  } as unknown as AgentHqApiClient
 }
 
 let storedPreferences: WorkspacePreferences | null = null
@@ -83,6 +120,8 @@ function Harness() {
       ? { kind: 'home' as const }
       : initialWorkspace.logo,
     canDelete: !document.querySelector('#harness-root')?.hasAttribute('data-read-only'),
+    canArchive:
+      document.querySelector('#harness-root')?.hasAttribute('data-archive-client') ?? false,
   })
   const sibling = {
     ...initialWorkspace,
@@ -119,10 +158,14 @@ function Harness() {
   const controlPlaneMode = document
     .querySelector('#harness-root')
     ?.getAttribute('data-control-plane')
+  const archiveMode =
+    document.querySelector('#harness-root')?.hasAttribute('data-archive-client') ?? false
   const [client, setClient] = createSignal(
     controlPlaneMode === 'scoped' || controlPlaneMode === 'unavailable'
       ? controlPlaneSettingsClient(controlPlaneMode)
-      : undefined
+      : archiveMode
+        ? archiveFixtureClient()
+        : undefined
   )
   const switchScope = (event: Event) => {
     const detail = (event as CustomEvent<{ workspaceId?: string; replaceClient?: boolean }>).detail
@@ -207,10 +250,11 @@ function Harness() {
   )
 }
 
-// The query provider is mounted only for the Control Plane fixtures, so the
+// The query provider is mounted only for the Control Plane and archive fixtures, so the
 // default harness still proves every section renders with no providers.
 function Providers() {
-  return document.querySelector('#harness-root')?.hasAttribute('data-control-plane') ? (
+  const root = document.querySelector('#harness-root')
+  return root?.hasAttribute('data-control-plane') || root?.hasAttribute('data-archive-client') ? (
     <AgentHqQueryProvider>
       <Harness />
     </AgentHqQueryProvider>

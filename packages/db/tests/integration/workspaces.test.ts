@@ -547,3 +547,50 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
     ).rejects.toThrow('Workspace unavailable')
   })
 })
+
+describe.skipIf(!connectionUrl)('workspace archive presentation (#1175)', () => {
+  let connection: DatabaseConnection
+
+  beforeAll(() => {
+    connection = createDatabase(connectionUrl!)
+  })
+
+  afterAll(async () => {
+    await connection.close()
+  })
+
+  test('only the owner of an optional workspace is offered archive; Home never is', async () => {
+    const owner = (
+      await createTemporaryUserSession(connection.db, {
+        credentialDigest: `archive-presentation-owner-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 600_000),
+      })
+    ).principal
+    const member = (
+      await createTemporaryUserSession(connection.db, {
+        credentialDigest: `archive-presentation-member-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 600_000),
+      })
+    ).principal
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `archive-presentation-${crypto.randomUUID()}`,
+      name: 'Optional archive presentation',
+      owner,
+    })
+    await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
+
+    const ownerView = (await listWorkspacesForUser(connection.db, owner)).find(
+      (candidate) => candidate.id === workspace.id
+    )
+    const memberView = (await listWorkspacesForUser(connection.db, member)).find(
+      (candidate) => candidate.id === workspace.id
+    )
+    expect(ownerView?.canArchive).toBe(true)
+    expect(memberView?.canArchive).toBe(false)
+
+    const bootstrapped = await ensureBootstrapWorkspaces(connection.db, owner)
+    const home = bootstrapped.find((candidate) => candidate.isPersonal)
+    expect(home).toBeDefined()
+    expect(home?.canArchive).toBe(false)
+  })
+})
