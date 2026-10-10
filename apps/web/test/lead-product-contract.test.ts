@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, test } from 'bun:test'
 import type { CurrentLeadTurnProduct } from '@adea-ai/db'
 import { createLeadProductReaderHandler } from '../src/server/lead-product-reader'
@@ -66,9 +67,42 @@ async function emit(product: CurrentLeadTurnProduct) {
   return { status: response.status, body: (await response.json()) as Record<string, unknown> }
 }
 
-test('the emitted unfenced and fence-only bodies match the committed golden contract', async () => {
+const operatorFencedProduct: CurrentLeadTurnProduct = {
+  ...base,
+  rollbackFence: {
+    fencedAt: new Date(now - 500).toISOString(),
+    reason: 'operator_intervention',
+    actor: { kind: 'operator', operatorId: 'ops.rollback-1' },
+  },
+  dispatchPermitted: false,
+}
+
+test('the emitted unfenced and fenced v2 bodies match the committed golden contract', async () => {
   expect(await emit(base)).toEqual(await contract('unfenced'))
-  expect(await emit(fencedProduct)).toEqual(await contract('fenced'))
+  expect(await emit(fencedProduct)).toEqual(await contract('fenced-v2'))
+  expect(await emit(operatorFencedProduct)).toEqual(await contract('fenced-v2-operator'))
+})
+
+test('the handler never emits the old minimal v1 fence body, which stays a fail-closed fixture', async () => {
+  const fencedV1 = await contract('fenced')
+  expect(fencedV1.body.schemaVersion).toBe('pi-lead-intent-fence/v1')
+  expect(await emit(fencedProduct)).not.toEqual(fencedV1)
+  expect((await emit(fencedProduct)).body.schemaVersion).toBe('pi-lead-intent-fence/v2')
+})
+
+// The v2 producer fixtures are immutable. Changing either file means changing its digest here, in review.
+const pinnedFixtureSha256: Readonly<Record<string, string>> = {
+  'lead-product-current.fenced-v2.json':
+    '69dc0516259fe1771dd221e49c35c760bcb3d2ab90f3132d147af35fa3437352',
+  'lead-product-current.fenced-v2-operator.json':
+    '1d66d5057f7c21a05b39dc8cf0bcf25328ba1c8589b756fea3d570414536430a',
+}
+
+test('the v2 producer fixtures are immutable: their bytes match the digests pinned in this file', async () => {
+  for (const [file, digest] of Object.entries(pinnedFixtureSha256)) {
+    const bytes = await Bun.file(new URL(`./contracts/${file}`, import.meta.url)).bytes()
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(digest)
+  }
 })
 
 // Negative contract checks on the Adea side. These run the real handler with the clock and the
@@ -203,6 +237,15 @@ describe.skipIf(!controlPlaneCheckout)(
       expect(() => cp.ProductionLeadProductEvidenceSchema.parse(unfenced.body)).not.toThrow()
       const fenced = await contract('fenced')
       expect(() => cp.ProductionLeadProductEvidenceSchema.parse(fenced.body)).toThrow()
+    })
+
+    test('the current CP strict parser refuses the v2 pinned body, so CP fails closed until its consumer is updated', async () => {
+      const cp = await loadFromCheckout()
+      const fencedV2 = await contract('fenced-v2')
+      expect(() => cp.ProductionLeadProductEvidenceSchema.parse(fencedV2.body)).toThrow()
+      await expect(
+        readerFor(cp, fencedV2.status, fencedV2.body).readCurrent(consumerInput)
+      ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
     })
 
     test('the control-plane HTTP reader returns v1 evidence and refuses a fenced admission as unavailable', async () => {

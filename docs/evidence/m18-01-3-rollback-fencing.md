@@ -86,25 +86,36 @@ new notice, attestation or endpoint.
 `canonicalActorPrincipalId`, `scopeRef`, `expiresAt`, `allowedPrincipalIds`, `prompt`, `profileId`,
 `profileVersion`, `profileRevision`. No fence field is added, so existing parsers see no change.
 
-**Fenced admission.** The response is fence-only. It carries no prompt, profile, scope, principal or
-allowed-principal list, so no dispatch can be built from it.
+**Fenced admission (v2).** The response is fence facts plus retained pins. It carries no prompt, profile,
+message or dispatch field, so no prepare, dispatch or resume can be built from it. The discriminator is
+`pi-lead-intent-fence/v2`, a new schema rather than a widened v1.
 
 ```json
 {
-  "schemaVersion": "pi-lead-intent-fence/v1",
-  "intentId": "<uuid>",
-  "workspaceId": "wsp_<26-char>",
+  "schemaVersion": "pi-lead-intent-fence/v2",
+  "intentId": "<uuid, the requested intentId>",
+  "workspaceId": "wsp_<26-char, the requested workspaceId>",
   "dispatchPermitted": false,
   "rollbackFence": {
     "fencedAt": "<canonical UTC ISO-8601, not later than Adea's clock>",
     "reason": "rollback_cohort | operator_intervention",
     "actor": { "kind": "user", "userId": "<uuid>" }
-  }
+  },
+  "authorityRevision": "<channel version of the current canonical product>",
+  "canonicalActorPrincipalId": "user:<original admission actor>",
+  "scopeRef": "adea-product:sha256:<64 hex, the same digest as the unfenced admission>",
+  "allowedPrincipalIds": ["<the principal the service proof verified>"]
 }
 ```
 
-`rollbackFence.actor` is `{ "kind": "operator", "operatorId": "<id>" }` for operator fences. The
-response has `cache-control: private, no-store` and returns HTTP 200.
+`rollbackFence.actor` is `{ "kind": "operator", "operatorId": "<id>" }` for operator fences. The four pins
+come from the same canonical product that signs unfenced evidence. `canonicalActorPrincipalId` is the original
+admission actor, never the fence actor. `scopeRef` is computed by one shared function for both variants, so
+a retained marker from before the fence still matches while the product state is unchanged. The response has
+`cache-control: private, no-store` and returns HTTP 200.
+
+The old minimal `pi-lead-intent-fence/v1` body is no longer emitted. Its fixture stays as a fail-closed
+reference, and any parser that does not know v2 must refuse v2.
 
 **Envelope gate (checked before any branch).** A product with `dispatchPermitted: false` needs a fence,
 and a product with a fence needs `dispatchPermitted: false`. The fence must have exactly the keys
@@ -163,6 +174,15 @@ A terminal admission is not written. It returns `fenced: false` with its classif
   no operator identity system here.
 - **No CP-facing reconciliation route.** Observation, binding recovery and cancellation are Adea
   app-side calls. CP has no endpoint to reconcile an archived or fenced uncertain effect yet.
+- **Terminal admissions are not fenced (open decision).** `fenceLeadTurnForRollback` returns
+  `fenced: false` without writing when the runtime is already terminal (`completed`, `failed`, `cancelled`,
+  `timed_out`). A completed result that was never published, and whose admission was never fenced in flight,
+  can therefore still publish through `status`. The caller sees `fenced: false`. Root decides whether a fence
+  request on a terminal, unpublished admission should record the fence, or refuse loudly. No test asserted the
+  old behaviour, and this head does not change it.
+- **Fenced recovery stays available.** A fenced admission can still reconcile an uncertain dispatch binding
+  through `recoverLeadTurnRuntimeBinding`, as the archived-history reconciliation tests require. That is not
+  a resume, and it creates no new effect.
 
 ## CP contract (control-plane #940 / #942): not integration-safe yet
 
@@ -196,13 +216,13 @@ golden fixtures in `apps/web/test/contracts/`, when `CONTROL_PLANE_CHECKOUT` poi
 3. **Keep archived publication and archived admissions denied.** Adea returns 404 for archived
    admissions, which CP reads as unavailable. Archived observation for CP is a separate decision.
 
-### Adea-side pins (not in this change, root decision)
+### Retained pins (v2, approved by root and implemented on this head)
 
-The coordinated CP change in item 1 also needs `authorityRevision`, `canonicalActorPrincipalId`,
-`scopeRef` and `allowedPrincipalIds` on the fenced body. This head does not add them. The fence-only body
-carries only the identity and the validated fence facts described above. Adding the pins widens what the
-fenced body discloses, so root decides that separately. Until then CP must refuse fenced results for every
-operation. The typed CP proposal, including the pinned variant as a decision item, is in
+The v2 fenced body carries `authorityRevision`, `canonicalActorPrincipalId`, `scopeRef` and
+`allowedPrincipalIds`, as described above. They are derived from the current canonical product, under the same
+locks as the unfenced evidence. They are disclosed only through the existing signed, scoped reader. The CP
+consumer may observe with them and may cancel only as the original actor. Its prepare, dispatch, resume and
+publication paths refuse fenced results. The typed consumer proposal and the immutable producer fixtures are in
 [m18-01-3-cp-consumer-proposal.md](m18-01-3-cp-consumer-proposal.md).
 
 ### Remaining CP obligations
@@ -242,7 +262,23 @@ Pre-fence code ignores the fence.
 
 ## Validation
 
-**Envelope gate proof (this head, `apps/web` only; no database code changed).**
+**Pinned v2 and fenced publication proof (this head).**
+
+- `packages/db` unit: 229 pass, 0 fail.
+- `packages/db` integration, against the migrated database at 0051, with the known base failure excluded by
+  name (`task-submissions > operator entry refuses a wrong target`, which also fails on `origin/main`):
+  243 pass, 9 skip, 0 fail. The changed `lead-turn-rollback` and `lead-turn-historical` files: 32 pass.
+- Red check on publication: with the new guard line removed from a temporary copy, the in-flight publication
+  test resolved instead of refusing. With the guard, it refuses with `LEAD_TURN_FENCED`, consults no grant, and
+  writes no message. The copy was removed afterwards.
+- `apps/web` full suite: 490 pass, 6 skip, 0 fail. The 6 skips are the CP-checkout contract tests.
+- Static: `tsc --noEmit` clean in `apps/web` and `packages/db`. `oxlint --deny-warnings` clean for `apps/web`
+  and `packages/db`. Repo `oxfmt --check .` clean.
+- Not run: `apps/web` `vite build`, E2E, packaged and desktop suites, root `test:coverage`, and the CP contract
+  tests against a CP checkout. The v2 CP refusal test is skipped without `CONTROL_PLANE_CHECKOUT`, so it did not
+  run here. Its fixture digests are in the CP proposal.
+
+**Envelope gate proof (`c75e5a174`, `apps/web` only, before the pins and publication change).**
 
 - Focused: `apps/web/test/lead-product-fence-envelope-gate.test.ts` (12 tests) and the existing
   `lead-product-fence-envelope-negative`, `lead-product-reader-fence`, `lead-product-reader` and

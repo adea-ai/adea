@@ -54,27 +54,51 @@ const handler = (current: CurrentLeadTurnProduct) =>
     withCurrent: async (_w, _i, disclose) => disclose(current),
   })
 
-test('a fenced admission returns fence facts only and no dispatchable admission fields', async () => {
+test('a fenced admission returns fence facts and retained pins only, with no dispatchable admission fields', async () => {
   const response = await handler(fenced)(request())
   expect(response.status).toBe(200)
   expect(response.headers.get('cache-control')).toBe('private, no-store')
   const body = (await response.json()) as Record<string, unknown>
   expect(Object.keys(body).toSorted()).toEqual([
+    'allowedPrincipalIds',
+    'authorityRevision',
+    'canonicalActorPrincipalId',
     'dispatchPermitted',
     'intentId',
     'rollbackFence',
     'schemaVersion',
+    'scopeRef',
     'workspaceId',
   ])
   expect(body).toEqual({
-    schemaVersion: 'pi-lead-intent-fence/v1',
+    schemaVersion: 'pi-lead-intent-fence/v2',
     intentId,
     workspaceId,
     dispatchPermitted: false,
     rollbackFence: fenced.rollbackFence,
+    authorityRevision: fenced.channelVersion,
+    canonicalActorPrincipalId: `user:${actorUserId}`,
+    scopeRef: expect.stringMatching(/^adea-product:sha256:[0-9a-f]{64}$/),
+    allowedPrincipalIds: [selectors.principalId],
   })
-  for (const field of ['prompt', 'scopeRef', 'principalRef', 'allowedPrincipalIds', 'profileId'])
+  for (const field of [
+    'prompt',
+    'principalRef',
+    'profileId',
+    'profileVersion',
+    'expiresAt',
+    'messageRef',
+  ])
     expect(body).not.toHaveProperty(field)
+})
+
+test('the fenced pins are the unfenced admission pins for the same authority, so a retained marker still matches', async () => {
+  const unfenced = (await (await handler(product)(request())).json()) as Record<string, unknown>
+  const fencedBody = (await (await handler(fenced)(request())).json()) as Record<string, unknown>
+  expect(fencedBody.scopeRef).toBe(unfenced.scopeRef)
+  expect(fencedBody.authorityRevision).toBe(unfenced.authorityRevision)
+  expect(fencedBody.canonicalActorPrincipalId).toBe(unfenced.canonicalActorPrincipalId)
+  expect(fencedBody.allowedPrincipalIds).toEqual(unfenced.allowedPrincipalIds)
 })
 
 test('an unfenced admission keeps the exact v1 admission shape and permits dispatch', async () => {
