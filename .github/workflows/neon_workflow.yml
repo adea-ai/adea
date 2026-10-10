@@ -218,6 +218,7 @@ jobs:
           // every page has been read to its end; an error, a repeated cursor, a malformed page or the
           // page bound fails the job instead of reporting absence.
           const MAX_PAGES = 50;
+          const SAFE_BRANCH_ID = /^br-[a-z0-9]+(?:-[a-z0-9]+)*$/;
           const wanted = [LEGACY_BRANCH, SHARD_1_BRANCH, SHARD_2_BRANCH];
           const found = new Map();
           const seenCursors = new Set();
@@ -247,14 +248,29 @@ jobs:
                 if (typeof branch.id !== "string" || branch.id === "") {
                   throw new Error(`Neon branch ${branch.name} has no id`);
                 }
+                // The id is later expanded unquoted into the pinned delete action's shell, so accept only
+                // a Neon branch id: lowercase br- prefix, letters, digits and single hyphens.
+                if (!SAFE_BRANCH_ID.test(branch.id) || branch.id.length > 128) {
+                  throw new Error(`Neon branch ${branch.name} has a malformed id; refusing to use it`);
+                }
                 if (found.has(branch.name) && found.get(branch.name) !== branch.id) {
                   throw new Error(`Neon branch name ${branch.name} matches more than one branch`);
                 }
                 found.set(branch.name, branch.id);
               }
+              // An absent pagination key means a single page. Any other pagination value must be an
+              // object with a next field: null ends the traversal, a non-empty string continues it.
               const pagination = body.pagination;
-              const next = pagination === undefined || pagination === null ? null : pagination.next;
-              if (next === null || next === undefined) break;
+              if (pagination !== undefined) {
+                if (!pagination || typeof pagination !== "object" || Array.isArray(pagination)) {
+                  throw new Error("Listing Neon branches returned malformed pagination");
+                }
+                if (!Object.hasOwn(pagination, "next")) {
+                  throw new Error("Listing Neon branches returned pagination without a next field");
+                }
+              }
+              const next = pagination === undefined ? null : pagination.next;
+              if (next === null) break;
               if (typeof next !== "string" || next === "") {
                 throw new Error("Listing Neon branches returned a malformed cursor");
               }
