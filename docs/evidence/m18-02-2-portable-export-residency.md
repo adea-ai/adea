@@ -186,11 +186,14 @@ API.
 - Tests: `scripts/capture-provisioning.test.ts` runs the subprocess and signal cases against a fake
   `docker` on `PATH`, so it needs no daemon and runs in the unit lane. `scripts/smoke/capture-provisioning.smoke.test.ts`
   is the one real-Docker check: one helper instance, a sentinel container with the same name shape, and
-  SIGTERM. It asserts that only the helper's container is removed. It signals only the child it spawned,
-  with SIGTERM and then a bounded SIGKILL, and removes its named instances by exact name in `finally`.
-  It sits outside
-  `scripts/*.test.ts`, so the unit lane never starts Docker. Run it through the heavy-validation wrapper:
-  `fleet-heavy -- bun test scripts/smoke/capture-provisioning.smoke.test.ts`.
+  SIGTERM. It asserts that only the helper's container is removed. The lifecycle lives in
+  `scripts/smoke/capture-provisioning-run.mjs`: the sentinel name is fixed before the first side effect,
+  the cleanup scope covers a refused, partial or failed start, the child is signalled only if it was
+  spawned (SIGTERM, then a bounded SIGKILL), and the sentinel and the instance the child named are both
+  removed by exact name, even when the other removal fails. The fault paths run without Docker in
+  `scripts/capture-provisioning-smoke-faults.test.ts`, which is in the unit lane. The real-Docker test
+  sits outside `scripts/*.test.ts`, so the unit lane never starts Docker. Run it through the
+  heavy-validation wrapper: `fleet-heavy -- bun test scripts/smoke/capture-provisioning.smoke.test.ts`.
 
 ## End-to-end residency proof
 
