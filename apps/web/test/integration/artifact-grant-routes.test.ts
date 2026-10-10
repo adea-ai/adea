@@ -461,4 +461,37 @@ describe.skipIf(!url)('artifact sharing grants through the production routes', (
     const [row] = await rowsFor(body.grantId)
     expect(row!.revokedAt).toBeNull()
   })
+
+  test('a create body that overflows the cap while it streams is refused, and no grant is created', async () => {
+    const f = await setup()
+    // Five 1 KiB pieces of whitespace: no Content-Length, and the stream crosses the 4 KiB cap.
+    const pieces = Array.from({ length: 5 }, () => new Uint8Array(1_024).fill(0x20))
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const piece of pieces) controller.enqueue(piece)
+        controller.close()
+      },
+    })
+    const handler = (await routeFor(CREATE)).Route.options.server.handlers.POST!
+    const request = new Request(
+      `http://adea.test/api/v1/workspaces/${f.source.id}/artifact-grants`,
+      {
+        body,
+        duplex: 'half',
+        headers: {
+          authorization: `Temporary ${f.owner.credential}`,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+      } as RequestInit
+    )
+    const response = await handler({ request, params: { workspaceId: f.source.id } })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+    const created = await connection.db
+      .select()
+      .from(artifactReferenceGrants)
+      .where(eq(artifactReferenceGrants.sourceWorkspaceId, f.source.id))
+    expect(created).toHaveLength(0)
+  })
 })

@@ -334,10 +334,14 @@ export {
 
 export {
   completeTaskAndPublishOutboundResult,
+  createJobOutboundStoreService,
   type JobOutboundCompletionOutcome,
   type JobOutboundCompletionRequest,
 } from './job-outbound-result-store'
-export type { JobOutboundArtifactPolicy } from './job-outbound-result-policy'
+export type {
+  JobOutboundArtifactPolicy,
+  JobOutboundDeliveryDecision,
+} from './job-outbound-result-policy'
 export {
   completeTaskFromRequest,
   type TaskCompletionInput,

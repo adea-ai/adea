@@ -7,6 +7,7 @@ import {
 } from '@adea-ai/db'
 import type { ArtifactReferenceGrantState } from '@adea-ai/types'
 
+import { readBoundedRequestBytes } from './bounded-request-body'
 import type { WorkspacePrincipalResolution } from './workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -46,23 +47,17 @@ function positiveInteger(value: unknown): value is number {
 }
 
 /**
- * Reads a bounded JSON object. Resolves to null when the body is absent, too
- * large, not JSON, or not an object, so every malformed body takes one refusal.
+ * Reads a JSON object whose streamed bytes are capped at the body limit, whatever
+ * Content-Length claims. Resolves to null when the body is absent, oversized, not
+ * JSON, or not an object, so every malformed body takes one refusal.
  */
 export async function readArtifactGrantBody(
   request: Request
 ): Promise<Record<string, unknown> | null> {
-  const declared = Number(request.headers.get('content-length') ?? 0)
-  if (declared > BODY_LIMIT_BYTES) return null
-  let text: string
+  const bytes = await readBoundedRequestBytes(request, BODY_LIMIT_BYTES)
+  if (!bytes) return null
   try {
-    text = await request.text()
-  } catch {
-    return null
-  }
-  if (new TextEncoder().encode(text).byteLength > BODY_LIMIT_BYTES) return null
-  try {
-    const value: unknown = JSON.parse(text)
+    const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
     return value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null
