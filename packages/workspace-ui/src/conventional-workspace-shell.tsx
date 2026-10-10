@@ -1,11 +1,20 @@
 import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
-import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense, type JSX } from 'solid-js'
+import {
+  createEffect,
+  createSignal,
+  lazy,
+  on,
+  onCleanup,
+  Show,
+  Suspense,
+  type ComponentProps,
+  type JSX,
+} from 'solid-js'
 import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
-import { AgentRoster } from './agent-roster'
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
@@ -35,6 +44,18 @@ const WorkspaceLeadStatus = lazy(() =>
     default: module.WorkspaceLeadStatus,
   }))
 )
+// The Agents roster is off the chat route's static graph too: it loads when the
+// Agents surface opens. The wrapper keeps the call site and its props unchanged.
+const LazyAgentRoster = lazy(() =>
+  import('./agent-roster').then((module) => ({ default: module.AgentRoster }))
+)
+function AgentRoster(props: ComponentProps<typeof LazyAgentRoster>) {
+  return (
+    <Suspense fallback={null}>
+      <LazyAgentRoster {...props} />
+    </Suspense>
+  )
+}
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
     default: module.ModalDialog,
