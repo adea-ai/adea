@@ -82,6 +82,41 @@ async function fetchFromPage<T>(
   )
 }
 
+// The documented denial contract for fenced reads and writes: 404 with a
+// body that discloses nothing (missing, foreign, and forbidden are
+// indistinguishable). A 5xx is never authorization proof.
+const DENIED_BODY = { code: 'workspace_unavailable', message: 'Workspace unavailable' } as const
+
+async function expectDenied(
+  page: Page,
+  route: string,
+  canaries: readonly string[],
+  init?: { method?: string; body?: unknown }
+): Promise<unknown> {
+  const response = await fetchFromPage<unknown>(page, route, init)
+  expect(response.status).toBe(404)
+  expect(response.body).toEqual(DENIED_BODY)
+  const text = JSON.stringify(response.body)
+  for (const canary of canaries) expect(text).not.toContain(canary)
+  return response.body
+}
+
+async function expectUnknownMatchesDenied(
+  page: Page,
+  route: string,
+  deniedBody: unknown,
+  init?: { method?: string; body?: unknown }
+): Promise<void> {
+  // An unresolvable id must fence byte-identically: no oracle may
+  // distinguish "hidden" from "missing".
+  const response = await fetchFromPage<unknown>(page, route, init)
+  expect(response.status).toBe(404)
+  expect(response.body).toEqual(deniedBody)
+  expect(response.body).toEqual(DENIED_BODY)
+}
+
+const unknownId = () => crypto.randomUUID()
+
 /** Real sign-in: the browser asks the app itself for a session. */
 async function signIn(
   connection: DatabaseConnection,
@@ -199,14 +234,19 @@ test.describe('workspace and project placement over real routes', () => {
     const away = await signIn(connection, workspaceIds, userIds, await browser.newContext())
 
     // Through the stranger's own workspace the channel does not exist;
-    // through the home workspace the stranger is not a member. Either way
-    // the status is not 200 and no message body ever crosses.
+    // through the home workspace the stranger is not a member. Both fence
+    // with the documented denial, byte-identical to an unknown id.
     for (const workspaceId of [away.workspaceId, home.workspaceId]) {
-      const read = await fetchFromPage<{ messages?: unknown }>(
+      const denied = await expectDenied(
         away.page,
-        `/api/v1/workspaces/${workspaceId}/channels/${channelId}/messages`
+        `/api/v1/workspaces/${workspaceId}/channels/${channelId}/messages`,
+        [channelId]
       )
-      expect(read.status).not.toBe(200)
+      await expectUnknownMatchesDenied(
+        away.page,
+        `/api/v1/workspaces/${workspaceId}/channels/${unknownId()}/messages`,
+        denied
+      )
     }
     await home.page.context().close()
     await away.page.context().close()
@@ -234,11 +274,16 @@ test.describe('workspace and project placement over real routes', () => {
       `/api/v1/workspaces/${stranger.workspaceId}/tasks`
     )
     expect(foreign.body.map((task) => task.id)).not.toContain(created.body.task.id)
-    const direct = await fetchFromPage<{ task?: unknown }>(
+    const denied = await expectDenied(
       stranger.page,
-      `/api/v1/workspaces/${owner.workspaceId}/tasks/${created.body.task.id}`
+      `/api/v1/workspaces/${owner.workspaceId}/tasks/${created.body.task.id}`,
+      [created.body.task.id, 'Placed task']
     )
-    expect(direct.status).not.toBe(200)
+    await expectUnknownMatchesDenied(
+      stranger.page,
+      `/api/v1/workspaces/${owner.workspaceId}/tasks/${unknownId()}`,
+      denied
+    )
     await owner.page.context().close()
     await stranger.page.context().close()
   })
@@ -295,16 +340,26 @@ test.describe('workspace and project placement over real routes', () => {
     // never the hidden project's task, channel, or messages.
     const member = await signIn(connection, workspaceIds, userIds, await browser.newContext())
     await addWorkspaceMembership(connection.db, owner.workspaceId, member.principal, 'member')
-    const hiddenTask = await fetchFromPage<{ task?: unknown }>(
+    const deniedTask = await expectDenied(
       member.page,
-      `/api/v1/workspaces/${owner.workspaceId}/tasks/${task.body.task.id}`
+      `/api/v1/workspaces/${owner.workspaceId}/tasks/${task.body.task.id}`,
+      [task.body.task.id, 'Secret task']
     )
-    expect(hiddenTask.status).not.toBe(200)
-    const hiddenChannel = await fetchFromPage<{ messages?: unknown[] }>(
+    await expectUnknownMatchesDenied(
       member.page,
-      `/api/v1/workspaces/${owner.workspaceId}/channels/${channelId}/messages`
+      `/api/v1/workspaces/${owner.workspaceId}/tasks/${unknownId()}`,
+      deniedTask
     )
-    expect(hiddenChannel.status).not.toBe(200)
+    const deniedChannel = await expectDenied(
+      member.page,
+      `/api/v1/workspaces/${owner.workspaceId}/channels/${channelId}/messages`,
+      [channelId, 'secret line']
+    )
+    await expectUnknownMatchesDenied(
+      member.page,
+      `/api/v1/workspaces/${owner.workspaceId}/channels/${unknownId()}/messages`,
+      deniedChannel
+    )
     await owner.page.context().close()
     await member.page.context().close()
   })
@@ -332,24 +387,26 @@ test.describe('workspace and project placement over real routes', () => {
 
     // Restricting to members hides it; reopening reveals it again. Only a
     // manager can change visibility: the member's own attempt fences.
-    const denied = await fetchFromPage(member.page, projectPath + '/visibility', {
+    await expectDenied(member.page, projectPath + '/visibility', [projectId], {
       method: 'PATCH',
       body: { visibility: 'members' },
     })
-    expect(denied.status).not.toBe(200)
     const restricted = await fetchFromPage(owner.page, projectPath + '/visibility', {
       method: 'PATCH',
       body: { visibility: 'members' },
     })
     expect(restricted.status).toBe(200)
-    const hidden = await fetchFromPage<{ project?: unknown }>(member.page, projectPath)
-    expect(hidden.status).not.toBe(200)
-    const reopened = await fetchFromPage(member.page, projectPath + '/visibility', {
+    const deniedProject = await expectDenied(member.page, projectPath, [projectId])
+    await expectUnknownMatchesDenied(
+      member.page,
+      `/api/v1/workspaces/${owner.workspaceId}/projects/${unknownId()}`,
+      deniedProject
+    )
+    // The member cannot change visibility themselves: only a manager can.
+    await expectDenied(member.page, projectPath + '/visibility', [projectId], {
       method: 'PATCH',
       body: { visibility: 'workspace' },
     })
-    // The member cannot change visibility themselves: only a manager can.
-    expect(reopened.status).not.toBe(200)
     const ownerReopened = await fetchFromPage(owner.page, projectPath + '/visibility', {
       method: 'PATCH',
       body: { visibility: 'workspace' },
@@ -366,19 +423,27 @@ test.describe('workspace and project placement over real routes', () => {
     const channelId = await directTopic(connection, home.workspaceId, home.principal, 'Guarded DM')
     const away = await signIn(connection, workspaceIds, userIds, await browser.newContext())
 
-    // The stranger posts into the home channel: the write fences, and the
-    // home transcript never shows the forged line.
-    const forged = await fetchFromPage<{ message?: { id: string } }>(
+    // The stranger posts into the home channel: the write fences with the
+    // documented denial, disclosing nothing — while the owner's own write
+    // admits, proving the fence is authorization rather than breakage.
+    await expectDenied(
       away.page,
       `/api/v1/workspaces/${home.workspaceId}/channels/${channelId}/messages`,
+      [channelId, 'forged line'],
       { method: 'POST', body: { bodyText: 'forged line' } }
     )
-    expect(forged.status).not.toBe(201)
+    const admitted = await fetchFromPage<{ message: { id: string } }>(
+      home.page,
+      `/api/v1/workspaces/${home.workspaceId}/channels/${channelId}/messages`,
+      { method: 'POST', body: { bodyText: 'home line' } }
+    )
+    expect(admitted.status).toBe(201)
     const read = await fetchFromPage<{ messages: { bodyText?: string }[] }>(
       home.page,
       `/api/v1/workspaces/${home.workspaceId}/channels/${channelId}/messages`
     )
     expect(read.status).toBe(200)
+    expect(read.body.messages.map((message) => message.bodyText)).toContain('home line')
     expect(read.body.messages.map((message) => message.bodyText)).not.toContain('forged line')
     await home.page.context().close()
     await away.page.context().close()

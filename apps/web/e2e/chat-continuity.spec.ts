@@ -289,21 +289,39 @@ test.describe('chat continuity over real routes', () => {
     const workspaceId = workspaceIds[workspaceIds.length - 1]!
     const channelId = await directTopic(connection, workspaceId, owner, 'Offline DM')
     const path = `/api/v1/workspaces/${workspaceId}/channels/${channelId}/messages`
+    // Commit a real same-origin page first: without it, fetch fails even
+    // online and the offline proof below would be vacuous.
+    await page.goto(path, { waitUntil: 'commit' })
 
-    await context.setOffline(true)
-    const dropped = await page.evaluate(async (target) => {
-      try {
-        await fetch(target)
-        return false
-      } catch {
-        return true
-      }
-    }, path)
-    expect(dropped).toBe(true)
+    // The exact read succeeds online, proving the page, credential, and
+    // route before anything is disconnected.
+    const online = await readMessages(page, workspaceId, channelId)
+    expect(online.status).toBe(200)
 
-    // Reconnect replays fresh: activity posted after the drop reads back,
-    // with no stale cached copy surviving it.
-    await context.setOffline(false)
+    try {
+      await context.setOffline(true)
+      // Offline the same read rejects at the network (a thrown TypeError),
+      // never an HTTP error status — the browser cannot reach the route.
+      const dropped = await page.evaluate(async (target) => {
+        try {
+          await fetch(target)
+          return 'responded'
+        } catch (error) {
+          return error instanceof TypeError ? 'network-failure' : `unexpected:${String(error)}`
+        }
+      }, path)
+      expect(dropped).toBe('network-failure')
+    } finally {
+      // Neighbor tests share the browser profile pool: never leak offline.
+      await context.setOffline(false)
+    }
+
+    // Reconnect replays fresh: the same read succeeds again with the
+    // identical body, and activity posted after the drop reads back with
+    // no stale cached copy surviving it.
+    const back = await readMessages(page, workspaceId, channelId)
+    expect(back.status).toBe(200)
+    expect(back.body).toEqual(online.body)
     await postMessage(page, workspaceId, channelId, { bodyText: 'after the drop' })
     const after = await readMessages(page, workspaceId, channelId)
     expect(after.status).toBe(200)
@@ -323,23 +341,19 @@ test.describe('chat continuity over real routes', () => {
     await page.goto(`/api/v1/workspaces/${workspaceId}/channels`, { waitUntil: 'commit' })
 
     // One stream at a time: the route caps concurrent workspace streams.
-    // Default frames carry event deliveries (audience/resync frames are
-    // named and never match); each run collects the first `count`
-    // message.created deliveries after subscribing.
-    const collectCreated = (target: string, count: number, timeoutMs: number) =>
+    // Each phase runs subscribe → open-barrier → post → collect → close
+    // inside ONE evaluate, so ordering is structural, never racy, and the
+    // stream closes on every path (failures included) via finally.
+    // Deliveries arrive as the named workspace.event type; audience,
+    // resync, and withheld siblings never match the collector below.
+    const runStreamPhase = (target: string, texts: string[], want: number) =>
       page.evaluate(
-        async ({ stream, want, budget }) => {
-          const seen: { id: string; sequence: number; messageId: string }[] = []
+        async ({ stream, bodies, post, keys }) => {
+          type Delivery = { id: string; sequence: number; messageId: string }
+          const seen: Delivery[] = []
+          const posted: { id: string }[] = []
           const source = new EventSource(stream)
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              clearTimeout(timer)
-              source.close()
-              resolve()
-            }
-            const timer = setTimeout(done, budget)
-            // Deliveries arrive as the named workspace.event type (plus
-            // audience/resync/withheld siblings, which never match below).
+          try {
             source.addEventListener('workspace.event', (event: MessageEvent) => {
               try {
                 const data = JSON.parse(event.data) as {
@@ -360,32 +374,83 @@ test.describe('chat continuity over real routes', () => {
               } catch {
                 // Control frames carry no delivery payload.
               }
-              if (seen.length >= want) done()
             })
-            source.addEventListener('error', done)
-          })
-          return seen
+            // Readiness barrier: the subscription is established only once
+            // the stream opens. Posts before this point race registration
+            // and may never be delivered to this stream.
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(() => reject(new Error('stream open timeout')), 10_000)
+              source.addEventListener(
+                'open',
+                () => {
+                  clearTimeout(timer)
+                  resolve()
+                },
+                { once: true }
+              )
+              source.addEventListener(
+                'error',
+                () => {
+                  clearTimeout(timer)
+                  reject(new Error('stream open failed'))
+                },
+                { once: true }
+              )
+            })
+            for (let index = 0; index < bodies.length; index += 1) {
+              const response = await fetch(post, {
+                method: 'POST',
+                headers: {
+                  'content-type': 'application/json',
+                  'idempotency-key': keys[index]!,
+                  'x-request-id': crypto.randomUUID(),
+                },
+                body: JSON.stringify({ bodyText: bodies[index] }),
+              })
+              if (response.status !== 201) throw new Error(`phase post failed: ${response.status}`)
+              const payload = (await response.json()) as { message: { id: string } }
+              posted.push({ id: payload.message.id })
+            }
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 15_000)
+              const interval = setInterval(() => {
+                if (seen.length >= want) {
+                  clearTimeout(timer)
+                  clearInterval(interval)
+                  resolve()
+                }
+              }, 200)
+            })
+          } finally {
+            source.close()
+          }
+          return { posted, seen }
         },
-        { stream: target, want: count, budget: timeoutMs }
+        {
+          stream: target,
+          bodies: texts,
+          post: `/api/v1/workspaces/${workspaceId}/channels/${channelId}/messages`,
+          keys: texts.map(() => crypto.randomUUID()),
+        }
       )
-    // Subscribe first: only deliveries emitted after the open are live.
-    const livePromise = collectCreated(streamPath, 2, 20_000)
-    const first = await postMessage(page, workspaceId, channelId, { bodyText: 'stream one' })
-    const second = await postMessage(page, workspaceId, channelId, { bodyText: 'stream two' })
-    const live = await livePromise
-    expect(live.map((delivery) => delivery.messageId)).toEqual([first.id, second.id])
-    expect(live[1]!.sequence).toBe(live[0]!.sequence + 1)
+    const live = await runStreamPhase(streamPath, ['stream one', 'stream two'], 2)
+    expect(live.posted.map((message) => message.id)).toHaveLength(2)
+    expect(live.seen.map((delivery) => delivery.messageId)).toEqual(
+      live.posted.map((message) => message.id)
+    )
+    expect(live.seen[1]!.sequence).toBe(live.seen[0]!.sequence + 1)
 
     // Resume from the last observed cursor: only the newer delivery
     // arrives, contiguous with what came before — no replay, no gap.
-    const resumedPromise = collectCreated(
-      `${streamPath}?cursor=${encodeURIComponent(live[1]!.id)}`,
-      1,
-      20_000
+    const resumed = await runStreamPhase(
+      `${streamPath}?cursor=${encodeURIComponent(live.seen[1]!.id)}`,
+      ['stream three'],
+      1
     )
-    const third = await postMessage(page, workspaceId, channelId, { bodyText: 'stream three' })
-    const resumed = await resumedPromise
-    expect(resumed.map((delivery) => delivery.messageId)).toEqual([third.id])
-    expect(resumed[0]!.sequence).toBe(live[1]!.sequence + 1)
+    expect(resumed.posted.map((message) => message.id)).toHaveLength(1)
+    expect(resumed.seen.map((delivery) => delivery.messageId)).toEqual(
+      resumed.posted.map((message) => message.id)
+    )
+    expect(resumed.seen[0]!.sequence).toBe(live.seen[1]!.sequence + 1)
   })
 })
