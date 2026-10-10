@@ -15,10 +15,12 @@ internally valid; it does not mean the criteria are certified.
 
 ## Current state
 
-The committed manifest pins `adea` to `9fb30c49…` (canonical `main` when this was
-reconciled) and maps every id. Every mapped id is `partial`: the cited tests cover part
-of the criterion, and the gaps are listed on the entry. Nothing is certified:
-`certification: incomplete (0 of 64 candidate-compatible)`.
+The committed manifest pins `adea` to `e8b75daa…`, canonical `main` at the last reconciliation. That head
+includes #1246 (artifact-reference grants) and #1251 (directory empty-state coverage, which closes the
+#1250 issue). Every execution receipt was regenerated at that head with `bun test <file> --reporter=junit
+--reporter-outfile=junit.xml`, plus `--conditions=browser` for files that need it, and each envelope records the
+exact command. Every mapped id is `partial`: the cited tests cover part of the criterion, and the gaps are
+listed on the entry. Nothing is certified: `certification: incomplete (0 of 64 candidate-compatible)`.
 
 ## Repositories and identity
 
