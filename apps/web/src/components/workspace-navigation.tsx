@@ -87,6 +87,7 @@ import {
   watchAccountIdentity,
   type AccountDirectorySection,
 } from '../lib/account-directory'
+import { stripWorkspaceDeepLinkSearch } from '../lib/workspace-search'
 import {
   createDevWorkspaceNavHost,
   type DevGlobalNavContext,
@@ -807,11 +808,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     }
   }
   const consumeDeepLink = () => {
-    const rest = { ...currentSearch() }
-    for (const key of ['channel', 'message', 'task', 'thread', 'workspace'] as const)
-      delete rest[key]
+    // Functional updater: a completion that commits after a newer navigation
+    // strips only the deep-link keys from that newer search. A value snapshot
+    // would replace the search with the pre-switch state and drop
+    // `app=kanban`, unmounting the board.
     void navigate({
-      search: rest as never,
+      search: ((previous: WorkspaceSearch) => stripWorkspaceDeepLinkSearch(previous)) as never,
       hash: window.location.hash.replace(/^#/, ''),
       replace: true,
     })
@@ -1065,7 +1067,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     setCharacterDesignerEnabled(false)
     void navigate({
       search: {
-        ...currentSearch(),
+        // A pending deep link must not ride into another app's search and be
+        // re-applied by the shell (which would switch the surface back and
+        // drop `app=kanban`). Deep links are consumed once by their surface.
+        ...stripWorkspaceDeepLinkSearch(currentSearch()),
         view: destination.view,
         roomDesigner: undefined,
         characterDesigner: undefined,

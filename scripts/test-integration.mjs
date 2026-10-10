@@ -77,7 +77,8 @@ function runningComposeServices() {
 // randomly-passworded container that exists only for this run is the point;
 // widening an application role to make room for a test would not be.
 const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
-const captureProvisioningImage = 'postgres:18-alpine'
+const captureProvisioningImage =
+  'public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
 
 function dockerDaemonAvailable() {
   const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
