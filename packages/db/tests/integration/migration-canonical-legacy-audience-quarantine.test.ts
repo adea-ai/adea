@@ -14,6 +14,7 @@ import {
   archiveChannel,
   createGroupChannel,
   createMessage,
+  createRuntimeResultMessage,
   listMessagesForUser,
   setChannelParticipants,
 } from '../../src/conversations'
@@ -285,6 +286,78 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     expect(afterReplay.quarantined).toBe(afterQuarantine.quarantined)
     expect(afterReplay.admissionsDigest).toBe(afterQuarantine.admissionsDigest)
     expect(afterReplay.quarantineDigest).toBe(afterQuarantine.quarantineDigest)
+  })
+
+  test('the other two shapes cannot be newly admitted: a direct insert for each is refused by the withholding trigger', async () => {
+    const { quarantineRows, seeded } = scenario
+    const mismatch = quarantineRows.find((row) => row.reason === 'agent_workspace_mismatch')!
+    const archived = quarantineRows.find(
+      (row) => row.reason === 'group_channel_not_active' && row.principal_kind === 'user'
+    )!
+    expect(mismatch).toBeDefined()
+    expect(archived).toBeDefined()
+    const agentRefusal = await connection.db
+      .execute(sql`
+      insert into app.group_admissions (workspace_id, channel_id, principal_kind, user_id, agent_id,
+        joined_sequence, joined_at, auth_group_id, auth_grant_id, auth_revision)
+      values (${mismatch.workspace_id}::uuid, ${mismatch.channel_id}::uuid, 'agent', null,
+        ${mismatch.principal_id}::uuid, 0, '2026-01-05T00:00:00.000Z', ${mismatch.channel_id}::uuid,
+        'implicit:agent:' || ${mismatch.principal_id}::text, 1)
+    `)
+      .then(
+        () => 'accepted',
+        (error: unknown) => postgresMessage(error)
+      )
+    expect(agentRefusal).toMatch(/legacy audience is quarantined \(agent_workspace_mismatch\)/)
+    const userRefusal = await connection.db
+      .execute(sql`
+      insert into app.group_admissions (workspace_id, channel_id, principal_kind, user_id, agent_id,
+        joined_sequence, joined_at, auth_group_id, auth_grant_id, auth_revision)
+      values (${archived.workspace_id}::uuid, ${archived.channel_id}::uuid, 'user',
+        ${archived.principal_id}::uuid, null, 0, '2026-01-05T00:00:00.000Z', ${archived.channel_id}::uuid,
+        'implicit:member:' || ${archived.principal_id}::text, 1)
+    `)
+      .then(
+        () => 'accepted',
+        (error: unknown) => postgresMessage(error)
+      )
+    expect(userRefusal).toMatch(/legacy audience is quarantined \(group_channel_not_active\)/)
+    expect(seeded.workspaceId).toBe(archived.workspace_id as string)
+  })
+
+  test('publication by the other two shapes is refused by the product write path', async () => {
+    const { quarantineRows, seeded } = scenario
+    const archived = quarantineRows.find(
+      (row) => row.reason === 'group_channel_not_active' && row.principal_kind === 'user'
+    )!
+    await expect(
+      createMessage(
+        connection.db,
+        seeded.workspaceId,
+        archived.channel_id as string,
+        seeded.member,
+        {
+          bodyText: 'archived publication',
+          idempotencyKey: `archived-publish-${crypto.randomUUID()}`,
+          sender: { kind: 'user', userId: archived.principal_id as string },
+        }
+      )
+    ).rejects.toThrow('Channel unavailable')
+    await expect(
+      createRuntimeResultMessage(
+        connection.db,
+        seeded.workspaceId,
+        seeded.activeGroupId,
+        seeded.member,
+        {
+          bodyText: 'mismatched agent publication',
+          executionRef: `exec-${crypto.randomUUID()}`,
+          externalSessionRef: `session-${crypto.randomUUID()}`,
+          idempotencyKey: `mismatch-publish-${crypto.randomUUID()}`,
+          sender: { kind: 'agent', agentId: seeded.otherWorkspaceAgentId },
+        }
+      )
+    ).rejects.toThrow('Agent unavailable')
   })
 
   test('quarantine is idempotent: a repeat records and withdraws nothing, and the digests do not move', async () => {
