@@ -26,6 +26,7 @@ if (command.length === 0) {
 
 let provisioning = null
 let status = 1
+let childSignal = null
 try {
   provisioning = startCaptureProvisioning((handle) => {
     provisioning = handle
@@ -41,6 +42,7 @@ try {
   const result = spawnSync(command[0], command.slice(1), { env: environment, stdio: 'inherit' })
   if (result.error) throw result.error
   status = result.status ?? 1
+  childSignal = result.signal
 } catch (error) {
   console.error(error.message)
   status = 1
@@ -54,4 +56,7 @@ try {
     }
   }
 }
-process.exit(status)
+// A command that ended by a signal ends the runner by the same signal, after the instance is removed. A
+// synchronous exit here would drop a signal the runner received during the wait, so the signal is re-raised.
+if (childSignal) process.kill(process.pid, childSignal)
+else process.exit(status)
