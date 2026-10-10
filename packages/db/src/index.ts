@@ -25,6 +25,15 @@ export {
   type MigrationSnapshotPayloadDigestInconclusiveReason,
 } from './migration-snapshot-capture'
 export {
+  captureNativeSessionSection,
+  NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
+  NativeSessionInventoryError,
+  type NativeSessionInventoryFailure,
+  type NativeSessionInventoryPage,
+  type NativeSessionInventoryScope,
+  type NativeSessionInventorySource,
+} from './native-session-inventory'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
@@ -237,6 +246,7 @@ export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './e
 export {
   addWorkspaceMembership,
   archiveWorkspace,
+  listArchivedWorkspacesForOwner,
   deleteWorkspace,
   beginWorkspaceDeletion,
   WorkspaceCleanupRequiredError,
