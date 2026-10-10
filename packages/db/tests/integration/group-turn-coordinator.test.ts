@@ -8,6 +8,7 @@ import { createMessage } from '../../src/conversations'
 import { admitAddressedLeadTurn } from '../../src/lead-turns'
 import {
   AddressedTurnError,
+  cancelAddressedTurn,
   causalIdForAddressedTurn,
   claimAddressedTurn,
   decideAddressedTurn,
@@ -515,7 +516,9 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     // Human input supersedes the stale claim; promoting the agent to lead
     // afterwards must not resurrect it — the retry binds to retained
     // state, not to a fresh synthetic message.
-    expect(await supersedeAddressedTurns(connection.db, f.workspace.id, f.channelId)).toBe(1)
+    expect(await supersedeAddressedTurns(connection.db, f.workspace.id, f.channelId, f.owner)).toBe(
+      1
+    )
     await connection.db
       .update(schema.agents)
       .set({ isWorkspaceLead: true })
@@ -564,7 +567,12 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       }
     )
     // A newer human message supersedes still-claimed turns only.
-    const superseded = await supersedeAddressedTurns(connection.db, f.workspace.id, f.channelId)
+    const superseded = await supersedeAddressedTurns(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner
+    )
     expect(superseded).toBe(1)
     const replay = await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)
     expect(replay.map((turn) => turn.state)).toEqual(['superseded', 'responded'])
@@ -796,7 +804,7 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
         now: NOW,
       })
       await parkedPromise
-      expect(await supersedeAddressedTurns(second.db, f.workspace.id, f.channelId)).toBe(1)
+      expect(await supersedeAddressedTurns(second.db, f.workspace.id, f.channelId, f.owner)).toBe(1)
       release()
       await expect(dispatching).rejects.toMatchObject({
         name: 'AddressedTurnError',
@@ -1003,5 +1011,196 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     expect(messagesAfter.map((row) => row.id).toSorted()).toEqual(
       messagesBefore.map((row) => row.id).toSorted()
     )
+  })
+
+  T('addresser cancels a live claim; outsiders cannot; terminals hold', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    // The addresser cancels: no intent was ever minted, so no runtime
+    // holds anything and the outcome reports it instead of failing.
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: false, state: 'cancelled' })
+    // Re-cancelling converges on the terminal state.
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: false, state: 'cancelled' })
+    // An outsider with no participation cannot cancel live claims.
+    const second = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner, { dispatchRevision: 5 }),
+      { now: NOW }
+    )
+    expect(second.status).toBe('claimed')
+    const outsider = await user('outsider')
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, outsider, second.turn.id)
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_cancel_unauthorized' })
+    // A responded turn already has its response: cancellation is refused.
+    const response = await createMessage(connection.db, f.workspace.id, f.channelId, f.owner, {
+      bodyText: 'echo answers',
+      idempotencyKey: crypto.randomUUID(),
+      sender: { agentId: f.agent.id, kind: 'agent' },
+    })
+    await recordAddressedTurnResponse(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      second.turn.id,
+      response.id,
+      { now: new Date().toISOString() }
+    )
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, second.turn.id)
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_already_responded' })
+  })
+
+  T('cancelled claims never dispatch and never record', async () => {
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    await cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    await expect(
+      dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, { now: NOW })
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_cancelled' })
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intents).toHaveLength(0)
+    // A late agent answer finds no live turn: convergent, unrecorded.
+    const late = await createMessage(connection.db, f.workspace.id, f.channelId, f.owner, {
+      bodyText: 'too late',
+      idempotencyKey: crypto.randomUUID(),
+      sender: { agentId: f.agent.id, kind: 'agent' },
+    })
+    const current = await recordAddressedTurnResponse(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      first.turn.id,
+      late.id,
+      { now: new Date().toISOString() }
+    )
+    expect(current.state).toBe('cancelled')
+    expect(current.responseMessageId).toBeNull()
+  })
+
+  T('new human messages auto-supersede stale claims inside the post', async () => {
+    // Production wiring proof: no explicit supersede call — the fenced
+    // human post retires live claims in the same transaction.
+    const f = await groupWithAgent()
+    const first = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner),
+      { now: NOW }
+    )
+    expect(first.status).toBe('claimed')
+    await postGroupChannelMessage(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      f.owner,
+      {
+        message: { bodyText: 'actually, never mind', idempotencyKey: crypto.randomUUID() },
+        mode: 'direct',
+      },
+      { now: NOW }
+    )
+    const replay = await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)
+    expect(replay.map((turn) => turn.state)).toEqual(['superseded'])
+  })
+
+  T('cross-workspace addressed lead cancels cleanly with labels intact', async () => {
+    const owner = await user('xws-owner')
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'XWS host',
+      owner,
+    })
+    const otherOwner = await user('xws-other')
+    const other = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'XWS away',
+      owner: otherOwner,
+    })
+    const leadAway = await ensureWorkspaceLead(connection.db, other.workspace.id, otherOwner)
+    const channelId = crypto.randomUUID()
+    await createGroupChannelWithGrants(connection.db, workspace.id, owner, {
+      candidates: groupCreationCandidatesFromGrants(workspace.id, {
+        audienceGrants: [
+          {
+            expiresAt: null,
+            grantId: 'gra_owner',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            participant: owner,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+        enlistmentGrants: [
+          {
+            agent: { agentId: leadAway.id, workspaceId: other.workspace.id },
+            expiresAt: null,
+            grantId: 'gra_lead',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+      }),
+      channelId,
+      idempotencyKey: crypto.randomUUID(),
+      now: NOW,
+      title: 'Group',
+    })
+    const trigger = await postGroupChannelMessage(
+      connection.db,
+      workspace.id,
+      channelId,
+      owner,
+      owner,
+      {
+        message: { bodyText: 'please answer', idempotencyKey: crypto.randomUUID() },
+        mode: 'direct',
+      },
+      { now: NOW }
+    )
+    const dispatched = await dispatchAddressedTurn(
+      connection.db,
+      workspace.id,
+      owner,
+      claimInput(channelId, trigger.id, leadAway.id, owner),
+      { now: NOW }
+    )
+    expect(dispatched.claim.status).toBe('claimed')
+    // The addresser (also the intent actor) cancels: the claim flips and
+    // the intent cancel is attempted through the existing boundary — with
+    // no executor holding it, the outcome reports back cleanly.
+    await expect(
+      cancelAddressedTurn(connection.db, workspace.id, owner, dispatched.claim.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: false, state: 'cancelled' })
+    const replay = await loadAddressedTurns(connection.db, workspace.id, channelId)
+    expect(replay.map((turn) => [turn.state, turn.addressedLabel])).toEqual([
+      ['cancelled', `${other.workspace.id}:${leadAway.id}`],
+    ])
   })
 })

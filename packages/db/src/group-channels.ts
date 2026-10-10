@@ -64,6 +64,7 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
+import { supersedeAddressedTurns } from './group-turn-coordinator'
 import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
@@ -518,6 +519,12 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
         })
   const settled = authorizeGroupChannelTurn(gate, { admission: settledDirect, now: readNow() })
   if (settled.action !== 'allow') throw new Error('Channel unavailable')
+  // Superseding human input (M15.02): a newer human message retires live
+  // addressed turns in this same transaction, so stale claims never
+  // outlive the conversation that replaced them. Agent posts never
+  // supersede — only human input prioritizes.
+  if (sender.kind === 'user')
+    await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>
     : MessageSummary

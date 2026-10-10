@@ -1,5 +1,5 @@
 {
-  "id": "43d8701e-9c9d-4d53-82e8-3da364b82941",
+  "id": "1f5cc8b9-ae9f-4793-b0c2-9b60713ba500",
   "prevId": "abcf1389-e765-4580-bf5b-5ce5379f6061",
   "version": "7",
   "dialect": "postgresql",
@@ -41,6 +41,12 @@
         },
         "agent_id": {
           "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "addresser_user_id": {
+          "name": "addresser_user_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -90,6 +96,12 @@
         },
         "response_message_id": {
           "name": "response_message_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "intent_id": {
+          "name": "intent_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -173,12 +185,32 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
+        "addressed_agent_turns_addresser_user_id_users_id_fk": {
+          "name": "addressed_agent_turns_addresser_user_id_users_id_fk",
+          "tableFrom": "addressed_agent_turns",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": ["addresser_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
         "addressed_agent_turns_response_message_id_messages_id_fk": {
           "name": "addressed_agent_turns_response_message_id_messages_id_fk",
           "tableFrom": "addressed_agent_turns",
           "tableTo": "messages",
           "schemaTo": "app",
           "columnsFrom": ["response_message_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "addressed_agent_turns_intent_id_lead_turn_intents_id_fk": {
+          "name": "addressed_agent_turns_intent_id_lead_turn_intents_id_fk",
+          "tableFrom": "addressed_agent_turns",
+          "tableTo": "lead_turn_intents",
+          "schemaTo": "app",
+          "columnsFrom": ["intent_id"],
           "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"

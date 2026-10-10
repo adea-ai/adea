@@ -281,6 +281,7 @@ export {
 } from './group-channels'
 export {
   AddressedTurnError,
+  cancelAddressedTurn,
   causalIdForAddressedTurn,
   claimAddressedTurn,
   decideAddressedTurn,

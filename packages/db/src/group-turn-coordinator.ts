@@ -10,6 +10,7 @@ import {
 import { evaluateGroupGrantWindow } from './group-participation-policy'
 import type { GroupAdmission } from '@adea-ai/types'
 import { admitAddressedLeadTurn } from './lead-turns'
+import { requestLeadTurnCancellation } from './lead-turn-runtime'
 import { addressedAgentTurns, type AddressedAgentTurn } from './schema/addressed-agent-turns'
 import { agents, messages, workspaceMemberships } from './schema'
 
@@ -69,6 +70,12 @@ export function causalIdForAddressedTurn(
 
 function asStore(database: AgentHqDatabase | AgentHqTransaction): AddressedTurnStore {
   return database as unknown as AddressedTurnStore
+}
+
+function isAgentHqDatabase(
+  database: AgentHqDatabase | AgentHqTransaction
+): database is AgentHqDatabase {
+  return typeof (database as AgentHqDatabase).transaction === 'function'
 }
 
 type AddresserProof = Readonly<{
@@ -364,6 +371,7 @@ export async function claimAddressedTurn(
       .insert(addressedAgentTurns)
       .values({
         addressedLabel: `${agentHome.workspaceId}:${input.agentId}`,
+        addresserUserId: principal.userId,
         agentId: input.agentId,
         causalId,
         channelId: input.channelId,
@@ -554,6 +562,22 @@ export async function dispatchAddressedTurn(
     expectedAgentId: input.agentId,
     triggerMessageId: input.triggerMessageId,
   })
+  // Bind the minted intent to the claim for precise cancellation.
+  // Crash window (minted but unbound) converges: redispatch replays the
+  // same intent idempotently and rebinds it.
+  await database.transaction(async (transaction) => {
+    const store = asStore(transaction)
+    await store
+      .update(addressedAgentTurns)
+      .set({ intentId: intent.leadTurn.intentId })
+      .where(
+        and(
+          eq(addressedAgentTurns.id, claim.turn.id),
+          eq(addressedAgentTurns.workspaceId, workspaceId),
+          eq(addressedAgentTurns.state, 'dispatching')
+        )
+      )
+  })
   // The turn stays `dispatching`: the Agent's actual answer is recorded
   // later through recordAddressedTurnResponse (which accepts `dispatching`
   // turns). The admission minted no message, so there is nothing human-sent
@@ -562,28 +586,123 @@ export async function dispatchAddressedTurn(
 }
 
 /**
- * Human priority: a newer human message supersedes still-claimed turns, so a
- * reconnect replays only live work in committed order. Responses already
- * recorded are history and stay untouched.
+ * Explicit cancellation for one addressed turn (M15.02).
+ * Authority: the original addresser or a workspace manager — never an
+ * outsider, never another agent. Terminal states are terminal: a
+ * `responded` turn already has its response, a `superseded` one is already
+ * dead, and re-cancelling a `cancelled` turn converges on itself.
+ * When the claim bound a retained intent, cancellation is requested
+ * through the EXISTING lead intent/execution boundary
+ * (`requestLeadTurnCancellation`): it succeeds only when an executor
+ * actually holds the intent and the canceller is its actor — otherwise the
+ * outcome reports `runtimeCancelRequested: false` instead of failing the
+ * claim flip or, worse, bypassing the boundary. No second runtime.
+ */
+export async function cancelAddressedTurn(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  turnId: string
+): Promise<{ state: string; runtimeCancelRequested: boolean }> {
+  return database.transaction(async (transaction) => {
+    const store = asStore(transaction)
+    const [turn] = await store
+      .select()
+      .from(addressedAgentTurns)
+      .where(
+        and(eq(addressedAgentTurns.id, turnId), eq(addressedAgentTurns.workspaceId, workspaceId))
+      )
+      .limit(1)
+      .for('update')
+    if (!turn) throw new AddressedTurnError('turn_claim_unresolved')
+    if (turn.state === 'cancelled') return { runtimeCancelRequested: false, state: 'cancelled' }
+    if (turn.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+    if (turn.state === 'superseded') throw new AddressedTurnError('turn_superseded')
+    const allowed =
+      turn.addresserUserId === principal.userId ||
+      (await isWorkspaceManager(store, workspaceId, principal.userId))
+    if (!allowed) throw new AddressedTurnError('turn_cancel_unauthorized')
+    const flipped = await store
+      .update(addressedAgentTurns)
+      .set({ state: 'cancelled' })
+      .where(
+        and(
+          eq(addressedAgentTurns.id, turn.id),
+          eq(addressedAgentTurns.workspaceId, workspaceId),
+          sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+        )
+      )
+      .returning({ id: addressedAgentTurns.id })
+    if (!flipped[0]) throw new AddressedTurnError('turn_claim_unresolved')
+    let runtimeCancelRequested = false
+    if (turn.intentId && turn.addresserUserId === principal.userId) {
+      try {
+        await requestLeadTurnCancellation(database, workspaceId, turn.intentId, principal)
+        runtimeCancelRequested = true
+      } catch {
+        // No executor holds this intent (never runtime-dispatched, already
+        // terminal there, or otherwise unavailable): the claim flip above
+        // still stands; the outcome reports it instead of failing.
+        runtimeCancelRequested = false
+      }
+    }
+    return { runtimeCancelRequested, state: 'cancelled' }
+  })
+}
+
+/**
+ * Human priority: a newer human message supersedes live turns, so a
+ * reconnect replays only live work in committed order. Both `claimed` and
+ * `dispatching` rows flip (stale work is stale, whoever addressed it);
+ * responses already recorded are history and stay untouched. For
+ * `dispatching` rows with a bound intent addressed by this same principal,
+ * intent cancellation is requested through the existing boundary
+ * (best-effort: nothing dispatched to an executor reports back cleanly).
+ * Rows addressed by others flip without reaching into their runtime
+ * bindings — explicit `cancelAddressedTurn` by the addresser covers that.
  */
 export async function supersedeAddressedTurns(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
-  channelId: string
+  channelId: string,
+  principal: UserPrincipalRef
 ): Promise<number> {
   const store = asStore(database)
-  const updated = await store
-    .update(addressedAgentTurns)
-    .set({ state: 'superseded' })
+  const live = await store
+    .select()
+    .from(addressedAgentTurns)
     .where(
       and(
         eq(addressedAgentTurns.workspaceId, workspaceId),
         eq(addressedAgentTurns.channelId, channelId),
-        eq(addressedAgentTurns.state, 'claimed')
+        sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
       )
     )
-    .returning({ id: addressedAgentTurns.id })
-  return updated.length
+  let flipped = 0
+  for (const turn of live) {
+    const updated = await store
+      .update(addressedAgentTurns)
+      .set({ state: 'superseded' })
+      .where(
+        and(
+          eq(addressedAgentTurns.id, turn.id),
+          eq(addressedAgentTurns.workspaceId, workspaceId),
+          sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+        )
+      )
+      .returning({ id: addressedAgentTurns.id })
+    if (!updated[0]) continue
+    flipped += 1
+    if (turn.intentId && turn.addresserUserId === principal.userId) {
+      try {
+        if (isAgentHqDatabase(database))
+          await requestLeadTurnCancellation(database, workspaceId, turn.intentId, principal)
+      } catch {
+        // Best-effort: the claim flip above stands regardless.
+      }
+    }
+  }
+  return flipped
 }
 
 /**
