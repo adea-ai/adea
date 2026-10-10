@@ -134,7 +134,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'br-legacy', name: LEGACY },
             { id: 'br-s2', name: SHARD_2 },
           ],
-          pagination: { next: null },
+          pagination: {},
         },
       },
     ])
@@ -148,7 +148,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
   test('a name on a first page and another on the second page are both resolved', () => {
     const result = run([
       { body: { branches: [{ id: 'br-s1', name: SHARD_1 }], pagination: { next: 'c2' } } },
-      { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: { next: null } } },
+      { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: {} } },
     ])
     expect(result.status).toBe(0)
     expect(outputOf(result)).toEqual({ legacy: 'br-legacy', shard_1: 'br-s1', shard_2: '' })
@@ -158,7 +158,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
     const result = run([
       { body: { branches: [{ id: 'br-x', name: 'main' }], pagination: { next: 'c2' } } },
       { body: { branches: [{ id: 'br-y', name: 'dev' }], pagination: { next: 'c3' } } },
-      { body: { branches: [], pagination: { next: null } } },
+      { body: { branches: [], pagination: {} } },
     ])
     expect(result.status).toBe(0)
     expect(outputOf(result)).toEqual(ALL_EMPTY)
@@ -242,15 +242,13 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
   })
 
   test('a branch entry without a name fails the job', () => {
-    const result = run([{ body: { branches: [{ id: 'br-1' }], pagination: { next: null } } }])
+    const result = run([{ body: { branches: [{ id: 'br-1' }], pagination: {} } }])
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('malformed branch entry')
   })
 
   test('a matched branch without an id fails the job', () => {
-    const result = run([
-      { body: { branches: [{ id: '', name: LEGACY }], pagination: { next: null } } },
-    ])
+    const result = run([{ body: { branches: [{ id: '', name: LEGACY }], pagination: {} } }])
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('has no id')
     expect(result.output).toBe('')
@@ -266,7 +264,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'wrong-trailing', name: `${SHARD_1} ` },
             { id: 'br-right', name: SHARD_1 },
           ],
-          pagination: { next: null },
+          pagination: {},
         },
       },
     ])
@@ -282,7 +280,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'br-a', name: LEGACY },
             { id: 'br-b', name: LEGACY },
           ],
-          pagination: { next: null },
+          pagination: {},
         },
       },
     ])
@@ -294,7 +292,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
   test('a repeated identical match across pages is not ambiguous', () => {
     const result = run([
       { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: { next: 'c2' } } },
-      { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: { next: null } } },
+      { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: {} } },
     ])
     expect(result.status).toBe(0)
     expect(outputOf(result).legacy).toBe('br-legacy')
@@ -304,14 +302,14 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
     const cursor = 'a b/c+d=='
     const result = run([
       { body: { branches: [], pagination: { next: cursor } } },
-      { body: { branches: [], pagination: { next: null } } },
+      { body: { branches: [], pagination: {} } },
     ])
     expect(result.status).toBe(0)
     expect(new URL(result.requests[1]!).searchParams.get('cursor')).toBe(cursor)
   })
 
   test('the requests use the project from the environment and the read endpoint only', () => {
-    const result = run([{ body: { branches: [], pagination: { next: null } } }])
+    const result = run([{ body: { branches: [], pagination: {} } }])
     expect(result.status).toBe(0)
     const url = new URL(result.requests[0]!)
     expect(url.origin).toBe('https://console.neon.tech')
@@ -322,7 +320,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
   test.each([
     ['a number', 7],
     ['an empty array', []],
-    ['a non-empty array', [{ next: null }]],
+    ['a non-empty array', [{}]],
     ['null', null],
     ['a string', 'cursor-2'],
   ])(
@@ -335,10 +333,24 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
     }
   )
 
-  test('pagination without a next field fails the job rather than ending the scan', () => {
-    const result = run([{ body: { branches: [], pagination: {} } }])
+  test('a pagination object without next is the last page, as the Neon schema defines', () => {
+    const result = run([
+      {
+        body: {
+          branches: [{ id: 'br-legacy', name: LEGACY }],
+          pagination: { sort_by: 'updated_at', sort_order: 'desc' },
+        },
+      },
+    ])
+    expect(result.status).toBe(0)
+    expect(outputOf(result).legacy).toBe('br-legacy')
+    expect(result.requests).toHaveLength(1)
+  })
+
+  test('next: null is malformed, because the schema defines next as a string that is absent on the last page', () => {
+    const result = run([{ body: { branches: [], pagination: { next: null } } }])
     expect(result.status).not.toBe(0)
-    expect(result.stderr).toContain('without a next field')
+    expect(result.stderr).toContain('malformed cursor')
     expect(result.output).toBe('')
   })
 
@@ -361,7 +373,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
     ['a double hyphen', 'br--x'],
     ['an overlong id', `br-${'a'.repeat(130)}`],
   ])('a requested branch whose id is %s is refused before anything is written', (_label, id) => {
-    const result = run([{ body: { branches: [{ id, name: LEGACY }], pagination: { next: null } } }])
+    const result = run([{ body: { branches: [{ id, name: LEGACY }], pagination: {} } }])
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain('malformed id')
     expect(result.output).toBe('')
@@ -375,7 +387,7 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'not safe; rm -rf /', name: 'unrelated' },
             { id: 'br-legacy', name: LEGACY },
           ],
-          pagination: { next: null },
+          pagination: {},
         },
       },
     ])
