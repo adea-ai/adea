@@ -1288,4 +1288,113 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(replayed.publication.messageId).toBe(messageId)
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
   })
+
+  test('concurrent retries under one completion key publish exactly once and agree on the message', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f)
+    const outcomes = await Promise.allSettled([
+      completeJob(f, key, request),
+      completeJob(f, key, request),
+      completeJob(f, key, request),
+    ])
+    const failures = outcomes.flatMap((o) => (o.status === 'rejected' ? [String(o.reason)] : []))
+    expect(failures).toEqual([])
+    const ids = outcomes.flatMap((o) =>
+      o.status === 'fulfilled' && o.value.publication.messageId
+        ? [o.value.publication.messageId]
+        : []
+    )
+    expect(ids).toHaveLength(3)
+    expect(new Set(ids).size).toBe(1)
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: ids[0] }])
+  })
+
+  test('concurrent attempts under one key with different summaries: one commits, the other conflicts, one message exists', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const outcomes = await Promise.allSettled([
+      completeJob(f, key, outboundRequest(f, { summary: 'First summary.' })),
+      completeJob(f, key, outboundRequest(f, { summary: 'Second summary.' })),
+    ])
+    const committed = outcomes.filter((o) => o.status === 'fulfilled')
+    const refused = outcomes.filter((o) => o.status === 'rejected')
+    expect(committed).toHaveLength(1)
+    expect(refused).toHaveLength(1)
+    expect((refused[0] as PromiseRejectedResult).reason).toMatchObject({
+      message: 'Task idempotency conflict',
+    })
+    const winner = (committed[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof completeJob>>>)
+      .value.publication.messageId
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: winner }])
+  })
+
+  test('a changed request after a held completion conflicts, even after the grant is restored; only the original publishes', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const key = crypto.randomUUID()
+    const original = outboundRequest(f, { artifact: artifactRef(reg), summary: 'Original.' })
+    const changed = outboundRequest(f, { artifact: artifactRef(reg), summary: 'Changed.' })
+
+    const held = await completeJob(f, key, original)
+    expect(held.publication).toMatchObject({ decision: { action: 'hold' }, messageId: null })
+    await expect(completeJob(f, key, changed)).rejects.toThrow('Task idempotency conflict')
+
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+    await expect(completeJob(f, key, changed)).rejects.toThrow('Task idempotency conflict')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    const published = await completeJob(f, key, original)
+    expect(published.publication).toMatchObject({ decision: { action: 'publish' } })
+    const messageId = published.publication.messageId
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+    const [row] = await connection.db
+      .select({ bodyText: messages.bodyText })
+      .from(messages)
+      .where(eq(messages.id, messageId!))
+      .limit(1)
+    expect(row?.bodyText).toBe('Original.')
+  })
+
+  test('a retry after the caller loses source authority is refused and writes nothing new', async () => {
+    const f = await fixture({ complete: false })
+    const admin = await newUser(f, { destination: 'member', source: 'admin' })
+    const key = crypto.randomUUID()
+    const first = await completeJob(f, key, outboundRequest(f), { actor: admin })
+    const messageId = first.publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.userId, admin.userId),
+          eq(workspaceMemberships.workspaceId, f.workspace.id)
+        )
+      )
+    await expect(completeJob(f, key, outboundRequest(f), { actor: admin })).rejects.toThrow(
+      'Job outbound unavailable'
+    )
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+  })
 })

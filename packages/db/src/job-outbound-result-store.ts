@@ -306,6 +306,17 @@ async function completeForPublication(
 ) {
   const { reads, transaction } = context
   const { command, principal, taskId, workspaceId } = input
+  // The destination channel is locked first, before the Task row. createMessage takes the
+  // channel and then the Task rows it reopens, so a Task-first order deadlocks against a
+  // concurrent attempt on the same channel (observed in the server log).
+  const audience = await reads.readAudience({
+    channelId: input.channelId,
+    forWrite: true,
+    userId: principal.userId,
+    workspaceId: input.destinationWorkspaceId,
+  })
+  if (!audience.workspaceLive || audience.workspaceRole === null)
+    throw new Error('Job outbound unavailable')
   const job = await reads.readJobSource(taskId)
   if (!job || job.sourceWorkspaceId !== workspaceId) throw new Error('Job outbound unavailable')
   if (
@@ -314,15 +325,6 @@ async function completeForPublication(
       await reads.readAccess({ userId: principal.userId, workspaceId: job.sourceWorkspaceId })
     )
   )
-    throw new Error('Job outbound unavailable')
-  // Exclusive, like the publication's own audience read: the destination revision must not move under the caller check.
-  const audience = await reads.readAudience({
-    channelId: input.channelId,
-    forWrite: true,
-    userId: principal.userId,
-    workspaceId: input.destinationWorkspaceId,
-  })
-  if (!audience.workspaceLive || audience.workspaceRole === null)
     throw new Error('Job outbound unavailable')
   return completeTask(transaction, workspaceId, taskId, principal, command, {
     outboundRequest: input.outboundRequest,
