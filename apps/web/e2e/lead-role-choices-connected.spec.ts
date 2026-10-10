@@ -351,4 +351,54 @@ test('mounted lead choice is disclosed before inference and matches the real adm
   expect(dispatch?.selectionRevision).toBe(requested.lead.selectionRevision)
   expect(dispatch?.dispatchId).toMatch(/^dispatch_[a-f0-9]{32}$/u)
   expect(dispatch?.runtimeSessionId).toMatch(/^ses_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  // Receipt of the adapter values asserted above. Output only: no assertion or fixture behaviour changes.
+  console.log(
+    `CONNECTED_PROOF_EVIDENCE:${JSON.stringify({
+      intentId,
+      selections: {
+        lead: {
+          selectionRef: requested.lead.selectionRef,
+          selectionRevision: requested.lead.selectionRevision,
+        },
+        child: {
+          selectionRef: requested.child.selectionRef,
+          selectionRevision: requested.child.selectionRevision,
+        },
+      },
+      beforeInference: {
+        physicalSends: beforeInference.physicalSends,
+        providerModels: beforeInference.providerModels,
+      },
+      afterInference: {
+        physicalSends: afterInference.physicalSends,
+        providerModels: afterInference.providerModels,
+        canonical: afterInference.canonical,
+        productReads: afterInference.productReads,
+      },
+      finalSnapshot: {
+        drainFailure: finalSnapshot.drainFailure,
+        statusState: finalSnapshot.statusProjection?.state ?? null,
+        runtimeState: finalSnapshot.runtimeRow?.state ?? null,
+        readerRequests: finalSnapshot.readerRequests,
+        publicationGate: {
+          calls: finalSnapshot.publicationGate.calls,
+          successes: finalSnapshot.publicationGate.successes,
+          failures: finalSnapshot.publicationGate.failures.length,
+          responses: finalSnapshot.publicationGate.responses.length,
+        },
+        publicationWireCalls: publicationWire.length,
+      },
+      preparation: {
+        selectionRef: preparation?.selectionRef ?? null,
+        selectionRevision: preparation?.selectionRevision ?? null,
+      },
+      dispatch: {
+        state: dispatch?.state ?? null,
+        dispatchId: dispatch?.dispatchId ?? null,
+        runtimeSessionId: dispatch?.runtimeSessionId ?? null,
+        selectionRef: dispatch?.selectionRef ?? null,
+        selectionRevision: dispatch?.selectionRevision ?? null,
+      },
+    })}`
+  )
 })
