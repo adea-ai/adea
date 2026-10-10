@@ -638,23 +638,60 @@ export async function cancelAddressedTurn(
     if (!updated[0]) throw new AddressedTurnError('turn_claim_unresolved')
     return { already: false as const, turn }
   })
-  if (flipped.already) return { runtimeCancelRequested: false, state: 'cancelled' }
+  if (flipped.already) {
+    // Convergent repair: a prior attempt may have flipped the claim
+    // without reaching the runtime boundary (crash or transient failure
+    // in the gap between the two transactions). An authorized retry
+    // completes it idempotently instead of exiting early.
+    return {
+      runtimeCancelRequested: await tryRequestRuntimeCancel(
+        database,
+        workspaceId,
+        flipped.turn.intentId,
+        flipped.turn.addresserUserId,
+        principal
+      ),
+      state: 'cancelled',
+    }
+  }
   // Separate transaction AFTER the flip commits: nothing is held while
   // the intent boundary takes its own locks (see contract above).
   const { intentId, addresserUserId } = flipped.turn
-  let runtimeCancelRequested = false
-  if (intentId && addresserUserId === principal.userId) {
-    try {
-      await requestLeadTurnCancellation(database, workspaceId, intentId, principal)
-      runtimeCancelRequested = true
-    } catch {
-      // No executor holds this intent (never runtime-dispatched, already
-      // terminal there, or otherwise unavailable): the claim flip above
-      // still stands; the outcome reports it instead of failing.
-      runtimeCancelRequested = false
-    }
+  return {
+    runtimeCancelRequested: await tryRequestRuntimeCancel(
+      database,
+      workspaceId,
+      intentId,
+      addresserUserId,
+      principal
+    ),
+    state: 'cancelled',
   }
-  return { runtimeCancelRequested, state: 'cancelled' }
+}
+
+/**
+ * Best-effort retained-intent cancellation through the existing lead
+ * boundary. Only the original addresser may reach the runtime binding
+ * (the boundary itself is actor-gated); anything else — no bound intent,
+ * another addresser, no executor holding it — reports false instead of
+ * failing or bypassing. Idempotent: requesting twice sets once.
+ */
+async function tryRequestRuntimeCancel(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  intentId: string | null,
+  addresserUserId: string,
+  principal: UserPrincipalRef
+): Promise<boolean> {
+  if (!intentId || addresserUserId !== principal.userId) return false
+  try {
+    await requestLeadTurnCancellation(database, workspaceId, intentId, principal)
+    return true
+  } catch {
+    // No executor holds this intent (never runtime-dispatched, already
+    // terminal there, or otherwise unavailable).
+    return false
+  }
 }
 
 /**

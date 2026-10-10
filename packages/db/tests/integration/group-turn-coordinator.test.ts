@@ -7,6 +7,11 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
 import { admitAddressedLeadTurn } from '../../src/lead-turns'
 import {
+  markLeadTurnDispatchPending,
+  observeLeadTurnRuntime,
+  prepareLeadTurnRuntime,
+} from '../../src/lead-turn-runtime'
+import {
   AddressedTurnError,
   cancelAddressedTurn,
   causalIdForAddressedTurn,
@@ -1059,6 +1064,94 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     await expect(
       cancelAddressedTurn(connection.db, f.workspace.id, f.owner, second.turn.id)
     ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_already_responded' })
+  })
+
+  T('interrupted cancellation converges on retry: runtime reached idempotently', async () => {
+    // Starts from the interrupted durable state: the claim already reads
+    // `cancelled` (flip committed) while the bound runtime was never told
+    // (crash before the follow-up request). Simulates it with a raw state
+    // flip — the only writer of that gap — then retries through the real
+    // path and verifies cancellation reaches the runtime, twice.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    const dispatched = await dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(dispatched.claim.status).toBe('duplicate')
+    const [bound] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, first.turn.id))
+      .limit(1)
+    expect(bound?.intentId).not.toBeNull()
+    // An executor picks the intent up through the existing runtime path.
+    const [canonicalWorkspace] = await connection.db
+      .select()
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, f.workspace.id))
+    const execution = crypto
+      .randomUUID()
+      .replaceAll('-', '')
+      .slice(0, 26)
+      .toUpperCase()
+      .replace(/[ILOU]/g, '0')
+    const pin = {
+      attemptId: `att_${execution}`,
+      executionId: `exe_${execution}`,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      intentId: bound!.intentId!,
+      preparationRef: `prep_${crypto.randomUUID().replaceAll('-', '')}`,
+      selectionRef: `msel_${crypto.randomUUID().replaceAll('-', '')}`,
+      selectionRevision: 1,
+      workspaceId: canonicalWorkspace!.controlPlaneWorkspaceId,
+    }
+    await prepareLeadTurnRuntime(connection.db, f.workspace.id, bound!.intentId!, f.owner, pin)
+    await markLeadTurnDispatchPending(connection.db, f.workspace.id, bound!.intentId!, f.owner, pin)
+    await observeLeadTurnRuntime(connection.db, f.workspace.id, bound!.intentId!, f.owner, {
+      ...pin,
+      dispatchId: `dispatch_${crypto.randomUUID().replaceAll('-', '')}`,
+      observedAt: new Date().toISOString(),
+      runtimeSessionId: `ses_${execution}`,
+      state: 'running',
+    })
+    // THE INTERRUPTION: flip committed, runtime never told.
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ state: 'cancelled' })
+      .where(eq(schema.addressedAgentTurns.id, first.turn.id))
+    const [interrupted] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, first.turn.id))
+      .limit(1)
+    expect(interrupted?.state).toBe('cancelled')
+    const [unreached] = await connection.db
+      .select()
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, bound!.intentId!))
+      .limit(1)
+    expect(unreached?.cancelRequestedAt).toBeNull()
+    // RETRY repairs it through the real path — and repeats idempotently.
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: true, state: 'cancelled' })
+    const [reached] = await connection.db
+      .select()
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, bound!.intentId!))
+      .limit(1)
+    expect(reached?.cancelRequestedAt).not.toBeNull()
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: true, state: 'cancelled' })
   })
 
   T('cancelled claims never dispatch and never record', async () => {
