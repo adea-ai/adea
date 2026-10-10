@@ -88,7 +88,10 @@ describe('resolveMigrationSnapshotCaptureDomains', () => {
 
   test('a wired runtime inventory source makes native sessions capturable', () => {
     const domains = resolveMigrationSnapshotCaptureDomains(['nativeSessions'], {
-      nativeSessionInventory: { listRuntimeSessions: async () => ({ items: [] }) },
+      nativeSessionInventory: {
+        authorizedScopes: [{ accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' }],
+        listRuntimeSessions: async () => ({ items: [] }),
+      },
     })
     expect(domains).toEqual([{ domain: 'nativeSessions', status: 'captured', unknownReason: null }])
   })

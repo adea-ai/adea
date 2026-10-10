@@ -26,9 +26,11 @@ export {
 } from './migration-snapshot-capture'
 export {
   captureNativeSessionSection,
+  NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
   NativeSessionInventoryError,
   type NativeSessionInventoryFailure,
   type NativeSessionInventoryPage,
+  type NativeSessionInventoryScope,
   type NativeSessionInventorySource,
 } from './native-session-inventory'
 export {

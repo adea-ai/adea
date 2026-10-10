@@ -118,7 +118,10 @@ function capture(connection: DatabaseConnection, snapshotId: string, limitPerFam
     // The runtime-owned session inventory is composed from an injected source.
     // This fixture declares an authoritative zero so every contract family is
     // present; the domains lane proves real mapping and failure handling.
-    nativeSessionInventory: { listRuntimeSessions: async () => ({ items: [] }) },
+    nativeSessionInventory: {
+      authorizedScopes: [{ accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' }],
+      listRuntimeSessions: async () => ({ items: [] }),
+    },
   })
 }
 

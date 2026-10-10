@@ -22,8 +22,24 @@ export type NativeSessionInventoryPage = Readonly<{
   nextCursor?: string
 }>
 
-/** The injected authoritative read; authentication and scope belong to it. */
+/**
+ * The canonical registry bound for `dev.session.list`:
+ * `limit integer(1..500)` (`packages/types/src/dev-runtime-registry.ts`).
+ * Every composed request is capped here so a large snapshot bound never
+ * produces a call the canonical validator would refuse.
+ */
+export const NATIVE_SESSION_INVENTORY_PAGE_LIMIT = 500
+
+/**
+ * The injected authoritative read. Authentication and transport belong to the
+ * source; `authorizedScopes` is the source's explicit declaration of the
+ * scope(s) it is authorized to read. The adapter validates every record
+ * against that declaration — it never infers a scope, and an empty
+ * declaration is refused rather than silently disabling the check. A source
+ * that composes several authenticated scopes lists each one.
+ */
 export type NativeSessionInventorySource = Readonly<{
+  authorizedScopes: readonly NativeSessionInventoryScope[]
   listRuntimeSessions: (
     input: Readonly<{ cursor?: string; limit: number }>
   ) => Promise<NativeSessionInventoryPage>
@@ -73,6 +89,18 @@ function isNullableCount(value: unknown): boolean {
   )
 }
 
+function isAuthorizedScope(
+  scope: NativeSessionInventoryScope,
+  authorizedScopes: readonly NativeSessionInventoryScope[]
+): boolean {
+  return authorizedScopes.some(
+    (authorized) =>
+      authorized.accountId === scope.accountId &&
+      authorized.workspaceId === scope.workspaceId &&
+      authorized.runtimeNodeId === scope.runtimeNodeId
+  )
+}
+
 /**
  * Map one canonical `RuntimeSession` to its frozen snapshot record. A payload
  * that leaves the canonical contract — a bridge is an untrusted boundary — is
@@ -81,7 +109,7 @@ function isNullableCount(value: unknown): boolean {
  */
 function toRecord(
   session: RuntimeSession,
-  scope?: NativeSessionInventoryScope
+  authorizedScopes: readonly NativeSessionInventoryScope[]
 ): NativeSessionSnapshotRecord {
   const candidate = session as unknown as Record<string, unknown>
   const recordScope = candidate.scope as Record<string, unknown> | undefined
@@ -111,14 +139,18 @@ function toRecord(
     )
   }
   if (
-    scope &&
-    (recordScope.accountId !== scope.accountId ||
-      recordScope.workspaceId !== scope.workspaceId ||
-      recordScope.runtimeNodeId !== scope.runtimeNodeId)
+    !isAuthorizedScope(
+      {
+        accountId: recordScope.accountId,
+        runtimeNodeId: recordScope.runtimeNodeId,
+        workspaceId: recordScope.workspaceId,
+      },
+      authorizedScopes
+    )
   ) {
     throw new NativeSessionInventoryError(
       'invalid',
-      'runtime session inventory returned a record outside the requested scope'
+      'runtime session inventory returned a record outside the source authorized scopes'
     )
   }
   return Object.freeze({
@@ -164,16 +196,34 @@ async function readPage(
  */
 export async function captureNativeSessionSection(
   source: NativeSessionInventorySource,
-  bound: number,
-  options?: Readonly<{ scope?: NativeSessionInventoryScope }>
+  bound: number
 ): Promise<MigrationSnapshotSection> {
+  const authorizedScopes = source.authorizedScopes
+  if (
+    !Array.isArray(authorizedScopes) ||
+    authorizedScopes.length === 0 ||
+    !authorizedScopes.every(
+      (scope) =>
+        isNonEmptyString(scope?.accountId) &&
+        isNonEmptyString(scope?.workspaceId) &&
+        isNonEmptyString(scope?.runtimeNodeId)
+    )
+  ) {
+    throw new NativeSessionInventoryError(
+      'invalid',
+      'runtime session inventory source declared no authorized scope'
+    )
+  }
   const records: NativeSessionSnapshotRecord[] = []
   const seenCursors = new Set<string>()
   let cursor: string | undefined
   let truncated = false
   for (;;) {
     const remaining = bound - records.length
-    const page = await readPage(source, { cursor, limit: remaining + 1 })
+    // One probe row past the remaining budget observes exact truncation; the
+    // canonical registry caps every request at 500, so large bounds page.
+    const requestLimit = Math.min(remaining + 1, NATIVE_SESSION_INVENTORY_PAGE_LIMIT)
+    const page = await readPage(source, { cursor, limit: requestLimit })
     // An empty page that claims a continuation can never terminate and would
     // stream forever; a cursor that repeats is a loop. Both fail closed.
     if (page.items.length === 0 && page.nextCursor !== undefined) {
@@ -182,14 +232,20 @@ export async function captureNativeSessionSection(
         'runtime session inventory returned an empty page with a continuation cursor'
       )
     }
+    let overflow = false
     for (const session of page.items) {
       if (records.length >= bound) {
-        truncated = true
+        overflow = true
         break
       }
-      records.push(toRecord(session, options?.scope))
+      records.push(toRecord(session, authorizedScopes))
     }
-    if (truncated) break
+    // Truncation is exact: the probe row overflowed, or the bound is met while
+    // the canonical read still declares a continuation.
+    if (overflow || (records.length >= bound && page.nextCursor !== undefined)) {
+      truncated = true
+      break
+    }
     if (page.nextCursor === undefined) break
     if (seenCursors.has(page.nextCursor)) {
       throw new NativeSessionInventoryError(

@@ -97,6 +97,13 @@ function runtimeSession(overrides: Partial<RuntimeSession> = {}): RuntimeSession
 const publicKey = async (key: CryptoKey) =>
   Buffer.from(await crypto.subtle.exportKey('raw', key)).toString('base64url')
 
+/** The scope this lane's authenticated runtime source declares. */
+const NATIVE_SCOPE = {
+  accountId: 'acct-1',
+  runtimeNodeId: 'node-1',
+  workspaceId: 'wsp-1',
+} as const
+
 /**
  * A real task/agent/command/submission graph: the submission is enqueued
  * through the domain service (command outbox row, sealed envelope, profile
@@ -692,6 +699,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     const captured = await captureMigrationSnapshot(database(), {
       identity: identity('snapshot-native'),
       nativeSessionInventory: {
+        authorizedScopes: [NATIVE_SCOPE],
         listRuntimeSessions: async () => ({
           items: [
             runtimeSession({
@@ -724,7 +732,10 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     // An authoritative empty page is a captured zero, not an unknown.
     const empty = await captureMigrationSnapshot(database(), {
       identity: identity('snapshot-native-empty'),
-      nativeSessionInventory: { listRuntimeSessions: async () => ({ items: [] }) },
+      nativeSessionInventory: {
+        authorizedScopes: [NATIVE_SCOPE],
+        listRuntimeSessions: async () => ({ items: [] }),
+      },
       requestedDomains: ['nativeSessions'],
     })
     expect(empty.domains).toEqual([
@@ -736,6 +747,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     const denied = await captureMigrationSnapshot(database(), {
       identity: identity('snapshot-native-denied'),
       nativeSessionInventory: {
+        authorizedScopes: [NATIVE_SCOPE],
         listRuntimeSessions: async () => {
           throw new NativeSessionInventoryError('denied', 'capability refused')
         },
@@ -751,6 +763,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     const invalid = await captureMigrationSnapshot(database(), {
       identity: identity('snapshot-native-invalid'),
       nativeSessionInventory: {
+        authorizedScopes: [NATIVE_SCOPE],
         listRuntimeSessions: async () => ({
           items: [runtimeSession({ lifecycle: 'bogus' as RuntimeSession['lifecycle'] })],
         }),
@@ -761,6 +774,28 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
     ])
     expect(invalid.document.sections.nativeSessions).toBeUndefined()
+  })
+
+  test('the capture boundary refuses foreign-scope inventory records from an authorized source', async () => {
+    const foreign = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-native-foreign'),
+      nativeSessionInventory: {
+        authorizedScopes: [NATIVE_SCOPE],
+        listRuntimeSessions: async () => ({
+          items: [
+            runtimeSession({
+              id: 'sess-foreign',
+              scope: { accountId: 'acct-9', runtimeNodeId: 'node-9', workspaceId: 'wsp-9' },
+            }),
+          ],
+        }),
+      },
+      requestedDomains: ['nativeSessions'],
+    })
+    expect(foreign.domains).toEqual([
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
+    ])
+    expect(foreign.document.sections.nativeSessions).toBeUndefined()
   })
 
   test('captures a real task/agent/command/submission graph with exact identity, profile pins and runtime linkage', async () => {
