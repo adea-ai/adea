@@ -20,9 +20,14 @@ import { writeLocalWorkerConfig } from '../start/local-worker-config.mjs'
 const origin = 'https://adea-start.test'
 const request = (path = '/', options: RequestInit = {}) => new Request(`${origin}${path}`, options)
 
-it('rejects native updater hosts in web output while allowing shared UI and workspace navigation', () => {
+it('rejects native hosts and services in web output while allowing shared UI and workspace navigation', () => {
   for (const name of ['desktop-workspace-entry', 'desktop-first-run-chat', 'version-dialog']) {
     const path = `<repository>/apps/web/src/components/${name}.tsx`
+    assert.equal(desktopOnlyClientModule(path), true)
+    assert.equal(desktopOnlyClientModule(path.replaceAll('/', '\\')), true)
+  }
+  for (const name of ['desktop-chat-presentation', 'desktop-permissions']) {
+    const path = `<repository>/apps/web/src/lib/${name}.ts`
     assert.equal(desktopOnlyClientModule(path), true)
     assert.equal(desktopOnlyClientModule(path.replaceAll('/', '\\')), true)
   }

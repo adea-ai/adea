@@ -121,7 +121,10 @@ client. Production web builds compile out the native workspace bootstrap with
 for isolated transport fixtures; full desktop bootstrap requires the canonical
 desktop build and cloud origin. `bun run test:browser:desktop-client` checks its
 entry/retry against that artifact with a synthetic bridge, not native authority. The production web module gate rejects native
-workspace entry/onboarding modules. Variant rationale and rejected alternatives:
+workspace entry/onboarding modules and native chat-presentation/permission services.
+The shared navigation gates these services with the same compile-time lane flag;
+local development and desktop builds retain their existing runtime checks.
+Variant rationale and rejected alternatives:
 `apps/desktop/README.md`.
 That single client is Solid as of M6 ([0007](./0007-solid-tanstack-start.md));
 the pipeline, origins, and the no-second-client rule are unchanged. The shell

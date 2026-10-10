@@ -45,13 +45,15 @@ export function createChatPresentationReporter(
   }
 }
 
-const desktopChatPresentation = createChatPresentationReporter((focusedSessionId) => {
-  if (!isDesktopRuntime()) return
-  return invoke(
-    'desktop_chat_presentation',
-    focusedSessionId === undefined ? {} : { focusedSessionId }
-  ).then(() => undefined)
-})
+const desktopChatPresentation = /* @__PURE__ */ createChatPresentationReporter(
+  (focusedSessionId) => {
+    if (!isDesktopRuntime()) return
+    return invoke(
+      'desktop_chat_presentation',
+      focusedSessionId === undefined ? {} : { focusedSessionId }
+    ).then(() => undefined)
+  }
+)
 
 export function setDesktopChatPresentation(
   source: ChatPresentationSource,

@@ -406,7 +406,9 @@ function WorkspaceSettingsOverlay(props: {
       onSignOut={props.onSignOut}
       open={props.open}
       restoreFocusRef={props.restoreFocusRef}
-      permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
+      permissionsService={
+        __ADEA_DESKTOP_COMPONENTS__ && isDesktopRuntime() ? desktopMacPermissionsService : undefined
+      }
       services={props.services}
       workspace={props.workspace}
     />
@@ -749,9 +751,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   })
   // Dev selection is presentation-only. Chat reports its visible canonical
   // conversation separately; leaving Dev clears only this source.
-  bindDesktopChatPresentation('dev', () =>
-    view() === 'dev' ? (devSelectedSessionId() ?? undefined) : undefined
-  )
+  if (__ADEA_DESKTOP_COMPONENTS__) {
+    bindDesktopChatPresentation('dev', () =>
+      view() === 'dev' ? (devSelectedSessionId() ?? undefined) : undefined
+    )
+  }
   // The ChatView visual fixture selector (#536 evidence lane). Only a DEV
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = (): 'attention' | 'conversation' | 'reconnect' | 'streaming' => {

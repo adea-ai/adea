@@ -11,7 +11,7 @@ import type {
 
 import { invoke } from './desktop-bridge'
 
-export const desktopMacPermissionsService = Object.freeze({
+export const desktopMacPermissionsService = /* @__PURE__ */ Object.freeze({
   snapshot(options?: Readonly<{ force?: boolean }>): Promise<MacPermissionsSnapshot> {
     return invoke<MacPermissionsSnapshot>('desktop_permissions_snapshot', {
       force: options?.force ?? false,
