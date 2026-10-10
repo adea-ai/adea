@@ -27,8 +27,7 @@ const NOW = '2026-10-08T12:00:00.000Z'
  * APPLICATION-LEVEL CYCLE REPRODUCTION (root-directed, adea-ai/adea#1247).
  * TESTS ONLY — no production file is touched.
  *
- * Corrected model (a prior report wrongly claimed the flip commits before
- * the nested call): cancelAddressedTurn awaits requestLeadTurnCancellation
+ * Corrected model: cancelAddressedTurn awaits requestLeadTurnCancellation
  * INSIDE its database.transaction callback, so the outer transaction keeps
  * holding the claim row lock while the nested transaction (separate
  * backend) waits on the channel row. The outer→nested edge is pure
@@ -36,10 +35,13 @@ const NOW = '2026-10-08T12:00:00.000Z'
  * deadlock detector can NEVER fire here and its absence proves nothing:
  * without outside intervention both sides park forever, with no 40P01.
  *
- * Every wait below is proven through pg_blocking_pids / backend state —
- * never through sleeps — and every racy call asserts an exact typed
- * outcome. Bounded releases (pg_cancel_backend on a stuck waiter, gate
- * releases, pool closes, 30s ceilings) keep every test finite.
+ * Cleanup contract (root-directed): every owned gate, task and backend id
+ * is hoisted out of try so finally always sees it; finally releases JS
+ * gates, cuts ONLY the owned backend's blocked statement when it is still
+ * unsettled (pg_cancel_backend on the exact owned pid — never any other),
+ * drains every owned task within bounds, then closes every owned pool. A
+ * parked holder can therefore never hang pool close, even when an
+ * observation or assertion fails first.
  */
 function T(name: string, fn: () => Promise<void>) {
   test(name, fn, 30_000)
@@ -122,6 +124,35 @@ async function waitFor(check: () => Promise<boolean>, label: string): Promise<vo
     if (Date.now() - start > 8000) throw new Error(`timed out waiting for ${label}`)
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
+}
+
+/** SQLSTATE from a drizzle-wrapped driver error (code lives on cause). */
+function abortCode(error: unknown): string {
+  const cause =
+    error && typeof error === 'object' && 'cause' in error
+      ? (error as { cause?: unknown }).cause
+      : null
+  return (
+    (error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : null) ??
+    (cause && typeof cause === 'object' && 'code' in cause
+      ? String((cause as { code?: unknown }).code)
+      : 'unknown')
+  )
+}
+
+/** Drain an owned task within bounds; never throws, never hangs the test. */
+async function drainWithin(promise: Promise<unknown> | null, ms: number): Promise<void> {
+  if (!promise) return
+  promise.catch(() => {})
+  await Promise.race([
+    promise.then(
+      () => undefined,
+      () => undefined
+    ),
+    new Promise((resolve) => setTimeout(resolve, ms)),
+  ])
 }
 
 describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', () => {
@@ -211,11 +242,13 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     const holder = createDatabase(connectionUrl!)
     const canceller = createDatabase(connectionUrl!)
     const observer = createDatabase(connectionUrl!)
+    let releaseHolder: (() => void) | null = null
     let holderPid = 0
+    let holderCode: string | null = null
+    let holderDone = false
+    let holding: Promise<unknown> | null = null
+    let cancelling: Promise<unknown> | null = null
     try {
-      // HOLDER: raw transaction holding the channel row, parked on a
-      // JavaScript gate (idle-in-transaction, like production paths).
-      let releaseHolder!: () => void
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
         releaseHolder = resolve
@@ -223,47 +256,51 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       const holderParkedPromise = new Promise<void>((resolve) => {
         holderParked = resolve
       })
-      const holding = holder.db.transaction(async (tx) => {
-        const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
-        holderPid = (self as { pid: number }).pid
-        await tx
-          .select({ id: schema.channels.id })
-          .from(schema.channels)
-          .where(
-            and(
-              eq(schema.channels.id, f.channelId),
-              eq(schema.channels.workspaceId, f.workspace.id)
-            )
-          )
-          .limit(1)
-          .for('update')
-        holderParked()
-        await holderGate
-        // After release: request the claim row. It is held by the
-        // canceller's outer transaction, so this SELECT blocks — closing
-        // the application-level cycle (proven below, then cut to drain).
-        await tx
-          .select({ id: schema.addressedAgentTurns.id })
-          .from(schema.addressedAgentTurns)
-          .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
-          .limit(1)
-          .for('update')
-      })
-      // Swallow only for unhandled-rejection hygiene; the outcome is
-      // asserted explicitly below.
-      holding.catch(() => {})
+      holding = (async () => {
+        try {
+          await holder.db.transaction(async (tx) => {
+            const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
+            holderPid = (self as { pid: number }).pid
+            await tx
+              .select({ id: schema.channels.id })
+              .from(schema.channels)
+              .where(
+                and(
+                  eq(schema.channels.id, f.channelId),
+                  eq(schema.channels.workspaceId, f.workspace.id)
+                )
+              )
+              .limit(1)
+              .for('update')
+            holderParked()
+            await holderGate
+            // After release: request the claim row. It is held by the
+            // canceller's outer transaction, so this SELECT blocks —
+            // closing the application-level cycle (proven, then cut).
+            await tx
+              .select({ id: schema.addressedAgentTurns.id })
+              .from(schema.addressedAgentTurns)
+              .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
+              .limit(1)
+              .for('update')
+          })
+          holderCode = 'committed'
+        } catch (error) {
+          holderCode = `aborted:${abortCode(error)}`
+        }
+        holderDone = true
+      })()
       await holderParkedPromise
 
       // CANCELLER: real production cancel. Outer flips the claim
       // (uncommitted) and stays open across the nested intent-cancel,
       // which must then wait on the held channel row.
-      const cancelling = cancelAddressedTurn(
+      cancelling = cancelAddressedTurn(
         canceller.db,
         f.workspace.id,
         f.owner,
         dispatched.claim.turn.id
       )
-      void cancelling.catch(() => {})
       // PROOF 1: a backend waits on the channel row, blocked by the
       // holder — the nested transaction inside the open outer one.
       let nestedPid = 0
@@ -305,29 +342,15 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       expect(
         rechecked.some((wait) => wait.pid === nestedPid && wait.blockedBy.includes(holderPid))
       ).toBe(true)
-      // Drain by cancelling the HOLDER's stuck statement (test-local,
-      // bounded): it rolls back, the nested call fails fast typed, and the
-      // outer cancel commits. Exact codes recorded, nothing swallowed.
+      // Drain by cutting ONLY the owned holder backend's blocked statement
+      // (test-local, bounded): it rolls back, the nested call fails fast
+      // typed, and the outer cancel commits. The cut is deliberate, so the
+      // observed code must be exactly 57014 — anything else (commit,
+      // 40P01) would contradict the proven parked state.
       await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`)
-      const holdingOutcome = await holding.then(
-        () => 'committed' as const,
-        (error: unknown) => {
-          // Drizzle wraps driver errors: the SQLSTATE lives on cause.
-          const cause =
-            error && typeof error === 'object' && 'cause' in error
-              ? (error as { cause?: unknown }).cause
-              : null
-          const code =
-            (error && typeof error === 'object' && 'code' in error
-              ? String((error as { code?: unknown }).code)
-              : null) ??
-            (cause && typeof cause === 'object' && 'code' in cause
-              ? String((cause as { code?: unknown }).code)
-              : 'unknown')
-          return `aborted:${code}`
-        }
-      )
-      expect(['committed', 'aborted:57014', 'aborted:40P01']).toContain(holdingOutcome)
+      await drainWithin(holding, 5000)
+      await drainWithin(cancelling, 5000)
+      expect(holderCode).toBe('aborted:57014')
       await expect(cancelling).resolves.toEqual({
         runtimeCancelRequested: false,
         state: 'cancelled',
@@ -339,16 +362,27 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         .limit(1)
       expect(final?.state).toBe('cancelled')
     } finally {
-      await holder.close()
-      await canceller.close()
-      await observer.close()
+      // Bounded reliable cleanup in strict order: release the JS gate
+      // (lets a merely-parked holder commit), cut ONLY the owned backend
+      // when it is still unsettled, drain owned tasks within bounds, then
+      // close every owned pool. A parked holder can never hang close.
+      releaseHolder?.()
+      if (!holderDone && holderPid !== 0) {
+        await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
+      }
+      await drainWithin(holding, 5000)
+      await drainWithin(cancelling, 5000)
+      await holder.close().catch(() => {})
+      await canceller.close().catch(() => {})
+      await observer.close().catch(() => {})
     }
   })
 
   T('admission waits on a held claim lock, then proceeds typed', async () => {
-    // Mirror image with SQL-proven waits (no sleep flags): the admission
-    // takes channel-then-claim; a held claim makes it wait at the claim
-    // lock and proceed on rollback with exactly one bound intent.
+    // Mirror image with SQL-proven waits: the admission takes
+    // channel-then-claim; a held claim makes it wait at the claim lock
+    // (matched by its OWN holder pid, never any stray backend) and proceed
+    // on rollback with exactly one bound intent.
     const f = await leadGroup()
     await connection.db
       .update(schema.agents)
@@ -362,9 +396,12 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     const holder = createDatabase(connectionUrl!)
     const runner = createDatabase(connectionUrl!)
     const observer = createDatabase(connectionUrl!)
+    let releaseHolder: (() => void) | null = null
     let holderPid = 0
+    let holderDone = false
+    let holding: Promise<unknown> | null = null
+    let dispatching: Promise<unknown> | null = null
     try {
-      let releaseHolder!: () => void
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
         releaseHolder = resolve
@@ -372,37 +409,41 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       const holderParkedPromise = new Promise<void>((resolve) => {
         holderParked = resolve
       })
-      const holding = holder.db.transaction(async (tx) => {
-        const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
-        holderPid = (self as { pid: number }).pid
-        await tx
-          .select({ id: schema.addressedAgentTurns.id })
-          .from(schema.addressedAgentTurns)
-          .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
-          .limit(1)
-          .for('update')
-        holderParked()
-        await holderGate
-      })
-      holding.catch(() => {})
+      holding = (async () => {
+        try {
+          await holder.db.transaction(async (tx) => {
+            const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
+            holderPid = (self as { pid: number }).pid
+            await tx
+              .select({ id: schema.addressedAgentTurns.id })
+              .from(schema.addressedAgentTurns)
+              .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+              .limit(1)
+              .for('update')
+            holderParked()
+            await holderGate
+          })
+        } catch {
+          // Rollback on release is the expected drain path here.
+        }
+        holderDone = true
+      })()
       await holderParkedPromise
-      const dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
+      dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
         now: NOW,
       })
-      void dispatching.catch(() => {})
-      // PROOF: the admission backend waits on the claim row, blocked by
-      // the holder — then ROLLBACK releases it unchanged and admission
-      // proceeds to a typed success.
+      // Anchored on OUR holder pid (blocked_by), never any stray backend
+      // waiting on the same table elsewhere in the database.
       await waitFor(async () => {
         const waits = await lockWaits(observer)
         return waits.some(
           (wait) =>
-            wait.query.includes('addressed_agent_turns') && wait.blockedBy.includes(holderPid)
+            wait.query.includes('"addressed_agent_turns"') && wait.blockedBy.includes(holderPid)
         )
-      }, 'admission claim wait')
+      }, 'own-holder claim wait')
       releaseHolder()
-      await holding
-      const done = await dispatching
+      await drainWithin(holding, 5000)
+      const done = (await dispatching) as { claim: { status: string } }
       expect(done.claim.status).toBe('duplicate')
       const [row] = await connection.db
         .select()
@@ -417,9 +458,15 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         .where(eq(schema.leadTurnIntents.channelId, f.channelId))
       expect(intents).toHaveLength(1)
     } finally {
-      await holder.close()
-      await runner.close()
-      await observer.close()
+      releaseHolder?.()
+      if (!holderDone && holderPid !== 0) {
+        await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
+      }
+      await drainWithin(holding, 5000)
+      await drainWithin(dispatching, 5000)
+      await holder.close().catch(() => {})
+      await runner.close().catch(() => {})
+      await observer.close().catch(() => {})
     }
   })
 
@@ -437,8 +484,12 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     const holder = createDatabase(connectionUrl!)
     const runner = createDatabase(connectionUrl!)
     const observer = createDatabase(connectionUrl!)
+    let releaseHolder: (() => void) | null = null
+    let holderPid = 0
+    let holderDone = false
+    let holding: Promise<unknown> | null = null
+    let dispatching: Promise<unknown> | null = null
     try {
-      let releaseHolder!: () => void
       let holderParked!: () => void
       const holderGate = new Promise<void>((resolve) => {
         releaseHolder = resolve
@@ -446,32 +497,47 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       const holderParkedPromise = new Promise<void>((resolve) => {
         holderParked = resolve
       })
-      const holding = holder.db.transaction(async (tx) => {
-        await tx
-          .select({ id: schema.addressedAgentTurns.id })
-          .from(schema.addressedAgentTurns)
-          .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
-          .limit(1)
-          .for('update')
-        holderParked()
-        await holderGate
-        await tx
-          .update(schema.addressedAgentTurns)
-          .set({ state: 'cancelled' })
-          .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
-      })
-      holding.catch(() => {})
+      holding = (async () => {
+        try {
+          await holder.db.transaction(async (tx) => {
+            const [self] = await tx.execute(sql`SELECT pg_backend_pid() AS pid`)
+            holderPid = (self as { pid: number }).pid
+            await tx
+              .select({ id: schema.addressedAgentTurns.id })
+              .from(schema.addressedAgentTurns)
+              .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+              .limit(1)
+              .for('update')
+            holderParked()
+            await holderGate
+            await tx
+              .update(schema.addressedAgentTurns)
+              .set({ state: 'cancelled' })
+              .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+          })
+        } catch {
+          // Release paths that cut the holder land here; the committed
+          // path below is the expected one for this test.
+        }
+        holderDone = true
+      })()
       await holderParkedPromise
-      const dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
+      dispatching = dispatchAddressedTurn(runner.db, f.workspace.id, f.owner, input, {
         now: NOW,
       })
-      void dispatching.catch(() => {})
+      // Own-holder match only: a stray backend waiting on the same table
+      // must never satisfy this test.
+      // Anchored on OUR holder pid (blocked_by), never any stray backend
+      // waiting on the same table elsewhere in the database.
       await waitFor(async () => {
         const waits = await lockWaits(observer)
-        return waits.some((wait) => wait.query.includes('"addressed_agent_turns"'))
-      }, 'admission claim wait')
+        return waits.some(
+          (wait) =>
+            wait.query.includes('"addressed_agent_turns"') && wait.blockedBy.includes(holderPid)
+        )
+      }, 'own-holder claim wait')
       releaseHolder()
-      await holding
+      await drainWithin(holding, 5000)
       await expect(dispatching).rejects.toMatchObject({
         name: 'AddressedTurnError',
         reason: 'turn_cancelled',
@@ -480,18 +546,25 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         .select({ id: schema.leadTurnIntents.id })
         .from(schema.leadTurnIntents)
         .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+        .limit(10)
       expect(intents).toHaveLength(0)
     } finally {
-      await holder.close()
-      await runner.close()
-      await observer.close()
+      releaseHolder?.()
+      if (!holderDone && holderPid !== 0) {
+        await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`).catch(() => {})
+      }
+      await drainWithin(holding, 5000)
+      await drainWithin(dispatching, 5000)
+      await holder.close().catch(() => {})
+      await runner.close().catch(() => {})
+      await observer.close().catch(() => {})
     }
   })
 
   T('mixed dispatch/post/cancel load settles with exact typed outcomes', async () => {
     // Workspace/member share-locks stay contention-free: every racy call
     // asserts its exact typed outcome — dispatch succeeds or loses to a
-    // committed supersede, posts always succeed, cancels succeed. Any
+    // committed supersede, posts always succeed, cancels land typed. Any
     // 40P01, timeout code or unexpected reason fails loudly.
     const f = await leadGroup()
     await connection.db
@@ -571,7 +644,83 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         }
       }
     } finally {
-      await runner.close()
+      await runner.close().catch(() => {})
+    }
+  })
+
+  T('observer failure still releases parks and closes pools boundedly', async () => {
+    // Injected-failure cleanup regression: the observer breaks mid-test,
+    // yet the parked holder is released, every owned task drains within
+    // bounds, every owned pool closes, and the suite can keep working.
+    // Flags prove each stage ran; a hang would fail the 30s ceiling.
+    const f = await leadGroup()
+    const holder = createDatabase(connectionUrl!)
+    const observer = createDatabase(connectionUrl!)
+    let releaseHolder: (() => void) | null = null
+    let holderDone = false
+    let holding: Promise<unknown> | null = null
+    let releasedFlag = false
+    let drainedFlag = false
+    try {
+      let holderParked!: () => void
+      const holderGate = new Promise<void>((resolve) => {
+        releaseHolder = resolve
+      })
+      const holderParkedPromise = new Promise<void>((resolve) => {
+        holderParked = resolve
+      })
+      holding = (async () => {
+        try {
+          await holder.db.transaction(async (tx) => {
+            await tx
+              .select({ id: schema.channels.id })
+              .from(schema.channels)
+              .where(
+                and(
+                  eq(schema.channels.id, f.channelId),
+                  eq(schema.channels.workspaceId, f.workspace.id)
+                )
+              )
+              .limit(1)
+              .for('update')
+            holderParked()
+            await holderGate
+          })
+        } catch {
+          // Cuts land here; the parked path below is the expected one.
+        }
+        holderDone = true
+      })()
+      await holderParkedPromise
+      // INJECTED FAILURE: the observer pool dies before any observation.
+      await observer.close()
+      let observedErr: unknown = null
+      try {
+        await lockWaits(observer)
+      } catch (error) {
+        observedErr = error
+      }
+      expect(observedErr).not.toBeNull()
+    } finally {
+      releaseHolder?.()
+      releasedFlag = true
+      // The observer is dead here by design; the holder was merely parked
+      // on a JS gate (no SQL wait), so release alone drains it — bounded.
+      await drainWithin(holding, 5000)
+      drainedFlag = true
+      await holder.close().catch(() => {})
+      await observer.close().catch(() => {})
+    }
+    expect(releasedFlag).toBe(true)
+    expect(drainedFlag).toBe(true)
+    expect(holderDone).toBe(true)
+    // The suite stays usable: a fresh pool connects and works.
+    const fresh = createDatabase(connectionUrl!)
+    try {
+      const [one] = await fresh.db.execute(sql`SELECT 1 AS one`)
+      expect((one as { one: number }).one).toBe(1)
+    } finally {
+      await fresh.close()
     }
   })
 })
