@@ -347,3 +347,24 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+
+export {
+  completeTaskAndPublishOutboundResult,
+  createJobOutboundStoreService,
+  type JobOutboundCompletionOutcome,
+  type JobOutboundCompletionRequest,
+} from './job-outbound-result-store'
+export type {
+  JobOutboundArtifactPolicy,
+  JobOutboundDeliveryDecision,
+} from './job-outbound-result-policy'
+export {
+  completeTaskFromRequest,
+  type TaskCompletionInput,
+  type TaskCompletionOutcome,
+} from './task-completion-request'
+export {
+  parseOutboundCompletion,
+  summarizePublication,
+  type TaskCompletionPublication,
+} from './task-completion-parse'

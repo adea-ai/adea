@@ -132,7 +132,24 @@ export type ApiTaskUpdateInput = Readonly<{
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   title?: string
 }>
-export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+/**
+ * The outbound result a completion may carry for a group channel. The artifact is named
+ * by id and grant only; its facts come from the server's registry.
+ */
+export type ApiJobOutboundResult = Readonly<{
+  artifact: Readonly<{ artifactId: string; grantId: string }> | null
+  artifactPolicy?: 'require' | 'omit_unauthorized'
+  channelId: string
+  summary: string
+}>
+/** How a completion's outbound result landed: published with its message, or held at the named gate. */
+export type ApiOutboundPublication =
+  | Readonly<{ action: 'publish'; artifactOmitted: string | null; messageId: string | null }>
+  | Readonly<{ action: 'hold'; gate: string; messageId: null; reason: string }>
+export type ApiTaskResponse = Readonly<{
+  outboundPublication?: ApiOutboundPublication
+  task: TaskSummary
+}>
 export type ApiContentRefCreateInput = Readonly<{
   availability: Exclude<ContentRefSummary['availability'], 'deleted'>
   contentType: ContentRefSummary['contentType']
@@ -1348,8 +1365,19 @@ export class AgentHqApiClient {
     return this.taskCommand(workspaceId, taskId, 'review', {}, command)
   }
 
-  async completeTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
-    return this.taskCommand(workspaceId, taskId, 'complete', {}, command)
+  async completeTask(
+    workspaceId: string,
+    taskId: string,
+    command: ApiTaskCommand,
+    outboundResult?: ApiJobOutboundResult
+  ) {
+    return this.taskCommand(
+      workspaceId,
+      taskId,
+      'complete',
+      outboundResult ? { outboundResult } : {},
+      command
+    )
   }
 
   async cancelTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {

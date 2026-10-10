@@ -4,6 +4,7 @@ import type {
   UserPrincipalRef,
 } from '@adea-ai/types'
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
@@ -12,6 +13,8 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { appendWorkspaceEvent } from './transactions'
+import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
+import { readerVisibleThreadRootIds } from './job-outbound-visibility'
 import {
   channelParticipants,
   channelReadStates,
@@ -94,15 +97,19 @@ async function requireChannel(
  * two indexed reads (resolved first, because they decide which channels exist
  * for the caller), then two aggregates issued together.
  *
- * - Channels. Each accessible channel with its read state row. The newest live
- *   top-level sequence is `channels.latest_message_sequence`, which message
- *   create and delete maintain in their own transactions. The top-level unread
- *   count is only computed when that frontier is past the read frontier, and
- *   then it is an index range scan over the unread messages alone, so a read
- *   channel costs no message access at all.
+ * - Channels. Each accessible channel with its read state row. The stored newest
+ *   live top-level sequence is `channels.latest_message_sequence`, which message
+ *   create and delete maintain in their own transactions. The exposed frontier
+ *   is the newest one the reader can see, and the top-level unread count drops
+ *   job publications the reader is not authorized for (#1217, see
+ *   job-outbound-frontier). The top-level unread count is only computed when the
+ *   stored frontier is past the read frontier, and then it is an index range scan
+ *   over the unread messages alone, so a read channel costs no message access.
  * - Threads. One row per thread root with at least one live reply, grouped by
  *   (channel, thread root) with that user's thread read state, carrying the
- *   newest reply sequence and the replies past the thread's read frontier.
+ *   newest reply sequence and the replies past the thread's read frontier. A thread
+ *   whose root the reader cannot currently see (a job publication) is left out
+ *   whole, with its unread count; its replies and watermark are kept, not reset.
  *
  * This used to load every live message of every accessible channel into the
  * application and count there, on every GET and after every mark.
@@ -120,14 +127,30 @@ export async function listReadStateForUser(
   )
   const channelReadFrontier = sql`coalesce(${channelReadStates.lastReadSequence}, 0)`
   const threadReadFrontier = sql`coalesce(${threadReadStates.lastReadSequence}, 0)`
+  const topMessage = alias(messages, 'top_message')
   const [channelRows, threadRows] = await Promise.all([
     database
       .select({
         channelId: channels.id,
+        // The stored frontier message, joined here so the frontier costs no extra read.
+        hasUnreadPublication: sql<boolean>`exists (
+          select 1 from ${messages} as publication
+          where publication.channel_id = ${channels.id}
+            and publication.workspace_id = ${channels.workspaceId}
+            and publication.thread_root_message_id is null
+            and publication.deleted_at is null
+            and publication.sender_kind = 'system'
+            and publication.sender_system_id like 'job-outbound:v1:%'
+            and publication.sequence > ${channelReadFrontier}
+        )`.mapWith(Boolean),
         lastReadSequence: channelReadStates.lastReadSequence,
         latestTopLevelSequence: channels.latestMessageSequence,
         manuallyUnread: channelReadStates.manuallyUnread,
         readAt: channelReadStates.readAt,
+        topExecutionRef: topMessage.executionRef,
+        topId: topMessage.id,
+        topSenderKind: topMessage.senderKind,
+        topSenderSystemId: topMessage.senderSystemId,
         // Scalar subqueries in a CASE branch run only when the branch is
         // taken: a channel whose frontier is not past its read mark is 0
         // without touching messages.
@@ -150,6 +173,16 @@ export async function listReadStateForUser(
           eq(channelReadStates.workspaceId, workspaceId),
           eq(channelReadStates.userId, principal.userId),
           eq(channelReadStates.channelId, channels.id)
+        )
+      )
+      .leftJoin(
+        topMessage,
+        and(
+          eq(topMessage.channelId, channels.id),
+          eq(topMessage.workspaceId, workspaceId),
+          eq(topMessage.sequence, channels.latestMessageSequence),
+          isNull(topMessage.threadRootMessageId),
+          isNull(topMessage.deletedAt)
         )
       )
       .where(accessibleChannelCondition(workspaceId, principal, scope))
@@ -201,8 +234,52 @@ export async function listReadStateForUser(
   ])
   if (!channelRows.length) return Object.freeze([])
 
+  // Job publications count only while the reader is authorized for them. The exposed
+  // frontier is the newest message the reader can see, and unread counts drop publications
+  // the reader may no longer see. See job-outbound-frontier for the bounds.
+  // A channel with no publication past its watermark needs no publication read: the joined
+  // frontier message is ordinary, so the common case costs no statement here at all.
+  const frontiers = await readVisibleTopLevelFrontiers(
+    database,
+    principal,
+    channelRows.map((row) => ({
+      channelId: row.channelId,
+      latestSequence: row.latestTopLevelSequence,
+      top:
+        row.latestTopLevelSequence > 0
+          ? row.topId
+            ? {
+                executionRef: row.topExecutionRef,
+                id: row.topId,
+                sequence: row.latestTopLevelSequence,
+                senderKind: row.topSenderKind!,
+                senderSystemId: row.topSenderSystemId,
+              }
+            : null
+          : undefined,
+      workspaceId,
+    }))
+  )
+  const publicationChannelIds = channelRows
+    .filter((row) => row.hasUnreadPublication)
+    .map((row) => row.channelId)
+  const hiddenByChannel = publicationChannelIds.length
+    ? await readHiddenUnreadCounts(database, principal, {
+        channelIds: publicationChannelIds,
+        workspaceIds: [workspaceId],
+      })
+    : new Map<string, number>()
+
+  // A thread is shown, and counted, only while its root is visible to the reader. A hidden root
+  // leaves the thread out whole: its replies stay stored and its watermark is not touched.
+  const visibleThreadRoots = await readerVisibleThreadRootIds(
+    database,
+    threadRows.map((row) => row.threadRootMessageId),
+    principal.userId
+  )
   const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
   for (const row of threadRows) {
+    if (!visibleThreadRoots.has(row.threadRootMessageId)) continue
     const thread: ThreadReadStateSummary = Object.freeze({
       lastReadSequence: row.lastReadSequence ?? 0,
       latestSequence: row.latestSequence,
@@ -229,16 +306,20 @@ export async function listReadStateForUser(
         0
       )
       const manuallyUnread = row.manuallyUnread ?? false
+      const topLevelUnreadCount = Math.max(
+        0,
+        row.topLevelUnreadCount - (hiddenByChannel.get(row.channelId) ?? 0)
+      )
       return Object.freeze({
         channelId: row.channelId,
         lastReadSequence: row.lastReadSequence ?? 0,
-        latestTopLevelSequence: row.latestTopLevelSequence,
+        latestTopLevelSequence: frontiers.get(row.channelId) ?? 0,
         manuallyUnread,
         ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
         threadUnreadCount,
         threads: Object.freeze(threads),
-        topLevelUnreadCount: row.topLevelUnreadCount,
-        unread: manuallyUnread || row.topLevelUnreadCount > 0 || threadUnreadCount > 0,
+        topLevelUnreadCount,
+        unread: manuallyUnread || topLevelUnreadCount > 0 || threadUnreadCount > 0,
         ...(row.updatedAt ? { updatedAt: row.updatedAt.toISOString() } : {}),
         workspaceId,
       })
@@ -246,27 +327,51 @@ export async function listReadStateForUser(
   )
 }
 
-async function latestSequence(
+/** The newest live reply sequence in a thread: an indexed max, not a scan of the thread. */
+async function latestThreadSequence(
   database: Database,
   workspaceId: string,
   channelId: string,
-  threadRootMessageId?: string
+  threadRootMessageId: string
 ) {
-  const rows = await database
-    .select({ sequence: messages.sequence })
+  const [row] = await database
+    .select({
+      sequence: sql<number>`coalesce(max(${messages.sequence}), 0)`.mapWith(Number),
+    })
     .from(messages)
     .where(
       and(
         eq(messages.workspaceId, workspaceId),
         eq(messages.channelId, channelId),
         isNull(messages.deletedAt),
-        threadRootMessageId
-          ? eq(messages.threadRootMessageId, threadRootMessageId)
-          : isNull(messages.threadRootMessageId)
+        eq(messages.threadRootMessageId, threadRootMessageId)
       )
     )
-    .orderBy(asc(messages.sequence))
-  return rows.at(-1)?.sequence ?? 0
+  return row?.sequence ?? 0
+}
+
+/**
+ * The newest top-level sequence of a channel that the principal can currently see. It is
+ * the stored frontier, or the newest visible message below it when the frontier is a
+ * publication the principal may not see. A watermark set from it never runs past content
+ * the principal cannot see, so a publication that becomes visible again is still unread.
+ */
+async function visibleChannelLatest(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  const [channel] = await database
+    .select({ latestSequence: channels.latestMessageSequence })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+  if (!channel) return 0
+  const frontiers = await readVisibleTopLevelFrontiers(database, principal, [
+    { channelId, latestSequence: channel.latestSequence, workspaceId },
+  ])
+  return frontiers.get(channelId) ?? 0
 }
 
 async function writeChannelState(
@@ -344,7 +449,7 @@ export async function markChannelReadState(
 ) {
   await database.transaction(async (transaction) => {
     await requireChannel(transaction, workspaceId, channelId, principal)
-    const latest = await latestSequence(transaction, workspaceId, channelId)
+    const latest = await visibleChannelLatest(transaction, workspaceId, channelId, principal)
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
@@ -387,8 +492,17 @@ export async function markThreadReadState(
         )
       )
       .limit(1)
+    // A thread whose root the reader cannot see is unavailable, as a missing root is. Its
+    // watermark is not written, so its replies are still unread when the root returns.
     if (!root) throw new Error('Read state unavailable')
-    const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId)
+    if (!(await readerVisibleThreadRootIds(transaction, [root.id], principal.userId)).has(root.id))
+      throw new Error('Read state unavailable')
+    const latest = await latestThreadSequence(
+      transaction,
+      workspaceId,
+      channelId,
+      threadRootMessageId
+    )
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
@@ -480,46 +594,52 @@ export async function markAllChannelsRead(
       inArray(messages.channelId, channelIds),
       isNull(messages.deletedAt)
     )
-    const [channelFrontiers, threadFrontiers, existingChannels, existingThreads] =
-      await Promise.all([
-        transaction
-          .select({
-            channelId: messages.channelId,
-            latest: sql<number>`max(${messages.sequence})`,
-          })
-          .from(messages)
-          .where(and(messageScope, isNull(messages.threadRootMessageId)))
-          .groupBy(messages.channelId),
-        transaction
-          .select({
-            channelId: messages.channelId,
-            threadRootMessageId: messages.threadRootMessageId,
-            latest: sql<number>`max(${messages.sequence})`,
-          })
-          .from(messages)
-          .where(and(messageScope, isNotNull(messages.threadRootMessageId)))
-          .groupBy(messages.channelId, messages.threadRootMessageId),
-        transaction
-          .select()
-          .from(channelReadStates)
-          .where(
-            and(
-              eq(channelReadStates.workspaceId, workspaceId),
-              eq(channelReadStates.userId, principal.userId),
-              inArray(channelReadStates.channelId, channelIds)
-            )
-          ),
-        transaction
-          .select()
-          .from(threadReadStates)
-          .where(
-            and(
-              eq(threadReadStates.workspaceId, workspaceId),
-              eq(threadReadStates.userId, principal.userId),
-              inArray(threadReadStates.channelId, channelIds)
-            )
-          ),
-      ])
+    // Each channel's frontier is its newest top-level message the principal can see: read from
+    // the stored frontier, not by grouping every message in the channels.
+    const storedFrontiers = await transaction
+      .select({ channelId: channels.id, latestSequence: channels.latestMessageSequence })
+      .from(channels)
+      .where(and(eq(channels.workspaceId, workspaceId), inArray(channels.id, channelIds)))
+    const channelFrontiers = await readVisibleTopLevelFrontiers(
+      transaction,
+      principal,
+      storedFrontiers.map((row) => ({
+        channelId: row.channelId,
+        latestSequence: row.latestSequence,
+        workspaceId,
+      }))
+    )
+    const [threadFrontiers, existingChannels, existingThreads] = await Promise.all([
+      transaction
+        .select({
+          channelId: messages.channelId,
+          threadRootMessageId: messages.threadRootMessageId,
+          latest: sql<number>`max(${messages.sequence})`,
+        })
+        .from(messages)
+        .where(and(messageScope, isNotNull(messages.threadRootMessageId)))
+        .groupBy(messages.channelId, messages.threadRootMessageId),
+      transaction
+        .select()
+        .from(channelReadStates)
+        .where(
+          and(
+            eq(channelReadStates.workspaceId, workspaceId),
+            eq(channelReadStates.userId, principal.userId),
+            inArray(channelReadStates.channelId, channelIds)
+          )
+        ),
+      transaction
+        .select()
+        .from(threadReadStates)
+        .where(
+          and(
+            eq(threadReadStates.workspaceId, workspaceId),
+            eq(threadReadStates.userId, principal.userId),
+            inArray(threadReadStates.channelId, channelIds)
+          )
+        ),
+    ])
 
     const existingChannelById = new Map(existingChannels.map((row) => [row.channelId, row]))
     const existingThreadByRoot = new Map(
@@ -530,7 +650,7 @@ export async function markAllChannelsRead(
     const threadWrites: (typeof threadReadStates.$inferInsert)[] = []
 
     for (const channelId of channelIds) {
-      const latest = channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0
+      const latest = channelFrontiers.get(channelId) ?? 0
       const existing = existingChannelById.get(channelId)
       // Watermarks are monotonic: a previously rewound frontier is repaired
       // forward, never backward.
@@ -547,8 +667,15 @@ export async function markAllChannelsRead(
       })
     }
 
+    // Mark-all does not run past a thread whose root the reader cannot see: its watermark stays,
+    // so its replies are unread again when the root is visible.
+    const visibleThreadRoots = await readerVisibleThreadRootIds(
+      transaction,
+      threadFrontiers.flatMap((row) => (row.threadRootMessageId ? [row.threadRootMessageId] : [])),
+      principal.userId
+    )
     for (const row of threadFrontiers) {
-      if (!row.threadRootMessageId) continue
+      if (!row.threadRootMessageId || !visibleThreadRoots.has(row.threadRootMessageId)) continue
       const existing = existingThreadByRoot.get(row.threadRootMessageId)
       // Mark-all-read must also respect monotonicity when repairing a
       // previously rewound frontier.

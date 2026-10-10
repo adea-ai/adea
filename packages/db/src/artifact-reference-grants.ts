@@ -1,5 +1,5 @@
 import type { ArtifactReferenceGrantState, UserPrincipalRef } from '@adea-ai/types'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } from './schema'
@@ -272,6 +272,36 @@ async function requireGrantIssuerAuthority(
   if (membership.deletedAt !== null) reject('grant_workspace_inactive')
   if (membership.role !== 'owner' && membership.role !== 'admin')
     reject('grant_issuer_unauthorized')
+}
+
+/**
+ * Share locks on the artifacts and grant rows a read depends on, held until the caller's
+ * transaction ends. Artifacts are locked first and grants second, each in one statement ordered
+ * by id: the module's global order, with no statement per record. Revocation and regrant take
+ * the grant row FOR UPDATE, so they wait for this read to finish. A read that returns visible is
+ * therefore ordered before any revocation that commits after it. Share locks do not conflict
+ * with one another, so concurrent readers do not wait on each other.
+ */
+export async function lockArtifactReferenceGrantsForRead(
+  transaction: AgentHqTransaction,
+  references: readonly Readonly<{ artifactId: string; grantId: string }>[]
+): Promise<Map<string, GrantRow>> {
+  if (!references.length) return new Map()
+  const artifactIds = [...new Set(references.map((reference) => reference.artifactId))]
+  const grantIds = [...new Set(references.map((reference) => reference.grantId))]
+  await transaction
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(inArray(artifacts.id, artifactIds))
+    .orderBy(asc(artifacts.id))
+    .for('share')
+  const rows = await transaction
+    .select()
+    .from(artifactReferenceGrants)
+    .where(inArray(artifactReferenceGrants.grantId, grantIds))
+    .orderBy(asc(artifactReferenceGrants.grantId))
+    .for('share')
+  return new Map(rows.map((row) => [row.grantId, row]))
 }
 
 /** A grant binds workspaces on both sides, so the audience must be live too. */
@@ -597,6 +627,17 @@ export async function readCurrentArtifactReferenceGrant(
     .from(artifactReferenceGrants)
     .where(eq(artifactReferenceGrants.grantId, presented.grantId))
     .limit(1)
-  if (!row || row.revision !== presented.revision) return null
-  return grantStateOf(row)
+  return row ? currentGrantStateOf(row, presented.revision) : null
+}
+
+/**
+ * The stored state of one grant row when the presented revision is still its revision, or null
+ * when it moved. Bulk readers use it on the rows they fetched, so they decide exactly as the
+ * single-grant reader does.
+ */
+export function currentGrantStateOf(
+  row: GrantRow,
+  presentedRevision: number
+): ArtifactReferenceGrantState | null {
+  return row.revision === presentedRevision ? grantStateOf(row) : null
 }
