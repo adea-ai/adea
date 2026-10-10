@@ -351,6 +351,18 @@ test('mounted lead choice is disclosed before inference and matches the real adm
   expect(dispatch?.selectionRevision).toBe(requested.lead.selectionRevision)
   expect(dispatch?.dispatchId).toMatch(/^dispatch_[a-f0-9]{32}$/u)
   expect(dispatch?.runtimeSessionId).toMatch(/^ses_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  expect(dispatch?.executionId).toMatch(/^exe_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  expect(dispatch?.attemptId).toMatch(/^att_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  // The dispatch projection is the response captured when the dispatch was accepted, so it must still
+  // be non-terminal. The final status and runtime projections are read after completion and must name
+  // the same dispatch, execution, attempt and runtime session as that acceptance.
+  expect(['starting', 'running']).toContain(dispatch?.state)
+  for (const projection of [finalSnapshot.statusProjection, finalSnapshot.runtimeRow]) {
+    expect(projection?.dispatchId).toBe(dispatch?.dispatchId)
+    expect(projection?.executionId).toBe(dispatch?.executionId)
+    expect(projection?.attemptId).toBe(dispatch?.attemptId)
+    expect(projection?.runtimeSessionId).toBe(dispatch?.runtimeSessionId)
+  }
   // Receipt of the adapter values asserted above. Output only: no assertion or fixture behaviour changes.
   console.log(
     `CONNECTED_PROOF_EVIDENCE:${JSON.stringify({
@@ -395,9 +407,26 @@ test('mounted lead choice is disclosed before inference and matches the real adm
       dispatch: {
         state: dispatch?.state ?? null,
         dispatchId: dispatch?.dispatchId ?? null,
+        executionId: dispatch?.executionId ?? null,
+        attemptId: dispatch?.attemptId ?? null,
         runtimeSessionId: dispatch?.runtimeSessionId ?? null,
         selectionRef: dispatch?.selectionRef ?? null,
         selectionRevision: dispatch?.selectionRevision ?? null,
+      },
+      statusIdentity: {
+        state: finalSnapshot.statusProjection?.state ?? null,
+        dispatchId: finalSnapshot.statusProjection?.dispatchId ?? null,
+        executionId: finalSnapshot.statusProjection?.executionId ?? null,
+        attemptId: finalSnapshot.statusProjection?.attemptId ?? null,
+        runtimeSessionId: finalSnapshot.statusProjection?.runtimeSessionId ?? null,
+      },
+      runtimeRowIdentity: {
+        state: finalSnapshot.runtimeRow?.state ?? null,
+        dispatchId: finalSnapshot.runtimeRow?.dispatchId ?? null,
+        executionId: finalSnapshot.runtimeRow?.executionId ?? null,
+        attemptId: finalSnapshot.runtimeRow?.attemptId ?? null,
+        runtimeSessionId: finalSnapshot.runtimeRow?.runtimeSessionId ?? null,
+        publishedMessageId: finalSnapshot.runtimeRow?.publishedMessageId ?? null,
       },
     })}`
   )
