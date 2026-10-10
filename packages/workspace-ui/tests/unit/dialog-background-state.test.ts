@@ -109,3 +109,81 @@ test('only a visible dialog owns the background', () => {
   expect(hasVisibleModal(root([hidden, visible]))).toBe(true)
   expect(hasVisibleModal(root([visible]))).toBe(true)
 })
+
+test('the closing dialog and dialogs nested inside it are not other modals', () => {
+  const selector = '[role="dialog"], [role="alertdialog"]'
+  // The sheet content that is asking, and an archive confirmation rendered
+  // inside it: neither outlives the close, so neither owns the background.
+  const nested = { getClientRects: () => [{}] }
+  const selfDialog = {
+    getClientRects: () => [{}],
+    contains: (node: unknown) => node === nested,
+  }
+  const externalVisible = { getClientRects: () => [{}] }
+  const externalHidden = { getClientRects: () => [] }
+  const root = (dialogs: unknown[]) => ({
+    querySelectorAll: (query: string) => (query === selector ? dialogs : []),
+  })
+
+  expect(hasVisibleModal(root([selfDialog, nested]), selfDialog)).toBe(false)
+  expect(hasVisibleModal(root([selfDialog, nested, externalVisible]), selfDialog)).toBe(true)
+  expect(hasVisibleModal(root([selfDialog, nested, externalHidden]), selfDialog)).toBe(false)
+})
+
+test('a capture taken while another modal was open restores the accessible baseline', () => {
+  const element = fakeElement()
+  const captured = captureDialogBackgroundState(element, body())
+  expect(captured).toBeDefined()
+
+  // The previous modal's containment was still on the frame (and its scrim on
+  // the body) when this capture was taken; restoring it verbatim would leave
+  // the frame hidden under a modal that has since closed.
+  element.setAttribute('aria-hidden', 'true')
+  element.setAttribute('inert', '')
+  const scrimmedBody = body('')
+  scrimmedBody.style.pointerEvents = 'none'
+  expect(
+    restoreDialogBackgroundState({
+      element,
+      body: scrimmedBody,
+      captured,
+      capturedWhileOtherModalOpen: true,
+      hasOtherModal: noOtherModal,
+    })
+  ).toBe(true)
+  expect(element.getAttribute('aria-hidden')).toBeNull()
+  expect(element.hasAttribute('inert')).toBe(false)
+  expect(scrimmedBody.style.pointerEvents).toBe('')
+})
+
+test('a capture taken while another modal was open waits while it remains open', () => {
+  const element = fakeElement()
+  const captured = captureDialogBackgroundState(element, body())
+  element.setAttribute('aria-hidden', 'true')
+  expect(
+    restoreDialogBackgroundState({
+      element,
+      body: body(),
+      captured,
+      capturedWhileOtherModalOpen: true,
+      hasOtherModal: otherModal,
+    })
+  ).toBe(false)
+  expect(element.getAttribute('aria-hidden')).toBe('true')
+})
+
+test('a capture from a frame with no other modal keeps restoring its own record', () => {
+  const element = fakeElement({ 'aria-hidden': 'false' })
+  const captured = captureDialogBackgroundState(element, body())
+  element.setAttribute('aria-hidden', 'true')
+  restoreDialogBackgroundState({
+    element,
+    body: body(),
+    captured,
+    capturedWhileOtherModalOpen: true,
+    hasOtherModal: noOtherModal,
+  })
+  // The captured value was not another modal's containment, so it is the
+  // frame's own baseline and is restored, not cleared.
+  expect(element.getAttribute('aria-hidden')).toBe('false')
+})

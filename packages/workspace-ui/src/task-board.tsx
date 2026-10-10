@@ -67,8 +67,11 @@ type Props = Readonly<{
 }>
 
 export function TaskBoard(props: Props) {
-  // The board owns the lifetime of any post-close background repair: leaving
-  // the board releases it so no observer outlives the surface it protects.
+  // The board releases any post-close background repair when it unmounts.
+  // Solid disposes parent cleanups before child ones, so a lease created by a
+  // panel closing during this same unmount is created after this cancel runs;
+  // that lease is bounded by the frame's own lifetime (it ends when the frame
+  // is replaced), which is what keeps it from outliving the surface.
   onCleanup(() => cancelTaskBackgroundLease())
   const [creating, setCreating] = createSignal(false)
   const [query, setQuery] = createSignal('')

@@ -233,21 +233,39 @@ export function TaskPanel(props: CreateProps | EditProps) {
   // queries while it stayed visually rendered.
   const [sheetOpen, setSheetOpen] = createSignal(true)
   const [closePending, setClosePending] = createSignal(false)
+  // Set when this panel unmounts. Kobalte dispatches the close autofocus from
+  // a timer, so after the board has swapped this panel for another task the
+  // stale callback still fires — on a detached content element. It must then
+  // do nothing: the newer panel owns the selection, the background, and focus.
+  let disposed = false
   const requestClose = () => {
     if (saving() || closePending()) return
     setClosePending(true)
     setSheetOpen(false)
   }
-  // Capture the frame state this panel found before its modal hid it, and
-  // restore exactly that state once the modal is gone. Kobalte defers its
-  // aria-hidden write with setTimeout → requestAnimationFrame and never guards
-  // that write against disposal, so a write scheduled before close can land
-  // afterwards; this panel-owned repair re-checks on the same deferral window
-  // and on frame attribute mutations, restoring only the state it captured.
+  // Capture the frame element and the state this panel found before its modal
+  // hid it, and restore exactly that state once the modal is gone. Kobalte
+  // defers its aria-hidden write with setTimeout → requestAnimationFrame and
+  // never guards that write against disposal, so a write scheduled before
+  // close can land afterwards; this panel-owned repair re-checks on the same
+  // deferral window and on frame attribute mutations, restoring only the state
+  // captured here. The element is captured once: restoration is bound to the
+  // frame the panel actually covered, never to whatever element a later
+  // navigation rendered into the same selector.
+  const frameElement =
+    typeof document === 'undefined'
+      ? undefined
+      : document.querySelector<HTMLElement>('.workspace-frame')
   const capturedBackground = captureDialogBackgroundState(
-    typeof document === 'undefined' ? undefined : document.querySelector('.workspace-frame'),
+    frameElement,
     typeof document === 'undefined' ? { style: { pointerEvents: '' } } : document.body
   )
+  // A panel mounted while another modal was still visible (its own sheet was
+  // mid-close) records that: the hidden state it found is the other modal's
+  // containment, not this frame's baseline, so neither this panel's release
+  // nor any lease built from it may restore the frame back into hiding.
+  const capturedWhileOtherModalOpen =
+    typeof document === 'undefined' ? false : hasVisibleModal(document)
   // Capture the opener synchronously at panel setup: the dialog's own
   // auto-focus can otherwise win the race and make the shared restoration
   // target an element inside the closing content.
@@ -257,40 +275,60 @@ export function TaskPanel(props: CreateProps | EditProps) {
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
         : undefined
-  // A newer panel owns the background from the moment it mounts: cancel the
-  // previous panel's post-close repair so it can never touch this modal's state.
-  activeBackgroundLease?.()
-  activeBackgroundLease = undefined
+  // One lease owns the frame's post-close restoration at a time, and it is
+  // the earliest close that is still unfinished: a panel mounted while that
+  // lease is alive contributes nothing (the lease's other-modal guard defers
+  // its work while the new modal owns the background and restores the true
+  // pre-open baseline once the last modal closes). Cancelling on mount would
+  // hand the baseline to this panel's capture — which, taken mid-close, saw
+  // the previous modal's hidden state and would write it back after closing.
   onCleanup(() => {
+    disposed = true
     if (typeof document === 'undefined' || !capturedBackground) return
+    if (activeBackgroundLease) return
     let cancelled = false
-    const restore = () =>
+    const restore = () => {
+      // Bound to the captured element: a frame replaced by navigation is never
+      // read or written, and losing it ends the lease instead of leaving an
+      // observer behind.
+      if (!frameElement?.isConnected) {
+        cancel()
+        return
+      }
       restoreDialogBackgroundState({
-        element: document.querySelector('.workspace-frame'),
+        element: frameElement,
         body: document.body,
         captured: capturedBackground,
+        capturedWhileOtherModalOpen,
         hasOtherModal: () => hasVisibleModal(document),
       })
+    }
     let observer: MutationObserver | undefined
     const cancel = () => {
       cancelled = true
       observer?.disconnect()
       if (activeBackgroundLease === cancel) activeBackgroundLease = undefined
     }
-    if (typeof MutationObserver !== 'undefined') {
-      // The lease is owned by this close until the next panel mounts (or the
-      // board unmounts). A write Kobalte scheduled before disposal can land at
-      // any later frame, so it deliberately does not expire on a timer; it
-      // only ever restores the state captured before this panel's modal opened
-      // and skips while a visible modal owns the background.
+    if (typeof MutationObserver !== 'undefined' && frameElement) {
+      // The lease is owned by this close until the board (or the frame) is
+      // gone. A write Kobalte scheduled before disposal can land at any later
+      // frame, so it deliberately does not expire on a timer; it only ever
+      // restores the state captured before this panel's modal opened and
+      // skips while a visible modal owns the background. Solid disposes
+      // parent cleanups before child ones (verified: TaskBoard's cancelling
+      // cleanup runs first), so a lease created by this panel's own unmount
+      // is bounded by the frame's lifetime, not by the board's cancel — the
+      // frame-disconnect check above is the guarantee.
       observer = new MutationObserver(() => {
         if (!cancelled) restore()
       })
-      const frame = document.querySelector('.workspace-frame')
-      if (frame) {
-        observer.observe(frame, { attributes: true, attributeFilter: ['aria-hidden', 'inert'] })
-      }
-      observer.observe(document.body, { childList: true })
+      observer.observe(frameElement, {
+        attributes: true,
+        attributeFilter: ['aria-hidden', 'inert'],
+      })
+      // Frame replacement can nest the removal below body, so liveness needs
+      // the subtree, not just body's direct children.
+      observer.observe(document.body, { childList: true, subtree: true })
     }
     activeBackgroundLease = cancel
     // Release the background once on the same deferral boundary Kobalte uses;
@@ -485,21 +523,29 @@ export function TaskPanel(props: CreateProps | EditProps) {
         side="end"
         closeLabel={props.mode === 'create' ? 'Close new task' : 'Close task'}
         restoreFocusRef={() => (restoreFocusTarget?.isConnected ? restoreFocusTarget : undefined)}
-        onCloseAutoFocus={() => {
+        onCloseAutoFocus={(event) => {
           // Kobalte has finished closing the dialog and restored the background.
+          // A stale dispatch after the board swapped this panel for another
+          // task must not run: it would clear the newer panel's selection.
+          if (disposed) return
           if (!closePending()) return
           setClosePending(false)
           // Release the captured background before the shared focus
           // restoration reads it: a lingering aria-hidden would suppress focus
-          // return. This panel is the only modal in this close path, so the
-          // other-modal guard is deliberately false here; the post-close lease
-          // below keeps any later deferred write off the frame.
+          // return. The ownership guard excludes this closing dialog and
+          // anything nested inside it (the archive confirmation), so a second
+          // overlay present during the close keeps the background it is
+          // hiding — and keeps focus, since the shared restoration refuses to
+          // move focus while another overlay is up.
           if (typeof document !== 'undefined') {
+            const content =
+              event.currentTarget instanceof HTMLElement ? event.currentTarget : undefined
             restoreDialogBackgroundState({
-              element: document.querySelector('.workspace-frame'),
+              element: frameElement?.isConnected ? frameElement : undefined,
               body: document.body,
               captured: capturedBackground,
-              hasOtherModal: () => false,
+              capturedWhileOtherModalOpen,
+              hasOtherModal: () => hasVisibleModal(document, content),
             })
           }
           props.onClose()
