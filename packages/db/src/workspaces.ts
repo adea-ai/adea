@@ -402,6 +402,32 @@ export async function removeWorkspaceMembership(
   })
 }
 
+/**
+ * The archived workspaces this user owns, for discovery and reopen. Membership is looked up with
+ * the includeArchived semantics `findWorkspaceMembership` already applies, and ownership is the same
+ * owner check archive and reopen use. Only the signed-in user's own archived workspaces are returned.
+ */
+export async function listArchivedWorkspacesForOwner(
+  database: AgentHqDatabase,
+  owner: UserPrincipalRef
+): Promise<WorkspaceSummary[]> {
+  const rows = await database
+    .select({ sortOrder: workspaceMemberships.sortOrder, workspace: workspaces })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
+    .where(
+      and(
+        eq(workspaceMemberships.userId, owner.userId),
+        eq(workspaces.ownerUserId, owner.userId),
+        isNotNull(workspaces.deletedAt)
+      )
+    )
+    .orderBy(desc(workspaces.updatedAt), asc(workspaces.id))
+  return rows.map(({ sortOrder, workspace }) =>
+    workspaceSummary(workspace, sortOrder, owner.userId)
+  )
+}
+
 export async function listWorkspacesForUser(
   database: AgentHqDatabase,
   principal: UserPrincipalRef

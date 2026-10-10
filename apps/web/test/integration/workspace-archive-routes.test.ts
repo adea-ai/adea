@@ -27,9 +27,14 @@ import {
 import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { workspaceArchivePost } from '../../src/server/workspace-archive-handler'
+import { workspaceArchivedGet } from '../../src/server/workspace-archived-handler'
 import type { WorkspacePrincipalResolution } from '../../src/server/workspace-principal'
 
 const connectionUrl = process.env.DATABASE_URL
+
+function listArchivedRequest(): Request {
+  return new Request('https://adea.test/api/workspaces/archived', { method: 'GET' })
+}
 
 function archiveRequest(workspaceId: string): Request {
   return new Request(`https://adea.test/api/workspaces/${workspaceId}/archive`, {
@@ -180,5 +185,35 @@ describe.skipIf(!connectionUrl)('workspace archive route flow (#1175)', () => {
     expect(reopened.id).toBe(workspace.id)
     expect(reopened.canArchive).toBe(true)
     expect(await reopenWorkspace(connection.db, workspace.id, owner)).toEqual(reopened)
+  })
+
+  test('the archived listing shows only the owner their own archived workspace; reopen removes it from the list', async () => {
+    const owner = await principal('listed-owner')
+    const member = await principal('listed-member')
+    const workspace = await optionalWorkspace(owner, 'Listed archive target')
+    await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
+    await workspaceArchivePost(archiveRequest(workspace.id), workspace.id, dependencies(owner))
+
+    const listed = async (caller: UserPrincipalRef) => {
+      const response = await workspaceArchivedGet(listArchivedRequest(), {
+        database: () => connection.db,
+        resolvePrincipal: async () => ({
+          clearTemporaryCredential: false,
+          principal: caller,
+          sessionRotated: false,
+          temporary: true,
+        }),
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      return ((await response.json()) as { workspaces: { id: string; name: string }[] }).workspaces
+    }
+    const ownerRows = await listed(owner)
+    expect(ownerRows.map((row) => row.id)).toEqual([workspace.id])
+    expect(ownerRows[0]?.name).toBe('Listed archive target')
+    expect(await listed(member)).toEqual([])
+
+    await reopenWorkspace(connection.db, workspace.id, owner)
+    expect(await listed(owner)).toEqual([])
   })
 })

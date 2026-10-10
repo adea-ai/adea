@@ -22,6 +22,7 @@ import {
 } from './workspace-settings-section'
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
 import { WorkspaceArchiveSettings } from './workspace-archive-settings'
+import { WorkspaceArchivedSettings } from './workspace-archived-settings'
 
 const sectionIcons = {
   general: Settings2,
@@ -256,6 +257,9 @@ export function WorkspaceDetailsDialog(props: {
                     {(client) => (
                       <WorkspaceArchiveSettings client={client()} workspace={props.workspace} />
                     )}
+                  </Show>
+                  <Show when={apiClient()}>
+                    {(client) => <WorkspaceArchivedSettings client={client()} />}
                   </Show>
                 </Show>
                 <Show when={panelSection === 'memory'}>

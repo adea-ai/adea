@@ -10,6 +10,7 @@ import {
   ensureBootstrapWorkspaces,
   findWorkspaceMembership,
   getWorkspaceForUser,
+  listArchivedWorkspacesForOwner,
   listWorkspacesForUser,
   recordWorkspaceAuthorizationDecision,
   removeWorkspaceMembership,
@@ -592,5 +593,64 @@ describe.skipIf(!connectionUrl)('workspace archive presentation (#1175)', () => 
     const home = bootstrapped.find((candidate) => candidate.isPersonal)
     expect(home).toBeDefined()
     expect(home?.canArchive).toBe(false)
+  })
+})
+
+describe.skipIf(!connectionUrl)('archived workspace discovery (#1175)', () => {
+  let connection: DatabaseConnection
+
+  beforeAll(() => {
+    connection = createDatabase(connectionUrl!)
+  })
+
+  afterAll(async () => {
+    await connection.close()
+  })
+
+  async function principal(label: string) {
+    return (
+      await createTemporaryUserSession(connection.db, {
+        credentialDigest: `archived-discovery-${label}-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 600_000),
+      })
+    ).principal
+  }
+
+  test('an owner lists only their own archived workspaces, with the same identity; other roles and owners see none', async () => {
+    const owner = await principal('owner')
+    const admin = await principal('admin')
+    const member = await principal('member')
+    const otherOwner = await principal('other-owner')
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `archived-discovery-${crypto.randomUUID()}`,
+      name: 'Archived discovery target',
+      owner,
+    })
+    await addWorkspaceMembership(connection.db, workspace.id, admin, 'admin')
+    await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
+    const { workspace: foreign } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `archived-discovery-foreign-${crypto.randomUUID()}`,
+      name: 'Foreign archived',
+      owner: otherOwner,
+    })
+    await archiveWorkspace(connection.db, workspace.id, owner)
+    await archiveWorkspace(connection.db, foreign.id, otherOwner)
+
+    const ownerList = await listArchivedWorkspacesForOwner(connection.db, owner)
+    expect(ownerList.map((candidate) => candidate.id)).toEqual([workspace.id])
+    expect(ownerList[0]?.name).toBe('Archived discovery target')
+    expect(await listArchivedWorkspacesForOwner(connection.db, admin)).toEqual([])
+    expect(await listArchivedWorkspacesForOwner(connection.db, member)).toEqual([])
+    expect(
+      (await listArchivedWorkspacesForOwner(connection.db, otherOwner)).map(
+        (candidate) => candidate.id
+      )
+    ).toEqual([foreign.id])
+
+    await reopenWorkspace(connection.db, workspace.id, owner)
+    expect(await listArchivedWorkspacesForOwner(connection.db, owner)).toEqual([])
+    expect(
+      (await listWorkspacesForUser(connection.db, owner)).map((candidate) => candidate.id)
+    ).toContain(workspace.id)
   })
 })

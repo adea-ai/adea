@@ -37,6 +37,7 @@ export function settledData<TData>(result: {
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
+  archived: ['workspaces', 'archived'] as const,
   bootstrap: ['workspaces', 'bootstrap'] as const,
   detail: (workspaceId: string) => ['workspaces', 'detail', workspaceId] as const,
   list: ['workspaces', 'list'] as const,
@@ -968,6 +969,10 @@ export const workspaceDeleteMutationOptions = (
 })
 
 export const workspaceQueryOptions = {
+  archived: (client: AgentHqApiClient) => ({
+    queryKey: workspaceQueryKeys.archived,
+    queryFn: async () => (await client.listArchivedWorkspaces()).workspaces,
+  }),
   bootstrap: (client: AgentHqApiClient) => ({
     queryKey: workspaceQueryKeys.bootstrap,
     queryFn: () => client.bootstrapWorkspace(),
@@ -982,6 +987,10 @@ export const workspaceQueryOptions = {
     queryKey: workspaceQueryKeys.list,
     queryFn: () => client.listWorkspaces(),
   }),
+}
+
+export function useArchivedWorkspacesQuery(client: AgentHqApiClient) {
+  return useQuery(() => workspaceQueryOptions.archived(client))
 }
 
 export function useWorkspaceListQuery(client: AgentHqApiClient) {

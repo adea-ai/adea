@@ -42,14 +42,22 @@ const countCall = (name: string) => {
   return next
 }
 
+// The owner's archived rows outlive the dialog that archived them, as the query cache does in the app.
+let archivedRows: WorkspaceSummary[] = []
+const fixtureNames: Record<string, string> = {
+  'settings-sibling': 'Secondary',
+  'workspace-settings-e2e': 'Settings harness',
+}
+
 /**
- * The archive fixture's contract: archive and reopen answer from data attributes on the root, so the
- * spec can stage success, a refusal, a transient failure and a repeated click without a server.
+ * The archive fixture's contract: archive, reopen and the archived listing answer from module state
+ * and data attributes, so the spec can stage success, a refusal, a transient failure and a repeat.
  */
 function archiveFixtureClient(): AgentHqApiClient {
   return {
     async archiveWorkspace(workspaceId: string) {
       countCall('data-archive-calls')
+      harnessRoot().setAttribute('data-archive-target', workspaceId)
       await new Promise((resolve) => setTimeout(resolve, 150))
       const mode = harnessRoot().getAttribute('data-archive-mode')
       if (mode === 'unavailable')
@@ -60,13 +68,21 @@ function archiveFixtureClient(): AgentHqApiClient {
           500,
           'workspace_archive_failed'
         )
+      archivedRows = [
+        ...archivedRows.filter((row) => row.id !== workspaceId),
+        { ...initialWorkspace, id: workspaceId, name: fixtureNames[workspaceId] ?? workspaceId },
+      ]
       return { archived: true as const, workspaceId }
+    },
+    async listArchivedWorkspaces() {
+      return { workspaces: archivedRows }
     },
     async reopenWorkspace(workspaceId: string) {
       countCall('data-reopen-calls')
-      return {
-        workspace: { ...initialWorkspace, id: workspaceId, canArchive: true },
-      }
+      const row = archivedRows.find((candidate) => candidate.id === workspaceId)
+      if (!row) throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+      archivedRows = archivedRows.filter((candidate) => candidate.id !== workspaceId)
+      return { workspace: { ...row, canArchive: true } }
     },
   } as unknown as AgentHqApiClient
 }
@@ -181,6 +197,22 @@ function Harness() {
   return (
     <>
       <Button onClick={() => setOpen(true)}>Open settings fixture</Button>
+      <Show when={archiveMode}>
+        <Button
+          id="switch-fixture-workspace"
+          onClick={() =>
+            setWorkspace({
+              ...initialWorkspace,
+              id: 'settings-sibling',
+              name: 'Secondary',
+              logo: { kind: 'box' as const },
+              canArchive: true,
+            } as WorkspaceSummary)
+          }
+        >
+          Switch fixture workspace
+        </Button>
+      </Show>
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>

@@ -2,9 +2,10 @@ import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 
 /**
- * Archive and reopen from the General settings section (M11.04, #1175). The harness answers the archive
- * and reopen contract from data attributes, so each case stages one server outcome. The Home case
- * proves the row never mounts for the personal workspace.
+ * Archive, durable discovery and reopen from the General settings section (M11.04, #1175). The
+ * harness answers the archive, archived-listing and reopen contract from module state and data
+ * attributes, so each case stages one server outcome. The real shell is covered by
+ * workspace-archive-lifecycle.spec.ts against the running app.
  */
 async function openArchiveHarness(
   page: Page,
@@ -37,27 +38,71 @@ async function openArchiveHarness(
 
 const archiveButton = (page: Page) =>
   page.getByRole('button', { name: 'Archive workspace', exact: true })
+const archiveStatus = (page: Page) => page.getByRole('status', { name: 'Archive status' })
+const reopenRow = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Reopen ${name}`, exact: true })
+const root = (page: Page) => page.locator('#harness-root')
 
-test('the owner archives an optional workspace, keeps its history, and reopens it from the same panel', async ({
+test('the owner archives an optional workspace, finds it in the archived list, and reopens it', async ({
   page,
 }) => {
   const errors = await openArchiveHarness(page)
-  await expect(archiveButton(page)).toBeVisible()
   await archiveButton(page).click()
   await expect(
     page.getByText('Archive Settings harness? It is hidden from your workspace list.')
   ).toBeVisible()
   await archiveButton(page).click()
-  await expect(page.getByRole('status', { name: 'Archive status' })).toHaveText(
+  await expect(archiveStatus(page)).toHaveText(
     'Settings harness is archived. Its history and links are kept.'
   )
-  await page.getByRole('button', { name: 'Reopen workspace', exact: true }).click()
-  await expect(page.getByRole('status', { name: 'Archive status' })).toHaveText(
+  await expect(reopenRow(page, 'Settings harness')).toBeVisible()
+  await reopenRow(page, 'Settings harness').click()
+  await expect(page.getByRole('status', { name: 'Archived workspaces status' })).toHaveText(
     'Settings harness is reopened.'
   )
-  await expect(archiveButton(page)).toBeVisible()
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-archive-calls', '1')
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-reopen-calls', '1')
+  await expect(reopenRow(page, 'Settings harness')).toHaveCount(0)
+  await expect(root(page)).toHaveAttribute('data-archive-calls', '1')
+  await expect(root(page)).toHaveAttribute('data-reopen-calls', '1')
+  expect(errors).toEqual([])
+})
+
+test('an archived workspace stays listed after the panel closes and reopens from its own row', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page)
+  await archiveButton(page).click()
+  await archiveButton(page).click()
+  await expect(archiveStatus(page)).toHaveText(
+    'Settings harness is archived. Its history and links are kept.'
+  )
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Open settings fixture' }).click()
+  await expect(reopenRow(page, 'Settings harness')).toBeVisible()
+  await reopenRow(page, 'Settings harness').click()
+  await expect(page.getByRole('status', { name: 'Archived workspaces status' })).toHaveText(
+    'Settings harness is reopened.'
+  )
+  expect(errors).toEqual([])
+})
+
+test('the confirmation keeps its captured target when the active workspace changes while it is open', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page)
+  await archiveButton(page).click()
+  // The modal covers the switch control, so the change is driven on the control itself: the active
+  // workspace changes while the confirmation is open, which is the case under test.
+  await page
+    .locator('#switch-fixture-workspace')
+    .evaluate((element) => (element as HTMLElement).click())
+  await expect(
+    page.getByText('Archive Settings harness? It is hidden from your workspace list.')
+  ).toBeVisible()
+  await archiveButton(page).click()
+  await expect(archiveStatus(page)).toHaveText(
+    'Settings harness is archived. Its history and links are kept.'
+  )
+  await expect(root(page)).toHaveAttribute('data-archive-target', 'workspace-settings-e2e')
   expect(errors).toEqual([])
 })
 
@@ -75,13 +120,11 @@ test('a refused archive keeps the workspace, explains the refusal, and retries',
   await archiveButton(page).click()
   await archiveButton(page).click()
   await expect(page.getByRole('alert')).toContainText('This workspace is unavailable.')
-  await expect(page.getByRole('button', { name: 'Archive workspace', exact: true })).toBeVisible()
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-archive-calls', '1')
-  await page
-    .locator('#harness-root')
-    .evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
+  await expect(archiveButton(page)).toBeVisible()
+  await expect(root(page)).toHaveAttribute('data-archive-calls', '1')
+  await root(page).evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
   await archiveButton(page).click()
-  await expect(page.getByRole('status', { name: 'Archive status' })).toHaveText(
+  await expect(archiveStatus(page)).toHaveText(
     'Settings harness is archived. Its history and links are kept.'
   )
   expect(errors).toEqual([])
@@ -95,14 +138,12 @@ test('a transient failure shows a retry message, and a double click archives onc
   await archiveButton(page).dblclick()
   await expect(page.getByRole('alert')).toContainText('Workspace could not be archived. Try again.')
   // The second click landed on the pending button: one request reached the server, not two.
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-archive-calls', '1')
-  await page
-    .locator('#harness-root')
-    .evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
+  await expect(root(page)).toHaveAttribute('data-archive-calls', '1')
+  await root(page).evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
   await archiveButton(page).click()
-  await expect(page.locator('#harness-root')).toHaveAttribute('data-archive-calls', '2')
-  await expect(page.getByRole('status', { name: 'Archive status' })).toHaveText(
+  await expect(archiveStatus(page)).toHaveText(
     'Settings harness is archived. Its history and links are kept.'
   )
+  await expect(root(page)).toHaveAttribute('data-archive-calls', '2')
   expect(errors).toEqual([])
 })

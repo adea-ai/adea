@@ -301,6 +301,7 @@ export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
 export type ApiWorkspaceArchiveResponse = Readonly<{ archived: true; workspaceId: string }>
+export type ApiArchivedWorkspacesResponse = Readonly<{ workspaces: readonly WorkspaceSummary[] }>
 export type ApiWorkspaceDeleteResponse = Readonly<{
   deleted: true
   workspaceId: string
@@ -626,6 +627,10 @@ export class AgentHqApiClient {
       `/workspaces/${encodeURIComponent(workspaceId)}/reopen`,
       { method: 'POST' }
     )
+  }
+
+  async listArchivedWorkspaces(): Promise<ApiArchivedWorkspacesResponse> {
+    return this.request<ApiArchivedWorkspacesResponse>('/workspaces/archived')
   }
 
   async archiveWorkspace(workspaceId: string): Promise<ApiWorkspaceArchiveResponse> {

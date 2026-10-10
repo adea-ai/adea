@@ -105,6 +105,17 @@ function bootstrap(workspaces: readonly (typeof workspace)[]) {
   }
 }
 
+describe('archived workspace discovery contract', () => {
+  test('the archived listing has its own stable key and resolves the owner rows', async () => {
+    const api = client({
+      listArchivedWorkspaces: async () => ({ workspaces: [workspace] }),
+    } as Partial<AgentHqApiClient>)
+
+    expect(workspaceQueryOptions.archived(api).queryKey).toEqual(['workspaces', 'archived'])
+    expect(await workspaceQueryOptions.archived(api).queryFn()).toEqual([workspace])
+  })
+})
+
 describe('workspace archive contract', () => {
   test('archive removes the archived detail cache and refreshes every workspace query', async () => {
     const queryClient = new QueryClient()

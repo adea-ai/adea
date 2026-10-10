@@ -22,6 +22,7 @@ import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/mark
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
+import { Route as ApiWorkspacesArchivedRouteImport } from './routes/api/workspaces/archived'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
 import { Route as ApiWorkspacesClaimRouteImport } from './routes/api/workspaces/claim'
 import { Route as ApiWorkspacesReorderRouteImport } from './routes/api/workspaces/reorder'
@@ -180,6 +181,11 @@ const ApiWorkspacesWorkspaceIdRoute =
     path: '/$workspaceId',
     getParentRoute: () => ApiWorkspacesRoute,
   } as any)
+const ApiWorkspacesArchivedRoute = ApiWorkspacesArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
+  getParentRoute: () => ApiWorkspacesRoute,
+} as any)
 const ApiWorkspacesBootstrapRoute = ApiWorkspacesBootstrapRouteImport.update({
   id: '/bootstrap',
   path: '/bootstrap',
@@ -721,6 +727,7 @@ export interface FileRoutesByFullPath {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -824,6 +831,7 @@ export interface FileRoutesByTo {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -928,6 +936,7 @@ export interface FileRoutesById {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -1033,6 +1042,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1136,6 +1146,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1239,6 +1250,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1469,6 +1481,13 @@ declare module '@tanstack/solid-router' {
       path: '/$workspaceId'
       fullPath: '/api/workspaces/$workspaceId'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof ApiWorkspacesRoute
+    }
+    '/api/workspaces/archived': {
+      id: '/api/workspaces/archived'
+      path: '/archived'
+      fullPath: '/api/workspaces/archived'
+      preLoaderRoute: typeof ApiWorkspacesArchivedRouteImport
       parentRoute: typeof ApiWorkspacesRoute
     }
     '/api/workspaces/bootstrap': {
@@ -2176,6 +2195,7 @@ const ApiWorkspacesWorkspaceIdRouteWithChildren =
 
 interface ApiWorkspacesRouteChildren {
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  ApiWorkspacesArchivedRoute: typeof ApiWorkspacesArchivedRoute
   ApiWorkspacesBootstrapRoute: typeof ApiWorkspacesBootstrapRoute
   ApiWorkspacesClaimRoute: typeof ApiWorkspacesClaimRoute
   ApiWorkspacesReorderRoute: typeof ApiWorkspacesReorderRoute
@@ -2183,6 +2203,7 @@ interface ApiWorkspacesRouteChildren {
 
 const ApiWorkspacesRouteChildren: ApiWorkspacesRouteChildren = {
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
+  ApiWorkspacesArchivedRoute: ApiWorkspacesArchivedRoute,
   ApiWorkspacesBootstrapRoute: ApiWorkspacesBootstrapRoute,
   ApiWorkspacesClaimRoute: ApiWorkspacesClaimRoute,
   ApiWorkspacesReorderRoute: ApiWorkspacesReorderRoute,
