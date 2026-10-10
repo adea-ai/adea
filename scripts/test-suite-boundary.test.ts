@@ -133,6 +133,29 @@ describe('test suite boundaries', () => {
     expect(journeys!.args).toContain('apps/web/e2e/workspace-project-placement.spec.ts')
   })
 
+  test('keeps the archive lifecycle coverage (#1175) in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const main = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' &&
+        args.includes('apps/web/e2e/workspace-archive-lifecycle.spec.ts')
+    )
+    expect(main).toBeDefined()
+    expect(main!.args).toContain('apps/web/e2e/workspace-archive-settings.spec.ts')
+  })
+
   test('keeps the workspace creation-draft browser specs in the normal E2E shard exactly once', () => {
     const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
       "import { spawnSync } from 'node:child_process'",

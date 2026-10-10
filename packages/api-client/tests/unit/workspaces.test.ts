@@ -153,6 +153,39 @@ describe('workspace API client', () => {
     expect(request?.headers.get('x-adea-temporary-session')).toBe('adea_tmp_guest-secret')
   })
 
+  test('lists the signed-in owner archived workspaces through the typed contract', async () => {
+    let request: Request | undefined
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init)
+        return Response.json({ workspaces: [workspace] })
+      },
+    })
+
+    await expect(client.listArchivedWorkspaces()).resolves.toEqual({ workspaces: [workspace] })
+    expect(new URL(request!.url).pathname).toBe('/api/workspaces/archived')
+    expect(request?.method).toBe('GET')
+  })
+
+  test('archives a workspace through the typed contract', async () => {
+    let request: Request | undefined
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init)
+        return Response.json({ archived: true, workspaceId: 'workspace/one' })
+      },
+    })
+
+    await expect(client.archiveWorkspace('workspace/one')).resolves.toEqual({
+      archived: true,
+      workspaceId: 'workspace/one',
+    })
+    expect(new URL(request!.url).pathname).toBe('/api/workspaces/workspace%2Fone/archive')
+    expect(request?.method).toBe('POST')
+  })
+
   test('reopens a workspace through the typed contract', async () => {
     let request: Request | undefined
     const client = createApiClient({
