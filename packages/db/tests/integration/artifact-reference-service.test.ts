@@ -238,6 +238,80 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
   })
 
+  test('publication samples the trusted clock after the reads, not at entry', async () => {
+    const { destination, owner, source } = await fixture('clock-publication')
+    const artifact = await availableArtifact(source.id, owner)
+    const grantId = `grant-${crypto.randomUUID()}`
+    // Expires one minute from real time; the injected clock says two minutes
+    // later. A decision sampled at entry (real now) would wrongly publish.
+    const expiresAt = new Date(Date.now() + 60_000).toISOString()
+    await registerArtifactReferenceGrant(connection.db, source.id, owner, {
+      artifactId: artifact.id,
+      audienceWorkspaceId: destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt,
+      grantId,
+      version: 1,
+    })
+    const exact = target(artifact.id, source.id, destination.id)
+
+    const expired = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: exact },
+      owner,
+      () => new Date(Date.now() + 120_000).toISOString()
+    )
+    expect(expired.decision).toMatchObject({
+      action: 'hold',
+      ok: false,
+      reason: 'grant_expired',
+      stage: 'publication',
+    })
+
+    const live = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: exact },
+      owner,
+      () => new Date(Date.now() - 1_000).toISOString()
+    )
+    expect(live.decision).toMatchObject({ action: 'publish', ok: true, stage: 'publication' })
+  })
+
+  test('retrieval samples the trusted clock after the reads, not at entry', async () => {
+    const { destination, owner, source } = await fixture('clock-retrieval')
+    const artifact = await availableArtifact(source.id, owner)
+    const grantId = `grant-${crypto.randomUUID()}`
+    const expiresAt = new Date(Date.now() + 60_000).toISOString()
+    await registerArtifactReferenceGrant(connection.db, source.id, owner, {
+      artifactId: artifact.id,
+      audienceWorkspaceId: destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt,
+      grantId,
+      version: 1,
+    })
+    const exact = target(artifact.id, source.id, destination.id)
+
+    const expired = await retrieveArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), requestingWorkspaceId: destination.id, target: exact },
+      () => new Date(Date.now() + 120_000).toISOString()
+    )
+    expect(expired.decision).toMatchObject({
+      action: 'deny',
+      ok: false,
+      reason: 'grant_expired',
+      stage: 'retrieval',
+    })
+
+    const live = await retrieveArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), requestingWorkspaceId: destination.id, target: exact },
+      () => new Date(Date.now() - 1_000).toISOString()
+    )
+    expect(live.decision).toMatchObject({ action: 'deliver', ok: true, stage: 'retrieval' })
+  })
+
   test('revocation is absolute at both gates even while the artifact stays live', async () => {
     const { destination, owner, source } = await fixture('revoked')
     const artifact = await availableArtifact(source.id, owner)

@@ -24,6 +24,14 @@ import type { AgentHqDatabase } from './connection'
 /** The presented grant's revocation marker; the policy only tests non-null. */
 const REVOKED_AT = '1970-01-01T00:00:00.000Z'
 
+/**
+ * Trusted wall clock. Sampled at the authorization decision — after every
+ * evidence and registration read — so a grant that expires while those reads
+ * are in flight is evaluated against the decision time, never a stale entry
+ * time. Tests inject a deterministic clock.
+ */
+const defaultClock = (): string => new Date().toISOString()
+
 function presentedGrant(
   state: ArtifactReferenceGrantState,
   target: ArtifactReferenceTarget
@@ -82,7 +90,7 @@ export async function publishArtifactReference(
     grant: ArtifactReferenceGrantPresentation
   }>,
   principal: UserPrincipalRef,
-  now: string = new Date().toISOString()
+  clock: () => string = defaultClock
 ): Promise<ArtifactReferenceServiceResult<ArtifactReferencePublicationDecision>> {
   const { target, grant } = request
   // Publication evidence is read through the caller's own source-workspace
@@ -98,6 +106,9 @@ export async function publishArtifactReference(
       )
     : null
   const state = await readCurrentArtifactReferenceGrant(database, grant)
+  // Sampled after the reads: the decision time is the current time, not the
+  // time the call started.
+  const now = clock()
   return {
     decision: authorizeArtifactReferencePublication({
       authority: { kind: 'workspace_grant' },
@@ -124,13 +135,16 @@ export async function retrieveArtifactReference(
     grant: ArtifactReferenceGrantPresentation
     requestingWorkspaceId: string
   }>,
-  now: string = new Date().toISOString()
+  clock: () => string = defaultClock
 ): Promise<ArtifactReferenceServiceResult<ArtifactReferenceRetrievalDecision>> {
   const { target, grant, requestingWorkspaceId } = request
   const evidence = isArtifactReferenceTarget(target)
     ? await readArtifactReferenceEvidenceById(database, target.sourceWorkspaceId, target.artifactId)
     : null
   const state = await readCurrentArtifactReferenceGrant(database, grant)
+  // Sampled after the reads: the decision time is the current time, not the
+  // time the call started.
+  const now = clock()
   return {
     decision: authorizeArtifactReferenceRetrieval({
       authority: { kind: 'workspace_grant' },
