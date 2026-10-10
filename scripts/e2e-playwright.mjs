@@ -24,6 +24,10 @@ const specs = [
   'apps/web/e2e/chat-transcript-composition.spec.ts',
   'apps/web/e2e/desktop-runtime-chat.spec.ts',
   'apps/web/e2e/desktop-first-run-chat.spec.ts',
+  // Direct-session handoff (#1177): mounted proof over the production
+  // resolver with fixture transports — own ephemeral harness server,
+  // no database, safe in every shard.
+  'apps/web/e2e/direct-session-handoff.spec.ts',
   'apps/web/e2e/plugins-loading.spec.ts',
   'apps/web/e2e/workspace-form.spec.ts',
   'apps/web/e2e/workspace-settings.spec.ts',
