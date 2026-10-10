@@ -979,10 +979,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   // The Dev sidebar renders the same accordion from the same cloud queries,
   // joined with the desktop runtime's local bindings (ADR 0011).
+  // The signed-in label is the owner of a new workspace. Guests and unknown identities
+  // get no owner, so the creation draft keeps its generic wording.
+  const creationOwner = () =>
+    props.account.authenticated ? { ownerLabel: props.account.label } : undefined
   const devNavHost = createDevWorkspaceNavHost({
     globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
+    creationContext: creationOwner,
     workspaces: () => orderedWorkspaces(),
     // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
     active: () =>
@@ -1141,6 +1146,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
+      creationContext={creationOwner()}
       createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
