@@ -1,8 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -24,77 +21,31 @@ import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparat
 import { workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
-  DRIZZLE_DIR,
-  readJournal,
-  type RehearsalResources,
-  settleAndDispose,
-  view,
-} from '../fixtures/cutover-rehearsal'
+  CANONICAL_BASE_TAG,
+  canonicalChainFolders,
+  CANONICAL_DIR,
+  timestampOrderViolations,
+  verifiedCanonicalChain,
+} from '../fixtures/canonical-chain'
+import { type RehearsalResources, settleAndDispose, view } from '../fixtures/cutover-rehearsal'
 
-// Candidate rehearsal for the #1178 group backfill, pinned to the draft PR #1232 head
-// ac73eee1. This is NOT main: candidate migrations 0047-0050 are unmerged and are
-// vendored under tests/fixtures/candidate-1232 with sha256 pins. The rehearsal runs the
-// real migration chain (main 0000-0046, then the candidate's 0047-0050) on a disposable
-// database, then re-runs the 0050 backfill to test idempotence.
+// Rehearsal of the incoming canonical migration chain for the #1241 proof: main through 0046,
+// then #1229 -> #1230 -> #1232 in that order. The chain is vendored from exact source commits
+// (tests/fixtures/canonical-chain/pins.json). The rehearsal applies it the way a deployed database
+// receives it: stage one (#1229 and #1230) first, then the group legacy seed, then #1232's
+// 0049/0050 backfill on top. Each recorded migration is checked against the journal, so an entry
+// drizzle skips is a failure here, not a silent success.
 //
-// What it does NOT prove: the candidate's join-point gate and its read paths (the product
-// read functions here are main's), and any quarantine of ambiguous group records. The
-// candidate has no quarantine surface, so the test records that absence instead of
-// passing as coverage.
+// What it does NOT prove: the group join-point gate and its read paths (the product read functions
+// here are main's), and any quarantine of ambiguous group records. The chain has no quarantine
+// surface, so the test records that absence instead of passing as coverage.
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
 const SCRATCH_PREFIX = 'rehearsal_1232_'
-const CANDIDATE_DIR = `${import.meta.dir}/../fixtures/candidate-1232`
-const CANDIDATE_TAGS = [
-  '0047_huge_hitman',
-  '0048_graceful_prima',
-  '0049_group_participation_grants',
-  '0050_group_legacy_backfill',
-] as const
-
-type Pins = { candidate: { headSha: string; pullRequest: number }; files: Record<string, string> }
-
-/** The vendored candidate files must match their pins; a drifted copy fails before it runs. */
-function verifiedCandidate(): { headSha: string; entries: { tag: string; when: number }[] } {
-  const pins = JSON.parse(readFileSync(`${CANDIDATE_DIR}/pins.json`, 'utf8')) as Pins
-  for (const [name, expected] of Object.entries(pins.files)) {
-    const actual = createHash('sha256')
-      .update(readFileSync(`${CANDIDATE_DIR}/${name}`))
-      .digest('hex')
-    if (actual !== expected) throw new Error(`candidate fixture ${name} does not match its pin`)
-  }
-  const journal = JSON.parse(readFileSync(`${CANDIDATE_DIR}/_journal.json`, 'utf8')) as {
-    entries: { tag: string; when: number }[]
-  }
-  return { headSha: pins.candidate.headSha, entries: journal.entries }
-}
-
-/** Main's full journal followed by the candidate's entries, as one migrations folder. */
-function combinedMigrationsFolder(): string {
-  const main = readJournal()
-  const candidate = verifiedCandidate()
-  if (candidate.entries.map((entry) => entry.tag).join() !== CANDIDATE_TAGS.join()) {
-    throw new Error('candidate journal does not match the pinned 0047-0050 chain')
-  }
-  const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1232-chain-'))
-  mkdirSync(join(folder, 'meta'))
-  writeFileSync(
-    join(folder, 'meta', '_journal.json'),
-    JSON.stringify({ ...main, entries: [...main.entries, ...candidate.entries] })
-  )
-  for (const entry of main.entries) {
-    copyFileSync(`${DRIZZLE_DIR}/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`))
-  }
-  for (const tag of CANDIDATE_TAGS) {
-    copyFileSync(`${CANDIDATE_DIR}/${tag}.sql`, join(folder, `${tag}.sql`))
-  }
-  return folder
-}
-
 const identity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
   capturedAt: new Date('2026-01-05T00:00:00.000Z'),
-  rehearsalId: 'rehearsal-candidate-1232',
+  rehearsalId: 'rehearsal-canonical-chain',
   snapshotId,
   source: 'integration',
 })
@@ -102,7 +53,7 @@ const identity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => 
 function requireProvisioningUrl(): string {
   if (!provisioningUrl) {
     throw new Error(
-      'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set. In CI this means the Docker capture provisioning did not run, and the candidate rehearsal refuses to skip silently.'
+      'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set. In CI this means the Docker capture provisioning did not run, and the canonical chain rehearsal refuses to skip silently.'
     )
   }
   return provisioningUrl
@@ -125,7 +76,7 @@ async function adminExecute(statement: string): Promise<void> {
 
 /** The 0050 backfill, statement by statement, exactly as drizzle would split it. */
 function backfillStatements(): string[] {
-  const text = readFileSync(`${CANDIDATE_DIR}/0050_group_legacy_backfill.sql`, 'utf8')
+  const text = readFileSync(`${CANONICAL_DIR}/0050_group_legacy_backfill.sql`, 'utf8')
   return text
     .split('--> statement-breakpoint')
     .map((part) => part.replace(/^(\s*--[^\n]*\n)*/g, '').trim())
@@ -138,15 +89,17 @@ let scenario: Promise<Scenario> | undefined
 
 async function executeScenario() {
   requireProvisioningUrl()
-  const candidate = verifiedCandidate()
+  const chain = canonicalChainFolders()
+  resources.preFolder = chain.root
   const scratch = `${SCRATCH_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
   resources.scratch = scratch
   await adminExecute(`create database "${scratch}"`)
   const connection: DatabaseConnection = createDatabase(urlForDatabase(scratch))
   resources.connection = connection
 
-  // Main schema through 0046 only, then the fixture on that schema.
-  await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+  // Stage one: main through 0046, then #1229 and #1230. This is the state before #1232 lands.
+  await migrate(connection.db, { migrationsFolder: chain.stageOne })
+  const stageOneRecorded = await recordedMigrationTimes(connection)
   const suffix = crypto.randomUUID()
   const expiresAt = new Date(Date.now() + 600_000)
   const session = async (name: string) =>
@@ -201,10 +154,19 @@ async function executeScenario() {
   const before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
   const participantsBefore = await participantRows(connection, workspaceId)
 
-  // Apply the candidate chain: 0047-0050, including the 0050 backfill, through drizzle.
-  const chain = combinedMigrationsFolder()
-  resources.preFolder = chain
-  await migrate(connection.db, { migrationsFolder: chain })
+  // Then the rest of the canonical chain: #1232's 0049 and 0050 backfill, applied on a database
+  // that already holds 0048. The recorded migrations are checked against the journal below.
+  await migrate(connection.db, { migrationsFolder: chain.full })
+  const applied = appliedAgainstJournal(
+    chain.fullEntries,
+    stageOneRecorded,
+    await recordedMigrationTimes(connection)
+  )
+  if (applied.missing.length > 0 || applied.duplicates.length > 0) {
+    throw new Error(
+      `canonical chain not applied as journaled: skipped ${JSON.stringify(applied.missing)}, repeated ${applied.duplicates.length}. Drizzle applies an entry only when its when is later than the newest recorded migration. Ordering: ${applied.orderViolations.join('; ') || 'none'}`
+    )
+  }
   const afterBackfill = {
     admissions: await admissionRows(connection, workspaceId),
     grants: await implicitGrantCount(connection, workspaceId),
@@ -242,7 +204,7 @@ async function executeScenario() {
   }
 
   return {
-    candidateHead: candidate.headSha,
+    chainApplied: applied,
     activeChannelId: active.id,
     archivedChannelId: archived.id,
     activeWithMember,
@@ -288,66 +250,150 @@ async function quarantineSurfaces(connection: DatabaseConnection): Promise<strin
   return rows.map((row) => row.table_name)
 }
 
+/** The `when` of every migration the database has recorded, in order of recording. */
+async function recordedMigrationTimes(connection: DatabaseConnection): Promise<number[]> {
+  const rows = await connection.db.execute<{ created_at: string }>(
+    sql`select created_at from drizzle.__drizzle_migrations order by id`
+  )
+  return rows.map((row) => Number(row.created_at))
+}
+
+/**
+ * Compares what the database recorded with the journal. Drizzle records a migration by its `when`,
+ * so a `when` missing from the recorded set is an entry the migrator skipped, and a repeated one
+ * is an entry applied twice.
+ */
+function appliedAgainstJournal(
+  expected: { tag: string; when: number }[],
+  recordedBeforeFull: number[],
+  recorded: number[]
+) {
+  const recordedSet = new Set(recorded)
+  return {
+    orderViolations: timestampOrderViolations(expected),
+    missing: expected.filter((entry) => !recordedSet.has(entry.when)).map((entry) => entry.tag),
+    duplicates: recorded.filter((when, index) => recorded.indexOf(when) !== index),
+    expectedCount: expected.length,
+    recordedBeforeFull,
+    recordedCount: recorded.length,
+    recorded,
+  }
+}
+
 function runScenario(): Promise<Scenario> {
   scenario ??= executeScenario()
   return scenario
 }
 
-describe.skipIf(!provisioningUrl && !inCi)('candidate #1232 group backfill rehearsal', () => {
-  afterAll(async () => {
-    const pending = scenario
-    scenario = undefined
-    await settleAndDispose(resources, pending, async (database) => {
-      if (!database.startsWith(SCRATCH_PREFIX)) throw new Error(`refusing to drop ${database}`)
-      await adminExecute(`drop database if exists "${database}" with (force)`)
-    })
-  }, 300_000)
-
-  test('the vendored candidate chain matches its sha256 pins and the pinned head', () => {
-    const candidate = verifiedCandidate()
-    expect(candidate.headSha).toBe('ac73eee1dcd8da3eec60fcb851265e0eaca583d8')
-    expect(candidate.entries.map((entry) => entry.tag)).toEqual([...CANDIDATE_TAGS])
+describe('incoming canonical chain (no database)', () => {
+  test('the canonical chain matches its pinned sources byte for byte, with the excluded migration absent', () => {
+    const { pins, entries } = verifiedCanonicalChain()
+    expect(pins.base.lastTag).toBe(CANONICAL_BASE_TAG)
+    expect(entries.map((entry) => entry.tag)).toEqual([
+      '0047_requested_role_model_selections',
+      '0048_graceful_prima',
+      '0049_group_participation_grants',
+      '0050_group_legacy_backfill',
+    ])
+    expect(pins.excluded.map((entry) => entry.tag)).toEqual(['0047_huge_hitman'])
   })
 
-  test('the backfill admits exactly the active group participants, once each', async () => {
-    const { participantsBefore, afterBackfill, activeChannelId, archivedChannelId } =
-      await runScenario()
-    expect(afterBackfill.admissions).toHaveLength(participantsBefore.length)
-    expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
-    const activeRows = afterBackfill.admissions.filter((row) => row.channel_id === activeChannelId)
-    expect(activeRows).toHaveLength(2)
-    for (const row of activeRows) {
-      expect(row.joined_sequence).toBe('0')
-      expect(String(row.auth_grant_id)).toMatch(/^implicit:member:/)
+  test('the assembled chain holds each migration once, on top of main through 0046', () => {
+    const chain = canonicalChainFolders()
+    try {
+      const files = readdirSync(chain.full)
+        .filter((name) => name.endsWith('.sql'))
+        .map((name) => name.replace(/\.sql$/, ''))
+        .toSorted()
+      const tags = chain.fullEntries.map((entry) => entry.tag)
+      expect(new Set(tags).size).toBe(tags.length)
+      expect(files).toEqual([...tags].toSorted())
+      expect(files).not.toContain('0047_huge_hitman')
+      // Main's live journal supplies idx 0-46 (through the base tag), then the approved order.
+      expect(tags.indexOf(CANONICAL_BASE_TAG)).toBe(46)
+      expect(tags.slice(47)).toEqual([
+        '0047_requested_role_model_selections',
+        '0048_graceful_prima',
+        '0049_group_participation_grants',
+        '0050_group_legacy_backfill',
+      ])
+    } finally {
+      rmSync(chain.root, { recursive: true, force: true })
     }
-    expect(afterBackfill.grants).toBe(participantsBefore.length)
   })
 
-  test('the 0050 backfill is idempotent: re-running its statements changes no row', async () => {
-    const { afterBackfill, afterRepeat } = await runScenario()
-    expect(afterRepeat.admissions).toEqual(afterBackfill.admissions)
-    expect(afterRepeat.grants).toBe(afterBackfill.grants)
-  })
-
-  test('the main capture families are unchanged across the candidate chain', async () => {
-    const { comparison } = await runScenario()
-    expect(comparison.findings).toEqual([])
-    expect(comparison.verdict).toBe('identical')
-  })
-
-  test('the existing read paths on main are unchanged for members and deny the outsider', async () => {
-    const { reads, activeChannelId } = await runScenario()
-    expect(reads.ownerActive).not.toBe('denied')
-    expect(reads.memberActive).not.toBe('denied')
-    expect(reads.outsiderActive).toBe('denied')
-    expect(activeChannelId).toBeTruthy()
-  })
-
-  test('no quarantine surface exists for ambiguous group records: the acceptance is unproven', async () => {
-    // Archived group participants are silently left out of the backfill (no admission row),
-    // and nothing records them as quarantined. Recorded here so the gap stays visible.
-    const { afterBackfill, archivedChannelId } = await runScenario()
-    expect(afterBackfill.quarantineSurfaces).toEqual([])
-    expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
+  test('the canonical timestamps ascend, so drizzle applies every entry to a database already at 0048', () => {
+    const chain = canonicalChainFolders()
+    try {
+      expect(timestampOrderViolations(chain.fullEntries)).toEqual([])
+    } finally {
+      rmSync(chain.root, { recursive: true, force: true })
+    }
   })
 })
+
+describe.skipIf(!provisioningUrl && !inCi)(
+  'incoming canonical chain group backfill rehearsal',
+  () => {
+    afterAll(async () => {
+      const pending = scenario
+      scenario = undefined
+      await settleAndDispose(resources, pending, async (database) => {
+        if (!database.startsWith(SCRATCH_PREFIX)) throw new Error(`refusing to drop ${database}`)
+        await adminExecute(`drop database if exists "${database}" with (force)`)
+      })
+    }, 300_000)
+
+    test('incremental application records every canonical migration exactly once', async () => {
+      const { chainApplied } = await runScenario()
+      expect(chainApplied.orderViolations).toEqual([])
+      expect(chainApplied.missing).toEqual([])
+      expect(chainApplied.duplicates).toEqual([])
+      expect(chainApplied.recordedCount).toBe(chainApplied.expectedCount)
+    })
+
+    test('the backfill admits exactly the active group participants, once each', async () => {
+      const { participantsBefore, afterBackfill, activeChannelId, archivedChannelId } =
+        await runScenario()
+      expect(afterBackfill.admissions).toHaveLength(participantsBefore.length)
+      expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
+      const activeRows = afterBackfill.admissions.filter(
+        (row) => row.channel_id === activeChannelId
+      )
+      expect(activeRows).toHaveLength(2)
+      for (const row of activeRows) {
+        expect(row.joined_sequence).toBe('0')
+        expect(String(row.auth_grant_id)).toMatch(/^implicit:member:/)
+      }
+      expect(afterBackfill.grants).toBe(participantsBefore.length)
+    })
+
+    test('the 0050 backfill is idempotent: re-running its statements changes no row', async () => {
+      const { afterBackfill, afterRepeat } = await runScenario()
+      expect(afterRepeat.admissions).toEqual(afterBackfill.admissions)
+      expect(afterRepeat.grants).toBe(afterBackfill.grants)
+    })
+
+    test('the main capture families are unchanged across the canonical chain', async () => {
+      const { comparison } = await runScenario()
+      expect(comparison.findings).toEqual([])
+      expect(comparison.verdict).toBe('identical')
+    })
+
+    test('the existing read paths on main are unchanged for members and deny the outsider', async () => {
+      const { reads, activeChannelId } = await runScenario()
+      expect(reads.ownerActive).not.toBe('denied')
+      expect(reads.memberActive).not.toBe('denied')
+      expect(reads.outsiderActive).toBe('denied')
+      expect(activeChannelId).toBeTruthy()
+    })
+
+    test('no quarantine surface exists for ambiguous group records: the acceptance is unproven', async () => {
+      // Archived group participants are silently left out of the backfill (no admission row),
+      // and nothing records them as quarantined. Recorded here so the gap stays visible.
+      const { afterBackfill, archivedChannelId } = await runScenario()
+      expect(afterBackfill.quarantineSurfaces).toEqual([])
+      expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
+    })
+  }
+)
