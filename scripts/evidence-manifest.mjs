@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Evidence manifest validator for Adea #1225 (parent #1183, M18.03).
@@ -20,7 +21,8 @@ import { fileURLToPath } from 'node:url'
 //      version, and a passing JUnit receipt of its own.
 // `coverage: complete` is only accepted with criteria, each citing runner-verified
 // tests, and no gaps. Anything else stays `pending` with its gaps listed. Local
-// checkouts are supplied by the caller and must contain the declared root commit.
+// checkouts are used only when they contain the declared root commit. Otherwise the pinned
+// commit is read through the authorized source (openAuthorizedCheckout), within bounds.
 // Files are read only when they are regular, within the root, and under
 // MAX_EVIDENCE_BYTES. Unmapped ids stay `pending`.
 // Git reads run under explicit deadlines and output limits (runCommand). A failed or
@@ -261,17 +263,178 @@ function workingFiles(root) {
  * the home repository, whose checkout also holds the working-tree artifact records.
  * A repository key with no mapping has no checkout, so its references stay invalid.
  */
-export function repositoryIo(mapping) {
+// Authorized read of one pinned commit from its declared repository. It uses the git remote
+// credentials the checkout already has, and no new ones. It fetches the commit graph only, with
+// no trees or blobs. It deepens in bounded steps until the declared root is found as a
+// parentless ancestor of the pin, until the history is complete, or until the last step. Trees
+// and blobs load lazily, and only at the pinned commit. Nothing is unshallowed.
+export const AUTHORIZED_DEPTH_STEPS = Object.freeze([256, 1024, 4096, 16384])
+const AUTHORIZED_SETUP_TIMEOUT_MS = 30_000
+const AUTHORIZED_FETCH_TIMEOUT_MS = 120_000
+
+// Commits listed in a bare repository's `shallow` file: the boundary of a truncated history.
+function shallowBoundary(dir) {
+  const path = join(dir, 'shallow')
+  return existsSync(path)
+    ? new Set(readFileSync(path, 'utf8').split('\n').filter(Boolean))
+    : new Set()
+}
+
+/**
+ * Open a bounded authorized read of one declared pin. The checkout answers only for the pinned
+ * commit, and any other revision throws. A failed step throws a CommandError that names the
+ * repository and the pin, after the temporary clone is removed. Call `close()` when done.
+ */
+export function openAuthorizedCheckout(declaration, options = {}) {
+  const { name, rootCommit, sourceSha: pin } = declaration
+  const {
+    remoteBase = 'https://github.com/',
+    scratch = tmpdir(),
+    git = 'git',
+    depthSteps = AUTHORIZED_DEPTH_STEPS,
+    timeoutMs = AUTHORIZED_FETCH_TIMEOUT_MS,
+  } = options
+  if (depthSteps.length === 0)
+    throw new Error('openAuthorizedCheckout needs at least one depth step')
+  const dir = mkdtempSync(join(scratch, 'adea-evidence-authorized-'))
+  const close = () => rmSync(dir, { recursive: true, force: true })
+  const run = (args, budget) =>
+    runCommand(git, args, { cwd: dir, timeoutMs: budget, env: { ...process.env, ...GIT_ENV } })
+  try {
+    const setup = [
+      ['init', '-q', '--bare'],
+      ['config', 'remote.origin.url', `${remoteBase}${name}.git`],
+      ['config', 'remote.origin.promisor', 'true'],
+      ['config', 'remote.origin.partialclonefilter', 'tree:0'],
+      ['config', 'extensions.partialClone', 'origin'],
+    ]
+    for (const args of setup) run(args, Math.min(timeoutMs, AUTHORIZED_SETUP_TIMEOUT_MS))
+    let roots = []
+    let depth = 0
+    let found = false
+    let complete = false
+    // git marks the commit at the depth limit as a boundary even when it has no parents. A
+    // boundary is unresolved only while it still has parents. A commit without parents is a root.
+    const hasParents = (sha) => /^parent /m.test(run(['cat-file', '-p', sha], GIT_READ_TIMEOUT_MS))
+    for (const step of depthSteps) {
+      run(
+        ['fetch', '--quiet', '--no-tags', '--filter=tree:0', `--depth=${step}`, 'origin', pin],
+        timeoutMs
+      )
+      depth = step
+      const boundary = shallowBoundary(dir)
+      roots = run(['rev-list', '--max-parents=0', pin], GIT_READ_TIMEOUT_MS)
+        .split('\n')
+        .filter(Boolean)
+      complete = roots.every((sha) => !boundary.has(sha) || !hasParents(sha))
+      found = roots.includes(rootCommit) && !hasParents(rootCommit)
+      if (found || complete) break
+    }
+    if (!found && !complete) {
+      throw new CommandError(
+        'depth-limit',
+        `pinned history is not complete within depth ${depth} and the root was not found`
+      )
+    }
+    const local = gitCheckout(dir, { timeoutMs: GIT_READ_TIMEOUT_MS })
+    const reportedRoots = found ? [rootCommit] : roots
+    const requirePin = (sha) => {
+      if (sha !== pin) {
+        throw new CommandError(
+          'unpinned',
+          `authorized read of ${name} answers only for ${pin}, not ${sha}`
+        )
+      }
+    }
+    return {
+      checkout: {
+        commitExists: (sha) => sha === pin && local.commitExists(sha),
+        rootCommits: (sha) => {
+          requirePin(sha)
+          return [...reportedRoots]
+        },
+        blobAtSha: (sha, path) => {
+          requirePin(sha)
+          return local.blobAtSha(sha, path)
+        },
+      },
+      depth,
+      found,
+      complete,
+      close,
+    }
+  } catch (error) {
+    close()
+    if (error instanceof CommandError) {
+      throw new CommandError(error.code, `cannot read ${pin} from ${name}: ${error.message}`, {
+        command: error.command,
+        args: error.args,
+        status: error.status,
+        signal: error.signal,
+        stderr: error.stderr,
+      })
+    }
+    throw error
+  }
+}
+
+/**
+ * Checkouts for the declared repositories. A local checkout is used only when it proves the pinned
+ * commit and its root. With `authorized` options, a repository that the local checkout cannot
+ * prove is read through openAuthorizedCheckout instead. Sessions open lazily, and `close()`
+ * removes them.
+ */
+export function repositoryIo(mapping, { manifest = null, authorized = null } = {}) {
   const home = mapping[HOME_REPOSITORY]
   if (typeof home !== 'string') throw new Error(`repository mapping needs ${HOME_REPOSITORY}`)
-  const checkouts = new Map(
+  const locals = new Map(
     Object.entries(mapping).map(([key, path]) => [key, gitCheckout(resolve(path))])
   )
-  const workingFile = workingFiles(resolve(home))
-  return {
-    checkout: (repository) => checkouts.get(repository) ?? null,
-    workingFile,
+  const chosen = new Map()
+  const sources = {}
+  const sessions = []
+  const checkout = (repository) => {
+    if (chosen.has(repository)) return chosen.get(repository)
+    const local = locals.get(repository) ?? null
+    const declaration = isObject(manifest?.repositories)
+      ? manifest.repositories[repository]
+      : undefined
+    const pinned =
+      isObject(declaration) &&
+      typeof declaration.name === 'string' &&
+      REPO_NAME.test(declaration.name) &&
+      typeof declaration.rootCommit === 'string' &&
+      SHA.test(declaration.rootCommit) &&
+      typeof declaration.sourceSha === 'string' &&
+      SHA.test(declaration.sourceSha)
+    let result = local
+    sources[repository] = local ? 'local' : 'unmapped'
+    if (authorized && pinned && !(local && proves(local, declaration))) {
+      const session = openAuthorizedCheckout(declaration, authorized)
+      sessions.push(session)
+      result = session.checkout
+      sources[repository] =
+        `authorized (depth ${session.depth}${session.complete ? ', history complete' : ''})`
+    }
+    chosen.set(repository, result)
+    return result
   }
+  return {
+    checkout,
+    workingFile: workingFiles(resolve(home)),
+    sources: () => ({ ...sources }),
+    close: () => {
+      for (const session of sessions) session.close()
+    },
+  }
+}
+
+// A local checkout proves a declared pin when it has the commit and the root is one of its roots.
+function proves(local, declaration) {
+  return (
+    local.commitExists(declaration.sourceSha) &&
+    local.rootCommits(declaration.sourceSha).includes(declaration.rootCommit)
+  )
 }
 
 function checkTestReference(item, checkout, manifest) {
@@ -841,12 +1004,19 @@ const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const defaultManifest = 'docs/plans/m18-evidence-manifest.json'
 
 /** Human summary: the revisions checked, every invalid id, and the explicit certification state. */
-function summarize(manifest, report) {
+function summarize(manifest, report, provenance = {}) {
   const lines = []
   const revisions = Object.entries(manifest.repositories ?? {})
     .map(([key, repo]) => `${key}@${repo?.sourceSha}`)
     .join(' ')
   lines.push(`revisions: ${revisions}`)
+  if (Object.keys(provenance).length > 0) {
+    lines.push(
+      `sources: ${Object.entries(provenance)
+        .map(([key, value]) => `${key} ${value}`)
+        .join('; ')}`
+    )
+  }
   lines.push(JSON.stringify(report.counts))
   for (const error of report.schemaErrors) lines.push(`schema: ${error}`)
   for (const result of report.results.filter((r) => r.status === STATUS.invalid)) {
@@ -877,8 +1047,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = process.argv.slice(2)
   const strict = args.includes('--strict')
   const json = args.includes('--json')
+  const localOnly = args.includes('--local-only')
   const mapping = { [HOME_REPOSITORY]: repoRoot }
   const positional = []
+  let io = null
   try {
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index]
@@ -893,9 +1065,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
     const manifestPath = resolve(repoRoot, positional[0] ?? defaultManifest)
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-    const report = validateEvidenceManifest(manifest, repositoryIo(mapping), { strict })
+    io = repositoryIo(mapping, { manifest, authorized: localOnly ? null : {} })
+    const report = validateEvidenceManifest(manifest, io, { strict })
     process.stdout.write(
-      json ? `${JSON.stringify(report, null, 2)}\n` : `${summarize(manifest, report)}\n`
+      json
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : `${summarize(manifest, report, io.sources())}\n`
     )
     if (strict && report.schemaErrors.length === 0 && !report.ok) {
       process.stdout.write('strict: not every id is candidate-compatible\n')
@@ -904,5 +1079,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     process.exitCode = 1
+  } finally {
+    io?.close()
   }
 }

@@ -94,12 +94,14 @@ Paths are repo-relative POSIX paths with no `..`, absolute prefix, or empty segm
   and is human-authored.
 - Local checkouts are trusted to be honest copies of the named repository. The root-commit
   check catches the wrong repository, not forged history.
-- A shallow checkout (for example, CI's default depth) may lack the pinned commit or root, and
-  validation then fails closed. The committed-manifest test does not depend on the checkout: it reads
-  the pinned commit and its history from the declared repository (a treeless partial clone fetched by
-  exact SHA) and never skips. A different repository or an unknown revision fails that read. Every
-  git step has a deadline. A timed-out or failed step fails the read, and a failed clone is
-  removed. Validation reports a failed or timed-out git read as a `git read failed` schema error
-  and fails closed. It is never a pass, a skip or a missing file.
+- A shallow checkout (for example, CI's default depth) lacks the pinned root locally. Validation then
+  reads the pinned commit from the declared repository through the git remote credentials the checkout
+  already has, with no new credentials. The read fetches the commit graph only (`tree:0`), deepening in
+  bounded steps (256, 1024, 4096, 16384 commits) until the declared root is found as a parentless
+  ancestor, the history is complete, or the last step is reached. It never unshallows. Trees and blobs
+  load lazily, and only at the pinned commit. A different repository, an unknown revision, a root that
+  is not found within the bound, or a root with parents fails closed. `--local-only` turns the read off.
+- Every git read has a deadline and an output limit. A timed-out or failed read is reported as a
+  `git read failed` schema error and fails validation closed. It is never a pass, a skip or a missing file.
 - The #1225 PRD and TDD (Google Docs) define the requirement and A-id text. They are not in this
   repository, so the manifest carries ids and gaps only.

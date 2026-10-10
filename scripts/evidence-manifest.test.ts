@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -15,12 +15,13 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   ACCEPTANCE_IDS,
+  CommandError,
+  gitCheckout,
   MAX_EVIDENCE_BYTES,
+  openAuthorizedCheckout,
   parseJunit,
   REQUIRED_IDS,
   REQUIREMENT_IDS,
-  CommandError,
-  gitCheckout,
   repositoryIo,
   runCommand,
   STATUS,
@@ -203,54 +204,6 @@ function completeA01({ overrides = {}, run = runFor('artifacts/a01-run'), extra 
 }
 
 const statusOf = (report, id) => report.results.find((result) => result.id === id)
-
-/**
- * Authorized read of the declared repository at one pinned commit: a treeless partial clone
- * fetched by exact SHA. The commit graph arrives with the commit, and trees and blobs load
- * lazily from the same remote. A different repository, or a revision it does not contain,
- * fails to read and throws. Every git step has a deadline, and a failed step removes the
- * temporary clone before it throws. Nothing here relies on the local checkout's history.
- */
-const SETUP_TIMEOUT_MS = 30_000
-const FETCH_TIMEOUT_MS = 120_000
-function fetchPinnedHistory(
-  name,
-  pin,
-  {
-    remote = `https://github.com/${name}.git`,
-    git = 'git',
-    timeoutMs = FETCH_TIMEOUT_MS,
-    scratch = tmpdir(),
-  } = {}
-) {
-  const dir = mkdtempSync(join(scratch, 'adea-evidence-origin-'))
-  const run = (args, budget) =>
-    runCommand(git, args, {
-      cwd: dir,
-      timeoutMs: budget,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_HTTP_LOW_SPEED_LIMIT: '1000',
-        GIT_HTTP_LOW_SPEED_TIME: '30',
-      },
-    })
-  try {
-    const setup = [
-      ['init', '-q', '--bare'],
-      ['config', 'remote.origin.url', remote],
-      ['config', 'remote.origin.promisor', 'true'],
-      ['config', 'remote.origin.partialclonefilter', 'tree:0'],
-      ['config', 'extensions.partialClone', 'origin'],
-    ]
-    for (const args of setup) run(args, Math.min(timeoutMs, SETUP_TIMEOUT_MS))
-    run(['fetch', '--quiet', '--no-tags', '--filter=tree:0', 'origin', pin], timeoutMs)
-    return dir
-  } catch (error) {
-    rmSync(dir, { recursive: true, force: true })
-    throw new Error(`cannot read ${pin} from ${name}: ${error.message}`, { cause: error })
-  }
-}
 
 describe('evidence manifest id universe', () => {
   test('covers the 24 requirements and A01–A40 named by #1225', () => {
@@ -792,11 +745,10 @@ describe('bounded git subprocesses (fail closed)', () => {
     const scratch = mkdtempSync(join(tmpdir(), 'adea-evidence-scratch-'))
     try {
       const error = failureOf(() =>
-        fetchPinnedHistory('adea-ai/adea', pin, {
-          remote: 'file:///adea-evidence-no-such-remote',
-          timeoutMs: 20_000,
-          scratch,
-        })
+        openAuthorizedCheckout(
+          { name: 'adea-ai/adea', rootCommit, sourceSha: pin },
+          { remoteBase: 'file:///adea-evidence-no-such-base/', scratch }
+        )
       )
       expect(error.message).toContain('cannot read')
       expect(readdirSync(scratch)).toEqual([])
@@ -811,7 +763,10 @@ describe('bounded git subprocesses (fail closed)', () => {
       const hung = fakeGit('exec sleep 30')
       const started = Date.now()
       const error = failureOf(() =>
-        fetchPinnedHistory('adea-ai/adea', pin, { git: hung, timeoutMs: 300, scratch })
+        openAuthorizedCheckout(
+          { name: 'adea-ai/adea', rootCommit, sourceSha: pin },
+          { git: hung, timeoutMs: 300, scratch }
+        )
       )
       expect(error.message).toContain('timed out after 300 ms')
       expect(Date.now() - started).toBeLessThan(15_000)
@@ -827,28 +782,23 @@ describe('committed manifest at its pinned commit (authorized read)', () => {
     readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
   )
   const { name, rootCommit, sourceSha: pin } = committed.repositories.adea
-  let history = ''
+  // The production reader: the local checkout when it proves the pin, otherwise a bounded
+  // authorized read of the pinned commit from the declared repository. Never a skip.
+  const openIo = (declared) => repositoryIo({ adea: root }, { manifest: declared, authorized: {} })
 
-  beforeAll(() => {
-    history = fetchPinnedHistory(name, pin)
-  }, 180_000)
-  afterAll(() => {
-    if (history) rmSync(history, { recursive: true, force: true })
-  })
-
-  /** Git reads come from the authorized read; working artifacts come from this checkout. */
-  const authorizedIo = () => ({
-    checkout: (repository) => (repository === 'adea' ? gitCheckout(history) : null),
-    workingFile: repositoryIo({ adea: root }).workingFile,
-  })
-
-  test('the pinned commit and its immutable root validate the committed manifest, without local history', () => {
-    const report = validateEvidenceManifest(committed, authorizedIo())
-    expect(report.schemaErrors).toEqual([])
-    expect(report.ok).toBe(true)
-    expect(report.counts[STATUS.invalid]).toBe(0)
-    expect(report.counts[STATUS.candidateCompatible]).toBe(0)
-    expect(report.counts[STATUS.pending]).toBe(REQUIRED_IDS.length)
+  test('the committed manifest validates through the real-git path at any checkout depth', () => {
+    const io = openIo(committed)
+    try {
+      const report = validateEvidenceManifest(committed, io)
+      expect(report.schemaErrors).toEqual([])
+      expect(report.ok).toBe(true)
+      expect(report.counts[STATUS.invalid]).toBe(0)
+      expect(report.counts[STATUS.candidateCompatible]).toBe(0)
+      expect(report.counts[STATUS.pending]).toBe(REQUIRED_IDS.length)
+      expect(io.sources().adea).toMatch(/^(local|authorized)/)
+    } finally {
+      io.close()
+    }
   }, 180_000)
 
   test('a different immutable root is refused by the identity check', () => {
@@ -857,18 +807,27 @@ describe('committed manifest at its pinned commit (authorized read)', () => {
       ...committed,
       repositories: { adea: { ...committed.repositories.adea, rootCommit: wrongRoot } },
     }
-    const report = validateEvidenceManifest(mutated, authorizedIo())
-    expect(report.schemaErrors).toEqual([
-      `local checkout for adea is not adea-ai/adea (root ${wrongRoot} absent)`,
-    ])
-    expect(report.ok).toBe(false)
+    const io = openIo(mutated)
+    try {
+      const report = validateEvidenceManifest(mutated, io)
+      expect(report.schemaErrors).toEqual([
+        `local checkout for adea is not adea-ai/adea (root ${wrongRoot} absent)`,
+      ])
+      expect(report.ok).toBe(false)
+    } finally {
+      io.close()
+    }
   }, 180_000)
 
   test('the pinned commit cannot be read from another repository or from an unknown revision', () => {
-    expect(() => fetchPinnedHistory('adea-ai/control-plane', pin)).toThrow('cannot read')
-    expect(() => fetchPinnedHistory(name, '1'.repeat(40))).toThrow('cannot read')
+    expect(() =>
+      openAuthorizedCheckout({ name: 'adea-ai/control-plane', rootCommit, sourceSha: pin })
+    ).toThrow('cannot read')
+    expect(() => openAuthorizedCheckout({ name, rootCommit, sourceSha: '1'.repeat(40) })).toThrow(
+      'cannot read'
+    )
     expect(rootCommit).toBe('663f2bd9133cd8bd3b4576224eb1caabf96cc34b')
-  }, 60_000)
+  }, 180_000)
 
   test('evidence pinned to another revision is refused by its own envelopes', () => {
     const older = '34e173df7bf4654d53e2b4daed5ff41239cafd8b'
@@ -876,17 +835,170 @@ describe('committed manifest at its pinned commit (authorized read)', () => {
       ...committed,
       repositories: { adea: { ...committed.repositories.adea, sourceSha: older } },
     }
-    const report = validateEvidenceManifest(mutated, authorizedIo())
-    expect(report.schemaErrors).toEqual([])
-    expect(report.ok).toBe(false)
-    expect(
-      report.results.some((result) =>
-        result.reasons.some((reason) =>
-          reason.includes(`execution envelope pins ${pin}, adea pins ${older}`)
+    const io = openIo(mutated)
+    try {
+      const report = validateEvidenceManifest(mutated, io)
+      expect(report.schemaErrors).toEqual([])
+      expect(report.ok).toBe(false)
+      expect(
+        report.results.some((result) =>
+          result.reasons.some((reason) =>
+            reason.includes(`execution envelope pins ${pin}, adea pins ${older}`)
+          )
         )
-      )
-    ).toBe(true)
+      ).toBe(true)
+    } finally {
+      io.close()
+    }
   }, 180_000)
+})
+
+// Stand-ins for the declared remote and the shallow clone the blind spot describes.
+const gitIn = (cwd, args) => {
+  const result = spawnSync(
+    'git',
+    ['-c', 'user.name=f', '-c', 'user.email=f@example.invalid', ...args],
+    {
+      cwd,
+      encoding: 'utf8',
+    }
+  )
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+  return result.stdout.trim()
+}
+// The pinned tip and no history beyond it, cloned from the source's remote base.
+const shallowClone = ({ base, remoteBase }, label) => {
+  const local = join(base, label)
+  const result = spawnSync(
+    'git',
+    ['clone', '-q', '--depth', '1', `${remoteBase}fixture/adea.git`, local],
+    {
+      encoding: 'utf8',
+    }
+  )
+  if (result.status !== 0) throw new Error(`clone failed: ${result.stderr}`)
+  return local
+}
+const declaration = (commits, overrides = {}) => ({
+  name: 'fixture/adea',
+  rootCommit: commits[0],
+  sourceSha: commits[2],
+  ...overrides,
+})
+
+describe('shallow checkout with the pinned root absent', () => {
+  const dirs = []
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
+  })
+  // A source repository standing in for the declared remote: three commits, the first being the
+  // root. Partial and by-SHA uploads are enabled, as they are on the declared remote.
+  const source = () => {
+    const base = mkdtempSync(join(tmpdir(), 'adea-evidence-source-'))
+    dirs.push(base)
+    const work = join(base, 'work')
+    mkdirSync(work)
+    gitIn(work, ['init', '-q'])
+    const commits = ['one', 'two', 'three'].map((body) => {
+      writeFileSync(join(work, 'x.test.ts'), `test('${body}', () => {})\n`)
+      gitIn(work, ['add', '-A'])
+      gitIn(work, ['commit', '-q', '-m', body])
+      return gitIn(work, ['rev-parse', 'HEAD'])
+    })
+    mkdirSync(join(base, 'remote', 'fixture'), { recursive: true })
+    const remote = join(base, 'remote', 'fixture', 'adea.git')
+    gitIn(base, ['clone', '-q', '--bare', work, remote])
+    gitIn(remote, ['config', 'uploadpack.allowFilter', 'true'])
+    gitIn(remote, ['config', 'uploadpack.allowAnySHA1InWant', 'true'])
+    return { base, commits, remoteBase: `file://${join(base, 'remote')}/` }
+  }
+
+  test('a shallow clone cannot prove the pinned root locally', () => {
+    const src = source()
+    const io = repositoryIo({ adea: shallowClone(src, 'shallow') })
+    const checkout = io.checkout('adea')
+    expect(checkout.commitExists(src.commits[2])).toBe(true)
+    expect(checkout.rootCommits(src.commits[2])).not.toContain(src.commits[0])
+  })
+
+  test('the authorized read proves the root and binds blobs to the pinned commit', () => {
+    const src = source()
+    const io = repositoryIo(
+      { adea: shallowClone(src, 'shallow') },
+      {
+        manifest: { repositories: { adea: declaration(src.commits) } },
+        authorized: { remoteBase: src.remoteBase },
+      }
+    )
+    try {
+      const checkout = io.checkout('adea')
+      expect(checkout.rootCommits(src.commits[2])).toEqual([src.commits[0]])
+      expect(checkout.commitExists(src.commits[2])).toBe(true)
+      expect(checkout.commitExists(src.commits[1])).toBe(false)
+      const blob = checkout.blobAtSha(src.commits[2], 'x.test.ts')
+      expect(blob.bytes().toString('utf8')).toContain("test('three'")
+      expect(() => checkout.blobAtSha(src.commits[1], 'x.test.ts')).toThrow('answers only for')
+      expect(io.sources().adea).toBe('authorized (depth 256, history complete)')
+    } finally {
+      io.close()
+    }
+  })
+
+  test('the read deepens in bounded steps until the root is reached', () => {
+    const src = source()
+    const session = openAuthorizedCheckout(declaration(src.commits), {
+      remoteBase: src.remoteBase,
+      depthSteps: [1, 3],
+    })
+    try {
+      expect(session.depth).toBe(3)
+      expect(session.found).toBe(true)
+      expect(session.checkout.rootCommits(src.commits[2])).toEqual([src.commits[0]])
+    } finally {
+      session.close()
+    }
+  })
+
+  test('a root the pin does not have, or a root with parents, is not proven', () => {
+    const src = source()
+    for (const [label, rootCommit] of [
+      ['absent', '5'.repeat(40)],
+      ['with-parents', src.commits[1]],
+    ]) {
+      const io = repositoryIo(
+        { adea: shallowClone(src, `shallow-${label}`) },
+        {
+          manifest: { repositories: { adea: declaration(src.commits, { rootCommit }) } },
+          authorized: { remoteBase: src.remoteBase },
+        }
+      )
+      try {
+        expect(io.checkout('adea').rootCommits(src.commits[2])).toEqual([src.commits[0]])
+        expect(io.checkout('adea').rootCommits(src.commits[2])).not.toContain(rootCommit)
+      } finally {
+        io.close()
+      }
+    }
+  })
+
+  test('an unknown pinned commit fails the authorized read explicitly', () => {
+    const src = source()
+    expect(() =>
+      openAuthorizedCheckout(declaration(src.commits, { sourceSha: '1'.repeat(40) }), {
+        remoteBase: src.remoteBase,
+      })
+    ).toThrow('cannot read')
+  })
+
+  test('the depth bound is enforced and reported', () => {
+    const src = source()
+    expect(() =>
+      openAuthorizedCheckout(declaration(src.commits), {
+        remoteBase: src.remoteBase,
+        depthSteps: [1],
+      })
+    ).toThrow('depth 1')
+  })
 })
 
 describe('parseJunit', () => {
