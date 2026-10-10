@@ -20,6 +20,7 @@ import { Route as ApiMarketplaceCatalogRouteImport } from './routes/api/marketpl
 import { Route as ApiMarketplaceInstallRouteImport } from './routes/api/marketplace/install'
 import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/marketplace/install-plan'
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
+import { Route as ApiV1PortableImportsRouteImport } from './routes/api/v1/portable-imports'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ApiWorkspacesArchivedRouteImport } from './routes/api/workspaces/archived'
@@ -54,6 +55,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './rou
 import { Route as ApiV1WorkspacesWorkspaceIdEventsRouteImport } from './routes/api/v1/workspaces/$workspaceId/events'
 import { Route as ApiV1WorkspacesWorkspaceIdInvitationsRouteImport } from './routes/api/v1/workspaces/$workspaceId/invitations'
 import { Route as ApiV1WorkspacesWorkspaceIdMembersRouteImport } from './routes/api/v1/workspaces/$workspaceId/members'
+import { Route as ApiV1WorkspacesWorkspaceIdPortableExportRouteImport } from './routes/api/v1/workspaces/$workspaceId/portable-export'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state'
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
@@ -169,6 +171,11 @@ const ApiTelemetryScenePerformanceRoute =
     path: '/api/telemetry/scene-performance',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1PortableImportsRoute = ApiV1PortableImportsRouteImport.update({
+  id: '/api/v1/portable-imports',
+  path: '/api/v1/portable-imports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiWorkspaceInvitationsAcceptRoute =
   ApiWorkspaceInvitationsAcceptRouteImport.update({
     id: '/api/workspace-invitations/accept',
@@ -359,6 +366,12 @@ const ApiV1WorkspacesWorkspaceIdMembersRoute =
   ApiV1WorkspacesWorkspaceIdMembersRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/members',
     path: '/api/v1/workspaces/$workspaceId/members',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdPortableExportRoute =
+  ApiV1WorkspacesWorkspaceIdPortableExportRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/portable-export',
+    path: '/api/v1/workspaces/$workspaceId/portable-export',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsRoute =
@@ -725,6 +738,7 @@ export interface FileRoutesByFullPath {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
@@ -759,6 +773,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
+  '/api/v1/workspaces/$workspaceId/portable-export': typeof ApiV1WorkspacesWorkspaceIdPortableExportRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -829,6 +844,7 @@ export interface FileRoutesByTo {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
@@ -863,6 +879,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
+  '/api/v1/workspaces/$workspaceId/portable-export': typeof ApiV1WorkspacesWorkspaceIdPortableExportRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -934,6 +951,7 @@ export interface FileRoutesById {
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
+  '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
@@ -968,6 +986,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/invitations': typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/members': typeof ApiV1WorkspacesWorkspaceIdMembersRoute
+  '/api/v1/workspaces/$workspaceId/portable-export': typeof ApiV1WorkspacesWorkspaceIdPortableExportRoute
   '/api/v1/workspaces/$workspaceId/projects': typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -1040,6 +1059,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
@@ -1074,6 +1094,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/invitations'
     | '/api/v1/workspaces/$workspaceId/members'
+    | '/api/v1/workspaces/$workspaceId/portable-export'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -1144,6 +1165,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
@@ -1178,6 +1200,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/invitations'
     | '/api/v1/workspaces/$workspaceId/members'
+    | '/api/v1/workspaces/$workspaceId/portable-export'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -1248,6 +1271,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
     | '/api/telemetry/scene-performance'
+    | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
@@ -1282,6 +1306,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/invitations'
     | '/api/v1/workspaces/$workspaceId/members'
+    | '/api/v1/workspaces/$workspaceId/portable-export'
     | '/api/v1/workspaces/$workspaceId/projects'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -1353,6 +1378,7 @@ export interface RootRouteChildren {
   ApiMarketplaceInstallRoute: typeof ApiMarketplaceInstallRoute
   ApiMarketplaceInstallPlanRoute: typeof ApiMarketplaceInstallPlanRoute
   ApiTelemetryScenePerformanceRoute: typeof ApiTelemetryScenePerformanceRoute
+  ApiV1PortableImportsRoute: typeof ApiV1PortableImportsRoute
   ApiWorkspaceInvitationsAcceptRoute: typeof ApiWorkspaceInvitationsAcceptRoute
   AuthDesktopCompleteRoute: typeof AuthDesktopCompleteRoute
   ApiAuthDesktopAuthorizeRoute: typeof ApiAuthDesktopAuthorizeRoute
@@ -1374,6 +1400,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdEventsRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   ApiV1WorkspacesWorkspaceIdInvitationsRoute: typeof ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdMembersRoute: typeof ApiV1WorkspacesWorkspaceIdMembersRoute
+  ApiV1WorkspacesWorkspaceIdPortableExportRoute: typeof ApiV1WorkspacesWorkspaceIdPortableExportRoute
   ApiV1WorkspacesWorkspaceIdProjectsRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdReadStateRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   ApiV1WorkspacesWorkspaceIdSearchRoute: typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -1467,6 +1494,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/telemetry/scene-performance'
       fullPath: '/api/telemetry/scene-performance'
       preLoaderRoute: typeof ApiTelemetryScenePerformanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/portable-imports': {
+      id: '/api/v1/portable-imports'
+      path: '/api/v1/portable-imports'
+      fullPath: '/api/v1/portable-imports'
+      preLoaderRoute: typeof ApiV1PortableImportsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspace-invitations/accept': {
@@ -1705,6 +1739,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/members'
       fullPath: '/api/v1/workspaces/$workspaceId/members'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdMembersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/portable-export': {
+      id: '/api/v1/workspaces/$workspaceId/portable-export'
+      path: '/api/v1/workspaces/$workspaceId/portable-export'
+      fullPath: '/api/v1/workspaces/$workspaceId/portable-export'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdPortableExportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/projects': {
@@ -2527,6 +2568,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMarketplaceInstallRoute: ApiMarketplaceInstallRoute,
   ApiMarketplaceInstallPlanRoute: ApiMarketplaceInstallPlanRoute,
   ApiTelemetryScenePerformanceRoute: ApiTelemetryScenePerformanceRoute,
+  ApiV1PortableImportsRoute: ApiV1PortableImportsRoute,
   ApiWorkspaceInvitationsAcceptRoute: ApiWorkspaceInvitationsAcceptRoute,
   AuthDesktopCompleteRoute: AuthDesktopCompleteRoute,
   ApiAuthDesktopAuthorizeRoute: ApiAuthDesktopAuthorizeRoute,
@@ -2557,6 +2599,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdInvitationsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdMembersRoute:
     ApiV1WorkspacesWorkspaceIdMembersRoute,
+  ApiV1WorkspacesWorkspaceIdPortableExportRoute:
+    ApiV1WorkspacesWorkspaceIdPortableExportRoute,
   ApiV1WorkspacesWorkspaceIdProjectsRoute:
     ApiV1WorkspacesWorkspaceIdProjectsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdReadStateRoute:

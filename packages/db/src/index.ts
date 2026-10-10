@@ -347,3 +347,16 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+export {
+  exportPortableWorkspace,
+  type PortableExportHooks,
+  readCompletePortableContent,
+} from './portable-export'
+export {
+  PORTABLE_SYSTEM_SENDER_ID,
+  PortableExportError,
+  type PortableExportFailureCode,
+  portableContentDigest,
+} from './portable-export-content'
+export { importPortableWorkspace, type PortableImportResult } from './portable-import'
+export { PortableImportError, type PortableImportFailureCode } from './portable-import-guards'

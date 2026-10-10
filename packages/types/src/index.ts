@@ -5,6 +5,7 @@ export * from './desktop-permissions'
 export * from './execution-location'
 export * from './group-participation'
 export * from './migration-snapshot'
+export * from './portable-export'
 export * from './task-submission'
 
 export type WorkspaceSceneId = 'home' | 'work'

@@ -582,7 +582,7 @@ export const createGroupChannel = (
   })
 
 export async function listChannelsForUser(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
@@ -1098,7 +1098,7 @@ async function createMessageWithTextPolicy(
 }
 
 export async function listMessagesForUser(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
