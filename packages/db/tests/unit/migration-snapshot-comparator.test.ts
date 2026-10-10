@@ -237,6 +237,22 @@ const submission = (
   ...overrides,
 })
 
+const grant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'artifactReferenceGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  artifactId: 'art-1',
+  audienceWorkspaceId: 'wsp-2',
+  checksumSha256: 'a'.repeat(64),
+  expiresAt: null,
+  family: 'artifactReferenceGrants',
+  grantId: 'grant-1',
+  revision: 1,
+  revoked: false,
+  sourceWorkspaceId: 'wsp-1',
+  version: 1,
+  ...overrides,
+})
+
 /**
  * One drift mutation per captured field the root review found uncompared.
  * Every case must be a determinate, non-identical finding on the exact field:
@@ -297,6 +313,27 @@ const FIELD_DRIFT_CASES: ReadonlyArray<{
     expectedClass: 'digest_drift',
     family: 'runtimeNodes',
     field: 'softwareVersion',
+  },
+  {
+    after: grant({ expiresAt: '2026-06-01T00:00:00.000Z' }),
+    before: grant(),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: grant(),
+    before: grant({ expiresAt: '2026-06-01T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: grant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: grant({ expiresAt: '2026-06-01T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'expiresAt',
   },
 ]
 
@@ -660,6 +697,7 @@ describe('migration snapshot comparator', () => {
           artifactId: 'art-1',
           audienceWorkspaceId: 'wsp-2',
           checksumSha256: 'a'.repeat(64),
+          expiresAt: null,
           family: 'artifactReferenceGrants',
           grantId: 'grant-1',
           revoked: false,

@@ -357,6 +357,8 @@ export type ArtifactReferenceGrantSnapshotRecord = Readonly<{
   artifactId: string
   audienceWorkspaceId: string
   checksumSha256: string
+  /** The persisted expiry, verbatim; `null` means the grant does not expire. */
+  expiresAt: string | null
   grantId: string
   revision: number
   revoked: boolean
@@ -997,6 +999,13 @@ export function migrationSnapshotRecordIssue(
         identifierField('audienceWorkspaceId', record.audienceWorkspaceId),
         identifierField('artifactId', record.artifactId),
         check('checksumSha256', isDigest(record.checksumSha256)),
+        check(
+          'expiresAt',
+          record.expiresAt === null ||
+            (typeof record.expiresAt === 'string' &&
+              record.expiresAt.length > 0 &&
+              Number.isFinite(Date.parse(record.expiresAt)))
+        ),
         check('version', isNonNegativeSafeInteger(record.version) && record.version > 0),
         check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
         check('revoked', isBoolean(record.revoked)),

@@ -205,7 +205,7 @@ async function temporaryUser(name: string): Promise<UserPrincipalRef> {
   return session.principal
 }
 
-async function seedGrant() {
+async function seedGrant(expiresAt: string | null = null) {
   const owner = await temporaryUser('owner')
   const audienceOwner = await temporaryUser('audience')
   const { workspace: source } = await createWorkspaceWithOwner(database(), {
@@ -233,7 +233,7 @@ async function seedGrant() {
     artifactId: artifact.id,
     audienceWorkspaceId: destination.id,
     checksumSha256: CHECKSUM,
-    expiresAt: null,
+    expiresAt,
     grantId,
     version: 1,
   })
@@ -393,6 +393,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       artifactId: artifact.id,
       audienceWorkspaceId: destination.id,
       checksumSha256: CHECKSUM,
+      expiresAt: null,
       family: 'artifactReferenceGrants',
       grantId,
       revoked: false,
@@ -650,6 +651,102 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
         stableId: replica.id,
       })
     )
+  })
+
+  test('captures the persisted grant expiry verbatim and detects expiry-only authorization drift', async () => {
+    const { grantId } = await seedGrant()
+    const expiry = '2026-06-01T00:00:00.000Z'
+    const extended = '2027-01-01T00:00:00.000Z'
+    const domains = ['artifactReferenceGrants'] as const
+    const before = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry'),
+      requestedDomains: [...domains],
+    })
+    expect(grantRecordOf(before.document, grantId)?.expiresAt).toBeNull()
+
+    await database()
+      .update(artifactReferenceGrants)
+      .set({ expiresAt: expiry })
+      .where(eq(artifactReferenceGrants.grantId, grantId))
+    const expiring = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry'),
+      requestedDomains: [...domains],
+    })
+    expect(grantRecordOf(expiring.document, grantId)?.expiresAt).toBe(expiry)
+
+    // The persisted expiry is a stable fact, never derived from the capture
+    // clock: an unchanged repeat is byte-identical, and a capture clock far
+    // past the expiry changes nothing.
+    const repeat = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry'),
+      requestedDomains: [...domains],
+    })
+    expect(JSON.stringify(repeat.document)).toBe(JSON.stringify(expiring.document))
+    const pastExpiryClock = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry', new Date('2030-01-01T00:00:00.000Z')),
+      requestedDomains: [...domains],
+    })
+    expect(JSON.stringify(pastExpiryClock.document)).toBe(JSON.stringify(expiring.document))
+
+    // null -> time is authorization drift with revision unchanged.
+    const nullToTime = compareMigrationSnapshots({
+      after: expiring.document,
+      before: before.document,
+    })
+    expect(nullToTime.findings).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ field: 'expiresAt' }),
+        family: 'artifactReferenceGrants',
+        findingClass: 'changed_attribute',
+        stableId: grantId,
+      })
+    )
+    expect(grantRecordOf(expiring.document, grantId)?.revision).toBe(1)
+
+    // Extending the expiry is drift.
+    await database()
+      .update(artifactReferenceGrants)
+      .set({ expiresAt: extended })
+      .where(eq(artifactReferenceGrants.grantId, grantId))
+    const extendedCapture = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry'),
+      requestedDomains: [...domains],
+    })
+    const extension = compareMigrationSnapshots({
+      after: extendedCapture.document,
+      before: expiring.document,
+    })
+    expect(extension.findings).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ after: extended, before: expiry, field: 'expiresAt' }),
+        family: 'artifactReferenceGrants',
+        findingClass: 'changed_attribute',
+        stableId: grantId,
+      })
+    )
+
+    // time -> null (clearing the expiry) is drift.
+    await database()
+      .update(artifactReferenceGrants)
+      .set({ expiresAt: null })
+      .where(eq(artifactReferenceGrants.grantId, grantId))
+    const clearedCapture = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-expiry'),
+      requestedDomains: [...domains],
+    })
+    const cleared = compareMigrationSnapshots({
+      after: clearedCapture.document,
+      before: extendedCapture.document,
+    })
+    expect(cleared.findings).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ after: 'null', before: extended, field: 'expiresAt' }),
+        family: 'artifactReferenceGrants',
+        findingClass: 'changed_attribute',
+        stableId: grantId,
+      })
+    )
+    expect(grantRecordOf(clearedCapture.document, grantId)?.expiresAt).toBeNull()
   })
 
   test('the pinned contract still reports active-attempt ownership conflicts and lost read state', async () => {

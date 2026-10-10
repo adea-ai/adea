@@ -240,8 +240,13 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
   },
   artifactReferenceGrants: {
     // Revocation and revision are the grant's own state; the exact target
-    // binding is identity, so a moved grant is a remap, never a match.
-    attributes: [{ field: 'revoked' }],
+    // binding is identity, so a moved grant is a remap, never a match. The
+    // persisted expiry is compared verbatim as an attribute: clearing,
+    // extending or shortening authorization is determinate drift even when
+    // `grantId` and `revision` are unchanged. It is never inferred from
+    // revocation, and the comparison uses the persisted string — never the
+    // capture clock — so elapsed time alone cannot differ.
+    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
     binding: ['artifactId', 'audienceWorkspaceId', 'sourceWorkspaceId', 'version'],
     digests: ['checksumSha256', 'revision'],
   },
