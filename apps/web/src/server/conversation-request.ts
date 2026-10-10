@@ -1,6 +1,5 @@
 import 'server-only'
 
-import { GroupCreationError } from '@adea-ai/db'
 import type {
   ConversationParticipantRef,
   GroupAgentEnlistmentGrant,
@@ -123,9 +122,22 @@ export function conversationErrorResponse(
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,
     })
-  if (error instanceof GroupCreationError)
+  // Group creation failures are identified by error name, not by importing
+  // the db error class: a value import would pull `@adea-ai/db` (and its
+  // `server-only` marker) into every consumer of this module, including
+  // unit tests. Name + shape discrimination matches this file's conventions.
+  if (
+    error instanceof Error &&
+    error.name === 'GroupCreationError' &&
+    'rejections' in error &&
+    Array.isArray((error as { rejections?: unknown }).rejections)
+  )
     return workspaceJsonResponse(
-      { code: 'group_grant_rejected', message: error.message, rejections: error.rejections },
+      {
+        code: 'group_grant_rejected',
+        message: error.message,
+        rejections: (error as { rejections: unknown }).rejections,
+      },
       resolution,
       request,
       { status: 400 }
