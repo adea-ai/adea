@@ -16,10 +16,16 @@ import { filterVisibleJobOutboundRows } from '../../src/job-outbound-read'
 import { completeTaskAndPublishOutboundResult } from '../../src/job-outbound-result-store'
 import { createProject } from '../../src/projects'
 import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
-import { messageArtifactReferences, messages, tasks, workspaceMemberships } from '../../src/schema'
+import {
+  channels,
+  messageArtifactReferences,
+  messages,
+  tasks,
+  workspaceMemberships,
+} from '../../src/schema'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
 import { createTask } from '../../src/tasks'
-import { createWorkspaceWithOwner } from '../../src/workspaces'
+import { createWorkspaceWithOwner, removeWorkspaceMembership } from '../../src/workspaces'
 
 /**
  * Two-connection proofs for the #1217 outbound authority (#1216 grants). Each test parks
@@ -277,6 +283,30 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
     return { done, held, release: () => open() }
   }
 
+  /** Holds one channel row on its own pooled connection, so a read that needs it parks there. */
+  function parkChannel(channelId: string) {
+    let ready!: (pid: number) => void
+    const held = new Promise<number>((resolve) => {
+      ready = resolve
+    })
+    let open!: () => void
+    const gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    const done = connection.db.transaction(async (transaction) => {
+      const [backend] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+      await transaction
+        .select({ id: channels.id })
+        .from(channels)
+        .where(eq(channels.id, channelId))
+        .limit(1)
+        .for('update')
+      ready(Number((backend as { pid?: unknown } | undefined)?.pid))
+      await gate
+    })
+    return { done, held, release: () => open() }
+  }
+
   /** Polls until a statement containing `fragment` is queued behind the backend `holderPid`. */
   async function waitQueuedBehind(holderPid: number, fragment: string) {
     const deadline = Date.now() + 10_000
@@ -376,6 +406,41 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       await Promise.allSettled([read, revocation, parked.done])
     }
     // Once the revocation has committed, no read shows the publication.
+    expect(await visibleFor(f, messageId)).toEqual([])
+  }, 30_000)
+
+  test('a membership removal that arrives while a reader is parked waits for the read; the read is ordered before it, and the next read hides the publication', async () => {
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'MEMBER_SUMMARY')
+    const messageId = published.publication.messageId!
+    expect(await visibleFor(f, messageId)).toEqual([messageId])
+
+    // The reader holds the recipient's destination membership, then parks at the channel row.
+    const parked = parkChannel(f.channel.id)
+    const holderPid = await parked.held
+    let read: Promise<string[]> | undefined
+    let removal: Promise<void> | undefined
+    let removalSettled = false
+    try {
+      read = visibleFor(f, messageId)
+      await waitQueuedBehind(holderPid, 'channels')
+      removal = removeWorkspaceMembership(
+        connection.db as AgentHqDatabase,
+        f.destination.id,
+        f.recipient.principal
+      ).then(() => {
+        removalSettled = true
+      })
+      await sleep(300)
+      expect(removalSettled).toBe(false)
+      parked.release()
+      expect(await read).toEqual([messageId])
+      await removal
+    } finally {
+      parked.release()
+      await Promise.allSettled([read, removal, parked.done])
+    }
     expect(await visibleFor(f, messageId)).toEqual([])
   }, 30_000)
 
