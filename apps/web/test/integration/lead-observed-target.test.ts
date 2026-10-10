@@ -114,6 +114,20 @@ describe.skipIf(!connectionUrl)('connected observed-target attach', () => {
     expect(latest?.observedTarget).toEqual(observed)
   })
 
+  test('reads for an unknown session return nothing to bind', async () => {
+    const f = await fixture()
+    const service = product()
+    expect(
+      await service.latestForTarget(
+        f.workspace.id,
+        f.topic.id,
+        `session-${crypto.randomUUID()}`,
+        f.owner.principal.userId
+      )
+    ).toBeNull()
+    expect(await service.latest(f.workspace.id, f.topic.id, f.owner.principal.userId)).toBeNull()
+  })
+
   test('mismatched, malformed, or failing lookups omit the fields without failing reads', async () => {
     const f = await fixture()
     const sessionId = `session-${crypto.randomUUID()}`

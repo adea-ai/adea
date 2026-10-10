@@ -245,8 +245,23 @@ group-lane caller is targetless and unaffected), but a mediated
 forgery IS retained as a request. What forgery cannot do is
 coordinate: coordination needs the effect binding, so even a fully
 retained forged future only ever reads as one more tracked request.
-The route handler has no test seam by repo practice —
-reviewed, not unit-proven; the DB rule is proven.
+The route handler is now proven too: the POST body moved verbatim
+into `apps/web/src/server/channel-message-post.ts` (thin file-route
+wrapper left behind, following the `handleLeadTurnRequest` pattern),
+and `apps/web/test/integration/lead-handoff-route.test.ts` drives
+the real handler over real Postgres — forged/expired/unmediated/
+cross-workspace direct POSTs fail closed with nothing retained.
+Server-side identity chain, end to end: Desktop credential (valid,
+unrevoked, unexpired user) → workspace membership + conversation
+write → host-mediated channel → direct-agent task-less DM bound to
+the workspace lead with live audience → task visible in this
+workspace and project-readable → structural target → complete
+triple. The desktop session id itself stays an opaque claim —
+there is no server-side session/worktree registry (verified: no
+such tables), so session existence/ownership on the host is proven
+by the client authority gate before admission and by effect
+observation after; host attestation of sessions remains the open
+dependency, contained by never coordinating off claims.
 
 ## Operational today vs awaiting CP935 control integration
 
@@ -262,7 +277,17 @@ own-intent cancellation through the canonical actor-gated path
 (via the lead surface, independent of coordination);
 fail-closed admission (validation, task visibility, mediation,
 complete-target and selection identity); latest-retained
-request reads (ordering among retained requests confers nothing).
+request reads (ordering among retained requests confers nothing);
+direct-POST fence proven at the HTTP layer (forged Desktop 401,
+expired credential 401, unmediated target 400 with nothing
+retained, cross-workspace channel/task fail-closed, target-specific:
+untargeted lead turns still admit); stale attempts mint anew but
+never surface as target-latest (channel recency may surface the
+stale row, which the derivation names as stale with re-request);
+exact repeats dedupe to one retained intent; non-privileged
+callers fail before target resolution (runtime.invoke is
+owner/admin-only, so the hidden-project task check stands as
+defense-in-depth behind admission authority).
 CP935 status: target observation shapes merged (requestedTarget
 untrusted routing annotation + observedTarget session/task from
 verified records, no generation field by design). The Adea

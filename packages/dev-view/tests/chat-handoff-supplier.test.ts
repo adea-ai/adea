@@ -398,6 +398,32 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(view.controls.handoff_to_lead.available).toBe(true)
   })
 
+  test('a reported observation without a runtime binding still coordinates nothing', () => {
+    // Missing runtime: the control plane reported an execution site, but
+    // no runtime binding was ever observed for this session, so the claim
+    // stays tracked-as-requested and grants no coordination.
+    const turn = leadTurn({
+      state: 'blocked',
+      canCancel: false,
+      observedTarget: { sessionId: 'ses_01JABCDEF0123456789ABCDEFG', taskId: 'task-9' },
+    })
+    delete (turn as { executionRuntimeSessionId?: string }).executionRuntimeSessionId
+    const supplied = deriveHandoffInputFromConversation({
+      conversation: conversation(),
+      connected: true,
+      leadTurn: turn,
+      leadAgent: leadAgent(),
+      leadChannelId: 'channel-1',
+    })
+    const view = deriveDirectSessionHandoff(supplied)
+    expect(view.mode).toBe('attached')
+    expect(view.coordination).toBeUndefined()
+    expect(view.notice).toMatch(
+      /Control plane reports execution in session ses_01JABCDEF0123456789ABCDEFG/
+    )
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+  })
+
   test('a targetless turn grants nothing and keeps handoff available', () => {
     const { handoffTarget: _target, ...targetless } = leadTurn()
     const supplied = deriveHandoffInputFromConversation({
