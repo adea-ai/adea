@@ -71,6 +71,7 @@ export {
 } from './artifacts'
 export { artifactReferenceGrants } from './artifact-reference-grants'
 export {
+  channelArchiveSource,
   channelKind,
   channelLifecycleState,
   channelParticipants,

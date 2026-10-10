@@ -139,3 +139,35 @@ identity decisions. No migration or onboarding operation connects an account.
 with no duplicates or foreign IDs, and updates only that member's positions. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
+
+## Project-state promotion and channel provenance
+
+`promoteProjectState()` is the one explicit archived → active transition. It
+requires the caller's confirmation and the exact observed `version`, holds
+the project row lock, wakes only the channels the project-archive cascade
+slept, and appends `project.restored` / `channel.restored`. The pure
+`decideProjectStatePromotion` refuses missing, foreign, soft-deleted,
+already-active, stale and unconfirmed calls with typed reasons; visibility is
+carried through unchanged.
+
+Project revision is the additive integer `projects.version`
+(`DEFAULT 1 NOT NULL`, `CHECK (version > 0)`). Every project-row mutation
+increments it atomically — update, archive, soft delete, reorder (included),
+visibility change and promotion — and `ProjectSummary.version` plus the one
+canonical `projectSummary` mapper expose the single shape. A non-safe-integer,
+zero/negative or mismatched `expectedVersion` refuses `promotion_stale`;
+timestamps are display-only. The membership tables keep their own operation
+contracts and are not part of the project-row revision.
+
+Channel archive provenance is explicit in `channels.archive_source`:
+`project_cascade` marks the channels a project archive slept, `individual`
+marks an explicit channel archive (and the default for historical rows).
+Promotion restores exactly the cascade set; a channel archived on its own is
+never revived. `archiveProject`, `softDeleteProject` and
+`promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
+which lock the project row first and the project's channels in id order, then
+compare-and-swap each channel `version`, so a concurrent write rolls the whole
+transaction back instead of losing an update. The migration that adds the enum
+and column is expand-only; its number is provisional until the `main` journal
+confirms it (see the lane handoff
+`docs/plans/m14-03-management-action-contract.md`).

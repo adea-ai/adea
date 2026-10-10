@@ -87,6 +87,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRouteImport 
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -559,6 +560,12 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute =
     path: '/members',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport.update({
+    id: '/restore',
+    path: '/restore',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute =
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport.update({
     id: '/visibility',
@@ -792,6 +799,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -896,6 +904,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -1001,6 +1010,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -1107,6 +1117,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1211,6 +1222,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1315,6 +1327,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1938,6 +1951,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
+      path: '/restore'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
+    }
     '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': {
       id: '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
       path: '/visibility'
@@ -2377,6 +2397,7 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren =
 interface ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
 }
 
@@ -2386,6 +2407,8 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren: ApiV1WorkspacesW
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute,
     ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute:
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute,
     ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute:
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute,
   }

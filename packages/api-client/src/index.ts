@@ -248,6 +248,17 @@ export type ApiProjectUpdateInput = Readonly<{
   sourceKind?: ProjectSourceKind
 }>
 
+/**
+ * Explicit project-state promotion (archived → active). `expectedVersion` is
+ * the integer `ProjectSummary.version` the caller observed and `confirmed` is
+ * the owner's opt-in; neither has a default, so an unconfirmed or stale call
+ * fails.
+ */
+export type ApiProjectRestoreInput = Readonly<{
+  confirmed: true
+  expectedVersion: number
+}>
+
 export type ApiProjectResponse = Readonly<{ project: ProjectSummary }>
 export type ApiProjectMembersResponse = Readonly<{ members: readonly ProjectMemberSummary[] }>
 export type ApiProjectMemberResponse = Readonly<{ member: ProjectMemberSummary }>
@@ -1056,6 +1067,22 @@ export class AgentHqApiClient {
     return this.request<ApiProjectArchiveResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`,
       { method: 'DELETE' }
+    )
+  }
+
+  /** Explicitly promote an archived project back to active at the observed revision. */
+  async restoreProject(
+    workspaceId: string,
+    projectId: string,
+    input: ApiProjectRestoreInput
+  ): Promise<ApiProjectResponse> {
+    return this.request<ApiProjectResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/restore`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
     )
   }
 
