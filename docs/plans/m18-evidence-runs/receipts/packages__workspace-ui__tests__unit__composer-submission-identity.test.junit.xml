@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="2" assertions="9" failures="0" skipped="0" time="0.14437">
-  <testsuite name="packages/workspace-ui/tests/unit/composer-submission-identity.test.ts" file="packages/workspace-ui/tests/unit/composer-submission-identity.test.ts" tests="2" assertions="9" failures="0" skipped="0" time="0.017909">
-    <testcase name="an interrupted or repeated unchanged save retries the same canonical key" classname="" time="0.001901" file="packages/workspace-ui/tests/unit/composer-submission-identity.test.ts" line="4" assertions="4" />
-    <testcase name="a changed topic, body, attachment or mention is a distinct submission" classname="" time="0.000117" file="packages/workspace-ui/tests/unit/composer-submission-identity.test.ts" line="20" assertions="5" />
-  </testsuite>
-</testsuites>

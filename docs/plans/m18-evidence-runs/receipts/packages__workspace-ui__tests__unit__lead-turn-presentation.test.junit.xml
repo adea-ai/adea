@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="3" assertions="11" failures="0" skipped="0" time="0.098852">
-  <testsuite name="packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts" file="packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts" tests="3" assertions="11" failures="0" skipped="0" time="0.014899">
-    <testcase name="unavailable reads preserve a last report without presenting setup or a new action" classname="" time="0.000241" file="packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts" line="14" assertions="3" />
-    <testcase name="withheld answer publication preserves completed execution as a separate fact" classname="" time="0.000188" file="packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts" line="23" assertions="3" />
-    <testcase name="setup, preparation expiry and truthful cancellation have distinct labels" classname="" time="0.000162" file="packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts" line="36" assertions="5" />
-  </testsuite>
-</testsuites>

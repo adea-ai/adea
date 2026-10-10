@@ -20,6 +20,8 @@ const SHA = '1'.repeat(40)
 const ROOT = '9'.repeat(40)
 const OTHER_SHA = '2'.repeat(40)
 const CONTRACT = 'pi-durable-2026-10'
+const EXECUTION_SCHEMA = 'adea.evidence.execution.v1'
+const CANDIDATE_SCHEMA = 'adea.evidence.candidate.v1'
 const TEST_PATH = 'scripts/evidence-manifest.test.ts'
 const TEST_TITLE = 'validates every mapped id'
 const testRef = { kind: 'test-reference', repository: 'adea', path: TEST_PATH, name: TEST_TITLE }
@@ -81,7 +83,7 @@ function junit(titles, failing = []) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="bun test">\n  <testsuite name="x">\n${cases}\n  </testsuite>\n</testsuites>\n`
 }
 
-/** One run for a test file at the pinned revision: its record and receipt as working files. */
+/** One execution envelope: the run's record and its JUnit document, bound to a repository and revision. */
 function runFor(
   prefix,
   {
@@ -89,39 +91,39 @@ function runFor(
     failing = [],
     file = TEST_PATH,
     ids = ['A01'],
-    record: overrides = {},
+    repository = 'adea',
     executedAtHead = SHA,
+    envelope: overrides = {},
   } = {}
 ) {
-  const receipt = Buffer.from(junit(titles, failing))
-  const summary = { pass: titles.length - failing.length, fail: failing.length }
-  const record = Buffer.from(
+  const envelope = Buffer.from(
     JSON.stringify({
-      repository: 'adea',
+      schema: EXECUTION_SCHEMA,
+      repository,
       sourceSha: SHA,
       executedAtHead,
       file,
       command: `bun test ${file}`,
       exitCode: 0,
       status: 'passed',
-      summary,
+      summary: { pass: titles.length - failing.length, fail: failing.length },
       ids,
+      junit: junit(titles, failing),
       ...overrides,
     })
   )
   return {
-    files: { [`${prefix}.json`]: { content: record }, [`${prefix}.xml`]: { content: receipt } },
+    files: { [`${prefix}.json`]: { content: envelope } },
     ref: {
       kind: 'execution-reference',
-      repository: 'adea',
+      repository,
       path: `${prefix}.json`,
-      sha256: sha256Of(record),
-      receipt: { path: `${prefix}.xml`, sha256: sha256Of(receipt) },
+      sha256: sha256Of(envelope),
     },
   }
 }
 
-/** One candidate record with its own receipt. */
+/** One candidate envelope: the candidate build's run of one repository's test file, pinned by sources. */
 function candidateFor(
   prefix,
   {
@@ -129,34 +131,33 @@ function candidateFor(
     sources = { adea: SHA },
     contractVersion = CONTRACT,
     channel = 'packaged',
+    repository = 'adea',
+    file = TEST_PATH,
+    titles = [TEST_TITLE],
     failing = [],
-    record: overrides = {},
+    envelope: overrides = {},
   } = {}
 ) {
-  const titles = ['packaged smoke']
-  const receipt = Buffer.from(junit(titles, failing))
-  const summary = { pass: titles.length - failing.length, fail: failing.length }
-  const record = Buffer.from(
+  const envelope = Buffer.from(
     JSON.stringify({
+      schema: CANDIDATE_SCHEMA,
       candidateId: prefix,
       channel,
       contractVersion,
-      status: 'passed',
-      exitCode: 0,
-      ids: [id],
+      repository,
+      file,
       sources,
-      summary,
+      ids: [id],
+      exitCode: 0,
+      status: 'passed',
+      summary: { pass: titles.length - failing.length, fail: failing.length },
+      junit: junit(titles, failing),
       ...overrides,
     })
   )
   return {
-    files: { [`${prefix}.json`]: { content: record }, [`${prefix}.xml`]: { content: receipt } },
-    ref: {
-      kind: 'candidate-reference',
-      path: `${prefix}.json`,
-      sha256: sha256Of(record),
-      receipt: { path: `${prefix}.xml`, sha256: sha256Of(receipt) },
-    },
+    files: { [`${prefix}.json`]: { content: envelope } },
+    ref: { kind: 'candidate-reference', path: `${prefix}.json`, sha256: sha256Of(envelope) },
   }
 }
 
@@ -353,11 +354,11 @@ describe('repository evidence: declarations, executions, and receipts', () => {
   test('an execution must be exact: pinned revision, exit code 0, status passed, and the claimed repository', () => {
     const cases = [
       [{ executedAtHead: OTHER_SHA }, 'is not the pinned'],
-      [{ record: { exitCode: 1 } }, 'exit code is 1, not 0'],
-      [{ record: { status: 'failed' } }, 'status is failed'],
-      [{ record: { repository: 'control-plane' } }, 'names repository control-plane'],
-      [{ record: { sourceSha: OTHER_SHA } }, `pins ${OTHER_SHA}`],
-      [{ record: { ids: ['A02'] } }, 'does not list A01'],
+      [{ envelope: { exitCode: 1 } }, 'exit code is 1, not 0'],
+      [{ envelope: { status: 'failed' } }, 'status is failed'],
+      [{ envelope: { repository: 'control-plane' } }, 'names repository control-plane'],
+      [{ envelope: { sourceSha: OTHER_SHA } }, `pins ${OTHER_SHA}`],
+      [{ envelope: { ids: ['A02'] } }, 'does not list A01'],
     ]
     for (const [options, message] of cases) {
       const run = runFor('artifacts/a01-run', options)
@@ -368,26 +369,20 @@ describe('repository evidence: declarations, executions, and receipts', () => {
     }
   })
 
-  test('the receipt must match its claimed summary, pin its hash, and list the title as passing', () => {
+  test('the envelope must match its claimed summary, pin its hash, and list the title as passing', () => {
     const { entry, io } = completeA01()
     const tamperedHash = {
       ...entry,
-      repoEvidence: [
-        testRef,
-        {
-          ...entry.repoEvidence[1],
-          receipt: { ...entry.repoEvidence[1].receipt, sha256: '0'.repeat(64) },
-        },
-      ],
+      repoEvidence: [testRef, { ...entry.repoEvidence[1], sha256: '0'.repeat(64) }],
     }
     expect(
       statusOf(validateEvidenceManifest(manifest([tamperedHash]), io), 'A01').reasons[0]
     ).toContain('does not match sha256')
 
-    const miscounted = runFor('artifacts/a01-run', { record: { summary: { pass: 2, fail: 0 } } })
+    const miscounted = runFor('artifacts/a01-run', { envelope: { summary: { pass: 2, fail: 0 } } })
     const { entry: e2, io: io2 } = completeA01({ run: miscounted })
     expect(statusOf(validateEvidenceManifest(manifest([e2]), io2), 'A01').reasons[0]).toContain(
-      'do not match record summary'
+      'do not match its summary'
     )
 
     const failing = runFor('artifacts/a01-run', { failing: [TEST_TITLE] })
@@ -493,9 +488,9 @@ describe('candidate records', () => {
         candidateFor('artifacts/pkg-1', { contractVersion: 'pi-durable-2025-01' }),
         'is not compatible',
       ],
-      [candidateFor('artifacts/pkg-1', { record: { exitCode: 1 } }), 'exit code is 1'],
+      [candidateFor('artifacts/pkg-1', { envelope: { exitCode: 1 } }), 'exit code is 1'],
       [
-        candidateFor('artifacts/pkg-1', { failing: ['packaged smoke'] }),
+        candidateFor('artifacts/pkg-1', { failing: [TEST_TITLE] }),
         'test result is not all passing',
       ],
       [candidateFor('artifacts/pkg-1', { channel: 'staging' }), 'is not packaged or deployed'],
@@ -635,6 +630,9 @@ describe('bounded reads and provenance on real git and working files', () => {
       expect(cli.stdout).toContain(
         `certification: incomplete (0 of ${REQUIRED_IDS.length} candidate-compatible)`
       )
+      expect(cli.stdout).toContain(
+        `candidate-compatible proof: missing for ${REQUIRED_IDS.length} of ${REQUIRED_IDS.length} ids`
+      )
     },
     180_000
   )
@@ -733,5 +731,80 @@ describe('cross-repository identity', () => {
       `candidate pkg-1 does not declare sources.control-plane = ${OTHER_SHA}`,
     ])
     expect(report.ok).toBe(false)
+  })
+
+  test('an envelope copied from another repository cannot back this repository’s execution', () => {
+    const run = runFor('artifacts/a01-run')
+    const io = fixtureIo({
+      checkouts: {
+        adea: checkoutFake({ blobs: testBlobs() }),
+        'control-plane': controlPlane({
+          [`${OTHER_SHA}:${TEST_PATH}`]: { content: `test('${TEST_TITLE}', () => {})` },
+        }),
+      },
+      working: run.files,
+    })
+    const entry = {
+      id: 'A01',
+      coverage: 'complete',
+      criteria: [
+        {
+          text: 'the control-plane copy is evidenced',
+          tests: [{ repository: 'control-plane', path: TEST_PATH, name: TEST_TITLE }],
+        },
+      ],
+      repoEvidence: [
+        { kind: 'test-reference', repository: 'control-plane', path: TEST_PATH, name: TEST_TITLE },
+        { ...run.ref, repository: 'control-plane' },
+      ],
+      candidateEvidence: [],
+    }
+    const report = validateEvidenceManifest(manifestWithControlPlane([entry]), io)
+    expect(statusOf(report, 'A01').reasons).toEqual([
+      'execution envelope names repository adea, reference names control-plane',
+    ])
+    expect(report.ok).toBe(false)
+  })
+
+  test('a candidate covers a criterion only through its own repository and file', () => {
+    const run = runFor('artifacts/a01-run')
+    const own = candidateFor('pkg-adea', { sources: { adea: SHA, 'control-plane': OTHER_SHA } })
+    const other = candidateFor('pkg-cp', {
+      sources: { adea: SHA, 'control-plane': OTHER_SHA },
+      repository: 'control-plane',
+    })
+    const io = fixtureIo({
+      checkouts: {
+        adea: checkoutFake({ blobs: testBlobs() }),
+        'control-plane': controlPlane({
+          [`${OTHER_SHA}:src/source.ts`]: { content: 'export {}' },
+        }),
+      },
+      working: { ...run.files, ...own.files, ...other.files },
+    })
+    const entry = {
+      id: 'A01',
+      coverage: 'complete',
+      criteria: [criterionA01],
+      repoEvidence: [testRef, run.ref],
+      sourceReferences: [{ repository: 'control-plane', path: 'src/source.ts' }],
+      candidateEvidence: [],
+    }
+    const covered = validateEvidenceManifest(
+      manifestWithControlPlane([{ ...entry, candidateEvidence: [own.ref] }]),
+      io
+    )
+    expect(statusOf(covered, 'A01').status).toBe(STATUS.candidateCompatible)
+
+    const uncovered = validateEvidenceManifest(
+      manifestWithControlPlane([{ ...entry, candidateEvidence: [other.ref] }]),
+      io
+    )
+    expect(statusOf(uncovered, 'A01')).toMatchObject({
+      status: STATUS.repoVerified,
+      reasons: [
+        `candidate evidence does not cover criterion test adea:${TEST_PATH} "${TEST_TITLE}"`,
+      ],
+    })
   })
 })

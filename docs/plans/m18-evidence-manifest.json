@@ -37,12 +37,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.run.json",
-          "sha256": "e9b55fed5ab3a7c14a9c7e365bd47badb7726ab765007f13df3398167cf444b7",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-availability.test.junit.xml",
-            "sha256": "10ed64a6cf5ab156fd0f706ac5a5835ce19b66ae3f8ead116e8391ca9e6a717c"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.execution.json",
+          "sha256": "ff91fdd28304887fad090e855b3ad3a0709bbdbf52b73076ffde6b3745fe8513"
         }
       ],
       "candidateEvidence": []
@@ -103,12 +99,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.run.json",
-          "sha256": "53408386d2aba0af79c0f24a7e24c5d03b50bafd33c0347879bb53cd741ece2a",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__workspace-local-data.test.junit.xml",
-            "sha256": "f795b7bb9c31a737998dc32fbdafc6a3e7cd7fe38eca7a6fc78df20ee6582f9b"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.execution.json",
+          "sha256": "1dac4154085feac46c42a5c0e6a4f93fd242620574726cb70e50c958d086f429"
         }
       ],
       "candidateEvidence": []
@@ -149,22 +141,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
-          "sha256": "341e6d6de27178497fbdd28f046512005311ced68462ac64abbcd969e49d6598",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-model-state.test.junit.xml",
-            "sha256": "d41c02bf8a894d51e4049a656c56075957edec5047a792fac5d255a02d042047"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.execution.json",
+          "sha256": "08ccf039796884fd8b7dcce07307926d8a01734226aa47dcf2f8ebc091d9a124"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -215,22 +199,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
-          "sha256": "341e6d6de27178497fbdd28f046512005311ced68462ac64abbcd969e49d6598",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-model-state.test.junit.xml",
-            "sha256": "d41c02bf8a894d51e4049a656c56075957edec5047a792fac5d255a02d042047"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.execution.json",
+          "sha256": "08ccf039796884fd8b7dcce07307926d8a01734226aa47dcf2f8ebc091d9a124"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.run.json",
-          "sha256": "a99368d61db306f086842da207233498474d9f448cc649b2ba65a6470d0f26da",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__api-client__tests__unit__model-connections.test.junit.xml",
-            "sha256": "7aba0500045cc1bdc2cd83a888b1f6c0aec40435c1b0cc669f1a2f1887b9d969"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.execution.json",
+          "sha256": "2ce81095694077a18c1bfd1c58719b3e3e639b62baea1481c37004f36b208d7c"
         }
       ],
       "candidateEvidence": []
@@ -265,22 +241,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.run.json",
-          "sha256": "e9b55fed5ab3a7c14a9c7e365bd47badb7726ab765007f13df3398167cf444b7",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-availability.test.junit.xml",
-            "sha256": "10ed64a6cf5ab156fd0f706ac5a5835ce19b66ae3f8ead116e8391ca9e6a717c"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.execution.json",
+          "sha256": "ff91fdd28304887fad090e855b3ad3a0709bbdbf52b73076ffde6b3745fe8513"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -319,12 +287,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-presentation.test.run.json",
-          "sha256": "b74af5cdb3b4cb549ad2cc10eae78993d359dcf60e01bf6930dbed49a4152d0c",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-presentation.test.junit.xml",
-            "sha256": "531c5c572f97cafcc3907675e1842f35f5ee1076247a4596479968c395ff3e78"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-presentation.test.execution.json",
+          "sha256": "bd6cd4c5fbd3b6e71dd4d47fc02e6c1122506130d24e2ae82f58d7c56087a417"
         }
       ],
       "candidateEvidence": []
@@ -359,22 +323,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__composer-submission-identity.test.run.json",
-          "sha256": "5bd0ab0a56064e82f6ecd940dd672db832e225a892e4eb18f6c37d1518d6e576",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__composer-submission-identity.test.junit.xml",
-            "sha256": "cc03b6b1293b84acbf8955c18b30f0d65bc0d8b4f6f01148d5469a75e1b0b722"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__composer-submission-identity.test.execution.json",
+          "sha256": "9049204e7bbe15766efa50aab39144d567f613261f610c07a1cc517b9a1dbb7b"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__lead-turns.test.run.json",
-          "sha256": "53900e207c73cf61bc8eb8261b6a5eca693545ff65943b3a3bcabb1f8765df34",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__api-client__tests__unit__lead-turns.test.junit.xml",
-            "sha256": "3f19a3f3081a694f59a3f11a47d04630b36cf24556d4f6185ec38b30004d6076"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__lead-turns.test.execution.json",
+          "sha256": "817405a5c9ed5a186c4b7b5bea308c8517efb8a22a4bed7bf663df6504ca51bb"
         }
       ],
       "candidateEvidence": []
@@ -409,12 +365,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -471,22 +423,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
-          "sha256": "b8b2235e021d7f55ca1af8a1b09ae18b3258b2dc0f9f480f2b55890274ebde28",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
-            "sha256": "bb0daf8b227a24bacfbff1c2054b1c6c22ce23397e9c2ec8257a4f77c783f7bc"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.execution.json",
+          "sha256": "011d0d0e1ca1e583ad9fd0031f9bedec09a66a4815c86fb5ceb28b920e705ae8"
         }
       ],
       "candidateEvidence": []
@@ -625,12 +569,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.run.json",
-          "sha256": "8ec57960fe191017259377231b264ed52d767ee391299547cee8da5da70bcda5",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__migration-snapshot-comparator.test.junit.xml",
-            "sha256": "47253c2e8c1fc3e266c038904f24d16c2e5850a83c654c79111c996079e5dd94"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.execution.json",
+          "sha256": "e71bdd1343cbbe610322387b1fc78abf98af0d7706d01c9839ea7b87a23f7712"
         }
       ],
       "candidateEvidence": []
@@ -698,12 +638,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-conversation-model.test.run.json",
-          "sha256": "29436286a9b6ae6382cfc4edf1bb9eeb250f9db889dbfb69d68ec088a43074f2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-conversation-model.test.junit.xml",
-            "sha256": "ddb7e7dd311e623ea53646ec4331af1d29926d6b067a4395ec70c94144f9640a"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-conversation-model.test.execution.json",
+          "sha256": "5092baf366e9ea7313acc99ee85f288a6101c8e1370fa323e60fbbf3e8d99bfc"
         }
       ],
       "candidateEvidence": []
@@ -766,12 +702,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__account-directory-keys.test.run.json",
-          "sha256": "710fb5f41866a4c28f4a6688fcc167a20f1faedcca54d3237cd0cbb7146b1f87",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__data__tests__unit__account-directory-keys.test.junit.xml",
-            "sha256": "066015e83c0f3b639caa717c60eca533b35bc1fab651b6b90a9020f1fc96b9d9"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__account-directory-keys.test.execution.json",
+          "sha256": "76b35cd001d19479d88a3162149050f3ead386078d33777916b8a760b3ca3b86"
         }
       ],
       "candidateEvidence": []
@@ -833,22 +765,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__events-audience.test.run.json",
-          "sha256": "9efeb41c56492e7c86c9ee3ece2975219848d87261a5a85bf43ad4ec28938811",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__data__tests__unit__events-audience.test.junit.xml",
-            "sha256": "9627be64f2cb1455048c43ea5129f1c2e7849392874402f5b7ec9ce28ebdd919"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__events-audience.test.execution.json",
+          "sha256": "3b1e8cc96b6e6598fb1f38ab3cc845b16b2f77378c5ec1abc6e6045c31e92682"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__group-participation-policy.test.run.json",
-          "sha256": "c98a2598fdb4f703886245a4db37b8feef1752bd6c37265b623a3509813512ed",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__group-participation-policy.test.junit.xml",
-            "sha256": "7b2d18817b9af7b8949d6f474ac242df80f687f1cacfcb5b904bf69780f38b80"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__group-participation-policy.test.execution.json",
+          "sha256": "fce1e1ef8bdc1b5bcdbace3fd309dbe3c92eebffaa6e49e0f1a328cf770dc43a"
         }
       ],
       "candidateEvidence": []
@@ -900,12 +824,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__artifact-reference-policy.test.run.json",
-          "sha256": "6a8485c9744ba1b33e0ebc20ed97f2f2713f61d71a64125dd30318361215d8ad",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__artifact-reference-policy.test.junit.xml",
-            "sha256": "f4857cbcf5ad12e301169cb329b61b225f9a60d2999109fd60ba18459bb43dd7"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__artifact-reference-policy.test.execution.json",
+          "sha256": "3eafdfc85746603ceb957bb71ba6b5fef64480b45e9ba1b1b8e8a0db7bb3e472"
         }
       ],
       "candidateEvidence": []
@@ -947,12 +867,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-pin.test.run.json",
-          "sha256": "c8edc86aa03ce46125797953f2b166c79ab4c5196303d193991ff6b4babf47b1",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-pin.test.junit.xml",
-            "sha256": "563199cc32299ee48e58f49ab05a97a26cdc5a655f406d620c3ecfc818fffa17"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-pin.test.execution.json",
+          "sha256": "98390521e797e8856d22ae97620ed8860ffe69931b3e51bffb40535565434e67"
         }
       ],
       "candidateEvidence": []
@@ -1032,12 +948,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
-          "sha256": "b8b2235e021d7f55ca1af8a1b09ae18b3258b2dc0f9f480f2b55890274ebde28",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
-            "sha256": "bb0daf8b227a24bacfbff1c2054b1c6c22ce23397e9c2ec8257a4f77c783f7bc"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.execution.json",
+          "sha256": "011d0d0e1ca1e583ad9fd0031f9bedec09a66a4815c86fb5ceb28b920e705ae8"
         }
       ],
       "candidateEvidence": []
@@ -1076,22 +988,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
-          "sha256": "b8b2235e021d7f55ca1af8a1b09ae18b3258b2dc0f9f480f2b55890274ebde28",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
-            "sha256": "bb0daf8b227a24bacfbff1c2054b1c6c22ce23397e9c2ec8257a4f77c783f7bc"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.execution.json",
+          "sha256": "011d0d0e1ca1e583ad9fd0031f9bedec09a66a4815c86fb5ceb28b920e705ae8"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -1135,22 +1039,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-sdk-adapter.test.run.json",
-          "sha256": "49bc1d604d96ab631cd3fdcf517fc46d43e708638e2f7d893254abc5f491fcef",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-sdk-adapter.test.junit.xml",
-            "sha256": "c04480decc955090097bf0f2ffccd0361b49c8038b4d584b15a3cb4346b5229c"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-sdk-adapter.test.execution.json",
+          "sha256": "137c842c31c66a552f51d963650f707e7273f905091de2eb2a0cb595e7b8cd5d"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
-          "sha256": "b8b2235e021d7f55ca1af8a1b09ae18b3258b2dc0f9f480f2b55890274ebde28",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
-            "sha256": "bb0daf8b227a24bacfbff1c2054b1c6c22ce23397e9c2ec8257a4f77c783f7bc"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.execution.json",
+          "sha256": "011d0d0e1ca1e583ad9fd0031f9bedec09a66a4815c86fb5ceb28b920e705ae8"
         }
       ],
       "candidateEvidence": []
@@ -1213,32 +1109,20 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__mutations-audience.test.run.json",
-          "sha256": "b054d8a32a4c9bc4317ea431ac4858c713bbd8508a30b06a8869b22c1c01dae2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__data__tests__unit__mutations-audience.test.junit.xml",
-            "sha256": "2f5c2e2e8b41a855273345e50f5a92bf84320c1c0a9980db122a3775d3011093"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__mutations-audience.test.execution.json",
+          "sha256": "442a09adc4a3a304cb2b0a39e3f3097aec9e64a90d9e5390b29b037eb412e056"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__runtime-node-delivery.test.run.json",
-          "sha256": "805645b4bb1adc8ce40c8c8dc9138dd0e236f8ec261f88331f5afc8982ec5e6b",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__api-client__tests__unit__runtime-node-delivery.test.junit.xml",
-            "sha256": "7c0a68f29ad2c5b3fbc38b633fd3d045442e5c31a5378caed1ade5c799896705"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__runtime-node-delivery.test.execution.json",
+          "sha256": "f4f158df7959645c0c7864d28bee812d2fb982b16f20c938bcbb7eacfe6d929c"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__types__tests__runtime-node-delivery.test.run.json",
-          "sha256": "3c7b2b8fd1829b13a44efc4df04c10d2b836844432a7fa917afe8de5a81d6352",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__types__tests__runtime-node-delivery.test.junit.xml",
-            "sha256": "7bb45ee67735b94ffca274f4fc63d40981e56fadefd85e9a01b9c97815cccdae"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__types__tests__runtime-node-delivery.test.execution.json",
+          "sha256": "846c52eb953e5f65495eec6b784f26f74bdef36c4cb19271e75046a405fbcaff"
         }
       ],
       "candidateEvidence": []
@@ -1272,22 +1156,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__events-audience.test.run.json",
-          "sha256": "9efeb41c56492e7c86c9ee3ece2975219848d87261a5a85bf43ad4ec28938811",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__data__tests__unit__events-audience.test.junit.xml",
-            "sha256": "9627be64f2cb1455048c43ea5129f1c2e7849392874402f5b7ec9ce28ebdd919"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__events-audience.test.execution.json",
+          "sha256": "3b1e8cc96b6e6598fb1f38ab3cc845b16b2f77378c5ec1abc6e6045c31e92682"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -1347,22 +1223,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.run.json",
-          "sha256": "53408386d2aba0af79c0f24a7e24c5d03b50bafd33c0347879bb53cd741ece2a",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__workspace-local-data.test.junit.xml",
-            "sha256": "f795b7bb9c31a737998dc32fbdafc6a3e7cd7fe38eca7a6fc78df20ee6582f9b"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.execution.json",
+          "sha256": "1dac4154085feac46c42a5c0e6a4f93fd242620574726cb70e50c958d086f429"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__workspace-deletion.test.run.json",
-          "sha256": "ef82eb955f4ea08f030e963634ee9e81c16bca8ecf663d13b6a84cb623d4d34f",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__workspace-deletion.test.junit.xml",
-            "sha256": "9ad937e1c069a21ac9edcf744a2b4f5369591107108ea374c558f444705b02c7"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__workspace-deletion.test.execution.json",
+          "sha256": "9e8b887cf940622dddd7234ac0473e8be38447a01129a9b124c9238491afdd56"
         }
       ],
       "candidateEvidence": []
@@ -1400,12 +1268,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-product-reader.test.run.json",
-          "sha256": "034c267596d7c8173590194cfa6361233fc2e2498885fdf1056f8c2260dcb7fe",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-product-reader.test.junit.xml",
-            "sha256": "6009f7fcc703e0c3ea837995ec20858c414b730ea2a1b0eb7ee06d5f90ddbb1d"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-product-reader.test.execution.json",
+          "sha256": "7dd306950a76d6c591ac7fffbdff086b74fed131d680deb89320b3c6387ccad3"
         }
       ],
       "candidateEvidence": []
@@ -1446,12 +1310,8 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.run.json",
-          "sha256": "8ec57960fe191017259377231b264ed52d767ee391299547cee8da5da70bcda5",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__db__tests__unit__migration-snapshot-comparator.test.junit.xml",
-            "sha256": "47253c2e8c1fc3e266c038904f24d16c2e5850a83c654c79111c996079e5dd94"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__db__tests__unit__migration-snapshot-comparator.test.execution.json",
+          "sha256": "e71bdd1343cbbe610322387b1fc78abf98af0d7706d01c9839ea7b87a23f7712"
         }
       ],
       "candidateEvidence": []
@@ -1526,32 +1386,20 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.run.json",
-          "sha256": "e9b55fed5ab3a7c14a9c7e365bd47badb7726ab765007f13df3398167cf444b7",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__agent-profile-availability.test.junit.xml",
-            "sha256": "10ed64a6cf5ab156fd0f706ac5a5835ce19b66ae3f8ead116e8391ca9e6a717c"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__agent-profile-availability.test.execution.json",
+          "sha256": "ff91fdd28304887fad090e855b3ad3a0709bbdbf52b73076ffde6b3745fe8513"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
-          "sha256": "341e6d6de27178497fbdd28f046512005311ced68462ac64abbcd969e49d6598",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-model-state.test.junit.xml",
-            "sha256": "d41c02bf8a894d51e4049a656c56075957edec5047a792fac5d255a02d042047"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.execution.json",
+          "sha256": "08ccf039796884fd8b7dcce07307926d8a01734226aa47dcf2f8ebc091d9a124"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         }
       ],
       "candidateEvidence": []
@@ -1597,22 +1445,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__desktop-workspace-deletion.test.run.json",
-          "sha256": "4cab632bf9d09cba6c9121f6cc315203561a06b1f63dff1f523b27c9218c6808",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__desktop-workspace-deletion.test.junit.xml",
-            "sha256": "1ee8cebef383aa16636ffc1968632d42b4d84a980920036e63890ed678c61a96"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__desktop-workspace-deletion.test.execution.json",
+          "sha256": "c262e734039e26e2f389d38d8042f152af1ec6d1f7c1e4e3c34f445e1252e49b"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__workspace-deletion.test.run.json",
-          "sha256": "ef82eb955f4ea08f030e963634ee9e81c16bca8ecf663d13b6a84cb623d4d34f",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__workspace-deletion.test.junit.xml",
-            "sha256": "9ad937e1c069a21ac9edcf744a2b4f5369591107108ea374c558f444705b02c7"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__workspace-deletion.test.execution.json",
+          "sha256": "9e8b887cf940622dddd7234ac0473e8be38447a01129a9b124c9238491afdd56"
         }
       ],
       "candidateEvidence": []
@@ -1672,22 +1512,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__dev-runtime-deny-policy.test.run.json",
-          "sha256": "d8ad1d8e1b6690ffc64edb14be755b3d73ea4b45683229526753be965c8e4240",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__dev-runtime-deny-policy.test.junit.xml",
-            "sha256": "764529aef2ca2488bb39d60298d50fcd4fdb781e0bddeea340d713c90b741230"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__dev-runtime-deny-policy.test.execution.json",
+          "sha256": "e105937eee8d73d74bf5981565417ea161cbdfe20618472309d881a072827b76"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.run.json",
-          "sha256": "53408386d2aba0af79c0f24a7e24c5d03b50bafd33c0347879bb53cd741ece2a",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__desktop__tests__workspace-local-data.test.junit.xml",
-            "sha256": "f795b7bb9c31a737998dc32fbdafc6a3e7cd7fe38eca7a6fc78df20ee6582f9b"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__desktop__tests__workspace-local-data.test.execution.json",
+          "sha256": "1dac4154085feac46c42a5c0e6a4f93fd242620574726cb70e50c958d086f429"
         }
       ],
       "candidateEvidence": []
@@ -1728,22 +1560,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.run.json",
-          "sha256": "341e6d6de27178497fbdd28f046512005311ced68462ac64abbcd969e49d6598",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-model-state.test.junit.xml",
-            "sha256": "d41c02bf8a894d51e4049a656c56075957edec5047a792fac5d255a02d042047"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-model-state.test.execution.json",
+          "sha256": "08ccf039796884fd8b7dcce07307926d8a01734226aa47dcf2f8ebc091d9a124"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.run.json",
-          "sha256": "a99368d61db306f086842da207233498474d9f448cc649b2ba65a6470d0f26da",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__api-client__tests__unit__model-connections.test.junit.xml",
-            "sha256": "7aba0500045cc1bdc2cd83a888b1f6c0aec40435c1b0cc669f1a2f1887b9d969"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__api-client__tests__unit__model-connections.test.execution.json",
+          "sha256": "2ce81095694077a18c1bfd1c58719b3e3e639b62baea1481c37004f36b208d7c"
         }
       ],
       "candidateEvidence": []
@@ -1784,22 +1608,14 @@
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.run.json",
-          "sha256": "dce0869dd8f095835d54b84a93eddb70d0af2c7f2ffadd5d6724e02bad6354c2",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/packages__workspace-ui__tests__unit__lead-turn-state.test.junit.xml",
-            "sha256": "a079b25afd3f57b5464444ba031eafe094d152e0d92d645e183bf7cfc1860d03"
-          }
+          "path": "docs/plans/m18-evidence-runs/packages__workspace-ui__tests__unit__lead-turn-state.test.execution.json",
+          "sha256": "68cc34d31e58db0ec1127f9f338341a09ed2e61eecf9d0b08cec4f5dbeaaf96d"
         },
         {
           "kind": "execution-reference",
           "repository": "adea",
-          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.run.json",
-          "sha256": "b8b2235e021d7f55ca1af8a1b09ae18b3258b2dc0f9f480f2b55890274ebde28",
-          "receipt": {
-            "path": "docs/plans/m18-evidence-runs/receipts/apps__web__test__lead-turn-runtime.test.junit.xml",
-            "sha256": "bb0daf8b227a24bacfbff1c2054b1c6c22ce23397e9c2ec8257a4f77c783f7bc"
-          }
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__lead-turn-runtime.test.execution.json",
+          "sha256": "011d0d0e1ca1e583ad9fd0031f9bedec09a66a4815c86fb5ceb28b920e705ae8"
         }
       ],
       "candidateEvidence": []

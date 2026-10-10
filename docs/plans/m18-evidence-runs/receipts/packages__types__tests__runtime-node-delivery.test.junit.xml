@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="2" assertions="18" failures="0" skipped="0" time="0.088336">
-  <testsuite name="packages/types/tests/runtime-node-delivery.test.ts" file="packages/types/tests/runtime-node-delivery.test.ts" tests="2" assertions="18" failures="0" skipped="0" time="0.018662">
-    <testcase name="pull signatures bind version, operation, workspace, node, key, nonce and time" classname="" time="0.006386" file="packages/types/tests/runtime-node-delivery.test.ts" line="21" assertions="8" />
-    <testcase name="pull parser is exact, canonical and bounded with no user/session/content fields" classname="" time="0.000333" file="packages/types/tests/runtime-node-delivery.test.ts" line="69" assertions="10" />
-  </testsuite>
-</testsuites>

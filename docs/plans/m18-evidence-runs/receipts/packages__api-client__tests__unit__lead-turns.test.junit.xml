@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="1" assertions="4" failures="0" skipped="0" time="0.053157">
-  <testsuite name="packages/api-client/tests/unit/lead-turns.test.ts" file="packages/api-client/tests/unit/lead-turns.test.ts" tests="1" assertions="4" failures="0" skipped="0" time="0.006924">
-    <testcase name="explicit lead-turn message retains its blocked receipt and retry key" classname="" time="0.00218" file="packages/api-client/tests/unit/lead-turns.test.ts" line="4" assertions="4" />
-  </testsuite>
-</testsuites>

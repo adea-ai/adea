@@ -74,6 +74,8 @@ export const STATUS = Object.freeze({
 })
 
 const CHANNELS = new Set(['packaged', 'deployed'])
+const EXECUTION_SCHEMA = 'adea.evidence.execution.v1'
+const CANDIDATE_SCHEMA = 'adea.evidence.candidate.v1'
 const REGULAR_BLOB_MODES = new Set(['100644', '100755'])
 const SHA = /^[0-9a-f]{40}$/
 const SHA256 = /^[0-9a-f]{64}$/
@@ -253,63 +255,66 @@ export function parseJunit(xml) {
 }
 
 /**
- * A receipt is the runner's output. Its per-testcase counts must equal the claimed
- * summary. Returns the titles it lists as passing and as failing.
+ * An evidence envelope is one hashed artifact that carries its own binding: the
+ * repository, the revision, the file, and the runner's JUnit document. Its per-testcase
+ * counts must equal its claimed summary. Returns the titles it lists as passing and failing.
  */
-function checkReceipt(receiptRef, summary, io) {
-  if (!isObject(receiptRef) || safeRepoPath(receiptRef.path) === null) {
-    return { problem: 'a receipt must name a path and sha256' }
-  }
-  const receipt = readBytes(receiptRef, io)
-  if (receipt.problem) return { problem: `receipt ${receipt.problem}` }
-  const junit = parseJunit(Buffer.from(receipt.bytes).toString('utf8'))
-  if (junit === null) return { problem: `receipt ${receiptRef.path} is not JUnit testcases` }
-  if (junit.passCount !== summary?.pass || junit.failCount !== summary?.fail) {
+function readEnvelope(item, io, schema) {
+  const { record, problem } = readRecord(item, io)
+  if (problem) return { problem }
+  if (record.schema !== schema) return { problem: `${item.path} is not a ${schema} envelope` }
+  const junit = typeof record.junit === 'string' ? parseJunit(record.junit) : null
+  if (junit === null) return { problem: `${item.path} junit is not JUnit testcases` }
+  if (junit.passCount !== record.summary?.pass || junit.failCount !== record.summary?.fail) {
     return {
-      problem: `receipt counts ${junit.passCount}/${junit.failCount} do not match record summary`,
+      problem: `${item.path} junit counts ${junit.passCount}/${junit.failCount} do not match its summary`,
     }
   }
-  const passing = new Set([...junit.passed].filter((title) => !junit.failed.has(title)))
-  return { passing, failed: junit.failed }
+  return {
+    record,
+    passing: new Set([...junit.passed].filter((title) => !junit.failed.has(title))),
+    failed: junit.failed,
+  }
 }
 
 /**
- * A recorded run bound to the pinned revision. The record is a claim, so its receipt
- * must match it. `executedAtHead` must equal the pinned SHA, not merely exist.
+ * A runner-verified execution, bound inside the envelope to one repository and to the
+ * pinned revision. A receipt copied from another repository or revision fails here.
  */
 function checkExecutionReference(item, id, io, manifest) {
-  const { record, problem } = readRecord(item, io)
-  if (problem) return { problem }
+  const envelope = readEnvelope(item, io, EXECUTION_SCHEMA)
+  if (envelope.problem) return { problem: envelope.problem }
+  const { record } = envelope
   if (record.repository !== item.repository) {
     return {
-      problem: `execution record names repository ${record.repository}, reference names ${item.repository}`,
+      problem: `execution envelope names repository ${record.repository}, reference names ${item.repository}`,
     }
   }
   const sha = manifest.repositories[item.repository].sourceSha
   if (record.sourceSha !== sha) {
-    return { problem: `execution record pins ${record.sourceSha}, ${item.repository} pins ${sha}` }
+    return {
+      problem: `execution envelope pins ${record.sourceSha}, ${item.repository} pins ${sha}`,
+    }
   }
   if (record.executedAtHead !== sha) {
     return { problem: `executedAtHead ${record.executedAtHead} is not the pinned ${sha}` }
   }
   if (record.status !== 'passed') {
-    return { problem: `execution record status is ${record.status}, not passed` }
+    return { problem: `execution envelope status is ${record.status}, not passed` }
   }
   if (record.exitCode !== 0) {
-    return { problem: `execution record exit code is ${record.exitCode}, not 0` }
+    return { problem: `execution envelope exit code is ${record.exitCode}, not 0` }
   }
   if (typeof record.command !== 'string' || record.command.length === 0) {
-    return { problem: 'execution record must name the command' }
+    return { problem: 'execution envelope must name the command' }
   }
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
-    return { problem: `execution record does not list ${id}` }
+    return { problem: `execution envelope does not list ${id}` }
   }
   if (safeRepoPath(record.file) === null || !TEST_FILE.test(record.file)) {
-    return { problem: 'execution record must name a *.test.* file' }
+    return { problem: 'execution envelope must name a *.test.* file' }
   }
-  const receipt = checkReceipt(item.receipt, record.summary, io)
-  if (receipt.problem) return { problem: receipt.problem }
-  return { file: record.file, passing: receipt.passing }
+  return { file: record.file, passing: envelope.passing }
 }
 
 function sourceProblems(entry, io, manifest) {
@@ -332,39 +337,61 @@ function sourceProblems(entry, io, manifest) {
   return problems
 }
 
-/** A candidate's own passing receipt: every testcase it lists must pass, and it lists some. */
+/**
+ * A candidate envelope is the candidate build's own run of one repository's test file. It
+ * pins the exact source of every repository the id references, lists the id, and shows no
+ * failing testcase. It can only cover scenario tests of its own repository and file.
+ */
 function checkCandidateEvidence(item, id, io, manifest, repositories) {
-  const { record, problem } = readRecord(item, io)
-  if (problem) return problem
+  const envelope = readEnvelope(item, io, CANDIDATE_SCHEMA)
+  if (envelope.problem) return { problem: envelope.problem }
+  const { record } = envelope
   if (typeof record.candidateId !== 'string' || record.candidateId.length === 0) {
-    return 'candidate record must name candidateId'
+    return { problem: 'candidate envelope must name candidateId' }
   }
   const name = record.candidateId
   if (!CHANNELS.has(record.channel)) {
-    return `candidate ${name} channel ${record.channel} is not packaged or deployed`
+    return { problem: `candidate ${name} channel ${record.channel} is not packaged or deployed` }
   }
   if (!manifest.compatibility.contractVersions.includes(record.contractVersion)) {
-    return `candidate ${name} contract ${record.contractVersion} is not compatible`
+    return { problem: `candidate ${name} contract ${record.contractVersion} is not compatible` }
   }
-  if (record.status !== 'passed') return `candidate ${name} status is ${record.status}`
-  if (record.exitCode !== 0) return `candidate ${name} exit code is ${record.exitCode}, not 0`
+  if (record.status !== 'passed') return { problem: `candidate ${name} status is ${record.status}` }
+  if (record.exitCode !== 0) {
+    return { problem: `candidate ${name} exit code is ${record.exitCode}, not 0` }
+  }
   if (!Array.isArray(record.ids) || !record.ids.includes(id)) {
-    return `candidate ${name} does not list ${id}`
+    return { problem: `candidate ${name} does not list ${id}` }
   }
-  if (!isObject(record.sources)) return `candidate ${name} must declare sources per repository`
+  if (!isObject(record.sources)) {
+    return { problem: `candidate ${name} must declare sources per repository` }
+  }
   for (const repository of repositories) {
     const sha = manifest.repositories[repository].sourceSha
     if (record.sources[repository] !== sha) {
-      return `candidate ${name} does not declare sources.${repository} = ${sha}`
+      return { problem: `candidate ${name} does not declare sources.${repository} = ${sha}` }
     }
   }
-  const receipt = checkReceipt(item.receipt, record.summary, io)
-  if (receipt.problem) return `candidate ${name} ${receipt.problem}`
-  if (receipt.failed.size > 0 || receipt.passing.size === 0) {
-    return `candidate ${name} test result is not all passing`
+  if (!repositories.has(record.repository)) {
+    return {
+      problem: `candidate ${name} runs tests of ${record.repository}, which this id does not reference`,
+    }
   }
-  return null
+  if (safeRepoPath(record.file) === null || !TEST_FILE.test(record.file)) {
+    return { problem: `candidate ${name} must name a *.test.* file` }
+  }
+  if (envelope.failed.size > 0 || envelope.passing.size === 0) {
+    return { problem: `candidate ${name} test result is not all passing` }
+  }
+  return {
+    candidateId: name,
+    repository: record.repository,
+    file: record.file,
+    passing: envelope.passing,
+  }
 }
+
+const scenarioKey = (repository, path, name) => JSON.stringify([repository, path, name])
 
 const intersect = (previous, next) =>
   previous === undefined ? next : new Set([...previous].filter((title) => next.has(title)))
@@ -492,15 +519,41 @@ function evaluate(id, entry, io, manifest) {
     return { status: STATUS.repoVerified, reasons: ['candidate evidence pending'] }
   }
 
+  // A candidate covers the criterion tests it actually ran: same repository, same file,
+  // same title, passing, at the pinned sources. Every other criterion test stays explicitly missing.
+  const covered = new Set()
   for (const item of entry.candidateEvidence) {
     if (item?.kind !== 'candidate-reference' || safeRepoPath(item.path) === null) {
       reasons.push(`invalid candidate evidence reference for ${id}`)
       continue
     }
-    const problem = checkCandidateEvidence(item, id, io, manifest, repositories)
-    if (problem) reasons.push(problem)
+    const result = checkCandidateEvidence(item, id, io, manifest, repositories)
+    if (result.problem) {
+      reasons.push(result.problem)
+    } else {
+      for (const title of result.passing) {
+        covered.add(scenarioKey(result.repository, result.file, title))
+      }
+    }
   }
   if (reasons.length > 0) return { status: STATUS.invalid, reasons }
+
+  const missing = new Map()
+  for (const criterion of entry.criteria ?? []) {
+    for (const ref of criterion.tests) {
+      const key = scenarioKey(ref.repository, ref.path, ref.name)
+      if (!covered.has(key)) missing.set(key, ref)
+    }
+  }
+  if (missing.size > 0) {
+    return {
+      status: STATUS.repoVerified,
+      reasons: [...missing.values()].map(
+        (ref) =>
+          `candidate evidence does not cover criterion test ${ref.repository}:${ref.path} "${ref.name}"`
+      ),
+    }
+  }
   return { status: STATUS.candidateCompatible, reasons: [] }
 }
 
@@ -700,6 +753,14 @@ function summarize(manifest, report) {
       certified === REQUIRED_IDS.length
         ? 'certification: complete'
         : `certification: incomplete (${certified} of ${REQUIRED_IDS.length} candidate-compatible)`
+    )
+  }
+  if (report.schemaErrors.length === 0) {
+    const withoutProof = REQUIRED_IDS.length - report.counts[STATUS.candidateCompatible]
+    lines.push(
+      withoutProof === 0
+        ? 'candidate-compatible proof: complete'
+        : `candidate-compatible proof: missing for ${withoutProof} of ${REQUIRED_IDS.length} ids`
     )
   }
   return lines.join('\n')

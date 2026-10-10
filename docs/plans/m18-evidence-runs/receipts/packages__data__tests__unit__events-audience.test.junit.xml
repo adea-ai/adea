@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="2" assertions="21" failures="0" skipped="0" time="0.294497">
-  <testsuite name="packages/data/tests/unit/events-audience.test.ts" file="packages/data/tests/unit/events-audience.test.ts" tests="2" assertions="21" failures="0" skipped="0" time="0.217462">
-    <testcase name="an audience change erases active observers, selection and resident bodies before denied refetch and late responses" classname="" time="0.022863" file="packages/data/tests/unit/events-audience.test.ts" line="53" assertions="16" />
-    <testcase name="withheld events preserve authorized caches and audience frames reject identifier payloads" classname="" time="0.002174" file="packages/data/tests/unit/events-audience.test.ts" line="195" assertions="5" />
-  </testsuite>
-</testsuites>

@@ -45,21 +45,24 @@ of the criterion, and the gaps are listed on the entry. Nothing is certified:
 
 - `{ kind: "test-reference", repository, path, name }`: the title appears in a `*.test.*`
   file at `sourceSha`. This is a source-text match, so comments and strings also match. It
-  becomes runner-verified only through an execution-reference whose receipt lists it as
+  becomes runner-verified only through an execution-reference whose envelope lists it as
   passing.
-- `{ kind: "execution-reference", repository, path, sha256, receipt: { path, sha256 } }`: a
-  run record `{ repository, sourceSha, executedAtHead, file, command, exitCode, status,
-summary, ids[] }` (a claim) and a JUnit receipt written by the runner (the output). Both
-  must match their hashes. Exact revision: `sourceSha` and `executedAtHead` must equal the
-  pinned SHA. `status` must be `passed` and `exitCode` 0. The receipt's per-testcase counts
-  must equal `summary`. Receipts are scoped to the reference's repository and file: a title counts
-  only if it passes in every execution-reference for that repository and file.
-- `{ kind: "candidate-reference", path, sha256, receipt: { path, sha256 } }`: a packaged or
-  deployed record `{ candidateId, channel, contractVersion, status, exitCode, ids[], sources,
-summary }`. `sources` must equal the pinned SHA for every repository the id references, including the
-  repositories of its `sourceReferences`. The
-  contract version must be listed in `compatibility.contractVersions`. Its own receipt must
-  show every testcase passing.
+- `{ kind: "execution-reference", repository, path, sha256 }`: one JSON envelope
+  `{ schema: "adea.evidence.execution.v1", repository, sourceSha, executedAtHead, file, command,
+exitCode, status, ids[], summary, junit }`. The envelope binds the repository, the revision,
+  and the file inside the hashed bytes, so a receipt copied from another repository or revision
+  fails the binding check. `repository` must equal the reference's repository. `sourceSha` and
+  `executedAtHead` must equal the pinned SHA. `status` must be `passed` and `exitCode` 0. `junit`
+  is the runner's JUnit document, and its per-testcase counts must equal `summary`. A title
+  counts only if it passes in every execution-reference for that repository and file.
+- `{ kind: "candidate-reference", path, sha256 }`: one JSON envelope
+  `{ schema: "adea.evidence.candidate.v1", candidateId, channel, contractVersion, repository,
+file, sources, ids[], exitCode, status, summary, junit }`. `sources` must equal the pinned SHA
+  for every repository the id references, including the repositories of its `sourceReferences`.
+  `repository` must be one of those repositories, and the envelope's JUnit must show every
+  testcase passing. A candidate covers only the criterion tests it ran: same repository, same
+  file, same title. Any criterion test it does not cover stays explicitly missing, and the id
+  stays `repo-verified`.
 
 Paths are repo-relative POSIX paths with no `..`, absolute prefix, or empty segment.
 
@@ -70,7 +73,7 @@ Paths are repo-relative POSIX paths with no `..`, absolute prefix, or empty segm
 | `pending`              | No mapping, a partial entry, or an entry without repository evidence. Gaps are listed.                                           |
 | `invalid`              | A reference is missing, unmapped, mismatched, unsafe, non-regular, oversized, or not passing, or a complete claim lacks support. |
 | `repo-verified`        | A complete entry whose declared tests all passed at the pinned revision and whose criteria are evidenced.                        |
-| `candidate-compatible` | A complete entry with a compatible, all-passing candidate.                                                                       |
+| `candidate-compatible` | A complete entry whose criterion tests are all covered by compatible, all-passing candidate envelopes.                           |
 
 ## File safety
 
@@ -81,10 +84,10 @@ Paths are repo-relative POSIX paths with no `..`, absolute prefix, or empty segm
 
 ## Limits
 
-- The run record is a claim and the receipt is runner output. Both are committed by us, so
-  neither is independent verification. Re-running the command at `executedAtHead` is the
+- An execution envelope is a claim plus runner output in one hashed artifact. Both are committed
+  by us, so it is not independent verification. Re-running the command at `executedAtHead` is the
   check.
-- Receipts are bun's JUnit output with only the machine `hostname` attribute removed. The
+- Envelopes embed bun's JUnit output with only the machine `hostname` attribute removed. The
   check scans committed artifacts for local paths.
 - A `test-reference` proves the title is declared in source text and, with a receipt, that it
   passed. It does not prove the title covers the criterion; that judgement is in `criteria`
