@@ -2,8 +2,8 @@ import type { AccountWorkspaceSummary, UserPrincipalRef } from '@adea-ai/types'
 import { sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { userChannelStanding } from './group-participation-store'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
   messageMentions,
@@ -62,12 +62,7 @@ export async function accountWorkspaceSummaries(
       and channel.lifecycle_state = 'active'
       and (
         channel.visibility = 'workspace'
-        or exists (
-          select 1 from ${channelParticipants} as participant
-          where participant.channel_id = channel.id
-            and participant.principal_kind = 'user'
-            and participant.user_id = membership.user_id
-        )
+        or ${userChannelStanding(sql.raw('channel.kind'), sql.raw('channel.id'), sql.raw('membership.user_id'))}
       )
       and (
         channel.project_id is null

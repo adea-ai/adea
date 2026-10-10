@@ -185,11 +185,12 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         historical
       ))!.every(({ kind }) => kind === 'deliver')
     ).toBe(true)
+    // The owner was removed from the group, so a group change is made by a current participant.
     const publicGroup = await updateChannel(
       connection.db,
       f.workspace.id,
       group.id,
-      f.owner,
+      f.member,
       { visibility: 'workspace' },
       removed.version
     )
@@ -205,11 +206,11 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
       connection.db,
       f.workspace.id,
       group.id,
-      f.owner,
+      f.member,
       { visibility: 'participants' },
       publicGroup.version
     )
-    await archiveChannel(connection.db, f.workspace.id, group.id, f.owner, privateGroup.version)
+    await archiveChannel(connection.db, f.workspace.id, group.id, f.member, privateGroup.version)
     const archived = await listWorkspaceEventsAfter(connection.db, f.workspace.id, start, 100)
     expect(archived.some(({ eventType }) => eventType === 'channel.archived')).toBe(true)
     expect(

@@ -506,10 +506,14 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   }
   const direct = (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>)
     .message
-  const posted = await createMessage(transaction, workspaceId, channelId, principal, {
-    ...direct,
-    sender,
-  })
+  const posted = await createMessage(
+    transaction,
+    workspaceId,
+    channelId,
+    principal,
+    { ...direct, sender },
+    { now: readNow() }
+  )
   const settledDirect =
     participant === null
       ? null

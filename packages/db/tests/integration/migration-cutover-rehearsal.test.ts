@@ -646,8 +646,10 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(afterReads.collaborator.archivedMessages).toBe('denied')
     // Message reads exclude archived channels for everyone, participants included.
     expect(afterReads.owner.archivedMessages).toBe('denied')
-    // Only the participant sees the archived channel in the includeArchived listing.
-    expect(afterReads.owner.channels).toContain(fixture.archivedChannelId)
+    // The archived legacy group has no canonical admission: the canonical backfill (0050) admits
+    // active groups only. Its legacy participant row therefore admits nobody, the owner included,
+    // and the archived channel is absent from every listing.
+    expect(afterReads.owner.channels).not.toContain(fixture.archivedChannelId)
     expect(afterReads.collaborator.channels).not.toContain(fixture.archivedChannelId)
     // Positive controls: the same resources are readable by an authorized principal, so each
     // denial above is a real authorization outcome and not a missing fixture.

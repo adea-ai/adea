@@ -35,7 +35,7 @@ import type {
   GroupSummaryReadDecision,
   GroupTurnDecision,
 } from '@adea-ai/types'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
@@ -47,6 +47,7 @@ import {
 } from './group-participation-policy'
 import {
   agents,
+  channelParticipants,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
@@ -317,6 +318,31 @@ export async function loadGroupAdmission(
 ): Promise<GroupAdmission | null> {
   const roster = await loadGroupRoster(database, workspaceId, channelId, options)
   return roster.find((admission) => sameParticipant(admission.participant, participant)) ?? null
+}
+
+/**
+ * SQL standing of one user in one channel row. A group admits by its canonical
+ * admission only: a legacy `channel_participants` row alone admits nobody, so a
+ * quarantined audience, whose admission is withheld, keeps no read, list or
+ * write access through its original roster row. Every other kind still admits
+ * by its roster row. `kind`, `channelId` and `userId` are column, alias or
+ * bound-value references the caller already has in scope.
+ */
+export function userChannelStanding(kind: SQL, channelId: SQL, userId: string | SQL): SQL {
+  return sql`(
+    (${kind} = 'group' and exists (
+      select 1 from ${groupAdmissions} as group_admission
+      where group_admission.channel_id = ${channelId}
+        and group_admission.principal_kind = 'user'
+        and group_admission.user_id = ${userId}
+    ))
+    or (${kind} <> 'group' and exists (
+      select 1 from ${channelParticipants} as roster_row
+      where roster_row.channel_id = ${channelId}
+        and roster_row.principal_kind = 'user'
+        and roster_row.user_id = ${userId}
+    ))
+  )`
 }
 
 /**

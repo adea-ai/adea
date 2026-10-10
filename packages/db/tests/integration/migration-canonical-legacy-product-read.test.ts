@@ -12,6 +12,7 @@ import {
   setChannelParticipants,
 } from '../../src/conversations'
 import {
+  decideGroupChannelHistoryReadNow,
   listGroupChannelMessagesForUser,
   postGroupChannelMessage,
   revokeGroupGrant,
@@ -419,10 +420,21 @@ describe.skipIf(!provisioned)(
       expect(after.removedDirectRead).toEqual({ denied: 'Channel unavailable' })
     })
 
-    test('upgrade, after quarantine: with membership restored, the withheld admission alone denies every history entry', () => {
-      expect(after.removedRestoredRead).toEqual({ value: [] })
+    test('upgrade, after quarantine: with membership restored, the withheld admission refuses the channel, and alone denies every history entry', async () => {
+      // The channel gate now reads the canonical admission, so the stale roster row admits nothing.
+      expect(after.removedRestoredRead).toEqual({ denied: 'Channel unavailable' })
       expect(before.removedRestoredRead).not.toEqual({ value: [] })
       expect(after.admissions.removed).toBeNull()
+      // The per-entry canonical gate denies the same user on its own, without the channel gate.
+      const decision = await decideGroupChannelHistoryReadNow(
+        upgrade.runtime.db,
+        seed.workspaceId,
+        seed.activeGroupId,
+        { kind: 'user', userId: seed.removed.userId },
+        { occurredAt: OBSERVED_AT, sequence: 1 },
+        OBSERVED_AT
+      )
+      expect(decision.action).not.toBe('allow')
     })
 
     test('upgrade, after quarantine: with membership restored, the quarantined user is refused publication into the active group', () => {

@@ -6,35 +6,22 @@ import type {
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { userChannelStanding } from './group-participation-store'
 import {
   type ProjectAccessScope,
   requireProjectAccessScope,
   visibleProjectCondition,
 } from './project-access'
 import { appendWorkspaceEvent } from './transactions'
-import {
-  channelParticipants,
-  channelReadStates,
-  channels,
-  messages,
-  threadReadStates,
-} from './schema'
+import { channelReadStates, channels, messages, threadReadStates } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
-// The participant row that makes a private channel visible to the principal.
-function participantJoin(principal: UserPrincipalRef) {
-  return and(
-    eq(channelParticipants.channelId, channels.id),
-    eq(channelParticipants.principalKind, 'user'),
-    eq(channelParticipants.userId, principal.userId)
-  )
-}
-
-// Active channels the principal can see: workspace-visible or listing them as
-// a participant, outside every hidden project. The id listing, the read state
-// summary and its thread aggregate all use this one predicate, so they can
-// never disagree about which channels are in scope.
+// Active channels the principal can see: workspace-visible or standing in them
+// (a group by its canonical admission, every other kind by its roster row),
+// outside every hidden project. The id listing, the read state summary and its
+// thread aggregate all use this one predicate, so they can never disagree
+// about which channels are in scope.
 function accessibleChannelCondition(
   workspaceId: string,
   principal: UserPrincipalRef,
@@ -44,7 +31,10 @@ function accessibleChannelCondition(
     eq(channels.workspaceId, workspaceId),
     eq(channels.lifecycleState, 'active'),
     visibleProjectCondition(channels.projectId, scope),
-    or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
+    or(
+      eq(channels.visibility, 'workspace'),
+      userChannelStanding(sql`${channels.kind}`, sql`${channels.id}`, principal.userId)
+    )
   )
 }
 
@@ -57,7 +47,6 @@ function accessibleChannelIds(
   return database
     .select({ id: channels.id })
     .from(channels)
-    .leftJoin(channelParticipants, participantJoin(principal))
     .where(accessibleChannelCondition(workspaceId, principal, scope))
 }
 
@@ -143,7 +132,6 @@ export async function listReadStateForUser(
         updatedAt: channelReadStates.updatedAt,
       })
       .from(channels)
-      .leftJoin(channelParticipants, participantJoin(principal))
       .leftJoin(
         channelReadStates,
         and(

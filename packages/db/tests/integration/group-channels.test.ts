@@ -626,15 +626,11 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
         (entry) => entry.participant.kind === 'user' && entry.participant.userId === stranger.userId
       )
     ).toBe(false)
-    const page = await listGroupChannelMessagesForUser(
-      connection.db,
-      f.workspace.id,
-      channelId,
-      stranger,
-      {},
-      LATER
-    )
-    expect(page.messages).toHaveLength(0)
+    // The channel gate reads the canonical admission, so the bare row refuses the channel itself
+    // rather than returning an empty page.
+    await expect(
+      listGroupChannelMessagesForUser(connection.db, f.workspace.id, channelId, stranger, {}, LATER)
+    ).rejects.toThrow('Channel unavailable')
   })
 
   T('concurrent creation under one idempotency key yields one channel and one roster', async () => {

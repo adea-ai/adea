@@ -21,6 +21,7 @@ import {
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
+  userChannelStanding,
 } from './group-participation-store'
 import {
   canReadProject,
@@ -191,15 +192,36 @@ async function validateParticipant(
 }
 
 async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
-  const participantRows = await database
-    .select()
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.workspaceId, row.workspaceId),
-        eq(channelParticipants.channelId, row.id)
-      )
-    )
+  // A group's roster is its canonical admissions: the legacy roster rows of a
+  // quarantined audience remain but name nobody the group admits.
+  const participantRows =
+    row.kind === 'group'
+      ? await database
+          .select({
+            agentId: groupAdmissions.agentId,
+            principalKind: groupAdmissions.principalKind,
+            userId: groupAdmissions.userId,
+          })
+          .from(groupAdmissions)
+          .where(
+            and(
+              eq(groupAdmissions.workspaceId, row.workspaceId),
+              eq(groupAdmissions.channelId, row.id)
+            )
+          )
+      : await database
+          .select({
+            agentId: channelParticipants.agentId,
+            principalKind: channelParticipants.principalKind,
+            userId: channelParticipants.userId,
+          })
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, row.workspaceId),
+              eq(channelParticipants.channelId, row.id)
+            )
+          )
   const participants = participantRows
     .map((participant): ConversationParticipantRef =>
       participant.principalKind === 'user'
@@ -271,19 +293,18 @@ async function requireChannelAccess(
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
   if (channel.visibility === 'participants') {
-    const [participant] = await database
-      .select({ id: channelParticipants.id })
-      .from(channelParticipants)
+    const [standing] = await database
+      .select({ id: channels.id })
+      .from(channels)
       .where(
         and(
-          eq(channelParticipants.workspaceId, workspaceId),
-          eq(channelParticipants.channelId, channelId),
-          eq(channelParticipants.principalKind, 'user'),
-          eq(channelParticipants.userId, principal.userId)
+          eq(channels.id, channelId),
+          eq(channels.workspaceId, workspaceId),
+          userChannelStanding(sql`${channels.kind}`, sql`${channels.id}`, principal.userId)
         )
       )
       .limit(1)
-    if (!participant) throw new Error('Channel unavailable')
+    if (!standing) throw new Error('Channel unavailable')
   }
   return channel
 }
@@ -729,6 +750,9 @@ export async function updateChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    // A group is changed only by a participant with live canonical standing.
+    if (channel.kind === 'group')
+      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
@@ -776,6 +800,9 @@ export async function archiveChannel(
     await requireMembership(transaction, workspaceId, principal)
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
+      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    // A group is changed only by a participant with live canonical standing.
+    if (channel.kind === 'group')
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
@@ -1164,9 +1191,18 @@ export function createMessage(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  input: CreateMessageInput
+  input: CreateMessageInput,
+  options: Readonly<{ now?: string }> = {}
 ) {
-  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, false)
+  return createMessageWithTextPolicy(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    false,
+    options
+  )
 }
 
 /** Server-only terminal publication; never expose this text policy as a caller input. */
@@ -1192,7 +1228,8 @@ async function createMessageWithTextPolicy(
   channelId: string,
   principal: UserPrincipalRef,
   input: CreateMessageInput,
-  preserveText: boolean
+  preserveText: boolean,
+  options: Readonly<{ now?: string }> = {}
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
@@ -1215,6 +1252,18 @@ async function createMessageWithTextPolicy(
         .limit(1)
         .for('update')
     }
+    // A group user author must hold a live canonical admission at the write:
+    // a legacy roster row alone never lets a quarantined audience append. A lead
+    // turn skips this check: its writer decides the same admission and grant on
+    // its own trusted clock, so a second read here would decide on another instant.
+    if (channel.kind === 'group' && input.sender.kind === 'user' && !input.leadTurn)
+      await requireGroupTurn(
+        transaction,
+        workspaceId,
+        channel,
+        { kind: 'user', userId: input.sender.userId },
+        options.now
+      )
     // Group agent senders prove standing through their enlistment (checked
     // just below), never through host membership — validateSender keeps the
     // host-workspace rule for every other lane.
@@ -1457,7 +1506,8 @@ async function requireGroupTurn(
   database: Database,
   workspaceId: string,
   channel: Pick<ChannelRow, 'id' | 'kind'>,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  now: string = new Date().toISOString()
 ) {
   if (channel.kind !== 'group') return
   const admission = await loadGroupAdmission(
@@ -1470,7 +1520,7 @@ async function requireGroupTurn(
   const decision = decideGroupTurn({
     admission,
     groupId: channel.id,
-    now: new Date().toISOString(),
+    now,
   })
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
 }

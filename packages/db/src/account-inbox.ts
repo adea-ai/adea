@@ -13,8 +13,8 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { userChannelStanding } from './group-participation-store'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
   messageMentions,
@@ -151,12 +151,7 @@ const inboxAuthorization = (userId: string) => sql`
       on channel.workspace_id = membership.workspace_id
       and (
         channel.visibility = 'workspace'
-        or exists (
-          select 1 from ${channelParticipants} as participant
-          where participant.channel_id = channel.id
-            and participant.principal_kind = 'user'
-            and participant.user_id = ${userId}
-        )
+        or ${userChannelStanding(sql.raw('channel.kind'), sql.raw('channel.id'), userId)}
       )
       and (
         channel.project_id is null
