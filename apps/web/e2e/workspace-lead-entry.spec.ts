@@ -16,6 +16,16 @@ const workspace = {
   updatedAt: timestamp,
   version: 1,
 }
+const homeWorkspace = {
+  accent: null,
+  id: 'workspace-home-e2e',
+  logo: { kind: 'home' as const },
+  name: 'Home',
+  scene: 'home',
+  sortOrder: 1,
+  updatedAt: timestamp,
+  version: 1,
+}
 const researchAgent = {
   createdAt: timestamp,
   id: 'agent-research',
@@ -29,16 +39,102 @@ const researchAgent = {
   updatedAt: timestamp,
   workspaceId: workspace.id,
 }
+const connectionRef = `mconn_${'a'.repeat(32)}`
+const readyChoice = { connectionRef, providerModel: 'fixture-model' }
 
+type Lead = Record<string, unknown>
+type Hold = 'leadPost' | 'defaultsSave'
+type MountOptions = {
+  canManage?: boolean
+  /** A non-member: the lead and model routes refuse the workspace. */
+  nonMember?: boolean
+  /** Model inventory and defaults are readable (funding is not fail-closed). */
+  models?: boolean
+  /** The Work lead already exists with an approved profile. */
+  availableLead?: boolean
+}
 type LeadState = {
-  lead: Record<string, unknown> | null
+  /** Work workspace lead (the primary fixture). */
+  lead: Lead | null
   postsFail: number
   posts: number
   gets: number
+  /** Home workspace lead. */
+  home: { lead: Lead | null; posts: number; gets: number }
+  defaults: { revision: number; lead?: typeof readyChoice }
+  defaultsRequests: number
+  /** Holds the next matching request until the returned function is called. */
+  hold(kind: Hold): () => void
 }
 
-async function mountShell(page: Page, canManage = true): Promise<LeadState> {
-  const state: LeadState = { lead: null, postsFail: 0, posts: 0, gets: 0 }
+function leadFor(workspaceId: string, available: boolean): Lead {
+  return {
+    createdAt: timestamp,
+    id: `agent-lead-${workspaceId}`,
+    isWorkspaceLead: true,
+    lifecycleState: 'active',
+    name: 'Workspace lead',
+    presentationMetadata: {},
+    profile: available
+      ? { id: 'lead-profile', state: 'available', version: '2' }
+      : { id: 'workspace-lead-unconfigured', state: 'missing', version: 'unconfigured' },
+    projectId: null,
+    revision: 0,
+    roleSummary: 'Coordinates work in this workspace',
+    updatedAt: timestamp,
+    workspaceId,
+  }
+}
+
+function readyInventory(canManage: boolean) {
+  return {
+    availability: 'available',
+    canManage,
+    target: {
+      location: 'remote_host',
+      harness: 'pi_durable',
+      harnessVersion: '1.0.0',
+      providerBinding: 'pi_durable_models',
+    },
+    connections: [
+      {
+        connectionRef,
+        revision: 1,
+        provider: 'fixture-provider',
+        accountRef: 'provider-account',
+        authKind: 'api_key',
+        fundingSource: 'byo_api',
+        status: 'active',
+        models: [
+          {
+            providerModel: 'fixture-model',
+            readiness: { ready: true, reasonCode: 'READY', remedy: null },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadState> {
+  const canManage = options.canManage ?? true
+  const holds: Partial<Record<Hold, Promise<void>>> = {}
+  const state: LeadState = {
+    lead: options.availableLead ? leadFor(workspace.id, true) : null,
+    postsFail: 0,
+    posts: 0,
+    gets: 0,
+    home: { lead: leadFor(homeWorkspace.id, true), posts: 0, gets: 0 },
+    defaults: { revision: 1 },
+    defaultsRequests: 0,
+    hold(kind) {
+      let open!: () => void
+      holds[kind] = new Promise<void>((resolve) => {
+        open = resolve
+      })
+      return open
+    },
+  }
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
       localStorage.clear()
@@ -52,36 +148,90 @@ async function mountShell(page: Page, canManage = true): Promise<LeadState> {
       json: {
         activeWorkspace: workspace,
         principal: { temporary: false, userId: 'user-e2e' },
-        workspaces: [workspace],
+        workspaces: [workspace, homeWorkspace],
       },
     })
   )
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
-  // Model metadata is unavailable in this environment, so lead funding fails closed.
-  await page.route('**/api/workspaces/workspace-e2e/model-connections', (route: Route) =>
-    route.fulfill({
-      contentType: 'application/json',
-      json: {
-        availability: 'unavailable',
-        canManage,
-        target: null,
-        connections: [],
-        defaults: null,
-      },
-    })
-  )
+  // Model metadata: fail closed unless the scenario makes the inventory readable.
+  await page.route('**/api/workspaces/*/model-connections', async (route: Route) => {
+    const request = route.request()
+    const workspaceId = /\/workspaces\/([^/]+)\//.exec(new URL(request.url()).pathname)?.[1]
+    if (options.nonMember || workspaceId !== workspace.id)
+      return route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        json: { code: 'workspace_unavailable', message: 'Workspace unavailable' },
+      })
+    const body = (request.postDataJSON?.() ?? {}) as {
+      action?: string
+      input?: { lead?: typeof readyChoice; expectedRevision?: number }
+    }
+    if (body.action === 'list')
+      return route.fulfill({
+        contentType: 'application/json',
+        json: options.models
+          ? readyInventory(canManage)
+          : { availability: 'unavailable', canManage, target: null, connections: [] },
+      })
+    if (body.action === 'defaults.get' || body.action === 'defaults.set') {
+      if (body.action === 'defaults.set') {
+        state.defaultsRequests += 1
+        if (holds.defaultsSave) await holds.defaultsSave
+        state.defaults = {
+          revision: state.defaults.revision + 1,
+          ...(body.input?.lead
+            ? { lead: body.input.lead }
+            : state.defaults.lead
+              ? { lead: state.defaults.lead }
+              : {}),
+        }
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        json: options.models
+          ? { availability: 'available', canManage, defaults: state.defaults }
+          : { availability: 'unavailable', canManage, defaults: null },
+      })
+    }
+    return route.fulfill({ status: 400, contentType: 'application/json', json: {} })
+  })
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     const method = request.method()
-    if (url.pathname.endsWith('/agents/lead')) {
+    const leadRoute = /\/workspaces\/([^/]+)\/agents\/lead$/.exec(url.pathname)
+    if (leadRoute) {
+      const workspaceId = leadRoute[1]
+      if (workspaceId === homeWorkspace.id) {
+        if (method === 'GET') {
+          state.home.gets += 1
+          return route.fulfill({ contentType: 'application/json', json: { lead: state.home.lead } })
+        }
+        state.home.posts += 1
+        state.home.lead ??= leadFor(homeWorkspace.id, false)
+        return route.fulfill({ contentType: 'application/json', json: { lead: state.home.lead } })
+      }
       if (method === 'GET') {
         state.gets += 1
+        if (options.nonMember)
+          return route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            json: { code: 'workspace_unavailable', message: 'Workspace unavailable' },
+          })
         return route.fulfill({ contentType: 'application/json', json: { lead: state.lead } })
       }
       state.posts += 1
+      if (options.nonMember)
+        return route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          json: { code: 'workspace_unavailable', message: 'Workspace unavailable' },
+        })
+      if (holds.leadPost) await holds.leadPost
       if (state.postsFail > 0) {
         state.postsFail -= 1
         return route.fulfill({
@@ -90,20 +240,7 @@ async function mountShell(page: Page, canManage = true): Promise<LeadState> {
           json: { code: 'workspace_unavailable', message: 'Workspace unavailable' },
         })
       }
-      state.lead ??= {
-        createdAt: timestamp,
-        id: 'agent-lead',
-        isWorkspaceLead: true,
-        lifecycleState: 'active',
-        name: 'Workspace lead',
-        presentationMetadata: {},
-        profile: { id: 'workspace-lead-unconfigured', state: 'missing', version: 'unconfigured' },
-        projectId: null,
-        revision: 0,
-        roleSummary: 'Coordinates work in this workspace',
-        updatedAt: timestamp,
-        workspaceId: workspace.id,
-      }
+      state.lead ??= leadFor(workspace.id, false)
       return route.fulfill({ contentType: 'application/json', json: { lead: state.lead } })
     }
     if (method !== 'GET') return route.fulfill({ contentType: 'application/json', json: {} })
@@ -127,6 +264,7 @@ async function mountShell(page: Page, canManage = true): Promise<LeadState> {
 }
 
 const leadStatus = (page: Page) => page.getByRole('region', { name: 'Workspace lead' })
+const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' })
 
 async function openAgents(page: Page) {
   await page.getByRole('button', { name: 'Agents', exact: true }).first().click()
@@ -190,7 +328,7 @@ test('a failed lead provisioning shows a retryable error while the roster stays 
 test('a member without manage rights sees the lead as not set up and the roster stays usable', async ({
   page,
 }) => {
-  const state = await mountShell(page, false)
+  const state = await mountShell(page, { canManage: false })
   await openAgents(page)
   await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
     'data-state',
@@ -200,6 +338,92 @@ test('a member without manage rights sees the lead as not set up and the roster 
   await expect(leadStatus(page).getByRole('button', { name: 'Try again' })).toHaveCount(0)
   await expect(page.getByText('Research Agent').first()).toBeVisible()
   expect(state.posts).toBe(0)
+})
+
+test('a non-member lead read is unavailable, never provisions, and offers no success state', async ({
+  page,
+}) => {
+  const state = await mountShell(page, { nonMember: true })
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'unavailable',
+    { timeout: 30_000 }
+  )
+  await expect(leadStatus(page)).toContainText('could not be read')
+  await expect(leadStatus(page)).not.toContainText('ready')
+  expect(state.posts).toBe(0)
+  expect(state.gets).toBeGreaterThanOrEqual(1)
+})
+
+test('a workspace switch while the lead write is parked never applies it to the new workspace', async ({
+  page,
+}) => {
+  const state = await mountShell(page)
+  const releaseWrite = state.hold('leadPost')
+  await openAgents(page)
+  // The provisioning write for Work is in flight, parked on the route.
+  await expect.poll(() => state.posts).toBe(1)
+
+  await workspaceNav(page)
+    .getByRole('button', { name: /^Home( |$)/ })
+    .click()
+  await expect(page.getByRole('heading', { name: 'Home', level: 3 })).toBeVisible()
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked',
+    { timeout: 30_000 }
+  )
+
+  releaseWrite()
+  // The Work write completes server-side, but Home's status must stay Home's own.
+  await expect.poll(() => state.lead).not.toBeNull()
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked'
+  )
+  // Home already has its lead (approved profile, no eligible model): the switch must not provision there, and Work's result must not show here.
+  expect(state.home.posts).toBe(0)
+  expect(state.posts).toBe(1)
+})
+
+test('a delayed defaults save that completes after settings close still updates the Agents lead status', async ({
+  page,
+}) => {
+  const state = await mountShell(page, { availableLead: true, models: true })
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked',
+    { timeout: 30_000 }
+  )
+
+  const releaseSave = state.hold('defaultsSave')
+  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
+  const details = page.getByRole('dialog', { name: 'Work workspace settings' })
+  await expect(details).toBeVisible()
+  await details.getByRole('tab', { name: 'Connections', exact: true }).click()
+  await expect(details.getByRole('heading', { name: 'Agent models' })).toBeVisible()
+  await details.getByRole('button', { name: 'Use for workspace lead', exact: true }).click()
+  await expect.poll(() => state.defaultsRequests).toBe(1)
+
+  // The settings surface closes while the save is still in flight.
+  await page.keyboard.press('Escape')
+  await expect(details).toBeHidden()
+  releaseSave()
+
+  await expect(page.locator('#workspace-main').getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'setup_ready',
+    { timeout: 30_000 }
+  )
+  // Reopening shows the persisted default, with no second save.
+  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
+  await expect(details).toBeVisible()
+  await details.getByRole('tab', { name: 'Connections', exact: true }).click()
+  await expect(details.getByText('Selected', { exact: true })).toBeVisible()
+  expect(state.defaultsRequests).toBe(1)
 })
 
 test('refreshing agent models in workspace settings reloads the Agents lead status behind it', async ({

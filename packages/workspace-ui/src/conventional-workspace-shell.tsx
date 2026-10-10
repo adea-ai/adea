@@ -567,62 +567,64 @@ export function ConventionalWorkspaceShell(props: {
                             />
                           }
                         >
-                          <>
-                            <Suspense fallback={<p role="status">Checking the workspace lead…</p>}>
-                              <WorkspaceLeadStatus
-                                client={controller.client}
-                                workspaceId={controller.workspaceId!}
-                              />
-                            </Suspense>
-                            <AgentRoster
-                              agents={controller.agents}
-                              busy={controller.createAgentBusy || controller.agentBusy}
-                              onArchive={controller.agentActions.archive}
-                              onCreate={controller.createAgent}
-                              onMessage={async (agentId) => {
-                                await controller.openAgentConversation(agentId)
-                                setSurface('conversation')
-                              }}
-                              onUpdate={async (agent, input) => {
-                                // Presentation and placement share one Agent revision. Each saved edit
-                                // names the revision it opened, and the next edit chains the revision
-                                // the server returned; a superseded opening conflicts without writing.
-                                let revision = agent.revision ?? 0
-                                if (
-                                  input.name.trim() !== agent.name ||
-                                  input.roleSummary !== (agent.roleSummary ?? null) ||
-                                  input.avatarRef !== (agent.avatarRef ?? null) ||
-                                  input.characterRef !== (agent.characterRef ?? null)
+                          <AgentRoster
+                            leadStatus={
+                              <Suspense
+                                fallback={<p role="status">Checking the workspace lead…</p>}
+                              >
+                                <WorkspaceLeadStatus
+                                  client={controller.client}
+                                  workspaceId={controller.workspaceId!}
+                                />
+                              </Suspense>
+                            }
+                            agents={controller.agents}
+                            busy={controller.createAgentBusy || controller.agentBusy}
+                            onArchive={controller.agentActions.archive}
+                            onCreate={controller.createAgent}
+                            onMessage={async (agentId) => {
+                              await controller.openAgentConversation(agentId)
+                              setSurface('conversation')
+                            }}
+                            onUpdate={async (agent, input) => {
+                              // Presentation and placement share one Agent revision. Each saved edit
+                              // names the revision it opened, and the next edit chains the revision
+                              // the server returned; a superseded opening conflicts without writing.
+                              let revision = agent.revision ?? 0
+                              if (
+                                input.name.trim() !== agent.name ||
+                                input.roleSummary !== (agent.roleSummary ?? null) ||
+                                input.avatarRef !== (agent.avatarRef ?? null) ||
+                                input.characterRef !== (agent.characterRef ?? null)
+                              )
+                                revision =
+                                  (
+                                    await controller.agentActions.presentation(agent.id, {
+                                      avatarRef: input.avatarRef,
+                                      characterRef: input.characterRef,
+                                      expectedRevision: revision,
+                                      name: input.name,
+                                      roleSummary: input.roleSummary,
+                                    })
+                                  ).revision ?? revision + 1
+                              if (input.projectId !== (agent.projectId ?? null))
+                                await controller.agentActions.assignProject(
+                                  agent.id,
+                                  input.projectId,
+                                  revision
                                 )
-                                  revision =
-                                    (
-                                      await controller.agentActions.presentation(agent.id, {
-                                        avatarRef: input.avatarRef,
-                                        characterRef: input.characterRef,
-                                        expectedRevision: revision,
-                                        name: input.name,
-                                        roleSummary: input.roleSummary,
-                                      })
-                                    ).revision ?? revision + 1
-                                if (input.projectId !== (agent.projectId ?? null))
-                                  await controller.agentActions.assignProject(
-                                    agent.id,
-                                    input.projectId,
-                                    revision
-                                  )
-                                if (
-                                  input.profileId.trim() !== agent.profile.id ||
-                                  input.profileVersion.trim() !== agent.profile.version
-                                )
-                                  await controller.agentActions.profile(agent.id, {
-                                    expectedRevision: agent.profile.revision ?? 0,
-                                    profileId: input.profileId,
-                                    profileVersion: input.profileVersion,
-                                  })
-                              }}
-                              projects={controller.projects}
-                            />
-                          </>
+                              if (
+                                input.profileId.trim() !== agent.profile.id ||
+                                input.profileVersion.trim() !== agent.profile.version
+                              )
+                                await controller.agentActions.profile(agent.id, {
+                                  expectedRevision: agent.profile.revision ?? 0,
+                                  profileId: input.profileId,
+                                  profileVersion: input.profileVersion,
+                                })
+                            }}
+                            projects={controller.projects}
+                          />
                         </Show>
                       }
                     >
