@@ -6,8 +6,7 @@ import type {
   GroupAudienceGrant,
 } from '@adea-ai/types'
 
-import type { WorkspacePrincipalResolution } from './workspace-principal'
-import { workspaceJsonResponse, workspaceUnavailableResponse } from './workspace-response'
+export { conversationErrorResponse } from './conversation-response'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -110,63 +109,4 @@ export function parseGroupEnlistmentGrant(value: unknown): GroupAgentEnlistmentG
     agent: { agentId: agent.agentId as string, workspaceId: agent.workspaceId as string },
     groupId: candidate.groupId,
   }
-}
-
-export function conversationErrorResponse(
-  error: unknown,
-  resolution: WorkspacePrincipalResolution,
-  request: Request
-) {
-  const message = error instanceof Error ? error.message : ''
-  if (message === 'Lead turn model selection conflict')
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
-  // Group creation failures are identified by error name, not by importing
-  // the db error class: a value import would pull `@adea-ai/db` (and its
-  // `server-only` marker) into every consumer of this module, including
-  // unit tests. Name + shape discrimination matches this file's conventions.
-  if (
-    error instanceof Error &&
-    error.name === 'GroupCreationError' &&
-    'rejections' in error &&
-    Array.isArray((error as { rejections?: unknown }).rejections)
-  )
-    return workspaceJsonResponse(
-      {
-        code: 'group_grant_rejected',
-        message: error.message,
-        rejections: (error as { rejections: unknown }).rejections,
-      },
-      resolution,
-      request,
-      { status: 400 }
-    )
-  if (message.endsWith('version conflict') || message.endsWith('idempotency conflict'))
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
-  if (
-    message === 'Primary Project Channel required' ||
-    message.endsWith('thread conflict') ||
-    message.endsWith('reply conflict')
-  )
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
-  // A viewer of a members-only project reads but cannot write there.
-  if (message === 'Project read-only')
-    return workspaceJsonResponse({ code: 'project_read_only', message }, resolution, request, {
-      status: 403,
-    })
-  if (message.endsWith('unavailable')) return workspaceUnavailableResponse(request)
-  // Log the underlying failure: the client only receives a generic message, so
-  // the server terminal is the only place the real cause is visible.
-  console.error('[conversation] unmapped error response', message || error)
-  return workspaceJsonResponse(
-    { code: 'invalid_request', message: 'Invalid request' },
-    resolution,
-    request,
-    { status: 400 }
-  )
 }

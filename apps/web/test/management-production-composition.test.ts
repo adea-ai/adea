@@ -116,11 +116,9 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
           request: parameters.request,
         })
         if (cpMode === 'revoked') return new Response('{"code":"NOPE"}', { status: 503 })
-        return Response.json({
-          correlation: body.correlation,
-          data: { asserted: true },
-          requestId: body.requestId,
-        })
+        // The reviewed CP1043 route answers a successful assertion with
+        // exactly this document; the loopback mirror must not invent fields.
+        return Response.json({ asserted: true })
       },
       port: 0,
     })
@@ -236,6 +234,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       handler()(requestFor({ name: 'Composed rename' }, binding, token))
     )
     expect(response.status).toBe(200)
+    const body = (await response.json()) as { value: unknown }
     const project = await dbModule.getProjectForUser(
       connection.db,
       workspaceId,
@@ -247,6 +246,21 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       { boundary: 'admission', request: CANONICAL_REQUEST },
       { boundary: 'effect', request: CANONICAL_REQUEST },
     ])
+    // Result authorization: the durable claim retains the digest of exactly
+    // the value the authorized caller received.
+    const retained = await dbModule.claimManagementAuthorityDecision(connection.db, {
+      actionDigest: binding.actionDigest,
+      authorityRef: `credential-${decisionId}`,
+      authorityRevision: 7,
+      decisionId,
+      inputDigest: binding.inputDigest,
+      operation: binding.operation,
+      targetDigest: binding.targetDigest,
+      targetId: binding.targetId,
+      workspaceId,
+    })
+    expect(retained.state).toBe('replayed')
+    expect(retained.resultDigest).toBe(await typesModule.managementInputDigest(body.value))
   })
 
   test('a replayed decision is refused by the durable claim with no second effect', async () => {
@@ -305,5 +319,39 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     })
     expect(probe).toEqual({ state: 'claimed' })
     cpMode = 'ok'
+  })
+
+  test('an interrupted durable claim refuses with recovery_required and zero effects', async () => {
+    const binding = await bindingFor('Composed recovery')
+    const decisionId = `decision-${crypto.randomUUID()}`
+    const token = await signedDecision(binding, decisionId)
+    // A crashed worker leaves the exact-call claim `claimed`; the next
+    // delivery must refuse and never execute a second effect.
+    await dbModule.claimManagementAuthorityDecision(connection.db, {
+      actionDigest: binding.actionDigest,
+      authorityRef: `credential-${decisionId}`,
+      authorityRevision: 7,
+      decisionId,
+      inputDigest: binding.inputDigest,
+      operation: binding.operation,
+      targetDigest: binding.targetDigest,
+      targetId: binding.targetId,
+      workspaceId,
+    })
+    const before = cpSeen.length
+    cpMode = 'ok'
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor({ name: 'Composed recovery' }, binding, token))
+    )
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ reason: 'authority_recovery_required' })
+    expect(cpSeen.slice(before)).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
+    const project = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      projectId,
+      principal
+    )
+    expect(project?.name).toBe('Composed rename')
   })
 })

@@ -1,13 +1,6 @@
-import { expect, mock, test } from 'bun:test'
-// The server boundary marker (`server-only`) throws outside react-server
-// conditions; the unit runner uses browser conditions, so this suite stubs
-// the marker itself before dynamically importing the server module.
-// Production bundling still enforces the boundary, and no production
-// module changes for test convenience.
+import { expect, test } from 'bun:test'
+import { conversationErrorResponse } from '../src/server/conversation-response'
 import type { WorkspacePrincipalResolution } from '../src/server/workspace-principal'
-
-mock.module('server-only', () => ({}))
-const { conversationErrorResponse } = await import('../src/server/conversation-request')
 
 test('changed requested-model replay is an explicit conflict with no runtime or credential details', async () => {
   const response = conversationErrorResponse(
