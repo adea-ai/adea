@@ -57,6 +57,13 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Lead model-role choices (#1211): the requested-reference picker, composer carry-through and
+  // the mismatch refusal, mounted over module-only fixtures that need no host inputs. The
+  // connected CP journey is deliberately absent: it is the opt-in PI_ROLE_CONNECTED_PROOF lane
+  // behind the hash-verified candidate wrapper.
+  'apps/web/e2e/lead-role-choices.spec.ts',
+  // Lead payer journey (#1211): the same module-only fixture class.
+  'apps/web/e2e/lead-payer-journey.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

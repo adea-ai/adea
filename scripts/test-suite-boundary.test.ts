@@ -133,6 +133,43 @@ describe('test suite boundaries', () => {
     expect(journeys!.args).toContain('apps/web/e2e/workspace-project-placement.spec.ts')
   })
 
+  test('requires the lead role and payer specs in the normal E2E selection, connected proof opt-in', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    for (const [index, total] of [
+      [1, 1],
+      [2, 2],
+    ]) {
+      const calls: { command: string; args: string[] }[] = []
+      runInNewContext(runner, {
+        spawnSync: (command: string, args: string[]) => {
+          calls.push({ command, args })
+          return { status: 0 }
+        },
+        process: { env: { E2E_SHARD_INDEX: String(index), E2E_TOTAL_SHARDS: String(total) } },
+        console,
+      })
+      const main = calls.find(
+        ({ command, args }) =>
+          command === 'playwright' && args.includes('apps/web/e2e/workspace-guest.spec.ts')
+      )
+      expect(main).toBeDefined()
+      expect(main!.args).toContain('apps/web/e2e/lead-role-choices.spec.ts')
+      expect(main!.args).toContain('apps/web/e2e/lead-payer-journey.spec.ts')
+      expect(main!.args).not.toContain('apps/web/e2e/lead-role-choices-connected.spec.ts')
+    }
+    for (const spec of ['lead-role-choices', 'lead-payer-journey', 'lead-role-choices-connected']) {
+      expect(existsSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`))).toBeTrue()
+    }
+    const connected = readFileSync(
+      resolve(root, 'apps/web/e2e/lead-role-choices-connected.spec.ts'),
+      'utf8'
+    )
+    expect(connected).toContain("process.env.PI_ROLE_CONNECTED_PROOF !== '1'")
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot
