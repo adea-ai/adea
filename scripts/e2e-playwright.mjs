@@ -57,6 +57,9 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
+  // target and a revisit by the same ID selects it again. No route mocks.
+  'apps/web/e2e/workspace-deeplink-real.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

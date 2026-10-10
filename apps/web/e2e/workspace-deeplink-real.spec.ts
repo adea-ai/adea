@@ -1,7 +1,8 @@
-// Real-backend regression for a `?workspace=<owned id>` deep link (Home receipt 1725).
-// No request is mocked. Before the one-switch guard in workspace-navigation.tsx, the
-// link re-ran its switch after every settle: the page kept issuing same-URL history
-// writes, starved its own network responses, and never reached the shell.
+// Real-backend regression for `?workspace=<owned id>` deep links (Home receipt 1725).
+// No request is mocked. Before the one-switch guard, a link re-ran its switch after every
+// settle: the page kept writing the same URL, starved its own network responses, and never
+// reached the shell. The selected workspace is asserted through the shell's document title,
+// which the shell derives from the active workspace (`<name> | Adea`).
 import { expect, test } from '@playwright/test'
 
 /** Counts history writes from the first paint, so a re-switch loop is visible. */
@@ -22,7 +23,9 @@ const countHistoryWrites = () => {
   }
 }
 
-test('a ?workspace= link to an owned workspace settles into the shell', async ({ page }) => {
+test('a ?workspace= link selects the target, and a later revisit by ID selects it again', async ({
+  page,
+}) => {
   await page.addInitScript(countHistoryWrites)
   // Mint the temporary session and create the target through the app's own routes.
   const context = page.context()
@@ -36,19 +39,31 @@ test('a ?workspace= link to an owned workspace settles into the shell', async ({
   const body = (await created.json()) as { workspace?: { id: string }; id?: string }
   const targetId = body.workspace?.id ?? body.id
   expect(targetId).toBeTruthy()
+  const targetTitle = 'Deep link target | Adea'
 
+  // First visit: the link selects the target and is consumed.
   await page.goto(`/?workspace=${encodeURIComponent(targetId!)}`, { timeout: 120_000 })
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
     timeout: 120_000,
   })
-  // The link is consumed once the switch lands: the param is stripped from the URL.
+  await expect(page).toHaveTitle(targetTitle, { timeout: 60_000 })
   await expect
     .poll(() => new URL(page.url()).searchParams.has('workspace'), { timeout: 30_000 })
     .toBe(false)
-  // A settled link writes the URL a handful of times, not once per settle.
   await page.waitForTimeout(1_000)
-  const writes = await page.evaluate(
+  const firstWrites = await page.evaluate(
     () => (window as unknown as { historyWriteCount?: number }).historyWriteCount ?? 0
   )
-  expect(writes, 'history writes after the deep link').toBeLessThanOrEqual(10)
+  expect(firstWrites, 'history writes after the first link').toBeLessThanOrEqual(10)
+
+  // Navigate away to the default entry, then come back with the same workspace ID.
+  await page.goto('/', { timeout: 120_000 })
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
+    timeout: 120_000,
+  })
+  await page.goto(`/?workspace=${encodeURIComponent(targetId!)}`, { timeout: 120_000 })
+  await expect(page).toHaveTitle(targetTitle, { timeout: 60_000 })
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has('workspace'), { timeout: 30_000 })
+    .toBe(false)
 })

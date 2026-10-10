@@ -87,6 +87,7 @@ import {
   watchAccountIdentity,
   type AccountDirectorySection,
 } from '../lib/account-directory'
+import { createDeepLinkAttempts } from '../lib/workspace-deep-link'
 import { stripWorkspaceDeepLinkSearch } from '../lib/workspace-search'
 import {
   createDevWorkspaceNavHost,
@@ -842,14 +843,31 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       )
   }
 
-  // One switch per `?workspace=` link. The param stays in the URL until the switch
-  // resolves, and the active workspace only catches up when the summary lands, so
-  // without this guard every settle re-runs the switch and its scene write.
-  let handledDeepLinkWorkspace: string | undefined
+  // One switch per `?workspace=` link (lib/workspace-deep-link): a failed link waits
+  // for an explicit re-issue, and only the current link's own completion strips the
+  // param. The active workspace only catches up when the summary lands, so without
+  // this every settle would re-run the switch and its scene write.
+  const deepLinks = createDeepLinkAttempts({
+    consume: (workspaceId) => {
+      const rest = { ...currentSearch() }
+      if (rest.workspace !== workspaceId) return
+      delete rest.workspace
+      void navigate({
+        search: rest as never,
+        hash: window.location.hash.replace(/^#/, ''),
+        replace: true,
+      })
+    },
+    requested: () => currentSearch().workspace,
+    switchTo: (workspaceId) => {
+      const workspace = orderedWorkspaces().find(({ id }) => id === workspaceId)
+      return workspace ? switchToWorkspace(workspace) : Promise.resolve(false)
+    },
+  })
   createEffect(() => {
     const requestedWorkspace = currentSearch().workspace
     if (!requestedWorkspace) {
-      handledDeepLinkWorkspace = undefined
+      deepLinks.release()
       return
     }
     if (requestedWorkspace === props.activeWorkspace?.id) {
@@ -868,22 +886,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return
     }
     const workspace = orderedWorkspaces().find(({ id }) => id === requestedWorkspace)
-    if (!workspace || switchingWorkspaceId() || handledDeepLinkWorkspace === requestedWorkspace)
-      return
-    handledDeepLinkWorkspace = requestedWorkspace
-    void switchToWorkspace(workspace).then((switched) => {
-      if (!switched) {
-        handledDeepLinkWorkspace = undefined
-        return
-      }
-      const rest = { ...currentSearch() }
-      delete rest.workspace
-      void navigate({
-        search: rest as never,
-        hash: window.location.hash.replace(/^#/, ''),
-        replace: true,
-      })
-    })
+    if (!workspace || switchingWorkspaceId()) return
+    deepLinks.start(workspace.id)
   })
 
   // The top bar's title slot shows Workspace › Project › Leaf (ADR 0011).
