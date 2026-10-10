@@ -10,7 +10,7 @@ import {
   retrieveArtifactReference,
 } from '../../src/artifact-reference-service'
 import { createArtifact } from '../../src/artifacts'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   artifactReferenceGrants,
@@ -51,6 +51,24 @@ function target(
 }
 
 const presentation = (grantId: string) => ({ grantId, revision: 1 })
+
+/**
+ * Wrap the database so every `select` marks that a read has started before it
+ * runs. The injected clock reports the expired time only once a read has been
+ * observed, so a decision sampled before the awaits fails these regressions.
+ */
+function databaseThatMarksReads(database: AgentHqDatabase, onRead: () => void): AgentHqDatabase {
+  return new Proxy(database, {
+    get(databaseTarget, property, receiver) {
+      const value = Reflect.get(databaseTarget, property, receiver)
+      if (property !== 'select') return value
+      return (...args: unknown[]) => {
+        onRead()
+        return (value as (...parameters: unknown[]) => unknown).apply(databaseTarget, args)
+      }
+    },
+  }) as AgentHqDatabase
+}
 
 describe('artifact-reference publication and retrieval wiring', () => {
   let connection: DatabaseConnection
@@ -238,12 +256,12 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
   })
 
-  test('publication samples the trusted clock after the reads, not at entry', async () => {
+  test('publication samples the trusted clock after the evidence and grant reads', async () => {
     const { destination, owner, source } = await fixture('clock-publication')
     const artifact = await availableArtifact(source.id, owner)
     const grantId = `grant-${crypto.randomUUID()}`
-    // Expires one minute from real time; the injected clock says two minutes
-    // later. A decision sampled at entry (real now) would wrongly publish.
+    // The grant is live for real time; the clock only reports the expired time
+    // once the wrapped database has actually been read.
     const expiresAt = new Date(Date.now() + 60_000).toISOString()
     await registerArtifactReferenceGrant(connection.db, source.id, owner, {
       artifactId: artifact.id,
@@ -255,29 +273,33 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
     const exact = target(artifact.id, source.id, destination.id)
 
-    const expired = await publishArtifactReference(
-      connection.db,
+    let readsStarted = false
+    let sampledAfterRead = false
+    const result = await publishArtifactReference(
+      databaseThatMarksReads(connection.db, () => {
+        readsStarted = true
+      }),
       { grant: presentation(grantId), target: exact },
       owner,
-      () => new Date(Date.now() + 120_000).toISOString()
+      () => {
+        sampledAfterRead = readsStarted
+        return sampledAfterRead
+          ? new Date(Date.now() + 120_000).toISOString()
+          : new Date(Date.now() - 1_000).toISOString()
+      }
     )
-    expect(expired.decision).toMatchObject({
+
+    expect(readsStarted).toBe(true)
+    expect(sampledAfterRead).toBe(true)
+    expect(result.decision).toMatchObject({
       action: 'hold',
       ok: false,
       reason: 'grant_expired',
       stage: 'publication',
     })
-
-    const live = await publishArtifactReference(
-      connection.db,
-      { grant: presentation(grantId), target: exact },
-      owner,
-      () => new Date(Date.now() - 1_000).toISOString()
-    )
-    expect(live.decision).toMatchObject({ action: 'publish', ok: true, stage: 'publication' })
   })
 
-  test('retrieval samples the trusted clock after the reads, not at entry', async () => {
+  test('retrieval samples the trusted clock after the evidence and grant reads', async () => {
     const { destination, owner, source } = await fixture('clock-retrieval')
     const artifact = await availableArtifact(source.id, owner)
     const grantId = `grant-${crypto.randomUUID()}`
@@ -292,24 +314,29 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
     const exact = target(artifact.id, source.id, destination.id)
 
-    const expired = await retrieveArtifactReference(
-      connection.db,
+    let readsStarted = false
+    let sampledAfterRead = false
+    const result = await retrieveArtifactReference(
+      databaseThatMarksReads(connection.db, () => {
+        readsStarted = true
+      }),
       { grant: presentation(grantId), requestingWorkspaceId: destination.id, target: exact },
-      () => new Date(Date.now() + 120_000).toISOString()
+      () => {
+        sampledAfterRead = readsStarted
+        return sampledAfterRead
+          ? new Date(Date.now() + 120_000).toISOString()
+          : new Date(Date.now() - 1_000).toISOString()
+      }
     )
-    expect(expired.decision).toMatchObject({
+
+    expect(readsStarted).toBe(true)
+    expect(sampledAfterRead).toBe(true)
+    expect(result.decision).toMatchObject({
       action: 'deny',
       ok: false,
       reason: 'grant_expired',
       stage: 'retrieval',
     })
-
-    const live = await retrieveArtifactReference(
-      connection.db,
-      { grant: presentation(grantId), requestingWorkspaceId: destination.id, target: exact },
-      () => new Date(Date.now() - 1_000).toISOString()
-    )
-    expect(live.decision).toMatchObject({ action: 'deliver', ok: true, stage: 'retrieval' })
   })
 
   test('revocation is absolute at both gates even while the artifact stays live', async () => {
