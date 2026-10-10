@@ -94,8 +94,9 @@ Paths are repo-relative POSIX paths with no `..`, absolute prefix, or empty segm
   and is human-authored.
 - Local checkouts are trusted to be honest copies of the named repository. The root-commit
   check catches the wrong repository, not forged history.
-- A shallow checkout (for example, CI's default depth) may lack the pinned commit or root;
-  validation then fails closed. The real-git test is skipped when the pinned commit is absent,
-  and the skip is reported as skipped, not passed.
+- A shallow checkout (for example, CI's default depth) may lack the pinned commit or root, and
+  validation then fails closed. The committed-manifest test does not depend on the checkout: it reads
+  the pinned commit and its history from the declared repository (a treeless partial clone fetched by
+  exact SHA) and never skips. A different repository or an unknown revision fails that read.
 - The #1225 PRD and TDD (Google Docs) define the requirement and A-id text. They are not in this
   repository, so the manifest carries ids and gaps only.

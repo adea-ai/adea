@@ -109,9 +109,14 @@ function parseJson(bytes) {
 }
 
 /** One local checkout, read through git. Blobs come from committed trees, not the disk. */
-function gitCheckout(root) {
+export function gitCheckout(root) {
   const git = (args, encoding) =>
-    spawnSync('git', args, { cwd: root, encoding, maxBuffer: MAX_EVIDENCE_BYTES * 4 })
+    spawnSync('git', args, {
+      cwd: root,
+      encoding,
+      maxBuffer: MAX_EVIDENCE_BYTES * 4,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    })
   return {
     commitExists(sha) {
       return git(['cat-file', '-e', `${sha}^{commit}`]).status === 0

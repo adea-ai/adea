@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -10,6 +10,7 @@ import {
   parseJunit,
   REQUIRED_IDS,
   REQUIREMENT_IDS,
+  gitCheckout,
   repositoryIo,
   STATUS,
   validateEvidenceManifest,
@@ -191,6 +192,38 @@ function completeA01({ overrides = {}, run = runFor('artifacts/a01-run'), extra 
 }
 
 const statusOf = (report, id) => report.results.find((result) => result.id === id)
+
+/**
+ * Authorized read of the declared repository at one pinned commit: a treeless partial clone
+ * fetched by exact SHA. The commit graph arrives with the commit, and trees and blobs load
+ * lazily from the same remote. A different repository, or a revision it does not contain,
+ * fails to read and throws. Nothing here relies on the local checkout's history.
+ */
+function fetchPinnedHistory(name, pin) {
+  const dir = mkdtempSync(join(tmpdir(), 'adea-evidence-origin-'))
+  const git = (args) =>
+    spawnSync('git', args, {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    })
+  const setup = [
+    ['init', '-q', '--bare'],
+    ['config', 'remote.origin.url', `https://github.com/${name}.git`],
+    ['config', 'remote.origin.promisor', 'true'],
+    ['config', 'remote.origin.partialclonefilter', 'tree:0'],
+    ['config', 'extensions.partialClone', 'origin'],
+  ]
+  for (const args of setup) {
+    if (git(args).status !== 0) throw new Error(`cannot configure a read of ${name}`)
+  }
+  const fetch = git(['fetch', '--quiet', '--no-tags', '--filter=tree:0', 'origin', pin])
+  if (fetch.status !== 0) {
+    rmSync(dir, { recursive: true, force: true })
+    throw new Error(`cannot read ${pin} from ${name}: ${fetch.stderr.trim()}`)
+  }
+  return dir
+}
 
 describe('evidence manifest id universe', () => {
   test('covers the 24 requirements and A01–A40 named by #1225', () => {
@@ -601,41 +634,73 @@ describe('bounded reads and provenance on real git and working files', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+})
 
+describe('committed manifest at its pinned commit (authorized read)', () => {
   const committed = JSON.parse(
     readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
   )
-  const pin = committed.repositories.adea.sourceSha
-  // The immutable root must be reachable from the pinned commit. A shallow checkout (CI fetches
-  // depth 2) can hold the pin without its root, and then identity cannot be proven: skip, don't pass.
-  const reachable = repositoryIo({ adea: root })
-    .checkout('adea')
-    .rootCommits(pin)
-    .includes(committed.repositories.adea.rootCommit)
-  test.skipIf(!reachable)(
-    'the committed manifest validates at its pinned revision (needs the immutable root in history): every id pending, none certified',
-    () => {
-      const report = validateEvidenceManifest(committed, repositoryIo({ adea: root }))
-      expect(report.schemaErrors).toEqual([])
-      expect(report.ok).toBe(true)
-      expect(report.counts[STATUS.invalid]).toBe(0)
-      expect(report.counts[STATUS.candidateCompatible]).toBe(0)
-      expect(report.counts[STATUS.pending]).toBe(REQUIRED_IDS.length)
-      const cli = spawnSync(process.execPath, [resolve(root, 'scripts/evidence-manifest.mjs')], {
-        cwd: root,
-        encoding: 'utf8',
-      })
-      expect(cli.status).toBe(0)
-      expect(cli.stdout).toContain(`revisions: adea@${pin}`)
-      expect(cli.stdout).toContain(
-        `certification: incomplete (0 of ${REQUIRED_IDS.length} candidate-compatible)`
+  const { name, rootCommit, sourceSha: pin } = committed.repositories.adea
+  let history = ''
+
+  beforeAll(() => {
+    history = fetchPinnedHistory(name, pin)
+  }, 180_000)
+  afterAll(() => {
+    if (history) rmSync(history, { recursive: true, force: true })
+  })
+
+  /** Git reads come from the authorized read; working artifacts come from this checkout. */
+  const authorizedIo = () => ({
+    checkout: (repository) => (repository === 'adea' ? gitCheckout(history) : null),
+    workingFile: repositoryIo({ adea: root }).workingFile,
+  })
+
+  test('the pinned commit and its immutable root validate the committed manifest, without local history', () => {
+    const report = validateEvidenceManifest(committed, authorizedIo())
+    expect(report.schemaErrors).toEqual([])
+    expect(report.ok).toBe(true)
+    expect(report.counts[STATUS.invalid]).toBe(0)
+    expect(report.counts[STATUS.candidateCompatible]).toBe(0)
+    expect(report.counts[STATUS.pending]).toBe(REQUIRED_IDS.length)
+  }, 180_000)
+
+  test('a different immutable root is refused by the identity check', () => {
+    const wrongRoot = '7'.repeat(40)
+    const mutated = {
+      ...committed,
+      repositories: { adea: { ...committed.repositories.adea, rootCommit: wrongRoot } },
+    }
+    const report = validateEvidenceManifest(mutated, authorizedIo())
+    expect(report.schemaErrors).toEqual([
+      `local checkout for adea is not adea-ai/adea (root ${wrongRoot} absent)`,
+    ])
+    expect(report.ok).toBe(false)
+  }, 180_000)
+
+  test('the pinned commit cannot be read from another repository or from an unknown revision', () => {
+    expect(() => fetchPinnedHistory('adea-ai/control-plane', pin)).toThrow('cannot read')
+    expect(() => fetchPinnedHistory(name, '1'.repeat(40))).toThrow('cannot read')
+    expect(rootCommit).toBe('663f2bd9133cd8bd3b4576224eb1caabf96cc34b')
+  }, 60_000)
+
+  test('evidence pinned to another revision is refused by its own envelopes', () => {
+    const older = '34e173df7bf4654d53e2b4daed5ff41239cafd8b'
+    const mutated = {
+      ...committed,
+      repositories: { adea: { ...committed.repositories.adea, sourceSha: older } },
+    }
+    const report = validateEvidenceManifest(mutated, authorizedIo())
+    expect(report.schemaErrors).toEqual([])
+    expect(report.ok).toBe(false)
+    expect(
+      report.results.some((result) =>
+        result.reasons.some((reason) =>
+          reason.includes(`execution envelope pins ${pin}, adea pins ${older}`)
+        )
       )
-      expect(cli.stdout).toContain(
-        `candidate-compatible proof: missing for ${REQUIRED_IDS.length} of ${REQUIRED_IDS.length} ids`
-      )
-    },
-    180_000
-  )
+    ).toBe(true)
+  }, 180_000)
 })
 
 describe('parseJunit', () => {
