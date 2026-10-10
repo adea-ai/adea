@@ -119,24 +119,36 @@ export type CanonicalChainFolders = {
 }
 
 /**
- * Assembles the canonical chain on top of the live main journal, which must end exactly at the
- * pinned base. A main that has advanced fails here, so the chain is re-pinned deliberately rather
- * than appended to a journal it no longer follows.
+ * Assembles the canonical chain on top of main's journal through the pinned base. A main that has
+ * advanced past that base fails here, so the chain is re-pinned deliberately rather than appended to
+ * a journal it no longer follows.
  */
 export function canonicalChainFolders(): CanonicalChainFolders {
   const { entries: canonical } = verifiedCanonicalChain()
   // The shared Journal type omits `when`; the runtime entries carry it, and the ordering checks need it.
-  const live = readJournal() as unknown as {
+  const working = readJournal() as unknown as {
     dialect: string
     version: string
     entries: JournalEntry[]
   }
-  const lastMainTag = live.entries.at(-1)?.tag
-  if (lastMainTag !== CANONICAL_BASE_TAG) {
+  // Once #1232 is forward-merged into this branch, the working tree's journal already carries its
+  // canonical entries. The base is everything up to the pinned main tag. Anything after it must be a
+  // pinned canonical entry; any other entry means main advanced and the chain must be re-pinned.
+  const baseIndex = working.entries.findIndex((entry) => entry.tag === CANONICAL_BASE_TAG)
+  if (baseIndex === -1) {
+    throw new Error(`main's journal does not contain ${CANONICAL_BASE_TAG}`)
+  }
+  const pinnedTags = new Set(canonical.map((entry) => entry.tag))
+  const advanced = working.entries
+    .slice(baseIndex + 1)
+    .filter((entry) => !pinnedTags.has(entry.tag))
+    .map((entry) => entry.tag)
+  if (advanced.length > 0) {
     throw new Error(
-      `main's journal ends at ${lastMainTag}, not ${CANONICAL_BASE_TAG}. Main has advanced, so the canonical chain must be re-pinned against main's new head before this rehearsal can run.`
+      `main's journal advances past ${CANONICAL_BASE_TAG} with ${advanced.join(', ')}. Main has advanced, so the canonical chain must be re-pinned against main's new head before this rehearsal can run.`
     )
   }
+  const live = { ...working, entries: working.entries.slice(0, baseIndex + 1) }
 
   const root = mkdtempSync(join(tmpdir(), 'rehearsal-canonical-'))
   const assemble = (name: string, chain: JournalEntry[]): string => {

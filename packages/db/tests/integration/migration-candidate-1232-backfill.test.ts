@@ -5,13 +5,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import {
-  archiveChannel,
-  createGroupChannel,
-  createMessage,
-  listMessagesForUser,
-  setChannelParticipants,
-} from '../../src/conversations'
+import { listMessagesForUser } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   captureMigrationSnapshot,
@@ -19,7 +13,7 @@ import {
   resolveMigrationSnapshotCaptureDomains,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { workspaceMemberships } from '../../src/schema'
+import { channelParticipants, workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
   CANONICAL_BASE_TAG,
@@ -34,6 +28,7 @@ import {
   settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
+import { insertLegacyGroup, insertLegacyMessage } from '../fixtures/legacy-audience-seed'
 
 // Rehearsal of the incoming canonical migration chain for the #1241 proof: main through 0046,
 // then #1229 -> #1230 -> #1232 in that order. The chain is vendored from exact source commits
@@ -140,32 +135,34 @@ async function executeScenario() {
     workspaceId,
   })
 
+  // Legacy group rows at stage one, written as the pre-#1232 product wrote them: the group policy
+  // tables do not exist yet, so the product's group writers cannot run here.
   // Active group with two users, and an archived group with one user.
-  const active = await createGroupChannel(connection.db, workspaceId, owner, {
-    idempotencyKey: `candidate-active-${suffix}`,
-    title: 'Candidate active group',
-  })
-  const activeWithMember = await setChannelParticipants(
+  const activeId = await insertLegacyGroup(
     connection.db,
     workspaceId,
-    active.id,
     owner,
-    [
-      { kind: 'user', userId: owner.userId },
-      { kind: 'user', userId: member.userId },
-    ],
-    active.version
+    'Candidate active group'
   )
-  await createMessage(connection.db, workspaceId, active.id, owner, {
+  await connection.db.insert(channelParticipants).values({
+    channelId: activeId,
+    principalKind: 'user',
+    userId: member.userId,
+    workspaceId,
+  })
+  await insertLegacyMessage(connection.db, {
     bodyText: 'candidate-active-body',
-    idempotencyKey: `candidate-active-message-${suffix}`,
+    channelId: activeId,
     sender: owner,
+    workspaceId,
   })
-  const archived = await createGroupChannel(connection.db, workspaceId, owner, {
-    idempotencyKey: `candidate-archived-${suffix}`,
-    title: 'Candidate archived group',
-  })
-  await archiveChannel(connection.db, workspaceId, archived.id, owner, archived.version)
+  const archivedId = await insertLegacyGroup(
+    connection.db,
+    workspaceId,
+    owner,
+    'Candidate archived group',
+    { archived: true }
+  )
 
   const before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
   const participantsBefore = await participantRows(connection, workspaceId)
@@ -203,17 +200,17 @@ async function executeScenario() {
 
   const reads = {
     ownerActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, active.id, owner)).messages.map(
+      (await listMessagesForUser(connection.db, workspaceId, activeId, owner)).messages.map(
         (message) => message.id
       )
     ),
     memberActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, active.id, member)).messages.map(
+      (await listMessagesForUser(connection.db, workspaceId, activeId, member)).messages.map(
         (message) => message.id
       )
     ),
     outsiderActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, active.id, outsider)).messages.map(
+      (await listMessagesForUser(connection.db, workspaceId, activeId, outsider)).messages.map(
         (message) => message.id
       )
     ),
@@ -222,9 +219,8 @@ async function executeScenario() {
   return {
     chainApplied: applied,
     groupTables: await groupTableNames(connection),
-    activeChannelId: active.id,
-    archivedChannelId: archived.id,
-    activeWithMember,
+    activeChannelId: activeId,
+    archivedChannelId: archivedId,
     participantsBefore,
     afterBackfill,
     afterRepeat,

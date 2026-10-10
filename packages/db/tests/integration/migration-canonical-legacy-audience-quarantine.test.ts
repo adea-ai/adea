@@ -1,26 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
-import { and, eq } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
-import type { UserPrincipalRef } from '@adea-ai/types'
-
-import { createAgent } from '../../src/agents'
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
-  archiveChannel,
-  createGroupChannel,
   createMessage,
   createRuntimeResultMessage,
   listMessagesForUser,
-  setChannelParticipants,
 } from '../../src/conversations'
-import { createTemporaryUserSession } from '../../src/identity'
-import { channelParticipants, workspaceMemberships } from '../../src/schema'
-import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { canonicalChainFolders } from '../fixtures/canonical-chain'
 import {
   installLegacyAudienceQuarantine,
@@ -30,6 +20,10 @@ import {
   replayCanonicalBackfill,
   type LegacyAudienceReconciliation,
 } from '../fixtures/legacy-audience-quarantine'
+import {
+  seedLegacyAudience,
+  type LegacyAudienceSeed as Seeded,
+} from '../fixtures/legacy-audience-seed'
 
 // #1222 additive-migration quarantine, proved on a disposable rehearsal database. The chain is the
 // pinned canonical #1229 -> #1230 -> #1232 sequence. Legacy records that the product could not have
@@ -71,18 +65,6 @@ async function rowsOf(db: AgentHqDatabase, statement: ReturnType<typeof sql>): P
   return (await db.execute<Row>(statement)) as unknown as Row[]
 }
 
-type Seeded = {
-  workspaceId: string
-  activeGroupId: string
-  archivedGroupId: string
-  owner: UserPrincipalRef
-  member: UserPrincipalRef
-  removed: UserPrincipalRef
-  otherWorkspaceAgentId: string
-  removedUserId: string
-  otherWorkspaceId: string
-}
-
 type Scenario = {
   seeded: Seeded
   beforeQuarantine: LegacyAudienceReconciliation
@@ -111,7 +93,7 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
 
     // Stage one: main through 0046, then #1229 and #1230. Legacy data is written before 0049/0050.
     await migrate(connection.db, { migrationsFolder: chain.stageOne })
-    const seeded = await seedLegacyFixture(connection)
+    const seeded = await seedLegacyAudience({ migration: connection.db, runtime: connection.db })
 
     // The canonical chain: #1232's 0049 and 0050 backfill admit the legacy participants.
     await migrate(connection.db, { migrationsFolder: chain.full })
@@ -343,6 +325,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
         }
       )
     ).rejects.toThrow('Channel unavailable')
+    // The group agent path (#1232) checks the agent's admission and refuses as an unavailable
+    // channel, not as a host-workspace agent mismatch.
     await expect(
       createRuntimeResultMessage(
         connection.db,
@@ -357,7 +341,7 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
           sender: { kind: 'agent', agentId: seeded.otherWorkspaceAgentId },
         }
       )
-    ).rejects.toThrow('Agent unavailable')
+    ).rejects.toThrow('Channel unavailable')
   })
 
   test('quarantine is idempotent: a repeat records and withdraws nothing, and the digests do not move', async () => {
@@ -450,101 +434,4 @@ async function countQuarantinedOriginals(db: AgentHqDatabase): Promise<number> {
     join app.legacy_audience_quarantine q on q.source_participant_id = cp.id
   `)
   return rows[0]?.count ?? -1
-}
-
-async function seedLegacyFixture(connection: DatabaseConnection): Promise<Seeded> {
-  const db = connection.db
-  const session = async (name: string) =>
-    (
-      await createTemporaryUserSession(db, {
-        credentialDigest: `quarantine-${name}-${crypto.randomUUID()}`,
-        expiresAt: new Date(Date.now() + 600_000),
-      })
-    ).principal
-  const owner = await session('owner')
-  const member = await session('member')
-  const removed = await session('removed')
-  const otherOwner = await session('other-owner')
-
-  const { workspace } = await createWorkspaceWithOwner(db, {
-    idempotencyKey: `quarantine-${crypto.randomUUID()}`,
-    name: 'Quarantine HQ',
-    owner,
-  })
-  const workspaceId = workspace.id
-  await db.insert(workspaceMemberships).values([
-    { role: 'member', userId: member.userId, workspaceId },
-    { role: 'member', userId: removed.userId, workspaceId },
-  ])
-
-  const { workspace: otherWorkspace } = await createWorkspaceWithOwner(db, {
-    idempotencyKey: `quarantine-other-${crypto.randomUUID()}`,
-    name: 'Quarantine other',
-    owner: otherOwner,
-  })
-  const agent = await createAgent(db, otherWorkspace.id, otherOwner, {
-    name: 'Other Agent',
-    profileId: 'software-engineer',
-    profileVersion: '1.0.0',
-  })
-
-  // Active group: owner, member and the about-to-leave user are participants through the product.
-  const active = await createGroupChannel(db, workspaceId, owner, {
-    idempotencyKey: `quarantine-active-${crypto.randomUUID()}`,
-    title: 'Quarantine active group',
-  })
-  await setChannelParticipants(
-    db,
-    workspaceId,
-    active.id,
-    owner,
-    [
-      { kind: 'user', userId: owner.userId },
-      { kind: 'user', userId: member.userId },
-      { kind: 'user', userId: removed.userId },
-    ],
-    active.version
-  )
-  // The removed user leaves the workspace; the legacy participant row remains.
-  await db
-    .delete(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, removed.userId)
-      )
-    )
-  // An agent from another workspace, still a legacy participant of this group.
-  await db.insert(channelParticipants).values({
-    channelId: active.id,
-    principalKind: 'agent',
-    agentId: agent.id,
-    workspaceId,
-  })
-
-  // An archived group whose legacy participants are still on record.
-  const archived = await createGroupChannel(db, workspaceId, owner, {
-    idempotencyKey: `quarantine-archived-${crypto.randomUUID()}`,
-    title: 'Quarantine archived group',
-  })
-  // The creator is already a participant of the new group; the member is added as legacy data.
-  await db.insert(channelParticipants).values({
-    channelId: archived.id,
-    principalKind: 'user',
-    userId: member.userId,
-    workspaceId,
-  })
-  await archiveChannel(db, workspaceId, archived.id, owner, archived.version)
-
-  return {
-    activeGroupId: active.id,
-    archivedGroupId: archived.id,
-    member,
-    otherWorkspaceAgentId: agent.id,
-    otherWorkspaceId: otherWorkspace.id,
-    owner,
-    removed,
-    removedUserId: removed.userId,
-    workspaceId,
-  }
 }

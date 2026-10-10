@@ -15,24 +15,16 @@ import {
 } from '../../src/artifact-reference-grants'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createContentRef } from '../../src/content-refs'
-import {
-  archiveChannel,
-  createGroupChannel,
-  createMessage,
-  listChannelsForUser,
-  listMessagesForUser,
-} from '../../src/conversations'
+import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   captureMigrationSnapshot,
   type MigrationSnapshotCaptureIdentityInput,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { setProjectMember } from '../../src/project-sharing'
-import { createProject } from '../../src/projects'
-import { listReadStateForUser, markChannelReadState } from '../../src/read-state'
+import { listReadStateForUser } from '../../src/read-state'
 import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
-import { createTask, listTasksForUser } from '../../src/tasks'
+import { listTasksForUser } from '../../src/tasks'
 import {
   createWorkspaceInvitation,
   listWorkspaceMembersForUser,
@@ -49,6 +41,14 @@ import {
   settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
+import {
+  insertLegacyGroup,
+  insertLegacyMessage,
+  insertLegacyProject,
+  insertLegacyProjectMember,
+  insertLegacyReadState,
+  insertLegacyTask,
+} from '../fixtures/legacy-audience-seed'
 
 // Cutover rehearsal for #1222 on a disposable database that this file creates and
 // drops. The pre-cutover state is the repository's drizzle journal cut immediately
@@ -164,42 +164,55 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     owner: audienceOwner,
   })
 
-  const shared = await createGroupChannel(connection.db, workspaceId, owner, {
-    idempotencyKey: `rehearsal-shared-${suffix}`,
-    title: 'Shared rehearsal channel',
-  })
-  for (const body of ['rehearsal-shared-body-1', 'rehearsal-shared-body-2']) {
-    await createMessage(connection.db, workspaceId, shared.id, owner, {
-      bodyText: body,
-      idempotencyKey: `rehearsal-${body}-${suffix}`,
-      sender: owner,
-    })
-  }
-  await markChannelReadState(connection.db, workspaceId, shared.id, owner, 'read')
-
-  const closed = await createGroupChannel(connection.db, workspaceId, owner, {
-    idempotencyKey: `rehearsal-closed-${suffix}`,
-    title: 'Archived participant-only channel',
-  })
-  await createMessage(connection.db, workspaceId, closed.id, owner, {
-    bodyText: 'rehearsal-closed-body',
-    idempotencyKey: `rehearsal-closed-message-${suffix}`,
-    sender: owner,
-  })
-  await archiveChannel(connection.db, workspaceId, closed.id, owner, closed.version)
-
-  const task = await createTask(
+  // Legacy group rows, written as the pre-#1232 product wrote them: the group policy tables do not
+  // exist before the canonical chain, so the product's group writers cannot run at this state.
+  const sharedId = await insertLegacyGroup(
     connection.db,
     workspaceId,
     owner,
-    { objective: 'Rehearsal objective', title: 'Rehearsal task' },
-    { idempotencyKey: `rehearsal-task-${suffix}`, requestId: crypto.randomUUID() }
+    'Shared rehearsal channel'
   )
+  let latestShared = 0
+  for (const body of ['rehearsal-shared-body-1', 'rehearsal-shared-body-2']) {
+    latestShared = await insertLegacyMessage(connection.db, {
+      bodyText: body,
+      channelId: sharedId,
+      sender: owner,
+      workspaceId,
+    })
+  }
+  await insertLegacyReadState(connection.db, {
+    channelId: sharedId,
+    lastReadSequence: latestShared,
+    userId: owner.userId,
+    workspaceId,
+  })
+
+  const closedId = await insertLegacyGroup(
+    connection.db,
+    workspaceId,
+    owner,
+    'Archived participant-only channel',
+    { archived: true }
+  )
+  await insertLegacyMessage(connection.db, {
+    bodyText: 'rehearsal-closed-body',
+    channelId: closedId,
+    sender: owner,
+    workspaceId,
+  })
+
+  const taskId = await insertLegacyTask(connection.db, {
+    creatorUserId: owner.userId,
+    objective: 'Rehearsal objective',
+    title: 'Rehearsal task',
+    workspaceId,
+  })
   await connection.db.insert(taskExecutionAttempts).values({
     attempt: 1,
     locationKind: 'agent_hq_cloud',
     runtimeNodeId: null,
-    taskId: task.id,
+    taskId,
     workspaceId,
   })
 
@@ -211,13 +224,12 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     new Date('2026-01-01T00:00:00.000Z')
   )
 
-  const project = await createProject(connection.db, workspaceId, owner, {
-    iconKey: 'folder',
-    name: 'Rehearsal project',
-  })
-  await setProjectMember(connection.db, workspaceId, project.id, owner, {
+  const projectId = await insertLegacyProject(connection.db, workspaceId, 'Rehearsal project')
+  await insertLegacyProjectMember(connection.db, {
+    projectId,
     role: 'editor',
     userId: collaborator.userId,
+    workspaceId,
   })
 
   await createContentRef(connection.db, workspaceId, owner, {
@@ -252,8 +264,8 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     audienceOwner,
     collaborator,
     outsider,
-    sharedChannelId: shared.id,
-    archivedChannelId: closed.id,
+    sharedChannelId: sharedId,
+    archivedChannelId: closedId,
   }
 }
 
