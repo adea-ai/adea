@@ -37,9 +37,21 @@ if (!existsSync(routeFlowDirectory)) {
 }
 const routeFlowDirectories = [routeFlowDirectory]
 
-function run(command, args, environment) {
+// The opt-in joined proof (apps/web/test/control-plane-joined) mounts one pinned control-plane
+// checkout. It is not part of the default lanes: `--control-plane-joined` runs only that proof,
+// on this lane's provisioning, and a missing checkout fails the run instead of skipping it.
+const controlPlaneJoined = process.argv.includes('--control-plane-joined')
+const controlPlaneJoinedDirectory = resolve(root, 'apps', 'web', 'test', 'control-plane-joined')
+const controlPlaneSource = process.env.ADEA_CONTROL_PLANE_SOURCE
+if (controlPlaneJoined && !controlPlaneSource) {
+  throw new Error(
+    'ADEA_CONTROL_PLANE_SOURCE must name a checkout of the pinned control-plane revision (apps/web/test/control-plane-joined/control-plane-source.json)'
+  )
+}
+
+function run(command, args, environment, cwd = root) {
   const result = spawnSync(command, args, {
-    cwd: root,
+    cwd,
     encoding: 'utf8',
     env: environment,
     stdio: 'inherit',
@@ -247,30 +259,53 @@ try {
     )
   }
 
-  run(
-    'bun',
-    [
-      '--conditions=react-server',
-      'test',
-      '--timeout',
-      String(timeoutMs),
-      ...integrationDirectories,
-    ],
-    environment
-  )
-  // The route flow imports the compiled @adea-ai/api-client entry (the package
-  // suites above read their own src relatively; the database entry is already
-  // built before provisioning), so it must be built on a clean checkout before
-  // the route tests run. Like the builds above, this keeps integration
-  // runnable independently from a workspace-wide turbo build.
-  run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
-  // The runner sets the react-server condition for the route-flow modules;
-  // the shared database environment and the same latency-sized ceiling apply.
-  run(
-    'bun',
-    ['test', '--conditions=react-server', '--timeout', String(timeoutMs), ...routeFlowDirectories],
-    environment
-  )
+  if (controlPlaneJoined) {
+    // Run from the control-plane checkout so its sources compile under its own TypeScript
+    // configuration (decorators); the Adea modules load by relative path from this directory.
+    run(
+      'bun',
+      [
+        'test',
+        '--conditions=react-server',
+        '--timeout',
+        String(timeoutMs),
+        controlPlaneJoinedDirectory,
+      ],
+      { ...environment, ADEA_CONTROL_PLANE_SOURCE: controlPlaneSource },
+      controlPlaneSource
+    )
+  } else {
+    run(
+      'bun',
+      [
+        '--conditions=react-server',
+        'test',
+        '--timeout',
+        String(timeoutMs),
+        ...integrationDirectories,
+      ],
+      environment
+    )
+    // The route flow imports the compiled @adea-ai/api-client entry (the package
+    // suites above read their own src relatively; the database entry is already
+    // built before provisioning), so it must be built on a clean checkout before
+    // the route tests run. Like the builds above, this keeps integration
+    // runnable independently from a workspace-wide turbo build.
+    run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+    // The runner sets the react-server condition for the route-flow modules;
+    // the shared database environment and the same latency-sized ceiling apply.
+    run(
+      'bun',
+      [
+        'test',
+        '--conditions=react-server',
+        '--timeout',
+        String(timeoutMs),
+        ...routeFlowDirectories,
+      ],
+      environment
+    )
+  }
 } catch (error) {
   primaryFailure = error
 }
