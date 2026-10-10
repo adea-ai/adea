@@ -135,4 +135,85 @@ describe('native session inventory adapter', () => {
       expect(error.kind).toBe('unavailable')
     )
   })
+
+  test('composes a multi-page inventory to exhaustion', async () => {
+    const pages = [
+      { items: [session({ id: 'sess-c' }), session({ id: 'sess-f' })], nextCursor: 'c1' },
+      { items: [session({ id: 'sess-a' }), session({ id: 'sess-e' })], nextCursor: 'c2' },
+      { items: [session({ id: 'sess-b' }), session({ id: 'sess-d' })] },
+    ]
+    const cursors: Array<string | undefined> = []
+    const section = await captureNativeSessionSection(
+      {
+        listRuntimeSessions: async ({ cursor }) => {
+          cursors.push(cursor)
+          const page = pages[cursors.length - 1]
+          if (!page) throw new Error('unexpected extra page')
+          return page
+        },
+      },
+      10
+    )
+    expect(cursors).toEqual([undefined, 'c1', 'c2'])
+    expect(section.records.map((record) => record.sessionRef)).toEqual([
+      'sess-a',
+      'sess-b',
+      'sess-c',
+      'sess-d',
+      'sess-e',
+      'sess-f',
+    ])
+    expect(section.truncated).toBe(false)
+  })
+
+  test('a repeated cursor is refused instead of looping forever', async () => {
+    const failure = captureNativeSessionSection(
+      {
+        listRuntimeSessions: async () => ({
+          items: [session({ id: 'sess-a' })],
+          nextCursor: 'loop',
+        }),
+      },
+      10
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('an empty page with a continuation cursor is refused, never streamed forever', async () => {
+    const failure = captureNativeSessionSection(
+      { listRuntimeSessions: async () => ({ items: [], nextCursor: 'next' }) },
+      10
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('a record outside the requested scope is refused as invalid', async () => {
+    const failure = captureNativeSessionSection(
+      {
+        listRuntimeSessions: async () => ({
+          items: [
+            session({
+              id: 'sess-foreign',
+              scope: { accountId: 'acct-2', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' },
+            }),
+          ],
+        }),
+      },
+      10,
+      { scope: { accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' } }
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('a record inside the requested scope composes', async () => {
+    const section = await captureNativeSessionSection(
+      { listRuntimeSessions: async () => ({ items: [session({ id: 'sess-a' })] }) },
+      10,
+      { scope: { accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' } }
+    )
+    expect(section.records.map((record) => record.sessionRef)).toEqual(['sess-a'])
+  })
 })

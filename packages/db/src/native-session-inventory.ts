@@ -32,6 +32,13 @@ export type NativeSessionInventorySource = Readonly<{
 /** Why the runtime session inventory could not be composed. */
 export type NativeSessionInventoryFailure = 'denied' | 'invalid' | 'unavailable'
 
+/** The account/workspace/node scope an authoritative read must stay inside. */
+export type NativeSessionInventoryScope = Readonly<{
+  accountId: string
+  runtimeNodeId: string
+  workspaceId: string
+}>
+
 export class NativeSessionInventoryError extends Error {
   readonly kind: NativeSessionInventoryFailure
 
@@ -72,15 +79,18 @@ function isNullableCount(value: unknown): boolean {
  * refused as `invalid` so the domain stays unknown instead of capturing a
  * fabricated row.
  */
-function toRecord(session: RuntimeSession): NativeSessionSnapshotRecord {
+function toRecord(
+  session: RuntimeSession,
+  scope?: NativeSessionInventoryScope
+): NativeSessionSnapshotRecord {
   const candidate = session as unknown as Record<string, unknown>
-  const scope = candidate.scope as Record<string, unknown> | undefined
+  const recordScope = candidate.scope as Record<string, unknown> | undefined
   if (
     !isNonEmptyString(candidate.id) ||
-    !scope ||
-    !isNonEmptyString(scope.accountId) ||
-    !isNonEmptyString(scope.workspaceId) ||
-    !isNonEmptyString(scope.runtimeNodeId) ||
+    !recordScope ||
+    !isNonEmptyString(recordScope.accountId) ||
+    !isNonEmptyString(recordScope.workspaceId) ||
+    !isNonEmptyString(recordScope.runtimeNodeId) ||
     !isNonEmptyString(candidate.projectId) ||
     !isNonEmptyString(candidate.worktreeId) ||
     typeof candidate.lifecycle !== 'string' ||
@@ -100,8 +110,19 @@ function toRecord(session: RuntimeSession): NativeSessionSnapshotRecord {
       'runtime session inventory returned a record outside the canonical contract'
     )
   }
+  if (
+    scope &&
+    (recordScope.accountId !== scope.accountId ||
+      recordScope.workspaceId !== scope.workspaceId ||
+      recordScope.runtimeNodeId !== scope.runtimeNodeId)
+  ) {
+    throw new NativeSessionInventoryError(
+      'invalid',
+      'runtime session inventory returned a record outside the requested scope'
+    )
+  }
   return Object.freeze({
-    accountId: scope.accountId,
+    accountId: recordScope.accountId,
     activeHarnessRunId: (candidate.activeHarnessRunId as string | undefined) ?? null,
     agentProfileId: (candidate.agentProfileId as string | undefined) ?? null,
     agentProfileVersion: (candidate.agentProfileVersion as number | undefined) ?? null,
@@ -111,10 +132,10 @@ function toRecord(session: RuntimeSession): NativeSessionSnapshotRecord {
     harnessInstallationId: (candidate.harnessInstallationId as string | undefined) ?? null,
     lifecycle: candidate.lifecycle,
     projectId: candidate.projectId,
-    runtimeNodeId: scope.runtimeNodeId,
+    runtimeNodeId: recordScope.runtimeNodeId,
     sessionRef: candidate.id,
     version: candidate.version as number,
-    workspaceId: scope.workspaceId,
+    workspaceId: recordScope.workspaceId,
     worktreeId: candidate.worktreeId,
   })
 }
@@ -143,27 +164,40 @@ async function readPage(
  */
 export async function captureNativeSessionSection(
   source: NativeSessionInventorySource,
-  bound: number
+  bound: number,
+  options?: Readonly<{ scope?: NativeSessionInventoryScope }>
 ): Promise<MigrationSnapshotSection> {
   const records: NativeSessionSnapshotRecord[] = []
+  const seenCursors = new Set<string>()
   let cursor: string | undefined
   let truncated = false
   for (;;) {
     const remaining = bound - records.length
     const page = await readPage(source, { cursor, limit: remaining + 1 })
+    // An empty page that claims a continuation can never terminate and would
+    // stream forever; a cursor that repeats is a loop. Both fail closed.
+    if (page.items.length === 0 && page.nextCursor !== undefined) {
+      throw new NativeSessionInventoryError(
+        'invalid',
+        'runtime session inventory returned an empty page with a continuation cursor'
+      )
+    }
     for (const session of page.items) {
       if (records.length >= bound) {
         truncated = true
         break
       }
-      records.push(toRecord(session))
+      records.push(toRecord(session, options?.scope))
     }
     if (truncated) break
-    if (page.items.length <= remaining && !page.nextCursor) break
-    if (!page.nextCursor) {
-      truncated = records.length >= bound
-      break
+    if (page.nextCursor === undefined) break
+    if (seenCursors.has(page.nextCursor)) {
+      throw new NativeSessionInventoryError(
+        'invalid',
+        'runtime session inventory repeated a cursor; refusing to loop'
+      )
     }
+    seenCursors.add(page.nextCursor)
     cursor = page.nextCursor
   }
   records.sort((left, right) =>

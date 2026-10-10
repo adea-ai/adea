@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
+import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 
 import type {
   MigrationSnapshotDocument,
@@ -15,6 +16,7 @@ import {
   registerArtifactReferenceGrant,
   revokeArtifactReferenceGrant,
 } from '../../src/artifact-reference-grants'
+import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -26,12 +28,17 @@ import {
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
 import { NativeSessionInventoryError } from '../../src/native-session-inventory'
+import { createProject } from '../../src/projects'
+import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
 import {
   artifactReferenceGrants,
   contentRefs,
   contentReplicas,
   runtimeNodes,
+  taskSubmissions,
 } from '../../src/schema'
+import { enqueueTaskSubmission, getTaskSubmissionForUser } from '../../src/task-submissions'
+import { createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 /**
@@ -85,6 +92,96 @@ function runtimeSession(overrides: Partial<RuntimeSession> = {}): RuntimeSession
     worktreeId: 'wt-1',
     ...overrides,
   }
+}
+
+const publicKey = async (key: CryptoKey) =>
+  Buffer.from(await crypto.subtle.exportKey('raw', key)).toString('base64url')
+
+/**
+ * A real task/agent/command/submission graph: the submission is enqueued
+ * through the domain service (command outbox row, sealed envelope, profile
+ * pins) rather than inserted, so the capture reads exactly what production
+ * writes.
+ */
+async function seedSubmissionGraph() {
+  const owner = await temporaryUser('submission-owner')
+  const { workspace } = await createWorkspaceWithOwner(database(), {
+    idempotencyKey: `snapshot-submission-${crypto.randomUUID()}`,
+    name: 'Snapshot submission',
+    owner,
+  })
+  const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1`, revision: 0 }
+  const project = await createProject(database(), workspace.id, owner, {
+    iconKey: 'planning',
+    name: 'Snapshot project',
+  })
+  const agent = await createAgent(database(), workspace.id, owner, {
+    name: 'Snapshot agent',
+    profileId: profile.id,
+    profileVersion: profile.version,
+  })
+  const task = await createTask(
+    database(),
+    workspace.id,
+    owner,
+    {
+      agentId: agent.id,
+      objective: 'PRIVATE_OBJECTIVE_CANARY',
+      projectId: project.id,
+      title: 'Snapshot task',
+    },
+    { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+  )
+  const signing = await crypto.subtle.generateKey('Ed25519', false, ['sign', 'verify'])
+  const encryption = await generateRemoteCommandKeyPair()
+  const challenge = await createRuntimeNodeChallenge(database(), {
+    createdByUserId: owner.userId,
+    kind: 'remote_host',
+    nonce: crypto.randomUUID(),
+    purpose: 'pair',
+    workspaceId: workspace.id,
+  })
+  const node = await registerRuntimeNode(database(), {
+    challengeId: challenge.challengeId,
+    displayName: 'Snapshot host',
+    keys: [
+      { algorithm: 'ed25519', role: 'signing', publicKey: await publicKey(signing.publicKey) },
+      {
+        algorithm: 'x25519',
+        role: 'command_encryption',
+        publicKey: await publicKey(encryption.publicKey),
+      },
+    ],
+    kind: 'remote_host',
+    ownerUserId: owner.userId,
+    platform: 'fixture',
+    softwareVersion: '1.0.0',
+    workspaceId: workspace.id,
+  })
+  const requestId = crypto.randomUUID()
+  const envelope = await sealRemoteContent({
+    aad: {
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      issuedAt: new Date().toISOString(),
+      payloadType: 'command.input',
+      requestId,
+      runtimeNodeId: node.id,
+      schemaVersion: 1,
+      workspaceId: workspace.id,
+    },
+    keyId: node.keys.find((key) => key.role === 'command_encryption')!.keyId,
+    plaintext: new TextEncoder().encode('PRIVATE_CONTEXT_CANARY'),
+    recipientPublicKey: encryption.publicKey,
+  })
+  const submission = await enqueueTaskSubmission(
+    database(),
+    workspace.id,
+    task.id,
+    owner,
+    { envelope, profile, queueWhenOffline: true, runtimeNodeId: node.id },
+    { expectedVersion: task.version, idempotencyKey: 'start', requestId }
+  )
+  return { agent, node, owner, profile, submission, task, workspace }
 }
 
 function grantRecordOf(document: MigrationSnapshotDocument, grantId: string) {
@@ -664,5 +761,64 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
     ])
     expect(invalid.document.sections.nativeSessions).toBeUndefined()
+  })
+
+  test('captures a real task/agent/command/submission graph with exact identity, profile pins and runtime linkage', async () => {
+    const f = await seedSubmissionGraph()
+    const captured = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-submissions'),
+      requestedDomains: ['taskSubmissions'],
+    })
+    const record = captured.document.sections.taskSubmissions?.records.find(
+      (candidate) =>
+        candidate.family === 'taskSubmissions' && candidate.submissionId === f.submission.id
+    )
+    expect(record).toEqual({
+      agentId: f.agent.id,
+      ciphertextPurged: false,
+      family: 'taskSubmissions',
+      locationKind: 'remote_host',
+      profileId: f.profile.id,
+      profileRevision: f.profile.revision,
+      profileVersion: f.profile.version,
+      runtimeNodeId: f.node.id,
+      state: f.submission.state,
+      submissionId: f.submission.id,
+      taskId: f.task.id,
+      taskVersion: f.task.version,
+      workspaceId: f.workspace.id,
+    })
+    // Command content and task objective never travel in a snapshot.
+    const serialized = JSON.stringify(captured.document)
+    expect(serialized).not.toContain('PRIVATE_CONTEXT_CANARY')
+    expect(serialized).not.toContain('PRIVATE_OBJECTIVE_CANARY')
+
+    // Stable identity: a state move is compared by the submission id.
+    await database()
+      .update(taskSubmissions)
+      .set({ state: 'queued_for_node' })
+      .where(eq(taskSubmissions.id, f.submission.id))
+    const after = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-submissions'),
+      requestedDomains: ['taskSubmissions'],
+    })
+    const comparison = compareMigrationSnapshots({
+      after: after.document,
+      before: captured.document,
+    })
+    expect(comparison.findings).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ field: 'state' }),
+        family: 'taskSubmissions',
+        findingClass: 'changed_attribute',
+        stableId: f.submission.id,
+      })
+    )
+
+    // A reader without workspace authority is refused, never shown a row.
+    const outsider = await temporaryUser('submission-outsider')
+    await expect(
+      getTaskSubmissionForUser(database(), f.workspace.id, f.task.id, outsider)
+    ).rejects.toMatchObject({ code: 'unavailable' })
   })
 })
