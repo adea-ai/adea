@@ -12,7 +12,7 @@ import type { GroupAdmission } from '@adea-ai/types'
 import { admitAddressedLeadTurn } from './lead-turns'
 import { requestLeadTurnCancellation } from './lead-turn-runtime'
 import { addressedAgentTurns, type AddressedAgentTurn } from './schema/addressed-agent-turns'
-import { agents, messages, workspaceMemberships } from './schema'
+import { agents, channels, messages, workspaceMemberships } from './schema'
 
 export type { AddressedAgentTurn } from './schema/addressed-agent-turns'
 
@@ -532,7 +532,7 @@ export async function dispatchAddressedTurn(
     // state once, on the failure path, to keep the typed contract.
     if (error instanceof Error && error.message === 'Lead turn unavailable') {
       const [retained] = await database
-        .select({ state: addressedAgentTurns.state })
+        .select()
         .from(addressedAgentTurns)
         .where(
           and(
@@ -544,6 +544,30 @@ export async function dispatchAddressedTurn(
       if (retained?.state === 'superseded') throw new AddressedTurnError('turn_superseded')
       if (retained?.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
       if (retained?.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+      if (retained) {
+        // Live claim, refused admission: distinguish a caller binding bug
+        // (never retry) from lapsed authority (may retry).
+        if (
+          retained.triggerMessageId !== input.triggerMessageId ||
+          retained.agentId !== input.agentId
+        )
+          throw new AddressedTurnError('turn_binding_mismatch')
+        if (retained.addresserUserId !== principal.userId) {
+          const [membership] = await database
+            .select({ role: workspaceMemberships.role })
+            .from(workspaceMemberships)
+            .where(
+              and(
+                eq(workspaceMemberships.workspaceId, workspaceId),
+                eq(workspaceMemberships.userId, principal.userId)
+              )
+            )
+            .limit(1)
+          if (membership?.role !== 'owner' && membership?.role !== 'admin')
+            throw new AddressedTurnError('turn_trigger_forged')
+        }
+        throw new AddressedTurnError('turn_not_participant')
+      }
     }
     throw error
   }
@@ -636,6 +660,22 @@ export async function supersedeAddressedTurns(
   principal: UserPrincipalRef
 ): Promise<number> {
   const store = asStore(database)
+  // Canonical lock order: CHANNEL before claims — the same order the
+  // human post path and the admission transaction take, so the three
+  // serialize instead of deadlocking.
+  const [channel] = await store
+    .select({ id: channels.id })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.id, channelId),
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.lifecycleState, 'active')
+      )
+    )
+    .limit(1)
+    .for('update')
+  if (!channel) throw new AddressedTurnError('turn_channel_unavailable')
   const live = await store
     .select()
     .from(addressedAgentTurns)

@@ -1316,4 +1316,171 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       cancelAddressedTurn(connection.db, f.workspace.id, outsider, first.turn.id)
     ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_cancel_unauthorized' })
   })
+
+  T('admission versus human post on two connections: one order, no deadlock', async () => {
+    // Canonical lock order (channel before claims) on both sides: the
+    // dispatch parks pre-admission holding nothing, the human post on a
+    // second connection takes channel then claims and commits, and the
+    // resumed admission denies on the terminal claim with zero mint.
+    // Reversed order would deadlock; a 40P01 or timeout fails this test.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(pre.status).toBe('claimed')
+    const second = createDatabase(connectionUrl!)
+    try {
+      let release!: () => void
+      let markParked!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const parkedPromise = new Promise<void>((resolve) => {
+        markParked = resolve
+      })
+      const dispatching = dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+        barrier: {
+          beforeDispatchDecision: async () => {
+            markParked()
+            await gate
+          },
+        },
+        now: NOW,
+      })
+      await parkedPromise
+      await postGroupChannelMessage(
+        second.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        f.owner,
+        {
+          message: { bodyText: 'newer human input', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { now: NOW }
+      )
+      release()
+      await expect(dispatching).rejects.toMatchObject({
+        name: 'AddressedTurnError',
+        reason: 'turn_superseded',
+      })
+      const intents = await connection.db
+        .select({ id: schema.leadTurnIntents.id })
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+      expect(intents).toHaveLength(0)
+    } finally {
+      await second.close()
+    }
+  })
+
+  T('concurrent admission and posting never deadlock-abort', async () => {
+    // Race fuzz over the shared boundary: mixed dispatches and human posts
+    // on two connections must all settle with typed outcomes — never a
+    // PostgreSQL deadlock (40P01) or lock timeout.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const second = createDatabase(connectionUrl!)
+    try {
+      for (let round = 0; round < 3; round += 1) {
+        const revision = 40 + round
+        const results = await Promise.allSettled([
+          dispatchAddressedTurn(
+            connection.db,
+            f.workspace.id,
+            f.owner,
+            claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner, {
+              dispatchRevision: revision,
+            }),
+            { now: NOW }
+          ),
+          postGroupChannelMessage(
+            second.db,
+            f.workspace.id,
+            f.channelId,
+            f.owner,
+            f.owner,
+            {
+              message: {
+                bodyText: `race ${round}`,
+                idempotencyKey: crypto.randomUUID(),
+              },
+              mode: 'direct',
+            },
+            { now: NOW }
+          ),
+        ])
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            const message = result.reason instanceof Error ? result.reason.message : ''
+            expect(message).not.toContain('40P01')
+            expect(message).not.toContain('deadlock')
+          }
+        }
+      }
+    } finally {
+      await second.close()
+    }
+  })
+
+  T('replay binds the recovery claim: no executable intent left unbound', async () => {
+    // Simulates the pre-fix crash shape (executable intent, unbound live
+    // claim): admitting without a claim id mints against the trigger while
+    // the claim stays claimed/null. The next dispatch replays the SAME
+    // intent and binds it — one intent, bound, dispatching.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(pre.status).toBe('claimed')
+    const direct = await admitAddressedLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      { expectedAgentId: f.agent.id, triggerMessageId: f.triggerMessageId }
+    )
+    const [unbound] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+      .limit(1)
+    expect(unbound?.intentId).toBeNull()
+    expect(unbound?.state).toBe('claimed')
+    const redispatched = await dispatchAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      input,
+      { now: NOW }
+    )
+    expect(redispatched.claim.status).toBe('duplicate')
+    expect(redispatched.intent.leadTurn.intentId).toBe(direct.leadTurn.intentId)
+    const [bound] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+      .limit(1)
+    expect(bound?.intentId).toBe(direct.leadTurn.intentId)
+    expect(bound?.state).toBe('dispatching')
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intents).toHaveLength(1)
+  })
 })
