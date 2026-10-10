@@ -260,16 +260,31 @@ test.describe('workspace and project placement over real routes', () => {
       }
     )
     expect(task.status).toBe(201)
-    const channelId = await directTopic(connection, owner.workspaceId, owner.principal, 'Secret DM')
+    // The channel itself lives in the hidden project, so its messages are
+    // fenced with it — no task-link ambiguity in this fixture.
+    const channel = await fetchFromPage<{ channel: { id: string } }>(
+      owner.page,
+      `/api/v1/workspaces/${owner.workspaceId}/channels`,
+      { method: 'POST', body: { kind: 'project', projectId, title: 'Secret channel' } }
+    )
+    expect(channel.status).toBe(201)
+    const channelId = channel.body.channel.id
     const posted = await fetchFromPage<{ message: { id: string } }>(
       owner.page,
       `/api/v1/workspaces/${owner.workspaceId}/channels/${channelId}/messages`,
       { method: 'POST', body: { bodyText: 'secret line', taskId: task.body.task.id } }
     )
     expect(posted.status).toBe(201)
+    const ownerRead = await fetchFromPage<{ messages?: { id?: string }[] }>(
+      owner.page,
+      `/api/v1/workspaces/${owner.workspaceId}/channels/${channelId}/messages`
+    )
+    expect(
+      (ownerRead.body.messages ?? []).some((message) => message.id === posted.body.message.id)
+    ).toBe(true)
 
     // A workspace member who is not on the project reads the workspace but
-    // never the hidden project's content.
+    // never the hidden project's task, channel, or messages.
     const member = await signIn(connection, workspaceIds, userIds, await browser.newContext())
     await addWorkspaceMembership(connection.db, owner.workspaceId, member.principal, 'member')
     const hiddenTask = await fetchFromPage<{ task?: unknown }>(
@@ -277,16 +292,11 @@ test.describe('workspace and project placement over real routes', () => {
       `/api/v1/workspaces/${owner.workspaceId}/tasks/${task.body.task.id}`
     )
     expect(hiddenTask.status).not.toBe(200)
-    const hiddenMessage = await fetchFromPage<{ messages?: { id?: string }[] }>(
+    const hiddenChannel = await fetchFromPage<{ messages?: unknown[] }>(
       member.page,
       `/api/v1/workspaces/${owner.workspaceId}/channels/${channelId}/messages`
     )
-    expect(
-      hiddenMessage.status !== 200 ||
-        !(hiddenMessage.body.messages ?? []).some(
-          (message) => message.id === posted.body.message.id
-        )
-    ).toBe(true)
+    expect(hiddenChannel.status).not.toBe(200)
     await owner.page.context().close()
     await member.page.context().close()
   })
