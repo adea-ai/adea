@@ -11,9 +11,11 @@ import { workspaceMemberships } from './schema/workspaces'
 //
 // The fence is an admission-level flag. It is set once, before a rollback routes new work away
 // from the Pi path, and it stops this path from preparing or dispatching the same admission again.
-// Observation, binding recovery, cancellation and publication of an already-recorded result stay
-// available, because they reconcile evidence rather than create a new effect. Fencing never
-// rewrites state, dispatch identity, runtime session or publication evidence.
+// Observation, binding recovery and cancellation stay available, because they reconcile evidence
+// rather than create a new effect. Publication appends a Message, so it is an effect as well: a
+// fenced admission never publishes, including a completed result that was not yet published. A
+// terminal admission can be fenced too. The fence records attribution and changes nothing else.
+// Fencing never rewrites state, dispatch identity, runtime session or publication evidence.
 //
 // Attribution (REQ 154): the fence records who applied it, why, when, and the authority it relied
 // on. All of it is written in the same statement as the fence, and a database CHECK rejects a
@@ -256,7 +258,8 @@ export type LeadTurnRollbackFence = Readonly<{
  * Trusted rollback boundary, called by server rollback tooling and never by a user principal.
  * A user actor must currently be a workspace owner or admin, checked under lock in the same
  * transaction as the write. The first fence keeps its attribution; later calls return it unchanged.
- * Terminal admissions are not written.
+ * A terminal admission is fenced the same way, with disposition `terminal_retained`. Only the
+ * intent's fence columns are written. The runtime row is read under lock and left unchanged.
  */
 export async function fenceLeadTurnForRollback(
   database: AgentHqDatabase,
@@ -266,12 +269,13 @@ export async function fenceLeadTurnForRollback(
 ): Promise<LeadTurnRollbackFence> {
   assertLeadTurnRollbackFenceRequest(request)
   return database.transaction(async (tx) => {
-    const [intent] = await tx
-      .select()
+    // Discover the immutable channel reference without taking an intent lock. Every effect
+    // acquires channel authority before its intent lock; taking them in reverse can deadlock.
+    const [reference] = await tx
+      .select({ channelId: leadTurnIntents.channelId })
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
-      .for('update')
-    if (!intent) throw new Error('Lead turn unavailable')
+    if (!reference) throw new Error('Lead turn unavailable')
     const actor = await resolveFenceActor(tx, workspaceId, request.actor)
     const [channel] = await tx
       .select({
@@ -280,9 +284,22 @@ export async function fenceLeadTurnForRollback(
         lifecycleState: channels.lifecycleState,
       })
       .from(channels)
-      .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
+      .where(and(eq(channels.id, reference.channelId), eq(channels.workspaceId, workspaceId)))
       .for('share')
     if (!channel) throw new Error('Lead turn unavailable')
+    // Read the current fence only after both locks are held, including concurrent first fences.
+    const [intent] = await tx
+      .select()
+      .from(leadTurnIntents)
+      .where(
+        and(
+          eq(leadTurnIntents.id, intentId),
+          eq(leadTurnIntents.workspaceId, workspaceId),
+          eq(leadTurnIntents.channelId, channel.id)
+        )
+      )
+      .for('update')
+    if (!intent) throw new Error('Lead turn unavailable')
     const [row] = await tx
       .select()
       .from(leadTurnRuntime)
@@ -297,14 +314,8 @@ export async function fenceLeadTurnForRollback(
         attribution: attributionOf(intent),
       }
     }
-    if (row && terminalStates.includes(row.state)) {
-      return {
-        intentId,
-        disposition: classifyLeadTurnRollback({ fenced: false, runtime: row }),
-        fenced: false,
-        alreadyFenced: false,
-      }
-    }
+    // A terminal runtime classifies as `terminal_retained`. Its row is only read here, so its
+    // history is unchanged, but the admission still gets attribution and a publication block.
     const disposition = classifyLeadTurnRollback({ fenced: true, runtime: row })
     const authority: LeadTurnRollbackFenceAuthority = {
       schemaVersion: 1,
