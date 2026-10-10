@@ -302,6 +302,126 @@ export async function withAuthorizedLeadTurn<T>(
   })
 }
 
+/**
+ * Read-only authority for retained lead-turn history (REQ 045). Archived channels stay observable
+ * to current workspace members who are still channel participants. The live membership, participant
+ * and channel rows are checked on every read. Pinned execution authority is not compared, because
+ * archival bumps the channel version. This path grants no effect: prepare, dispatch, funding and
+ * new turns keep lockAuthority's active-only gate.
+ */
+async function lockReadAuthority(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  intent: Intent,
+  principal: UserPrincipalRef
+) {
+  const [workspace] = await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
+    .for('share')
+  const [member] = await tx
+    .select({ id: workspaceMemberships.id })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, principal.userId)
+      )
+    )
+    .for('share')
+  if (!workspace || !member) throw new Error('Lead turn unavailable')
+  const [channel] = await tx
+    .select({
+      id: channels.id,
+      kind: channels.kind,
+      agentId: channels.agentId,
+      taskId: channels.taskId,
+      version: channels.version,
+      lifecycleState: channels.lifecycleState,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
+    .for('share')
+  if (
+    !channel ||
+    channel.kind !== 'direct_agent' ||
+    channel.agentId !== intent.agentId ||
+    channel.taskId ||
+    channel.version < intent.channelVersion
+  )
+    throw new Error('Lead turn unavailable')
+  const [participant] = await tx
+    .select({ id: channelParticipants.id })
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channel.id),
+        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.userId, principal.userId)
+      )
+    )
+    .for('share')
+  if (!participant) throw new Error('Lead turn unavailable')
+  return {
+    membershipId: member.id,
+    channel: {
+      id: channel.id,
+      version: channel.version,
+      lifecycleState: channel.lifecycleState,
+    },
+  }
+}
+
+export type ReadLeadTurnChannel = Readonly<{
+  id: string
+  version: number
+  lifecycleState: 'active' | 'archived'
+}>
+
+/** Trusted read boundary for retained history. Authorized archived admissions stay observable; no effect is granted. */
+export async function withReadAuthorizedLeadTurn<T>(
+  database: Database,
+  workspaceId: string,
+  intentId: string,
+  principal: UserPrincipalRef,
+  operation: (
+    tx: AgentHqTransaction,
+    intent: Intent,
+    message: typeof messages.$inferSelect,
+    controlPlaneWorkspaceId: string,
+    channel: ReadLeadTurnChannel
+  ) => Promise<T>
+) {
+  return database.transaction(async (tx) => {
+    const [intent] = await tx
+      .select()
+      .from(leadTurnIntents)
+      .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
+    if (!intent) throw new Error('Lead turn unavailable')
+    const { channel } = await lockReadAuthority(tx, workspaceId, intent, principal)
+    const [message] = await tx
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.id, intent.messageId),
+          eq(messages.workspaceId, workspaceId),
+          isNull(messages.deletedAt)
+        )
+      )
+      .for('share')
+    const [workspace] = await tx
+      .select({ id: workspaces.controlPlaneWorkspaceId })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+    if (!message || message.senderUserId !== intent.actorUserId || !workspace)
+      throw new Error('Lead turn unavailable')
+    return operation(tx, intent, message, workspace.id, channel)
+  })
+}
+
 /** Reload recovery uses canonical topic identity and current participant authority, never browser session state. */
 export async function getLatestLeadTurnForChannel(
   database: Database,

@@ -1,5 +1,5 @@
 {
-  "id": "b8b9680e-16f0-435d-b388-74470efd40f1",
+  "id": "a209dd57-e5ba-414f-ab65-c085cd28b9cc",
   "prevId": "9da08adb-cf66-4161-8e1b-d98e798675ec",
   "version": "7",
   "dialect": "postgresql",
@@ -2877,6 +2877,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "rollback_fence_actor_kind": {
+          "name": "rollback_fence_actor_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_actor_ref": {
+          "name": "rollback_fence_actor_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_reason": {
+          "name": "rollback_fence_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rollback_fence_authority": {
+          "name": "rollback_fence_authority",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -3005,6 +3029,22 @@
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",
           "value": "\"app\".\"lead_turn_intents\".\"state\" = 'blocked' and \"app\".\"lead_turn_intents\".\"reason_code\" = 'ADMISSION_SERVICE_UNAVAILABLE'"
+        },
+        "lead_turn_intents_rollback_fence_complete": {
+          "name": "lead_turn_intents_rollback_fence_complete",
+          "value": "(\"app\".\"lead_turn_intents\".\"rollback_fenced_at\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is null and \"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is null) or (\"app\".\"lead_turn_intents\".\"rollback_fenced_at\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is not null and \"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is not null)"
+        },
+        "lead_turn_intents_rollback_fence_actor_valid": {
+          "name": "lead_turn_intents_rollback_fence_actor_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" is null or (\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" = 'user' and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') or (\"app\".\"lead_turn_intents\".\"rollback_fence_actor_kind\" = 'operator' and \"app\".\"lead_turn_intents\".\"rollback_fence_actor_ref\" ~ '^[a-z0-9][a-z0-9._:-]{0,127}$')"
+        },
+        "lead_turn_intents_rollback_fence_reason_valid": {
+          "name": "lead_turn_intents_rollback_fence_reason_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_reason\" is null or \"app\".\"lead_turn_intents\".\"rollback_fence_reason\" in ('operator_intervention', 'rollback_cohort')"
+        },
+        "lead_turn_intents_rollback_fence_authority_valid": {
+          "name": "lead_turn_intents_rollback_fence_authority_valid",
+          "value": "\"app\".\"lead_turn_intents\".\"rollback_fence_authority\" is null or (jsonb_typeof(\"app\".\"lead_turn_intents\".\"rollback_fence_authority\") = 'object' and (\"app\".\"lead_turn_intents\".\"rollback_fence_authority\"->>'schemaVersion') is not distinct from '1')"
         }
       },
       "isRLSEnabled": false

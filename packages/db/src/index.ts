@@ -295,12 +295,20 @@ export {
   type LeadTurnObservedState,
 } from './lead-turn-runtime'
 export {
+  assertLeadTurnRollbackFenceRequest,
   classifyLeadTurnRollback,
   fenceLeadTurnForRollback,
+  leadTurnRollbackFenceReasons,
+  parseLeadTurnRollbackAuthority,
   readLeadTurnRollbackState,
+  type LeadTurnRollbackAttribution,
   type LeadTurnRollbackDisposition,
   type LeadTurnRollbackEvidence,
   type LeadTurnRollbackFence,
+  type LeadTurnRollbackFenceActor,
+  type LeadTurnRollbackFenceAuthority,
+  type LeadTurnRollbackFenceReason,
+  type LeadTurnRollbackFenceRequest,
   type LeadTurnRollbackState,
 } from './lead-turn-rollback'
 export {
