@@ -10,7 +10,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import type { WorkspaceEventView } from './event-log'
-import { userChannelStanding } from './group-participation-store'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import { resolveProjectAccessScope } from './project-access'
 import { artifacts, channels, contentRefs, messages, tasks } from './schema'
 
@@ -109,12 +109,17 @@ export async function classifyWorkspaceEventsForUser(
     }
   }
 
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, userId, new Date().toISOString(), workspaceId)),
+  ]
   // Keep the outer-table qualifier in single-table Drizzle projections.
-  const canReadChannel = sql<boolean>`coalesce(${channels.visibility} = 'workspace' or ${userChannelStanding(
-    sql`${channels}.${sql.identifier('kind')}`,
-    sql`${channels}.${sql.identifier('id')}`,
-    userId
-  )}, false)`
+  const canReadChannel = sql<boolean>`coalesce(${userChannelVisibility({
+    channelId: sql`${channels}.${sql.identifier('id')}`,
+    inForceGroupIds: inForce,
+    kind: sql`${channels}.${sql.identifier('kind')}`,
+    userId,
+    visibility: sql`${channels}.${sql.identifier('visibility')}`,
+  })}, false)`
 
   const [channelRows, messageRows, taskRows, artifactRows, contentRows] = await Promise.all([
     channelIds.size

@@ -21,7 +21,7 @@ import {
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
-  userChannelStanding,
+  admissionInForce,
 } from './group-participation-store'
 import {
   canReadProject,
@@ -191,44 +191,45 @@ async function validateParticipant(
   else await requireActiveAgent(database, workspaceId, participant.agentId)
 }
 
+/** The members of a group whose canonical admission is in force now, from its canonical roster. */
+async function groupParticipantsInForce(
+  database: Database,
+  row: ChannelRow
+): Promise<ConversationParticipantRef[]> {
+  const now = new Date().toISOString()
+  const roster = await loadGroupRoster(database, row.workspaceId, row.id)
+  return roster
+    .filter((admission) => admissionInForce(admission, row.id, now))
+    .map((admission) => admission.participant)
+}
+
 async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
-  // A group's roster is its canonical admissions: the legacy roster rows of a
-  // quarantined audience remain but name nobody the group admits.
-  const participantRows =
+  // A group's roster is the members whose canonical admission is in force now.
+  // A legacy roster row names no group member on its own, and a retained
+  // admission whose grant lapsed names nobody.
+  const participants =
     row.kind === 'group'
-      ? await database
-          .select({
-            agentId: groupAdmissions.agentId,
-            principalKind: groupAdmissions.principalKind,
-            userId: groupAdmissions.userId,
-          })
-          .from(groupAdmissions)
-          .where(
-            and(
-              eq(groupAdmissions.workspaceId, row.workspaceId),
-              eq(groupAdmissions.channelId, row.id)
+      ? await groupParticipantsInForce(database, row)
+      : (
+          await database
+            .select({
+              agentId: channelParticipants.agentId,
+              principalKind: channelParticipants.principalKind,
+              userId: channelParticipants.userId,
+            })
+            .from(channelParticipants)
+            .where(
+              and(
+                eq(channelParticipants.workspaceId, row.workspaceId),
+                eq(channelParticipants.channelId, row.id)
+              )
             )
-          )
-      : await database
-          .select({
-            agentId: channelParticipants.agentId,
-            principalKind: channelParticipants.principalKind,
-            userId: channelParticipants.userId,
-          })
-          .from(channelParticipants)
-          .where(
-            and(
-              eq(channelParticipants.workspaceId, row.workspaceId),
-              eq(channelParticipants.channelId, row.id)
-            )
-          )
-  const participants = participantRows
-    .map((participant): ConversationParticipantRef =>
-      participant.principalKind === 'user'
-        ? { kind: 'user', userId: participant.userId! }
-        : { agentId: participant.agentId!, kind: 'agent' }
-    )
-    .toSorted(compareByStableKey)
+        ).map((participant): ConversationParticipantRef =>
+          participant.principalKind === 'user'
+            ? { kind: 'user', userId: participant.userId! }
+            : { agentId: participant.agentId!, kind: 'agent' }
+        )
+  const sortedParticipants = participants.toSorted(compareByStableKey)
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -236,7 +237,7 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
     isPrimaryProjectChannel: row.isPrimaryProjectChannel,
     kind: row.kind,
     lifecycleState: row.lifecycleState,
-    participants: Object.freeze(participants),
+    participants: Object.freeze(sortedParticipants),
     ...(row.projectId ? { projectId: row.projectId } : {}),
     sortOrder: row.sortOrder,
     ...(row.taskId ? { taskId: row.taskId } : {}),
@@ -280,7 +281,8 @@ async function requireChannelAccess(
   channelId: string,
   principal: UserPrincipalRef,
   mode: 'read' | 'write' = 'read',
-  includeArchived = false
+  includeArchived = false,
+  now: string = new Date().toISOString()
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -292,21 +294,41 @@ async function requireChannelAccess(
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
-  if (channel.visibility === 'participants') {
-    const [standing] = await database
-      .select({ id: channels.id })
-      .from(channels)
+  // A group is readable and writable only while the actor's admission is in
+  // force, whatever its visibility: workspace visibility never admits a group.
+  if (channel.kind === 'group') {
+    if (!(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now)))
+      throw new Error('Channel unavailable')
+  } else if (channel.visibility === 'participants') {
+    const [participant] = await database
+      .select({ id: channelParticipants.id })
+      .from(channelParticipants)
       .where(
         and(
-          eq(channels.id, channelId),
-          eq(channels.workspaceId, workspaceId),
-          userChannelStanding(sql`${channels.kind}`, sql`${channels.id}`, principal.userId)
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channelId),
+          eq(channelParticipants.principalKind, 'user'),
+          eq(channelParticipants.userId, principal.userId)
         )
       )
       .limit(1)
-    if (!standing) throw new Error('Channel unavailable')
+    if (!participant) throw new Error('Channel unavailable')
   }
   return channel
+}
+
+async function groupAdmissionInForce(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+  now: string
+): Promise<boolean> {
+  const admission = await loadGroupAdmission(database, workspaceId, channelId, {
+    kind: 'user',
+    userId,
+  })
+  return admissionInForce(admission, channelId, now)
 }
 
 /** Project-level write check for channel management (rename, archive, participants). */
@@ -713,9 +735,10 @@ export async function listChannelsForUser(
     )
     .orderBy(asc(channels.sortOrder), asc(channels.id))
   const summaries = await Promise.all(rows.map((row) => channelSummary(database, row)))
+  // A group lists only for an in-force member: its workspace visibility, if any, never admits.
   return summaries.filter(
     (channel) =>
-      channel.visibility === 'workspace' ||
+      (channel.kind !== 'group' && channel.visibility === 'workspace') ||
       channel.participants.some(
         (participant) => participant.kind === 'user' && participant.userId === principal.userId
       )
@@ -750,9 +773,12 @@ export async function updateChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
-    // A group is changed only by a participant with live canonical standing.
-    if (channel.kind === 'group')
-      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
+      // Group visibility stays `participants`: the canonical gate refuses a group
+      // that is not, so a workspace-visible group is never created.
+      if (input.visibility === 'workspace') throw new Error('Channel participant policy conflict')
+    }
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
@@ -801,9 +827,8 @@ export async function archiveChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
-    // A group is changed only by a participant with live canonical standing.
     if (channel.kind === 'group')
-      await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.isPrimaryProjectChannel && channel.projectId) {
@@ -1238,7 +1263,9 @@ async function createMessageWithTextPolicy(
       workspaceId,
       channelId,
       principal,
-      'write'
+      'write',
+      false,
+      options.now
     )
     if (channel.kind === 'group') {
       // Serialize group writers against roster rewrites before allocating a
@@ -1502,6 +1529,26 @@ export async function getMessageForUser(
  * requires a live participation grant, not just a participant row. Non-group
  * channels skip this entirely; a denied turn answers like a missing channel.
  */
+/**
+ * A group mutation locks the channel row first, then the actor's admission and
+ * grant rows (the group fence's order), so it orders before or after a
+ * revocation that locks the same grant row, never inside it.
+ */
+async function requireGroupMutationStanding(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  await database
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+    .for('update')
+  await requireGroupTurn(database, workspaceId, { id: channelId, kind: 'group' }, principal)
+}
+
 async function requireGroupTurn(
   database: Database,
   workspaceId: string,

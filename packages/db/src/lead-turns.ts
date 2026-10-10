@@ -177,6 +177,7 @@ async function lockAuthority(
   return {
     actorUserId: principal.userId,
     agentId: agent.id,
+    authorityAt: now,
     controlPlaneAgentId: agent.controlPlaneAgentId,
     profileId: agent.profileId,
     profileVersion: agent.profileVersion,
@@ -275,11 +276,18 @@ export async function createLeadTurn(
   const clock = options.clock ?? liveLeadClock
   return database.transaction(async (tx) => {
     const authority = await lockAuthority(tx, workspaceId, channelId, principal, true, clock)
-    const message = await createMessage(tx, workspaceId, channelId, principal, {
-      ...messageInput,
-      sender: principal,
-      leadTurn: true,
-    })
+    const message = await createMessage(
+      tx,
+      workspaceId,
+      channelId,
+      principal,
+      {
+        ...messageInput,
+        sender: principal,
+        leadTurn: true,
+      },
+      { now: authority.authorityAt }
+    )
     if (message.deletedAt) throw new Error('Lead turn unavailable')
     // Post-write group freshness: the awaited write above may have waited on
     // locks until after a grant lapsed. Both the actor admission and the

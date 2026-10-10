@@ -166,7 +166,7 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
     expect(await latest(channelId)).toBe(retried.sequence)
   })
 
-  test('counts unread channels and mentions per member workspace in one query', async () => {
+  test('counts unread channels and mentions per member workspace in a fixed two queries (the canonical in-force read, then the summary)', async () => {
     const alice = await user('alice')
     const bob = await user('bob')
     const one = await workspace(alice, 'One')
@@ -226,7 +226,7 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
       await counting`select 1`
       queries = 0
       const summaries = await accountWorkspaceSummaries(drizzle(counting, { schema }), alice)
-      expect(queries).toBe(1)
+      expect(queries).toBe(2)
       expect(summaries).toEqual([
         { mentions: 1, unreadChannels: 2, workspaceId: one },
         { mentions: 2, unreadChannels: 1, workspaceId: two },

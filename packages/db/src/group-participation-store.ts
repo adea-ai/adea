@@ -321,28 +321,110 @@ export async function loadGroupAdmission(
 }
 
 /**
- * SQL standing of one user in one channel row. A group admits by its canonical
- * admission only: a legacy `channel_participants` row alone admits nobody, so a
- * quarantined audience, whose admission is withheld, keeps no read, list or
- * write access through its original roster row. Every other kind still admits
- * by its roster row. `kind`, `channelId` and `userId` are column, alias or
- * bound-value references the caller already has in scope.
+ * Whether one participant's canonical admission is in force at `now`: the
+ * admission's retained binding resolved to a live grant window, judged by the
+ * same identity and window decision a group turn takes. A retained admission
+ * row whose grant is revoked, expired, not yet issued, or revision- or
+ * subject-mismatched is not in force, so the row alone admits nobody.
  */
-export function userChannelStanding(kind: SQL, channelId: SQL, userId: string | SQL): SQL {
-  return sql`(
-    (${kind} = 'group' and exists (
-      select 1 from ${groupAdmissions} as group_admission
-      where group_admission.channel_id = ${channelId}
-        and group_admission.principal_kind = 'user'
-        and group_admission.user_id = ${userId}
-    ))
-    or (${kind} <> 'group' and exists (
+export function admissionInForce(
+  admission: GroupAdmission | null,
+  groupId: string,
+  now: string
+): boolean {
+  return admission !== null && decideGroupTurn({ admission, groupId, now }).action === 'allow'
+}
+
+/**
+ * The group channels in which a user's canonical admission is in force at
+ * `now`, in one workspace or in every workspace. Each candidate is judged on
+ * its own roster, resolved through `loadGroupRoster`, so the grant binding and
+ * trusted time are the canonical ones. Legacy `channel_participants` rows are
+ * never consulted here.
+ */
+export async function groupChannelIdsInForce(
+  database: GroupStoreDatabase,
+  userId: string,
+  now: string,
+  workspaceId?: string
+): Promise<Set<string>> {
+  // One statement whatever the number of groups: the user's admissions, each
+  // with its audience grant bound by id. Each row then resolves through the
+  // canonical `resolveAdmissionWindow` (group, grant id, revision and subject)
+  // and the canonical in-force decision, exactly as `loadGroupRoster` does.
+  const rows = await database
+    .select({ admission: groupAdmissions, grant: groupAudienceGrants })
+    .from(groupAdmissions)
+    .leftJoin(
+      groupAudienceGrants,
+      and(
+        eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
+        eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .where(
+      and(
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, userId),
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
+      )
+    )
+  const inForce = rows.filter(({ admission: row, grant }) => {
+    const channelId = row.channelId
+    const participant = { kind: 'user' as const, userId }
+    const window = resolveAdmissionWindow(
+      {
+        authorization: {
+          groupId: row.authGroupId,
+          grantId: row.authGrantId,
+          revision: row.authRevision,
+        },
+        participant,
+      },
+      {
+        audience: grant ? [audienceGrantFromRow(channelId, grant)] : [],
+        enlistment: [],
+      },
+      channelId
+    )
+    const admission = admissionFromRow(channelId, row, window)
+    return admissionInForce(admission, channelId, now)
+  })
+  return new Set(inForce.map(({ admission }) => admission.channelId))
+}
+
+/**
+ * SQL visibility of one channel row to one user. A group is visible only while
+ * the user's admission is in force (`inForceGroupIds`, from
+ * `groupChannelIdsInForce`): workspace visibility never admits a group. Every
+ * other kind keeps its visibility rule and its legacy roster row. The
+ * references are column, alias or bound-value fragments the caller has in
+ * scope.
+ */
+export function userChannelVisibility(input: {
+  channelId: SQL
+  inForceGroupIds: readonly string[]
+  kind: SQL
+  userId: string
+  visibility: SQL
+}): SQL {
+  const groupInForce =
+    input.inForceGroupIds.length > 0
+      ? sql`${input.channelId} in (${sql.join(
+          input.inForceGroupIds.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})`
+      : sql`false`
+  return sql`(case when ${input.kind} = 'group' then ${groupInForce} else (
+    ${input.visibility} = 'workspace'
+    or exists (
       select 1 from ${channelParticipants} as roster_row
-      where roster_row.channel_id = ${channelId}
+      where roster_row.channel_id = ${input.channelId}
         and roster_row.principal_kind = 'user'
-        and roster_row.user_id = ${userId}
-    ))
-  )`
+        and roster_row.user_id = ${input.userId}
+    )
+  ) end)`
 }
 
 /**

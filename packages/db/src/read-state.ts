@@ -3,10 +3,10 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { userChannelStanding } from './group-participation-store'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import {
   type ProjectAccessScope,
   requireProjectAccessScope,
@@ -25,16 +25,20 @@ type Database = AgentHqDatabase | AgentHqTransaction
 function accessibleChannelCondition(
   workspaceId: string,
   principal: UserPrincipalRef,
-  scope: ProjectAccessScope
+  scope: ProjectAccessScope,
+  inForceGroupIds: readonly string[]
 ) {
   return and(
     eq(channels.workspaceId, workspaceId),
     eq(channels.lifecycleState, 'active'),
     visibleProjectCondition(channels.projectId, scope),
-    or(
-      eq(channels.visibility, 'workspace'),
-      userChannelStanding(sql`${channels.kind}`, sql`${channels.id}`, principal.userId)
-    )
+    userChannelVisibility({
+      channelId: sql`${channels.id}`,
+      inForceGroupIds,
+      kind: sql`${channels.kind}`,
+      userId: principal.userId,
+      visibility: sql`${channels.visibility}`,
+    })
   )
 }
 
@@ -42,12 +46,13 @@ function accessibleChannelIds(
   database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
-  scope: ProjectAccessScope
+  scope: ProjectAccessScope,
+  inForceGroupIds: readonly string[]
 ) {
   return database
     .select({ id: channels.id })
     .from(channels)
-    .where(accessibleChannelCondition(workspaceId, principal, scope))
+    .where(accessibleChannelCondition(workspaceId, principal, scope, inForceGroupIds))
 }
 
 export async function listAccessibleChannelIds(
@@ -63,7 +68,15 @@ export async function listAccessibleChannelIds(
     principal,
     'Read state unavailable'
   )
-  return accessibleChannelIds(database, workspaceId, principal, scope).orderBy(asc(channels.id))
+  const inForce = await groupChannelIdsInForce(
+    database,
+    principal.userId,
+    new Date().toISOString(),
+    workspaceId
+  )
+  return accessibleChannelIds(database, workspaceId, principal, scope, [...inForce]).orderBy(
+    asc(channels.id)
+  )
 }
 
 async function requireChannel(
@@ -107,6 +120,14 @@ export async function listReadStateForUser(
     principal,
     'Read state unavailable'
   )
+  const inForce = [
+    ...(await groupChannelIdsInForce(
+      database,
+      principal.userId,
+      new Date().toISOString(),
+      workspaceId
+    )),
+  ]
   const channelReadFrontier = sql`coalesce(${channelReadStates.lastReadSequence}, 0)`
   const threadReadFrontier = sql`coalesce(${threadReadStates.lastReadSequence}, 0)`
   const [channelRows, threadRows] = await Promise.all([
@@ -140,7 +161,7 @@ export async function listReadStateForUser(
           eq(channelReadStates.channelId, channels.id)
         )
       )
-      .where(accessibleChannelCondition(workspaceId, principal, scope))
+      .where(accessibleChannelCondition(workspaceId, principal, scope, [...inForce]))
       .orderBy(asc(channels.id)),
     database
       .select({
@@ -170,7 +191,7 @@ export async function listReadStateForUser(
           eq(messages.workspaceId, workspaceId),
           inArray(
             messages.channelId,
-            accessibleChannelIds(database, workspaceId, principal, scope)
+            accessibleChannelIds(database, workspaceId, principal, scope, [...inForce])
           ),
           isNotNull(messages.threadRootMessageId),
           isNull(messages.deletedAt)

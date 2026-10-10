@@ -448,10 +448,11 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       }
     }
 
-    // Two for the project access scope, then one channel aggregate and one
-    // thread aggregate — never one per channel, thread, or message.
+    // Two for the project access scope, one canonical read of the user's group admissions in
+    // force (a single statement, however many groups), then one channel aggregate and one thread
+    // aggregate — never one per channel, thread, or message.
     const small = await countQueries(bob)
-    expect(small.queries).toBe(4)
+    expect(small.queries).toBe(5)
     expect(small.result).toEqual(bobState)
 
     for (let index = 0; index < 5; index += 1) {
@@ -461,7 +462,7 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       await post(workspaceId, channelId, owner, { threadRootMessageId: root.id })
     }
     const large = await countQueries(bob)
-    expect(large.queries).toBe(4)
+    expect(large.queries).toBe(5)
     expect(large.result).toHaveLength(6)
     expect(large.result).toEqual(await reference(workspaceId, bob))
   })

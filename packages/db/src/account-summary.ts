@@ -2,7 +2,7 @@ import type { AccountWorkspaceSummary, UserPrincipalRef } from '@adea-ai/types'
 import { sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { userChannelStanding } from './group-participation-store'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import {
   channelReadStates,
   channels,
@@ -42,6 +42,9 @@ export async function accountWorkspaceSummaries(
   database: Database,
   principal: UserPrincipalRef
 ): Promise<readonly AccountWorkspaceSummary[]> {
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const rows = await database.execute<{
     mentions: number
     unreadChannels: number
@@ -60,10 +63,13 @@ export async function accountWorkspaceSummaries(
     left join ${channels} as channel
       on channel.workspace_id = membership.workspace_id
       and channel.lifecycle_state = 'active'
-      and (
-        channel.visibility = 'workspace'
-        or ${userChannelStanding(sql.raw('channel.kind'), sql.raw('channel.id'), sql.raw('membership.user_id'))}
-      )
+      and ${userChannelVisibility({
+        channelId: sql.raw('channel.id'),
+        inForceGroupIds: inForce,
+        kind: sql.raw('channel.kind'),
+        userId: principal.userId,
+        visibility: sql.raw('channel.visibility'),
+      })}
       and (
         channel.project_id is null
         or membership.role in ('owner', 'admin')
