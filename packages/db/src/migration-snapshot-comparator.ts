@@ -112,6 +112,15 @@ function visibilityGrew(before: string, after: string): boolean {
   return before !== 'workspace' && after === 'workspace'
 }
 
+// Field audit: every field the capture writes for a family is compared here.
+// The only intentional exceptions are the stable identity fields named by
+// `stableIdOf`, which define the match rather than describe it. A captured
+// field missing from its family's entry would let drift report `identical`,
+// so the families added by #1219 compare every non-identity captured field:
+// artifactReferenceGrants, contentReplicas, leadTurnRuntime, nativeSessions,
+// runtimeNodes and taskSubmissions. Bindings are links (a change is a remap),
+// digests are content/profile/version facts (drift), attributes are the row's
+// own state.
 const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyComparison>> = {
   agents: {
     attributes: [{ field: 'lifecycleState' }],
@@ -242,19 +251,26 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     digests: ['digestSha256', 'revision', 'schemaVersion'],
   },
   leadTurnRuntime: {
+    // `runtimeSessionId` and `publishedMessageId` are links to the runtime
+    // session and published message this turn is bound to: a change is a
+    // remap, never an identical match.
     attributes: [{ field: 'cancelRequested' }, { field: 'state' }],
-    binding: ['attemptId', 'executionId'],
+    binding: ['attemptId', 'executionId', 'publishedMessageId', 'runtimeSessionId'],
     digests: [],
   },
   runtimeNodes: {
-    attributes: [{ field: 'pairingState' }, { field: 'revoked' }],
+    // `platform` is the node's environment fact; `softwareVersion` is the
+    // reported build, compared as a digest so a version change is drift.
+    attributes: [{ field: 'pairingState' }, { field: 'platform' }, { field: 'revoked' }],
     binding: ['kind', 'workspaceId'],
-    digests: [],
+    digests: ['softwareVersion'],
   },
   taskSubmissions: {
+    // The profile pin identity and dispatch location are links; the profile
+    // version and task version are content pins compared as digests.
     attributes: [{ field: 'ciphertextPurged' }, { field: 'state' }],
-    binding: ['agentId', 'runtimeNodeId', 'taskId', 'workspaceId'],
-    digests: ['profileRevision', 'taskVersion'],
+    binding: ['agentId', 'locationKind', 'profileId', 'runtimeNodeId', 'taskId', 'workspaceId'],
+    digests: ['profileRevision', 'profileVersion', 'taskVersion'],
   },
 }
 

@@ -177,6 +177,129 @@ const attemptIn = (workspaceId: string): MigrationSnapshotRecord => ({
   workspaceId,
 })
 
+/** A document with every family present; the given records fill one family. */
+const documentWithFamily = (
+  records: MigrationSnapshotRecord[],
+  family: MigrationSnapshotFamily,
+  snapshotId: string
+): MigrationSnapshotDocument => {
+  const sections: MigrationSnapshotSections = {}
+  for (const candidate of migrationSnapshotFamilies) {
+    sections[candidate] = candidate === family ? section(records) : section([])
+  }
+  return doc(sections, snapshotId)
+}
+
+const leadTurnRuntime = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'leadTurnRuntime' }>> = {}
+): MigrationSnapshotRecord => ({
+  attemptId: 'att-1',
+  cancelRequested: false,
+  executionId: 'exe-1',
+  family: 'leadTurnRuntime',
+  intentId: 'intent-1',
+  publishedMessageId: null,
+  runtimeSessionId: null,
+  state: 'prepared',
+  ...overrides,
+})
+
+const runtimeNode = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'runtimeNodes' }>> = {}
+): MigrationSnapshotRecord => ({
+  family: 'runtimeNodes',
+  kind: 'remote_host',
+  pairingState: 'paired',
+  platform: 'darwin',
+  revoked: false,
+  runtimeNodeId: 'node-1',
+  softwareVersion: '1.0.0',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const submission = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'taskSubmissions' }>> = {}
+): MigrationSnapshotRecord => ({
+  agentId: 'agent-1',
+  ciphertextPurged: false,
+  family: 'taskSubmissions',
+  locationKind: 'remote_host',
+  profileId: 'prf-1',
+  profileRevision: 1,
+  profileVersion: 'pfv-1',
+  runtimeNodeId: 'node-1',
+  state: 'pending_delivery',
+  submissionId: 'sub-1',
+  taskId: 'task-1',
+  taskVersion: 1,
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+/**
+ * One drift mutation per captured field the root review found uncompared.
+ * Every case must be a determinate, non-identical finding on the exact field:
+ * a captured field absent from `FAMILY_COMPARISONS` would compare identical.
+ */
+const FIELD_DRIFT_CASES: ReadonlyArray<{
+  after: MigrationSnapshotRecord
+  before: MigrationSnapshotRecord
+  expectedClass: MigrationSnapshotFinding['findingClass']
+  family: MigrationSnapshotFamily
+  field: string
+}> = [
+  {
+    after: leadTurnRuntime({ runtimeSessionId: 'sess-1' }),
+    before: leadTurnRuntime(),
+    expectedClass: 'remapped_record',
+    family: 'leadTurnRuntime',
+    field: 'runtimeSessionId',
+  },
+  {
+    after: leadTurnRuntime({ publishedMessageId: 'msg-9' }),
+    before: leadTurnRuntime(),
+    expectedClass: 'remapped_record',
+    family: 'leadTurnRuntime',
+    field: 'publishedMessageId',
+  },
+  {
+    after: submission({ profileId: 'prf-2' }),
+    before: submission(),
+    expectedClass: 'remapped_record',
+    family: 'taskSubmissions',
+    field: 'profileId',
+  },
+  {
+    after: submission({ profileVersion: 'pfv-2' }),
+    before: submission(),
+    expectedClass: 'digest_drift',
+    family: 'taskSubmissions',
+    field: 'profileVersion',
+  },
+  {
+    after: submission({ locationKind: 'local_device' }),
+    before: submission(),
+    expectedClass: 'remapped_record',
+    family: 'taskSubmissions',
+    field: 'locationKind',
+  },
+  {
+    after: runtimeNode({ platform: 'linux' }),
+    before: runtimeNode(),
+    expectedClass: 'changed_attribute',
+    family: 'runtimeNodes',
+    field: 'platform',
+  },
+  {
+    after: runtimeNode({ softwareVersion: '2.0.0' }),
+    before: runtimeNode(),
+    expectedClass: 'digest_drift',
+    family: 'runtimeNodes',
+    field: 'softwareVersion',
+  },
+]
+
 const allFamilySections = (
   records: MigrationSnapshotRecord[],
   family: MigrationSnapshotFamily
@@ -1483,6 +1606,21 @@ describe('migration snapshot primitive and top-level array intake bounds', () =>
     expect(serialized.includes('9'.repeat(200))).toBe(false)
     expect(serialized.length).toBeLessThan(8_192)
     expect(comparison.verdict).toBe('inconclusive')
+  })
+
+  test.each(FIELD_DRIFT_CASES)('$family.$field drift is never identical', (drift) => {
+    const comparison = compareMigrationSnapshots({
+      after: documentWithFamily([drift.after], drift.family, 'snapshot-after'),
+      before: documentWithFamily([drift.before], drift.family, 'snapshot-before'),
+    })
+    expect(comparison.verdict).not.toBe('identical')
+    expect(comparison.findings).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ field: drift.field }),
+        family: drift.family,
+        findingClass: drift.expectedClass,
+      })
+    )
   })
 })
 
