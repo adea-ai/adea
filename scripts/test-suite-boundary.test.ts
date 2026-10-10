@@ -173,7 +173,13 @@ describe('test suite boundaries', () => {
   test('keeps the lead E2E fixture servers off the managed dev server cache', () => {
     // A second Vite instance that shares node_modules/.vite rewrites the dependency hashes the
     // running app already requested, and the app then fails with a 504 Outdated Optimize Dep.
-    for (const spec of ['lead-role-choices', 'lead-payer-journey', 'lead-role-choices-connected']) {
+    for (const spec of [
+      'lead-role-choices',
+      'lead-payer-journey',
+      'lead-role-choices-connected',
+      'lead-turn-controls',
+      'message-composer',
+    ]) {
       const source = readFileSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`), 'utf8')
       expect(source).toContain('    cacheDir,\n')
       expect(source).toContain('cacheDir = mkdtempSync(join(tmpdir(), ')
