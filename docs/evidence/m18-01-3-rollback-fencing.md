@@ -27,7 +27,7 @@ control-plane integration is safe (see the CP contract below).
 - **Effect authority is unchanged and active-only:** `createLeadTurn`, `prepareLeadTurnRuntime`,
   `markLeadTurnDispatchPending`, `authorizeLeadTurnFundingBinding`, `publishLeadTurnResult` (it
   appends a new Message), and the product reader that feeds CP dispatch.
-- **Effect gates** on `prepare`, `dispatch` and funding refuse fenced admissions with
+- **Effect gates** on `prepare`, `dispatch`, funding and publication refuse fenced admissions with
   `LEAD_TURN_FENCED`.
 - **Pure classifier** `classifyLeadTurnRollback` with dispositions `fence_required`,
   `no_effect_recorded`, `reconcile_uncertain_effect`, `in_flight_fenced`, `terminal_retained` and
@@ -35,11 +35,11 @@ control-plane integration is safe (see the CP contract below).
 
 ## Authority purposes
 
-| Purpose                                                         | Who                                                        | Archived channel  | Fenced admission                                           |
-| --------------------------------------------------------------- | ---------------------------------------------------------- | ----------------- | ---------------------------------------------------------- |
-| read / observe / recover                                        | current workspace member and current user participant      | allowed (REQ 045) | allowed (reconcile)                                        |
-| cancel                                                          | original actor, plus `runtime.invoke` and audience members | allowed (REQ 045) | allowed (reconcile)                                        |
-| effect (prepare, dispatch, funding, new turn, publish, product) | original actor, active channel, pinned                     | denied            | denied for prepare, dispatch, funding; product not emitted |
+| Purpose                                                         | Who                                                        | Archived channel  | Fenced admission                                                   |
+| --------------------------------------------------------------- | ---------------------------------------------------------- | ----------------- | ------------------------------------------------------------------ |
+| read / observe / recover                                        | current workspace member and current user participant      | allowed (REQ 045) | allowed (reconcile)                                                |
+| cancel                                                          | original actor, plus `runtime.invoke` and audience members | allowed (REQ 045) | allowed (reconcile)                                                |
+| effect (prepare, dispatch, funding, new turn, publish, product) | original actor, active channel, pinned                     | denied            | denied for prepare, dispatch, funding, publish; product fence-only |
 
 Redispatch is denied by every path: archived or fenced, `prepare` and `markDispatchPending` refuse.
 
@@ -160,7 +160,9 @@ detail) stays inside Adea and is never emitted.
   `admin` for users, `null` for operators), `channelId`, `channelVersion`, `channelLifecycleState`,
   `runtimeState` (`null` if no runtime row), and the `disposition` at fence time.
 
-A terminal admission is not written. It returns `fenced: false` with its classification.
+A terminal admission is fenced the same way. It returns `fenced: true` with disposition
+`terminal_retained`, and the runtime row is not modified. A repeat call returns `alreadyFenced: true`
+with the original attribution.
 
 ## Known gaps and decisions for root
 
@@ -174,47 +176,63 @@ A terminal admission is not written. It returns `fenced: false` with its classif
   no operator identity system here.
 - **No CP-facing reconciliation route.** Observation, binding recovery and cancellation are Adea
   app-side calls. CP has no endpoint to reconcile an archived or fenced uncertain effect yet.
-- **Terminal admissions are not fenced (open decision).** `fenceLeadTurnForRollback` returns
-  `fenced: false` without writing when the runtime is already terminal (`completed`, `failed`, `cancelled`,
-  `timed_out`). A completed result that was never published, and whose admission was never fenced in flight,
-  can therefore still publish through `status`. The caller sees `fenced: false`. Root decides whether a fence
-  request on a terminal, unpublished admission should record the fence, or refuse loudly. No test asserted the
-  old behaviour, and this head does not change it.
+- **Terminal admissions are fenced (decision applied on this head; PostgreSQL 18 run passed, see Validation).**
+  `fenceLeadTurnForRollback` records the fence on a terminal admission (`completed`, `failed`,
+  `cancelled`, `timed_out`) with disposition `terminal_retained`. A completed result that was never
+  published is then refused by `publishLeadTurnResult` with `LEAD_TURN_FENCED`, before the grant is
+  consulted. The A31 case in `packages/db/tests/integration/lead-turn-rollback.test.ts` covers all four
+  terminal states, and it passed in the PostgreSQL 18 run recorded in Validation.
+  The product reader now emits the v2 fence-only body for these admissions, with
+  `dispatchPermitted: false`.
+- **Fence/effect lock inversion repaired.** The fence discovers the immutable channel reference
+  without locking the intent, resolves current actor authority, locks the channel, then rereads the
+  scoped intent under its update lock. A parked two-connection regression observes the real PostgreSQL
+  blocker: the old intent-first fence deadlocks when the channel owner checks the intent; the repaired
+  channel-first fence lets that effect commit, then records the fence. Runtime evidence is unchanged.
 - **Fenced recovery stays available.** A fenced admission can still reconcile an uncertain dispatch binding
   through `recoverLeadTurnRuntimeBinding`, as the archived-history reconciliation tests require. That is not
   a resume, and it creates no new effect.
 
-## CP contract (control-plane #940 / #942): not integration-safe yet
+## CP contract (control-plane #940 / #942)
 
 ### What was verified against the real CP consumer (read-only)
 
-Control-plane checkout `Adea/control-plane` at `ec742819` (HEAD). Its working tree had unrelated
-uncommitted edits, which were not touched. The contract test in `apps/web/test/lead-product-contract.test.ts`
-runs CP's own `ProductionLeadProductEvidenceSchema` and `createProductionProductHttpReader` against the
-golden fixtures in `apps/web/test/contracts/`, when `CONTROL_PLANE_CHECKOUT` points at a checkout. Result:
+Control-plane source snapshot at `c67b4bd` (`chore(main): release 1.92.0 (#1078)`, the
+checkout's HEAD). Its CHANGELOG records `m18-01-3-fence-v2-consumer` (#1066, commit `c97e91d`). The
+checkout was not edited. On this head, `apps/web/test/lead-product-contract.test.ts` ran against it with
+`CONTROL_PLANE_CHECKOUT` set: 11 pass, 0 fail, 0 skip. Those tests run CP's `ProductionLeadProductEvidenceSchema`,
+`createProductionProductHttpReader` and the CP authority against the golden fixtures in
+`apps/web/test/contracts/`. They cover:
 
-- Unfenced v1 body: the strict parser accepts it, and `readCurrent` returns evidence.
-- Fence-only body (`pi-lead-intent-fence/v1`): the strict parser rejects it, and `readCurrent`
-  throws `PI_PRODUCT_READER_UNAVAILABLE`. Effects therefore fail closed.
-- CP's `NodePiDurableLeadAdmission.resolveIntent` and `assertCurrent` (`pi-durable/node-admission.ts`)
-  call `#evidence()` for every operation, including `status`, `progress` and `cancel`, and map any failure
-  to `PI_LEAD_UNAVAILABLE`. Read-safe observation of a fenced admission is therefore refused today.
-  Changing the Adea response alone does not fix that.
+- the unfenced v1 body, which the strict evidence parser accepts, and the fence-only v1 body, which it refuses;
+- pinned v2 fence facts, which CP preserves without accepting them as new-admission evidence;
+- the v1 fence policy, which refuses every action;
+- expiry and the archived 404 for unfenced evidence, and fence facts that do not parse as admission evidence.
 
-### Coordinated change required in the control plane (not implemented here)
+Source reading at the same checkout shows the v2 consumer:
 
-1. **Split the evidence gate by operation** in `node-admission.ts`:
-   - `prepare` and `dispatch`: full v1 evidence required, and a fenced admission is refused.
-   - `status` and `progress`: require `execution:read`, the service principal in `allowedPrincipalIds`
-     and `scopeRef` equal to the retained marker's `scopeRef`. Skip the full-evidence digest check for
-     fenced admissions, because the full evidence is not emitted for them.
-   - `cancel`: require `execution:cancel`, the service principal in `allowedPrincipalIds`, and
-     `canonicalActorPrincipalId` equal to the retained marker's actor. Cancellation stays actor-authorized.
-2. **Accept the fence-only variant** in `production-product-http.ts` and `production-lead-product.ts`.
-   Parse `pi-lead-intent-fence/v1` strictly and return a typed fenced result, not `undefined` and not a
-   throw. Only the operations in item 1 may consume that result.
-3. **Keep archived publication and archived admissions denied.** Adea returns 404 for archived
-   admissions, which CP reads as unavailable. Archived observation for CP is a separate decision.
+- `apps/control-api/src/models/lead-product-fence.ts`: `FENCED_OPERATION_POLICY_V1` refuses every operation.
+  `FENCED_OPERATION_POLICY_V2` observes `status` and `progress`, allows `cancel` as the original actor only,
+  and refuses `prepare`, `dispatch`, `resume` and `publication`. `parseLeadProductFence` throws
+  `PI_PRODUCT_READER_UNAVAILABLE` for unknown fence schemas and identity mismatches.
+- `apps/control-api/src/models/production-product-http.ts` and `production-lead-product.ts` parse fenced
+  bodies through `parseLeadProductFence`.
+- `apps/control-api/src/pi-durable/node-admission.ts` (`#fencedResolve`, `#assertFencedCurrent`) routes
+  fenced results through that policy before any marker, inbox, attempt or model path runs.
+
+The earlier checkout (`ec742819`) refused read-safe observation of a fenced admission. That statement is
+superseded by #1066.
+
+### Coordinated change in the control plane (merged as #1066)
+
+1. **Split the evidence gate by operation.** Implemented: the per-operation policy is in
+   `lead-product-fence.ts`, and `node-admission.ts` applies it. `cancel` checks actor continuity (the fence's
+   canonical actor must be the retained one). The scope and principal checks listed in the original proposal
+   were not re-verified line by line in this pass.
+2. **Accept the fence-only variant.** Implemented: `production-product-http.ts` and `production-lead-product.ts`
+   both parse fenced bodies through `parseLeadProductFence` and return a typed fenced result.
+3. **Keep archived publication and archived admissions denied.** Adea still returns 404 for archived
+   admissions. The CP-side handling of archived observation was not re-verified in this pass.
 
 ### Retained pins (v2, approved by root and implemented on this head)
 
@@ -242,25 +260,60 @@ publication paths refuse fenced results. The typed consumer proposal and the imm
    - `in_flight_fenced`: runtime-owned. Observe only.
    - `terminal_retained`: history. Nothing resumes.
    - `blocked_unclassifiable`: stop and refer to operator review.
-5. **Lock order.** The CP claim must not hold the attempt lock while waiting on the admission. Adea
-   locks the intent before the runtime row, so CP must follow the same ordering for any shared row.
+5. **Lock order.** The CP claim must not hold the attempt lock while waiting on the admission. Adea's
+   authority and fence paths acquire the channel lock before dependent intent/runtime locks. The fence
+   then locks intent before runtime. CP must preserve compatible ordering for any shared row.
 6. **Error codes the CP path must mirror:** `LEAD_TURN_FENCED`, `ROLLBACK_FENCE_FORBIDDEN`,
    `INVALID_ROLLBACK_FENCE_REQUEST`, `LEAD_TURN_FENCE_EVIDENCE_INVALID`.
 
-Until items 1 and 2 are implemented and tested in the CP repo, the rollback window is **not safe**.
-Pre-fence code ignores the fence.
+The two CP changes that gate fenced reads (the split evidence gate and fence-only acceptance) are
+implemented in #1066 and exercised by the contract tests above. The rollback window is still **not declared
+safe** here. CP claim-time enforcement, fence persistence, disposition handling and the lock-order obligation
+were not re-verified in CP in this pass. Pre-fence code ignores the fence.
 
 ## Cross-repo and open dependencies
 
 - control-plane [#940](https://github.com/adea-ai/control-plane/issues/940) (L3) and
   [#942](https://github.com/adea-ai/control-plane/issues/942) (P2): owners of the CP contract above.
   Their active branches were not edited.
+- control-plane #1066 (`m18-01-3-fence-v2-consumer`): merged on the CP main line. See the CP contract above.
 - control-plane [#186](https://github.com/adea-ai/control-plane/issues/186) (reuse gate): not checked
   here.
 - Adea [#1175](https://github.com/adea-ai/adea/issues/1175) and
   [#1180](https://github.com/adea-ai/adea/issues/1180): open upstream dependencies. #1174 is closed.
 
 ## Validation
+
+**PostgreSQL 18 run, terminal fence.** PostgreSQL 18.6, with a fresh disposable cluster per
+invocation and explicit `DATABASE_URL` and `DATABASE_MIGRATION_URL`. The server and the tests
+ran in one invocation, and heavy steps ran under `fleet-heavy`. Each run migrated and verified before any suite.
+
+| Step                       | Command (in `packages/db`)                                                        | Result                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Integration prerequisites  | `build` in `remote-content`, `types`, `auth` and `packages/db`                    | passed (tsc)                                                                                           |
+| Migration verification     | `bun run db:verify`                                                               | `Migration verification passed (52 applied migration(s))`, fresh database, then a deterministic rerun  |
+| Rollback fence and readers | `bun --conditions=react-server test tests/integration/lead-turn-rollback.test.ts` | 17 pass, 0 fail, including the A31 terminal case (1 pass when filtered with `-t "terminal admission"`) |
+| Historical boundary        | `... tests/integration/lead-turn-historical.test.ts`                              | 16 pass, 0 fail                                                                                        |
+| Envelope negatives         | `... tests/integration/lead-turn-fence-envelope-negative.test.ts`                 | 6 pass, 0 fail                                                                                         |
+| Group fence cancellation   | `... tests/integration/group-channels.test.ts -t "fenced admission"`              | 1 pass, 0 fail, 60 filtered out (first run, after `db:verify`)                                         |
+
+The terminal-fence validation above: 39 pass, 0 fail, 146 `expect()` calls.
+
+**Subsequent lock-order regression:** the parked two-connection case failed on the intent-first
+implementation. After the channel-first repair, those same three files passed together: 40 pass,
+0 fail, 149 `expect()` calls. The fresh 52-migration chain and deterministic rerun passed.
+Database typecheck and changed-source lint passed. This does not substitute for the full CI gate.
+
+CP contract: `CONTROL_PLANE_CHECKOUT=<control-plane at c67b4bd> bun --conditions=browser test test/lead-product-contract.test.ts`
+in `apps/web`: 11 pass, 0 fail, 0 skip.
+
+Not run in this pass: the full `packages/db` integration suite, the `apps/web` integration suites (for example
+`lead-product-fence-v2`, which needs `PINNED_FENCE_V2_DATABASE_URL`), E2E and the packaged suites.
+
+Harness notes, not code results: one invocation failed to bind `127.0.0.1:15444` because another wrapper run
+held the port, and it was rerun after that run exited. One per-file invocation omitted `db:verify`, so the schema
+was missing (`relation "app.users" does not exist`), and it was rerun with the migration step. No source was edited
+for these runs.
 
 **Real product proof for pinned v2 (`apps/web/test/integration/lead-product-fence-v2.test.ts`).** Runs only with
 `PINNED_FENCE_V2_DATABASE_URL`, which must name a database with the `pinned_fence_v2_` prefix. The database is

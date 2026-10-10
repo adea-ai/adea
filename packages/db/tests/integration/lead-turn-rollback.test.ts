@@ -15,7 +15,11 @@ import {
   recoverLeadTurnRuntimeBinding,
   requestLeadTurnCancellation,
 } from '../../src/lead-turn-runtime'
-import { fenceLeadTurnForRollback, readLeadTurnRollbackState } from '../../src/lead-turn-rollback'
+import {
+  assertLeadTurnNotFenced,
+  fenceLeadTurnForRollback,
+  readLeadTurnRollbackState,
+} from '../../src/lead-turn-rollback'
 import {
   agents,
   channelParticipants,
@@ -305,6 +309,114 @@ describe.skipIf(!databaseUrl)('lead-turn rollback fence and readers', () => {
     expect(
       await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
     ).not.toHaveProperty('publishedMessageId')
+  })
+
+  test('A31 fencing a terminal admission records attribution and blocks unpublished results without rewriting history', async () => {
+    for (const state of ['completed', 'failed', 'cancelled', 'timed_out'] as const) {
+      const f = await fixture()
+      const { owner, workspace, pin, binding } = f
+      await dispatched(f)
+      await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+        ...binding,
+        state: 'running',
+        observedAt: new Date().toISOString(),
+      })
+      await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+        ...binding,
+        state,
+        observedAt: new Date().toISOString(),
+      })
+      const before = await readLeadTurnRuntime(
+        connection.db,
+        workspace.id,
+        pin.intentId,
+        owner.principal
+      )
+      const fence = await fenceLeadTurnForRollback(
+        connection.db,
+        workspace.id,
+        pin.intentId,
+        ownerFence(f)
+      )
+      expect(fence).toMatchObject({
+        fenced: true,
+        alreadyFenced: false,
+        disposition: 'terminal_retained',
+        attribution: { authority: { runtimeState: state, disposition: 'terminal_retained' } },
+      })
+      expect(
+        await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
+      ).toEqual(before)
+      expect(
+        await fenceLeadTurnForRollback(connection.db, workspace.id, pin.intentId, ownerFence(f))
+      ).toMatchObject({ alreadyFenced: true, attribution: fence.attribution })
+      if (state === 'completed') {
+        let granted = 0
+        await expect(
+          publishLeadTurnResult(
+            connection.db,
+            workspace.id,
+            pin.intentId,
+            owner.principal,
+            binding,
+            'Answer',
+            async () => {
+              granted++
+            }
+          )
+        ).rejects.toThrow('LEAD_TURN_FENCED')
+        expect(granted).toBe(0)
+        expect(
+          await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
+        ).not.toHaveProperty('publishedMessageId')
+      }
+    }
+  })
+
+  test('A31 a fence waiting on an effect channel lock does not hold the effect intent lock', async () => {
+    const f = await fixture()
+    let fenceResult: Promise<{ fenced: boolean; error?: unknown }> | undefined
+    const effectResult = await connection.db
+      .transaction(async (tx) => {
+        const [backend] = await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`)
+        await tx.execute(sql`select id from app.channels where id = ${f.topic.id} for update`)
+        fenceResult = fenceLeadTurnForRollback(
+          connection.db,
+          f.workspace.id,
+          f.pin.intentId,
+          ownerFence(f)
+        ).then(
+          (result) => ({ fenced: result.fenced }),
+          (error: unknown) => ({ fenced: false, error })
+        )
+        // Wait for PostgreSQL to report the real blocked connection, not a timer guess.
+        let blocked = false
+        for (let attempt = 0; attempt < 80; attempt++) {
+          const [row] = await connection.client<{ blocked: boolean }[]>`
+            select exists (
+              select 1 from pg_stat_activity
+              where ${backend!.pid} = any(pg_blocking_pids(pid))
+            ) as blocked
+          `
+          if (row?.blocked) {
+            blocked = true
+            break
+          }
+          await Bun.sleep(10)
+        }
+        expect(blocked).toBe(true)
+        // This is the canonical effect-side fence check after the channel lock.
+        // Intent-first fencing deadlocks here; channel-first fencing lets the effect commit.
+        await assertLeadTurnNotFenced(tx, f.pin.intentId, 'share')
+        return true
+      })
+      .then(
+        (committed) => ({ committed }),
+        (error: unknown) => ({ committed: false, error })
+      )
+    const fence = await fenceResult
+    expect(effectResult).toEqual({ committed: true })
+    expect(fence).toEqual({ fenced: true })
   })
 
   test('A31 an outsider or a foreign workspace learns nothing from the reader or the fence', async () => {
