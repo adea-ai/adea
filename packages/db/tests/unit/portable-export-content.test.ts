@@ -206,6 +206,40 @@ describe('portable export mapping', () => {
     )
   })
 
+  test('conversation order follows the source sequence, not the identifier, whatever order the input lists', () => {
+    // The root has the greater identifier and the lower sequence, so an order by identifier inverts the thread.
+    const base = {
+      artifactIds: [],
+      channelId: ids.channel,
+      createdAt: iso,
+      deleted: false,
+      mentions: [],
+      sender: { kind: 'user', userId: ids.user },
+      updatedAt: iso,
+      version: 1,
+      workspaceId: ids.workspace,
+    }
+    const root = { ...base, bodyText: 'Root', id: ids.messageReply, sequence: 1 }
+    const reply = {
+      ...base,
+      bodyText: 'Reply',
+      id: ids.message,
+      replyToMessageId: ids.messageReply,
+      sequence: 2,
+      threadRootMessageId: ids.messageReply,
+    }
+    const content = mapPortableContent(
+      inputs({ messages: [reply, root] as unknown as ReadInputs['messages'] })
+    )
+    expect(content.messages.map((message) => message.messageId)).toEqual([
+      ids.messageReply,
+      ids.message,
+    ])
+    expect(content.messages.map((message) => message.channelOrder)).toEqual([1, 2])
+    expect(content.messages[1]?.replyToMessageId).toBe(ids.messageReply)
+    expect(content.messages[1]?.threadRootMessageId).toBe(ids.messageReply)
+  })
+
   test('a link to a task or channel that is not exported is cleared to null', () => {
     const content = mapPortableContent(
       inputs({

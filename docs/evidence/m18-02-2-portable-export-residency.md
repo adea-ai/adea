@@ -46,6 +46,15 @@ execution attempts. Every record keeps its stable ID, timestamps (ISO-8601, mill
 precision), authors, audience and links. `contentDigest` is the SHA-256 of the canonical JSON of
 `content`.
 
+Conversation order is part of the document, not of the identifiers. Each message carries
+`channelOrder`, its 1-based position in its channel in the source's conversation order (the
+per-channel order of `sequence`). The document lists messages by channel, then by `channelOrder`,
+and the validator refuses any other order: channels ascend, and each channel's `channelOrder`
+runs 1, 2, 3 with no gap. Identifiers and the order a bundle was serialized in never decide the
+order, so the digest covers it. Restore inserts each channel's messages by `channelOrder`, and
+the re-read that verifies the restore reproduces the same `channelOrder` values from the
+destination's sequence, so a restore that changed the conversation order fails the digest check.
+
 ## Read authorization: reconciled with the canonical readers
 
 The export does not decide audience itself. Channels and messages come from
@@ -97,6 +106,14 @@ in `portable-import.ts`; both are covered by the integration lane.
 
 ## Regression coverage
 
+- `packages/db/tests/integration/portable-restore-order.test.ts` (3 tests) exports a channel whose
+  reply sorts before its root by identifier, restores it into a clean disposable database, and
+  asserts the order the canonical reader serves, the reply and thread links to the root, and the
+  digest. Before this fix the restore read the conversation inverted while the digest still
+  matched, because the mapper sorted by identifier before the digest was taken.
+- `packages/db/tests/unit/portable-export-content.test.ts` and
+  `packages/types/tests/portable-export.test.ts` cover the mapping order and the contract's
+  refusal of any other message order or `channelOrder` gap.
 - `packages/db/tests/integration/portable-export.test.ts` proves that the export's messages equal
   what the canonical readers serve the same principal, that an encoded job binding placed in a
   system sender, a runtime reference or a task's linked artifact references never appears in any
@@ -243,6 +260,8 @@ Residual limits, recorded rather than claimed:
 - System sender labels are not preserved; a restored system message carries `system`.
 - Timestamps are carried at millisecond precision.
 - Threaded messages are re-linked with one update each on import.
+- The restored `sequence` values are the destination's own. Only the order inside each channel
+  is preserved, as `channelOrder`; the absolute values differ from the source's.
 - The API bound is 8 MiB per bundle. Larger workspaces are refused, not split.
 - Agent profile pins are restored as stored; the destination resolves them against its own
   profile catalog.

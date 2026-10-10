@@ -253,9 +253,15 @@ export type PortableMessageBody =
   | Readonly<{ kind: 'deleted' }>
   | Readonly<{ kind: 'text'; text: string }>
 
+/**
+ * A message. `channelOrder` is its 1-based position in its channel, in conversation order (the
+ * source sequence). The document lists messages by channel, then by `channelOrder`, and the
+ * validator refuses any other order, so the order is part of the digest and of the restore.
+ */
 export type PortableMessage = Readonly<{
   body: PortableMessageBody
   channelId: string
+  channelOrder: number
   createdAt: string
   deletedAt: string | null
   editedAt: string | null
@@ -519,6 +525,7 @@ const recordSpecs = {
   messages: {
     body: messageBodySpec,
     channelId: uuid,
+    channelOrder: count,
     createdAt: timestamp,
     deletedAt: nullableTimestamp,
     editedAt: nullableTimestamp,
@@ -874,6 +881,33 @@ function checkContent(content: Record<string, unknown>, sink: IssueSink): void {
       if (typeof target === 'string' && messageChannel.get(target) !== message.channelId)
         sink.add('invariant', `${base}.${link}`, 'must reference a message in the same channel')
     }
+  }
+
+  // Conversation order is part of the document. Channels ascend, and each channel's messages are
+  // contiguous and number 1, 2, 3... in the order they are listed.
+  type Ordered = Readonly<{ channelId: string; channelOrder: number }>
+  const ordered = messages as readonly Ordered[]
+  for (const [index, message] of ordered.entries()) {
+    const previous = index > 0 ? ordered[index - 1] : undefined
+    const base = `content.messages[${index}]`
+    if (
+      previous &&
+      previous.channelId !== message.channelId &&
+      message.channelId <= previous.channelId
+    )
+      sink.add(
+        'invariant',
+        `${base}.channelId`,
+        'channels must ascend, and each channel must be listed as one contiguous run'
+      )
+    const expected =
+      previous && previous.channelId === message.channelId ? previous.channelOrder + 1 : 1
+    if (message.channelOrder !== expected)
+      sink.add(
+        'invariant',
+        `${base}.channelOrder`,
+        'must be the next position in its channel, from 1'
+      )
   }
 
   for (const [index, ref] of contentRefs.entries()) {

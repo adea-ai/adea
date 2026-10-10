@@ -310,11 +310,19 @@ export async function importPortableWorkspace(
       transaction.insert(channelParticipants).values(batch)
     )
 
-    // Messages are inserted in the bundle's order, which is channel then
-    // sequence, so the destination's identity sequence preserves the order inside
-    // each channel. Thread and reply links follow in a second pass, once every
-    // referenced message exists.
-    await insertBatched(content.messages, (batch) =>
+    // Messages are inserted in conversation order (by channel, then by channelOrder),
+    // whatever order the bundle lists them in. The identity sequence is assigned in
+    // insertion order, so each channel reads back in its conversation order, and the
+    // re-read below checks it. Thread and reply links follow in a second pass, once
+    // every referenced message exists.
+    const conversationOrder = content.messages.toSorted((left, right) =>
+      left.channelId < right.channelId
+        ? -1
+        : left.channelId > right.channelId
+          ? 1
+          : left.channelOrder - right.channelOrder
+    )
+    await insertBatched(conversationOrder, (batch) =>
       transaction.insert(messages).values(
         batch.map((message) => {
           const sender = message.sender

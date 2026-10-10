@@ -116,6 +116,7 @@ function fixture(): PortableWorkspaceExport {
         {
           body: { kind: 'text', text: 'Plan the export.' },
           channelId,
+          channelOrder: 1,
           createdAt: at,
           deletedAt: null,
           editedAt: null,
@@ -131,6 +132,7 @@ function fixture(): PortableWorkspaceExport {
         {
           body: { kind: 'content_ref', contentRefId },
           channelId,
+          channelOrder: 2,
           createdAt: later,
           deletedAt: null,
           editedAt: null,
@@ -146,6 +148,7 @@ function fixture(): PortableWorkspaceExport {
         {
           body: { kind: 'deleted' },
           channelId,
+          channelOrder: 3,
           createdAt: later,
           deletedAt: later,
           editedAt: null,
@@ -233,6 +236,24 @@ describe('portable workspace export contract', () => {
   test('accepts a closed version-1 document covering every family', () => {
     const result = validatePortableWorkspaceExport(fixture())
     expect(result.ok).toBe(true)
+  })
+
+  test('keeps conversation order explicit: messages are listed by channel and numbered from 1 within it', () => {
+    const base = fixture()
+    const [root, reply, ...rest] = base.content.messages
+    const swapped = {
+      ...base,
+      content: { ...base.content, messages: [reply!, root!, ...rest] },
+    }
+    const swappedPaths = issuesOf(swapped).map((issue) => issue.path)
+    expect(swappedPaths).toContain('content.messages[0].channelOrder')
+    expect(swappedPaths).toContain('content.messages[1].channelOrder')
+
+    const gapped = clone(fixture())
+    gapped.content.messages[1]!.channelOrder = 3
+    expect(issuesOf(gapped).map((issue) => issue.path)).toContain(
+      'content.messages[1].channelOrder'
+    )
   })
 
   test('rejects values that are not documents without throwing', () => {

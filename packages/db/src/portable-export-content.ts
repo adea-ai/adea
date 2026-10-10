@@ -214,44 +214,51 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
     (row) => `${String(row.sortOrder).padStart(12, '0')}:${row.channelId}`
   )
 
-  const exportedMessages: PortableMessage[] = byKey(
-    byKey(
-      messageRows,
-      (message) => `${message.channelId}:${String(message.sequence).padStart(12, '0')}`
-    ).map((message): PortableMessage => {
-      const body: PortableMessageBody = message.deleted
-        ? { kind: 'deleted' }
-        : message.bodyContentRefId
-          ? { contentRefId: message.bodyContentRefId, kind: 'content_ref' }
-          : { kind: 'text', text: message.bodyText ?? '' }
-      const sender: PortableMessage['sender'] =
-        message.sender.kind === 'user'
-          ? { kind: 'user', userId: message.sender.userId }
-          : message.sender.kind === 'agent'
-            ? { agentId: message.sender.agentId, kind: 'agent' }
-            : { kind: 'system', systemId: PORTABLE_SYSTEM_SENDER_ID }
-      const link = (target: string | undefined) =>
-        target && messageIds.has(target) && messageChannel.get(target) === message.channelId
-          ? target
-          : null
-      return {
-        body,
-        channelId: message.channelId,
-        createdAt: message.createdAt,
-        deletedAt: message.deletedAt ?? null,
-        editedAt: message.editedAt ?? null,
-        mentions: byKey(message.mentions.map(toPortableParticipant), participantKey),
-        messageId: message.id,
-        replyToMessageId: link(message.replyToMessageId),
-        sender,
-        taskId: message.taskId && taskIds.has(message.taskId) ? message.taskId : null,
-        threadRootMessageId: link(message.threadRootMessageId),
-        updatedAt: message.updatedAt,
-        version: message.version,
-      }
-    }),
-    (row) => `${row.channelId}:${row.messageId}`
+  // Conversation order is explicit in the document. Messages sort by channel and then by the source
+  // sequence, and channelOrder numbers each channel's messages from 1 in that order. Neither the
+  // identifier nor the order of the input decides it.
+  const orderedMessages = messageRows.toSorted(
+    (left, right) =>
+      (left.channelId < right.channelId ? -1 : left.channelId > right.channelId ? 1 : 0) ||
+      left.sequence - right.sequence
   )
+  let channelOrder = 0
+  let channelOf: string | undefined
+  const exportedMessages: PortableMessage[] = orderedMessages.map((message): PortableMessage => {
+    channelOrder = message.channelId === channelOf ? channelOrder + 1 : 1
+    channelOf = message.channelId
+    const body: PortableMessageBody = message.deleted
+      ? { kind: 'deleted' }
+      : message.bodyContentRefId
+        ? { contentRefId: message.bodyContentRefId, kind: 'content_ref' }
+        : { kind: 'text', text: message.bodyText ?? '' }
+    const sender: PortableMessage['sender'] =
+      message.sender.kind === 'user'
+        ? { kind: 'user', userId: message.sender.userId }
+        : message.sender.kind === 'agent'
+          ? { agentId: message.sender.agentId, kind: 'agent' }
+          : { kind: 'system', systemId: PORTABLE_SYSTEM_SENDER_ID }
+    const link = (target: string | undefined) =>
+      target && messageIds.has(target) && messageChannel.get(target) === message.channelId
+        ? target
+        : null
+    return {
+      body,
+      channelId: message.channelId,
+      channelOrder,
+      createdAt: message.createdAt,
+      deletedAt: message.deletedAt ?? null,
+      editedAt: message.editedAt ?? null,
+      mentions: byKey(message.mentions.map(toPortableParticipant), participantKey),
+      messageId: message.id,
+      replyToMessageId: link(message.replyToMessageId),
+      sender,
+      taskId: message.taskId && taskIds.has(message.taskId) ? message.taskId : null,
+      threadRootMessageId: link(message.threadRootMessageId),
+      updatedAt: message.updatedAt,
+      version: message.version,
+    }
+  })
 
   const exportedContentRefs: PortableContentRef[] = byKey(
     input.contentRefRows
