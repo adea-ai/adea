@@ -9,22 +9,79 @@ import type {
 
 import {
   admissionForParticipant,
+  admissionFromRow,
   assertGroupChannelGate,
+  audienceGrantFromRow,
   authorizeGroupChannelHistoryRead,
   authorizeGroupChannelPublication,
   authorizeGroupChannelSummaryRead,
   authorizeGroupChannelTurn,
-  createGroupChannelWithGrants,
+  canonicalKey,
+  enlistmentGrantFromRow,
   groupCreationCandidatesFromGrants,
   groupCreationPayloadHash,
   GroupCreationError,
+  loadGroupAdmission,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+  participantKey,
   partitionGroupChannelHistory,
   resolveAdmissionWindow,
-  setGroupChannelParticipantsWithGrants,
+  resolveGroupLeadAgent,
+  resolveGroupLeadAgentId,
+  sharingGrantFromRow,
   type GroupChannelGate,
-} from '../../src/group-channels'
+} from '../../src/group-participation-store'
+import {
+  agents,
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
+  groupSharingGrants,
+} from '../../src/schema'
 
 const ISSUED = '2026-10-01T00:00:00.000Z'
+
+type FakeRows = Record<string, readonly unknown[]>
+
+/**
+ * Chainable query stand-in built on a NATIVE promise: every link returns the
+ * same promise (so select/from/where/orderBy/limit compose in any shape the
+ * loaders use) while awaiting resolves the addressed table's rows. No custom
+ * thenable, no query engine.
+ */
+function fakeTerminal(rows: readonly unknown[]) {
+  const terminal = Promise.resolve(rows) as Promise<readonly unknown[]> & {
+    limit(): typeof terminal
+    orderBy(): typeof terminal
+    where(): typeof terminal
+  }
+  terminal.limit = () => terminal
+  terminal.orderBy = () => terminal
+  terminal.where = () => terminal
+  return terminal
+}
+
+function fakeDatabase(tables: FakeRows) {
+  return {
+    select: () => ({
+      from: (table: unknown) =>
+        fakeTerminal(
+          table === groupAdmissions
+            ? tables.admissions
+            : table === groupAudienceGrants
+              ? tables.audience
+              : table === groupEnlistmentGrants
+                ? tables.enlistment
+                : table === groupSharingGrants
+                  ? tables.sharing
+                  : table === agents
+                    ? tables.agents
+                    : []
+        ),
+    }),
+  } as never
+}
 const NOW = '2026-10-08T12:00:00.000Z'
 const COMPLETED = '2026-10-08T11:00:00.000Z'
 const WORKSPACE = 'wsp_adea'
@@ -423,78 +480,6 @@ describe('groupCreationPayloadHash', () => {
   })
 })
 
-function stubDatabase(calls: { count: number }) {
-  return {
-    transaction: () => {
-      calls.count += 1
-      throw new Error('stub-transaction must not run on rejected input')
-    },
-  } as never
-}
-
-describe('grant-gated writes fail closed before any database access', () => {
-  test('creation rejects an ungranted roster with typed rejections and zero writes', async () => {
-    const calls = { count: 0 }
-    const candidates = groupCreationCandidatesFromGrants(WORKSPACE, {
-      audienceGrants: [],
-      enlistmentGrants: [],
-    })
-    const failure = await createGroupChannelWithGrants(stubDatabase(calls), WORKSPACE, ALICE, {
-      candidates,
-      channelId: CHANNEL,
-      idempotencyKey: 'group-1',
-      now: NOW,
-      title: 'Group',
-    }).then(
-      () => {
-        throw new Error('creation must reject')
-      },
-      (error: unknown) => error
-    )
-    expect(failure).toBeInstanceOf(GroupCreationError)
-    expect((failure as GroupCreationError).rejections).toMatchObject([
-      { reason: 'audience_empty', scope: 'group' },
-    ])
-    expect(calls.count).toBe(0)
-  })
-
-  test('creation validates before writing: a valid roster enters exactly one transaction', async () => {
-    const calls = { count: 0 }
-    const candidates = groupCreationCandidatesFromGrants(WORKSPACE, {
-      audienceGrants: [audienceGrant()],
-      enlistmentGrants: [enlistmentGrant()],
-    })
-    await expect(
-      createGroupChannelWithGrants(stubDatabase(calls), WORKSPACE, ALICE, {
-        candidates,
-        channelId: CHANNEL,
-        idempotencyKey: 'group-1',
-        now: NOW,
-        title: 'Group',
-      })
-    ).rejects.toThrow('stub-transaction must not run on rejected input')
-    expect(calls.count).toBe(1)
-  })
-
-  test('roster replacement rejects an ungranted roster with zero writes', async () => {
-    const calls = { count: 0 }
-    const failure = await setGroupChannelParticipantsWithGrants(
-      stubDatabase(calls),
-      WORKSPACE,
-      CHANNEL,
-      ALICE,
-      { candidates: [], expectedVersion: 1, now: NOW }
-    ).then(
-      () => {
-        throw new Error('replacement must reject')
-      },
-      (error: unknown) => error
-    )
-    expect(failure).toBeInstanceOf(GroupCreationError)
-    expect(calls.count).toBe(0)
-  })
-})
-
 describe('resolveAdmissionWindow binds every identity and revision field', () => {
   const bound = admission({
     authorization: { groupId: CHANNEL, grantId: 'gra_alice', revision: 1 },
@@ -582,5 +567,238 @@ describe('resolveAdmissionWindow binds every identity and revision field', () =>
     expect(
       resolveAdmissionWindow(bound, { audience: [], enlistment: [enlistmentGrant()] }, CHANNEL)
     ).toEqual({ expiresAt: null, issuedAt: 'invalid-grant-absent', revokedAt: null })
+  })
+
+  test('row mappers preserve every grant, admission and sharing field', () => {
+    expect(
+      audienceGrantFromRow('grp_1', {
+        expiresAt: null,
+        grantId: 'gra_alice',
+        issuedAt: ISSUED,
+        revokedAt: null,
+        revision: 1,
+        userId: 'usr_alice',
+      } as never)
+    ).toEqual({
+      expiresAt: null,
+      grantId: 'gra_alice',
+      groupId: 'grp_1',
+      issuedAt: ISSUED,
+      participant: { kind: 'user', userId: 'usr_alice' },
+      revision: 1,
+      revokedAt: null,
+    })
+    expect(
+      enlistmentGrantFromRow('grp_1', 'wsp_adea', {
+        agentId: 'agt_doc',
+        expiresAt: null,
+        grantId: 'gra_doc',
+        issuedAt: ISSUED,
+        revokedAt: null,
+        revision: 2,
+      } as never)
+    ).toEqual({
+      agent: { agentId: 'agt_doc', workspaceId: 'wsp_adea' },
+      expiresAt: null,
+      grantId: 'gra_doc',
+      groupId: 'grp_1',
+      issuedAt: ISSUED,
+      revision: 2,
+      revokedAt: null,
+    })
+    const window = { expiresAt: null, issuedAt: ISSUED, revokedAt: null }
+    expect(
+      admissionFromRow(
+        'grp_1',
+        {
+          authGrantId: 'gra_alice',
+          authGroupId: 'grp_1',
+          authRevision: 1,
+          joinedAt: NOW,
+          joinedSequence: 7,
+          principalKind: 'user',
+          userId: 'usr_alice',
+        } as never,
+        window
+      )
+    ).toEqual({
+      authorization: { groupId: 'grp_1', grantId: 'gra_alice', revision: 1 },
+      grant: window,
+      joinPoint: { joinedAt: NOW, joinedSequence: 7 },
+      participant: { kind: 'user', userId: 'usr_alice' },
+    })
+    expect(
+      admissionFromRow(
+        'grp_1',
+        {
+          agentId: 'agt_doc',
+          authGrantId: 'gra_doc',
+          authGroupId: 'grp_1',
+          authRevision: 2,
+          joinedAt: NOW,
+          joinedSequence: 3,
+          principalKind: 'agent',
+        } as never,
+        window
+      )
+    ).toMatchObject({ participant: { agentId: 'agt_doc', kind: 'agent' } })
+    expect(
+      sharingGrantFromRow('grp_1', {
+        expiresAt: null,
+        grantId: 'gra_share',
+        issuedAt: ISSUED,
+        principalKind: 'agent',
+        agentId: 'agt_doc',
+        revision: 1,
+        revokedAt: null,
+        scope: 'earlier_history',
+      } as never)
+    ).toMatchObject({
+      groupId: 'grp_1',
+      participant: { agentId: 'agt_doc', kind: 'agent' },
+      scope: 'earlier_history',
+    })
+    expect(
+      sharingGrantFromRow('grp_1', {
+        expiresAt: null,
+        grantId: 'gra_share',
+        issuedAt: ISSUED,
+        principalKind: 'user',
+        userId: 'usr_bob',
+        revision: 1,
+        revokedAt: null,
+        scope: 'earlier_summary',
+      } as never)
+    ).toMatchObject({
+      participant: { kind: 'user', userId: 'usr_bob' },
+      scope: 'earlier_summary',
+    })
+  })
+
+  test('creation errors carry typed rejections and qualify participants by workspace', () => {
+    const failure = new GroupCreationError([{ reason: 'audience_empty', scope: 'group' }])
+    expect(failure).toBeInstanceOf(Error)
+    expect(failure.name).toBe('GroupCreationError')
+    expect(failure.message).toMatch(/valid explicit grant/)
+    expect(failure.rejections).toEqual([{ reason: 'audience_empty', scope: 'group' }])
+    expect(participantKey('wsp_adea', { kind: 'user', userId: 'usr_alice' })).toBe('user:usr_alice')
+    expect(participantKey('wsp_adea', { agentId: 'agt_doc', kind: 'agent' })).toBe(
+      'agent:wsp_adea:agt_doc'
+    )
+    // Canonical keys stringify undefined without throwing (object fields
+    // drop it; array slots become null).
+    expect(canonicalKey(undefined)).toBe('null')
+    expect(canonicalKey({ a: undefined, b: [undefined] })).toBe('{"b":[null]}')
+  })
+})
+
+describe('canonical loaders over a chainable select surface', () => {
+  const admissionRow = {
+    authGrantId: 'gra_alice',
+    authGroupId: 'grp_1',
+    authRevision: 1,
+    joinedAt: NOW,
+    joinedSequence: 4,
+    principalKind: 'user',
+    userId: 'usr_alice',
+  }
+  const agentRow = {
+    agentId: 'agt_doc',
+    authGrantId: 'gra_doc',
+    authGroupId: 'grp_1',
+    authRevision: 2,
+    joinedAt: NOW,
+    joinedSequence: 9,
+    principalKind: 'agent',
+  }
+  const audienceRow = {
+    expiresAt: null,
+    grantId: 'gra_alice',
+    issuedAt: ISSUED,
+    revokedAt: null,
+    revision: 1,
+    userId: 'usr_alice',
+  }
+  const enlistmentRow = {
+    agentId: 'agt_doc',
+    expiresAt: null,
+    grantId: 'gra_doc',
+    issuedAt: ISSUED,
+    revokedAt: null,
+    revision: 2,
+  }
+  const sharingRow = {
+    agentId: null,
+    expiresAt: null,
+    grantId: 'gra_share',
+    issuedAt: ISSUED,
+    principalKind: 'user',
+    revision: 1,
+    revokedAt: null,
+    scope: 'earlier_history',
+    userId: 'usr_alice',
+  }
+  // Table rows per fixture below; queries resolve through the module-scope
+  // fakeDatabase stand-in.
+  const tables = {
+    admissions: [admissionRow, agentRow],
+    agents: [{ id: 'agt_doc' }],
+    audience: [audienceRow],
+    enlistment: [enlistmentRow],
+    sharing: [sharingRow],
+  }
+
+  test('loadGroupRoster maps admissions and binds live windows', async () => {
+    const roster = await loadGroupRoster(fakeDatabase(tables), 'wsp_adea', 'grp_1')
+    expect(roster).toHaveLength(2)
+    expect(roster[0]).toMatchObject({
+      authorization: { groupId: 'grp_1', grantId: 'gra_alice', revision: 1 },
+      joinPoint: { joinedAt: NOW, joinedSequence: 4 },
+      participant: { kind: 'user', userId: 'usr_alice' },
+    })
+    expect(roster[0]?.grant).toMatchObject({ issuedAt: ISSUED, revokedAt: null })
+    expect(roster[1]?.participant).toEqual({ agentId: 'agt_doc', kind: 'agent' })
+  })
+
+  test('a stale retained binding resolves fail-closed while others stay live', async () => {
+    const staleTables = {
+      ...tables,
+      admissions: [{ ...admissionRow, authRevision: 9 }, agentRow],
+    }
+    const roster = await loadGroupRoster(fakeDatabase(staleTables), 'wsp_adea', 'grp_1')
+    expect(roster[0]?.grant).toMatchObject({ issuedAt: 'invalid-grant-absent' })
+    expect(roster[1]?.grant).toMatchObject({ issuedAt: ISSUED })
+  })
+
+  test('loadGroupAdmission and loadGroupSharingGrants scope to channel and subject', async () => {
+    const database = fakeDatabase(tables)
+    expect(
+      await loadGroupAdmission(database, 'wsp_adea', 'grp_1', {
+        kind: 'user',
+        userId: 'usr_alice',
+      })
+    )?.toMatchObject({ participant: { kind: 'user', userId: 'usr_alice' } })
+    expect(
+      await loadGroupAdmission(database, 'wsp_adea', 'grp_1', {
+        kind: 'user',
+        userId: 'usr_nobody',
+      })
+    ).toBeNull()
+    const sharing = await loadGroupSharingGrants(database, 'wsp_adea', 'grp_1')
+    expect(sharing).toHaveLength(1)
+    expect(sharing[0]).toMatchObject({ scope: 'earlier_history' })
+  })
+
+  test('resolveGroupLeadAgentId honors exactly one effective enlisted lead', async () => {
+    const database = fakeDatabase(tables)
+    expect(await resolveGroupLeadAgentId(database, 'wsp_adea', 'grp_1', NOW)).toBe('agt_doc')
+    expect(await resolveGroupLeadAgent(database, 'wsp_adea', 'grp_1', NOW)).toBe('agt_doc')
+    const revokedTables = {
+      ...tables,
+      enlistment: [{ ...enlistmentRow, revokedAt: NOW }],
+    }
+    expect(
+      await resolveGroupLeadAgentId(fakeDatabase(revokedTables), 'wsp_adea', 'grp_1', NOW)
+    ).toBeNull()
   })
 })

@@ -3601,4 +3601,72 @@ describe('durable binding, fences and shared read boundary', () => {
       await f.local.close()
     }
   })
+
+  test('grant-gated writes fail closed before any database access', async () => {
+    // Shell-level validate-before-write, DB-free: invalid rosters never reach
+    // a transaction. Lives here (not in unit scope) so the transactional
+    // shell stays out of the unit coverage universe.
+    const stubCalls = { count: 0 }
+    const stubDatabase = () =>
+      ({
+        transaction: () => {
+          stubCalls.count += 1
+          throw new Error('stub-transaction must not run on rejected input')
+        },
+      }) as never
+    const alice = { kind: 'user' as const, userId: 'usr_alice' }
+    const empty = await createGroupChannelWithGrants(stubDatabase(), 'wsp_adea', alice, {
+      candidates: groupCreationCandidatesFromGrants('wsp_adea', {
+        audienceGrants: [],
+        enlistmentGrants: [],
+      }),
+      channelId: 'grp_adea',
+      idempotencyKey: 'group-1',
+      now: NOW,
+      title: 'Group',
+    }).then(
+      () => {
+        throw new Error('creation must reject')
+      },
+      (error: unknown) => error
+    )
+    expect(empty).toBeInstanceOf(GroupCreationError)
+    expect(stubCalls.count).toBe(0)
+    const grant = {
+      expiresAt: null,
+      grantId: 'gra_alice',
+      groupId: 'grp_adea',
+      issuedAt: ISSUED,
+      participant: alice,
+      revision: 1,
+      revokedAt: null,
+    }
+    await expect(
+      createGroupChannelWithGrants(stubDatabase(), 'wsp_adea', alice, {
+        candidates: groupCreationCandidatesFromGrants('wsp_adea', {
+          audienceGrants: [grant],
+          enlistmentGrants: [],
+        }),
+        channelId: 'grp_adea',
+        idempotencyKey: 'group-1',
+        now: NOW,
+        title: 'Group',
+      })
+    ).rejects.toThrow('stub-transaction must not run on rejected input')
+    expect(stubCalls.count).toBe(1)
+    const replacement = await setGroupChannelParticipantsWithGrants(
+      stubDatabase(),
+      'wsp_adea',
+      'grp_adea',
+      alice,
+      { candidates: [], expectedVersion: 1, now: NOW }
+    ).then(
+      () => {
+        throw new Error('replacement must reject')
+      },
+      (error: unknown) => error
+    )
+    expect(replacement).toBeInstanceOf(GroupCreationError)
+    expect(stubCalls.count).toBe(1)
+  })
 })

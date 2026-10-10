@@ -49,7 +49,6 @@ import type {
   GroupAudienceGrant,
   GroupCompletedJob,
   GroupCreationCandidate,
-  GroupCreationRejection,
   GroupHistoryEntryRef,
   GroupHistoryReadDecision,
   GroupPublicationDecision,
@@ -69,35 +68,55 @@ import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
 import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
-import {
-  decideGroupHistoryRead,
-  decideGroupPublication,
-  decideGroupSummaryRead,
-  decideGroupTurn,
-  validateGroupCreation,
-} from './group-participation-policy'
+import { validateGroupCreation } from './group-participation-policy'
 import {
   admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  canonicalKey,
+  groupCreationPayloadHash,
+  GroupCreationError,
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
-  resolveGroupLeadAgentId,
+  participantKey,
+  requireGroupManagementAuthority,
+  requireGroupMembership,
+  requireGroupParticipantLiveness,
+  type GroupChannelGate,
 } from './group-participation-store'
 export {
   ABSENT_GRANT_WINDOW,
   admissionForParticipant,
   admissionFromRow,
+  assertGroupChannelGate,
   audienceGrantFromRow,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
   enlistmentGrantFromRow,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
+  participantKey,
+  partitionGroupChannelHistory,
+  requireGroupManagementAuthority,
+  requireGroupMembership,
+  requireGroupParticipantLiveness,
   resolveAdmissionWindow,
+  resolveGroupLeadAgent,
   sharingGrantFromRow,
+  type GroupChannelGate,
   type GroupStoreDatabase,
 } from './group-participation-store'
 import {
-  agents,
   artifacts,
   channelParticipants,
   channels,
@@ -106,7 +125,6 @@ import {
   groupEnlistmentGrants,
   groupSharingGrants,
   messageArtifactReferences,
-  workspaceMemberships,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -114,317 +132,6 @@ import { appendWorkspaceEvent, inTransaction } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type ChannelRow = typeof channels.$inferSelect
-
-/** The live channel a group decision is pinned to. */
-export type GroupChannelGate = Readonly<{ channel: ChannelSummary; workspaceId: string }>
-
-export class GroupCreationError extends Error {
-  readonly rejections: readonly GroupCreationRejection[]
-
-  constructor(rejections: readonly GroupCreationRejection[]) {
-    super('Group creation rejected: every participant requires a valid explicit grant')
-    this.name = 'GroupCreationError'
-    this.rejections = rejections
-  }
-}
-
-function canonicalKey(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalKey).join(',')}]`
-  if (value && typeof value === 'object')
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .toSorted(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalKey(entry)}`)
-      .join(',')}}`
-  return JSON.stringify(value) ?? 'null'
-}
-
-function participantKey(workspaceId: string, participant: ConversationParticipantRef): string {
-  return participant.kind === 'user'
-    ? `user:${participant.userId}`
-    : `agent:${workspaceId}:${participant.agentId}`
-}
-
-/**
- * Build creation candidates from explicit grants. Human candidates resolve in
- * the owning workspace; Agent candidates resolve in their grant's workspace,
- * so a cross-tenant grant reaches the policy as a typed
- * `participant_cross_tenant` rejection instead of being silently dropped.
- */
-export function groupCreationCandidatesFromGrants(
-  workspaceId: string,
-  grants: Readonly<{
-    audienceGrants: readonly GroupAudienceGrant[]
-    enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
-  }>
-): GroupCreationCandidate[] {
-  return [
-    ...grants.audienceGrants.map((audienceGrant): GroupCreationCandidate => ({
-      audienceGrant,
-      kind: 'human',
-      participant: audienceGrant.participant,
-      workspaceId,
-    })),
-    ...grants.enlistmentGrants.map((enlistmentGrant): GroupCreationCandidate => ({
-      agentId: enlistmentGrant.agent.agentId,
-      enlistmentGrant,
-      kind: 'agent',
-      workspaceId: enlistmentGrant.agent.workspaceId,
-    })),
-  ]
-}
-
-/**
- * Resolve the group's lead agent for a lead turn: the exactly-one enlisted
- * Agent that is the workspace lead (active, standalone). Returns its agent
- * id, or null when there is no single eligible lead. Reads only — the
- * actual lead-turn authorization and persistence stay in the shared
- * lead-turn writer (owned with #1177; this helper supplies the validated
- * group authority that writer will consume once its hunk lands).
- *
- * Fail-closed on ambiguity: zero or several eligible leads resolve to null
- * rather than guessing. A revoked or stale enlistment never resolves
- * (binding-checked live windows only).
- */
-export async function resolveGroupLeadAgent(
-  database: Database,
-  workspaceId: string,
-  channelId: string,
-  now: string
-): Promise<string | null> {
-  return resolveGroupLeadAgentId(database, workspaceId, channelId, now)
-}
-
-/**
- * Group isolation: a group decision runs only against a participants-scoped
- * group channel with no project or Agent binding, in the owning workspace.
- * Anything else is answered like a missing channel, so group authority can
- * never leak into workspace tool authority and private direct chats never
- * become group content.
- */
-export function assertGroupChannelGate(gate: GroupChannelGate): void {
-  const { channel, workspaceId } = gate
-  if (
-    channel.workspaceId !== workspaceId ||
-    channel.kind !== 'group' ||
-    channel.visibility !== 'participants' ||
-    channel.projectId !== undefined ||
-    channel.agentId !== undefined
-  )
-    throw new Error('Channel unavailable')
-}
-
-/** Join-point history plus authorized earlier sharing, pinned to the live channel. */
-export function authorizeGroupChannelHistoryRead(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    entry: GroupHistoryEntryRef
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): GroupHistoryReadDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupHistoryRead({
-    admission: input.admission,
-    entry: input.entry,
-    groupId: gate.channel.id,
-    now: input.now,
-    sharingGrants: input.sharingGrants,
-  })
-}
-
-/** Authorized summaries, pinned to the live channel. */
-export function authorizeGroupChannelSummaryRead(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    fromSequence: number
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): GroupSummaryReadDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupSummaryRead({
-    admission: input.admission,
-    fromSequence: input.fromSequence,
-    groupId: gate.channel.id,
-    now: input.now,
-    sharingGrants: input.sharingGrants,
-  })
-}
-
-/** Turns require an effective participation grant at `now`, pinned to the live channel. */
-export function authorizeGroupChannelTurn(
-  gate: GroupChannelGate,
-  input: Readonly<{ admission: GroupAdmission | null; now: string }>
-): GroupTurnDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupTurn({
-    admission: input.admission,
-    groupId: gate.channel.id,
-    now: input.now,
-  })
-}
-
-/**
- * The publication gate for a completed job, pinned to the live channel. An
- * admission or a job bound to another group is held with
- * `publication_binding_mismatch` before the pure comparison runs, so a
- * foreign pair that matches each other can never publish here. A hold keeps
- * one result out of the group and says nothing about the independently owned
- * job, which is never cancelled or reassigned.
- */
-export function authorizeGroupChannelPublication(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    job: GroupCompletedJob
-    now: string
-    publisher: ConversationParticipantRef
-  }>
-): GroupPublicationDecision {
-  assertGroupChannelGate(gate)
-  const { admission, job } = input
-  if (
-    !admission ||
-    admission.authorization.groupId !== gate.channel.id ||
-    (job.authorization !== null && job.authorization.groupId !== gate.channel.id)
-  )
-    return { action: 'hold', jobId: job.jobId, reason: 'publication_binding_mismatch' }
-  return decideGroupPublication({
-    admission,
-    job,
-    now: input.now,
-    publisher: input.publisher,
-  })
-}
-
-/**
- * Split already-fetched channel entries into the reader's visible history and
- * the held earlier history. Order is preserved on both sides.
- */
-export function partitionGroupChannelHistory(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    entries: readonly GroupHistoryEntryRef[]
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): { hidden: GroupHistoryEntryRef[]; visible: GroupHistoryEntryRef[] } {
-  const visible: GroupHistoryEntryRef[] = []
-  const hidden: GroupHistoryEntryRef[] = []
-  for (const entry of input.entries) {
-    const decision = authorizeGroupChannelHistoryRead(gate, {
-      admission: input.admission,
-      entry,
-      now: input.now,
-      sharingGrants: input.sharingGrants,
-    })
-    if (decision.action === 'allow') visible.push(entry)
-    else hidden.push(entry)
-  }
-  return { hidden, visible }
-}
-
-async function requireGroupMembership(
-  database: Database,
-  workspaceId: string,
-  principal: UserPrincipalRef
-) {
-  const [membership] = await database
-    .select({ id: workspaceMemberships.id })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .limit(1)
-  if (!membership) throw new Error('Channel unavailable')
-}
-
-/**
- * Group-management authority: workspace owner/admin management roles only.
- * Membership alone — even in the same workspace — rewrites no roster and
- * revokes no grant. Denied like a missing channel, fail closed.
- */
-export async function requireGroupManagementAuthority(
-  database: Database,
-  workspaceId: string,
-  principal: UserPrincipalRef
-) {
-  const [membership] = await database
-    .select({ role: workspaceMemberships.role })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .limit(1)
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin'))
-    throw new Error('Channel unavailable')
-}
-
-async function requireGroupParticipantLiveness(
-  database: Database,
-  workspaceId: string,
-  participant: ConversationParticipantRef
-) {
-  if (participant.kind === 'user') {
-    const [membership] = await database
-      .select({ id: workspaceMemberships.id })
-      .from(workspaceMemberships)
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, participant.userId)
-        )
-      )
-      .limit(1)
-    if (!membership) throw new Error('Conversation participant unavailable')
-    return
-  }
-  const [agent] = await database
-    .select({ id: agents.id })
-    .from(agents)
-    .where(
-      and(
-        eq(agents.id, participant.agentId),
-        eq(agents.workspaceId, workspaceId),
-        eq(agents.lifecycleState, 'active')
-      )
-    )
-    .limit(1)
-  if (!agent) throw new Error('Agent unavailable')
-}
-
-/**
- * The idempotency identity of a grant-validated creation: title plus the
- * sorted retained bindings and participant keys. A replay with the same key
- * and payload returns the existing channel; any difference is a conflict,
- * never a silent relabel.
- */
-export function groupCreationPayloadHash(
-  title: string,
-  workspaceId: string,
-  roster: readonly GroupAdmission[]
-): string {
-  return canonicalKey({
-    bindings: roster
-      .map((admission) => ({
-        authorization: admission.authorization,
-        participant: admission.participant,
-      }))
-      .toSorted((left, right) => canonicalKey(left).localeCompare(canonicalKey(right))),
-    title: title.trim(),
-    workspaceId,
-  })
-}
 
 function summarizeGroupChannel(
   row: ChannelRow,
