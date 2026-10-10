@@ -119,8 +119,12 @@ test('an optional workspace archives from the real shell, is found after a reloa
   const tasks = await callApi(page, 'GET', `/api/v1/workspaces/${workspaceId}/tasks`)
   expect((tasks.body as { id: string }[]).map(({ id }) => id)).toContain(taskId)
 
-  // Permanent deletion remains blocked on the reopened workspace.
-  await page.reload()
+  // Permanent deletion remains blocked on the reopened workspace. The reopen step left the Home settings
+  // hash in the URL, so the workspace is opened from a clean load instead of past that open dialog.
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible({
+    timeout: 60_000,
+  })
   await openWorkspaceSettings(page, workspaceName)
   await expect(page.getByRole('button', { name: 'Delete workspace', exact: true })).toBeDisabled({
     timeout: 30_000,
