@@ -306,7 +306,7 @@
           "kind": "execution-reference",
           "repository": "adea",
           "path": "docs/plans/m18-evidence-runs/apps__web__test__account-directory-pages.test.execution.json",
-          "sha256": "40a49c0e504217e0468848c7840612ce1e0c80fb61ea60e832c26f6dd008a1d5"
+          "sha256": "dedec35746c8b69cc9be41fa91257a84e78d4e2d78b9a09af1ca21df8cdc2c5b"
         }
       ],
       "candidateEvidence": []
@@ -718,10 +718,22 @@
           "name": "directory and inbox keys sit outside the per-workspace prefix"
         },
         {
+          "kind": "test-reference",
+          "repository": "adea",
+          "path": "apps/web/test/account-directory-pages.test.ts",
+          "name": "loaded pages are independent of the selected workspace and its cache release"
+        },
+        {
           "kind": "execution-reference",
           "repository": "adea",
           "path": "docs/plans/m18-evidence-runs/packages__data__tests__unit__account-directory-keys.test.execution.json",
           "sha256": "0c19ae76f01bef953e8f2200b5bf6145d4a5d87feeac1ea4e5849daa60a4bb32"
+        },
+        {
+          "kind": "execution-reference",
+          "repository": "adea",
+          "path": "docs/plans/m18-evidence-runs/apps__web__test__account-directory-pages.test.execution.json",
+          "sha256": "dedec35746c8b69cc9be41fa91257a84e78d4e2d78b9a09af1ca21df8cdc2c5b"
         }
       ],
       "candidateEvidence": []
