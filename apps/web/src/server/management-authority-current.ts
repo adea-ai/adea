@@ -7,7 +7,8 @@
  *     body: versioned read envelope, operation
  *           `pi-durable.management-current.assert`,
  *           parameters `{ request: <canonical tool-call request>, boundary }`
- *     response: `{ data: { asserted: true } }`
+ *     response: `{ asserted: true }` (the reviewed CP1043 route's exact
+ *           success document; no envelope echo is invented here)
  *
  * The route is repeatable and never consumes an approval; it returns void or
  * throws. The single-owner durable effect claim remains the Adea
@@ -98,14 +99,10 @@ export function createControlPlaneManagementCurrentAuthority(
       const text = await response.text()
       if (!response.ok || text.length === 0 || text.length > MAX_RESPONSE_BYTES) refuse()
       const envelope = JSON.parse(text) as unknown
-      if (
-        !record(envelope) ||
-        envelope.requestId !== body.requestId ||
-        !record(envelope.correlation) ||
-        envelope.correlation.traceId !== body.correlation.traceId ||
-        !record(envelope.data) ||
-        envelope.data.asserted !== true
-      )
+      // The reviewed Control Plane route answers a successful assertion with
+      // exactly `{ asserted: true }`. Any other document — nested data,
+      // extra keys or a non-boolean value — is refused as unavailable.
+      if (!record(envelope) || Object.keys(envelope).length !== 1 || envelope.asserted !== true)
         refuse()
     } catch {
       refuse()

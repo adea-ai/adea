@@ -23,7 +23,7 @@ type Seen = Readonly<{ authorization: string; body: Record<string, unknown>; pat
 describe('Control API management current authority client (#1215)', () => {
   let server: ReturnType<typeof Bun.serve>
   let seen: Seen[] = []
-  let mode: 'ok' | 'rejected' | 'malformed' | 'truthy' = 'ok'
+  let mode: 'ok' | 'rejected' | 'malformed' | 'truthy' | 'extra' | 'nested' | 'nonBoolean' = 'ok'
   let request: ManagementCurrentAuthorityRequest
 
   beforeAll(async () => {
@@ -37,18 +37,11 @@ describe('Control API management current authority client (#1215)', () => {
         })
         if (mode === 'rejected') return new Response('{"code":"NOPE"}', { status: 503 })
         if (mode === 'malformed') return new Response('not-json')
-        const correlation = body.correlation as Record<string, unknown>
-        if (mode === 'truthy')
-          return Response.json({
-            correlation,
-            data: { granted: true },
-            requestId: body.requestId,
-          })
-        return Response.json({
-          correlation,
-          data: { asserted: true },
-          requestId: body.requestId,
-        })
+        if (mode === 'truthy') return Response.json({ granted: true })
+        if (mode === 'extra') return Response.json({ asserted: true, meta: {} })
+        if (mode === 'nested') return Response.json({ data: { asserted: true } })
+        if (mode === 'nonBoolean') return Response.json({ asserted: 'yes' })
+        return Response.json({ asserted: true })
       },
       port: 0,
     })
@@ -121,8 +114,15 @@ describe('Control API management current authority client (#1215)', () => {
     ])
   })
 
-  test('rejection, malformed and truthy answers fail closed', async () => {
-    for (const current of ['rejected', 'malformed', 'truthy'] as const) {
+  test('rejection, malformed, truthy and non-contract answers fail closed', async () => {
+    for (const current of [
+      'rejected',
+      'malformed',
+      'truthy',
+      'extra',
+      'nested',
+      'nonBoolean',
+    ] as const) {
       mode = current
       await expect(client()(request, 'effect')).rejects.toBeInstanceOf(ManagementAuthorityError)
     }
