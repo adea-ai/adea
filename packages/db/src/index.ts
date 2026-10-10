@@ -389,6 +389,7 @@ export {
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
 export {
+  admitAddressedLeadTurn,
   createLeadTurn,
   getLatestLeadTurnForTarget,
   getLeadTurnForUser,

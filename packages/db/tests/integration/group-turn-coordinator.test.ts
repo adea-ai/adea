@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createMessage } from '../../src/conversations'
+import { admitAddressedLeadTurn } from '../../src/lead-turns'
 import {
   AddressedTurnError,
   causalIdForAddressedTurn,
@@ -693,6 +694,12 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       },
       { now: NOW }
     )
+    const messagesBefore = await connection.db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(
+        and(eq(schema.messages.workspaceId, workspace.id), eq(schema.messages.channelId, channelId))
+      )
     const dispatched = await dispatchAddressedTurn(
       connection.db,
       workspace.id,
@@ -701,16 +708,33 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       { now: NOW }
     )
     expect(dispatched.claim.status).toBe('claimed')
-    expect(dispatched.intent.message.channelId).toBe(channelId)
-    // Faithful dispatch record: the addressed Agent is mentioned through
-    // the existing participant reference, the body points at the canonical
-    // trigger by id, and trigger content is never duplicated or invented.
-    expect(dispatched.intent.message.mentions).toContainEqual(
-      expect.objectContaining({ agentId: lead.id })
+    expect(dispatched.intent.triggerMessageId).toBe(trigger.id)
+    // The intent binds the ORIGINAL trigger id and content: the stored
+    // intent row names the trigger message, whose body is untouched.
+    const [intentRow] = await connection.db
+      .select()
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.messageId, trigger.id))
+      .limit(1)
+    expect(intentRow?.agentId).toBe(lead.id)
+    expect(intentRow?.id).toBe(dispatched.intent.leadTurn.intentId)
+    const [triggerRow] = await connection.db
+      .select({ bodyText: schema.messages.bodyText })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, trigger.id))
+      .limit(1)
+    expect(triggerRow?.bodyText).toBe('please answer')
+    // Dispatch mints no human message: the count is unchanged.
+    const messagesAfter = await connection.db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(
+        and(eq(schema.messages.workspaceId, workspace.id), eq(schema.messages.channelId, channelId))
+      )
+    expect(messagesAfter.map((row) => row.id).toSorted()).toEqual(
+      messagesBefore.map((row) => row.id).toSorted()
     )
-    expect(dispatched.intent.message.bodyText).toContain(trigger.id)
-    expect(dispatched.intent.message.bodyText).not.toContain('please answer')
-    // Redispatch converges: same claim row, same intent message.
+    // Redispatch converges: same claim row, same intent.
     const again = await dispatchAddressedTurn(
       connection.db,
       workspace.id,
@@ -720,7 +744,7 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     )
     expect(again.claim.status).toBe('duplicate')
     expect(again.claim.turn.id).toBe(dispatched.claim.turn.id)
-    expect(again.intent.message.id).toBe(dispatched.intent.message.id)
+    expect(again.intent.leadTurn.intentId).toBe(dispatched.intent.leadTurn.intentId)
     // Revoking the human's participation denies further claims.
     await revokeGroupGrant(connection.db, workspace.id, channelId, owner, {
       grantId: 'gra_owner',
@@ -886,5 +910,98 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     expect(away.turn.addressedLabel).toBe(`${other.workspace.id}:${echoAway.id}`)
     expect(home.turn.workspaceId).toBe(workspace.id)
     expect(away.turn.workspaceId).toBe(workspace.id)
+  })
+
+  T('parked lead swap cannot launch the other agent', async () => {
+    // The addressed Agent is enforced inside the canonical admission
+    // transaction: a swap that commits while dispatch is parked denies at
+    // the pre-check, and the admission itself would deny all the same —
+    // neither agent launches anything.
+    const f = await groupWithAgent()
+    const other = await createAgent(connection.db, f.workspace.id, f.owner, {
+      name: 'Other',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    let release!: () => void
+    let markParked!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const parkedPromise = new Promise<void>((resolve) => {
+      markParked = resolve
+    })
+    const dispatching = dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      barrier: {
+        beforeDispatchDecision: async () => {
+          markParked()
+          await gate
+        },
+      },
+      now: NOW,
+    })
+    await parkedPromise
+    // Swap the lead while dispatch is parked.
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: false })
+      .where(eq(schema.agents.id, f.agent.id))
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, other.id))
+    release()
+    await expect(dispatching).rejects.toMatchObject({
+      name: 'AddressedTurnError',
+      reason: 'turn_not_lead',
+    })
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intents).toHaveLength(0)
+  })
+
+  T('admission enforces the expected agent inside its own transaction', async () => {
+    // Direct proof of the in-transaction enforcement: even with a live
+    // claim and an effective principal, an expected id that is not the
+    // resolved lead denies inside lockAuthority — no intent, no message.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const messagesBefore = await connection.db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.workspaceId, f.workspace.id),
+          eq(schema.messages.channelId, f.channelId)
+        )
+      )
+    await expect(
+      admitAddressedLeadTurn(connection.db, f.workspace.id, f.channelId, f.owner, {
+        expectedAgentId: crypto.randomUUID(),
+        triggerMessageId: f.triggerMessageId,
+      })
+    ).rejects.toThrow('Lead turn unavailable')
+    const messagesAfter = await connection.db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(
+        and(
+          eq(schema.messages.workspaceId, f.workspace.id),
+          eq(schema.messages.channelId, f.channelId)
+        )
+      )
+    expect(messagesAfter.map((row) => row.id).toSorted()).toEqual(
+      messagesBefore.map((row) => row.id).toSorted()
+    )
   })
 })
