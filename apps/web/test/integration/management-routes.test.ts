@@ -13,7 +13,7 @@
 // current-authority client over loopback HTTP), and the real database. The
 // only injected seam is the host current-authority mapping (the route's
 // documented port), pointed at a loopback CP route contract.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { eq, inArray } from 'drizzle-orm'
 
 import {
@@ -26,6 +26,8 @@ import {
   completeManagementAuthorityDecision,
   createDatabase,
   createProject,
+  createUserWithAuthIdentity,
+  desktopSessions,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
   getProjectForUser,
@@ -57,6 +59,16 @@ const CANONICAL_REQUEST = {
   toolCallId: 'tlc_01JABCDEF0123456789ABCDEFG',
 }
 
+// `workspace-principal` reaches the real principal resolution through
+// `@tanstack/solid-start/server`, whose module scope needs the bundler's solid
+// aliasing; stub only its request helpers so the genuine desktop
+// authentication path (guard, desktop session, database lookup) can run under
+// bun. The Neon session branch still fails closed on the stub.
+mock.module('@tanstack/solid-start/server', () => ({
+  getRequest: () => undefined,
+  setCookie: () => undefined,
+}))
+
 const now = Date.parse('2026-10-09T12:00:00.000Z')
 const issuer = 'https://cp-fixture.invalid'
 const keyId = 'route-flow-management-key'
@@ -75,12 +87,15 @@ describe('management human and lead routes (#1215)', () => {
   let clientModule: typeof import('../../src/server/management-authority-current')
   let scopeModule: typeof import('../../src/server/request-scope')
   let typesModule: typeof import('@adea-ai/types/management')
+  let desktopAuthModule: typeof import('../../src/server/desktop-auth')
+  let projectRequestModule: typeof import('../../src/server/project-management-request')
   let cpServer: ReturnType<typeof Bun.serve>
 
   const workspaceIds: string[] = []
   const userIds: string[] = []
   const cpSeen: Array<{ boundary: string; request: unknown }> = []
-  let cpMode: 'ok' | 'revoked' = 'ok'
+  /** Which boundary the loopback CP contract refuses; null accepts every call. */
+  let cpDeniedBoundary: 'admission' | 'effect' | 'all' | null = null
   let owner: UserPrincipalRef
   let workspaceA = ''
   let workspaceB = ''
@@ -92,11 +107,10 @@ describe('management human and lead routes (#1215)', () => {
       fetch: async (incoming) => {
         const body = (await incoming.json()) as Record<string, unknown>
         const parameters = (body.parameters ?? {}) as Record<string, unknown>
-        cpSeen.push({
-          boundary: String(parameters.boundary ?? ''),
-          request: parameters.request,
-        })
-        if (cpMode === 'revoked') return new Response('{"code":"NOPE"}', { status: 503 })
+        const boundary = String(parameters.boundary ?? '')
+        cpSeen.push({ boundary, request: parameters.request })
+        if (cpDeniedBoundary === 'all' || cpDeniedBoundary === boundary)
+          return new Response('{"code":"NOPE"}', { status: 503 })
         return Response.json({ asserted: true })
       },
       port: 0,
@@ -108,13 +122,18 @@ describe('management human and lead routes (#1215)', () => {
     clientModule = await import('../../src/server/management-authority-current')
     scopeModule = await import('../../src/server/request-scope')
     typesModule = await import('@adea-ai/types/management')
+    desktopAuthModule = await import('../../src/server/desktop-auth')
+    // The route module wraps this handler in its router/request-scope boundary;
+    // the handler is the genuine wrapper (guard, desktop principal resolution,
+    // body parsing, shared management composition).
+    projectRequestModule = await import('../../src/server/project-management-request')
 
     connection = createDatabase(connectionUrl)
-    const ownerSession = await createTemporaryUserSession(connection.db, {
-      credentialDigest: `management-routes-owner-${crypto.randomUUID()}`,
-      expiresAt: new Date(now + 3_600_000),
+    // Desktop session resolution requires a non-temporary user.
+    owner = await createUserWithAuthIdentity(connection.db, {
+      identity: { provider: 'route-flow', subject: `owner-${crypto.randomUUID()}` },
+      profile: { displayName: 'Route owner' },
     })
-    owner = ownerSession.principal
     userIds.push(owner.userId)
     const createdA = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: `management-routes-a-${crypto.randomUUID()}`,
@@ -172,6 +191,7 @@ describe('management human and lead routes (#1215)', () => {
       await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
     }
     for (const userId of userIds) {
+      await db.delete(desktopSessions).where(eq(desktopSessions.userId, userId))
       await db.delete(temporaryUserSessions).where(eq(temporaryUserSessions.userId, userId))
       await db.delete(users).where(eq(users.id, userId))
     }
@@ -317,6 +337,102 @@ describe('management human and lead routes (#1215)', () => {
     // the shared executor effect above is the human-lane proof.
   })
 
+  test('the genuine human PATCH route authenticates a desktop session and executes', async () => {
+    const project = await createProject(connection.db, workspaceA, owner, {
+      iconKey: 'box',
+      name: 'Route before',
+    })
+
+    // Mint a real desktop session for the owner; the route resolves it through
+    // the ordinary desktop authentication path (trusted origin, Desktop
+    // credential, session header).
+    const session = await scopeModule.withRequestScope(() =>
+      desktopAuthModule.desktopSessionService().issue({
+        email: 'owner@example.test',
+        providerExpiresAt: Date.now() + 3_600_000,
+        providerSessionId: 'provider-session-route',
+        userId: owner.userId,
+      })
+    )
+    const routeRequest = (
+      body: unknown,
+      auth?: Readonly<{ credential: string; sessionId: string }>
+    ) =>
+      new Request(
+        `https://adea-fixture.invalid/api/v1/workspaces/${workspaceA}/projects/${project.id}`,
+        {
+          body: JSON.stringify(body),
+          headers: {
+            ...(auth
+              ? {
+                  authorization: `Desktop ${auth.credential}`,
+                  'x-adea-desktop-session': auth.sessionId,
+                }
+              : {}),
+            'content-type': 'application/json',
+            origin: 'http://127.0.0.1:1420',
+            'x-adea-client': 'desktop',
+          },
+          method: 'PATCH',
+        }
+      )
+    const params = Promise.resolve({ projectId: project.id, workspaceId: workspaceA })
+    const response = await scopeModule.withRequestScope(() =>
+      projectRequestModule.updateProjectRequest(
+        routeRequest(
+          { name: 'Route renamed' },
+          { credential: session.credential, sessionId: session.sessionId }
+        ),
+        { params }
+      )
+    )
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as { project: { name: string; version: number } }
+    expect(payload.project).toMatchObject({ name: 'Route renamed', version: project.version + 1 })
+    const after = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+    expect(after?.name).toBe('Route renamed')
+    expect(after?.version).toBe(project.version + 1)
+
+    // The ordinary request boundary still refuses an unauthenticated PATCH.
+    const unauthenticated = await scopeModule.withRequestScope(() =>
+      projectRequestModule.updateProjectRequest(routeRequest({ name: 'Anonymous rename' }), {
+        params,
+      })
+    )
+    expect(unauthenticated.status).toBe(401)
+    const unchanged = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+    expect(unchanged?.name).toBe('Route renamed')
+    expect(unchanged?.version).toBe(project.version + 1)
+
+    // A desktop session without workspace membership is refused by the shared
+    // authorization inside the route, with zero effect.
+    const outsider = await createUserWithAuthIdentity(connection.db, {
+      identity: { provider: 'route-flow', subject: `outsider-${crypto.randomUUID()}` },
+    })
+    userIds.push(outsider.userId)
+    const outsiderSession = await scopeModule.withRequestScope(() =>
+      desktopAuthModule.desktopSessionService().issue({
+        email: 'outsider@example.test',
+        providerExpiresAt: Date.now() + 3_600_000,
+        providerSessionId: 'provider-session-outsider',
+        userId: outsider.userId,
+      })
+    )
+    const forbidden = await scopeModule.withRequestScope(() =>
+      projectRequestModule.updateProjectRequest(
+        routeRequest(
+          { name: 'Outsider route rename' },
+          { credential: outsiderSession.credential, sessionId: outsiderSession.sessionId }
+        ),
+        { params }
+      )
+    )
+    expect(forbidden.status).toBe(404)
+    const stillUnchanged = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+    expect(stillUnchanged?.name).toBe('Route renamed')
+    expect(stillUnchanged?.version).toBe(project.version + 1)
+  })
+
   test('the durable lead boundary asserts current authority and applies one effect', async () => {
     const project = await createProject(connection.db, workspaceA, owner, {
       iconKey: 'box',
@@ -327,7 +443,7 @@ describe('management human and lead routes (#1215)', () => {
     const decisionId = `decision-${crypto.randomUUID()}`
     const token = await signedDecision(binding, decisionId)
     cpSeen.length = 0
-    cpMode = 'ok'
+    cpDeniedBoundary = null
     const response = await scopeModule.withRequestScope(() =>
       handler()(requestFor(input, binding, token))
     )
@@ -433,25 +549,65 @@ describe('management human and lead routes (#1215)', () => {
     expect(after?.version).toBe(project.version + 1)
   })
 
-  test('a revoked current authority refuses before any effect', async () => {
+  test('a revocation between admission and effect refuses with zero effect', async () => {
     const project = await createProject(connection.db, workspaceA, owner, {
       iconKey: 'box',
-      name: 'Revocation before',
+      name: 'Effect revocation before',
     })
-    const input = { name: 'Revoked rename' }
+    const input = { name: 'Effect revocation rename' }
     const binding = await bindingFor(input, project.id, workspaceA)
-    const token = await signedDecision(binding, `decision-${crypto.randomUUID()}`)
+    const decisionId = `decision-${crypto.randomUUID()}`
+    const token = await signedDecision(binding, decisionId)
+    // Admission succeeds; only the effect boundary is revoked. This is the
+    // revocation window the earlier all-or-nothing fixture could not prove.
     cpSeen.length = 0
-    cpMode = 'revoked'
+    cpDeniedBoundary = 'effect'
     const response = await scopeModule.withRequestScope(() =>
       handler()(requestFor(input, binding, token))
     )
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ reason: 'authority_unavailable' })
+    // Both calls carry the original canonical request, and the refused delivery
+    // leaves the project name and revision untouched.
+    expect(cpSeen).toEqual([
+      { boundary: 'admission', request: CANONICAL_REQUEST },
+      { boundary: 'effect', request: CANONICAL_REQUEST },
+    ])
+    const unchanged = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+    expect(unchanged?.name).toBe('Effect revocation before')
+    expect(unchanged?.version).toBe(project.version)
+    // The refused delivery consumed the decision as failed, never a success.
+    expect(
+      await claimManagementAuthorityDecision(connection.db, {
+        actionDigest: binding.actionDigest,
+        authorityRef: `credential-${decisionId}`,
+        authorityRevision: 7,
+        decisionId,
+        inputDigest: binding.inputDigest,
+        operation: binding.operation,
+        targetDigest: binding.targetDigest,
+        targetId: binding.targetId,
+        workspaceId: binding.workspaceId,
+      })
+    ).toEqual({ priorState: 'failed', state: 'recovery_required' })
+
+    // A revocation before admission still refuses after the admission call
+    // alone, with the same original canonical request and zero effect.
+    const admissionInput = { name: 'Admission revocation rename' }
+    const admissionBinding = await bindingFor(admissionInput, project.id, workspaceA)
+    const admissionToken = await signedDecision(admissionBinding, `decision-${crypto.randomUUID()}`)
+    cpSeen.length = 0
+    cpDeniedBoundary = 'all'
+    const admissionResponse = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(admissionInput, admissionBinding, admissionToken))
+    )
+    expect(admissionResponse.status).toBe(403)
+    expect(await admissionResponse.json()).toMatchObject({ reason: 'authority_unavailable' })
     expect(cpSeen).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
-    const after = await getProjectForUser(connection.db, workspaceA, project.id, owner)
-    expect(after?.name).toBe('Revocation before')
-    cpMode = 'ok'
+    const stillUnchanged = await getProjectForUser(connection.db, workspaceA, project.id, owner)
+    expect(stillUnchanged?.name).toBe('Effect revocation before')
+    expect(stillUnchanged?.version).toBe(project.version)
+    cpDeniedBoundary = null
   })
 
   test('human and lead paths apply the same operation through the shared executor', async () => {
