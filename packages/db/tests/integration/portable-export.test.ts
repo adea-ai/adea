@@ -1015,7 +1015,10 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     const publication = owner.content.messages.find(
       (message) => message.body.kind === 'text' && message.body.text === 'Publication body text'
     )
-    expect(publication?.sender).toEqual({ kind: 'system', systemId: 'system' })
+    // #1237 gates job publications on a real publication record. This raw row has none, so the
+    // canonical reader withholds it and the export carries no such message. The system-label
+    // mapping is proven on a real publication in portable-export-withheld-publication.test.ts.
+    expect(publication).toBeUndefined()
   })
 
   test('refuses a workspace above the portable bound instead of truncating it', async () => {
