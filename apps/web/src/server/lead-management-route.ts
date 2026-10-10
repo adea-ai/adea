@@ -196,6 +196,29 @@ export function parseLeadManagementCall(
         workspaceId,
       }
     }
+    case 'project.promote': {
+      // Explicit confirmation is part of the signed exact-call binding: a
+      // missing or false confirmation, a non-positive/non-integer revision or
+      // any extra field is refused before authorization, the durable claim or
+      // the executor. `projectId` is the target UUID.
+      if (!uuid(targetId) || !exactKeys(input, ['confirmed', 'expectedVersion'])) return null
+      if (input.confirmed !== true) return null
+      const expectedVersion = input.expectedVersion
+      if (
+        typeof expectedVersion !== 'number' ||
+        !Number.isSafeInteger(expectedVersion) ||
+        expectedVersion < 1
+      )
+        return null
+      return {
+        authority,
+        confirmed: true,
+        expectedVersion,
+        operation,
+        projectId: targetId,
+        workspaceId,
+      }
+    }
     case 'project.archive':
     case 'project.delete':
       if (!uuid(targetId) || !exactKeys(input, [])) return null

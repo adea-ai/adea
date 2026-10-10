@@ -79,6 +79,14 @@ function harness(
       calls.push({ binding, method: 'projectMemberSet' })
       return (options.operationOutcome ?? success({})) as never
     },
+    projectPromote: async (_input, binding) => {
+      calls.push({ binding, method: 'projectPromote' })
+      return (options.operationOutcome ?? {
+        ok: true,
+        operation: 'project.promote',
+        value: { id: MANAGEMENT_PROJECT },
+      }) as never
+    },
     projectReorder: async (_input, binding) => {
       calls.push({ binding, method: 'projectReorder' })
       return (options.operationOutcome ?? success([])) as never
@@ -151,12 +159,33 @@ const updateCall = {
   workspaceId: MANAGEMENT_WORKSPACE,
 }
 
+const promoteCall = {
+  canonicalRequest: CANONICAL_REQUEST,
+  input: { confirmed: true, expectedVersion: 3 },
+  operation: 'project.promote',
+  schemaVersion: 'adea-management-call/v1',
+  targetId: MANAGEMENT_PROJECT,
+  workspaceId: MANAGEMENT_WORKSPACE,
+}
+
 async function updateDecision(overrides: { input?: unknown; workspaceId?: string } = {}) {
   return managementAuthorityDecision({
     input: overrides.input ?? { name: 'Renamed' },
     operation: 'project.update',
     principal: ACTOR,
     targetId: MANAGEMENT_PROJECT,
+    workspaceId: overrides.workspaceId ?? MANAGEMENT_WORKSPACE,
+  })
+}
+
+async function promoteDecision(
+  overrides: { input?: unknown; targetId?: string | null; workspaceId?: string } = {}
+) {
+  return managementAuthorityDecision({
+    input: overrides.input ?? { confirmed: true, expectedVersion: 3 },
+    operation: 'project.promote',
+    principal: ACTOR,
+    targetId: overrides.targetId ?? MANAGEMENT_PROJECT,
     workspaceId: overrides.workspaceId ?? MANAGEMENT_WORKSPACE,
   })
 }
@@ -374,6 +403,66 @@ describe('lead management host endpoint (#1215)', () => {
     expect(verified).toBeGreaterThanOrEqual(0)
     expect(run.calls).toEqual([])
   })
+
+  test('a valid signed/bound promotion reaches the promotion executor', async () => {
+    const decision = await promoteDecision()
+    const run = harness({ decision })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(promoteCall))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      operation: 'project.promote',
+      schemaVersion: 'adea-management-result/v1',
+      value: { id: MANAGEMENT_PROJECT },
+    })
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'projectPromote' }])
+    expect(run.callers).toEqual([
+      {
+        canonicalRequest: CANONICAL_REQUEST,
+        decision,
+        kind: 'lead',
+        reference: {
+          authorityRef: decision.authorityRef,
+          intentId: decision.intentId,
+          leadAgentId: decision.leadAgentId,
+        },
+      },
+    ])
+  })
+
+  test('missing/false confirmation, invalid revision and extra fields cannot promote', async () => {
+    const invalidInputs = [
+      { expectedVersion: 3 },
+      { confirmed: false, expectedVersion: 3 },
+      { confirmed: true, expectedVersion: 0 },
+      { confirmed: true, expectedVersion: -1 },
+      { confirmed: true, expectedVersion: 1.5 },
+      { confirmed: true, expectedVersion: '3' },
+      { confirmed: true, expectedVersion: 3, extra: true },
+    ]
+    for (const input of invalidInputs) {
+      const decision = await promoteDecision({ input })
+      const run = harness({ decision })
+      const response = await createLeadManagementHandler(run.dependencies)(
+        callRequest({ ...promoteCall, input })
+      )
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ code: 'LEAD_MANAGEMENT_UNAVAILABLE' })
+      expect(run.calls).toEqual([])
+    }
+  })
+
+  test('a promotion decision bound to another revision cannot execute', async () => {
+    const decision = await promoteDecision({ input: { confirmed: true, expectedVersion: 4 } })
+    const run = harness({ decision })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(promoteCall))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation: 'project.promote',
+      reason: 'authority_binding_mismatch',
+    })
+    expect(run.calls).toEqual([])
+  })
 })
 
 test('a canonical request that does not match the signed digest performs zero operations', async () => {
@@ -430,6 +519,16 @@ describe('lead management call parsing (#1215)', () => {
       role: 'editor',
       userId: '0f3a2e1c-0000-4000-8000-0000000000cc',
     })
+
+    const promote = parseLeadManagementCall(promoteCall, AUTHORITY)
+    expect(promote).toMatchObject({
+      authority: AUTHORITY,
+      confirmed: true,
+      expectedVersion: 3,
+      operation: 'project.promote',
+      projectId: MANAGEMENT_PROJECT,
+      workspaceId: MANAGEMENT_WORKSPACE,
+    })
   })
 
   test('rejects unknown keys, wrong targets and malformed inputs', () => {
@@ -472,6 +571,13 @@ describe('lead management call parsing (#1215)', () => {
         targetId: null,
         workspaceId: MANAGEMENT_WORKSPACE,
       },
+      { ...promoteCall, input: { expectedVersion: 3 } },
+      { ...promoteCall, input: { confirmed: false, expectedVersion: 3 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 0 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 1.5 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 3, extra: true } },
+      { ...promoteCall, targetId: 'not-a-uuid' },
+      { ...promoteCall, targetId: null },
     ])
       expect(parseLeadManagementCall(body, AUTHORITY)).toBeNull()
   })

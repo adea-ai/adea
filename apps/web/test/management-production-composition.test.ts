@@ -91,7 +91,11 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     return `${header}.${payload}.${base64url(new Uint8Array(signature))}`
   }
 
-  function requestFor(input: { name: string }, binding: { [key: string]: unknown }, token: string) {
+  function requestFor(
+    input: Record<string, unknown>,
+    binding: { [key: string]: unknown },
+    token: string
+  ) {
     return new Request('https://adea-fixture.invalid/api/internal/pi-durable/management', {
       body: JSON.stringify({
         canonicalRequest: CANONICAL_REQUEST,
@@ -353,5 +357,102 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       principal
     )
     expect(project?.name).toBe('Composed rename')
+  })
+
+  test('a signed exact-call promotion reaches the real promotion executor', async () => {
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Composed promotion',
+    })
+    await dbModule.archiveProject(connection.db, workspaceId, created.id, principal)
+    const archived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    if (!archived) throw new Error('unreachable')
+    const exact = { confirmed: true, expectedVersion: archived.version }
+    const binding = await typesModule.managementCallBinding({
+      input: exact,
+      operation: 'project.promote',
+      targetId: created.id,
+      workspaceId,
+    })
+    if (!binding) throw new Error('unreachable')
+    cpSeen.length = 0
+    cpMode = 'ok'
+
+    // Signed but non-executing shapes: missing/false confirmation, invalid
+    // revision, extra fields and a decision bound to another revision. None
+    // may reach the executor or change the archived project.
+    const refused = [
+      {
+        body: { expectedVersion: archived.version },
+        signed: { expectedVersion: archived.version },
+        status: 404,
+      },
+      {
+        body: { confirmed: false, expectedVersion: archived.version },
+        signed: { confirmed: false, expectedVersion: archived.version },
+        status: 404,
+      },
+      {
+        body: { confirmed: true, expectedVersion: 0 },
+        signed: { confirmed: true, expectedVersion: 0 },
+        status: 404,
+      },
+      {
+        body: { confirmed: true, expectedVersion: archived.version, extra: true },
+        signed: { confirmed: true, expectedVersion: archived.version, extra: true },
+        status: 404,
+      },
+      {
+        body: exact,
+        signed: { confirmed: true, expectedVersion: archived.version + 1 },
+        status: 403,
+      },
+    ] as const
+    for (const entry of refused) {
+      const signedBinding = await typesModule.managementCallBinding({
+        input: entry.signed,
+        operation: 'project.promote',
+        targetId: created.id,
+        workspaceId,
+      })
+      if (!signedBinding) throw new Error('unreachable')
+      const token = await signedDecision(signedBinding, `decision-${crypto.randomUUID()}`)
+      const response = await scopeModule.withRequestScope(() =>
+        handler()(requestFor(entry.body, signedBinding, token))
+      )
+      expect(response.status).toBe(entry.status)
+      const unchanged = await dbModule.getProjectForUser(
+        connection.db,
+        workspaceId,
+        created.id,
+        principal,
+        { includeArchived: true }
+      )
+      expect(unchanged?.lifecycleState).toBe('archived')
+    }
+    expect(cpSeen).toEqual([])
+
+    const token = await signedDecision(binding, `decision-${crypto.randomUUID()}`)
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, binding, token))
+    )
+    expect(response.status).toBe(200)
+    const promoted = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(promoted?.lifecycleState).toBe('active')
+    expect(cpSeen).toEqual([
+      { boundary: 'admission', request: CANONICAL_REQUEST },
+      { boundary: 'effect', request: CANONICAL_REQUEST },
+    ])
   })
 })
