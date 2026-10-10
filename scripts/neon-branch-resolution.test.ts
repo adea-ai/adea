@@ -264,14 +264,14 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'wrong-prefix', name: `${SHARD_1}-old` },
             { id: 'wrong-case', name: SHARD_1.toUpperCase() },
             { id: 'wrong-trailing', name: `${SHARD_1} ` },
-            { id: 'right', name: SHARD_1 },
+            { id: 'br-right', name: SHARD_1 },
           ],
           pagination: { next: null },
         },
       },
     ])
     expect(result.status).toBe(0)
-    expect(outputOf(result)).toEqual({ legacy: '', shard_1: 'right', shard_2: '' })
+    expect(outputOf(result)).toEqual({ legacy: '', shard_1: 'br-right', shard_2: '' })
   })
 
   test('two different branches with the same requested name fail the job as ambiguous', () => {
@@ -317,5 +317,69 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
     expect(url.origin).toBe('https://console.neon.tech')
     expect(url.pathname).toBe(`/api/v2/projects/${PROJECT}/branches`)
     expect(url.search).toBe('')
+  })
+
+  test.each([
+    ['a number', 7],
+    ['an empty array', []],
+    ['a non-empty array', [{ next: null }]],
+    ['null', null],
+    ['a string', 'cursor-2'],
+  ])(
+    'pagination that is %s is malformed and fails the job, never completing the scan',
+    (_label, pagination) => {
+      const result = run([{ body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination } }])
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain('malformed pagination')
+      expect(result.output).toBe('')
+    }
+  )
+
+  test('pagination without a next field fails the job rather than ending the scan', () => {
+    const result = run([{ body: { branches: [], pagination: {} } }])
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('without a next field')
+    expect(result.output).toBe('')
+  })
+
+  test('an empty-string cursor fails the job', () => {
+    const result = run([{ body: { branches: [], pagination: { next: '' } } }])
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('malformed cursor')
+    expect(result.output).toBe('')
+  })
+
+  test.each([
+    ['a newline', 'br-legacy\n'],
+    ['a shell command substitution', 'br-$(id)'],
+    ['a semicolon', 'br-x;rm'],
+    ['a space', 'br-a b'],
+    ['an uppercase letter', 'br-Legacy'],
+    ['a missing br- prefix', 'legacy-branch'],
+    ['a bare prefix', 'br-'],
+    ['a trailing hyphen', 'br-x-'],
+    ['a double hyphen', 'br--x'],
+    ['an overlong id', `br-${'a'.repeat(130)}`],
+  ])('a requested branch whose id is %s is refused before anything is written', (_label, id) => {
+    const result = run([{ body: { branches: [{ id, name: LEGACY }], pagination: { next: null } } }])
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('malformed id')
+    expect(result.output).toBe('')
+  })
+
+  test('an unsafe id on an unrelated branch is ignored, because it is never written', () => {
+    const result = run([
+      {
+        body: {
+          branches: [
+            { id: 'not safe; rm -rf /', name: 'unrelated' },
+            { id: 'br-legacy', name: LEGACY },
+          ],
+          pagination: { next: null },
+        },
+      },
+    ])
+    expect(result.status).toBe(0)
+    expect(outputOf(result).legacy).toBe('br-legacy')
   })
 })
