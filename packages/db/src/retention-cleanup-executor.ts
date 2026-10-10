@@ -36,7 +36,10 @@ export type RetentionCleanupStoreOutcome = 'completed' | 'failed' | 'unreachable
 /**
  * One store for one coverage kind. Both methods run inside the gate transaction,
  * with the subject lock held. An implementation must act only on the given
- * subject, and must not report completion it did not perform.
+ * subject, and must not report completion it did not perform. The executor checks
+ * the generation before each call and before each completion claim. A call already
+ * in flight when expiry passes still finishes; its result is recorded as it is, and
+ * nothing after it is claimed or called.
  */
 export type RetentionCleanupStorePort = Readonly<{
   coverage: CleanupCoverageKind
@@ -59,11 +62,38 @@ export type RetentionReceiptDraft = Readonly<{
   subjectId: string
 }>
 
+export type RetentionCleanupHaltReason =
+  | 'authorization_not_current'
+  | 'store_not_completed'
+  | 'store_result_invalid'
+  | 'residual_invalid'
+  | 'residual_remaining'
+
+/**
+ * Why the executor stopped before every store was verified. Stores after `coverage`
+ * were not called. Nothing is claimed for `coverage` beyond the drafts already made.
+ */
+export type RetentionCleanupHalt = Readonly<{
+  coverage: CleanupCoverageKind
+  reason: RetentionCleanupHaltReason
+}>
+
 export type RetentionCleanupExecution = Readonly<{
   decision: RetentionDecision
   drafts: readonly RetentionReceiptDraft[]
+  halt: RetentionCleanupHalt | null
   status: 'executed' | 'skipped'
 }>
+
+/** A store result outside the declared outcomes is not a completion and is not a receipt. */
+function isStoreOutcome(value: unknown): value is RetentionCleanupStoreOutcome {
+  return value === 'completed' || value === 'failed' || value === 'unreachable'
+}
+
+/** A residual count is a safe, non-negative integer. Anything else proves nothing. */
+function isResidualCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+}
 
 async function databaseClockMs(transaction: AgentHqTransaction | AgentHqDatabase): Promise<number> {
   const rows = await transaction.execute(
@@ -137,25 +167,53 @@ export async function runRetentionCleanupExecutor(
     },
     async (decision, context): Promise<RetentionCleanupExecution> => {
       if (decision.outcome !== 'cleanup_ready' || !context.authorization)
-        return { decision, drafts: [], status: 'skipped' }
+        return { decision, drafts: [], halt: null, status: 'skipped' }
       const requestId = context.authorization.id
       const drafts: RetentionReceiptDraft[] = []
+      let halt: RetentionCleanupHalt | null = null
       for (const coverage of rule.requiredCoverage) {
         const store = storeFor.get(coverage)!
+        // Fail closed: a store is called only while this generation is current on the
+        // database clock. Earlier stores may have run long enough for expiry to pass.
+        if (!(await context.isAuthorizationCurrent())) {
+          halt = { coverage, reason: 'authorization_not_current' }
+          break
+        }
         const deletedMs = await databaseClockMs(context.transaction)
-        const outcome = await store.deleteSubject(context.transaction, subject)
+        const outcome: unknown = await store.deleteSubject(context.transaction, subject)
+        // An unrecognised result is unknown, not a failure report. It gets no receipt.
+        if (!isStoreOutcome(outcome)) {
+          halt = { coverage, reason: 'store_result_invalid' }
+          break
+        }
         drafts.push(draft(subject, requestId, coverage, 'delete', outcome, deletedMs, 0))
         // Fail closed: stop at the first store that did not complete, so later stores keep their data.
-        if (outcome !== 'completed') break
+        if (outcome !== 'completed') {
+          halt = { coverage, reason: 'store_not_completed' }
+          break
+        }
         // Read-back runs after the delete, strictly later in the receipt timeline.
         const readMs = Math.max(await databaseClockMs(context.transaction), deletedMs + 1)
-        const residual = await store.residualCount(context.transaction, subject)
+        const residual: unknown = await store.residualCount(context.transaction, subject)
+        // Invalid counts are not zero. Stop before any later store, and claim no absence for this one.
+        if (!isResidualCount(residual)) {
+          halt = { coverage, reason: 'residual_invalid' }
+          break
+        }
+        // Completion is claimed only if the generation is still current after the read-back.
+        if (!(await context.isAuthorizationCurrent())) {
+          halt = { coverage, reason: 'authorization_not_current' }
+          break
+        }
         drafts.push(
           draft(subject, requestId, coverage, 'read_check', 'completed', readMs, residual)
         )
-        if (residual > 0) break
+        if (residual > 0) {
+          halt = { coverage, reason: 'residual_remaining' }
+          break
+        }
       }
-      return { decision, drafts, status: 'executed' }
+      return { decision, drafts, halt, status: 'executed' }
     }
   )
 

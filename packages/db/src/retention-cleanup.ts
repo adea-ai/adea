@@ -635,6 +635,14 @@ export type RetentionGateInput = Readonly<{
  */
 export type RetentionGateContext = Readonly<{
   authorization: Readonly<{ expiresAt: string; grantedAt: string; id: string }> | null
+  /**
+   * Whether the generation this decision was made under is still current, judged on
+   * the database clock inside the held subject lock. False after expiry, after
+   * revocation, or when no generation was current. Resolves false rather than
+   * throwing, so a caller can stop without rolling back work it already committed
+   * to the transaction.
+   */
+  isAuthorizationCurrent(): Promise<boolean>
   now: string
   transaction: AgentHqTransaction
 }>
@@ -756,6 +764,20 @@ export async function withRetentionDeletionGate<T>(
       if (error instanceof RetentionPolicyError) reject('invalid_input')
       throw error
     }
+    const generationId = authority?.id ?? null
+    const isAuthorizationCurrent = async (): Promise<boolean> => {
+      if (generationId === null) return false
+      // The subject lock is held, so no revocation or regrant can commit between this
+      // read and the caller's next statement. Expiry is judged at this read's instant.
+      const live = await liveAuthorization(
+        transaction,
+        input.workspaceId,
+        input.category,
+        input.subjectId
+      )
+      if (!live || live.id !== generationId) return false
+      return live.expiresAt.getTime() > (await databaseNowMs(transaction))
+    }
     return callback(decision, {
       authorization: authority
         ? Object.freeze({
@@ -764,6 +786,7 @@ export async function withRetentionDeletionGate<T>(
             id: authority.id,
           })
         : null,
+      isAuthorizationCurrent,
       now,
       transaction,
     })

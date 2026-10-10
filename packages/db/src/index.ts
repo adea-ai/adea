@@ -41,6 +41,8 @@ export {
 export {
   runRetentionCleanupExecutor,
   type RetentionCleanupExecution,
+  type RetentionCleanupHalt,
+  type RetentionCleanupHaltReason,
   type RetentionCleanupStorePort,
   type RetentionCleanupStoreOutcome,
   type RetentionCleanupSubject,

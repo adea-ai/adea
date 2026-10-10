@@ -146,10 +146,24 @@ database clock has passed its observation.
 
 - Each required coverage kind is a `RetentionCleanupStorePort` (delete and
   residual count). The executor fails before the gate if a port is missing.
+- The generation is checked on the database clock before each store call, and
+  again after the read-back and before a completion is claimed. Expiry, revocation,
+  or a different live generation halts the run with `authorization_not_current`.
+- A store result outside `completed`, `failed`, `unreachable` is unknown. It gets
+  no receipt, and the run halts with `store_result_invalid`.
+- A residual that is not a safe, non-negative integer halts the run with
+  `residual_invalid`. No read-back receipt is made, so no absence is claimed.
 - A store that does not complete stops the run, so later stores keep their data.
-  A residual after read-back stops it as well.
+  A residual above zero after read-back stops it as well.
+- The result carries `halt` (coverage and reason) or `null`. Stores after the
+  halt are never called.
 - The delete observation precedes its own deletion. The read-back observation is
   strictly later, which is what the gate's ordering requires.
+- A store call that is already in flight when expiry passes still finishes. Its
+  delete is recorded as what it was, and nothing after it is claimed. The executor
+  cannot stop a call it has already made. Whether that residual is acceptable, or
+  whether stores must check the generation inside their own statements, is a
+  decision for root.
 - Holds, revocations, reference registrations, and reconciliation changes for the
   subject block on the gate's lock and serialize against the commit.
 

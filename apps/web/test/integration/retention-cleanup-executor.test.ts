@@ -7,7 +7,7 @@
 // replicas live in a schema this file creates and drops. No production data,
 // no chosen period (the fixture period is test-only), no scheduler.
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { eq, sql } from 'drizzle-orm'
 
 import {
@@ -36,7 +36,9 @@ import {
   workspaceMemberships,
   workspaces,
   type AgentHqDatabase,
+  type AgentHqTransaction,
   type DatabaseConnection,
+  type RetentionCleanupStoreOutcome,
   type RetentionCleanupStorePort,
   type RetentionReceiptDraft,
 } from '@adea-ai/db'
@@ -66,6 +68,39 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Every pause opened by a test. A failed proof releases them, so no store call outlives its test. */
+const heldPauses: Array<() => void> = []
+
+type PausePoint = Readonly<{
+  at: 'delete' | 'residual'
+  entered(holderPid: number): void
+  release: Promise<void>
+}>
+
+/**
+ * Holds one store call open at a chosen point. `reached` resolves with the executor's
+ * backend pid once the call is in flight, so a test can find what queues behind it.
+ */
+function pausePoint(at: 'delete' | 'residual' = 'delete') {
+  let entered!: (holderPid: number) => void
+  const reached = new Promise<number>((resolve) => {
+    entered = resolve
+  })
+  let open!: () => void
+  const gate = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  heldPauses.push(open)
+  const pause: PausePoint = { at, entered, release: gate }
+  return { open, pause, reached }
+}
+
+/** The backend running this transaction. Locks it holds are the ones a racing operation queues behind. */
+async function backendPid(transaction: AgentHqTransaction): Promise<number> {
+  const rows = await transaction.execute(sql`select pg_backend_pid() as pid`)
+  return Number((rows[0] as { pid?: unknown }).pid)
+}
+
 function base64url(bytes: ArrayBuffer): string {
   return Buffer.from(bytes).toString('base64url')
 }
@@ -78,6 +113,10 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
     const schema = `ret_replica_${crypto.randomUUID().replaceAll('-', '')}`
     const workspaceIds: string[] = []
     const userIds: string[] = []
+
+    afterEach(() => {
+      for (const open of heldPauses.splice(0)) open()
+    })
 
     beforeAll(async () => {
       connection = createDatabase(connectionUrl!)
@@ -206,25 +245,34 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       return Number((rows[0] as { n?: unknown }).n)
     }
 
-    /** An owned replica store. Deletes and read-backs are real statements on the disposable table. */
+    /**
+     * An owned replica store. Deletes and read-backs are real statements on the disposable
+     * table. `outcome` and `residual` replace the store's own result with an arbitrary value,
+     * for port-validation proofs. `pause` holds one call open at `at` and reports the
+     * executor's backend pid once the call is in flight.
+     */
     function replicaPort(
       coverage: CleanupCoverageKind,
       table: string,
       options: Readonly<{
-        outcome?: 'completed' | 'failed' | 'unreachable'
-        pause?: Readonly<{ entered(): void; release: Promise<void> }>
+        outcome?: unknown
+        pause?: PausePoint
         reinsertAfterDelete?: boolean
+        residual?: unknown
       }> = {}
     ): RetentionCleanupStorePort {
       const target = sql`${sql.identifier(schema)}.${sql.identifier(table)}`
+      const pauseAt = async (point: 'delete' | 'residual', transaction: AgentHqTransaction) => {
+        if (options.pause?.at !== point) return
+        options.pause.entered(await backendPid(transaction))
+        await options.pause.release
+      }
       return {
         coverage,
         async deleteSubject(transaction, subject) {
-          if (options.pause) {
-            options.pause.entered()
-            await options.pause.release
-          }
-          if (options.outcome && options.outcome !== 'completed') return options.outcome
+          await pauseAt('delete', transaction)
+          if (options.outcome !== undefined && options.outcome !== 'completed')
+            return options.outcome as RetentionCleanupStoreOutcome
           await transaction.execute(
             sql`delete from ${target} where workspace_id = ${subject.workspaceId}::uuid and subject_id = ${subject.subjectId}`
           )
@@ -235,9 +283,11 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
           return 'completed'
         },
         async residualCount(transaction, subject) {
+          await pauseAt('residual', transaction)
           const rows = await transaction.execute(
             sql`select count(*)::int as n from ${target} where workspace_id = ${subject.workspaceId}::uuid and subject_id = ${subject.subjectId}`
           )
+          if (options.residual !== undefined) return options.residual as number
           return Number((rows[0] as { n?: unknown }).n)
         },
       }
@@ -257,12 +307,13 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
     async function grant(
       f: Awaited<ReturnType<typeof fixture>>,
       subjectId: string,
-      category: RetentionCategory = 'messages'
+      category: RetentionCategory = 'messages',
+      expiresAt = new Date(Date.now() + 60 * 60_000).toISOString()
     ) {
       const record = await grantRetentionDeletionAuthorization(connection.db, {
         actor: f.owner,
         category,
-        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        expiresAt,
         subjectId,
         workspaceId: f.workspaceId,
       })
@@ -366,17 +417,38 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       })
     }
 
-    /** Polls until some session in this database waits on a lock: a gate or a write queued behind it. */
-    async function waitForWaiter(): Promise<void> {
+    /**
+     * Polls until the racing operation is queued behind the executor's own backend. A
+     * waiter counts only if the executor's backend blocks it and its statement contains
+     * `statement`, so another session's lock wait cannot satisfy the proof.
+     */
+    async function waitForQueuedOperation(holderPid: number, statement: string): Promise<void> {
       const deadline = Date.now() + 10_000
       while (Date.now() < deadline) {
         const [row] = await connection.db.execute(
-          sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`
+          sql`select count(*)::int as n from pg_stat_activity as waiter
+            where waiter.datname = current_database()
+              and waiter.wait_event_type = 'Lock'
+              and waiter.query ilike ${`%${statement}%`}
+              and ${holderPid}::int = any(pg_blocking_pids(waiter.pid))`
         )
         if (Number((row as { n?: unknown }).n) > 0) return
         await sleep(20)
       }
-      throw new Error('no lock waiter observed')
+      throw new Error(`no "${statement}" queued behind executor backend ${holderPid}`)
+    }
+
+    /** Polls the database clock, the one the gate judges expiry on, until it has passed `iso`. */
+    async function waitForDatabaseClockPast(iso: string): Promise<void> {
+      const deadline = Date.now() + 15_000
+      while (Date.now() < deadline) {
+        const [row] = await connection.db.execute(
+          sql`select (extract(epoch from clock_timestamp()) * 1000)::bigint as ms`
+        )
+        if (Number((row as { ms?: unknown }).ms) > Date.parse(iso)) return
+        await sleep(20)
+      }
+      throw new Error(`database clock did not pass ${iso}`)
     }
 
     test('executes behind the gates: deletes the subject from every replica, reads back absence, and records verified receipts', async () => {
@@ -615,20 +687,13 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
       )
       const record = await grant(f, subject)
-      let entered!: () => void
-      const enteredPromise = new Promise<void>((resolve) => {
-        entered = resolve
-      })
-      let release!: () => void
-      const released = new Promise<void>((resolve) => {
-        release = resolve
-      })
+      const point = pausePoint()
       let revocation!: Promise<'settled' | 'failed'>
       const running = execute(f, subject, {
         beforeSubmit: () => revocation,
-        stores: portsFor('messages', { primary: { pause: { entered, release: released } } }),
+        stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      await enteredPromise
+      const holderPid = await point.reached
       revocation = revokeRetentionDeletionAuthorization(connection.db, {
         actor: f.owner,
         authorizationId: record.id,
@@ -637,8 +702,8 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         () => 'settled' as const,
         () => 'failed' as const
       )
-      await waitForWaiter()
-      release()
+      await waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock')
+      point.open()
       const { responses } = await running
       expect(await revocation).toBe('settled')
       expect(responses.length).toBeGreaterThan(0)
@@ -660,26 +725,19 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
       )
       await grant(f, subject)
-      let entered!: () => void
-      const enteredPromise = new Promise<void>((resolve) => {
-        entered = resolve
-      })
-      let release!: () => void
-      const released = new Promise<void>((resolve) => {
-        release = resolve
-      })
+      const point = pausePoint()
       const running = execute(f, subject, {
-        stores: portsFor('messages', { primary: { pause: { entered, release: released } } }),
+        stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      await enteredPromise
+      const holderPid = await point.reached
       const hold = placeRetentionHold(connection.db, {
         actor: f.owner,
         category: 'messages',
         subjectId: subject,
         workspaceId: f.workspaceId,
       })
-      await waitForWaiter()
-      release()
+      await waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock')
+      point.open()
       await running
       await hold
       expect(await statusOf(f, subject)).toEqual({ outcome: 'refused', reason: 'hold_active' })
@@ -709,19 +767,12 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows']
       )
       await grant(f, artifact.id, 'artifacts')
-      let entered!: () => void
-      const enteredPromise = new Promise<void>((resolve) => {
-        entered = resolve
-      })
-      let release!: () => void
-      const released = new Promise<void>((resolve) => {
-        release = resolve
-      })
+      const point = pausePoint()
       const running = execute(f, artifact.id, {
         category: 'artifacts',
-        stores: portsFor('artifacts', { primary: { pause: { entered, release: released } } }),
+        stores: portsFor('artifacts', { primary: { pause: point.pause } }),
       })
-      await enteredPromise
+      const holderPid = await point.reached
       const registration = registerArtifactReferenceGrant(connection.db, f.workspaceId, f.owner, {
         artifactId: artifact.id,
         audienceWorkspaceId: audience.workspace.id,
@@ -733,14 +784,14 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         () => 'settled' as const,
         () => 'failed' as const
       )
-      await waitForWaiter()
       // The registration is queued behind the gate's artifact lock: it cannot settle until the commit.
+      await waitForQueuedOperation(holderPid, 'for update')
       const early = await Promise.race([
         registration.then(() => 'settled' as const),
         sleep(150).then(() => 'pending' as const),
       ])
       expect(early).toBe('pending')
-      release()
+      point.open()
       await running
       expect(await registration).toBe('settled')
       // The reference now lives, so no verified claim may stand for this subject.
@@ -748,6 +799,137 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         outcome: 'refused',
         reason: 'active_reference_retained',
       })
+    })
+
+    test('authority that expires while the first store call is in flight: the call finishes, no later store runs, and nothing further is claimed', async () => {
+      const f = await fixture('expiry-in-flight')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      const expiresAt = new Date(Date.now() + 4_000).toISOString()
+      await grant(f, subject, 'messages', expiresAt)
+      const point = pausePoint('delete')
+      const running = execute(f, subject, {
+        stores: portsFor('messages', { primary: { pause: point.pause } }),
+      })
+      // The call was reached, so the check before it passed. Expiry then lands while it is held.
+      await point.reached
+      await waitForDatabaseClockPast(expiresAt)
+      point.open()
+      const { execution, responses } = await running
+      expect(execution.halt).toEqual({ coverage: 'primary', reason: 'authorization_not_current' })
+      expect(
+        execution.drafts.map((draft) => [draft.coverage, draft.operation, draft.outcome])
+      ).toEqual([['primary', 'delete', 'completed']])
+      // The in-flight delete is receipted as what it was, and its receipt is refused: the generation has expired.
+      expect(responses.map((response) => response.body.code)).toEqual([
+        'retention_authorization_not_current',
+      ])
+      expect(await rowCount(f.workspaceId, 'primary_rows', subject)).toBe(0)
+      for (const table of ['index_rows', 'cache_rows', 'replica_rows']) {
+        expect(await rowCount(f.workspaceId, table, subject)).toBe(1)
+      }
+      expect(await statusOf(f, subject)).toEqual({
+        outcome: 'refused',
+        reason: 'authorization_not_current',
+      })
+    }, 30_000)
+
+    test('authority that expires during a read-back claims no completion, and no later store runs', async () => {
+      const f = await fixture('expiry-read-back')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      const expiresAt = new Date(Date.now() + 4_000).toISOString()
+      await grant(f, subject, 'messages', expiresAt)
+      const point = pausePoint('residual')
+      const running = execute(f, subject, {
+        stores: portsFor('messages', { primary: { pause: point.pause } }),
+      })
+      await point.reached
+      await waitForDatabaseClockPast(expiresAt)
+      point.open()
+      const { execution, responses } = await running
+      expect(execution.halt).toEqual({ coverage: 'primary', reason: 'authorization_not_current' })
+      // No read_check is drafted: the read-back finished after expiry and proves no completion.
+      expect(
+        execution.drafts.map((draft) => [draft.coverage, draft.operation, draft.outcome])
+      ).toEqual([['primary', 'delete', 'completed']])
+      expect(responses.map((response) => response.body.code)).toEqual([
+        'retention_authorization_not_current',
+      ])
+      for (const table of ['index_rows', 'cache_rows', 'replica_rows']) {
+        expect(await rowCount(f.workspaceId, table, subject)).toBe(1)
+      }
+      expect(await statusOf(f, subject)).toEqual({
+        outcome: 'refused',
+        reason: 'authorization_not_current',
+      })
+    }, 30_000)
+
+    test('an invalid read-back count stops before any later store, and no absence is claimed for that store', async () => {
+      const f = await fixture('invalid-residual')
+      const invalidCounts: unknown[] = [
+        -1,
+        Number.NaN,
+        1.5,
+        Number.MAX_SAFE_INTEGER + 2,
+        Number.POSITIVE_INFINITY,
+        '0',
+      ]
+      for (const residual of invalidCounts) {
+        const subject = crypto.randomUUID()
+        await seed(
+          f.workspaceId,
+          [subject],
+          ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+        )
+        await grant(f, subject)
+        const { execution, responses } = await execute(f, subject, {
+          stores: portsFor('messages', { primary: { residual } }),
+        })
+        expect(execution.halt).toEqual({ coverage: 'primary', reason: 'residual_invalid' })
+        expect(
+          execution.drafts.map((draft) => [draft.coverage, draft.operation, draft.outcome])
+        ).toEqual([['primary', 'delete', 'completed']])
+        expect(responses.map((response) => response.status)).toEqual([200])
+        for (const table of ['index_rows', 'cache_rows', 'replica_rows']) {
+          expect(await rowCount(f.workspaceId, table, subject)).toBe(1)
+        }
+        expect((await statusOf(f, subject)).outcome).toBe('pending')
+      }
+    }, 60_000)
+
+    test('an unrecognised store result is not a completion: it gets no receipt, and later stores are untouched', async () => {
+      const f = await fixture('unknown-outcome')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      await grant(f, subject)
+      const { execution, responses } = await execute(f, subject, {
+        stores: portsFor('messages', { index: { outcome: 'done' } }),
+      })
+      expect(execution.halt).toEqual({ coverage: 'index', reason: 'store_result_invalid' })
+      expect(
+        execution.drafts.map((draft) => [draft.coverage, draft.operation, draft.outcome])
+      ).toEqual([
+        ['primary', 'delete', 'completed'],
+        ['primary', 'read_check', 'completed'],
+      ])
+      expect(responses.map((response) => response.status)).toEqual([200, 200])
+      for (const table of ['index_rows', 'cache_rows', 'replica_rows']) {
+        expect(await rowCount(f.workspaceId, table, subject)).toBe(1)
+      }
+      expect((await statusOf(f, subject)).outcome).toBe('pending')
     })
   }
 )
