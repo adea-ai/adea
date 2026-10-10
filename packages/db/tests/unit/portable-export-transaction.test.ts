@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from '../../src/portable-export'
+import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from '../../src/portable-export-transaction'
 
 describe('portable export transaction', () => {
   test('runs READ COMMITTED in READ WRITE mode, so the canonical readers can take their share locks', () => {
