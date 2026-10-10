@@ -87,6 +87,7 @@ import {
   watchAccountIdentity,
   type AccountDirectorySection,
 } from '../lib/account-directory'
+import { createDeepLinkAttempts } from '../lib/workspace-deep-link'
 import { stripWorkspaceDeepLinkSearch } from '../lib/workspace-search'
 import {
   createDevWorkspaceNavHost,
@@ -842,9 +843,40 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       )
   }
 
+  // One switch per `?workspace=` link (lib/workspace-deep-link): a failed link waits
+  // for an explicit re-issue, and only the current link's own completion strips the
+  // param. The active workspace only catches up when the summary lands, so without
+  // this every settle would re-run the switch and its scene write.
+  const deepLinks = createDeepLinkAttempts({
+    consume: (workspaceId) => {
+      const rest = { ...currentSearch() }
+      if (rest.workspace !== workspaceId) return
+      delete rest.workspace
+      void navigate({
+        search: rest as never,
+        hash: window.location.hash.replace(/^#/, ''),
+        replace: true,
+      })
+    },
+    requested: () => currentSearch().workspace,
+    // The already-active branch below keeps the param for the same reason: a scoped
+    // destination is applied against the target workspace, so the param stays until
+    // the surface consumes the whole link.
+    retain: () => {
+      const query = currentSearch()
+      return Boolean(query.channel || query.task || query.thread || query.message)
+    },
+    switchTo: (workspaceId) => {
+      const workspace = orderedWorkspaces().find(({ id }) => id === workspaceId)
+      return workspace ? switchToWorkspace(workspace) : Promise.resolve(false)
+    },
+  })
   createEffect(() => {
     const requestedWorkspace = currentSearch().workspace
-    if (!requestedWorkspace) return
+    if (!requestedWorkspace) {
+      deepLinks.release()
+      return
+    }
     if (requestedWorkspace === props.activeWorkspace?.id) {
       // Already there: drop the param unless channel/task deep links still
       // need it as a scoping guard for the surface.
@@ -862,16 +894,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     }
     const workspace = orderedWorkspaces().find(({ id }) => id === requestedWorkspace)
     if (!workspace || switchingWorkspaceId()) return
-    void switchToWorkspace(workspace).then((switched) => {
-      if (!switched) return
-      const rest = { ...currentSearch() }
-      delete rest.workspace
-      void navigate({
-        search: rest as never,
-        hash: window.location.hash.replace(/^#/, ''),
-        replace: true,
-      })
-    })
+    deepLinks.start(workspace.id)
   })
 
   // The top bar's title slot shows Workspace › Project › Leaf (ADR 0011).
@@ -956,10 +979,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   // The Dev sidebar renders the same accordion from the same cloud queries,
   // joined with the desktop runtime's local bindings (ADR 0011).
+  // The signed-in label is the owner of a new workspace. Guests and unknown identities
+  // get no owner, so the creation draft keeps its generic wording.
+  const creationOwner = () =>
+    props.account.authenticated ? { ownerLabel: props.account.label } : undefined
   const devNavHost = createDevWorkspaceNavHost({
     globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
+    creationContext: creationOwner,
     workspaces: () => orderedWorkspaces(),
     // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
     active: () =>
@@ -1118,6 +1146,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
+      creationContext={creationOwner()}
       createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
