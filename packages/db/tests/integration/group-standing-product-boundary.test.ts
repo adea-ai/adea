@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { accountConversationInbox } from '../../src/account-inbox'
+import { accountWorkspaceSummaries } from '../../src/account-summary'
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import type { WorkspaceEventView } from '../../src/event-log'
@@ -23,7 +24,7 @@ import {
   revokeGroupGrant,
 } from '../../src/group-channels'
 import { createTemporaryUserSession } from '../../src/identity'
-import { listReadStateForUser } from '../../src/read-state'
+import { listReadStateForUser, markChannelReadState } from '../../src/read-state'
 import { searchWorkspaceForUser } from '../../src/search'
 import {
   channels,
@@ -464,6 +465,106 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
       expect((await getChannelForUser(db(), f.workspace.id, group.channelId, f.owner)).title).toBe(
         'Rename versus revoke'
       )
+    })
+  })
+  describe('committed revocation: every new read denies, and no earlier history reappears', () => {
+    test('a member who reads before a committed revocation is refused by every read afterwards', async () => {
+      const f = await fixture()
+      const group = await groupWithAudience(f, 'Committed revocation')
+      const unreadFor = async (principal: UserPrincipalRef) =>
+        (await accountWorkspaceSummaries(db(), principal)).find(
+          (row) => row.workspaceId === f.workspace.id
+        )?.unreadChannels
+      const channelEvent = (): WorkspaceEventView => ({
+        actor: null,
+        aggregateId: group.channelId,
+        aggregateType: 'channel',
+        correlationId: null,
+        eventId: crypto.randomUUID(),
+        eventType: 'channel.updated',
+        occurredAt: new Date(),
+        payload: { channelId: group.channelId },
+        schemaVersion: 1,
+        workspaceSequence: 1,
+      })
+      const reads = async (principal: UserPrincipalRef) => ({
+        channel: await settle(() =>
+          getChannelForUser(db(), f.workspace.id, group.channelId, principal)
+        ),
+        listed: (await listChannelsForUser(db(), f.workspace.id, principal)).map((c) => c.id),
+        messages: await settle(() =>
+          listMessagesForUser(db(), f.workspace.id, group.channelId, principal)
+        ),
+        message: await settle(() =>
+          getMessageForUser(db(), f.workspace.id, group.messageId, principal)
+        ),
+        inbox: (await accountConversationInbox(db(), principal)).conversations.map((e) => e.id),
+        readState: (await listReadStateForUser(db(), f.workspace.id, principal)).map(
+          (e) => e.channelId
+        ),
+        search: (
+          await searchWorkspaceForUser(db(), f.workspace.id, principal, group.title)
+        ).results.map((h) => h.id),
+        event: (
+          await classifyWorkspaceEventsForUser(db(), f.workspace.id, principal.userId, [
+            channelEvent(),
+          ])
+        )?.[0]?.kind,
+        unread: await unreadFor(principal),
+      })
+
+      // Positive control before the revocation: the member reads the group through every surface.
+      const before = await reads(f.member)
+      expect('value' in before.channel).toBe(true)
+      expect(before.listed).toContain(group.channelId)
+      expect(before.messages).toEqual({
+        value: expect.objectContaining({ messages: expect.any(Array) }),
+      })
+      expect(before.inbox).toContain(group.channelId)
+      expect(before.readState).toContain(group.channelId)
+      expect(before.search).toContain(group.channelId)
+      expect(before.event).toBe('deliver')
+      expect(before.unread).toBeGreaterThan(0)
+
+      // The revocation commits in its own transaction before any new read below.
+      const revoked = await revokeGroupGrant(db(), f.workspace.id, group.channelId, f.owner, {
+        grantId: 'gra_member',
+        kind: 'audience',
+        revokedAt: new Date().toISOString(),
+      })
+      expect(revoked.revoked).toBe(true)
+
+      const after = await reads(f.member)
+      expect(after.channel).toEqual({ denied: 'Channel unavailable' })
+      expect(after.listed).not.toContain(group.channelId)
+      expect(after.messages).toEqual({ denied: 'Channel unavailable' })
+      expect(after.message).toEqual({ denied: 'Channel unavailable' })
+      expect(after.inbox).not.toContain(group.channelId)
+      expect(after.readState).not.toContain(group.channelId)
+      expect(after.search).not.toContain(group.channelId)
+      expect(after.event).not.toBe('deliver')
+      expect(after.unread).toBeLessThan(before.unread ?? 0)
+      expect(
+        await settle(() =>
+          markChannelReadState(db(), f.workspace.id, group.channelId, f.member, 'read')
+        )
+      ).toEqual({ denied: 'Read state unavailable' })
+      expect(
+        await settle(() =>
+          postGroupChannelMessage(db(), f.workspace.id, group.channelId, f.member, f.member, {
+            message: {
+              bodyText: 'after committed revocation',
+              idempotencyKey: crypto.randomUUID(),
+            },
+            mode: 'direct',
+          })
+        )
+      ).toEqual({ denied: 'Channel unavailable' })
+
+      // No history reappears: the owner, whose grant is intact, still reads the earlier message.
+      const owner = await reads(f.owner)
+      expect(owner.channel).not.toEqual({ denied: 'Channel unavailable' })
+      expect(owner.listed).toContain(group.channelId)
     })
   })
 })
