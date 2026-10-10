@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process'
 // runner-local database. Without shard variables the invocation is unchanged.
 const specs = [
   'apps/web/e2e/workspace-guest.spec.ts',
+  // The new-workspace creation draft: owner wording in the chat and Dev sidebars (#1264).
+  'apps/web/e2e/workspace-creation-owner.spec.ts',
+  'apps/web/e2e/workspace-nav.spec.ts',
   'apps/web/e2e/sidebar-resize.spec.ts',
   'apps/web/e2e/cursor-check.spec.ts',
   'apps/web/e2e/dev-view.spec.ts',
