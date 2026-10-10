@@ -611,9 +611,14 @@ describe('bounded reads and provenance on real git and working files', () => {
     readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
   )
   const pin = committed.repositories.adea.sourceSha
-  const pinned = spawnSync('git', ['cat-file', '-e', `${pin}^{commit}`], { cwd: root }).status === 0
-  test.skipIf(!pinned)(
-    'the committed manifest validates at its pinned revision: every id pending, none certified',
+  // The immutable root must be reachable from the pinned commit. A shallow checkout (CI fetches
+  // depth 2) can hold the pin without its root, and then identity cannot be proven: skip, don't pass.
+  const reachable = repositoryIo({ adea: root })
+    .checkout('adea')
+    .rootCommits(pin)
+    .includes(committed.repositories.adea.rootCommit)
+  test.skipIf(!reachable)(
+    'the committed manifest validates at its pinned revision (needs the immutable root in history): every id pending, none certified',
     () => {
       const report = validateEvidenceManifest(committed, repositoryIo({ adea: root }))
       expect(report.schemaErrors).toEqual([])
