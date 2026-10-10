@@ -71,6 +71,50 @@ test('the emitted unfenced and fence-only bodies match the committed golden cont
   expect(await emit(fencedProduct)).toEqual(await contract('fenced'))
 })
 
+// Negative contract checks on the Adea side. These run the real handler with the clock and the
+// product lookup varied, and they need no control-plane checkout.
+async function emitAt(
+  product: CurrentLeadTurnProduct | undefined,
+  clock: number,
+  lookup?: 'reject'
+) {
+  const handler = createLeadProductReaderHandler({
+    lifetimeMs: 300_000,
+    now: () => clock,
+    verify: async () => true,
+    withCurrent: async (_w, _i, disclose) => {
+      if (lookup === 'reject') throw new Error('Lead turn unavailable')
+      return product ? disclose(product) : undefined
+    },
+  })
+  const response = await handler(
+    new Request('https://adea.invalid/api/internal/pi-durable/lead-product/current', {
+      method: 'POST',
+      body: JSON.stringify(selectors),
+    })
+  )
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+}
+
+test('negative: expired unfenced evidence is refused at the expiry boundary and admitted one millisecond before it', async () => {
+  const expiresAt = Date.parse(base.intentCreatedAt) + 300_000
+  expect(await emitAt(base, expiresAt - 1)).toMatchObject({ status: 200 })
+  expect(await emitAt(base, expiresAt)).toEqual({
+    status: 404,
+    body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
+  })
+  expect(await emitAt(base, expiresAt + 60_000)).toEqual({
+    status: 404,
+    body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
+  })
+})
+
+test('negative: an archived admission is 404 whether the lookup returns nothing or denies, and never emits a body', async () => {
+  const denied = { status: 404, body: { code: 'LEAD_PRODUCT_UNAVAILABLE' } }
+  expect(await emitAt(undefined, now)).toEqual(denied)
+  expect(await emitAt(undefined, now, 'reject')).toEqual(denied)
+})
+
 const controlPlaneCheckout = process.env.CONTROL_PLANE_CHECKOUT
 
 // Loads the control-plane's own modules from the checkout named by CONTROL_PLANE_CHECKOUT.
@@ -81,6 +125,7 @@ const loadControlPlane = async (root: string) => {
   ])
   return {
     ProductionLeadProductEvidenceSchema: evidence.ProductionLeadProductEvidenceSchema,
+    createProductionLeadProductAuthority: evidence.createProductionLeadProductAuthority,
     createProductionProductHttpReader: http.createProductionProductHttpReader,
   }
 }
@@ -102,6 +147,45 @@ const readerFor = (
         headers: { 'content-type': 'application/json' },
       }),
   })
+
+// CP's real production authority, with only its own profile and model-selection ports stubbed.
+const authorityFor = async (
+  cp: Awaited<ReturnType<typeof loadControlPlane>>,
+  product: { readCurrent(input: unknown): Promise<unknown> },
+  nowIso: string
+) => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const selection = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 }
+  return cp.createProductionLeadProductAuthority({
+    database: new DatabaseSync(':memory:'),
+    product,
+    profiles: {
+      resolveImmutable: async (input: {
+        profileId: string
+        profileVersion: string
+        profileRevision: number
+      }) => ({
+        profileId: input.profileId,
+        profileVersion: input.profileVersion,
+        profileRevision: input.profileRevision,
+        profileVersionId: `pfv_${'0123456789ABCDEFGHJKMNPQRS'}`,
+        profileContentDigest: `sha256:${'b'.repeat(64)}`,
+      }),
+    },
+    selections: {
+      select: async () => selection,
+      resolveSelection: async () => selection,
+      assertReady: async () => {},
+    },
+    target: {
+      location: 'remote_host',
+      harness: 'pi_durable',
+      harnessVersion: '1.1.0',
+      providerBinding: 'pi_durable_models',
+    },
+    now: () => nowIso,
+  } as never)
+}
 
 describe.skipIf(!controlPlaneCheckout)(
   'control-plane consumer reads the committed contract',
@@ -132,6 +216,44 @@ describe.skipIf(!controlPlaneCheckout)(
       await expect(
         readerFor(cp, fenced.status, fenced.body).readCurrent(consumerInput)
       ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
+    })
+
+    test('negative: CP refuses expired v1 evidence and admits it before expiry (same bytes, only the clock differs)', async () => {
+      const cp = await loadFromCheckout()
+      const unfenced = await contract('unfenced')
+      const product = { readCurrent: async () => unfenced.body }
+      await expect(
+        (await authorityFor(cp, product, '2026-10-09T12:00:00.000Z')).readCurrent(consumerInput)
+      ).resolves.toBeDefined()
+      await expect(
+        (await authorityFor(cp, product, '2026-10-09T13:00:00.000Z')).readCurrent(consumerInput)
+      ).rejects.toThrow('PI_PRODUCTION_PRODUCT_DENIED')
+    })
+
+    test('negative: CP refuses a fenced admission through its authority, so prepare and dispatch cannot resolve', async () => {
+      const cp = await loadFromCheckout()
+      const fenced = await contract('fenced')
+      const product = {
+        readCurrent: (input: unknown) =>
+          readerFor(cp, fenced.status, fenced.body).readCurrent(input as never),
+      }
+      await expect(
+        (await authorityFor(cp, product, '2026-10-09T12:00:00.000Z')).readCurrent(consumerInput)
+      ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
+    })
+
+    test('negative: an archived admission (404) yields no CP evidence, which the admission parser then refuses', async () => {
+      const cp = await loadFromCheckout()
+      const product = {
+        readCurrent: (input: unknown) =>
+          readerFor(cp, 404, { code: 'LEAD_PRODUCT_UNAVAILABLE' }).readCurrent(input as never),
+      }
+      expect(
+        await (
+          await authorityFor(cp, product, '2026-10-09T12:00:00.000Z')
+        ).readCurrent(consumerInput)
+      ).toBeUndefined()
+      expect(() => cp.ProductionLeadProductEvidenceSchema.parse(undefined)).toThrow()
     })
   }
 )
