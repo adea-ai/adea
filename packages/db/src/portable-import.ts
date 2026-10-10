@@ -27,15 +27,15 @@ import {
   canonicalPortableJson,
   type PortableExportExclusion,
   type PortableWorkspaceExport,
-  type PortableWorkspaceExportIssue,
   type UserPrincipalRef,
-  validatePortableWorkspaceExport,
 } from '@adea-ai/types'
 import { and, eq, inArray, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
-import { portableContentDigest, readCompletePortableContent } from './portable-export'
+import { readCompletePortableContent } from './portable-export'
+import { portableContentDigest } from './portable-export-content'
+import { checkPortableBundle, PortableImportError } from './portable-import-guards'
 import {
   agents,
   channelParticipants,
@@ -54,30 +54,6 @@ import {
   workspaces,
 } from './schema'
 import { appendWorkspaceEvent } from './transactions'
-
-export type PortableImportFailureCode =
-  | 'digest_mismatch'
-  | 'importer_unavailable'
-  | 'invalid_document'
-  | 'target_exists'
-  | 'unresolved_users'
-  | 'verification_failed'
-
-export class PortableImportError extends Error {
-  readonly code: PortableImportFailureCode
-  readonly issues: readonly PortableWorkspaceExportIssue[]
-
-  constructor(
-    code: PortableImportFailureCode,
-    message: string,
-    issues: readonly PortableWorkspaceExportIssue[] = []
-  ) {
-    super(message)
-    this.name = 'PortableImportError'
-    this.code = code
-    this.issues = issues
-  }
-}
 
 export type PortableImportResult = Readonly<{
   contentDigest: string
@@ -123,16 +99,7 @@ export async function importPortableWorkspace(
   database: AgentHqDatabase,
   input: Readonly<{ bundle: unknown; importedAt?: Date; importer: UserPrincipalRef }>
 ): Promise<PortableImportResult> {
-  const validation = validatePortableWorkspaceExport(input.bundle)
-  if (!validation.ok)
-    throw new PortableImportError(
-      'invalid_document',
-      'the bundle does not satisfy the portable export contract',
-      validation.issues
-    )
-  const document: PortableWorkspaceExport = validation.document
-  if (portableContentDigest(document.content) !== document.contentDigest.value)
-    throw new PortableImportError('digest_mismatch', 'the bundle content does not match its digest')
+  const document: PortableWorkspaceExport = checkPortableBundle(input.bundle)
 
   const importedAt = input.importedAt ?? new Date()
   const { content } = document

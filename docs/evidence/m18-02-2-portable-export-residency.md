@@ -63,6 +63,12 @@ Two rules are the export's own, and both are conservative:
   serve them. Their history stays in the product; an archive export belongs to
   retention (#1221).
 
+Module layout: the pure mapping, the document builder and the digest live in
+`packages/db/src/portable-export-content.ts`, and the pre-write bundle checks live in
+`packages/db/src/portable-import-guards.ts`. Both are unit-tested without a database. The
+readers that decide what a principal may see live in `portable-export.ts`, and the
+importer's writes live in `portable-import.ts`; both are covered by the integration lane.
+
 Regression coverage: `packages/db/tests/integration/portable-export.test.ts` proves
 that the export's messages equal what the canonical readers serve the same principal,
 and that an encoded job binding placed in a system sender, a runtime reference or a
@@ -136,7 +142,8 @@ fixed prefix and a random suffix. The test is skipped when that variable is abse
 
 ## Evidence and residual limits
 
-Evidence is the test suite: the contract and import refusal unit tests, the
+Evidence is the test suite: the contract and import refusal unit tests, the mapping unit
+tests in `packages/db/tests/unit/portable-export-content.test.ts`, the
 classification test, the database integration tests (export authorization, revocation,
 audience, the composition with the canonical readers, the encoded-binding regression,
 and the bound), the route-flow tests, and the clean-destination restore test.

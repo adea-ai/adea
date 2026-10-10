@@ -21,12 +21,10 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
-import {
-  exportPortableWorkspace,
-  portableContentDigest,
-  readCompletePortableContent,
-} from '../../src/portable-export'
-import { importPortableWorkspace, PortableImportError } from '../../src/portable-import'
+import { exportPortableWorkspace, readCompletePortableContent } from '../../src/portable-export'
+import { importPortableWorkspace } from '../../src/portable-import'
+import { PortableImportError } from '../../src/portable-import-guards'
+import { portableContentDigest } from '../../src/portable-export-content'
 import {
   artifacts,
   channels,

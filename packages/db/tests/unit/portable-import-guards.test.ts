@@ -5,28 +5,16 @@ import {
   PORTABLE_WORKSPACE_EXPORT_FORMAT,
   type PortableWorkspaceExport,
   type PortableWorkspaceExportContent,
-  validatePortableWorkspaceExport,
 } from '@adea-ai/types'
 
-import type { AgentHqDatabase } from '../../src/connection'
-import { portableContentDigest } from '../../src/portable-export'
-import { importPortableWorkspace, PortableImportError } from '../../src/portable-import'
+import { portableContentDigest } from '../../src/portable-export-content'
+import { checkPortableBundle, PortableImportError } from '../../src/portable-import-guards'
 
 const workspaceId = '00000000-0000-4000-8000-0000000000aa'
-const importerId = '00000000-0000-4000-8000-0000000000bb'
+const ownerId = '00000000-0000-4000-8000-0000000000bb'
 const at = '2026-10-01T10:00:00.000Z'
 
-// Any touch of the destination fails the test: every refusal below must happen
-// before the first database call.
-const untouchedDatabase = new Proxy(
-  {},
-  {
-    get(_target, property) {
-      throw new Error(`the destination was touched (${String(property)})`)
-    },
-  }
-) as unknown as AgentHqDatabase
-
+/** The smallest document the contract accepts: one workspace and nothing else. */
 function minimalDocument(): PortableWorkspaceExport {
   const content: PortableWorkspaceExportContent = {
     agents: [],
@@ -55,29 +43,37 @@ function minimalDocument(): PortableWorkspaceExport {
     contentDigest: { algorithm: 'sha256', value: portableContentDigest(content) },
     exclusions: PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
     exportedAt: at,
-    exportedBy: { role: 'owner', userId: importerId },
+    exportedBy: { role: 'owner', userId: ownerId },
     format: PORTABLE_WORKSPACE_EXPORT_FORMAT,
     formatVersion: 1,
   }
 }
 
-describe('portable import refusals before any write', () => {
-  test('the minimal document is itself a valid version-1 export', () => {
-    expect(validatePortableWorkspaceExport(minimalDocument()).ok).toBe(true)
+function refusalOf(bundle: unknown): PortableImportError {
+  try {
+    checkPortableBundle(bundle)
+  } catch (error) {
+    return error as PortableImportError
+  }
+  throw new Error('expected the bundle to be refused')
+}
+
+describe('portable import guards', () => {
+  test('a version-1 document with a matching digest passes unchanged', () => {
+    const document = minimalDocument()
+    expect(checkPortableBundle(document)).toEqual(document)
   })
 
-  test('refuses a bundle that fails the contract without touching the destination', async () => {
-    const bundle = { ...minimalDocument(), format: 'adea.other' }
-    const error = await importPortableWorkspace(untouchedDatabase, {
-      bundle,
-      importer: { kind: 'user', userId: importerId },
-    }).catch((caught: unknown) => caught)
+  test('refuses a bundle that fails the contract, with issue paths and no bundle values', () => {
+    const document = { ...minimalDocument(), format: 'adea.other' }
+    const error = refusalOf(document)
     expect(error).toBeInstanceOf(PortableImportError)
-    expect((error as PortableImportError).code).toBe('invalid_document')
-    expect((error as PortableImportError).issues.length).toBeGreaterThan(0)
+    expect(error.code).toBe('invalid_document')
+    expect(error.issues.map((issue) => issue.path)).toContain('document.format')
+    expect(JSON.stringify(error.issues)).not.toContain('adea.other')
   })
 
-  test('refuses content that does not match its digest', async () => {
+  test('refuses content that does not hash to its digest', () => {
     const document = minimalDocument()
     const tampered = {
       ...document,
@@ -86,10 +82,11 @@ describe('portable import refusals before any write', () => {
         workspace: { ...document.content.workspace, name: 'Edited' },
       },
     }
-    const error = await importPortableWorkspace(untouchedDatabase, {
-      bundle: tampered,
-      importer: { kind: 'user', userId: importerId },
-    }).catch((caught: unknown) => caught)
-    expect((error as PortableImportError).code).toBe('digest_mismatch')
+    expect(refusalOf(tampered).code).toBe('digest_mismatch')
+  })
+
+  test('refuses a non-object bundle as an invalid document', () => {
+    expect(refusalOf('not a bundle').code).toBe('invalid_document')
+    expect(refusalOf(null).code).toBe('invalid_document')
   })
 })

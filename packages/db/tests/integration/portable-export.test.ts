@@ -12,14 +12,12 @@ import { and, eq } from 'drizzle-orm'
 
 import { type AgentHqDatabase, createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
-import {
-  exportPortableWorkspace,
-  PortableExportError,
-  portableContentDigest,
-  readCompletePortableContent,
-} from '../../src/portable-export'
+import { exportPortableWorkspace, readCompletePortableContent } from '../../src/portable-export'
+import { PortableExportError } from '../../src/portable-export-content'
 import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
-import { importPortableWorkspace, PortableImportError } from '../../src/portable-import'
+import { importPortableWorkspace } from '../../src/portable-import'
+import { PortableImportError } from '../../src/portable-import-guards'
+import { portableContentDigest } from '../../src/portable-export-content'
 import {
   agents,
   artifacts,

@@ -331,17 +331,12 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+export { exportPortableWorkspace, readCompletePortableContent } from './portable-export'
 export {
-  exportPortableWorkspace,
-  PortableExportError,
   PORTABLE_SYSTEM_SENDER_ID,
+  PortableExportError,
   type PortableExportFailureCode,
   portableContentDigest,
-  readCompletePortableContent,
-} from './portable-export'
-export {
-  importPortableWorkspace,
-  PortableImportError,
-  type PortableImportFailureCode,
-  type PortableImportResult,
-} from './portable-import'
+} from './portable-export-content'
+export { importPortableWorkspace, type PortableImportResult } from './portable-import'
+export { PortableImportError, type PortableImportFailureCode } from './portable-import-guards'
