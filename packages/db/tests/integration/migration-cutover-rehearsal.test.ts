@@ -109,6 +109,15 @@ async function adminExecute(statement: string): Promise<void> {
   }
 }
 
+async function adminRows<T extends Record<string, unknown>>(statement: string): Promise<T[]> {
+  const admin = postgres(urlForDatabase('postgres'), { max: 1, onnotice: () => {} })
+  try {
+    return (await admin.unsafe(statement)) as unknown as T[]
+  } finally {
+    await admin.end()
+  }
+}
+
 type Principal = Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
 
 type Fixture = {
@@ -600,6 +609,59 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(sensitivity.findings.some((finding) => finding.findingClass === 'missing_record')).toBe(
       true
     )
+  }, 300_000)
+})
+
+// Teardown that starts while the scenario is still allocating. The allocation below mirrors
+// executeScenario's order (record the scratch name, create the database, open the client,
+// make the folder) on real resources. Teardown must wait for it to settle, then release all
+// of it: the database is gone, the client is closed, and the folder is removed.
+describe.skipIf(!provisioningUrl && !inCi)('cleanup race on disposable resources (#1222)', () => {
+  test('teardown that starts mid-allocation waits for the scenario and releases every resource', async () => {
+    const late: RehearsalResources = {}
+    const scratch = `${SCRATCH_PREFIX}race_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let connection: DatabaseConnection | undefined
+    let folder: string | undefined
+    const allocation = (async () => {
+      await gate
+      late.scratch = scratch
+      await adminExecute(`create database "${scratch}"`)
+      connection = createDatabase(urlForDatabase(scratch))
+      late.connection = connection
+      folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-race-'))
+      late.preFolder = folder
+      await connection.db.execute(sql`select 1`)
+    })()
+
+    let released = false
+    const teardown = settleAndDispose(late, allocation, async (database) => {
+      assertScratch(database)
+      await adminExecute(`drop database if exists "${database}" with (force)`)
+    }).then(() => {
+      released = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(released).toBe(false)
+
+    release()
+    await teardown
+    await allocation
+
+    const databases = await adminRows<{ datname: string }>(
+      `select datname from pg_database where datname = '${scratch}'`
+    )
+    expect(databases).toEqual([])
+    expect(existsSync(folder!)).toBe(false)
+    const clientState = await connection!.client`select 1`.then(
+      () => 'open',
+      () => 'closed'
+    )
+    expect(clientState).toBe('closed')
+    expect(late).toEqual({})
   }, 300_000)
 })
 
