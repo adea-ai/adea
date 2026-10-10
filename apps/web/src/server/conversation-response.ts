@@ -19,6 +19,25 @@ export function conversationErrorResponse(
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,
     })
+  // Group creation failures are identified by error name, never by importing
+  // the db error class (this module stays marker-free so the unit lane can
+  // exercise it without a server runtime). Name + shape discrimination.
+  if (
+    error instanceof Error &&
+    error.name === 'GroupCreationError' &&
+    'rejections' in error &&
+    Array.isArray((error as { rejections?: unknown }).rejections)
+  )
+    return workspaceJsonResponse(
+      {
+        code: 'group_grant_rejected',
+        message: error.message,
+        rejections: (error as { rejections: unknown }).rejections,
+      },
+      resolution,
+      request,
+      { status: 400 }
+    )
   if (message.endsWith('version conflict') || message.endsWith('idempotency conflict'))
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,
