@@ -126,3 +126,44 @@ test('an optional workspace archives from the real shell, is found after a reloa
     timeout: 30_000,
   })
 })
+
+// The overlay is global to the workspace frame, so an archive from the Virtual or Dev view raises
+// its toast there too, in the frame's one default stack.
+for (const view of ['Virtual view', 'Dev view'] as const) {
+  test(`an archive from the ${view.toLowerCase()} shows its toast, in one notification stack`, async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible({
+      timeout: 30_000,
+    })
+    const bootstrapped = await callApi(page, 'POST', '/api/workspaces/bootstrap', {})
+    expect(bootstrapped.status, JSON.stringify(bootstrapped.body)).toBe(200)
+    const created = await callApi(page, 'POST', '/api/workspaces', {
+      name: workspaceName,
+      scene: 'work',
+    })
+    expect(created.status, JSON.stringify(created.body)).toBe(201)
+
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible({
+      timeout: 60_000,
+    })
+    await page.getByRole('button', { name: workspaceName, exact: true }).click()
+    await expect(page.getByRole('heading', { name: workspaceName, level: 1 })).toBeVisible({
+      timeout: 60_000,
+    })
+    await page.getByRole('button', { name: view, exact: true }).click()
+    await page.evaluate(() => {
+      window.location.hash = 'workspace-settings/general'
+    })
+
+    const archiveRow = page.getByRole('button', { name: 'Archive workspace', exact: true })
+    await expect(archiveRow).toBeVisible({ timeout: 30_000 })
+    await archiveRow.click()
+    await archiveRow.click()
+    await expect(page.getByText(`${workspaceName} is archived`, { exact: true })).toBeVisible()
+    // One default stack: an embedded SourceControlApp sends its notices here rather than mounting its own.
+    await expect(page.getByRole('region', { name: /^Notifications/ })).toHaveCount(1)
+  })
+}
