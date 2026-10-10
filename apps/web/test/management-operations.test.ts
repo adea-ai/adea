@@ -7,7 +7,7 @@ import {
   type ManagementAuditDecision,
   type ManagementCaller,
 } from '../src/server/management-gateway'
-import type { ManagementAuthorityDecision } from '@adea-ai/types/management'
+import type { ManagementAuthorityDecision, ManagementOperationId } from '@adea-ai/types/management'
 import {
   createManagementOperations,
   type ManagementExecutors,
@@ -299,5 +299,176 @@ describe('shared management operations (#1215)', () => {
       args: [DATABASE, WORKSPACE, PRINCIPAL],
       name: 'reopenWorkspace',
     })
+  })
+
+  test('every advertised lead operation takes the identical authorization and executor path', async () => {
+    const USER = '0f3a2e1c-0000-4000-8000-0000000000cc'
+    const cases: ReadonlyArray<{
+      operation: ManagementOperationId
+      targetId: string | null
+      input: Record<string, unknown>
+      invoke: (
+        operations: ManagementOperations,
+        binding: ManagementAuthorityDecision['binding']
+      ) => Promise<unknown>
+    }> = [
+      {
+        operation: 'config.workspace.update',
+        targetId: WORKSPACE,
+        input: { expectedVersion: 2, update: { name: 'Renamed' } },
+        invoke: (operations, binding) =>
+          operations.workspaceUpdate(
+            {
+              expectedVersion: 2,
+              principal: PRINCIPAL,
+              update: { name: 'Renamed' },
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'config.workspace.reopen',
+        targetId: WORKSPACE,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.workspaceReopen({ principal: PRINCIPAL, workspaceId: WORKSPACE }, binding),
+      },
+      {
+        operation: 'project.create',
+        targetId: null,
+        input: { iconKey: 'box', name: 'Created' },
+        invoke: (operations, binding) =>
+          operations.projectCreate(
+            { iconKey: 'box', name: 'Created', principal: PRINCIPAL, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.update',
+        targetId: PROJECT,
+        input: { name: 'Renamed' },
+        invoke: (operations, binding) =>
+          operations.projectUpdate(
+            { name: 'Renamed', principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.archive',
+        targetId: PROJECT,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.projectArchive(
+            { principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.promote',
+        targetId: PROJECT,
+        input: { confirmed: true, expectedVersion: 1 },
+        invoke: (operations, binding) =>
+          operations.projectPromote(
+            {
+              confirmed: true,
+              expectedVersion: 1,
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.delete',
+        targetId: PROJECT,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.projectDelete(
+            { principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.reorder',
+        targetId: null,
+        input: { projectIds: [PROJECT] },
+        invoke: (operations, binding) =>
+          operations.projectReorder(
+            { principal: PRINCIPAL, projectIds: [PROJECT], workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.visibility.set',
+        targetId: PROJECT,
+        input: { visibility: 'workspace' },
+        invoke: (operations, binding) =>
+          operations.projectVisibilitySet(
+            {
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              visibility: 'workspace',
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.member.set',
+        targetId: USER,
+        input: { projectId: PROJECT, role: 'editor' },
+        invoke: (operations, binding) =>
+          operations.projectMemberSet(
+            {
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              role: 'editor',
+              userId: USER,
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.member.remove',
+        targetId: USER,
+        input: { projectId: PROJECT },
+        invoke: (operations, binding) =>
+          operations.projectMemberRemove(
+            { principal: PRINCIPAL, projectId: PROJECT, userId: USER, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+    ]
+
+    for (const entry of cases) {
+      const decision = await managementAuthorityDecision({
+        input: entry.input,
+        operation: entry.operation,
+        targetId: entry.targetId,
+        workspaceId: WORKSPACE,
+      })
+      const human = harness({ kind: 'human' })
+      const humanOutcome = await entry.invoke(human.operations, decision.binding)
+      const lead = harness(leadCaller(decision))
+      const leadOutcome = await entry.invoke(lead.operations, decision.binding)
+      // The lead path must not add, skip or reorder any authorization or
+      // executor step: only the caller identity and its audit row differ.
+      expect(lead.authorized, entry.operation).toEqual(human.authorized)
+      expect(lead.calls, entry.operation).toEqual(human.calls)
+      expect(leadOutcome, entry.operation).toEqual(humanOutcome)
+      expect(lead.audited, entry.operation).toHaveLength(1)
+      expect(lead.audited[0], entry.operation).toMatchObject({
+        decision: 'allowed',
+        operation: entry.operation,
+        // The lead audit attributes exactly the permission the human path
+        // authorized for the same operation.
+        permission: human.authorized[0]?.permission,
+        reason: 'lead_management_allowed',
+        workspaceId: WORKSPACE,
+      })
+    }
   })
 })
