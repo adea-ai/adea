@@ -372,6 +372,24 @@ export async function admitAddressedLeadTurn(
   const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
   const clock = options.clock ?? liveLeadClock
   return database.transaction(async (tx) => {
+    // Canonical lock order: CHANNEL before claims, everywhere. The human
+    // post path holds the channel row across its supersede, so admission
+    // takes the same order — never the reverse — and the two serialize
+    // instead of deadlocking. Lock modes below do not matter for the
+    // order guarantee; first-conflicting-lock-wins decides the sequence.
+    const [channel] = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.id, channelId),
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.lifecycleState, 'active')
+        )
+      )
+      .limit(1)
+      .for('update')
+    if (!channel) throw new Error('Lead turn unavailable')
     if (input.claim) {
       const [locked] = await tx
         .select()
@@ -384,12 +402,32 @@ export async function admitAddressedLeadTurn(
         )
         .limit(1)
         .for('update')
+      // Full claim-to-admission binding: the claim must name this exact
+      // channel, this exact trigger, the expected Agent, and an addresser
+      // the current principal may act as (addresser or manager).
+      // Anything less fails before any authority is read.
       if (
         !locked ||
-        (locked.state !== 'claimed' && locked.state !== 'dispatching') ||
-        locked.channelId !== channelId
+        locked.channelId !== channelId ||
+        locked.triggerMessageId !== input.triggerMessageId ||
+        locked.agentId !== input.expectedAgentId ||
+        (locked.state !== 'claimed' && locked.state !== 'dispatching')
       )
         throw new Error('Lead turn unavailable')
+      if (locked.addresserUserId !== principal.userId) {
+        const [membership] = await tx
+          .select({ role: workspaceMemberships.role })
+          .from(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, workspaceId),
+              eq(workspaceMemberships.userId, principal.userId)
+            )
+          )
+          .limit(1)
+        if (membership?.role !== 'owner' && membership?.role !== 'admin')
+          throw new Error('Lead turn unavailable')
+      }
     }
     const authority = await lockAuthority(
       tx,
@@ -428,6 +466,23 @@ export async function admitAddressedLeadTurn(
         )
       )
         throw new Error('Lead turn model selection conflict')
+      if (input.claim) {
+        // Replay binds exactly like insert (gap a): without this, a
+        // recovery claim would return an executable intent while leaving
+        // intentId null and the claim available for a second dispatch.
+        const rebound = await tx
+          .update(addressedAgentTurns)
+          .set({ intentId: existing.id, state: 'dispatching' })
+          .where(
+            and(
+              eq(addressedAgentTurns.id, input.claim.id),
+              eq(addressedAgentTurns.workspaceId, workspaceId),
+              sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+            )
+          )
+          .returning({ id: addressedAgentTurns.id })
+        if (!rebound[0]) throw new Error('Lead turn unavailable')
+      }
       await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
       return { leadTurn: receipt(existing), triggerMessageId: trigger.id }
     }
@@ -451,6 +506,9 @@ export async function admitAddressedLeadTurn(
     if (!intent) throw new Error('Lead turn unavailable')
     assertPinned(intent, authority)
     if (input.claim) {
+      // Bound on BOTH paths: a replayed intent binds exactly like a fresh
+      // one, so a recovery claim never returns an executable intent while
+      // leaving intentId null and state claimed.
       const bound = await tx
         .update(addressedAgentTurns)
         .set({ intentId: intent.id, state: 'dispatching' })
