@@ -59,6 +59,9 @@ import {
  * registration path uses (artifact, then grant), so no lock cycle is possible.
  */
 
+/** Stands in for an absent authority in the pure gate: a generation id no stored receipt carries. */
+const NO_AUTHORITY = 'no-authority'
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 export const retentionCleanupErrorCodes = [
@@ -69,6 +72,8 @@ export const retentionCleanupErrorCodes = [
   'hold_not_found',
   'invalid_input',
   'receipt_conflict',
+  'receipt_outside_window',
+  'receipt_request_mismatch',
   'receipt_untrusted',
 ] as const
 
@@ -482,11 +487,15 @@ export async function recordRetentionCleanupReceipt(
     reject('invalid_input')
   if (!(RETENTION_CATEGORIES as readonly string[]).includes(input.category)) reject('invalid_input')
   const executorId = input.executor.runtimeNodeId
-  const claimed =
+  const payload =
     typeof input.receipt === 'object' && input.receipt !== null
-      ? (input.receipt as { executorId?: unknown }).executorId
-      : undefined
-  if (claimed !== undefined && claimed !== executorId) reject('receipt_untrusted')
+      ? (input.receipt as Record<string, unknown>)
+      : {}
+  if (payload.executorId !== undefined && payload.executorId !== executorId)
+    reject('receipt_untrusted')
+  if (typeof payload.subjectId !== 'string') reject('invalid_input')
+  const subjectId = payload.subjectId
+  validateScope(input.workspaceId, input.category, subjectId)
 
   return database.transaction(async (transaction) => {
     const nowMs = await databaseNowMs(transaction)
@@ -497,21 +506,45 @@ export async function recordRetentionCleanupReceipt(
       if (error instanceof RuntimeNodeError) reject('receipt_untrusted')
       throw error
     }
+    await lockSubject(transaction, input.workspaceId, input.category, subjectId)
+
+    // Evidence binds to the live deletion generation, never to the subject alone.
+    const authority = await liveAuthorization(
+      transaction,
+      input.workspaceId,
+      input.category,
+      subjectId
+    )
+    if (!authority || authority.expiresAt.getTime() <= nowMs) reject('authorization_not_current')
+    if (payload.requestId !== undefined && payload.requestId !== authority.id)
+      reject('receipt_request_mismatch')
+    if (payload.category !== undefined && payload.category !== input.category)
+      reject('receipt_request_mismatch')
+
     const executors = await trustedExecutorsFor(transaction, input.workspaceId, [executorId])
     let receipt: CleanupReceipt
     try {
       receipt = recordCleanupReceipt(
-        { ...(input.receipt as object), executorId },
+        {
+          ...payload,
+          category: input.category,
+          executorId,
+          requestId: authority.id,
+        },
         executors,
         iso(nowMs)
       )
     } catch (error) {
-      if (error instanceof RetentionPolicyError && error.code === 'untrusted_executor')
-        reject('receipt_untrusted')
-      reject('invalid_input')
+      if (error instanceof RetentionPolicyError) {
+        if (error.code === 'untrusted_executor') reject('receipt_untrusted')
+        if (error.code === 'future_receipt') reject('receipt_outside_window')
+        reject('invalid_input')
+      }
+      throw error
     }
-    validateScope(input.workspaceId, input.category, receipt.subjectId)
-    await lockSubject(transaction, input.workspaceId, input.category, receipt.subjectId)
+    // Observed before this generation was granted: the executor is answering an earlier request.
+    if (Date.parse(receipt.observedAt) < authority.grantedAt.getTime())
+      reject('receipt_outside_window')
 
     const [existing] = await transaction
       .select()
@@ -527,6 +560,7 @@ export async function recordRetentionCleanupReceipt(
       const same =
         existing.category === input.category &&
         existing.subjectId === receipt.subjectId &&
+        existing.authorizationId === authority.id &&
         existing.coverage === receipt.coverage &&
         existing.operation === receipt.operation &&
         existing.outcome === receipt.outcome &&
@@ -537,17 +571,10 @@ export async function recordRetentionCleanupReceipt(
       return { outcome: 'replayed', receipt: receiptRecord(existing) }
     }
 
-    const authority = await liveAuthorization(
-      transaction,
-      input.workspaceId,
-      input.category,
-      receipt.subjectId
-    )
-    if (!authority || authority.expiresAt.getTime() <= nowMs) reject('authorization_not_current')
-
     const [row] = await transaction
       .insert(retentionCleanupReceipts)
       .values({
+        authorizationId: authority.id,
         category: input.category,
         coverage: receipt.coverage,
         executorSigningFingerprint: eligible.signingKeyFingerprint,
@@ -633,9 +660,10 @@ export async function withRetentionDeletionGate<T>(
       ? {
           expiresAt: authority.expiresAt.toISOString(),
           grantedAt: authority.grantedAt.toISOString(),
+          id: authority.id,
           revokedAt: null,
         }
-      : { expiresAt: epoch, grantedAt: epoch, revokedAt: epoch }
+      : { expiresAt: epoch, grantedAt: epoch, id: NO_AUTHORITY, revokedAt: epoch }
 
     const holdRows = await transaction
       .select()
@@ -652,22 +680,29 @@ export async function withRetentionDeletionGate<T>(
       releasedAt: row.releasedAt?.toISOString() ?? null,
     }))
 
-    const receiptRows = await transaction
-      .select()
-      .from(retentionCleanupReceipts)
-      .where(
-        and(
-          eq(retentionCleanupReceipts.workspaceId, input.workspaceId),
-          eq(retentionCleanupReceipts.category, input.category),
-          eq(retentionCleanupReceipts.subjectId, input.subjectId)
-        )
-      )
+    // Only evidence recorded under the live request generation can count. Earlier
+    // generations and other categories never reach the pure gate.
+    const receiptRows = authority
+      ? await transaction
+          .select()
+          .from(retentionCleanupReceipts)
+          .where(
+            and(
+              eq(retentionCleanupReceipts.workspaceId, input.workspaceId),
+              eq(retentionCleanupReceipts.category, input.category),
+              eq(retentionCleanupReceipts.subjectId, input.subjectId),
+              eq(retentionCleanupReceipts.authorizationId, authority.id)
+            )
+          )
+      : []
     const receipts: CleanupReceipt[] = receiptRows.map((row) => ({
+      category: row.category,
       coverage: row.coverage,
       executorId: row.runtimeNodeId,
       observedAt: row.observedAt.toISOString(),
       operation: row.operation,
       outcome: row.outcome,
+      requestId: row.authorizationId,
       residualCount: row.residualCount,
       subjectId: row.subjectId,
     }))

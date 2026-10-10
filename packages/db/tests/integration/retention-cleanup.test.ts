@@ -10,7 +10,7 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import { fingerprintOf, revokeRuntimeNode } from '../../src/runtime-nodes'
 import {
-  grantRetentionDeletionAuthorization,
+  grantRetentionDeletionAuthorization as grantAuthority,
   placeRetentionHold,
   recordRetentionCleanupReceipt,
   releaseRetentionHold,
@@ -86,7 +86,7 @@ function executorOf(node: { id: string }) {
 function verified(
   category: RetentionCategory,
   subjectId: string,
-  observedAt: Date = new Date()
+  observedAt: Date = observedAnchor(subjectId)
 ): Receipt[] {
   const coverage = RETENTION_COVERAGE_RULES[category].requiredCoverage
   const later = new Date(observedAt.getTime() + 1)
@@ -135,6 +135,30 @@ async function refusalCode(operation: () => Promise<unknown>): Promise<string> {
     throw error
   }
   throw new Error('expected a typed refusal')
+}
+
+/**
+ * The database clock anchors every fixture. A grant records its own
+ * `granted_at`, and receipts are observed a few milliseconds after it, which
+ * keeps them inside the grant window and never ahead of the database clock. The
+ * host and the container clock can disagree by tens of milliseconds.
+ */
+const grantedAtBySubject = new Map<string, number>()
+
+function observedAnchor(subjectId: string): Date {
+  const grantedAt = grantedAtBySubject.get(subjectId)
+  if (grantedAt === undefined) throw new Error('fixture subject has no grant')
+  return new Date(grantedAt + 5)
+}
+
+async function grantRetentionDeletionAuthorization(
+  database: DatabaseConnection['db'],
+  input: Parameters<typeof grantAuthority>[1]
+) {
+  const granted = await grantAuthority(database, input)
+  grantedAtBySubject.set(input.subjectId, Date.parse(granted.grantedAt))
+  await sleep(20)
+  return granted
 }
 
 describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
@@ -400,6 +424,16 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       workspaceId: workspace.id,
     })
     expect(regranted.id).not.toBe(first.id)
+    // Evidence from the revoked generation never answers the regranted request.
+    expect(
+      (
+        await evaluateStoredRetentionDeletion(
+          connection.db,
+          gateInput(workspace.id, 'messages', subject)
+        )
+      ).outcome
+    ).toBe('cleanup_ready')
+    await recordAll(workspace.id, node, 'messages', verified('messages', subject), 'regranted')
     expect(
       (
         await evaluateStoredRetentionDeletion(
@@ -422,7 +456,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     })
     const payload = {
       coverage: 'primary' as const,
-      observedAt: new Date().toISOString(),
+      observedAt: observedAnchor(subject).toISOString(),
       operation: 'delete' as const,
       outcome: 'completed' as const,
       residualCount: 0,
@@ -468,7 +502,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     })
     const receipt = {
       coverage: 'index' as const,
-      observedAt: new Date().toISOString(),
+      observedAt: observedAnchor(subject).toISOString(),
       operation: 'delete' as const,
       outcome: 'completed' as const,
       residualCount: 0,
@@ -825,3 +859,271 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     ).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
   })
 })
+
+function receiptFor(
+  subjectId: string,
+  coverage: CleanupCoverageKind,
+  operation: 'delete' | 'read_check',
+  observedAt: Date
+) {
+  return {
+    coverage,
+    observedAt: observedAt.toISOString(),
+    operation,
+    outcome: 'completed' as const,
+    residualCount: 0,
+    subjectId,
+  }
+}
+
+describe.skipIf(!connectionUrl)(
+  'root findings: stored evidence is current, ordered, and bound',
+  () => {
+    let connection: DatabaseConnection
+    const workspaceIds: string[] = []
+    beforeAll(() => {
+      connection = createDatabase(connectionUrl!)
+    })
+    afterAll(async () => {
+      for (const workspaceId of workspaceIds) {
+        await connection.db
+          .delete(retentionCleanupReceipts)
+          .where(eq(retentionCleanupReceipts.workspaceId, workspaceId))
+        await connection.db
+          .delete(retentionDeletionAuthorizations)
+          .where(eq(retentionDeletionAuthorizations.workspaceId, workspaceId))
+        await connection.db
+          .delete(workspaceMemberships)
+          .where(eq(workspaceMemberships.workspaceId, workspaceId))
+        await connection.db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      }
+      await connection.close()
+    })
+
+    async function owned(name: string) {
+      const session = await createTemporaryUserSession(connection.db, {
+        credentialDigest: `root-findings-${name}-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      })
+      const owner = session.principal
+      const { workspace } = await createWorkspaceWithOwner(connection.db, {
+        idempotencyKey: `root-findings-${name}-${crypto.randomUUID()}`,
+        name: `root findings ${name}`,
+        owner,
+      })
+      workspaceIds.push(workspace.id)
+      const [node] = await connection.db
+        .insert(runtimeNodes)
+        .values({
+          displayName: `${name} executor`,
+          kind: 'local_device',
+          ownerUserId: owner.userId,
+          platform: 'darwin',
+          softwareVersion: '1.0.0',
+          workspaceId: workspace.id,
+        })
+        .returning()
+      const publicKey = `root-findings-signing-${crypto.randomUUID()}`
+      await connection.db.insert(runtimeNodeKeys).values({
+        algorithm: 'ed25519',
+        fingerprint: fingerprintOf(publicKey),
+        keyVersion: 1,
+        publicKey,
+        role: 'signing',
+        runtimeNodeId: node!.id,
+        verifiedAt: new Date(),
+      })
+      return {
+        executor: { kind: 'runtime_node' as const, runtimeNodeId: node!.id },
+        owner,
+        workspaceId: workspace.id,
+      }
+    }
+
+    test('a receipt observed in the future is refused at record time', async () => {
+      const { executor, owner, workspaceId } = await owned('future')
+      const subject = crypto.randomUUID()
+      await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const error = await recordRetentionCleanupReceipt(connection.db, {
+        category: 'messages',
+        executor,
+        idempotencyKey: 'future-receipt',
+        receipt: receiptFor(subject, 'primary', 'delete', new Date(Date.now() + 60_000)),
+        workspaceId,
+      }).then(
+        () => null,
+        (caught: unknown) => caught
+      )
+      expect(error).toBeInstanceOf(RetentionCleanupError)
+      expect((error as RetentionCleanupError).code).toBe('receipt_outside_window')
+    })
+
+    test('a read observed at the delete instant does not verify completion through storage', async () => {
+      const { executor, owner, workspaceId } = await owned('tie')
+      const subject = crypto.randomUUID()
+      await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const at = observedAnchor(subject)
+      const coverage = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+      for (const [index, kind] of coverage.entries()) {
+        await recordRetentionCleanupReceipt(connection.db, {
+          category: 'messages',
+          executor,
+          idempotencyKey: `tie-delete-${index}`,
+          receipt: receiptFor(subject, kind, 'delete', at),
+          workspaceId,
+        })
+        await recordRetentionCleanupReceipt(connection.db, {
+          category: 'messages',
+          executor,
+          idempotencyKey: `tie-read-${index}`,
+          receipt: receiptFor(subject, kind, 'read_check', at),
+          workspaceId,
+        })
+      }
+      const decision = await evaluateStoredRetentionDeletion(connection.db, {
+        anchorAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+        category: 'messages',
+        periods: parseRetentionPeriods(
+          Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((c) => [c, 1]))
+        ),
+        reconciliationOpen: false,
+        subjectId: subject,
+        workspaceId,
+      })
+      expect(decision.outcome).not.toBe('verified_complete')
+    })
+
+    test('receipts from a revoked deletion generation never verify a regranted request', async () => {
+      const { executor, owner, workspaceId } = await owned('generation')
+      const subject = crypto.randomUUID()
+      const first = await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const at = observedAnchor(subject)
+      for (const [index, kind] of RETENTION_COVERAGE_RULES.messages.requiredCoverage.entries()) {
+        await recordRetentionCleanupReceipt(connection.db, {
+          category: 'messages',
+          executor,
+          idempotencyKey: `generation-delete-${index}`,
+          receipt: receiptFor(subject, kind, 'delete', at),
+          workspaceId,
+        })
+        await recordRetentionCleanupReceipt(connection.db, {
+          category: 'messages',
+          executor,
+          idempotencyKey: `generation-read-${index}`,
+          receipt: receiptFor(subject, kind, 'read_check', new Date(at.getTime() + 1)),
+          workspaceId,
+        })
+      }
+      await revokeRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        authorizationId: first.id,
+        workspaceId,
+      })
+      await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const decision = await evaluateStoredRetentionDeletion(connection.db, {
+        anchorAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+        category: 'messages',
+        periods: parseRetentionPeriods(
+          Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((c) => [c, 1]))
+        ),
+        reconciliationOpen: false,
+        subjectId: subject,
+        workspaceId,
+      })
+      expect(decision).toEqual({ outcome: 'cleanup_ready' })
+    })
+
+    test('a receipt observed before the current request grant is refused', async () => {
+      const { executor, owner, workspaceId } = await owned('predates')
+      const subject = crypto.randomUUID()
+      const first = await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      await revokeRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        authorizationId: first.id,
+        workspaceId,
+      })
+      const second = await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const predating = new Date(Date.parse(second.grantedAt) - 1)
+      const error = await recordRetentionCleanupReceipt(connection.db, {
+        category: 'messages',
+        executor,
+        idempotencyKey: 'predating-receipt',
+        receipt: receiptFor(subject, 'primary', 'delete', predating),
+        workspaceId,
+      }).then(
+        () => null,
+        (caught: unknown) => caught
+      )
+      expect((error as RetentionCleanupError | null)?.code).toBe('receipt_outside_window')
+    })
+
+    test('a receipt recorded for one category never verifies another category', async () => {
+      const { executor, owner, workspaceId } = await owned('category')
+      const subject = crypto.randomUUID()
+      await grantRetentionDeletionAuthorization(connection.db, {
+        actor: owner,
+        category: 'messages',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        subjectId: subject,
+        workspaceId,
+      })
+      const at = observedAnchor(subject)
+      for (const [index, kind] of RETENTION_COVERAGE_RULES.messages.requiredCoverage.entries()) {
+        await recordRetentionCleanupReceipt(connection.db, {
+          category: 'messages',
+          executor,
+          idempotencyKey: `category-delete-${index}`,
+          receipt: receiptFor(subject, kind, 'delete', at),
+          workspaceId,
+        })
+      }
+      const decision = await evaluateStoredRetentionDeletion(connection.db, {
+        anchorAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+        category: 'logs',
+        periods: parseRetentionPeriods(
+          Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((c) => [c, 1]))
+        ),
+        reconciliationOpen: false,
+        subjectId: subject,
+        workspaceId,
+      })
+      expect(decision).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+    })
+  }
+)

@@ -109,6 +109,7 @@ const OPAQUE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
 
 export type RetentionPolicyErrorCode =
+  | 'future_receipt'
   | 'invalid_periods'
   | 'invalid_candidate'
   | 'invalid_receipt'
@@ -183,6 +184,8 @@ export type RetentionHold = {
  * future. Open-ended authority is not representable.
  */
 export type RetentionAuthorization = {
+  /** The deletion request generation. Receipts bind to this id, not to the subject alone. */
+  readonly id: string
   readonly grantedAt: string
   readonly expiresAt: string
   readonly revokedAt: string | null
@@ -224,6 +227,9 @@ export type CleanupReceiptOutcome = 'completed' | 'in_progress' | 'unreachable' 
  * must observe `residualCount` zero to verify a completed delete.
  */
 export type CleanupReceipt = {
+  readonly category: RetentionCategory
+  /** The deletion request generation (`RetentionAuthorization.id`) the receipt answers. */
+  readonly requestId: string
   readonly subjectId: string
   readonly coverage: CleanupCoverageKind
   readonly operation: CleanupReceiptOperation
@@ -247,7 +253,11 @@ function parseReceipt(value: unknown): CleanupReceipt {
   )
     fail('invalid_receipt')
   timestampMs(record.observedAt, 'invalid_receipt')
+  if (!(RETENTION_CATEGORIES as readonly string[]).includes(record.category as string))
+    fail('invalid_receipt')
   return Object.freeze({
+    category: record.category as RetentionCategory,
+    requestId: opaqueId(record.requestId, 'invalid_receipt'),
     subjectId: opaqueId(record.subjectId, 'invalid_receipt'),
     coverage: coverage as CleanupCoverageKind,
     operation: operation as CleanupReceiptOperation,
@@ -298,8 +308,19 @@ export function recordCleanupReceipt(
 ): CleanupReceipt {
   const receipt = parseReceipt(value)
   const nowMs = timestampMs(now, 'invalid_candidate')
+  if (Date.parse(receipt.observedAt) > nowMs) fail('future_receipt')
   if (!receiptIsTrusted(receipt, executors, nowMs)) fail('untrusted_executor')
   return receipt
+}
+
+/** Evidence counts only when it was observed inside the request generation's window. */
+function observedWithinRequest(
+  receipt: CleanupReceipt,
+  authorization: RetentionAuthorization,
+  nowMs: number
+): boolean {
+  const observedMs = Date.parse(receipt.observedAt)
+  return observedMs >= Date.parse(authorization.grantedAt) && observedMs <= nowMs
 }
 
 export type RetentionRefusalReason =
@@ -315,7 +336,11 @@ export type RetentionBlocker =
   | {
       readonly kind: 'coverage'
       readonly coverage: CleanupCoverageKind
-      readonly reason: 'executor_unreachable' | 'cleanup_in_progress' | 'coverage_incomplete'
+      readonly reason:
+        | 'executor_unreachable'
+        | 'cleanup_in_progress'
+        | 'coverage_incomplete'
+        | 'ambiguous_order'
     }
   | { readonly kind: 'backup_expiry' }
 
@@ -347,6 +372,7 @@ function parseCandidate(value: RetentionCandidate): RetentionCandidate {
   }
   const authorization = value.authorization
   if (typeof authorization !== 'object' || authorization === null) fail('invalid_candidate')
+  opaqueId(authorization.id, 'invalid_candidate')
   timestampMs(authorization.grantedAt, 'invalid_candidate')
   timestampMs(authorization.expiresAt, 'invalid_candidate')
   if (authorization.revokedAt !== null) timestampMs(authorization.revokedAt, 'invalid_candidate')
@@ -367,7 +393,7 @@ function authorizationIsCurrent(authorization: RetentionAuthorization, nowMs: nu
 
 function blockedCoverage(
   coverage: CleanupCoverageKind,
-  reason: 'executor_unreachable' | 'cleanup_in_progress' | 'coverage_incomplete'
+  reason: 'executor_unreachable' | 'cleanup_in_progress' | 'coverage_incomplete' | 'ambiguous_order'
 ): CoverageState {
   return { state: 'blocked', blocker: { kind: 'coverage', coverage, reason } }
 }
@@ -386,20 +412,40 @@ function stateForOutcome(
 }
 
 /** The latest trusted delete and the latest read check after it decide one coverage kind. */
+/**
+ * The newest receipt for one coverage and operation. Two receipts at the same
+ * newest instant that disagree on outcome or residual are ambiguous: no trusted
+ * sequence orders them here, so neither can be taken as the answer.
+ */
+function latestFor(
+  receipts: readonly CleanupReceipt[],
+  coverage: CleanupCoverageKind,
+  operation: CleanupReceiptOperation
+): CleanupReceipt | 'ambiguous' | undefined {
+  const matching = receipts.filter(
+    (receipt) => receipt.coverage === coverage && receipt.operation === operation
+  )
+  if (matching.length === 0) return undefined
+  const newest = Math.max(...matching.map((receipt) => Date.parse(receipt.observedAt)))
+  const atNewest = matching.filter((receipt) => Date.parse(receipt.observedAt) === newest)
+  const distinct = new Set(atNewest.map((receipt) => `${receipt.outcome}:${receipt.residualCount}`))
+  if (distinct.size > 1) return 'ambiguous'
+  return atNewest[0]
+}
+
 function coverageState(
   coverage: CleanupCoverageKind,
   receipts: readonly CleanupReceipt[]
 ): CoverageState {
-  const latest = (operation: CleanupReceiptOperation) =>
-    receipts
-      .filter((receipt) => receipt.coverage === coverage && receipt.operation === operation)
-      .toSorted((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))[0]
-  const deletion = latest('delete')
+  const deletion = latestFor(receipts, coverage, 'delete')
+  if (deletion === 'ambiguous') return blockedCoverage(coverage, 'ambiguous_order')
   if (!deletion) return blockedCoverage(coverage, 'coverage_incomplete')
   if (deletion.outcome === 'failed') return { state: 'failed' }
   if (deletion.outcome !== 'completed') return stateForOutcome(deletion.outcome, coverage)
-  const read = latest('read_check')
-  if (!read || Date.parse(read.observedAt) < Date.parse(deletion.observedAt))
+  const read = latestFor(receipts, coverage, 'read_check')
+  if (read === 'ambiguous') return blockedCoverage(coverage, 'ambiguous_order')
+  // The verifying read must be strictly later than the delete: a read at the same instant is not proof.
+  if (!read || Date.parse(read.observedAt) <= Date.parse(deletion.observedAt))
     return blockedCoverage(coverage, 'coverage_incomplete')
   if (read.outcome === 'failed' || (read.outcome === 'completed' && read.residualCount > 0))
     return { state: 'failed' }
@@ -443,6 +489,9 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
     .filter(
       (receipt) =>
         receipt.subjectId === candidate.subjectId &&
+        receipt.category === candidate.category &&
+        receipt.requestId === candidate.authorization.id &&
+        observedWithinRequest(receipt, candidate.authorization, nowMs) &&
         receiptIsTrusted(receipt, input.trustedExecutors, nowMs)
     )
   if (receipts.length === 0) return { outcome: 'cleanup_ready' }

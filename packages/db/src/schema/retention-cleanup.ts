@@ -136,6 +136,14 @@ export const retentionCleanupReceipts = appSchema.table(
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     /** The recording executor. The composite key keeps it in this workspace. */
     runtimeNodeId: uuid('runtime_node_id').notNull(),
+    /**
+     * The deletion request generation this evidence answers. Evidence never
+     * outlives its generation: a regrant starts a new id, and older rows never
+     * count toward it.
+     */
+    authorizationId: uuid('authorization_id')
+      .notNull()
+      .references(() => retentionDeletionAuthorizations.id, { onDelete: 'restrict' }),
     executorSigningFingerprint: text('executor_signing_fingerprint').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     category: retentionCategory('category').notNull(),
@@ -163,6 +171,7 @@ export const retentionCleanupReceipts = appSchema.table(
       table.workspaceId,
       table.category,
       table.subjectId,
+      table.authorizationId,
       table.coverage,
       table.operation
     ),

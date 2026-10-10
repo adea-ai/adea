@@ -1,5 +1,5 @@
 {
-  "id": "c346f83f-6581-4a3a-92f6-eaf1f024a1da",
+  "id": "112bca4a-3351-401c-8f45-24717946db83",
   "prevId": "9da08adb-cf66-4161-8e1b-d98e798675ec",
   "version": "7",
   "dialect": "postgresql",
@@ -4196,6 +4196,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "authorization_id": {
+          "name": "authorization_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
         "executor_signing_fingerprint": {
           "name": "executor_signing_fingerprint",
           "type": "text",
@@ -4306,6 +4312,12 @@
               "nulls": "last"
             },
             {
+              "expression": "authorization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "coverage",
               "isExpression": false,
               "asc": true,
@@ -4331,6 +4343,16 @@
           "tableTo": "workspaces",
           "schemaTo": "app",
           "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "retention_cleanup_receipts_authorization_id_retention_deletion_authorizations_id_fk": {
+          "name": "retention_cleanup_receipts_authorization_id_retention_deletion_authorizations_id_fk",
+          "tableFrom": "retention_cleanup_receipts",
+          "tableTo": "retention_deletion_authorizations",
+          "schemaTo": "app",
+          "columnsFrom": ["authorization_id"],
           "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"

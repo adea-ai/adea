@@ -6,6 +6,7 @@ CREATE TABLE "app"."retention_cleanup_receipts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"runtime_node_id" uuid NOT NULL,
+	"authorization_id" uuid NOT NULL,
 	"executor_signing_fingerprint" text NOT NULL,
 	"idempotency_key" text NOT NULL,
 	"category" "app"."retention_category" NOT NULL,
@@ -55,6 +56,7 @@ CREATE TABLE "app"."retention_holds" (
 );
 --> statement-breakpoint
 ALTER TABLE "app"."retention_cleanup_receipts" ADD CONSTRAINT "retention_cleanup_receipts_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."retention_cleanup_receipts" ADD CONSTRAINT "retention_cleanup_receipts_authorization_id_retention_deletion_authorizations_id_fk" FOREIGN KEY ("authorization_id") REFERENCES "app"."retention_deletion_authorizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."retention_cleanup_receipts" ADD CONSTRAINT "retention_cleanup_receipts_executor_fk" FOREIGN KEY ("workspace_id","runtime_node_id") REFERENCES "app"."runtime_nodes"("workspace_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."retention_deletion_authorizations" ADD CONSTRAINT "retention_deletion_authorizations_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."retention_deletion_authorizations" ADD CONSTRAINT "retention_deletion_authorizations_granted_by_user_id_users_id_fk" FOREIGN KEY ("granted_by_user_id") REFERENCES "app"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -63,6 +65,6 @@ ALTER TABLE "app"."retention_holds" ADD CONSTRAINT "retention_holds_workspace_id
 ALTER TABLE "app"."retention_holds" ADD CONSTRAINT "retention_holds_placed_by_user_id_users_id_fk" FOREIGN KEY ("placed_by_user_id") REFERENCES "app"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."retention_holds" ADD CONSTRAINT "retention_holds_released_by_user_id_users_id_fk" FOREIGN KEY ("released_by_user_id") REFERENCES "app"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "retention_cleanup_receipts_idempotency_uidx" ON "app"."retention_cleanup_receipts" USING btree ("workspace_id","idempotency_key");--> statement-breakpoint
-CREATE INDEX "retention_cleanup_receipts_subject_idx" ON "app"."retention_cleanup_receipts" USING btree ("workspace_id","category","subject_id","coverage","operation");--> statement-breakpoint
+CREATE INDEX "retention_cleanup_receipts_subject_idx" ON "app"."retention_cleanup_receipts" USING btree ("workspace_id","category","subject_id","authorization_id","coverage","operation");--> statement-breakpoint
 CREATE UNIQUE INDEX "retention_deletion_authorizations_live_uidx" ON "app"."retention_deletion_authorizations" USING btree ("workspace_id","category","subject_id") WHERE "app"."retention_deletion_authorizations"."revoked_at" is null;--> statement-breakpoint
 CREATE INDEX "retention_holds_subject_idx" ON "app"."retention_holds" USING btree ("workspace_id","category","subject_id");

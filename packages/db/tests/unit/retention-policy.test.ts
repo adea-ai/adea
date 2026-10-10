@@ -38,6 +38,7 @@ const CLOUD = 'fixture-cloud-executor'
 const NATIVE = 'fixture-native-executor'
 const AUTHORIZED_SINCE = '2026-01-01T00:00:00.000Z'
 const AUTHORIZED_UNTIL = '2027-01-01T00:00:00.000Z'
+const REQUEST = 'fixture-request-1'
 
 /** Fixture executors authorized across the whole test window and never revoked. */
 const TRUSTED: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
@@ -46,7 +47,13 @@ const TRUSTED: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
 ])
 
 function authorization(overrides: Partial<RetentionAuthorization> = {}): RetentionAuthorization {
-  return { grantedAt: ANCHOR, expiresAt: AUTHORIZED_UNTIL, revokedAt: null, ...overrides }
+  return {
+    id: REQUEST,
+    grantedAt: ANCHOR,
+    expiresAt: AUTHORIZED_UNTIL,
+    revokedAt: null,
+    ...overrides,
+  }
 }
 
 const EVERY_CATEGORY_EXPIRED = parseRetentionPeriods(
@@ -78,6 +85,8 @@ function receipt(
   overrides: Partial<CleanupReceipt> = {}
 ): CleanupReceipt {
   return {
+    category: 'messages',
+    requestId: REQUEST,
     subjectId: SUBJECT,
     coverage,
     operation,
@@ -280,9 +289,12 @@ describe('trusted cleanup gates deletion', () => {
 
   test('an offline native executor keeps native transcript deletion pending and never verified', () => {
     const receipts = [
-      receipt('runtime_state', 'delete', 'unreachable', EARLY, { executorId: NATIVE }),
-      receipt('cache', 'delete', 'completed', EARLY),
-      receipt('cache', 'read_check', 'completed', LATER),
+      receipt('runtime_state', 'delete', 'unreachable', EARLY, {
+        category: 'native_transcripts',
+        executorId: NATIVE,
+      }),
+      receipt('cache', 'delete', 'completed', EARLY, { category: 'native_transcripts' }),
+      receipt('cache', 'read_check', 'completed', LATER, { category: 'native_transcripts' }),
     ]
     expect(
       evaluate({
@@ -296,7 +308,7 @@ describe('trusted cleanup gates deletion', () => {
   })
 
   test('an in-progress cleanup reports pending, not verified', () => {
-    const receipts = [receipt('primary', 'delete', 'in_progress', EARLY)]
+    const receipts = [receipt('primary', 'delete', 'in_progress', EARLY, { category: 'logs' })]
     expect(
       evaluate({
         candidate: candidate({ category: 'logs' }),
@@ -331,9 +343,11 @@ describe('trusted cleanup gates deletion', () => {
 
   test('a later successful retry supersedes an earlier failed delete', () => {
     const receipts = [
-      receipt('primary', 'delete', 'failed', EARLY),
-      receipt('primary', 'delete', 'completed', LATER),
-      receipt('primary', 'read_check', 'completed', '2026-10-03T00:00:00.000Z'),
+      receipt('primary', 'delete', 'failed', EARLY, { category: 'logs' }),
+      receipt('primary', 'delete', 'completed', LATER, { category: 'logs' }),
+      receipt('primary', 'read_check', 'completed', '2026-10-03T00:00:00.000Z', {
+        category: 'logs',
+      }),
     ]
     expect(
       evaluate({
@@ -610,5 +624,67 @@ describe('coverage contract', () => {
     }
     expect(RETENTION_COVERAGE_RULES.native_transcripts.requiredCoverage).toContain('runtime_state')
     expect(RETENTION_COVERAGE_RULES.backups.eventualBackupExpiry).toBe(true)
+  })
+})
+
+describe('root findings: receipt evidence is current, ordered, and bound', () => {
+  const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+  const pendingAll = (reason: 'coverage_incomplete' | 'ambiguous_order') =>
+    required.map((coverage) => ({ kind: 'coverage', coverage, reason }))
+
+  test('a future-dated delete and read pair never verifies completion', () => {
+    const future = '2026-10-20T00:00:00.000Z'
+    const receipts = verifiedReceipts(required, { observedAt: future } as never)
+    expect(evaluate({ receipts })).toEqual({ outcome: 'cleanup_ready' })
+  })
+
+  test('recording refuses a receipt observed after now', () => {
+    const value = receipt('primary', 'delete', 'completed', '2026-10-20T00:00:00.000Z')
+    expect(() => recordCleanupReceipt(value, TRUSTED, NOW)).toThrow('future_receipt')
+  })
+
+  test('a read observed at exactly the delete instant is not a later read', () => {
+    const receipts = required.flatMap((coverage) => [
+      receipt(coverage, 'delete', 'completed', EARLY),
+      receipt(coverage, 'read_check', 'completed', EARLY),
+    ])
+    expect(evaluate({ receipts })).toEqual({
+      outcome: 'pending',
+      blockers: pendingAll('coverage_incomplete'),
+    })
+  })
+
+  test('conflicting outcomes at the same instant are ambiguous, not resolved by array order', () => {
+    const receipts = required.flatMap((coverage) => [
+      receipt(coverage, 'delete', 'completed', EARLY),
+      receipt(coverage, 'read_check', 'completed', LATER),
+      receipt(coverage, 'read_check', 'completed', LATER, { residualCount: 2 }),
+    ])
+    expect(evaluate({ receipts })).toEqual({
+      outcome: 'pending',
+      blockers: pendingAll('ambiguous_order'),
+    })
+  })
+
+  test('receipts bound to another category do not count for this subject', () => {
+    const receipts = verifiedReceipts(required, { category: 'logs' } as never)
+    expect(evaluate({ receipts })).toEqual({ outcome: 'cleanup_ready' })
+  })
+
+  test('receipts bound to an earlier deletion request do not count for the current request', () => {
+    const receipts = verifiedReceipts(required, { requestId: 'fixture-request-0' } as never)
+    expect(evaluate({ receipts })).toEqual({ outcome: 'cleanup_ready' })
+  })
+
+  test('receipts observed before the current request grant do not count', () => {
+    const receipts = verifiedReceipts(required)
+    expect(
+      evaluate({
+        candidate: candidate({
+          authorization: authorization({ grantedAt: '2026-10-05T00:00:00.000Z' }),
+        }),
+        receipts,
+      })
+    ).toEqual({ outcome: 'cleanup_ready' })
   })
 })

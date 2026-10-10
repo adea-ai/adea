@@ -45,7 +45,11 @@ need review.
    expired, or was revoked at or before now. Open-ended authority is not
    representable.
 7. `backups` return `pending` with `backup_expiry`.
-8. Cleanup coverage, from trusted receipts for this subject only:
+8. Cleanup coverage, from receipts that match this subject, this category, and
+   this deletion generation, were observed inside the generation's window and
+   not after now, and came from a trusted executor. A read must be strictly
+   later than its delete. Two conflicting results at the newest instant are
+   `ambiguous_order`: no trusted sequence orders them, so neither is taken.
    - no receipts: `cleanup_ready`. Cleanup may be dispatched; data is not gone.
    - a failed delete, or a read check with residual data: `refused` with `cleanup_failed`.
    - unreachable or in-progress executors, or missing verification: `pending`
@@ -78,8 +82,15 @@ Entry points, all typed through `RetentionCleanupError`:
   workspace, checked against membership at the moment of the act.
 - `recordRetentionCleanupReceipt`: accepts only from a runtime node that
   `requireEligibleRuntimeNode` accepts now. The receipt's claimed executor must
-  equal the authenticated node. A repeated key with the same payload replays;
-  with a different payload it conflicts. A new receipt needs current authority.
+  equal the authenticated node. A receipt binds to the live deletion generation
+  (`authorization_id`), and a payload naming another category or generation is
+  refused (`receipt_request_mismatch`). A receipt observed after now, or before
+  its generation was granted, is refused (`receipt_outside_window`). A repeated
+  key with the same payload replays; with a different payload it conflicts. A
+  new receipt needs current authority.
+- Clock skew: there is no tolerance. An executor whose clock runs ahead of the
+  database clock has its evidence refused. Choosing a tolerance is a product
+  decision.
 - `withRetentionDeletionGate`: decides under locks and runs a callback with the
   decision while the locks are held, so a dispatch cannot act on a stale
   decision. `evaluateStoredRetentionDeletion` is the decision alone.
