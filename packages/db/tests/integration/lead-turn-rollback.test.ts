@@ -21,7 +21,6 @@ import {
   channelParticipants,
   leadTurnIntents,
   leadTurnRuntime,
-  messages,
   workspaceMemberships,
   workspaces,
 } from '../../src/schema'
@@ -43,8 +42,6 @@ const databaseUrl = process.env.DATABASE_URL
 function crockford() {
   return crypto.randomUUID().replaceAll('-', '').slice(0, 26).toUpperCase()
 }
-
-const grant = async () => {}
 
 // Rollback readers and uncertain-effect fencing for lead turns (M18.01.3, #1220).
 // Acceptance IDs A01, A02, A30, A31 and A36 refer to the canonical test matrix. REQ 045 governs
@@ -268,7 +265,7 @@ describe.skipIf(!databaseUrl)('lead-turn rollback fence and readers', () => {
     })
   })
 
-  test('A31 a fenced completed attempt keeps exactly one publication and writes no new fence', async () => {
+  test('A31 a fence set while the attempt is in flight denies publication of its completed result, and writes no message', async () => {
     const f = await fixture()
     const { owner, workspace, pin, binding } = f
     await dispatched(f)
@@ -283,30 +280,7 @@ describe.skipIf(!databaseUrl)('lead-turn rollback fence and readers', () => {
       state: 'completed',
       observedAt: new Date().toISOString(),
     })
-    const first = await publishLeadTurnResult(
-      connection.db,
-      workspace.id,
-      pin.intentId,
-      owner.principal,
-      binding,
-      'Answer',
-      grant
-    )
-    const retry = await publishLeadTurnResult(
-      connection.db,
-      workspace.id,
-      pin.intentId,
-      owner.principal,
-      binding,
-      'Answer',
-      grant
-    )
-    expect(retry).toBe(first)
-    const published = await connection.db
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.id, first))
-    expect(published).toHaveLength(1)
+    let granted = 0
     await expect(
       publishLeadTurnResult(
         connection.db,
@@ -314,17 +288,23 @@ describe.skipIf(!databaseUrl)('lead-turn rollback fence and readers', () => {
         pin.intentId,
         owner.principal,
         binding,
-        'Different',
-        grant
+        'Answer',
+        async () => {
+          granted++
+        }
       )
-    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+    ).rejects.toThrow('LEAD_TURN_FENCED')
+    expect(granted).toBe(0)
     expect(
       await readLeadTurnRollbackState(connection.db, workspace.id, pin.intentId, owner.principal)
     ).toMatchObject({
       disposition: 'terminal_retained',
       fenced: true,
-      runtime: { state: 'completed', publishedMessageId: first },
+      runtime: { state: 'completed' },
     })
+    expect(
+      await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
+    ).not.toHaveProperty('publishedMessageId')
   })
 
   test('A31 an outsider or a foreign workspace learns nothing from the reader or the fence', async () => {

@@ -613,4 +613,48 @@ describe.skipIf(!databaseUrl)('lead-turn historical reads and reconciliation', (
       await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
     ).not.toHaveProperty('publishedMessageId')
   })
+
+  test('negative contract: a fenced in-flight admission never publishes its completed result, and the grant is not consulted', async () => {
+    const f = await fixture()
+    const { owner, workspace, pin, binding } = f
+    await dispatched(f)
+    await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+      ...binding,
+      state: 'running',
+      observedAt: new Date().toISOString(),
+    })
+    await fenceLeadTurnForRollback(connection.db, workspace.id, pin.intentId, ownerFence(f))
+    await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+      ...binding,
+      state: 'completed',
+      observedAt: new Date().toISOString(),
+    })
+    const before = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.channelId, f.topic.id))
+    let granted = 0
+    await expect(
+      publishLeadTurnResult(
+        connection.db,
+        workspace.id,
+        pin.intentId,
+        owner.principal,
+        binding,
+        'Answer',
+        async () => {
+          granted++
+        }
+      )
+    ).rejects.toThrow('LEAD_TURN_FENCED')
+    expect(granted).toBe(0)
+    const after = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.channelId, f.topic.id))
+    expect(after).toHaveLength(before.length)
+    expect(
+      await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
+    ).not.toHaveProperty('publishedMessageId')
+  })
 })

@@ -167,7 +167,7 @@ test('stale: an admission past its lifetime is refused, while a fenced envelope 
   const fencedLater = run({ product: fenced, clock: expiredClock })
   const result = await json(await fencedLater.handler(post()))
   expect(result.status).toBe(200)
-  expect(result.body.schemaVersion).toBe('pi-lead-intent-fence/v1')
+  expect(result.body.schemaVersion).toBe('pi-lead-intent-fence/v2')
   for (const field of dispatchFields) expect(result.body).not.toHaveProperty(field)
 })
 

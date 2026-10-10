@@ -46,10 +46,14 @@ const fenced: CurrentLeadTurnProduct = {
 const url = 'https://adea.invalid/api/internal/pi-durable/lead-product/current'
 const post = () => new Request(url, { method: 'POST', body: JSON.stringify(selectors) })
 const fenceFields = [
+  'allowedPrincipalIds',
+  'authorityRevision',
+  'canonicalActorPrincipalId',
   'dispatchPermitted',
   'intentId',
   'rollbackFence',
   'schemaVersion',
+  'scopeRef',
   'workspaceId',
 ]
 
@@ -170,11 +174,15 @@ test('identity: a valid operator fence is emitted as fence facts bound to the re
   expect(result.status).toBe(200)
   expect(Object.keys(result.body).toSorted()).toEqual(fenceFields)
   expect(result.body).toEqual({
-    schemaVersion: 'pi-lead-intent-fence/v1',
+    schemaVersion: 'pi-lead-intent-fence/v2',
     intentId,
     workspaceId: cpWorkspaceId,
     dispatchPermitted: false,
     rollbackFence: operatorFence,
+    authorityRevision: fenced.channelVersion,
+    canonicalActorPrincipalId: `user:${actorUserId}`,
+    scopeRef: expect.stringMatching(/^adea-product:sha256:[0-9a-f]{64}$/),
+    allowedPrincipalIds: [selectors.principalId],
   })
   expect(JSON.stringify(result.body)).not.toContain(admitted.prompt)
 })

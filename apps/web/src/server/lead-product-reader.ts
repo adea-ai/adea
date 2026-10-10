@@ -107,6 +107,47 @@ function readFenceEnvelope(
   return undefined
 }
 
+/**
+ * The product scope pin. It is computed the same way for an unfenced admission and for its fenced successor,
+ * so a marker retained before the fence still matches the fenced body while the product state is unchanged.
+ * It confers no CP spending or execution authority.
+ */
+function scopeRefFor(product: CurrentLeadTurnProduct): string {
+  const digest = createHash('sha256')
+    .update(
+      canonicalJson({
+        workspaceId: product.workspaceId,
+        channelId: product.channelId,
+        channelVersion: product.channelVersion,
+        visibility: product.channelVisibility,
+        audience: product.audience,
+        messageId: product.messageId,
+        messageVersion: product.messageVersion,
+        actor: `user:${product.actorUserId}`,
+        agentId: product.agentId,
+        controlPlaneAgentId: product.controlPlaneAgentId,
+        profileId: product.profileId,
+        profileVersion: product.profileVersion,
+        profileRevision: product.profileRevision,
+      })
+    )
+    .digest('hex')
+  return `adea-product:sha256:${digest}`
+}
+
+/**
+ * The v2 retained pins, read from the same canonical product that signed evidence uses. The original admission
+ * actor is the cancel binding, not the fence actor. The principal is the one the service proof verified.
+ */
+function fencePins(product: CurrentLeadTurnProduct, verifiedPrincipalId: string) {
+  return {
+    authorityRevision: product.channelVersion,
+    canonicalActorPrincipalId: `user:${product.actorUserId}`,
+    scopeRef: scopeRefFor(product),
+    allowedPrincipalIds: [verifiedPrincipalId],
+  }
+}
+
 /** Authenticated private service read. The browser cannot supply actor, profile, selection or grants. */
 export function createLeadProductReaderHandler(dependencies: LeadProductReaderDependencies) {
   return async (request: Request): Promise<Response> => {
@@ -141,16 +182,22 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
           const now = dependencies.now?.() ?? Date.now()
           const fence = readFenceEnvelope(product, now)
           if (fence === undefined) return unavailable()
-          // A fenced admission is not admissible. The response carries only the requested identity and the
-          // validated fence facts: no prompt, profile, scope or principal, so no dispatch can be built from it.
+          // A fenced admission is not admissible. The v2 body carries the requested identity, the validated fence
+          // facts and the retained-pin fields that observe and actor-bound cancel need. It has no prompt, profile
+          // or message content, so no prepare, dispatch, resume or publication can be built from it.
           if (fence) {
+            const pins = fencePins(product, selectors.principalId)
             return Response.json(
               {
-                schemaVersion: 'pi-lead-intent-fence/v1',
+                schemaVersion: 'pi-lead-intent-fence/v2',
                 intentId: selectors.intentId,
                 workspaceId: selectors.workspaceId,
                 dispatchPermitted: false,
                 rollbackFence: fence,
+                authorityRevision: pins.authorityRevision,
+                canonicalActorPrincipalId: pins.canonicalActorPrincipalId,
+                scopeRef: pins.scopeRef,
+                allowedPrincipalIds: pins.allowedPrincipalIds,
               },
               { headers: { 'cache-control': 'private, no-store' } }
             )
@@ -160,27 +207,6 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
           if (!Number.isFinite(createdAt) || createdAt > now || expiresAt <= now)
             return unavailable()
           const actor = `user:${product.actorUserId}`
-          // This digest names the exact current product audience, message and profile pins.
-          // It confers no CP spending or execution authority.
-          const scopeDigest = createHash('sha256')
-            .update(
-              canonicalJson({
-                workspaceId: product.workspaceId,
-                channelId: product.channelId,
-                channelVersion: product.channelVersion,
-                visibility: product.channelVisibility,
-                audience: product.audience,
-                messageId: product.messageId,
-                messageVersion: product.messageVersion,
-                actor,
-                agentId: product.agentId,
-                controlPlaneAgentId: product.controlPlaneAgentId,
-                profileId: product.profileId,
-                profileVersion: product.profileVersion,
-                profileRevision: product.profileRevision,
-              })
-            )
-            .digest('hex')
           return Response.json(
             {
               schemaVersion: 'pi-lead-intent/v1',
@@ -191,7 +217,7 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
               authorityRevision: product.channelVersion,
               principalRef: actor,
               canonicalActorPrincipalId: actor,
-              scopeRef: `adea-product:sha256:${scopeDigest}`,
+              scopeRef: scopeRefFor(product),
               expiresAt: new Date(expiresAt).toISOString(),
               allowedPrincipalIds: [selectors.principalId],
               prompt: product.prompt,

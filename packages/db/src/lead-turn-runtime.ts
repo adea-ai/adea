@@ -414,6 +414,9 @@ export function publishLeadTurnResult(
           .for('update')
         if (!row || row.state !== 'completed') throw new Error('PUBLICATION_WITHHELD')
         assertBinding(row, binding)
+        // A fenced admission never publishes, even for a completed result. The share lock serialises this check
+        // against a concurrent fence on the same admission, and it runs before the grant is consulted.
+        await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
         await assertCurrentGrant()
         const digest = createHash('sha256')
