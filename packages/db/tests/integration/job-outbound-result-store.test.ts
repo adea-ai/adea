@@ -15,10 +15,14 @@ import {
   createMessage,
   deleteMessage,
   editMessage,
+  getMessageForUser,
+  listMessagesForUser,
   setChannelParticipants,
 } from '../../src/conversations'
+import { searchWorkspaceForUser } from '../../src/search'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
+  completeTaskAndPublishOutboundResult,
   createJobOutboundStoreService,
   publishJobOutboundMessage,
   readJobOutboundAccess,
@@ -60,7 +64,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
   })
   afterAll(() => connection.close())
 
-  async function fixture() {
+  async function fixture(options: { complete?: boolean } = {}) {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
@@ -179,11 +183,12 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       requestId,
       expectedVersion: task.version,
     })
-    await completeTask(connection.db, workspace.id, task.id, owner.principal, {
-      idempotencyKey: crypto.randomUUID(),
-      requestId: crypto.randomUUID(),
-      expectedVersion: task.version,
-    })
+    if (options.complete !== false)
+      await completeTask(connection.db, workspace.id, task.id, owner.principal, {
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+        expectedVersion: task.version,
+      })
     return { agent, channelA, channelB, destination, owner, recipient, task, workspace }
   }
 
@@ -804,5 +809,145 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       gate: 'audience',
       reason: 'recipient_not_destination_member',
     })
+  })
+
+  test('a production completion publishes its result; history and search show it only while the reader is authorized', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const { task, publication } = await completeTaskAndPublishOutboundResult(
+      connection.db,
+      f.workspace.id,
+      f.task.id,
+      f.owner.principal,
+      {
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+        expectedVersion: f.task.version,
+      },
+      {
+        artifact: { artifactId: reg.artifact.id, grantId: reg.grantId },
+        artifactPolicy: 'require',
+        channelId: f.channelA.id,
+        summary: 'Report attached.',
+      }
+    )
+    expect(task.lifecycleState).toBe('completed')
+    expect(publication.decision.action).toBe('publish')
+    const messageId = publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+    const shown = await listMessagesForUser(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.recipient.principal
+    )
+    expect(shown.messages).toContainEqual(
+      expect.objectContaining({
+        artifactIds: [reg.artifact.id],
+        id: messageId,
+        sender: { kind: 'system', systemId: 'job-outbound' },
+      })
+    )
+    const found = await searchWorkspaceForUser(
+      connection.db,
+      f.destination.id,
+      f.recipient.principal,
+      'Report attached'
+    )
+    expect(found.results.some((hit) => hit.id === messageId)).toBe(true)
+
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const after = await listMessagesForUser(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.recipient.principal
+    )
+    expect(after.messages.some((message) => message.id === messageId)).toBe(false)
+    await expect(
+      getMessageForUser(connection.db, f.destination.id, messageId, f.recipient.principal)
+    ).rejects.toThrow('Message unavailable')
+    const hidden = await searchWorkspaceForUser(
+      connection.db,
+      f.destination.id,
+      f.recipient.principal,
+      'Report attached'
+    )
+    expect(hidden.results.some((hit) => hit.id === messageId)).toBe(false)
+  })
+
+  test('omitting an unauthorized artifact from a production completion: history carries the summary, never the artifact or binding', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const { publication } = await completeTaskAndPublishOutboundResult(
+      connection.db,
+      f.workspace.id,
+      f.task.id,
+      f.owner.principal,
+      {
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+        expectedVersion: f.task.version,
+      },
+      {
+        artifact: { artifactId: reg.artifact.id, grantId: reg.grantId },
+        artifactPolicy: 'omit_unauthorized',
+        channelId: f.channelA.id,
+        summary: 'Summary only.',
+      }
+    )
+    expect(publication.decision).toMatchObject({
+      action: 'publish',
+      artifactOmitted: 'grant_revoked',
+    })
+    const listed = await listMessagesForUser(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.recipient.principal
+    )
+    expect(listed.messages).toContainEqual(
+      expect.objectContaining({ artifactIds: [], bodyText: 'Summary only.' })
+    )
+    expect(JSON.stringify(listed)).not.toContain(reg.artifact.id)
+    expect(JSON.stringify(listed)).not.toContain('job-outbound:v1:')
+  })
+
+  test('a completion that names an unregistered artifact completes nothing and publishes nothing', async () => {
+    const f = await fixture({ complete: false })
+    await expect(
+      completeTaskAndPublishOutboundResult(
+        connection.db,
+        f.workspace.id,
+        f.task.id,
+        f.owner.principal,
+        {
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+          expectedVersion: f.task.version,
+        },
+        {
+          artifact: { artifactId: NIL_UUID, grantId: `grant-${crypto.randomUUID()}` },
+          artifactPolicy: 'require',
+          channelId: f.channelA.id,
+          summary: 'Never published.',
+        }
+      )
+    ).rejects.toThrow('Artifact grant unavailable')
+    expect(await readJobOutboundSource(connection.db, f.task.id)).toMatchObject({
+      completedAt: null,
+    })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
   })
 })

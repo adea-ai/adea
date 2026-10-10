@@ -331,3 +331,10 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+
+export {
+  completeTaskAndPublishOutboundResult,
+  type JobOutboundCompletionOutcome,
+  type JobOutboundCompletionRequest,
+} from './job-outbound-result-store'
+export type { JobOutboundArtifactPolicy } from './job-outbound-result-policy'

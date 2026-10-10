@@ -18,6 +18,8 @@ import {
   requireProjectWrite,
   visibleProjectCondition,
 } from './project-access'
+import { isJobOutboundSenderValue } from './job-outbound-binding'
+import { filterVisibleJobOutboundRows, JOB_OUTBOUND_HISTORY_SYSTEM_ID } from './job-outbound-read'
 import { reopenTasksForChannelMessage } from './tasks'
 import { appendWorkspaceEvent } from './transactions'
 import {
@@ -841,7 +843,14 @@ function messageSummaryFrom(row: MessageRow, reads: MessageChildReads): MessageS
   let sender: MessageSenderRef
   if (row.senderKind === 'user') sender = { kind: 'user', userId: row.senderUserId! }
   else if (row.senderKind === 'agent') sender = { agentId: row.senderAgentId!, kind: 'agent' }
-  else sender = { kind: 'system', systemId: row.senderSystemId! }
+  else
+    sender = {
+      kind: 'system',
+      // A job publication's system value encodes its binding; history shows only a label.
+      systemId: isJobOutboundSenderValue(row.senderSystemId)
+        ? JOB_OUTBOUND_HISTORY_SYSTEM_ID
+        : row.senderSystemId!,
+    }
   return Object.freeze({
     artifactIds: Object.freeze([...artifactIds]),
     ...(!row.deletedAt && row.bodyContentRefId ? { bodyContentRefId: row.bodyContentRefId } : {}),
@@ -1126,14 +1135,15 @@ export async function listMessagesForUser(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
+  const visible = await filterVisibleJobOutboundRows(database, page, principal.userId)
   const reads = await readMessageChildReads(
     database,
     workspaceId,
-    page.map((row) => row.id)
+    visible.map((row) => row.id)
   )
   return Object.freeze({
     messages: Object.freeze(
-      page.map((row) =>
+      visible.map((row) =>
         messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
       )
     ),
@@ -1150,6 +1160,9 @@ export async function getMessageForUser(
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
   await requireChannelAccess(database, workspaceId, message.channelId, principal)
+  // A publication the reader is no longer authorized for is indistinguishable from a missing message.
+  if ((await filterVisibleJobOutboundRows(database, [message], principal.userId)).length === 0)
+    throw new Error('Message unavailable')
   return messageSummary(database, message)
 }
 

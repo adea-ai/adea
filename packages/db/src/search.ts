@@ -7,6 +7,7 @@ import {
   visibleProjectCondition,
   visibleTaskCondition,
 } from './project-access'
+import { filterVisibleJobOutboundRows } from './job-outbound-read'
 import { listAccessibleChannelIds } from './read-state'
 import { searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
@@ -62,132 +63,148 @@ export async function searchWorkspaceForUser(
   const scopedChannelIds = options.channelId ? [options.channelId] : allowedChannelIds
   const like = pattern(normalized)
 
-  const [projectRows, channelRows, agentRows, taskRows, artifactRows, messageRows, privateRows] =
-    await Promise.all([
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({ id: projects.id, label: projects.name })
-            .from(projects)
-            .where(
-              and(
-                eq(projects.workspaceId, workspaceId),
-                eq(projects.lifecycleState, 'active'),
-                visibleProjectCondition(projects.id, scope),
-                or(ilike(projects.name, like), ilike(projects.iconKey, like))
-              )
+  const [
+    projectRows,
+    channelRows,
+    agentRows,
+    taskRows,
+    artifactRows,
+    messageCandidates,
+    privateRows,
+  ] = await Promise.all([
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({ id: projects.id, label: projects.name })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.workspaceId, workspaceId),
+              eq(projects.lifecycleState, 'active'),
+              visibleProjectCondition(projects.id, scope),
+              or(ilike(projects.name, like), ilike(projects.iconKey, like))
             )
-            .orderBy(asc(projects.name), asc(projects.id))
-            .limit(candidateLimit),
-      options.channelId || !allowedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({ id: channels.id, label: channels.title, projectId: channels.projectId })
-            .from(channels)
-            .where(
-              and(
-                eq(channels.workspaceId, workspaceId),
-                inArray(channels.id, allowedChannelIds),
-                ilike(channels.title, like)
-              )
+          )
+          .orderBy(asc(projects.name), asc(projects.id))
+          .limit(candidateLimit),
+    options.channelId || !allowedChannelIds.length
+      ? Promise.resolve([])
+      : database
+          .select({ id: channels.id, label: channels.title, projectId: channels.projectId })
+          .from(channels)
+          .where(
+            and(
+              eq(channels.workspaceId, workspaceId),
+              inArray(channels.id, allowedChannelIds),
+              ilike(channels.title, like)
             )
-            .orderBy(asc(channels.title), asc(channels.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({ id: agents.id, label: agents.name, roleSummary: agents.roleSummary })
-            .from(agents)
-            .where(
-              and(
-                eq(agents.workspaceId, workspaceId),
-                eq(agents.lifecycleState, 'active'),
-                or(ilike(agents.name, like), ilike(agents.roleSummary, like))
-              )
+          )
+          .orderBy(asc(channels.title), asc(channels.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({ id: agents.id, label: agents.name, roleSummary: agents.roleSummary })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.workspaceId, workspaceId),
+              eq(agents.lifecycleState, 'active'),
+              or(ilike(agents.name, like), ilike(agents.roleSummary, like))
             )
-            .orderBy(asc(agents.name), asc(agents.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({
-              channelId: tasks.channelId,
-              id: tasks.id,
-              label: tasks.title,
-              objective: tasks.objective,
-              projectId: tasks.projectId,
-            })
-            .from(tasks)
-            .where(
-              and(
-                eq(tasks.workspaceId, workspaceId),
-                visibleProjectCondition(tasks.projectId, scope),
-                or(ilike(tasks.title, like), ilike(tasks.objective, like))
-              )
+          )
+          .orderBy(asc(agents.name), asc(agents.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({
+            channelId: tasks.channelId,
+            id: tasks.id,
+            label: tasks.title,
+            objective: tasks.objective,
+            projectId: tasks.projectId,
+          })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.workspaceId, workspaceId),
+              visibleProjectCondition(tasks.projectId, scope),
+              or(ilike(tasks.title, like), ilike(tasks.objective, like))
             )
-            .orderBy(asc(tasks.title), asc(tasks.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({
-              id: artifacts.id,
-              label: artifacts.filename,
-              mediaType: artifacts.mediaType,
-              taskId: artifacts.taskId,
-            })
-            .from(artifacts)
-            .where(
-              and(
-                eq(artifacts.workspaceId, workspaceId),
-                eq(artifacts.deletionState, 'active'),
-                visibleTaskCondition(database, artifacts.taskId, scope),
-                or(ilike(artifacts.filename, like), ilike(artifacts.mediaType, like))
-              )
+          )
+          .orderBy(asc(tasks.title), asc(tasks.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({
+            id: artifacts.id,
+            label: artifacts.filename,
+            mediaType: artifacts.mediaType,
+            taskId: artifacts.taskId,
+          })
+          .from(artifacts)
+          .where(
+            and(
+              eq(artifacts.workspaceId, workspaceId),
+              eq(artifacts.deletionState, 'active'),
+              visibleTaskCondition(database, artifacts.taskId, scope),
+              or(ilike(artifacts.filename, like), ilike(artifacts.mediaType, like))
             )
-            .orderBy(asc(artifacts.filename), asc(artifacts.id))
-            .limit(candidateLimit),
-      !scopedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({
-              bodyText: messages.bodyText,
-              channelId: messages.channelId,
-              channelTitle: channels.title,
-              id: messages.id,
-              projectId: channels.projectId,
-              taskId: messages.taskId,
-              threadRootMessageId: messages.threadRootMessageId,
-            })
-            .from(messages)
-            .innerJoin(channels, eq(channels.id, messages.channelId))
-            .where(
-              and(
-                eq(messages.workspaceId, workspaceId),
-                inArray(messages.channelId, scopedChannelIds),
-                isNull(messages.deletedAt),
-                isNotNull(messages.bodyText),
-                ilike(messages.bodyText, like)
-              )
+          )
+          .orderBy(asc(artifacts.filename), asc(artifacts.id))
+          .limit(candidateLimit),
+    !scopedChannelIds.length
+      ? Promise.resolve([])
+      : database
+          .select({
+            bodyText: messages.bodyText,
+            channelId: messages.channelId,
+            channelTitle: channels.title,
+            executionRef: messages.executionRef,
+            id: messages.id,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            projectId: channels.projectId,
+            taskId: messages.taskId,
+            threadRootMessageId: messages.threadRootMessageId,
+          })
+          .from(messages)
+          .innerJoin(channels, eq(channels.id, messages.channelId))
+          .where(
+            and(
+              eq(messages.workspaceId, workspaceId),
+              inArray(messages.channelId, scopedChannelIds),
+              isNull(messages.deletedAt),
+              isNotNull(messages.bodyText),
+              ilike(messages.bodyText, like)
             )
-            .orderBy(asc(messages.sequence), asc(messages.id))
-            .limit(candidateLimit),
-      !scopedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({ id: messages.id })
-            .from(messages)
-            .where(
-              and(
-                eq(messages.workspaceId, workspaceId),
-                inArray(messages.channelId, scopedChannelIds),
-                isNull(messages.deletedAt),
-                isNotNull(messages.bodyContentRefId)
-              )
+          )
+          .orderBy(asc(messages.sequence), asc(messages.id))
+          .limit(candidateLimit),
+    !scopedChannelIds.length
+      ? Promise.resolve([])
+      : database
+          .select({ id: messages.id })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.workspaceId, workspaceId),
+              inArray(messages.channelId, scopedChannelIds),
+              isNull(messages.deletedAt),
+              isNotNull(messages.bodyContentRefId)
             )
-            .limit(1),
-    ])
+          )
+          .limit(1),
+  ])
 
+  // Job publications match only while the reader is currently authorized for them.
+  const messageRows = await filterVisibleJobOutboundRows(
+    database,
+    messageCandidates,
+    principal.userId
+  )
   const results: WorkspaceSearchResult[] = [
     ...projectRows.map((row) => ({
       id: row.id,

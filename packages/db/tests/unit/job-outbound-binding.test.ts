@@ -58,19 +58,33 @@ describe('job outbound publication binding', () => {
     expect(decodeJobOutboundBinding(withSpace)).toBeNull()
   })
 
-  test('refuses malformed fields: bad revision, bad digest, an artifact without a grant', () => {
-    expect(
-      decodeJobOutboundBinding(encode({ ...canonicalOf(plain), channelVersion: 0 }))
-    ).toBeNull()
-    expect(
-      decodeJobOutboundBinding(encode({ ...canonicalOf(plain), summarySha256: 'zz' }))
-    ).toBeNull()
-    expect(decodeJobOutboundBinding(encode({ ...canonicalOf(linked), grant: null }))).toBeNull()
-    expect(
-      decodeJobOutboundBinding(
-        encode({ ...canonicalOf(plain), grant: { grantId: 'g', revision: 1 } })
-      )
-    ).toBeNull()
+  test('never throws, and refuses every malformed shape before dereferencing it', () => {
+    const base = canonicalOf(plain)
+    const withField = (key: string, value: unknown) => JSON.stringify({ ...base, [key]: value })
+    const malformed = [
+      senderValue('null'),
+      senderValue('[]'),
+      senderValue('"text"'),
+      senderValue('42'),
+      senderValue('{}'),
+      senderValue(JSON.stringify({ ...base, artifact: undefined })),
+      senderValue(withField('artifact', 'artifact-1')),
+      senderValue(withField('artifact', [])),
+      senderValue(withField('artifact', 7)),
+      senderValue(withField('artifact', { artifactId: 'a' })),
+      senderValue(withField('grant', 'grant-1')),
+      senderValue(withField('grant', { grantId: 1, revision: 1 })),
+      senderValue(withField('channelVersion', '4')),
+      senderValue(withField('channelVersion', 1.5)),
+      senderValue(JSON.stringify({ ...base, extra: true })),
+      `${JOB_OUTBOUND_SENDER_PREFIX}${'A'.repeat(5000)}`,
+      'job-outbound:v1:%%%',
+    ]
+    for (const value of malformed) expect(() => decodeJobOutboundBinding(value)).not.toThrow()
+    for (const value of malformed) expect(decodeJobOutboundBinding(value)).toBeNull()
+    expect(decodeJobOutboundBinding(null)).toBeNull()
+    expect(decodeJobOutboundBinding(undefined)).toBeNull()
+    expect(decodeJobOutboundBinding(encodeJobOutboundBinding(linked))).not.toBeNull()
   })
 })
 
@@ -79,7 +93,7 @@ function canonicalOf(binding: JobOutboundBinding) {
   return JSON.parse(JSON.stringify(binding)) as Record<string, unknown>
 }
 
-/** Forges a sender value from arbitrary JSON, for the malformed-field cases. */
-function encode(value: unknown): string {
-  return `${JOB_OUTBOUND_SENDER_PREFIX}${Buffer.from(JSON.stringify(value)).toString('base64url')}`
+/** A sender value built from raw JSON text, so the malformed shapes are spelled exactly. */
+function senderValue(json: string): string {
+  return `${JOB_OUTBOUND_SENDER_PREFIX}${Buffer.from(json).toString('base64url')}`
 }
