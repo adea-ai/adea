@@ -3,6 +3,8 @@ import { check, index, integer, text, unique, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents'
 import { channels, messages } from './conversations'
 import { entityId, timestampColumns } from './conventions'
+import { leadTurnIntents } from './lead-turns'
+import { users } from './identity'
 import { appSchema } from './schema'
 import { workspaces } from './workspaces'
 
@@ -40,6 +42,13 @@ export const addressedAgentTurns = appSchema.table(
       .notNull()
       .references(() => agents.id, { onDelete: 'restrict' }),
     /**
+     * Original human attribution: the principal that addressed this turn.
+     * Cancellation authority derives from it (addresser or manager).
+     */
+    addresserUserId: uuid('addresser_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    /**
      * Workspace-qualified addressed label (`<sourceWorkspaceId>:<agentId>`)
      * shown to participants. The source workspace is the Agent's verified
      * home — never the conversation host. The `workspace_id` column keeps
@@ -57,6 +66,15 @@ export const addressedAgentTurns = appSchema.table(
     maxTurns: integer('max_turns').notNull(),
     state: text('state').default('claimed').notNull(),
     responseMessageId: uuid('response_message_id').references(() => messages.id, {
+      onDelete: 'restrict',
+    }),
+    /**
+     * Intent minted for this claim by dispatch (null until dispatched).
+     * Binds cancellation to the exact retained intent — never a sibling
+     * revision's. Crash recovery (minted but unbound) converges by
+     * redispatch replay, which rebinds the same intent idempotently.
+     */
+    intentId: uuid('intent_id').references(() => leadTurnIntents.id, {
       onDelete: 'restrict',
     }),
     ...timestampColumns(),

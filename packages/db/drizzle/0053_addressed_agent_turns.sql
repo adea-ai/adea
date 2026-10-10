@@ -5,6 +5,7 @@ CREATE TABLE "app"."addressed_agent_turns" (
 	"trigger_message_id" uuid NOT NULL,
 	"parent_turn_id" uuid,
 	"agent_id" uuid NOT NULL,
+	"addresser_user_id" uuid NOT NULL,
 	"addressed_label" text NOT NULL,
 	"causal_id" text NOT NULL,
 	"dispatch_revision" integer NOT NULL,
@@ -13,6 +14,7 @@ CREATE TABLE "app"."addressed_agent_turns" (
 	"max_turns" integer NOT NULL,
 	"state" text DEFAULT 'claimed' NOT NULL,
 	"response_message_id" uuid,
+	"intent_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "addressed_agent_turns_claim_unique" UNIQUE("trigger_message_id","agent_id","dispatch_revision"),
@@ -28,5 +30,7 @@ ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_
 ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_channel_id_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "app"."channels"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_trigger_message_id_messages_id_fk" FOREIGN KEY ("trigger_message_id") REFERENCES "app"."messages"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "app"."agents"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_addresser_user_id_users_id_fk" FOREIGN KEY ("addresser_user_id") REFERENCES "app"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_response_message_id_messages_id_fk" FOREIGN KEY ("response_message_id") REFERENCES "app"."messages"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_intent_id_lead_turn_intents_id_fk" FOREIGN KEY ("intent_id") REFERENCES "app"."lead_turn_intents"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "addressed_agent_turns_channel_idx" ON "app"."addressed_agent_turns" USING btree ("workspace_id","channel_id");
