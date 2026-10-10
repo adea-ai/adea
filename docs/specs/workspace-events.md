@@ -12,12 +12,15 @@ same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 **Projects, not rooms:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
 renamed the cloud room entity to projects in one migration (`0030`). The
 `project` family (`project.created`, `project.updated`, `project.archived`,
-`project.reordered`, `project.deleted`) replaced `room.*`, `task.room_changed`
-became `task.project_changed`, and `agent.room_assigned` became
-`agent.project_assigned`. The `room` aggregate type survives in the database
-enum only so historical rows stay readable; no current contract emits it, and a
-client that replays an old `room.*` event treats it as an unknown family and
-refreshes the workspace.
+`project.reordered`, `project.restored`, `project.deleted`) replaced `room.*`,
+`task.room_changed` became `task.project_changed`, and `agent.room_assigned`
+became `agent.project_assigned`. Explicit project-state promotion appends
+`project.restored` and wakes every archived project channel with
+`channel.restored` (aggregate `channel`, payload `actorUserId`, `channelId`,
+`projectId`; ids only, like `channel.archived`). The `room` aggregate type
+survives in the database enum only so historical rows stay readable; no
+current contract emits it, and a client that replays an old `room.*` event
+treats it as an unknown family and refreshes the workspace.
 
 **Sharing:** ADR 0012 (workspace memory, connections and sharing) made delivery
 per principal. A `members` project, its channels, messages, tasks and their artifacts are visible

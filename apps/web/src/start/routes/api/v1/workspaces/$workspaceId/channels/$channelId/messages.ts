@@ -1,7 +1,15 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import type { ApiMessagePage, ApiMessageResponse } from '@adea-ai/api-client'
-import { createLeadTurn, createMessage, listMessagesForUser } from '@adea-ai/db'
+import {
+  createLeadTurn,
+  createMessage,
+  getChannelForUser,
+  listGroupChannelMessagesForUser,
+  listMessagesForUser,
+  parseRequestedRoleModelSelections,
+  postGroupChannelMessage,
+} from '@adea-ai/db'
 import { parseLeadTurnMode } from '../../../../../../../../server/lead-turn-request'
 
 import {
@@ -47,6 +55,27 @@ async function get(request: Request, { params }: Context) {
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    const channel = await getChannelForUser(
+      applicationDatabase(),
+      workspaceId,
+      channelId,
+      resolution.principal
+    )
+    if (channel.kind === 'group') {
+      // Join-point-filtered group history: earlier entries stay held without
+      // an explicit audience-aware sharing grant. No caller instant is
+      // passed: the shared read evaluates on trusted time it reads itself.
+      const payload: ApiMessagePage = await listGroupChannelMessagesForUser(
+        applicationDatabase(),
+        workspaceId,
+        channelId,
+        resolution.principal,
+        { afterSequence, limit, threadRootMessageId }
+      )
+      return workspaceJsonResponse(payload, resolution, request, {
+        headers: { 'cache-control': 'private, no-store' },
+      })
+    }
     const payload: ApiMessagePage = await listMessagesForUser(
       applicationDatabase(),
       workspaceId,
@@ -79,6 +108,12 @@ async function post(request: Request, { params }: Context) {
   }
   const hasBodyText = typeof body?.bodyText === 'string' && Boolean(body.bodyText.trim())
   const leadTurnMode = body && !Array.isArray(body) ? parseLeadTurnMode(body) : null
+  let requestedModelSelections
+  try {
+    requestedModelSelections = parseRequestedRoleModelSelections(body?.requestedModelSelections)
+  } catch {
+    return workspaceInvalidRequestResponse(request)
+  }
   const hasBodyRef = isConversationUuid(body?.bodyContentRefId)
   const mentions = Array.isArray(body?.mentions)
     ? body.mentions.map(parseConversationParticipant)
@@ -107,6 +142,77 @@ async function post(request: Request, { params }: Context) {
   )
     return workspaceInvalidRequestResponse(request)
   try {
+    const channel = await getChannelForUser(
+      applicationDatabase(),
+      workspaceId,
+      channelId,
+      resolution.principal
+    )
+    if (channel.kind === 'group') {
+      // ONE shared transaction/fence: the current admission/grant check and
+      // the actual message/turn write commit together, so a revocation
+      // landing between a separate check and write cannot slip a forbidden
+      // turn through. Dispatch and orchestration stay with the turn
+      // coordinator; this fence only gates.
+      if (leadTurnMode === 'lead') {
+        const payload: ApiMessageResponse = await postGroupChannelMessage(
+          applicationDatabase(),
+          workspaceId,
+          channelId,
+          resolution.principal,
+          resolution.principal,
+          {
+            lead: {
+              ...(Array.isArray(body.artifactIds)
+                ? { artifactIds: body.artifactIds as string[] }
+                : {}),
+              ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
+              ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+              idempotencyKey,
+              // SAME explicit lead/child choices as the non-group lead path:
+              // parsed strictly above, forwarded verbatim, never defaulted.
+              ...(requestedModelSelections ? { requestedModelSelections } : {}),
+              mentions: mentions as never,
+            },
+            mode: 'lead',
+          }
+        )
+        return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+      }
+      const payload: ApiMessageResponse = {
+        message: await postGroupChannelMessage(
+          applicationDatabase(),
+          workspaceId,
+          channelId,
+          resolution.principal,
+          resolution.principal,
+          {
+            message: {
+              ...(Array.isArray(body.artifactIds)
+                ? { artifactIds: body.artifactIds as string[] }
+                : {}),
+              ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
+              ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
+              ...(typeof body.executionRef === 'string' ? { executionRef: body.executionRef } : {}),
+              ...(typeof body.externalSessionRef === 'string'
+                ? { externalSessionRef: body.externalSessionRef }
+                : {}),
+              idempotencyKey,
+              mentions: mentions as never,
+              ...(isConversationUuid(body.replyToMessageId)
+                ? { replyToMessageId: body.replyToMessageId }
+                : {}),
+              ...(isConversationUuid(body.taskId) ? { taskId: body.taskId } : {}),
+              ...(isConversationUuid(body.threadRootMessageId)
+                ? { threadRootMessageId: body.threadRootMessageId }
+                : {}),
+            },
+            mode: 'direct',
+          }
+        ),
+      }
+      return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+    }
     if (leadTurnMode === 'lead') {
       const payload: ApiMessageResponse = await createLeadTurn(
         applicationDatabase(),
@@ -118,6 +224,7 @@ async function post(request: Request, { params }: Context) {
           ...(hasBodyRef ? { bodyContentRefId: body.bodyContentRefId as string } : {}),
           ...(hasBodyText ? { bodyText: body.bodyText as string } : {}),
           idempotencyKey,
+          ...(requestedModelSelections ? { requestedModelSelections } : {}),
           mentions: mentions as never,
         }
       )

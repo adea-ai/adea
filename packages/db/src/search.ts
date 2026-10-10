@@ -2,6 +2,12 @@ import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } fro
 import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
+import { decideGroupHistoryRead } from './group-participation-policy'
+import {
+  admissionForParticipant,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+} from './group-participation-store'
 import {
   requireProjectAccessScope,
   visibleProjectCondition,
@@ -37,7 +43,7 @@ export async function searchWorkspaceForUser(
   workspaceId: string,
   principal: UserPrincipalRef,
   query: string,
-  options: Readonly<{ channelId?: string; limit?: number; offset?: number }> = {}
+  options: Readonly<{ channelId?: string; limit?: number; now?: string; offset?: number }> = {}
 ): Promise<WorkspaceSearchPage> {
   const normalized = query.trim()
   if (normalized.length < 2 || normalized.length > 120) throw new Error('Search query invalid')
@@ -153,9 +159,12 @@ export async function searchWorkspaceForUser(
             .select({
               bodyText: messages.bodyText,
               channelId: messages.channelId,
+              channelKind: channels.kind,
               channelTitle: channels.title,
+              createdAt: messages.createdAt,
               id: messages.id,
               projectId: channels.projectId,
+              sequence: messages.sequence,
               taskId: messages.taskId,
               threadRootMessageId: messages.threadRootMessageId,
             })
@@ -187,6 +196,45 @@ export async function searchWorkspaceForUser(
             )
             .limit(1),
     ])
+
+  // Shared authorized read boundary for group snippets: message bodies in
+  // group channels pass their reader's join point and live grants, exactly
+  // like the message reads. Every other surface keeps its existing scope.
+  let visibleMessageRows = messageRows
+  const groupMessageRows = messageRows.filter((row) => row.channelKind === 'group')
+  if (groupMessageRows.length > 0) {
+    const now = options.now ?? new Date().toISOString()
+    const participant = { kind: 'user' as const, userId: principal.userId }
+    const byChannel = new Map<string, typeof groupMessageRows>()
+    for (const row of groupMessageRows) {
+      const rows = byChannel.get(row.channelId) ?? []
+      rows.push(row)
+      byChannel.set(row.channelId, rows)
+    }
+    const allowedIds = new Set<string>()
+    await Promise.all(
+      [...byChannel].map(async ([channelId, rows]) => {
+        const [roster, sharingGrants] = await Promise.all([
+          loadGroupRoster(database, workspaceId, channelId),
+          loadGroupSharingGrants(database, workspaceId, channelId),
+        ])
+        const admission = admissionForParticipant(roster, participant)
+        for (const row of rows) {
+          const decision = decideGroupHistoryRead({
+            admission,
+            entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
+            groupId: channelId,
+            now,
+            sharingGrants,
+          })
+          if (decision.action === 'allow') allowedIds.add(row.id)
+        }
+      })
+    )
+    visibleMessageRows = messageRows.filter(
+      (row) => row.channelKind !== 'group' || allowedIds.has(row.id)
+    )
+  }
 
   const results: WorkspaceSearchResult[] = [
     ...projectRows.map((row) => ({
@@ -229,7 +277,7 @@ export async function searchWorkspaceForUser(
       ...(row.taskId ? { taskId: row.taskId } : {}),
       workspaceId,
     })),
-    ...messageRows.map((row) => ({
+    ...visibleMessageRows.map((row) => ({
       channelId: row.channelId,
       id: row.id,
       kind: 'message' as const,

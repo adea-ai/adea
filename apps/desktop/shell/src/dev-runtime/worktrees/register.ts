@@ -29,6 +29,7 @@ import {
   type WorktreeService,
 } from './service'
 import type { CleanupPlan as ServiceCleanupPlan, CleanupStepKind } from './cleanup-plan'
+import { buildCleanupPreview } from './cleanup-preview'
 import type { MergePlan as ServiceMergePlan } from './merge'
 import { ensureManagedWorktreeBase } from '../repos/managed'
 
@@ -484,6 +485,13 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
         boundGeneration: command.resource!.generation,
         expiresAt: now() + PLAN_TTL_MS,
       })
+      // The consequences are the read-only preview of the same facts the
+      // executor will re-observe at commit; the plan remains the only
+      // authority and the preview never runs a step.
+      const preview = buildCleanupPreview({
+        facts: plan.facts,
+        selectedSteps: plan.selectedSteps,
+      })
       return {
         id: plan.planId,
         operation: 'dev.worktree.cleanupCommit',
@@ -505,6 +513,11 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
             ? blocker.code
             : 'cleanup_blocked') as DevError['code'],
           message: blocker.detail,
+        })),
+        consequences: preview.consequences.map(({ blocking, detail, kind }) => ({
+          blocking,
+          detail,
+          kind,
         })),
         requiredApprovalIds: [],
         digest: plan.digest,

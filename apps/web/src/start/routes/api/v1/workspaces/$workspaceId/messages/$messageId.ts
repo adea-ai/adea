@@ -1,7 +1,13 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
 import type { ApiMessageResponse } from '@adea-ai/api-client'
-import { deleteMessage, editMessage, getMessageForUser } from '@adea-ai/db'
+import {
+  deleteMessage,
+  editMessage,
+  getChannelForUser,
+  getGroupMessageForUser,
+  getMessageForUser,
+} from '@adea-ai/db'
 
 import {
   conversationErrorResponse,
@@ -34,13 +40,31 @@ async function get(request: Request, { params }: Context) {
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.read', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
   try {
+    // Group messages additionally pass their join point: earlier entries
+    // answer exactly like missing ones.
+    const preview = await getMessageForUser(
+      applicationDatabase(),
+      workspaceId,
+      messageId,
+      resolution.principal
+    )
+    const previewChannel = await getChannelForUser(
+      applicationDatabase(),
+      workspaceId,
+      preview.channelId,
+      resolution.principal
+    )
     const payload: ApiMessageResponse = {
-      message: await getMessageForUser(
-        applicationDatabase(),
-        workspaceId,
-        messageId,
-        resolution.principal
-      ),
+      message:
+        previewChannel.kind === 'group'
+          ? await getGroupMessageForUser(
+              applicationDatabase(),
+              workspaceId,
+              preview.channelId,
+              messageId,
+              resolution.principal
+            )
+          : preview,
     }
     return workspaceJsonResponse(payload, resolution, request, {
       headers: { 'cache-control': 'private, no-store' },

@@ -72,6 +72,20 @@ It is additive with a default of zero. Apply it before callers that send `expect
 until every writer checks the revision, a pre-0045 writer can edit without advancing it, so
 complete the rollout before relying on conflicts.
 
+Migration 0046 adds #1207's artifact-reference grant table after 0045. Migration 0047 adds only
+the nullable requested lead/child selection column on the immutable lead intent and its strict
+check; it follows 0046 and descends from its snapshot. No migration is renumbered on `main`.
+Omission retains workspace role defaults; a changed choice on the same message/idempotency
+key conflicts. The locked private reader exposes only these requested references; CP validates
+workspace/target/readiness and retains accepted runtime selections. A parent child choice
+never inherits the lead choice. Child overrides require CP-owned canonical child admission.
+The requested references reach CP only through the authenticated lead-product evidence endpoint
+(`requestedModelSelections`); the public prepare request stays `{ intentId }`. CP resolves and pins
+the selection from that canonical evidence. A prepared model that differs from the requested lead
+reference is refused (`REQUESTED_MODEL_MISMATCH`) and never falls back to the workspace default.
+The older runtime workspace declaration must never generate a destructive rollback or renumber
+an applied migration.
+
 ## Permanent workspace deletion
 
 Active permanent deletion is unavailable until server-owned cleanup completion
@@ -134,3 +148,40 @@ identity decisions. No migration or onboarding operation connects an account.
 with no duplicates or foreign IDs, and updates only that member's positions. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
+
+The opt-in [installed SDK / production-factory consumer proof](../../docs/guides/pi-production-factory-consumer-proof.md)
+uses a reviewed CP checkout and actual public candidate packages with an owned restricted
+PG database. Its preflight regressions are in the normal DB unit inventory; the connected
+fixture requires explicit verified inputs and never substitutes a mocked SDK or live config.
+
+## Project-state promotion and channel provenance
+
+`promoteProjectState()` is the one explicit archived → active transition. It
+requires the caller's confirmation and the exact observed `version`, holds
+the project row lock, wakes only the channels the project-archive cascade
+slept, and appends `project.restored` / `channel.restored`. The pure
+`decideProjectStatePromotion` refuses missing, foreign, soft-deleted,
+already-active, stale and unconfirmed calls with typed reasons; visibility is
+carried through unchanged.
+
+Project revision is the additive integer `projects.version`
+(`DEFAULT 1 NOT NULL`, `CHECK (version > 0)`). Every project-row mutation
+increments it atomically — update, archive, soft delete, reorder (included),
+visibility change and promotion — and `ProjectSummary.version` plus the one
+canonical `projectSummary` mapper expose the single shape. A non-safe-integer,
+zero/negative or mismatched `expectedVersion` refuses `promotion_stale`;
+timestamps are display-only. The membership tables keep their own operation
+contracts and are not part of the project-row revision.
+
+Channel archive provenance is explicit in `channels.archive_source`:
+`project_cascade` marks the channels a project archive slept, `individual`
+marks an explicit channel archive (and the default for historical rows).
+Promotion restores exactly the cascade set; a channel archived on its own is
+never revived. `archiveProject`, `softDeleteProject` and
+`promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
+which lock the project row first and the project's channels in id order, then
+compare-and-swap each channel `version`, so a concurrent write rolls the whole
+transaction back instead of losing an update. The migration that adds the enum
+and column is expand-only; its number is provisional until the `main` journal
+confirms it (see the lane handoff
+`docs/plans/m14-03-management-action-contract.md`).

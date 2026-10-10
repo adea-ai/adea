@@ -47,6 +47,30 @@ describe('project query contracts', () => {
       project,
     })
   })
+
+  test('promotes through the revisioned restore mutation and seeds the detail cache', async () => {
+    const calls: Array<{ input: unknown; projectId: string }> = []
+    const queryClient = new QueryClient()
+    const restored = { ...project, version: 8 }
+    const api = client({
+      restoreProject: (async (_workspaceId: string, projectId: string, input: unknown) => {
+        calls.push({ input, projectId })
+        return { project: restored }
+      }) as unknown as AgentHqApiClient['restoreProject'],
+    })
+    const options = projectMutationOptions.restore(api, queryClient, 'workspace-1')
+    const result = await options.mutationFn({
+      input: { confirmed: true, expectedVersion: 7 },
+      projectId: 'project-1',
+    })
+    expect(calls).toEqual([
+      { input: { confirmed: true, expectedVersion: 7 }, projectId: 'project-1' },
+    ])
+    await options.onSuccess(result, { projectId: 'project-1' })
+    expect(queryClient.getQueryData(projectQueryKeys.detail('workspace-1', 'project-1'))).toEqual(
+      result
+    )
+  })
 })
 
 describe('project mutation contracts', () => {

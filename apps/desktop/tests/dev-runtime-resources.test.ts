@@ -11,6 +11,8 @@
 // closed.
 import { describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { DevCommand, DevOperation, Scope } from '../../../packages/types/src/dev-runtime'
 import type { SupervisionRecord } from '../shell/src/supervision/records'
@@ -25,6 +27,8 @@ import {
   SAMPLE_MAX_PIDS,
 } from '../shell/src/dev-runtime/resources/sample-processes'
 import {
+  cleanupPolicyExpiry,
+  cleanupPolicyStanding,
   createCleanupPolicyAuthority,
   evaluatePredicates,
 } from '../shell/src/dev-runtime/resources/policy'
@@ -935,17 +939,21 @@ describe('cleanup policies', () => {
   function boot(options: {
     approvalVerifier?: Parameters<typeof createCleanupPolicyAuthority>[0]['approvalVerifier']
     worktreeFacts?: Parameters<typeof createCleanupPolicyAuthority>[0]['worktreeFacts']
+    now?: () => number
+    dataDir?: string
   }) {
+    const dataDir = options.dataDir ?? `/tmp/adea-resources-test-${randomUUID()}`
     const authority = stubAuthority()
     const created = createCleanupPolicyAuthority({
       authority: authority as never,
-      dataDir: `/tmp/adea-resources-test-${randomUUID()}`,
+      dataDir,
       scope: SCOPE,
       ...(options.approvalVerifier ? { approvalVerifier: options.approvalVerifier } : {}),
       ...(options.worktreeFacts ? { worktreeFacts: options.worktreeFacts } : {}),
+      ...(options.now ? { now: options.now } : {}),
       randomId: () => randomUUID(),
     })
-    return { authority, created }
+    return { authority, created, dataDir }
   }
 
   test('approve fails closed without a proven owner approval; evaluation executes nothing', async () => {
@@ -1089,5 +1097,308 @@ describe('cleanup policies', () => {
       archived_seconds: '61',
     })
     expect(allMatched.matched).toBe(true)
+  })
+
+  test('policy standing rejects a malformed expiry or an unprovable clock', () => {
+    const nowMs = Date.parse('2026-10-09T00:00:00.000Z')
+    expect(cleanupPolicyExpiry('not-a-date', nowMs)).toBe('invalid')
+    expect(cleanupPolicyExpiry(undefined, Number.NaN)).toBe('invalid')
+    expect(cleanupPolicyExpiry(undefined, nowMs)).toBe('none')
+    expect(cleanupPolicyExpiry('2026-10-08T00:00:00.000Z', nowMs)).toBe('expired')
+    expect(cleanupPolicyExpiry('2026-10-10T00:00:00.000Z', nowMs)).toBe('valid')
+    expect(
+      cleanupPolicyStanding({ expiresAt: 'not-a-date', state: 'approved' }, nowMs).standing
+    ).toBe('invalid')
+    expect(
+      cleanupPolicyStanding({ expiresAt: undefined, state: 'approved' }, Number.NaN).standing
+    ).toBe('invalid')
+    expect(cleanupPolicyStanding({ expiresAt: undefined, state: 'approved' }, nowMs).standing).toBe(
+      'approved'
+    )
+    expect(cleanupPolicyStanding({ expiresAt: undefined, state: 'disabled' }, nowMs).standing).toBe(
+      'not_approved'
+    )
+    expect(cleanupPolicyStanding({ expiresAt: undefined, state: 'expired' }, nowMs).standing).toBe(
+      'expired'
+    )
+  })
+
+  test('an unprovable clock fails evaluation closed even with true facts', async () => {
+    let nowMs = Date.parse('2026-10-09T00:00:00.000Z')
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    const { authority } = boot({
+      approvalVerifier,
+      now: () => nowMs,
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    const policy = authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+      })
+    ) as { id: string; version: number }
+    authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    const evaluate = () =>
+      authority.providers['dev.cleanupPolicy.evaluate']!(
+        command(
+          'dev.cleanupPolicy.evaluate',
+          {
+            cleanupPolicyId: policy.id,
+            expectedVersion: 2,
+            worktreeId: 'wt-clean',
+            expectedGeneration: 1,
+          },
+          { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+        )
+      )
+    await expect(evaluate()).resolves.toMatchObject({ matched: true })
+    // An unprovable clock can never count as "not expired": the policy fails
+    // closed even though every predicate fact is available and true.
+    nowMs = Number.NaN
+    const invalid = (await evaluate()) as {
+      matched: boolean
+      blockers: Array<{ code: string; message: string }>
+    }
+    expect(invalid.matched).toBe(false)
+    expect(invalid.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(invalid.blockers[0]?.message).toContain('lifetime is malformed')
+  })
+
+  test('a malformed stored expiry fails evaluation closed instead of never expiring', async () => {
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    const first = boot({
+      approvalVerifier,
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    const policy = first.authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+      })
+    ) as { id: string; version: number }
+    first.authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    // A malformed lifetime already on disk (legacy or tampered record) must
+    // never read as "not expired".
+    const file = join(first.dataDir, 'dev-runtime', 'resources', 'cleanup-policies.json')
+    const envelope = JSON.parse(readFileSync(file, 'utf8')) as {
+      records: Array<Record<string, unknown>>
+    }
+    envelope.records = envelope.records.map((record) =>
+      record.id === policy.id ? { ...record, expiresAt: 'not-a-date' } : record
+    )
+    writeFileSync(file, JSON.stringify(envelope))
+    const second = boot({
+      dataDir: first.dataDir,
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    expect(second.created.policies()).toHaveLength(1)
+    const evaluated = (await second.authority.providers['dev.cleanupPolicy.evaluate']!(
+      command(
+        'dev.cleanupPolicy.evaluate',
+        {
+          cleanupPolicyId: policy.id,
+          expectedVersion: 2,
+          worktreeId: 'wt-clean',
+          expectedGeneration: 1,
+        },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    )) as { matched: boolean; blockers: Array<{ code: string; message: string }> }
+    expect(evaluated.matched).toBe(false)
+    expect(evaluated.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(evaluated.blockers[0]?.message).toContain('lifetime is malformed')
+  })
+
+  test('a policy disabled while facts are parked cannot produce a matching evaluation', async () => {
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    let releaseFacts!: () => void
+    const parked = new Promise<void>((resolve) => {
+      releaseFacts = resolve
+    })
+    const { authority } = boot({
+      approvalVerifier,
+      worktreeFacts: async () => {
+        await parked
+        return { clean: 'true', pushed: 'true', active_leases: '0' }
+      },
+    })
+    const policy = authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+      })
+    ) as { id: string; version: number }
+    authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    const evaluating = authority.providers['dev.cleanupPolicy.evaluate']!(
+      command(
+        'dev.cleanupPolicy.evaluate',
+        {
+          cleanupPolicyId: policy.id,
+          expectedVersion: 2,
+          worktreeId: 'wt-clean',
+          expectedGeneration: 1,
+        },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as Promise<{
+      executesNothing: boolean
+      matched: boolean
+      blockers: Array<{ code: string; message: string }>
+    }>
+    // Revoke after the evaluation captured the policy but before its parked
+    // facts are delivered.
+    const disabled = authority.providers['dev.cleanupPolicy.disable']!(
+      command(
+        'dev.cleanupPolicy.disable',
+        { cleanupPolicyId: policy.id, expectedVersion: 2 },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as { state: string; version: number }
+    expect(disabled).toMatchObject({ state: 'disabled', version: 3 })
+    releaseFacts()
+    const settled = await evaluating
+    expect(settled.matched).toBe(false)
+    expect(settled.executesNothing).toBe(true)
+    expect(settled.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(settled.blockers[0]?.message).toContain('changed while worktree facts were being read')
+  })
+
+  test('a policy that expires while facts are parked cannot produce a matching evaluation', async () => {
+    let nowMs = Date.parse('2026-10-09T00:00:00.000Z')
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    let releaseFacts!: () => void
+    const parked = new Promise<void>((resolve) => {
+      releaseFacts = resolve
+    })
+    const { authority } = boot({
+      approvalVerifier,
+      now: () => nowMs,
+      worktreeFacts: async () => {
+        await parked
+        return { clean: 'true', pushed: 'true', active_leases: '0' }
+      },
+    })
+    // The user-requested lifetime enters through the dedicated
+    // `policyExpiresAt` body field on the real command surface.
+    const policy = authority.providers['dev.cleanupPolicy.createDraft']!(
+      command('dev.cleanupPolicy.createDraft', {
+        projectId: 'proj-1',
+        name: 'auto-clean merged',
+        predicates: [...PREDICATES],
+        allowedSteps: ['prune_retained_data'],
+        policyExpiresAt: '2026-10-09T00:01:00.000Z',
+      })
+    ) as { expiresAt?: string; id: string; version: number }
+    // The trusted stored/reply record keeps the established `expiresAt` shape.
+    expect(policy.expiresAt).toBe('2026-10-09T00:01:00.000Z')
+    authority.providers['dev.cleanupPolicy.approve']!(
+      command(
+        'dev.cleanupPolicy.approve',
+        { cleanupPolicyId: policy.id, expectedVersion: 1, approvalId: 'approval-1' },
+        { kind: 'cleanup_policy', id: policy.id, generation: 1 }
+      )
+    )
+    const evaluating = authority.providers['dev.cleanupPolicy.evaluate']!(
+      command(
+        'dev.cleanupPolicy.evaluate',
+        {
+          cleanupPolicyId: policy.id,
+          expectedVersion: 2,
+          worktreeId: 'wt-clean',
+          expectedGeneration: 1,
+        },
+        { kind: 'cleanup_policy', id: policy.id, generation: 2 }
+      )
+    ) as Promise<{
+      executesNothing: boolean
+      matched: boolean
+      blockers: Array<{ code: string; message: string }>
+    }>
+    // Cross the expiry while the facts are parked.
+    nowMs = Date.parse('2026-10-09T00:02:00.000Z')
+    releaseFacts()
+    const settled = await evaluating
+    expect(settled.matched).toBe(false)
+    expect(settled.executesNothing).toBe(true)
+    expect(settled.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
+    expect(settled.blockers[0]?.message).toContain('expired while worktree facts were being read')
+  })
+
+  test('createDraft takes the dedicated policyExpiresAt field and rejects the authority field', async () => {
+    const approvalVerifier = {
+      recordIssuance: () => undefined,
+      consume: () => undefined,
+      consumeByReference: () => undefined,
+    }
+    const { authority } = boot({
+      approvalVerifier,
+      now: () => Date.parse('2026-10-09T00:00:00.000Z'),
+      worktreeFacts: () => ({ clean: 'true', pushed: 'true', active_leases: '0' }),
+    })
+    const draft = (body: Readonly<Record<string, unknown>>) =>
+      authority.providers['dev.cleanupPolicy.createDraft']!(
+        command('dev.cleanupPolicy.createDraft', {
+          projectId: 'proj-1',
+          name: 'auto-clean merged',
+          predicates: [...PREDICATES],
+          allowedSteps: ['prune_retained_data'],
+          ...body,
+        })
+      )
+    const created = draft({ policyExpiresAt: '2026-10-10T00:00:00.000Z' }) as {
+      expiresAt?: string
+    }
+    expect(created.expiresAt).toBe('2026-10-10T00:00:00.000Z')
+    // A malformed format is refused by the request decoder before the handler.
+    const malformed = await errorOf(() => draft({ policyExpiresAt: 'not-a-date' }))
+    expect(malformed.message).toContain('expected UTC timestamp')
+    // A well-formed but non-future lifetime reaches the handler and refuses.
+    await expect(
+      errorOf(() => draft({ policyExpiresAt: '2026-10-08T00:00:00.000Z' }))
+    ).resolves.toMatchObject({ code: 'invalid_state' })
+    // The transport authority field stays forbidden in every body; a forged
+    // `expiresAt` never reaches the handler.
+    const forged = await errorOf(() => draft({ expiresAt: '2026-10-10T00:00:00.000Z' }))
+    expect(forged.message).toContain('authority field is forbidden in body')
   })
 })

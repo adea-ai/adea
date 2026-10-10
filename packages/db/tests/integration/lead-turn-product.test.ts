@@ -6,6 +6,7 @@ import { createDirectAgentTopic } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import { readCurrentLeadTurnProduct, withCurrentLeadTurnProduct } from '../../src/lead-turn-product'
+import type { RequestedRoleModelSelections } from '../../src/lead-model-selections'
 import { agents, channels, messages, workspaceMemberships, workspaces } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
@@ -16,7 +17,10 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
     connection = createDatabase(databaseUrl!)
   })
   afterAll(() => connection.close())
-  async function fixture(role: 'owner' | 'admin' = 'owner') {
+  async function fixture(
+    role: 'owner' | 'admin' = 'owner',
+    requestedModelSelections?: RequestedRoleModelSelections
+  ) {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: crypto.randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
@@ -46,6 +50,7 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
     )
     const admitted = await createLeadTurn(connection.db, workspace.id, topic.id, owner.principal, {
       bodyText: 'Canonical private question',
+      ...(requestedModelSelections ? { requestedModelSelections } : {}),
       idempotencyKey: crypto.randomUUID(),
     })
     const [mapped] = await connection.db
@@ -60,6 +65,21 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
       )
     return { owner, workspace, lead, topic, admitted, mapped: mapped!, read }
   }
+
+  test('retains requested role references under current original-actor locks', async () => {
+    const requested = {
+      lead: { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 },
+      child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 },
+    }
+    const f = await fixture('owner', requested)
+    const current = await f.read()
+    expect(current?.requestedModelSelections).toEqual(requested)
+    expect(Object.isFrozen(current?.requestedModelSelections)).toBe(true)
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, f.workspace.id))
+    await expect(f.read()).rejects.toThrow('unavailable')
+  })
 
   test('reads original stored actor and exact mapped canonical pins without caller funding/profile authority', async () => {
     const f = await fixture()

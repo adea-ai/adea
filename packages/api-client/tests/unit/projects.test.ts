@@ -66,4 +66,25 @@ describe('project API client', () => {
     expect(request?.method).toBe('POST')
     expect(await request?.json()).toEqual({ projectIds: ['project-2', 'project-1'] })
   })
+
+  test('promotes an archived project through one explicit revisioned call', async () => {
+    let request: Request | undefined
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(input, init)
+        return Response.json({ project })
+      },
+    })
+
+    await client.restoreProject('workspace-1', 'project/1', {
+      confirmed: true,
+      expectedVersion: 7,
+    })
+    expect(new URL(request!.url).pathname).toBe(
+      '/api/v1/workspaces/workspace-1/projects/project%2F1/restore'
+    )
+    expect(request?.method).toBe('POST')
+    expect(await request?.json()).toEqual({ confirmed: true, expectedVersion: 7 })
+  })
 })

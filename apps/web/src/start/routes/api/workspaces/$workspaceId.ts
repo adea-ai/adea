@@ -1,19 +1,14 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../server/request-scope'
 import type { ApiWorkspaceResponse, ApiWorkspaceUpdateResponse } from '@adea-ai/api-client'
-import {
-  getWorkspaceForUser,
-  listAgentsForUser,
-  listTasksForUser,
-  updateWorkspace,
-  WorkspaceVersionConflictError,
-} from '@adea-ai/db'
+import { getWorkspaceForUser, listAgentsForUser, listTasksForUser } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../server/desktop-workspace'
+import { applicationManagementOperations } from '../../../../server/management-composition'
 import { authorizeWorkspace } from '../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../server/workspace-principal'
 import { parseWorkspaceUpdate } from '../../../../server/workspace-request'
@@ -79,17 +74,14 @@ async function patch(request: Request, { params }: { params: { workspaceId: stri
   const parsed = parseWorkspaceUpdate(body)
   if (!parsed) return workspaceInvalidRequestResponse(request)
 
-  try {
-    const workspace = await updateWorkspace(
-      applicationDatabase(),
-      workspaceId,
-      resolution.principal,
-      parsed
-    )
-    const response: ApiWorkspaceUpdateResponse = { workspace }
-    return workspaceJsonResponse(response, resolution, request)
-  } catch (error) {
-    if (error instanceof WorkspaceVersionConflictError)
+  const outcome = await applicationManagementOperations().workspaceUpdate({
+    expectedVersion: parsed.expectedVersion,
+    principal: resolution.principal,
+    update: parsed.update,
+    workspaceId,
+  })
+  if (!outcome.ok) {
+    if (outcome.failure.code === 'stale_revision')
       return workspaceJsonResponse(
         { code: 'workspace_version_conflict', message: 'Workspace version conflict' },
         resolution,
@@ -98,6 +90,8 @@ async function patch(request: Request, { params }: { params: { workspaceId: stri
       )
     return workspaceUnavailableResponse(request)
   }
+  const response: ApiWorkspaceUpdateResponse = { workspace: outcome.value }
+  return workspaceJsonResponse(response, resolution, request)
 }
 
 function options(request: Request) {

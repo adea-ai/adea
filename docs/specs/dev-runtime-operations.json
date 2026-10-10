@@ -173,7 +173,7 @@
     "dev.cleanupPolicy.createDraft": {
       "capabilities": ["dev.cleanup.approve"],
       "resource": null,
-      "body": "{ projectId: string; name: string(1..128); predicates: CleanupPredicate[]; allowedSteps: CleanupStepKind[]; expiresAt?: timestamp }",
+      "body": "{ projectId: string; name: string(1..128); predicates: CleanupPredicate[]; allowedSteps: CleanupStepKind[]; policyExpiresAt?: timestamp }",
       "reply": "CleanupPolicy"
     },
     "dev.cleanupPolicy.disable": {

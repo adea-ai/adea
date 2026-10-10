@@ -10,6 +10,10 @@ export {
   workspaces,
 } from './workspaces'
 export {
+  managementAuthorityConsumptionState,
+  managementAuthorityConsumptions,
+} from './management-authority'
+export {
   commandOutbox,
   eventInbox,
   outboxStatus,
@@ -83,6 +87,12 @@ export {
   messageSenderKind,
 } from './conversations'
 export { channelReadStates, threadReadStates } from './read-state'
+export {
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
+  groupSharingGrants,
+} from './group-participation'
 export { taskSubmissionState, taskSubmissions } from './task-submissions'
 export { leadTurnIntents } from './lead-turns'
 export { leadTurnRuntime } from './lead-turn-runtime'

@@ -22,6 +22,7 @@ import {
   workspaceMemberships,
   workspaces,
 } from '../../src/schema'
+import { setProjectVisibility } from '../../src/project-sharing'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
@@ -68,6 +69,7 @@ describe.skipIf(!connectionUrl)('project persistence and isolation', () => {
       'sortOrder',
       'sourceKind',
       'updatedAt',
+      'version',
       'visibility',
       'workspaceId',
     ])
@@ -131,6 +133,72 @@ describe.skipIf(!connectionUrl)('project persistence and isolation', () => {
         .delete(temporaryUserSessions)
         .where(eq(temporaryUserSessions.userId, principal.userId))
       await connection.db.delete(users).where(eq(users.id, principal.userId))
+    }
+  })
+
+  test('every project-row mutation increments the revision atomically', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `project-revision-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `project-revision-${crypto.randomUUID()}`,
+      name: 'Revision HQ',
+      owner: owner.principal,
+      scene: 'work',
+    })
+    try {
+      const created = await createProject(connection.db, workspace.id, owner.principal, {
+        iconKey: 'revision',
+        name: 'Revision project',
+      })
+      expect(created.version).toBe(1)
+      const updated = await updateProject(
+        connection.db,
+        workspace.id,
+        created.id,
+        owner.principal,
+        { name: 'Revision project renamed' }
+      )
+      expect(updated.version).toBe(2)
+      const visible = await setProjectVisibility(
+        connection.db,
+        workspace.id,
+        created.id,
+        owner.principal,
+        'members'
+      )
+      expect(visible.version).toBe(3)
+      const [reordered] = await reorderProjects(connection.db, workspace.id, owner.principal, [
+        created.id,
+      ])
+      expect(reordered?.version).toBe(4)
+      await archiveProject(connection.db, workspace.id, created.id, owner.principal)
+      const archived = await getProjectForUser(
+        connection.db,
+        workspace.id,
+        created.id,
+        owner.principal,
+        { includeArchived: true }
+      )
+      expect(archived?.version).toBe(5)
+      await softDeleteProject(connection.db, workspace.id, created.id, owner.principal)
+      const [deleted] = await connection.db
+        .select({ version: projects.version })
+        .from(projects)
+        .where(eq(projects.id, created.id))
+      expect(deleted?.version).toBe(6)
+    } finally {
+      await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
+      await connection.db.delete(projects).where(eq(projects.workspaceId, workspace.id))
+      await connection.db
+        .delete(workspaceMemberships)
+        .where(eq(workspaceMemberships.workspaceId, workspace.id))
+      await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+      await connection.db
+        .delete(temporaryUserSessions)
+        .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+      await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
     }
   })
 

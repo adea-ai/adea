@@ -863,6 +863,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   description="This runs the cleanup plan below on this device. It cannot be undone."
                   steps={state.plan.steps}
                   blockers={state.plan.blockers}
+                  consequences={state.plan.consequences
+                    .filter((consequence) => !consequence.blocking)
+                    .map((consequence) => consequence.detail)}
                   confirmLabel="Delete worktree"
                   destructive
                   onConfirm={async () => {
