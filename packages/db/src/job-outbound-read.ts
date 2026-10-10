@@ -7,12 +7,16 @@
  * module does not import the message write path, which keeps the history readers in
  * `conversations` free of an import cycle.
  */
-import { and, desc, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, like } from 'drizzle-orm'
 
 import { readCurrentArtifactReferenceGrant } from './artifact-reference-grants'
 import { readArtifactReferenceEvidence } from './artifact-reference-policy'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { decodeJobOutboundBinding, isJobOutboundSenderValue } from './job-outbound-binding'
+import {
+  decodeJobOutboundBinding,
+  isJobOutboundSenderValue,
+  jobOutboundMessageKeyPrefix,
+} from './job-outbound-binding'
 import type {
   JobOutboundAccess,
   JobOutboundAudience,
@@ -327,6 +331,33 @@ export async function resolveJobOutboundDelivery(
       sourceWorkspaceId: binding.artifact.sourceWorkspaceId,
     },
   }
+}
+
+/**
+ * The publication already written for a job in one destination channel, if any. A
+ * Task completes once, so a job has one publication per destination. A retry reads
+ * that message back instead of writing another, even after the channel revision has
+ * moved and the current binding's key would differ.
+ */
+export async function readJobOutboundPublicationMessageId(
+  database: Database,
+  input: Readonly<{ channelId: string; jobId: string; workspaceId: string }>
+): Promise<string | null> {
+  if (!isUuid(input.channelId) || !isUuid(input.jobId) || !isUuid(input.workspaceId)) return null
+  const [row] = await database
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.workspaceId, input.workspaceId),
+        eq(messages.channelId, input.channelId),
+        eq(messages.executionRef, input.jobId),
+        eq(messages.senderKind, 'system'),
+        like(messages.idempotencyKey, `${jobOutboundMessageKeyPrefix(input.jobId)}%`)
+      )
+    )
+    .limit(1)
+  return row?.id ?? null
 }
 
 /** The history label for a job publication's system sender. The binding itself is never shown. */

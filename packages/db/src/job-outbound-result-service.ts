@@ -115,10 +115,22 @@ export type JobOutboundDeliverInput = Readonly<{
   recipientUserId: string
 }>
 
-export type JobOutboundPublishResult = Readonly<{
+/**
+ * A step that runs inside the publication scope before any publication fact is read,
+ * in the same transaction as the decision and its write. Production completion uses it
+ * so the Task completes in the transaction that decides and writes the publication.
+ * A rejection rolls back everything the scope did.
+ */
+export type JobOutboundPrepare<TTransaction, TPrepared> = (
+  context: JobOutboundAuthorizationContext<TTransaction>
+) => Promise<TPrepared>
+
+export type JobOutboundPublishResult<TPrepared = null> = Readonly<{
   decision: JobOutboundPublicationDecision
   /** The canonical message id when the publication was written in the same transaction. */
   messageId: string | null
+  /** What `prepare` returned, when one was given. */
+  prepared: TPrepared | null
 }>
 
 export type JobOutboundResultService<TTransaction> = Readonly<{
@@ -126,10 +138,11 @@ export type JobOutboundResultService<TTransaction> = Readonly<{
     input: JobOutboundDeliverInput,
     release: JobOutboundRelease<TTransaction>
   ) => Promise<JobOutboundDeliveryDecision>
-  publish: (
+  publish: <TPrepared = null>(
     input: JobOutboundPublishInput,
-    write: JobOutboundPublicationWrite<TTransaction>
-  ) => Promise<JobOutboundPublishResult>
+    write: JobOutboundPublicationWrite<TTransaction>,
+    prepare?: JobOutboundPrepare<TTransaction, TPrepared>
+  ) => Promise<JobOutboundPublishResult<TPrepared>>
 }>
 
 export type JobOutboundServiceOptions<TTransaction> = Readonly<{
@@ -185,56 +198,56 @@ export function createJobOutboundResultService<TTransaction>(
 ): JobOutboundResultService<TTransaction> {
   const { authorize, clock, resolveDelivery } = options
   return {
-    async publish(input, write) {
-      return authorize(
-        grantScopeFor(input.artifact, input.result),
-        async ({ grantState, reads, transaction }) => {
-          const job = await reads.readJobSource(input.jobId)
-          const sourceAccess = job
-            ? await reads.readAccess({
-                userId: job.originalActorUserId,
-                workspaceId: job.sourceWorkspaceId,
-              })
-            : null
-          // The destination's revision is read as the job's original actor, who must be able to write there.
-          // Publication writes the channel row (its message sequence), so the write lock is taken up
-          // front. A shared lock upgraded later deadlocks against a concurrent roster write.
-          const audience = job
-            ? await reads.readAudience({
-                channelId: input.destination.channelId,
-                forWrite: true,
-                userId: job.originalActorUserId,
-                workspaceId: input.destination.workspaceId,
-              })
-            : null
-          const sanitized = sanitizeJobOutboundResult(input.result)
-          const target = sanitized.ok ? sanitized.result.artifact : null
-          const artifact = await readArtifactCurrent(
-            reads,
-            input.artifact,
-            job,
-            target?.artifactId ?? null,
-            target?.sourceWorkspaceId ?? null,
-            grantState
-          )
-          const decision = decideJobOutboundPublication({
-            artifact,
-            artifactPolicy: input.artifactPolicy ?? 'require',
-            audience,
-            destination: input.destination,
-            job,
-            jobId: input.jobId,
-            // Sampled after the reads, inside the scope.
-            now: clock(),
-            result: input.result,
-            sourceAccess,
-          })
-          if (decision.action !== 'publish') return { decision, messageId: null }
-          // The write runs in the same transaction as the decision: it commits or rolls back with it.
-          const messageId = await write({ transaction }, decision)
-          return { decision, messageId }
-        }
-      )
+    async publish(input, write, prepare) {
+      return authorize(grantScopeFor(input.artifact, input.result), async (context) => {
+        const { grantState, reads, transaction } = context
+        // Prepared first, so every read below sees its effects.
+        const prepared = prepare ? await prepare(context) : null
+        const job = await reads.readJobSource(input.jobId)
+        const sourceAccess = job
+          ? await reads.readAccess({
+              userId: job.originalActorUserId,
+              workspaceId: job.sourceWorkspaceId,
+            })
+          : null
+        // The destination's revision is read as the job's original actor, who must be able to write there.
+        // Publication writes the channel row (its message sequence), so the write lock is taken up
+        // front. A shared lock upgraded later deadlocks against a concurrent roster write.
+        const audience = job
+          ? await reads.readAudience({
+              channelId: input.destination.channelId,
+              forWrite: true,
+              userId: job.originalActorUserId,
+              workspaceId: input.destination.workspaceId,
+            })
+          : null
+        const sanitized = sanitizeJobOutboundResult(input.result)
+        const target = sanitized.ok ? sanitized.result.artifact : null
+        const artifact = await readArtifactCurrent(
+          reads,
+          input.artifact,
+          job,
+          target?.artifactId ?? null,
+          target?.sourceWorkspaceId ?? null,
+          grantState
+        )
+        const decision = decideJobOutboundPublication({
+          artifact,
+          artifactPolicy: input.artifactPolicy ?? 'require',
+          audience,
+          destination: input.destination,
+          job,
+          jobId: input.jobId,
+          // Sampled after the reads, inside the scope.
+          now: clock(),
+          result: input.result,
+          sourceAccess,
+        })
+        if (decision.action !== 'publish') return { decision, messageId: null, prepared }
+        // The write runs in the same transaction as the decision: it commits or rolls back with it.
+        const messageId = await write({ transaction }, decision)
+        return { decision, messageId, prepared }
+      })
     },
 
     async deliver(input, release) {

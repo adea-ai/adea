@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
+import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { createAgent } from '../../src/agents'
 import { createArtifact, setArtifactAvailability } from '../../src/artifacts'
@@ -23,6 +24,7 @@ import { searchWorkspaceForUser } from '../../src/search'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   completeTaskAndPublishOutboundResult,
+  type JobOutboundCompletionRequest,
   createJobOutboundStoreService,
   publishJobOutboundMessage,
   readJobOutboundAccess,
@@ -36,9 +38,15 @@ import {
   channels,
   messageArtifactReferences,
   messages,
+  taskMutations,
+  tasks,
   workspaceMemberships,
 } from '../../src/schema'
-import { encodeJobOutboundBinding, summarySha256 } from '../../src/job-outbound-binding'
+import {
+  decodeJobOutboundBinding,
+  encodeJobOutboundBinding,
+  summarySha256,
+} from '../../src/job-outbound-binding'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
 import { completeTask, createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -949,5 +957,335 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       completedAt: null,
     })
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  // Completion and publication share one scope: the Task's state, its idempotency
+  // reservation and the canonical message commit together or not at all.
+
+  /** A completion as a client sends it. A retry reuses the key with a fresh request id. */
+  function completeJob(
+    f: Fixture,
+    idempotencyKey: string,
+    request: JobOutboundCompletionRequest,
+    options: Readonly<{ actor?: UserPrincipalRef; expectedVersion?: number }> = {}
+  ) {
+    return completeTaskAndPublishOutboundResult(
+      connection.db,
+      f.workspace.id,
+      f.task.id,
+      options.actor ?? f.owner.principal,
+      {
+        expectedVersion: options.expectedVersion ?? f.task.version,
+        idempotencyKey,
+        requestId: crypto.randomUUID(),
+      },
+      request
+    )
+  }
+
+  function outboundRequest(
+    f: Fixture,
+    overrides: Partial<JobOutboundCompletionRequest> = {}
+  ): JobOutboundCompletionRequest {
+    return {
+      artifact: null,
+      artifactPolicy: 'require',
+      channelId: f.channelA.id,
+      summary: 'Approved summary.',
+      ...overrides,
+    }
+  }
+
+  type ArtifactRef = Readonly<{ artifactId: string; grantId: string }>
+  const artifactRef = (reg: Awaited<ReturnType<typeof registeredArtifact>>): ArtifactRef => ({
+    artifactId: reg.artifact.id,
+    grantId: reg.grantId,
+  })
+
+  /** The Task row as stored, read back to prove what a failed call did and did not change. */
+  async function taskState(f: Fixture) {
+    const [row] = await connection.db
+      .select({ lifecycleState: tasks.lifecycleState, version: tasks.version })
+      .from(tasks)
+      .where(eq(tasks.id, f.task.id))
+      .limit(1)
+    return row!
+  }
+
+  /** Completion reservations under one key. A call that rolled back leaves none. */
+  async function reservations(f: Fixture, idempotencyKey: string) {
+    return connection.db
+      .select({ id: taskMutations.id })
+      .from(taskMutations)
+      .where(
+        and(
+          eq(taskMutations.workspaceId, f.workspace.id),
+          eq(taskMutations.idempotencyKey, idempotencyKey)
+        )
+      )
+  }
+
+  /**
+   * Makes the canonical publication for one job fail inside its transaction, as a crash
+   * between completion and publication would. The trigger matches this job's publication
+   * only. The returned function removes it.
+   */
+  async function injectPublicationFault(jobId: string) {
+    const name = `fault_${jobId.replaceAll('-', '_')}`
+    await connection.db.execute(
+      sql.raw(`
+        CREATE OR REPLACE FUNCTION app.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.execution_ref = '${jobId}' AND NEW.sender_kind = 'system' THEN
+            RAISE EXCEPTION 'injected publication fault';
+          END IF;
+          RETURN NEW;
+        END $$`)
+    )
+    await connection.db.execute(
+      sql.raw(
+        `CREATE TRIGGER ${name} BEFORE INSERT ON app.messages FOR EACH ROW EXECUTE FUNCTION app.${name}()`
+      )
+    )
+    return async () => {
+      await connection.db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${name} ON app.messages`))
+      await connection.db.execute(sql.raw(`DROP FUNCTION IF EXISTS app.${name}()`))
+    }
+  }
+
+  /** A real user with a membership in the source and/or destination workspace. */
+  async function newUser(
+    f: Fixture,
+    roles: Readonly<{ destination: 'member' | null; source: 'admin' | 'member' | null }>
+  ) {
+    const session = await createTemporaryUserSession(connection.db, {
+      credentialDigest: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    if (roles.source)
+      await connection.db.insert(workspaceMemberships).values({
+        role: roles.source,
+        userId: session.principal.userId,
+        workspaceId: f.workspace.id,
+      })
+    if (roles.destination)
+      await connection.db.insert(workspaceMemberships).values({
+        role: roles.destination,
+        userId: session.principal.userId,
+        workspaceId: f.destination.id,
+      })
+    return session.principal
+  }
+
+  test('a crash after completion and before the message is written rolls the completion back; a retry publishes exactly once', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+    const dropFault = await injectPublicationFault(f.task.id)
+    try {
+      // Drizzle wraps the driver error; the PostgreSQL message is its cause.
+      const error = await completeJob(f, key, outboundRequest(f)).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).cause).toMatchObject({ message: 'injected publication fault' })
+    } finally {
+      await dropFault()
+    }
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    const retried = await completeJob(f, key, outboundRequest(f))
+    expect(retried.publication).toMatchObject({ decision: { action: 'publish' } })
+    expect(retried.task.lifecycleState).toBe('completed')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([
+      { id: retried.publication.messageId },
+    ])
+  })
+
+  test('a retry after commit replays the completion and its publication, even after the channel revision moved', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const first = await completeJob(f, key, outboundRequest(f))
+    const messageId = first.publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+
+    // A roster write moves the revision, so the retry's binding key would differ from the first.
+    const revisionBefore = await rosterVersion(f.channelA.id)
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      [f.owner.principal, { kind: 'user', userId: f.recipient.principal.userId }],
+      revisionBefore
+    )
+    expect(await rosterVersion(f.channelA.id)).not.toBe(revisionBefore)
+
+    const retry = await completeJob(f, key, outboundRequest(f))
+    expect(retry.publication).toMatchObject({ decision: { action: 'publish' }, messageId })
+    expect(retry.task.lifecycleState).toBe('completed')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+  })
+
+  for (const variant of [
+    {
+      name: 'summary',
+      request: (f: Fixture, a: ArtifactRef) =>
+        outboundRequest(f, { artifact: a, summary: 'A different summary.' }),
+    },
+    {
+      name: 'destination',
+      request: (f: Fixture, a: ArtifactRef) =>
+        outboundRequest(f, { artifact: a, channelId: f.channelB.id }),
+    },
+    {
+      name: 'artifact',
+      request: (f: Fixture, _a: ArtifactRef, b: ArtifactRef) => outboundRequest(f, { artifact: b }),
+    },
+    {
+      name: 'artifact removed',
+      request: (f: Fixture) => outboundRequest(f, { artifact: null }),
+    },
+    {
+      name: 'artifact policy',
+      request: (f: Fixture, a: ArtifactRef) =>
+        outboundRequest(f, { artifact: a, artifactPolicy: 'omit_unauthorized' }),
+    },
+    { name: 'outbound result dropped', request: null },
+  ] as const) {
+    test(`a retry under the same completion key with a changed ${variant.name} conflicts and publishes nothing`, async () => {
+      const f = await fixture({ complete: false })
+      const a = await registeredArtifact(f)
+      const b = await registeredArtifact(f)
+      const key = crypto.randomUUID()
+      const first = await completeJob(f, key, outboundRequest(f, { artifact: artifactRef(a) }))
+      const messageId = first.publication.messageId
+      if (!messageId) throw new Error('expected a canonical message')
+
+      const retry = variant.request
+        ? completeJob(f, key, variant.request(f, artifactRef(a), artifactRef(b)))
+        : completeTask(connection.db, f.workspace.id, f.task.id, f.owner.principal, {
+            expectedVersion: f.task.version,
+            idempotencyKey: key,
+            requestId: crypto.randomUUID(),
+          })
+      await expect(retry).rejects.toThrow('Task idempotency conflict')
+
+      expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+      expect(await jobMessages(f.channelB.id, f.task.id)).toEqual([])
+      expect(await taskState(f)).toMatchObject({ lifecycleState: 'completed' })
+    })
+  }
+
+  test('a new completion key on an already completed job is refused and publishes nothing', async () => {
+    const f = await fixture({ complete: false })
+    const first = await completeJob(f, crypto.randomUUID(), outboundRequest(f))
+    const messageId = first.publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+
+    await expect(
+      completeJob(f, crypto.randomUUID(), outboundRequest(f, { summary: 'A second result.' }), {
+        expectedVersion: f.task.version + 1,
+      })
+    ).rejects.toThrow('Invalid Task lifecycle transition')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+  })
+
+  test('a caller who neither submitted the job nor administers its source is refused; the completion rolls back', async () => {
+    const f = await fixture({ complete: false })
+    const member = await newUser(f, { destination: 'member', source: 'member' })
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+
+    await expect(completeJob(f, key, outboundRequest(f), { actor: member })).rejects.toThrow(
+      'Job outbound unavailable'
+    )
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a source admin who did not submit the job may complete and publish; the message is authored as the original actor', async () => {
+    const f = await fixture({ complete: false })
+    const admin = await newUser(f, { destination: 'member', source: 'admin' })
+    const outcome = await completeJob(f, crypto.randomUUID(), outboundRequest(f), { actor: admin })
+    const messageId = outcome.publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+
+    expect(outcome.task.lifecycleState).toBe('completed')
+    // The canonical publication is a system sender; the original actor is the binding's actor.
+    const [row] = await connection.db
+      .select({ senderKind: messages.senderKind, senderSystemId: messages.senderSystemId })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .limit(1)
+    expect(row?.senderKind).toBe('system')
+    expect(decodeJobOutboundBinding(row?.senderSystemId)).toMatchObject({
+      actorUserId: f.owner.principal.userId,
+      channelId: f.channelA.id,
+    })
+  })
+
+  test('a source admin who is not a member of the destination is refused; the completion rolls back', async () => {
+    const f = await fixture({ complete: false })
+    const admin = await newUser(f, { destination: null, source: 'admin' })
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+
+    await expect(completeJob(f, key, outboundRequest(f), { actor: admin })).rejects.toThrow(
+      'Job outbound unavailable'
+    )
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a held publication commits the completion and writes nothing; a retry converges to one message once the grant is restored', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, { artifact: artifactRef(reg) })
+
+    const held = await completeJob(f, key, request)
+    expect(held.publication).toMatchObject({
+      decision: { action: 'hold', gate: 'artifact' },
+      messageId: null,
+    })
+    expect(held.task.lifecycleState).toBe('completed')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    // The retry replays the completion and decides the same request again: still held.
+    const again = await completeJob(f, key, request)
+    expect(again.publication).toMatchObject({ decision: { action: 'hold' }, messageId: null })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+    const published = await completeJob(f, key, request)
+    const messageId = published.publication.messageId
+    expect(published.publication).toMatchObject({ decision: { action: 'publish' } })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+
+    const replayed = await completeJob(f, key, request)
+    expect(replayed.publication.messageId).toBe(messageId)
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
   })
 })

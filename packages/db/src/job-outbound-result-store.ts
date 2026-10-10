@@ -15,18 +15,25 @@ import {
 import { createMessage } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { encodeJobOutboundBinding, jobOutboundMessageKey } from './job-outbound-binding'
-import type {
-  JobOutboundArtifactPolicy,
-  JobOutboundPublicationDecision,
+import {
+  sourceAccessCurrent,
+  type JobOutboundArtifactPolicy,
+  type JobOutboundPublicationDecision,
 } from './job-outbound-result-policy'
 import {
   createJobOutboundResultService,
+  type JobOutboundAuthorizationContext,
   type JobOutboundAuthorize,
+  type JobOutboundPrepare,
   type JobOutboundPublishInput,
   type JobOutboundPublishResult,
   type JobOutboundResultService,
 } from './job-outbound-result-service'
-import { jobOutboundReadsFor, resolveJobOutboundDelivery } from './job-outbound-read'
+import {
+  jobOutboundReadsFor,
+  readJobOutboundPublicationMessageId,
+  resolveJobOutboundDelivery,
+} from './job-outbound-read'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import { artifactReferenceGrants, artifacts, channels, messageArtifactReferences } from './schema'
 import { completeTask, type TaskCommand } from './tasks'
@@ -87,13 +94,21 @@ export function createJobOutboundAuthorizer(
 /**
  * Writes the canonical publication inside the authorization transaction. The
  * artifact row is locked first, so the link cannot point at a row that changes or
- * disappears before commit. The message and its link commit with the decision.
+ * disappears before commit. The message and its link commit with the decision. A job
+ * has one publication per destination: when one is already written, it is returned
+ * and nothing is written, so a retry cannot add a second message.
  */
 export async function writeJobOutboundPublication(
   transaction: AgentHqTransaction,
   decision: Extract<JobOutboundPublicationDecision, { action: 'publish' }>
 ): Promise<string> {
   const { binding, destination, jobId, result } = decision
+  const existing = await readJobOutboundPublicationMessageId(transaction, {
+    channelId: destination.channelId,
+    jobId,
+    workspaceId: destination.workspaceId,
+  })
+  if (existing) return existing
   const artifact = binding.artifact
   if (artifact) {
     const [locked] = await transaction
@@ -150,12 +165,15 @@ export function createJobOutboundStoreService(
  * Publishes through the authorization transaction. The decision and the canonical
  * message commit together, or neither does.
  */
-export async function publishJobOutboundMessage(
+export async function publishJobOutboundMessage<TPrepared = null>(
   service: JobOutboundResultService<AgentHqTransaction>,
-  input: JobOutboundPublishInput
-): Promise<JobOutboundPublishResult> {
-  return service.publish(input, ({ transaction }, decision) =>
-    writeJobOutboundPublication(transaction, decision)
+  input: JobOutboundPublishInput,
+  prepare?: JobOutboundPrepare<AgentHqTransaction, TPrepared>
+): Promise<JobOutboundPublishResult<TPrepared>> {
+  return service.publish(
+    input,
+    ({ transaction }, decision) => writeJobOutboundPublication(transaction, decision),
+    prepare
   )
 }
 
@@ -172,7 +190,7 @@ export type JobOutboundCompletionRequest = Readonly<{
 }>
 
 export type JobOutboundCompletionOutcome = Readonly<{
-  publication: JobOutboundPublishResult
+  publication: Pick<JobOutboundPublishResult, 'decision' | 'messageId'>
   task: Awaited<ReturnType<typeof completeTask>>
 }>
 
@@ -210,31 +228,105 @@ export async function completeTaskAndPublishOutboundResult(
     if (!registration) throw new Error('Artifact grant unavailable')
   }
 
-  const task = await completeTask(database, workspaceId, taskId, principal, command)
-  const publication = await publishJobOutboundMessage(createJobOutboundStoreService(database), {
-    artifact: registration
-      ? { authority: registration.authority, grant: registration.grant }
+  // The completion runs inside the publication's authorization scope. The decision and
+  // the canonical message commit with the completion, or none of them do. The outbound
+  // request is hashed into the completion's idempotency payload, so a retried key can
+  // never replay this completion with a different summary, destination or artifact.
+  const outboundRequest = canonicalOutboundRequest(request)
+  const { decision, messageId, prepared } = await publishJobOutboundMessage(
+    createJobOutboundStoreService(database),
+    {
+      artifact: registration
+        ? { authority: registration.authority, grant: registration.grant }
+        : null,
+      artifactPolicy: request.artifactPolicy,
+      destination: { channelId: channel.id, workspaceId: channel.workspaceId },
+      jobId: taskId,
+      result: {
+        ...(registration
+          ? {
+              artifact: {
+                artifactId: registration.grant.artifactId,
+                audienceWorkspaceId: registration.row.audienceWorkspaceId,
+                checksumSha256: registration.row.checksumSha256,
+                sourceWorkspaceId: workspaceId,
+                version: registration.row.version,
+              },
+            }
+          : {}),
+        jobId: taskId,
+        summary: request.summary,
+      },
+    },
+    (context) =>
+      completeForPublication(context, {
+        channelId: channel.id,
+        command,
+        destinationWorkspaceId: channel.workspaceId,
+        outboundRequest,
+        principal,
+        taskId,
+        workspaceId,
+      })
+  )
+  if (!prepared) throw new Error('Task completion unavailable')
+  return { publication: { decision, messageId }, task: prepared }
+}
+
+/** The outbound request as the idempotency payload hashes it. Every field is present, so a changed one changes the hash. */
+function canonicalOutboundRequest(request: JobOutboundCompletionRequest) {
+  return {
+    artifact: request.artifact
+      ? { artifactId: request.artifact.artifactId, grantId: request.artifact.grantId }
       : null,
     artifactPolicy: request.artifactPolicy,
-    destination: { channelId: channel.id, workspaceId: channel.workspaceId },
-    jobId: taskId,
-    result: {
-      ...(registration
-        ? {
-            artifact: {
-              artifactId: registration.grant.artifactId,
-              audienceWorkspaceId: registration.row.audienceWorkspaceId,
-              checksumSha256: registration.row.checksumSha256,
-              sourceWorkspaceId: workspaceId,
-              version: registration.row.version,
-            },
-          }
-        : {}),
-      jobId: taskId,
-      summary: request.summary,
-    },
+    channelId: request.channelId,
+    summary: request.summary,
+  }
+}
+
+/**
+ * The caller's own authority for this job, checked inside the scope before the Task
+ * completes. The caller must be the job's original actor or a current owner or admin of
+ * its source workspace, and a current member of the destination workspace. The message
+ * is authored as the original actor, so the publication cannot borrow a broader standing
+ * than the caller holds. Any refusal throws, which rolls the completion back with it.
+ */
+async function completeForPublication(
+  context: JobOutboundAuthorizationContext<AgentHqTransaction>,
+  input: Readonly<{
+    channelId: string
+    command: TaskCommand
+    destinationWorkspaceId: string
+    outboundRequest: ReturnType<typeof canonicalOutboundRequest>
+    principal: UserPrincipalRef
+    taskId: string
+    workspaceId: string
+  }>
+) {
+  const { reads, transaction } = context
+  const { command, principal, taskId, workspaceId } = input
+  const job = await reads.readJobSource(taskId)
+  if (!job || job.sourceWorkspaceId !== workspaceId) throw new Error('Job outbound unavailable')
+  if (
+    job.originalActorUserId !== principal.userId &&
+    !sourceAccessCurrent(
+      await reads.readAccess({ userId: principal.userId, workspaceId: job.sourceWorkspaceId })
+    )
+  )
+    throw new Error('Job outbound unavailable')
+  // Exclusive, like the publication's own audience read: the destination revision must not move under the caller check.
+  const audience = await reads.readAudience({
+    channelId: input.channelId,
+    forWrite: true,
+    userId: principal.userId,
+    workspaceId: input.destinationWorkspaceId,
   })
-  return { publication, task }
+  if (!audience.workspaceLive || audience.workspaceRole === null)
+    throw new Error('Job outbound unavailable')
+  return completeTask(transaction, workspaceId, taskId, principal, command, {
+    outboundRequest: input.outboundRequest,
+  })
 }
 
 /**

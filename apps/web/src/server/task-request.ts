@@ -5,9 +5,7 @@ import {
   archiveTask,
   assignTask,
   cancelTask,
-  completeTask,
-  completeTaskAndPublishOutboundResult,
-  type JobOutboundCompletionRequest,
+  completeTaskFromRequest,
   moveTaskToProject,
   queueTask,
   reviewTask,
@@ -134,9 +132,7 @@ export async function handleTaskAction(
   const database = applicationDatabase()
   try {
     let task
-    let publication:
-      | Awaited<ReturnType<typeof completeTaskAndPublishOutboundResult>>['publication']
-      | undefined
+    let outboundPublication: ApiTaskResponse['outboundPublication']
     switch (action) {
       case 'archive':
         task = await archiveTask(database, workspaceId, taskId, resolution.principal, command)
@@ -157,23 +153,19 @@ export async function handleTaskAction(
         task = await cancelTask(database, workspaceId, taskId, resolution.principal, command)
         break
       case 'complete': {
-        if (body.outboundResult === undefined) {
-          task = await completeTask(database, workspaceId, taskId, resolution.principal, command)
-          break
-        }
-        // A completion may carry one result for a group channel. It is validated before any effect.
-        const completion = parseOutboundCompletion(body.outboundResult)
-        if (!completion) return workspaceInvalidRequestResponse(request)
-        const outcome = await completeTaskAndPublishOutboundResult(
-          database,
-          workspaceId,
-          taskId,
-          resolution.principal,
+        // A completion may carry one outbound result for a group channel. It is validated
+        // before any effect, and it completes and publishes in one transaction.
+        const outcome = await completeTaskFromRequest({
+          body,
           command,
-          completion
-        )
+          database,
+          principal: resolution.principal,
+          taskId,
+          workspaceId,
+        })
+        if (outcome.kind === 'invalid') return workspaceInvalidRequestResponse(request)
         task = outcome.task
-        publication = outcome.publication
+        outboundPublication = outcome.outboundPublication
         break
       }
       case 'queue':
@@ -256,67 +248,9 @@ export async function handleTaskAction(
         break
       }
     }
-    const payload: ApiTaskResponse = { task }
-    if (publication)
-      return workspaceJsonResponse(
-        { ...payload, outboundPublication: summarizePublication(publication) },
-        resolution,
-        request
-      )
+    const payload: ApiTaskResponse = outboundPublication ? { outboundPublication, task } : { task }
     return workspaceJsonResponse(payload, resolution, request)
   } catch (error) {
     return taskErrorResponse(error, resolution, request)
-  }
-}
-
-function summarizePublication(
-  result: Awaited<ReturnType<typeof completeTaskAndPublishOutboundResult>>['publication']
-) {
-  const { decision } = result
-  return decision.action === 'publish'
-    ? { action: 'publish', artifactOmitted: decision.artifactOmitted, messageId: result.messageId }
-    : { action: 'hold', gate: decision.gate, messageId: null, reason: decision.reason }
-}
-
-const OUTBOUND_COMPLETION_KEYS = ['artifact', 'artifactPolicy', 'channelId', 'summary'] as const
-
-/**
- * Strict parse of a completion's outbound result. Unknown keys, a non-UUID channel, an
- * oversize summary, or a malformed artifact name refuse the request before any effect.
- */
-function parseOutboundCompletion(value: unknown): JobOutboundCompletionRequest | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const input = value as Record<string, unknown>
-  if (
-    Object.keys(input).some((key) => !(OUTBOUND_COMPLETION_KEYS as readonly string[]).includes(key))
-  )
-    return null
-  if (!isUuid(input.channelId) || typeof input.summary !== 'string') return null
-  if (input.summary.length > 16_384) return null
-  const policy = input.artifactPolicy ?? 'require'
-  if (policy !== 'require' && policy !== 'omit_unauthorized') return null
-  const artifact = input.artifact ?? null
-  if (artifact === null)
-    return {
-      artifact: null,
-      artifactPolicy: policy,
-      channelId: input.channelId,
-      summary: input.summary,
-    }
-  if (typeof artifact !== 'object' || Array.isArray(artifact)) return null
-  const named = artifact as Record<string, unknown>
-  if (
-    Object.keys(named).length !== 2 ||
-    !isUuid(named.artifactId) ||
-    typeof named.grantId !== 'string' ||
-    !named.grantId.trim() ||
-    named.grantId.length > 256
-  )
-    return null
-  return {
-    artifact: { artifactId: named.artifactId, grantId: named.grantId },
-    artifactPolicy: policy,
-    channelId: input.channelId,
-    summary: input.summary,
   }
 }

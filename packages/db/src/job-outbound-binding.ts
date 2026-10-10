@@ -181,8 +181,12 @@ export function decodeJobOutboundBinding(value: unknown): JobOutboundBinding | n
  * binding itself, so an approval is anchored to the message identity: a sender value
  * and an execution reference alone cannot match it.
  */
+export function jobOutboundMessageKeyPrefix(jobId: string): string {
+  return `job-outbound:v1:${jobId}:`
+}
+
 export function jobOutboundMessageKey(binding: JobOutboundBinding): string {
-  return `job-outbound:v1:${binding.jobId}:${createHash('sha256')
+  return `${jobOutboundMessageKeyPrefix(binding.jobId)}${createHash('sha256')
     .update(encodeJobOutboundBinding(binding), 'utf8')
     .digest('hex')}`
 }
