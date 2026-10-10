@@ -3,7 +3,7 @@
 // settle: the page kept writing the same URL, starved its own network responses, and never
 // reached the shell. The selected workspace is asserted through the shell's document title,
 // which the shell derives from the active workspace (`<name> | Adea`).
-import { expect, test } from '@playwright/test'
+import { expect, test, type BrowserContext } from '@playwright/test'
 
 /** Counts history writes from the first paint, so a re-switch loop is visible. */
 const countHistoryWrites = () => {
@@ -23,12 +23,8 @@ const countHistoryWrites = () => {
   }
 }
 
-test('a ?workspace= link selects the target, and a later revisit by ID selects it again', async ({
-  page,
-}) => {
-  await page.addInitScript(countHistoryWrites)
-  // Mint the temporary session and create the target through the app's own routes.
-  const context = page.context()
+/** Mints the temporary session and creates a workspace through the app's own routes. */
+async function createTarget(context: BrowserContext): Promise<string> {
   const bootstrap = await context.request.post('/api/workspaces/bootstrap')
   expect(bootstrap.ok()).toBe(true)
   const created = await context.request.post('/api/workspaces', {
@@ -39,10 +35,19 @@ test('a ?workspace= link selects the target, and a later revisit by ID selects i
   const body = (await created.json()) as { workspace?: { id: string }; id?: string }
   const targetId = body.workspace?.id ?? body.id
   expect(targetId).toBeTruthy()
-  const targetTitle = 'Deep link target | Adea'
+  return targetId!
+}
+
+const targetTitle = 'Deep link target | Adea'
+
+test('a ?workspace= link selects the target, and a later revisit by ID selects it again', async ({
+  page,
+}) => {
+  await page.addInitScript(countHistoryWrites)
+  const targetId = await createTarget(page.context())
 
   // First visit: the link selects the target and is consumed.
-  await page.goto(`/?workspace=${encodeURIComponent(targetId!)}`, { timeout: 120_000 })
+  await page.goto(`/?workspace=${encodeURIComponent(targetId)}`, { timeout: 120_000 })
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
     timeout: 120_000,
   })
@@ -61,9 +66,49 @@ test('a ?workspace= link selects the target, and a later revisit by ID selects i
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
     timeout: 120_000,
   })
-  await page.goto(`/?workspace=${encodeURIComponent(targetId!)}`, { timeout: 120_000 })
+  await page.goto(`/?workspace=${encodeURIComponent(targetId)}`, { timeout: 120_000 })
   await expect(page).toHaveTitle(targetTitle, { timeout: 60_000 })
   await expect
     .poll(() => new URL(page.url()).searchParams.has('workspace'), { timeout: 30_000 })
+    .toBe(false)
+})
+
+test('a scoped channel link keeps its workspace guard until the channel is applied', async ({
+  page,
+}) => {
+  const context = page.context()
+  const targetId = await createTarget(context)
+  // The target's own channel list: the scoped destination must be applied from it.
+  // A fresh workspace has no channel yet: create one through the app's own route.
+  const createdChannel = await context.request.post(`/api/v1/workspaces/${targetId}/channels`, {
+    data: { kind: 'group', title: 'Deep link channel' },
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+  })
+  expect(createdChannel.ok(), `create channel: ${createdChannel.status()}`).toBe(true)
+  const channelBody = (await createdChannel.json()) as { channel?: { id: string }; id?: string }
+  const channelId = channelBody.channel?.id ?? channelBody.id
+  expect(channelId, 'the created channel has an id').toBeTruthy()
+
+  const channelSelected = page.waitForRequest((request) =>
+    request.url().includes(`/channels/${channelId!}/messages`)
+  )
+  await page.goto(
+    `/?workspace=${encodeURIComponent(targetId)}&channel=${encodeURIComponent(channelId!)}`,
+    {
+      timeout: 120_000,
+    }
+  )
+  await expect(page).toHaveTitle(targetTitle, { timeout: 60_000 })
+  // The destination is applied from the target, then the whole link is consumed.
+  await channelSelected
+  await expect
+    .poll(
+      () =>
+        new URL(page.url()).searchParams.has('workspace') ||
+        new URL(page.url()).searchParams.has('channel'),
+      {
+        timeout: 30_000,
+      }
+    )
     .toBe(false)
 })

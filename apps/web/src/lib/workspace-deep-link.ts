@@ -8,6 +8,11 @@
  * never touches the newer link. A settled or failed link never re-runs on its own: it must be
  * released (the param removed) and issued again, which starts a fresh attempt. Nothing here
  * retries in a loop.
+ *
+ * A settled link keeps its `workspace` param while it still carries a scoped destination
+ * (channel, task, thread or message): that param is the surface's guard, so the surface can
+ * apply the destination only against the target and not the workspace that was active before
+ * the switch. The surface strips the whole link once it has consumed it.
  */
 
 export type DeepLinkAttemptState = 'switching' | 'settled' | 'failed'
@@ -28,6 +33,8 @@ export function createDeepLinkAttempts(options: {
   requested(): string | undefined
   /** Strips the param for a link that settled while it is still the requested one. */
   consume(workspace: string): void
+  /** True while the requested link carries a scoped destination the surface has not consumed. */
+  retain(): boolean
 }): DeepLinkAttempts {
   let current: { readonly workspace: string; state: DeepLinkAttemptState } | undefined
   return {
@@ -42,7 +49,8 @@ export function createDeepLinkAttempts(options: {
           return
         }
         attempt.state = 'settled'
-        if (options.requested() === attempt.workspace) options.consume(attempt.workspace)
+        if (options.requested() === attempt.workspace && !options.retain())
+          options.consume(attempt.workspace)
       })
       return true
     },

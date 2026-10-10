@@ -859,6 +859,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       })
     },
     requested: () => currentSearch().workspace,
+    // The already-active branch below keeps the param for the same reason: a scoped
+    // destination is applied against the target workspace, so the param stays until
+    // the surface consumes the whole link.
+    retain: () => {
+      const query = currentSearch()
+      return Boolean(query.channel || query.task || query.thread || query.message)
+    },
     switchTo: (workspaceId) => {
       const workspace = orderedWorkspaces().find(({ id }) => id === workspaceId)
       return workspace ? switchToWorkspace(workspace) : Promise.resolve(false)
