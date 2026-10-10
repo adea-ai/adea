@@ -299,6 +299,12 @@ test('cert dialogs: the settings tab pattern and help-center focus restore hold 
     await userSettings.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('menu')).toBeVisible()
+    // The menu takes focus for itself a moment after it opens, on its first
+    // enabled item. Wait for that focus before the test moves it: a focus set
+    // earlier is overwritten, and Enter then activates the item the menu chose.
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.getAttribute('role')))
+      .toBe('menuitem')
   }
 
   // Settings: tabs pattern.
