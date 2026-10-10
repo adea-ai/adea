@@ -45,10 +45,11 @@ Redispatch is denied by every path: archived or fenced, `prepare` and `markDispa
 
 ## Schema (for root ordering)
 
-Migration file: `packages/db/drizzle/0047_lead_turn_rollback_fence.sql`. It is local to
-`feat/issue-1220-rollback-fencing` and is **not** renumbered. It overlaps the reserved 0047 and the
-role-selection stack, so root orders it. Its only dependency is the base schema at 0046
-(`lead_turn_intents` from 0043). No other table is changed.
+Migration file: `packages/db/drizzle/0051_lead_turn_rollback_fence.sql`, journal idx 51, snapshot
+`meta/0051_snapshot.json` with `prevId` = canonical 0050 (`abcf1389-…`). Root reserved 0051 for rollback
+after canonical 0047–0050, which this branch imports byte-identical from
+`feat/group-participation-policy-1178`. Its SQL depends only on `lead_turn_intents` (0043). No other table
+is changed.
 
 On `app.lead_turn_intents`, all new columns are nullable with no default:
 
@@ -68,14 +69,11 @@ On `app.lead_turn_intents`, all new columns are nullable with no default:
   migration, following the plpgsql precedent in `0033`. drizzle does not model triggers.
 - No index. Writes go only through `fenceLeadTurnForRollback`.
 
-**Delta after #1229 (requested role selections).** PR #1229 carries
-`0047_requested_role_model_selections`, which adds `lead_turn_intents.requested_model_selections` and
-its check. This branch's columns, checks and trigger have different names, so there is no SQL overlap.
-Once #1229 is the canonical predecessor, the delta is: rename this migration to
-`0048_lead_turn_rollback_fence.sql`; restore `_journal.json` from main plus #1229, then add idx 48 with
-a later `when`; regenerate the snapshot so `0048_snapshot.json` chains to #1229's `0047` snapshot; keep
-the SQL and trigger unchanged; and rerun `db:check` and `db:verify` on the stacked branch. This PR does
-not renumber it.
+**Reconciled.** The earlier local `0047` is removed. Canonical `0047_requested_role_model_selections`
+through `0050_group_legacy_backfill` are imported unchanged. The rollback SQL and trigger are unchanged
+and now live at `0051`, with a snapshot that is canonical 0050 plus the five columns and four checks above.
+Conflicts that remain for root, including #1177's divergent 0047 and its own 0051 slot, are in
+[m18-01-3-migration-collision.md](m18-01-3-migration-collision.md).
 
 ## Emitted field contract (signed current product reader)
 
@@ -236,8 +234,30 @@ Pre-fence code ignores the fence.
 
 ## Validation
 
-Run on `feat/issue-1220-rollback-fencing` against a local Postgres 16 container, migrations 0001–0047
-applied, `db:verify` passed (48 applied migrations).
+**Current chain proof (canonical 0047–0050, then rollback as 0051).** Local Postgres 16 container, with
+databases created for this proof only.
+
+- `db:check` passes ("Everything's fine").
+- Fresh install of the full folder: 52 migrations applied. `db:verify` passes (52 applied migrations).
+- Upgrade from canonical 0050: the folder comes from `git archive` of
+  `origin/feat/group-participation-policy-1178`. It applies 51 migrations. Three `lead_turn_intents`
+  fixture rows are seeded with FK triggers skipped for that transaction only; CHECK constraints apply.
+  The full folder then applies 0051 (52 total). A rerun is a no-op.
+- Retention: the fingerprint of the fixture rows (excluding the five new columns) and of the canonical
+  migration rows is identical before and after. Only these fixture rows exist; every other app table is
+  empty, so this proves retention for those tables only.
+- `0051` is recorded exactly once. The trigger and four checks each exist once. `pg_dump -s` of the fresh
+  and upgraded databases differs only in pg_dump's per-run `\restrict` token.
+- After the upgrade, a change to fenced attribution is refused with
+  `lead_turn_intents_rollback_fence_immutable`.
+- `lead-turn-historical` and `lead-turn-fence-envelope-negative` integration suites: 21 pass, 0 fail,
+  against the fresh full-folder database.
+- Not run on this head: the full `packages/db` integration suite and the repo CI runners. Those are
+  listed in the PR body.
+
+**Earlier run, before reconciliation (local 0001–0047 chain, kept for history).** Run on
+`feat/issue-1220-rollback-fencing` against a local Postgres 16 container, migrations 0001–0047 applied,
+`db:verify` passed (48 applied migrations).
 
 - Focused lead-turn integration suites (`lead-turn-historical`, `lead-turn-rollback`, `lead-turns`,
   `lead-turn-runtime`, `lead-turn-product`, `lead-topic-migration`, `workspace-leads`): 51 pass,
