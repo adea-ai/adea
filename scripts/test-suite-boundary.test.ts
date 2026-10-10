@@ -170,6 +170,17 @@ describe('test suite boundaries', () => {
     expect(connected).toContain("process.env.PI_ROLE_CONNECTED_PROOF !== '1'")
   })
 
+  test('keeps the lead E2E fixture servers off the managed dev server cache', () => {
+    // A second Vite instance that shares node_modules/.vite rewrites the dependency hashes the
+    // running app already requested, and the app then fails with a 504 Outdated Optimize Dep.
+    for (const spec of ['lead-role-choices', 'lead-payer-journey', 'lead-role-choices-connected']) {
+      const source = readFileSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`), 'utf8')
+      expect(source).toContain('    cacheDir,\n')
+      expect(source).toContain('cacheDir = mkdtempSync(join(tmpdir(), ')
+      expect(source).toContain('rmSync(cacheDir, { recursive: true, force: true })')
+    }
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot

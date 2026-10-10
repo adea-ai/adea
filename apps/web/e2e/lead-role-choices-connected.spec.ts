@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 import { startConnectedFixtureChild } from './helpers/lead-role-choices-connected-client.mjs'
@@ -8,6 +10,7 @@ const safeCode = (value: unknown) =>
   typeof value === 'string' && /^[A-Z][A-Z0-9_]{1,31}$/u.test(value) ? value : undefined
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let fixture: Awaited<ReturnType<typeof startConnectedFixtureChild>> | undefined
 let url = ''
 
@@ -22,9 +25,13 @@ test.beforeAll(async () => {
   fixture = await startConnectedFixtureChild({ bun, cwd: cpRoot, env: process.env })
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-choices-connected-harness-app.tsx')
+  // A private optimizer cache, for the same reason as the other lead fixtures: the managed dev
+  // server owns node_modules/.vite.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-lead-connected-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     publicDir: false,
     optimizeDeps: { noDiscovery: true, include: [] },
     logLevel: 'error',
@@ -54,6 +61,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await server?.close()
   await fixture?.close()
+  rmSync(cacheDir, { recursive: true, force: true })
 })
 
 test('mounted lead choice is disclosed before inference and matches the real admitted and dispatched selection', async ({
