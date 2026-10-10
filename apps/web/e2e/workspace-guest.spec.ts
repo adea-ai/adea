@@ -266,3 +266,36 @@ test('desktop authentication ends on a clear browser success page', async ({ pag
   await expect(page.getByRole('button', { name: 'Open Adea' })).toBeVisible()
   await expect(page).toHaveURL(/\/auth\/desktop\/complete$/)
 })
+
+test('the new-workspace draft states creation context and cancels cleanly', async ({ page }) => {
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace],
+      },
+    })
+  })
+
+  await page.goto('/?view=virtual')
+  const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
+  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible({
+    timeout: 20_000,
+  })
+  await workspaceNav.getByRole('button', { name: 'New workspace' }).click()
+
+  // The inline draft keeps fast keyboard behavior and states the creation
+  // context beside the name: owner, initial audience, honest placement.
+  const name = workspaceNav.getByLabel('New workspace name')
+  await expect(name).toBeFocused()
+  await expect(workspaceNav.getByText('Enter to create · Esc to cancel')).toBeVisible()
+  await expect(
+    workspaceNav.getByText("You'll be the owner · Only you · Location unknown")
+  ).toBeVisible()
+  await name.fill('Side project')
+  await page.keyboard.press('Escape')
+  await expect(workspaceNav.getByLabel('New workspace name')).toHaveCount(0)
+  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
+})
