@@ -334,8 +334,10 @@ export {
 export {
   exportPortableWorkspace,
   PortableExportError,
+  PORTABLE_SYSTEM_SENDER_ID,
   type PortableExportFailureCode,
   portableContentDigest,
+  readCompletePortableContent,
 } from './portable-export'
 export {
   importPortableWorkspace,

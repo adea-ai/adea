@@ -35,7 +35,7 @@ import { and, eq, inArray, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
-import { portableContentDigest, readPortableWorkspaceContent } from './portable-export'
+import { portableContentDigest, readCompletePortableContent } from './portable-export'
 import {
   agents,
   channelParticipants,
@@ -439,9 +439,7 @@ export async function importPortableWorkspace(
 
     // Read the restored workspace back with the complete reader and require the
     // same digest. Any gap, reordering or altered field rolls the import back.
-    const restored = await readPortableWorkspaceContent(transaction, workspaceId, {
-      kind: 'complete',
-    })
+    const restored = await readCompletePortableContent(transaction, workspaceId)
     if (!restored || portableContentDigest(restored) !== document.contentDigest.value)
       throw new PortableImportError(
         'verification_failed',

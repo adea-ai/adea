@@ -16,8 +16,9 @@ import {
   exportPortableWorkspace,
   PortableExportError,
   portableContentDigest,
-  readPortableWorkspaceContent,
+  readCompletePortableContent,
 } from '../../src/portable-export'
+import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
 import { importPortableWorkspace, PortableImportError } from '../../src/portable-import'
 import {
   agents,
@@ -494,7 +495,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(document.content.projects.map((project) => project.projectId).toSorted()).toEqual(
       [fixture.projectA.id, fixture.projectB.id].toSorted()
     )
-    expect(document.content.channels).toHaveLength(5)
+    expect(document.content.channels).toHaveLength(4)
     expect(document.content.messages).toHaveLength(9)
     expect(document.content.tasks.map((task) => task.taskId).toSorted()).toEqual(
       [fixture.tA.id, fixture.tB.id, fixture.tC.id].toSorted()
@@ -516,9 +517,9 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(document.content.projects.map((project) => project.projectId)).toEqual([
       fixture.projectA.id,
     ])
-    expect(document.content.channels.map((channel) => channel.channelId).toSorted()).toEqual(
-      [fixture.channels.general.id, fixture.channels.archived.id].toSorted()
-    )
+    expect(document.content.channels.map((channel) => channel.channelId)).toEqual([
+      fixture.channels.general.id,
+    ])
     const generalMessages = await db
       .select({ id: messages.id })
       .from(messages)
@@ -695,7 +696,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     // The restored workspace reproduces every record of the bundle, read with the
     // complete reader that the import itself verified against.
     const target = await db.transaction((transaction) =>
-      readPortableWorkspaceContent(transaction, fixture.workspaceId, { kind: 'complete' })
+      readCompletePortableContent(transaction, fixture.workspaceId)
     )
     expect(portableContentDigest(target!)).toBe(bundle.contentDigest.value)
 
@@ -882,6 +883,77 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       fixture.projectB.id
     )
     expect(JSON.stringify(withoutGrant)).not.toContain(canary.membersText)
+  })
+
+  test('the export carries exactly the messages the canonical readers serve the same principal', async () => {
+    const fixture = await seed('composition')
+    const database = connection.db
+    for (const principal of [fixture.owner.principal, fixture.member.principal]) {
+      const served: string[] = []
+      for (const channel of await listChannelsForUser(database, fixture.workspaceId, principal)) {
+        let afterSequence: number | undefined
+        for (;;) {
+          const page = await listMessagesForUser(
+            database,
+            fixture.workspaceId,
+            channel.id,
+            principal,
+            {
+              afterSequence,
+              limit: 100,
+            }
+          )
+          served.push(...page.messages.map((message) => message.id))
+          if (page.nextAfterSequence === undefined) break
+          afterSequence = page.nextAfterSequence
+        }
+      }
+      const document = await exportPortableWorkspace(database, {
+        principal,
+        workspaceId: fixture.workspaceId,
+      })
+      expect(document.content.messages.map((message) => message.messageId).toSorted()).toEqual(
+        served.toSorted()
+      )
+    }
+  })
+
+  test('an encoded job binding never leaves through a system sender or a linked runtime reference', async () => {
+    const fixture = await seed('binding')
+    const binding = `job-outbound:v1:${run}:${randomBytes(16).toString('base64url')}`
+    await db.insert(messages).values({
+      bodyText: 'Publication body text',
+      channelId: fixture.channels.general.id,
+      createPayloadHash: 'b'.repeat(64),
+      executionRef: `exec:${binding}`,
+      externalSessionRef: `session:${binding}`,
+      idempotencyKey: `publication-${run}`,
+      senderKind: 'system',
+      senderSystemId: binding,
+      workspaceId: fixture.workspaceId,
+    })
+    await db
+      .update(tasks)
+      .set({ artifactRefs: [binding] })
+      .where(eq(tasks.id, fixture.tA.id))
+
+    const owner = await exportPortableWorkspace(db, {
+      principal: fixture.owner.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    const member = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    for (const document of [owner, member]) {
+      const serialized = JSON.stringify(document)
+      expect(serialized).not.toContain(binding)
+      expect(serialized).not.toContain(run + ':')
+    }
+    const publication = owner.content.messages.find(
+      (message) => message.body.kind === 'text' && message.body.text === 'Publication body text'
+    )
+    expect(publication?.sender).toEqual({ kind: 'system', systemId: 'system' })
   })
 
   test('refuses a workspace above the portable bound instead of truncating it', async () => {
