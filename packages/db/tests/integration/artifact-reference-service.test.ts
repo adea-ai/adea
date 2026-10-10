@@ -155,10 +155,11 @@ describe('artifact-reference publication and retrieval wiring', () => {
     await registerGrant(source.id, owner, artifact.id, destination.id, grantId)
     const exact = target(artifact.id, source.id, destination.id)
 
-    const publication = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: exact,
-    })
+    const publication = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: exact },
+      owner
+    )
     expect(publication.decision).toEqual({
       action: 'publish',
       ok: true,
@@ -190,10 +191,11 @@ describe('artifact-reference publication and retrieval wiring', () => {
     const artifact = await availableArtifact(source.id, owner)
     const exact = target(artifact.id, source.id, destination.id)
 
-    const publication = await publishArtifactReference(connection.db, {
-      grant: presentation(`grant-${crypto.randomUUID()}`),
-      target: exact,
-    })
+    const publication = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(`grant-${crypto.randomUUID()}`), target: exact },
+      owner
+    )
     expect(publication.decision).toMatchObject({
       action: 'hold',
       ok: false,
@@ -214,6 +216,28 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
   })
 
+  test('a caller without access to the source workspace is held', async () => {
+    const { destination, destinationOwner, owner, source } = await fixture('no-source-access')
+    const artifact = await availableArtifact(source.id, owner)
+    const grantId = `grant-${crypto.randomUUID()}`
+    await registerGrant(source.id, owner, artifact.id, destination.id, grantId)
+    const exact = target(artifact.id, source.id, destination.id)
+
+    // The destination owner holds a valid grant presentation but no source
+    // workspace access; evidence must be unreadable, so publication is held.
+    const held = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: exact },
+      destinationOwner
+    )
+    expect(held.decision).toMatchObject({
+      action: 'hold',
+      ok: false,
+      reason: 'evidence_unavailable',
+      stage: 'publication',
+    })
+  })
+
   test('revocation is absolute at both gates even while the artifact stays live', async () => {
     const { destination, owner, source } = await fixture('revoked')
     const artifact = await availableArtifact(source.id, owner)
@@ -223,10 +247,11 @@ describe('artifact-reference publication and retrieval wiring', () => {
     expect(revoked?.revoked).toBe(true)
     const exact = target(artifact.id, source.id, destination.id)
 
-    const publication = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: exact,
-    })
+    const publication = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: exact },
+      owner
+    )
     expect(publication.decision).toMatchObject({
       action: 'hold',
       ok: false,
@@ -267,10 +292,11 @@ describe('artifact-reference publication and retrieval wiring', () => {
     })
 
     const movedTarget = target(artifact.id, source.id, third.id)
-    const movedPublication = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: movedTarget,
-    })
+    const movedPublication = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: movedTarget },
+      owner
+    )
     expect(movedPublication.decision).toMatchObject({
       action: 'hold',
       ok: false,
@@ -285,10 +311,14 @@ describe('artifact-reference publication and retrieval wiring', () => {
     const grantId = `grant-${crypto.randomUUID()}`
     await registerGrant(source.id, owner, artifact.id, destination.id, grantId)
 
-    const stale = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: target(artifact.id, source.id, destination.id, { version: 2 }),
-    })
+    const stale = await publishArtifactReference(
+      connection.db,
+      {
+        grant: presentation(grantId),
+        target: target(artifact.id, source.id, destination.id, { version: 2 }),
+      },
+      owner
+    )
     expect(stale.decision).toMatchObject({
       action: 'hold',
       ok: false,
@@ -296,10 +326,14 @@ describe('artifact-reference publication and retrieval wiring', () => {
       stage: 'publication',
     })
 
-    const tampered = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: target(artifact.id, source.id, destination.id, { checksumSha256: 'd'.repeat(64) }),
-    })
+    const tampered = await publishArtifactReference(
+      connection.db,
+      {
+        grant: presentation(grantId),
+        target: target(artifact.id, source.id, destination.id, { checksumSha256: 'd'.repeat(64) }),
+      },
+      owner
+    )
     expect(tampered.decision).toMatchObject({
       action: 'hold',
       ok: false,
@@ -320,10 +354,11 @@ describe('artifact-reference publication and retrieval wiring', () => {
       ...target(artifact.id, source.id, destination.id),
       location: 'https://private.invalid/outputs/result.txt',
     } as unknown as ArtifactReferenceTarget
-    const smuggled = await publishArtifactReference(connection.db, {
-      grant: presentation(grantId),
-      target: withLocator,
-    })
+    const smuggled = await publishArtifactReference(
+      connection.db,
+      { grant: presentation(grantId), target: withLocator },
+      owner
+    )
     expect(smuggled.decision).toMatchObject({
       action: 'hold',
       ok: false,

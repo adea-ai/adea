@@ -2,12 +2,17 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq, inArray } from 'drizzle-orm'
 
 import {
+  addWorkspaceMembership,
   artifactReferenceGrants,
   artifacts,
   createArtifact,
   createDatabase,
+  createProject,
+  createTask,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
+  getArtifactForUser,
+  projects,
   registerArtifactReferenceGrant,
   revokeArtifactReferenceGrant,
   temporaryUserSessions,
@@ -337,6 +342,141 @@ describe('artifact-reference routes', () => {
       urlOnly: await urlOnly.json(),
     })
     expect(serialized).not.toContain('private.invalid')
+  })
+
+  test('another workspace target cannot be published through this source route', async () => {
+    const { destination, owner, source, stranger, third } = await fixture('route-cross-source')
+    const foreignArtifact = await availableArtifact(third.id, stranger)
+    const grantId = `grant-${crypto.randomUUID()}`
+    await registerArtifactReferenceGrant(connection.db, third.id, stranger, {
+      artifactId: foreignArtifact.id,
+      audienceWorkspaceId: destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt: null,
+      grantId,
+      version: 1,
+    })
+    const foreignTarget = target(foreignArtifact.id, third.id, destination.id)
+
+    // The caller has source-workspace A access and B's valid grant/target;
+    // the publication route binds the target source to its own workspace, so
+    // B's artifact can never be announced through A.
+    const refused = await publish(source.id, owner, {
+      grantId,
+      revision: 1,
+      target: foreignTarget,
+    })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(await refused.json())).not.toContain(foreignArtifact.id)
+  })
+
+  test('source membership without project visibility cannot publish the artifact', async () => {
+    const { destination, owner, source } = await fixture('route-hidden-project')
+    const member = await temporaryUser('route-hidden-project-member')
+    await addWorkspaceMembership(connection.db, source.id, member, 'member')
+    const project = await createProject(connection.db, source.id, owner, {
+      iconKey: 'engineering',
+      name: 'Hidden project',
+    })
+    await connection.db
+      .update(projects)
+      .set({ visibility: 'members' })
+      .where(eq(projects.id, project.id))
+    const task = await createTask(
+      connection.db,
+      source.id,
+      owner,
+      { objective: 'Hidden objective', projectId: project.id, title: 'Hidden task' },
+      { idempotencyKey: `hidden-${crypto.randomUUID()}`, requestId: crypto.randomUUID() }
+    )
+    const artifact = await createArtifact(connection.db, source.id, owner, {
+      availability: 'available',
+      checksumSha256: CHECKSUM,
+      filename: 'hidden.txt',
+      location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
+      mediaType: 'text/plain',
+      sizeBytes: 8,
+      sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
+      sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+      taskId: task.id,
+    })
+    const grantId = `grant-${crypto.randomUUID()}`
+    await registerArtifactReferenceGrant(connection.db, source.id, owner, {
+      artifactId: artifact.id,
+      audienceWorkspaceId: destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt: null,
+      grantId,
+      version: 1,
+    })
+    const exact = target(artifact.id, source.id, destination.id)
+
+    // The privileged owner sees the artifact; the plain member cannot, so
+    // publication evidence is unavailable for them.
+    expect(await getArtifactForUser(connection.db, source.id, artifact.id, owner)).not.toBeNull()
+    expect(await getArtifactForUser(connection.db, source.id, artifact.id, member)).toBeNull()
+
+    const held = await publish(source.id, member, { grantId, revision: 1, target: exact })
+    expect(held.status).toBe(403)
+    expect(await held.json()).toMatchObject({
+      code: 'artifact_reference_held',
+      reason: 'evidence_unavailable',
+      stage: 'publication',
+    })
+
+    const admitted = await publish(source.id, owner, { grantId, revision: 1, target: exact })
+    expect(admitted.status).toBe(202)
+  })
+
+  test('unknown or duplicated query fields are rejected by the identity contract', async () => {
+    const { destination, destinationOwner, owner, source } = await fixture('route-query-strict')
+    const artifact = await availableArtifact(source.id, owner)
+    const grantId = `grant-${crypto.randomUUID()}`
+    await registerArtifactReferenceGrant(connection.db, source.id, owner, {
+      artifactId: artifact.id,
+      audienceWorkspaceId: destination.id,
+      checksumSha256: CHECKSUM,
+      expiresAt: null,
+      grantId,
+      version: 1,
+    })
+    const { retrieveArtifactReferenceResponse, withRequestScope } = await handlers()
+    const base = new URLSearchParams({
+      artifactId: artifact.id,
+      checksumSha256: CHECKSUM,
+      grantId,
+      revision: '1',
+      sourceWorkspaceId: source.id,
+      version: '1',
+    })
+
+    const unknown = new Request(
+      `http://local/api/v1/workspaces/${destination.id}/artifact-references?${base}&extra=1`
+    )
+    const unknownResponse = await withRequestScope(() =>
+      retrieveArtifactReferenceResponse(
+        unknown,
+        connection.db,
+        resolutionFor(destinationOwner),
+        destination.id,
+        allow
+      )
+    )
+    expect(unknownResponse.status).toBe(400)
+
+    const duplicate = new Request(
+      `http://local/api/v1/workspaces/${destination.id}/artifact-references?${base}&grantId=other`
+    )
+    const duplicateResponse = await withRequestScope(() =>
+      retrieveArtifactReferenceResponse(
+        duplicate,
+        connection.db,
+        resolutionFor(destinationOwner),
+        destination.id,
+        allow
+      )
+    )
+    expect(duplicateResponse.status).toBe(400)
   })
 
   test('workspace authorization still gates the route before the store is read', async () => {

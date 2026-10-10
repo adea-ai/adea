@@ -5,6 +5,7 @@ import type {
   ArtifactReferencePublicationDecision,
   ArtifactReferenceRetrievalDecision,
   ArtifactReferenceTarget,
+  UserPrincipalRef,
 } from '@adea-ai/types'
 import { isArtifactReferenceTarget } from '@adea-ai/types'
 
@@ -15,6 +16,7 @@ import {
 import {
   authorizeArtifactReferencePublication,
   authorizeArtifactReferenceRetrieval,
+  readArtifactReferenceEvidence,
 } from './artifact-reference-policy'
 import { readArtifactReferenceEvidenceById } from './artifacts'
 import type { AgentHqDatabase } from './connection'
@@ -79,11 +81,21 @@ export async function publishArtifactReference(
     target: ArtifactReferenceTarget
     grant: ArtifactReferenceGrantPresentation
   }>,
+  principal: UserPrincipalRef,
   now: string = new Date().toISOString()
 ): Promise<ArtifactReferenceServiceResult<ArtifactReferencePublicationDecision>> {
   const { target, grant } = request
+  // Publication evidence is read through the caller's own source-workspace
+  // access (`getArtifactForUser` project visibility included): a member
+  // without visibility into the artifact's project cannot publish it, and a
+  // locator or URL never participates in the decision.
   const evidence = isArtifactReferenceTarget(target)
-    ? await readArtifactReferenceEvidenceById(database, target.sourceWorkspaceId, target.artifactId)
+    ? await readArtifactReferenceEvidence(
+        database,
+        target.sourceWorkspaceId,
+        target.artifactId,
+        principal
+      )
     : null
   const state = await readCurrentArtifactReferenceGrant(database, grant)
   return {

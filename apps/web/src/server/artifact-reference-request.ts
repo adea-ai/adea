@@ -25,6 +25,14 @@ import {
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const QUERY_KEYS = [
+  'artifactId',
+  'checksumSha256',
+  'grantId',
+  'revision',
+  'sourceWorkspaceId',
+  'version',
+] as const
 
 export type ArtifactReferenceRequestInput = Readonly<{
   grant: ArtifactReferenceGrantPresentation
@@ -94,6 +102,13 @@ export function parseArtifactReferenceQuery(
   audienceWorkspaceId: string
 ): ArtifactReferenceRequestInput | null {
   const query = new URL(url).searchParams
+  // Identity-only wire contract: exactly the documented keys, each once. An
+  // unknown or duplicated field makes the request invalid rather than
+  // silently resolving to one of several values.
+  const keys = [...query.keys()]
+  if (keys.length !== QUERY_KEYS.length) return null
+  if (new Set(keys).size !== keys.length) return null
+  if (keys.some((key) => !(QUERY_KEYS as readonly string[]).includes(key))) return null
   const target = parseTarget(
     {
       artifactId: query.get('artifactId'),
@@ -131,9 +146,14 @@ export async function publishArtifactReferenceResponse(
   }
   const input = parseArtifactReferenceBody(body)
   if (!input) return workspaceInvalidRequestResponse(request)
+  // This route is the source workspace's publication route: the target's
+  // source must be the route workspace, so another workspace's artifact can
+  // never be announced through this workspace's access.
+  if (input.target.sourceWorkspaceId !== workspaceId)
+    return workspaceInvalidRequestResponse(request)
   if (!(await authorize(caller.principal, 'workspace.read', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
-  const result = await publishArtifactReference(database, input)
+  const result = await publishArtifactReference(database, input, caller.principal)
   if (!result.decision.ok)
     return workspaceJsonResponse(
       {
