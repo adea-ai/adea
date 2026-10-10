@@ -340,9 +340,11 @@ export {
 export type { JobOutboundArtifactPolicy } from './job-outbound-result-policy'
 export {
   completeTaskFromRequest,
-  parseOutboundCompletion,
-  summarizePublication,
   type TaskCompletionInput,
   type TaskCompletionOutcome,
-  type TaskCompletionPublication,
 } from './task-completion-request'
+export {
+  parseOutboundCompletion,
+  summarizePublication,
+  type TaskCompletionPublication,
+} from './task-completion-parse'

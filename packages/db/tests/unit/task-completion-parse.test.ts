@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { parseOutboundCompletion, summarizePublication } from '../../src/task-completion-request'
+import { parseOutboundCompletion, summarizePublication } from '../../src/task-completion-parse'
 
 const CHANNEL = '00000000-0000-4000-8000-0000000000c1'
 const ARTIFACT = '00000000-0000-4000-8000-0000000000a1'
