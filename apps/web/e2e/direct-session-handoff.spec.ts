@@ -507,7 +507,7 @@ test('assistive-technology tree: names, disabled states, and reason linkage', as
   for (const button of [job, descendants]) {
     const describedby = await button.getAttribute('aria-describedby')
     expect(describedby).not.toBeNull()
-    await expect(page.locator(`#${describedby}`)).toContainText('control-plane#935')
+    await expect(page.locator(`#${describedby}`)).toContainText('control-plane issue 935')
   }
 
   await page.getByRole('button', { name: 'Go offline' }).click()

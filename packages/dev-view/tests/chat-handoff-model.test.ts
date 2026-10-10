@@ -146,7 +146,7 @@ describe('direct-session handoff modes', () => {
     const view = deriveDirectSessionHandoff(input({ mode: 'attached' }))
     expect(view.controls.lead_stop.available).toBe(false)
     expect(view.controls.lead_stop.reason).toMatch(/no lead turn is claimed/i)
-    expect(view.controls.lead_stop.remediation).toMatch(/control-plane#933/i)
+    expect(view.controls.lead_stop.remediation).toMatch(/control-plane issue 933/i)
     expect(view.controls.job_cancel.available).toBe(false)
     expect(view.controls.descendant_cancel.available).toBe(false)
     expect(view.coordination).toBeUndefined()

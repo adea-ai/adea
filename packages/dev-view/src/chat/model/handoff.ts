@@ -344,10 +344,10 @@ export const HANDOFF_MODE_LABELS: Readonly<
   },
 }
 const LEAD_INTEGRATION_GAP =
-  'No lead-turn contract is connected in this surface: coordination is established through lead-turn admission, and stopping the lead goes through the canonical lead-turn cancel path (control-plane#933 family).'
+  'No lead-turn contract is connected in this surface: coordination is established through lead-turn admission, and stopping the lead goes through the canonical lead-turn cancel path (control-plane issue 933 family).'
 
 const CONTROL_PLANE_CANCEL_CONTRACT =
-  'Unavailable: durable job cancellation requires the Control Plane J2 contract (control-plane#935), not yet in dev-runtime operations.'
+  'Unavailable: durable job cancellation requires the Control Plane J2 contract (control-plane issue 935), not yet in dev-runtime operations.'
 
 function disabled(reason: string, remediation?: string): HandoffControlState {
   return remediation === undefined
@@ -581,11 +581,11 @@ export function deriveDirectSessionHandoff(
   // conflate lead, job, and descendant authority.
   const jobCancel: HandoffControlState = blocked(
     CONTROL_PLANE_CANCEL_CONTRACT,
-    'Coordinate with the control-plane#935 owner for the cancel-intent contract.'
+    'Coordinate with the control-plane issue 935 owner for the cancel-intent contract.'
   )
   const descendantCancel: HandoffControlState = blocked(
-    'Unavailable: descendant cancellation requires the Control Plane J2/J4 contracts (control-plane#935/#937), not yet in dev-runtime operations.',
-    'Coordinate with the control-plane#935 owner for the descendant-cancel contract.'
+    'Unavailable: descendant cancellation requires the Control Plane J2/J4 contracts (control-plane issues 935/937), not yet in dev-runtime operations.',
+    'Coordinate with the control-plane issue 935 owner for the descendant-cancel contract.'
   )
 
   return {

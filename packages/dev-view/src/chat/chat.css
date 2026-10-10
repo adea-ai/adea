@@ -249,12 +249,6 @@
   display: block;
 }
 
-.dev-handoff__return {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .dev-handoff {
     scroll-behavior: auto;
