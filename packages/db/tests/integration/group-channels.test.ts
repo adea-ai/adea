@@ -3149,94 +3149,100 @@ describe('durable binding, fences and shared read boundary', () => {
   T('same-named agents in two workspaces keep strictly separate authority', async () => {
     // Each recipient retains its own workspace authority: the ws1 group
     // enlists ws1's Echo only. Identical display names never merge.
+    // Isolation negative (not the authorized cross-workspace path): the
+    // away Agent is never enlisted here, so every away effect must deny.
     const f = await isolatedFixture()
-    const otherOwner = (
-      await createTemporaryUserSession(f.local.db, {
-        credentialDigest: `echo-owner-${crypto.randomUUID()}`,
-        expiresAt: new Date(Date.now() + 60_000),
+    try {
+      const otherOwner = (
+        await createTemporaryUserSession(f.local.db, {
+          credentialDigest: `echo-owner-${crypto.randomUUID()}`,
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+      ).principal
+      const second = await createWorkspaceWithOwner(f.local.db, {
+        idempotencyKey: crypto.randomUUID(),
+        name: 'Second',
+        owner: otherOwner,
       })
-    ).principal
-    const second = await createWorkspaceWithOwner(f.local.db, {
-      idempotencyKey: crypto.randomUUID(),
-      name: 'Second',
-      owner: otherOwner,
-    })
-    const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
-      name: 'Echo',
-      profileId: 'lead',
-      profileVersion: '1',
-    })
-    const echoAway = await createAgent(f.local.db, second.workspace.id, otherOwner, {
-      name: 'Echo',
-      profileId: 'lead',
-      profileVersion: '1',
-    })
-    expect(echoHome.name).toBe(echoAway.name)
-    expect(echoHome.id).not.toBe(echoAway.id)
-    const channelId = crypto.randomUUID()
-    const founder = {
-      expiresAt: null,
-      grantId: 'gra_owner',
-      groupId: channelId,
-      issuedAt: ISSUED,
-      participant: f.owner,
-      revision: 1,
-      revokedAt: null,
-    }
-    await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
-      candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
-        audienceGrants: [founder],
-        enlistmentGrants: [
-          {
-            agent: { agentId: echoHome.id, workspaceId: f.workspace.id },
-            expiresAt: null,
-            grantId: 'gra_echo',
-            groupId: channelId,
-            issuedAt: ISSUED,
-            revision: 1,
-            revokedAt: null,
-          },
-        ],
-      }),
-      channelId,
-      idempotencyKey: crypto.randomUUID(),
-      now: NOW,
-      title: 'Group',
-    })
-    const home: ConversationParticipantRef = { agentId: echoHome.id, kind: 'agent' }
-    const away: ConversationParticipantRef = { agentId: echoAway.id, kind: 'agent' }
-    const entry = { occurredAt: LATER, sequence: 0 }
-    const homeRead = await decideGroupChannelHistoryReadNow(
-      f.local.db,
-      f.workspace.id,
-      channelId,
-      home,
-      entry,
-      LATER
-    )
-    expect(homeRead).toMatchObject({ action: 'allow' })
-    // The same-named foreign agent was never admitted: no reads, no turns.
-    const awayRead = await decideGroupChannelHistoryReadNow(
-      f.local.db,
-      f.workspace.id,
-      channelId,
-      away,
-      entry,
-      LATER
-    )
-    expect(awayRead).toMatchObject({ action: 'deny', reason: 'history_not_participant' })
-    expect(
-      await authorizeGroupChannelTurnNow(f.local.db, f.workspace.id, channelId, away, LATER)
-    ).toMatchObject({ action: 'deny', reason: 'turn_not_participant' })
-    // And nothing in ws1 leaks the other way: the ws1 roster names no
-    // foreign identity.
-    const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
-    expect(
-      roster.some(
-        (admission) =>
-          admission.participant.kind === 'agent' && admission.participant.agentId === echoAway.id
+      const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
+        name: 'Echo',
+        profileId: 'lead',
+        profileVersion: '1',
+      })
+      const echoAway = await createAgent(f.local.db, second.workspace.id, otherOwner, {
+        name: 'Echo',
+        profileId: 'lead',
+        profileVersion: '1',
+      })
+      expect(echoHome.name).toBe(echoAway.name)
+      expect(echoHome.id).not.toBe(echoAway.id)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [
+            {
+              agent: { agentId: echoHome.id, workspaceId: f.workspace.id },
+              expiresAt: null,
+              grantId: 'gra_echo',
+              groupId: channelId,
+              issuedAt: ISSUED,
+              revision: 1,
+              revokedAt: null,
+            },
+          ],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const home: ConversationParticipantRef = { agentId: echoHome.id, kind: 'agent' }
+      const away: ConversationParticipantRef = { agentId: echoAway.id, kind: 'agent' }
+      const entry = { occurredAt: LATER, sequence: 0 }
+      const homeRead = await decideGroupChannelHistoryReadNow(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        home,
+        entry,
+        LATER
       )
-    ).toBe(false)
+      expect(homeRead).toMatchObject({ action: 'allow' })
+      // The same-named foreign agent was never admitted: no reads, no turns.
+      const awayRead = await decideGroupChannelHistoryReadNow(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        away,
+        entry,
+        LATER
+      )
+      expect(awayRead).toMatchObject({ action: 'deny', reason: 'history_not_participant' })
+      expect(
+        await authorizeGroupChannelTurnNow(f.local.db, f.workspace.id, channelId, away, LATER)
+      ).toMatchObject({ action: 'deny', reason: 'turn_not_participant' })
+      // And nothing in ws1 leaks the other way: the ws1 roster names no
+      // foreign identity.
+      const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+      expect(
+        roster.some(
+          (admission) =>
+            admission.participant.kind === 'agent' && admission.participant.agentId === echoAway.id
+        )
+      ).toBe(false)
+    } finally {
+      await f.local.close()
+    }
   })
 
   T('a removed participant takes no further turns, edits or deletes', async () => {
