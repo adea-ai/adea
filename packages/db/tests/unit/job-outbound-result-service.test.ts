@@ -267,8 +267,25 @@ describe('job outbound result service', () => {
     const result = await h.service.publish(publishInput, h.write)
     expect(result).toMatchObject({ decision: { action: 'publish' }, messageId: MESSAGE })
     expect(h.writes[0]!.transaction).toBe(h.transaction)
-    expect(h.events.indexOf('write')).toBeGreaterThan(h.events.indexOf('clock'))
-    expect(h.events.indexOf('clock')).toBeGreaterThan(h.events.lastIndexOf('read:audience'))
+    // The write follows the final judgement: its clock comes after the final reads.
+    expect(h.events.indexOf('write')).toBeGreaterThan(h.events.lastIndexOf('clock'))
+    expect(h.events.lastIndexOf('clock')).toBeGreaterThan(h.events.lastIndexOf('read:audience'))
+  })
+
+  test('the write is judged again after the seam: the second judgement reads and samples the clock after it', async () => {
+    const state = world()
+    const h = harness(state)
+    await h.service.publish(
+      { ...publishInput, beforeWrite: async () => void h.events.push('seam') },
+      h.write
+    )
+    const seam = h.events.indexOf('seam')
+    // The first judgement admitted publication: its clock precedes the seam.
+    expect(seam).toBeGreaterThan(h.events.indexOf('clock'))
+    // The second judgement reads and samples the clock only after the seam returns.
+    expect(h.events.indexOf('read:audience', seam)).toBeGreaterThan(seam)
+    expect(h.events.lastIndexOf('clock')).toBeGreaterThan(seam)
+    expect(h.events.indexOf('write')).toBeGreaterThan(h.events.lastIndexOf('clock'))
   })
 
   test('a held publish writes nothing: no message exists for an unauthorized publication', async () => {
