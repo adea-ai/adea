@@ -336,6 +336,11 @@ test.describe('chat continuity over real routes', () => {
     const workspaceId = workspaceIds[workspaceIds.length - 1]!
     const channelId = await directTopic(connection, workspaceId, owner, 'Stream DM')
     const streamPath = `/api/v1/workspaces/${workspaceId}/events`
+    // A leaked interval or a throwing poll callback surfaces here as a
+    // page error; the stream phases below must leave none behind.
+    const streamErrors: string[] = []
+    const onStreamError = (error: Error) => streamErrors.push(error.message)
+    page.on('pageerror', onStreamError)
     // Commit a redirect-free origin before opening the stream: API
     // documents never boot the client router.
     await page.goto(`/api/v1/workspaces/${workspaceId}/channels`, { waitUntil: 'commit' })
@@ -348,7 +353,7 @@ test.describe('chat continuity over real routes', () => {
     // resync, and withheld siblings never match the collector below.
     const runStreamPhase = (target: string, texts: string[], want: number) =>
       page.evaluate(
-        async ({ stream, bodies, post, keys }) => {
+        async ({ stream, bodies, post, keys, want: wanted }) => {
           type Delivery = { id: string; sequence: number; messageId: string }
           const seen: Delivery[] = []
           const posted: { id: string }[] = []
@@ -411,14 +416,24 @@ test.describe('chat continuity over real routes', () => {
               const payload = (await response.json()) as { message: { id: string } }
               posted.push({ id: payload.message.id })
             }
-            await new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, 15_000)
+            await new Promise<void>((resolve, reject) => {
+              const done = (error?: Error) => {
+                clearTimeout(timer)
+                clearInterval(interval)
+                if (error) reject(error)
+                else resolve()
+              }
+              const timer = setTimeout(
+                () =>
+                  done(
+                    new Error(
+                      `stream collect timeout: wanted ${wanted} deliveries, observed ${seen.length}`
+                    )
+                  ),
+                15_000
+              )
               const interval = setInterval(() => {
-                if (seen.length >= want) {
-                  clearTimeout(timer)
-                  clearInterval(interval)
-                  resolve()
-                }
+                if (seen.length >= wanted) done()
               }, 200)
             })
           } finally {
@@ -431,6 +446,7 @@ test.describe('chat continuity over real routes', () => {
           bodies: texts,
           post: `/api/v1/workspaces/${workspaceId}/channels/${channelId}/messages`,
           keys: texts.map(() => crypto.randomUUID()),
+          want,
         }
       )
     const live = await runStreamPhase(streamPath, ['stream one', 'stream two'], 2)
@@ -452,5 +468,7 @@ test.describe('chat continuity over real routes', () => {
       resumed.posted.map((message) => message.id)
     )
     expect(resumed.seen[0]!.sequence).toBe(live.seen[1]!.sequence + 1)
+    page.off('pageerror', onStreamError)
+    expect(streamErrors).toEqual([])
   })
 })
