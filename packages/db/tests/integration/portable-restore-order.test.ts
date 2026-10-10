@@ -11,7 +11,9 @@
 // The source is the lane database. The destination is a disposable database created on the lane's
 // provisioning instance (MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL), migrated from the repository's
 // migrations, and dropped afterwards. Both variables are required. This file fails rather than
-// skipping when either is missing, so the regression cannot pass without running.
+// skipping when either is missing, so the regression cannot pass without running. The root lane
+// (`bun run test:integration`) supplies the provisioning instance, and so does `bun run test:integration`
+// in packages/db through scripts/run-with-capture-provisioning.mjs, which uses the same module.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'

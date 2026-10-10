@@ -151,6 +151,26 @@ Mutation checks on the matrix (the same filtered run, against the module with on
 The matrix takes about four minutes, most of it seeding 101-message channels through the domain
 API.
 
+## Integration runners and the capture provisioning
+
+- Canonical lane: `bun run test:integration` at the root runs `scripts/test-integration.mjs`.
+  It discovers `packages/*/tests/integration` (today `packages/auth` and `packages/db`) and
+  `apps/web/test/integration` (the route flow). When Docker is available it starts a throwaway
+  capture instance (`postgres:18-alpine`, loopback-only port) and exports
+  `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL` to both test runs.
+- CI: the code-foundry validation runtime runs the root `test:integration` script, so CI uses the
+  same lane and the same provisioning.
+- Package runs: `packages/db`'s `test:integration` ends with
+  `scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test tests/integration`.
+  The runner starts the same instance through `scripts/capture-provisioning.mjs` and removes it
+  afterwards. `DATABASE_URL` and `DATABASE_MIGRATION_URL` pass through unchanged.
+- Without Docker the variable is not provisioned. The capture proofs skip, as documented, and
+  `portable-restore-order.test.ts` fails at load with an explicit message and runs no test.
+- Privilege boundaries: the application role (`DATABASE_URL`) and the migration role
+  (`DATABASE_MIGRATION_URL`) are unchanged. The throwaway instance's administrator creates, migrates,
+  restores into and drops the scratch database, as `portable-restore-clean.test.ts` already does. No
+  grant or credential was added.
+
 ## Traceability to issue #1226 and the TDD
 
 The issue lists requirements REQ 045, 055, 097, 140 to 145 and 177, and tests A27, A35, A36 and
