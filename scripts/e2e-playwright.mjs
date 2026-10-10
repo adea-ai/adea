@@ -61,6 +61,9 @@ const specs = [
   // targeted settings harness for the confirmation, refusal and retry cases.
   'apps/web/e2e/workspace-archive-lifecycle.spec.ts',
   'apps/web/e2e/workspace-archive-settings.spec.ts',
+  // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
+  // target and a revisit by the same ID selects it again. No route mocks.
+  'apps/web/e2e/workspace-deeplink-real.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
