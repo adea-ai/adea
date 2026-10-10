@@ -455,4 +455,86 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       { boundary: 'effect', request: CANONICAL_REQUEST },
     ])
   })
+
+  test('authority revocation and a stale revision cannot promote through the real handler', async () => {
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Composed promote denial',
+    })
+    await dbModule.archiveProject(connection.db, workspaceId, created.id, principal)
+    const archived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    if (!archived) throw new Error('unreachable')
+    const exact = { confirmed: true, expectedVersion: archived.version }
+    const promotionBindingFor = async (input: Record<string, unknown>) => {
+      const binding = await typesModule.managementCallBinding({
+        input,
+        operation: 'project.promote',
+        targetId: created.id,
+        workspaceId,
+      })
+      if (!binding) throw new Error('unreachable')
+      return binding
+    }
+
+    // Revoked current authority: the signed promotion is refused at admission
+    // and the project stays archived.
+    cpMode = 'revoked'
+    cpSeen.length = 0
+    const revokedBinding = await promotionBindingFor(exact)
+    const revokedToken = await signedDecision(revokedBinding, `decision-${crypto.randomUUID()}`)
+    const revoked = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, revokedBinding, revokedToken))
+    )
+    expect(revoked.status).toBe(403)
+    expect(await revoked.json()).toMatchObject({ reason: 'authority_unavailable' })
+    expect(cpSeen).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
+    const stillArchived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    expect(stillArchived?.lifecycleState).toBe('archived')
+    cpMode = 'ok'
+
+    // Stale expectedVersion: the signed binding and current authority are
+    // exact, but the real executor refuses and nothing is promoted.
+    const stale = { confirmed: true, expectedVersion: archived.version - 1 }
+    const staleBinding = await promotionBindingFor(stale)
+    const staleToken = await signedDecision(staleBinding, `decision-${crypto.randomUUID()}`)
+    const staleResponse = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(stale, staleBinding, staleToken))
+    )
+    expect(staleResponse.status).toBe(409)
+    const afterStale = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    expect(afterStale?.lifecycleState).toBe('archived')
+
+    // The exact revision still promotes afterwards.
+    const exactBinding = await promotionBindingFor(exact)
+    const exactToken = await signedDecision(exactBinding, `decision-${crypto.randomUUID()}`)
+    const promoted = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, exactBinding, exactToken))
+    )
+    expect(promoted.status).toBe(200)
+    const active = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(active?.lifecycleState).toBe('active')
+  })
 })

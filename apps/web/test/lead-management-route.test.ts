@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import {
   managementInputDigest,
+  managementOperationSupport,
+  managementOperations,
   type ManagementAuthorityBoundary,
   type ManagementAuthorityClaim,
   type ManagementAuthorityCompletion,
   type ManagementAuthorityDecision,
   type ManagementCurrentAuthorityRequest,
+  type ManagementOperationId,
 } from '@adea-ai/types/management'
 
 import {
@@ -15,6 +18,7 @@ import {
 } from '../src/server/lead-management-route'
 import type { ManagementCaller, ManagementOutcome } from '../src/server/management-gateway'
 import type { ManagementOperations } from '../src/server/management-operations'
+import { leadManagementToolBinding } from '../src/server/lead-management-tools'
 import {
   MANAGEMENT_NOW,
   MANAGEMENT_PROJECT,
@@ -580,5 +584,140 @@ describe('lead management call parsing (#1215)', () => {
       { ...promoteCall, targetId: null },
     ])
       expect(parseLeadManagementCall(body, AUTHORITY)).toBeNull()
+  })
+})
+
+describe('advertised lead operation contract (#1215)', () => {
+  const USER_TARGET = '0f3a2e1c-0000-4000-8000-0000000000cc'
+  // Bounded table: one valid call per advertised lead-supported operation.
+  const contract: ReadonlyArray<{
+    operation: ManagementOperationId
+    input: Record<string, unknown>
+    targetId: string | null
+    method: string
+  }> = [
+    {
+      input: { expectedVersion: 3, name: 'Renamed' },
+      method: 'workspaceUpdate',
+      operation: 'config.workspace.update',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: {},
+      method: 'workspaceReopen',
+      operation: 'config.workspace.reopen',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: { iconKey: 'box', name: 'Created' },
+      method: 'projectCreate',
+      operation: 'project.create',
+      targetId: null,
+    },
+    {
+      input: { name: 'Renamed' },
+      method: 'projectUpdate',
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: {},
+      method: 'projectArchive',
+      operation: 'project.archive',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { confirmed: true, expectedVersion: 3 },
+      method: 'projectPromote',
+      operation: 'project.promote',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: {},
+      method: 'projectDelete',
+      operation: 'project.delete',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { projectIds: [MANAGEMENT_PROJECT] },
+      method: 'projectReorder',
+      operation: 'project.reorder',
+      targetId: null,
+    },
+    {
+      input: { visibility: 'workspace' },
+      method: 'projectVisibilitySet',
+      operation: 'project.visibility.set',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { projectId: MANAGEMENT_PROJECT, role: 'editor' },
+      method: 'projectMemberSet',
+      operation: 'project.member.set',
+      targetId: USER_TARGET,
+    },
+    {
+      input: { projectId: MANAGEMENT_PROJECT },
+      method: 'projectMemberRemove',
+      operation: 'project.member.remove',
+      targetId: USER_TARGET,
+    },
+  ]
+
+  test('covers exactly the advertised lead-supported inventory', () => {
+    const advertised = Object.keys(managementOperations).filter(
+      (id) => managementOperationSupport(id as ManagementOperationId, 'lead').state === 'supported'
+    )
+    expect(new Set(contract.map((entry) => entry.operation))).toEqual(new Set(advertised))
+  })
+
+  test('every advertised operation parses, binds and reaches its executor', async () => {
+    for (const entry of contract) {
+      const body = {
+        canonicalRequest: CANONICAL_REQUEST,
+        input: entry.input,
+        operation: entry.operation,
+        schemaVersion: 'adea-management-call/v1',
+        targetId: entry.targetId,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      }
+      const parsed = parseLeadManagementCall(body, AUTHORITY)
+      expect(parsed, entry.operation).not.toBeNull()
+      const binding = await leadManagementToolBinding(parsed!)
+      expect(binding, entry.operation).not.toBeNull()
+      const decision = await managementAuthorityDecision({
+        input: entry.input,
+        operation: entry.operation,
+        principal: ACTOR,
+        targetId: entry.targetId,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      })
+      const run = harness({ decision })
+      const response = await createLeadManagementHandler(run.dependencies)(callRequest(body))
+      expect(response.status, entry.operation).toBe(200)
+      expect(run.calls, entry.operation).toEqual([
+        { binding: decision.binding, method: entry.method },
+      ])
+    }
+  })
+
+  test('promotion rejects malformed confirmations and versions before any hop', () => {
+    const malformed = [
+      { expectedVersion: 3 },
+      { confirmed: false, expectedVersion: 3 },
+      { confirmed: 'true', expectedVersion: 3 },
+      { confirmed: true },
+      { confirmed: true, expectedVersion: 0 },
+      { confirmed: true, expectedVersion: -1 },
+      { confirmed: true, expectedVersion: 1.5 },
+      { confirmed: true, expectedVersion: '3' },
+      { confirmed: true, expectedVersion: 3, extra: true },
+    ]
+    for (const input of malformed)
+      expect(parseLeadManagementCall({ ...promoteCall, input }, AUTHORITY)).toBeNull()
+    expect(
+      parseLeadManagementCall({ ...promoteCall, targetId: 'not-a-uuid' }, AUTHORITY)
+    ).toBeNull()
+    expect(parseLeadManagementCall({ ...promoteCall, targetId: null }, AUTHORITY)).toBeNull()
   })
 })
