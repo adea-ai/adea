@@ -7,21 +7,34 @@
 //
 //   - presence probes search the git tree at main and at exact candidate heads.
 //     They count identifiers; they do not prove behavior.
-//   - bundle results come from the client bundle report that
+//   - bundle results come from the check-client report that
 //     `bun run --cwd apps/web start:check-bundle` prints, compared with the
 //     ceilings in scripts/client-bundle-budgets.mjs.
-//   - axe results summarize the artifact written by
-//     scripts/audit-a11y-dev-view.mjs.
-//   - unit results run the named test files (only with --run-unit).
-//   - recorded results come from a JSON file of runs made by hand (for example,
-//     the Playwright E2E run), each with its command and exit code.
-//   - unavailable, not-measured and not-claimed criteria stay that way. No
-//     status is derived for them, and none is inferred from another criterion.
+//   - axe results come from the artifact written by scripts/audit-a11y-dev-view.mjs,
+//     checked against that lane's contract before they count.
+//   - unit results run the named test files (only with --run-unit, and only from a
+//     clean tracked tree, so the run names one HEAD).
+//   - recorded results come from a JSON file keyed by criterion id, for runs made
+//     by hand (for example, the Playwright E2E run).
+//   - unavailable, not-measured and not-claimed criteria stay that way. No status
+//     is derived for them, and none is inferred from another criterion.
+//
+// Every evidence input names the exact revision it ran at (a full commit SHA), the
+// command that produced it and its exit code. A verdict (pass, fail, partial or
+// invalid) counts only when its revision is --main. Evidence from any other
+// revision keeps what it observed under `observed` and is reported as not-run, so
+// it cannot stand in for main. Malformed or missing inputs are refused or reported
+// as invalid or not-run. Nothing passes by default.
+//
+// Input shapes:
+//   --bundle    { "revision", "command", "exitCode", "report" }    report: check-client JSON
+//   --axe       { "revision", "command", "exitCode", "artifact" }  artifact: audit JSON
+//   --recorded  { "<criterion id>": { "revision", "command", "exitCode", "status", ... } }
 //
 // Usage:
 //   node scripts/readiness-evidence.mjs check
 //   node scripts/readiness-evidence.mjs measure --main <rev> [--candidate <pr>=<rev>]...
-//     [--bundle <report.json>] [--axe <artifact.json>] [--recorded <runs.json>]
+//     [--bundle <bundle.json>] [--axe <axe.json>] [--recorded <runs.json>]
 //     [--run-unit] [--out <file>]
 
 import { spawnSync } from 'node:child_process'
@@ -54,7 +67,33 @@ const METHOD_KINDS = [
   'not-claimed',
 ]
 const NEEDS_REASON = ['not-measured', 'unavailable', 'not-claimed']
+const RECORDABLE_KINDS = ['axe', 'e2e', 'recorded-run', 'presence']
 const TEST_FILE = /(\.test\.[cm]?[jt]sx?$)|(^|\/)(tests?|e2e)\//
+const IDENTITY_FIELDS = ['id', 'category', 'kind']
+const PROVENANCE_FIELDS = ['revision', 'atMain', 'command', 'exitCode']
+const RECORDED_STATUSES = ['pass', 'fail', 'partial', 'blocked', 'measured']
+// Statuses that claim a verdict about a revision. Only evidence at --main may make one.
+const VERDICTS = ['pass', 'fail', 'partial', 'invalid']
+const REVISION = /^[0-9a-f]{40}$/
+const AXE_LANE = 'audit-a11y-dev-view'
+const AXE_ISSUE = '#426/#541'
+/** The axe tags scripts/audit-a11y-dev-view.mjs passes to axe. A test keeps the two in step. */
+export const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+const AXE_IMPACTS = ['critical', 'serious', 'moderate', 'minor']
+/** Surfaces every audit run scans. `settings/<tab>` adds one per rendered Settings tab. */
+const AXE_FIXED_SURFACES = ['chat', 'dev-view-terminal', 'dev-view-narrow-320']
+const AXE_SETTINGS_SURFACE = /^settings\/[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
+/** A count is a finite, nonnegative integer. Strings, NaN, fractions and negatives are not counts. */
+const isCount = (value) => Number.isSafeInteger(value) && value >= 0
+const isTimestamp = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value))
+const sameList = (actual, expected) =>
+  Array.isArray(actual) &&
+  actual.length === expected.length &&
+  expected.every((item, index) => actual[index] === item)
+const omit = (fields, names) =>
+  Object.fromEntries(Object.entries(fields).filter(([key]) => !names.includes(key)))
 
 /** Structural checks on the inventory. Returns an array of error strings. */
 export function inventoryErrors(
@@ -132,21 +171,26 @@ export function bundleBudget(key) {
   return undefined
 }
 
-/** Compare a client bundle report with the ceilings. `report` is check-client's JSON output. */
+/**
+ * Compare a client bundle report with the ceilings. `report` is check-client's JSON.
+ * A metric the report does not carry is `not-run`. A metric that is not a finite
+ * nonnegative integer is `invalid`. Neither ever passes.
+ */
 export function evaluateBundle(report, keys) {
   return keys.map((key) => {
     const budget = bundleBudget(key)
+    if (!budget) return { key, status: 'invalid', reason: 'no ceiling for this key' }
     const measured =
       key === 'total'
         ? {
-            rawBytes: report.clientJavaScriptBytes,
-            gzipBytes: report.clientJavaScriptGzipBytes,
-            fileCount: report.clientJavaScriptFiles,
+            rawBytes: report?.clientJavaScriptBytes,
+            gzipBytes: report?.clientJavaScriptGzipBytes,
+            fileCount: report?.clientJavaScriptFiles,
           }
         : key === 'startup'
-          ? report.startup
-          : report.views?.[key.slice('views.'.length)]
-    if (!measured || !budget)
+          ? report?.startup
+          : report?.views?.[key.slice('views.'.length)]
+    if (!isObject(measured))
       return { key, status: 'not-run', reason: 'key missing from the bundle report' }
     const checks = {
       rawBytes: { measured: measured.rawBytes, limit: budget.rawBytes },
@@ -154,32 +198,134 @@ export function evaluateBundle(report, keys) {
     }
     if (budget.fileCount !== undefined)
       checks.fileCount = { measured: measured.fileCount, limit: budget.fileCount }
-    const failing = Object.entries(checks)
-      .filter(([, { measured: value, limit }]) => value > limit)
-      .map(([name]) => name)
+    const names = Object.keys(checks)
+    const missing = names.filter((name) => checks[name].measured === undefined)
+    if (missing.length)
+      return { key, status: 'not-run', reason: 'metric missing from the bundle report', missing }
+    const invalid = names.filter((name) => !isCount(checks[name].measured))
+    if (invalid.length)
+      return {
+        key,
+        status: 'invalid',
+        reason: 'metrics must be finite nonnegative integers',
+        invalid,
+      }
+    const failing = names.filter((name) => checks[name].measured > checks[name].limit)
     const headroom = Object.fromEntries(
-      Object.entries(checks).map(([name, { measured: value, limit }]) => [name, limit - value])
+      names.map((name) => [name, checks[name].limit - checks[name].measured])
     )
     return { key, status: failing.length ? 'fail' : 'pass', checks, headroom, failing }
   })
 }
 
-/** Summarize the axe artifact written by scripts/audit-a11y-dev-view.mjs. */
-export function summarizeAxe(artifact) {
-  const surfaces = Array.isArray(artifact?.surfaces) ? artifact.surfaces : []
+/** Overall status of bundle keys: invalid beats not-run, which beats fail, which beats pass. */
+export function bundleStatus(keys) {
+  const statuses = keys.map((entry) => entry.status)
+  if (statuses.includes('invalid')) return 'invalid'
+  if (statuses.includes('not-run')) return 'not-run'
+  return statuses.includes('fail') ? 'fail' : 'pass'
+}
+
+/**
+ * Check the artifact written by scripts/audit-a11y-dev-view.mjs against that lane's
+ * contract, then summarize it. `exitCode` is the audit's exit code. A surface the
+ * audit did not scan, a failed or empty scope, counts that disagree with the recorded
+ * violations, or an exit code the lane does not produce makes the artifact `invalid`.
+ * Only a complete strict scan can pass or fail.
+ */
+export function summarizeAxe(artifact, { exitCode } = {}) {
+  if (!isObject(artifact)) return { status: 'invalid', problems: ['artifact is not an object'] }
+  const problems = []
+  if (artifact.schemaVersion !== 1) problems.push('schemaVersion must be 1')
+  if (artifact.lane !== AXE_LANE) problems.push(`lane must be ${AXE_LANE}`)
+  if (artifact.issue !== AXE_ISSUE) problems.push(`issue must be ${AXE_ISSUE}`)
+  if (typeof artifact.standard !== 'string' || !artifact.standard.includes('WCAG 2.2 AA'))
+    problems.push('standard must name WCAG 2.2 AA')
+  if (!sameList(artifact.tags, AXE_TAGS)) problems.push('tags must be the WCAG 2.2 AA axe tag set')
+  if (artifact.strict !== true) problems.push('the audit must run with --strict')
+  if (typeof artifact.axeVersion !== 'string' || artifact.axeVersion === '')
+    problems.push('axeVersion is required')
+  if (typeof artifact.baseUrl !== 'string' || artifact.baseUrl === '')
+    problems.push('baseUrl is required')
+  if (!isTimestamp(artifact.startedAt) || !isTimestamp(artifact.completedAt))
+    problems.push('startedAt and completedAt must be timestamps')
+  if (!Array.isArray(artifact.violationClasses)) problems.push('violationClasses is required')
+
   const totals = { critical: 0, serious: 0, moderate: 0, minor: 0 }
-  for (const surface of surfaces)
-    for (const impact of Object.keys(totals)) totals[impact] += surface.counts?.[impact] ?? 0
-  const status =
-    surfaces.length === 0 ? 'not-run' : totals.critical + totals.serious === 0 ? 'pass' : 'fail'
+  const labels = new Set()
+  const surfaces = Array.isArray(artifact.surfaces) ? artifact.surfaces : []
+  if (surfaces.length === 0) problems.push('no surface was scanned')
+  for (const [index, surface] of surfaces.entries()) {
+    if (!isObject(surface)) {
+      problems.push(`surfaces[${index}] is not an object`)
+      continue
+    }
+    const label = surface.surface
+    if (typeof label !== 'string' || label === '') {
+      problems.push(`surfaces[${index}] has no surface label`)
+      continue
+    }
+    if (surface.error !== undefined) problems.push(`${label} failed: ${String(surface.error)}`)
+    if (labels.has(label)) problems.push(`${label} is listed twice`)
+    labels.add(label)
+    if (!AXE_FIXED_SURFACES.includes(label) && !AXE_SETTINGS_SURFACE.test(label))
+      problems.push(`${label} is not an audited surface`)
+    if (typeof surface.url !== 'string' || surface.url === '') problems.push(`${label} has no url`)
+    const violations = Array.isArray(surface.violations) ? surface.violations : null
+    if (!violations) problems.push(`${label} has no violations list`)
+    const recounted = { critical: 0, serious: 0, moderate: 0, minor: 0 }
+    for (const violation of violations ?? []) {
+      const knownImpact = violation?.impact === null || AXE_IMPACTS.includes(violation?.impact)
+      if (
+        !isObject(violation) ||
+        typeof violation.id !== 'string' ||
+        !isCount(violation.nodeCount) ||
+        !knownImpact
+      ) {
+        problems.push(`${label} has a malformed violation`)
+        continue
+      }
+      if (violation.impact !== null) recounted[violation.impact] += violation.nodeCount
+    }
+    const counts = isObject(surface.counts) ? surface.counts : {}
+    for (const impact of AXE_IMPACTS) {
+      if (!isCount(counts[impact])) {
+        problems.push(`${label} counts.${impact} must be a count`)
+        continue
+      }
+      totals[impact] += counts[impact]
+      if (violations && counts[impact] !== recounted[impact])
+        problems.push(`${label} counts.${impact} disagrees with its violations`)
+    }
+  }
+  for (const label of AXE_FIXED_SURFACES)
+    if (!labels.has(label)) problems.push(`${label} was not scanned`)
+  if (![...labels].some((label) => AXE_SETTINGS_SURFACE.test(label)))
+    problems.push('no Settings tab was scanned')
+
+  const blocking = totals.critical + totals.serious
+  if (
+    !isObject(artifact.totals) ||
+    AXE_IMPACTS.some((impact) => artifact.totals[impact] !== totals[impact])
+  )
+    problems.push('totals disagree with the scanned surfaces')
+  if (artifact.blockingViolations !== blocking)
+    problems.push('blockingViolations disagrees with the scanned surfaces')
+  if (!Number.isInteger(exitCode)) problems.push('exitCode is required')
+  else if (exitCode !== 0 && exitCode !== 2)
+    problems.push(`exit ${exitCode} is a lane failure, not a completed scan`)
+  else if ((exitCode === 2) !== blocking > 0)
+    problems.push(`exit ${exitCode} does not match ${blocking} serious or critical violation(s)`)
+
+  if (problems.length) return { status: 'invalid', problems }
   return {
-    status,
+    status: blocking === 0 ? 'pass' : 'fail',
+    totals,
     surfaces: surfaces.map((surface) => ({
       surface: surface.surface,
-      violationRules: surface.violationCount ?? surface.violations?.length ?? 0,
-      counts: surface.counts ?? {},
+      violationRules: surface.violations.length,
+      counts: surface.counts,
     })),
-    totals,
   }
 }
 
@@ -191,6 +337,13 @@ export function resolveRevision(revision, cwd = ROOT) {
   if (result.status !== 0)
     throw new Error(`revision ${revision} is not in the local object store; fetch it first`)
   return result.stdout.trim()
+}
+
+/** Evidence names one exact revision: a full commit SHA that exists in the local object store. */
+export function exactRevision(value, cwd = ROOT, label = 'revision') {
+  if (typeof value !== 'string' || !REVISION.test(value))
+    throw new Error(`${label} must be a full 40-character commit SHA, got ${JSON.stringify(value)}`)
+  return resolveRevision(value, cwd)
 }
 
 /** Files at a revision matching a probe. Returns repo paths, sorted. */
@@ -223,19 +376,24 @@ export function probeFiles(revision, probe, cwd = ROOT) {
   return [...new Set(files)].toSorted()
 }
 
-/** Run the named unit test files in the working tree. */
-export function runUnit(files) {
+/** A finished unit run passes only with tests reported and none failing. Exit 0 with no tests is invalid. */
+export function unitVerdict({ exitCode, pass, fail }) {
+  if (exitCode !== 0 || fail > 0) return 'fail'
+  return pass > 0 ? 'pass' : 'invalid'
+}
+
+/** Run the named unit test files under `cwd` and report the command and its exit code. */
+export function runUnit(files, cwd = ROOT) {
   const started = Date.now()
-  const run = spawnSync('bun', ['test', ...files], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
+  const argv = ['test', ...files]
+  const run = spawnSync('bun', argv, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  if (run.error) throw run.error
+  if (run.status === null) throw new Error(`bun test ended by signal ${run.signal}`)
+  const output = `${run.stdout}${run.stderr}`
   const count = (label) =>
     Number(output.match(new RegExp(`^\\s*(\\d+) ${label}\\b`, 'm'))?.[1] ?? 0)
   return {
-    status: run.status === 0 ? 'pass' : 'fail',
+    command: ['bun', ...argv].join(' '),
     exitCode: run.status,
     pass: count('pass'),
     fail: count('fail'),
@@ -243,31 +401,126 @@ export function runUnit(files) {
   }
 }
 
+function gitOutput(cwd, args) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
+/**
+ * The HEAD a working-tree run is about. Uncommitted tracked changes mean the run names
+ * no single revision, so it is refused.
+ */
+export function headRevision(cwd = ROOT) {
+  if (gitOutput(cwd, ['status', '--porcelain', '--untracked-files=no']) !== '')
+    throw new Error(
+      '--run-unit needs a clean tracked tree so the run names one revision; commit the changes first'
+    )
+  return gitOutput(cwd, ['rev-parse', 'HEAD'])
+}
+
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
 /**
- * Build the measurement record. `options` carries the revisions and any
- * artifacts the caller already produced. Missing artifacts stay `not-run`.
+ * Build the measurement record. `options` names the revisions and carries the evidence
+ * the caller produced. Missing evidence stays `not-run`. Malformed evidence throws.
  */
 export function buildMeasurements(inventory, options) {
   const {
+    cwd = ROOT,
     mainRevision,
     candidates = {},
-    bundleReport,
-    axeArtifact,
+    bundle,
+    axe,
     recorded = {},
     unitRuns = {},
   } = options
-  const revisions = { main: resolveRevision(mainRevision) }
-  for (const [pr, rev] of Object.entries(candidates)) revisions[`pr-${pr}`] = resolveRevision(rev)
+  const main = resolveRevision(mainRevision, cwd)
+  const revisions = { main }
+  for (const [pr, rev] of Object.entries(candidates))
+    revisions[`pr-${pr}`] = resolveRevision(rev, cwd)
+  const seen = new Set(Object.values(revisions))
+
+  const criteria = new Map(inventory.criteria.map((criterion) => [criterion.id, criterion]))
+  for (const id of Object.keys(recorded)) {
+    const criterion = criteria.get(id)
+    if (!criterion) throw new Error(`recorded run for unknown criterion ${id}`)
+    if (!RECORDABLE_KINDS.includes(criterion.method.kind))
+      throw new Error(`${id} (${criterion.method.kind}) does not accept recorded runs`)
+  }
+  for (const id of Object.keys(unitRuns))
+    if (criteria.get(id)?.method.kind !== 'unit')
+      throw new Error(`unit run for ${id}, which is not a unit criterion`)
+
+  // Evidence names its exact revision, command and exit code, or it is refused.
+  const provenance = (evidence, label) => {
+    if (!isObject(evidence)) throw new Error(`${label} must be an object`)
+    const revision = exactRevision(evidence.revision, cwd, `${label} revision`)
+    if (typeof evidence.command !== 'string' || evidence.command.trim() === '')
+      throw new Error(`${label} needs the command that produced it`)
+    if (!Number.isInteger(evidence.exitCode)) throw new Error(`${label} needs an integer exitCode`)
+    seen.add(revision)
+    return {
+      revision,
+      atMain: revision === main,
+      command: evidence.command,
+      exitCode: evidence.exitCode,
+    }
+  }
+  // A verdict counts only for --main. Other evidence keeps what it observed, reported as not-run.
+  const settle = (source, verdict) => {
+    if (source.atMain || !VERDICTS.includes(verdict.status)) return { ...source, ...verdict }
+    return {
+      ...source,
+      status: 'not-run',
+      reason: `measured at ${source.revision}, not at --main ${main}`,
+      observed: verdict,
+    }
+  }
+  // A recorded run keeps its own identity fields out of the result. A conflicting identity is refused.
+  const recordedRun = (criterion, entry) => {
+    if (!isObject(entry)) throw new Error(`${criterion.id}: a recorded run must be an object`)
+    const identity = { id: criterion.id, category: criterion.category, kind: criterion.method.kind }
+    for (const field of IDENTITY_FIELDS)
+      if (entry[field] !== undefined && entry[field] !== identity[field])
+        throw new Error(
+          `${criterion.id}: recorded ${field} ${JSON.stringify(entry[field])} does not match ${JSON.stringify(identity[field])}`
+        )
+    if (!RECORDED_STATUSES.includes(entry.status))
+      throw new Error(
+        `${criterion.id}: recorded status must be one of ${RECORDED_STATUSES.join(', ')}`
+      )
+    if (entry.status === 'blocked' && !(typeof entry.reason === 'string' && entry.reason.trim()))
+      throw new Error(`${criterion.id}: a blocked run needs a reason`)
+    const source = provenance(entry, `${criterion.id} recorded run`)
+    const succeeded = ['pass', 'partial', 'measured'].includes(entry.status)
+    if (succeeded !== (source.exitCode === 0))
+      throw new Error(
+        `${criterion.id}: a ${entry.status} run needs exit ${succeeded ? 0 : 'non-zero'}, got ${source.exitCode}`
+      )
+    return { source, verdict: omit(entry, [...IDENTITY_FIELDS, ...PROVENANCE_FIELDS]) }
+  }
+  const recordedContext = (criterion) => {
+    if (!recorded[criterion.id]) return {}
+    const { source, verdict } = recordedRun(criterion, recorded[criterion.id])
+    return { recorded: { ...source, ...verdict } }
+  }
+
+  const bundleSource = bundle === undefined ? undefined : provenance(bundle, 'bundle')
+  if (bundleSource && !/check-(client|bundle)/.test(bundleSource.command))
+    throw new Error('bundle must come from the check-client run')
+  if (bundle && !isObject(bundle.report)) throw new Error('bundle needs the check-client report')
+  const axeSource = axe === undefined ? undefined : provenance(axe, 'axe')
+  if (axeSource && !axeSource.command.includes('audit-a11y-dev-view'))
+    throw new Error('axe must come from the audit-a11y-dev-view run')
+
   const probeCache = new Map()
   const presence = (probeName, revisionKey) => {
     const cacheKey = `${probeName}@${revisionKey}`
     if (!probeCache.has(cacheKey)) {
-      const probe = inventory.probes[probeName]
-      const files = probeFiles(revisions[revisionKey], probe)
+      const files = probeFiles(revisions[revisionKey], inventory.probes[probeName], cwd)
       probeCache.set(cacheKey, {
         probe: probeName,
         revision: revisions[revisionKey],
@@ -277,9 +530,15 @@ export function buildMeasurements(inventory, options) {
     }
     return probeCache.get(cacheKey)
   }
+
   const results = inventory.criteria.map((criterion) => {
     const method = criterion.method
-    const base = { id: criterion.id, category: criterion.category, kind: method.kind }
+    const record = (fields) => ({
+      id: criterion.id,
+      category: criterion.category,
+      kind: method.kind,
+      ...omit(fields, IDENTITY_FIELDS),
+    })
     switch (method.kind) {
       case 'presence': {
         const onMain = method.probes.map((name) => presence(name, 'main'))
@@ -287,44 +546,60 @@ export function buildMeasurements(inventory, options) {
           pr: Number(pr),
           probes: method.probes.map((name) => presence(name, `pr-${pr}`)),
         }))
-        return {
-          ...base,
+        return record({
           status: onMain.some((entry) => entry.count > 0) ? 'present' : 'absent',
+          revision: main,
+          atMain: true,
           main: onMain,
           candidates: onCandidates,
-          ...(recorded[criterion.id] ? { recorded: recorded[criterion.id] } : {}),
-        }
+          ...recordedContext(criterion),
+        })
       }
       case 'bundle': {
-        if (!bundleReport)
-          return { ...base, status: 'not-run', reason: 'no bundle report supplied' }
-        const keys = evaluateBundle(bundleReport, method.keys)
-        const status = keys.every((entry) => entry.status === 'pass') ? 'pass' : 'fail'
-        return { ...base, status, keys }
+        if (!bundleSource) return record({ status: 'not-run', reason: 'no bundle report supplied' })
+        const keys = evaluateBundle(bundle.report, method.keys)
+        return record(settle(bundleSource, { status: bundleStatus(keys), keys }))
       }
       case 'axe': {
-        if (axeArtifact) return { ...base, ...summarizeAxe(axeArtifact) }
-        if (recorded[criterion.id]) return { ...base, ...recorded[criterion.id] }
-        return { ...base, status: 'not-run', reason: 'no axe artifact or recorded run supplied' }
+        if (axeSource) {
+          const verdict = summarizeAxe(axe.artifact, { exitCode: axe.exitCode })
+          return record({ ...settle(axeSource, verdict), ...recordedContext(criterion) })
+        }
+        if (recorded[criterion.id]) {
+          const { source, verdict } = recordedRun(criterion, recorded[criterion.id])
+          return record(settle(source, verdict))
+        }
+        return record({ status: 'not-run', reason: 'no axe artifact or recorded run supplied' })
       }
       case 'unit': {
         const run = unitRuns[criterion.id]
-        if (!run) return { ...base, status: 'not-run', reason: 'run with --run-unit' }
+        if (!run) return record({ status: 'not-run', reason: 'run with --run-unit' })
+        const source = provenance(run, `${criterion.id} unit run`)
+        if (!isCount(run.pass) || !isCount(run.fail))
+          throw new Error(`${criterion.id}: a unit run needs pass and fail counts`)
+        if (!method.files.every((file) => source.command.includes(file)))
+          throw new Error(
+            `${criterion.id}: the unit run's command does not name every criterion file`
+          )
+        const status = unitVerdict({ exitCode: run.exitCode, pass: run.pass, fail: run.fail })
         // A passing run that covers only part of the criterion is partial, not pass.
-        if (method.limit && run.status === 'pass')
-          return { ...base, ...run, status: 'partial', scopeLimit: method.limit }
-        return { ...base, ...run }
+        const scoped = method.limit && status === 'pass'
+        const verdict = scoped ? { status: 'partial', scopeLimit: method.limit } : { status }
+        return record(
+          settle(source, { ...verdict, pass: run.pass, fail: run.fail, seconds: run.seconds })
+        )
       }
       case 'e2e':
       case 'recorded-run': {
-        const record = recorded[criterion.id]
-        if (!record) return { ...base, status: 'not-run', reason: 'no recorded run supplied' }
-        return { ...base, ...record }
+        if (!recorded[criterion.id])
+          return record({ status: 'not-run', reason: 'no recorded run supplied' })
+        const { source, verdict } = recordedRun(criterion, recorded[criterion.id])
+        return record(settle(source, verdict))
       }
       case 'not-measured':
       case 'unavailable':
       case 'not-claimed':
-        return { ...base, status: method.kind, reason: method.reason }
+        return record({ status: method.kind, reason: method.reason })
       default:
         throw new Error(`unhandled method ${method.kind}`)
     }
@@ -334,6 +609,7 @@ export function buildMeasurements(inventory, options) {
     issue: inventory.issue,
     inventorySha256: sha256(INVENTORY_PATH),
     revisions,
+    evidenceRevisions: [...seen].toSorted(),
     probes: Object.keys(inventory.probes),
     results,
   }
@@ -353,7 +629,7 @@ function readJson(path) {
   return JSON.parse(readFileSync(resolve(ROOT, path), 'utf8'))
 }
 
-async function main(argv) {
+async function runCli(argv) {
   const [command] = argv
   const inventory = readJson(INVENTORY_PATH.slice(ROOT.length + 1))
   if (command === 'check') {
@@ -375,6 +651,7 @@ async function main(argv) {
     const candidates = {}
     for (const pair of argValues(argv, '--candidate')) {
       const [pr, rev] = pair.split('=')
+      if (!pr || !rev) throw new Error(`--candidate needs <pr>=<rev>, got ${pair}`)
       candidates[pr] = rev
     }
     const bundlePath = argValue(argv, '--bundle')
@@ -382,16 +659,17 @@ async function main(argv) {
     const recordedPath = argValue(argv, '--recorded')
     const unitRuns = {}
     if (argv.includes('--run-unit')) {
+      const head = headRevision(ROOT)
       for (const criterion of inventory.criteria) {
         if (criterion.method.kind === 'unit')
-          unitRuns[criterion.id] = runUnit(criterion.method.files)
+          unitRuns[criterion.id] = { revision: head, ...runUnit(criterion.method.files) }
       }
     }
     const measurements = buildMeasurements(inventory, {
       mainRevision,
       candidates,
-      bundleReport: bundlePath ? readJson(bundlePath) : undefined,
-      axeArtifact: axePath ? readJson(axePath) : undefined,
+      bundle: bundlePath ? readJson(bundlePath) : undefined,
+      axe: axePath ? readJson(axePath) : undefined,
       recorded: recordedPath ? readJson(recordedPath) : {},
       unitRuns,
     })
@@ -405,5 +683,5 @@ async function main(argv) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main(process.argv.slice(2))
+  await runCli(process.argv.slice(2))
 }
