@@ -64,6 +64,9 @@ const specs = [
   'apps/web/e2e/lead-role-choices.spec.ts',
   // Lead payer journey (#1211): the same module-only fixture class.
   'apps/web/e2e/lead-payer-journey.spec.ts',
+  // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
+  // target and a revisit by the same ID selects it again. No route mocks.
+  'apps/web/e2e/workspace-deeplink-real.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
