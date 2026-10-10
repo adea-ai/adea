@@ -63,8 +63,16 @@ export type LeadRuntimeAdapter = {
       Readonly<{ resultContentDigest: string }>
   ) => Promise<void>
 }
+/**
+ * `read` observes or reconciles an admission, including archived history. `cancel` is the original
+ * actor's cancellation. `effect` admits new work: prepare and dispatch, active-only and fence-gated.
+ */
+export type LeadRuntimeAuthorityPurpose = 'cancel' | 'effect' | 'read'
 export type LeadRuntimeStore = {
-  authorize(scope: LeadRuntimeScope, mutation: boolean): Promise<LeadRuntimeAuthority>
+  authorize(
+    scope: LeadRuntimeScope,
+    purpose: LeadRuntimeAuthorityPurpose
+  ): Promise<LeadRuntimeAuthority>
   read(scope: LeadRuntimeScope): Promise<LeadRuntimeStored | undefined>
   prepare(scope: LeadRuntimeScope, prepared: LeadPreparedSelection): Promise<void>
   pending(scope: LeadRuntimeScope, prepared: LeadPreparedSelection): Promise<void>
@@ -157,7 +165,7 @@ export function createLeadTurnRuntime(
     scope: LeadRuntimeScope,
     reasonCode?: LeadTurnReasonCode
   ): Promise<ApiLeadTurnStatus> {
-    const authority = await store.authorize(scope, false)
+    const authority = await store.authorize(scope, 'read')
     const stored = await store.read(scope)
     return {
       schemaVersion: 'adea-lead-turn/v1',
@@ -213,14 +221,14 @@ export function createLeadTurnRuntime(
   return {
     snapshot: projection,
     async prepare(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
+      const authority = await store.authorize(scope, 'effect')
       if (!adapter?.prepare) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       return guarded(scope, async () => {
         await store.prepare(scope, prepared(await adapter.prepare!(authority), authority, now()))
       })
     },
     async dispatch(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
+      const authority = await store.authorize(scope, 'effect')
       if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       if (!options.authorizeConfirmedStart)
         return projection(scope, 'FUNDING_CONFIRMATION_REQUIRED')
@@ -274,7 +282,7 @@ export function createLeadTurnRuntime(
       })
     },
     async status(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, false)
+      const authority = await store.authorize(scope, 'read')
       let prior = await store.read(scope)
       if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       let withheld = false
@@ -310,7 +318,7 @@ export function createLeadTurnRuntime(
             prior
           )
           // Recheck current audience after the transport await; the repository holds the same pins at commit.
-          await store.authorize(scope, false)
+          await store.authorize(scope, 'read')
           prior = await store.recover(scope, recovered)
         }
         if (!prior?.dispatchId) return
@@ -355,7 +363,7 @@ export function createLeadTurnRuntime(
       return withheld ? projection(scope, 'PUBLICATION_WITHHELD') : result
     },
     async cancel(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
+      const authority = await store.authorize(scope, 'cancel')
       const prior = await store.read(scope)
       if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       if (!prior?.dispatchId) return projection(scope, 'RUNTIME_UNAVAILABLE')
@@ -373,7 +381,7 @@ export function createLeadTurnRuntime(
     ): Promise<ApiLeadTurnProgressResponse> {
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
         throw new Error('Invalid lead progress cursor')
-      const authority = await store.authorize(scope, false)
+      const authority = await store.authorize(scope, 'read')
       const prior = await store.read(scope)
       if (!adapter || !prior?.dispatchId)
         return { leadTurn: await projection(scope), events: [], nextSequence: afterSequence }

@@ -4,7 +4,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
 import { createRuntimeResultMessage } from './conversations'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
-import { withAuthorizedLeadTurn } from './lead-turns'
+import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
 export type LeadTurnAcceptedSelection = Readonly<{
@@ -65,27 +65,47 @@ function assertBinding(row: Row, value: LeadTurnRuntimeBinding) {
   )
     throw new Error('RUNTIME_RESPONSE_INVALID')
 }
+/**
+ * `read` observes or reconciles an existing admission, and archived history stays available.
+ * `cancel` is the original actor's cancellation, with the same archived-history access. `effect`
+ * admits new work, so it stays active-only and fence-gated (prepare, dispatch, funding).
+ */
+export type LeadTurnAuthorityPurpose = 'cancel' | 'effect' | 'read'
+
 export function resolveLeadTurnAuthority(
   database: AgentHqDatabase,
   workspaceId: string,
   intentId: string,
   principal: UserPrincipalRef,
-  mutation = false
+  purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
-  return withAuthorizedLeadTurn(
-    database,
+  const authority = (
+    intent: { id: string; messageId: string; actorUserId: string },
+    controlPlaneWorkspaceId: string
+  ) => ({
+    intentId: intent.id,
+    messageId: intent.messageId,
     workspaceId,
-    intentId,
-    principal,
-    mutation,
-    async (_tx, intent, _message, controlPlaneWorkspaceId) => ({
-      intentId: intent.id,
-      messageId: intent.messageId,
-      workspaceId,
-      controlPlaneWorkspaceId,
-      originalActorRef: `user:${intent.actorUserId}` as const,
-    })
-  )
+    controlPlaneWorkspaceId,
+    originalActorRef: `user:${intent.actorUserId}` as const,
+  })
+  return purpose === 'effect'
+    ? withAuthorizedLeadTurn(
+        database,
+        workspaceId,
+        intentId,
+        principal,
+        true,
+        async (_tx, intent, _message, cpWorkspaceId) => authority(intent, cpWorkspaceId)
+      )
+    : withHistoricalLeadTurn(
+        database,
+        workspaceId,
+        intentId,
+        principal,
+        purpose === 'cancel',
+        async (_tx, intent, _message, cpWorkspaceId) => authority(intent, cpWorkspaceId)
+      )
 }
 export function readLeadTurnRuntime(
   database: AgentHqDatabase,
@@ -93,7 +113,7 @@ export function readLeadTurnRuntime(
   intentId: string,
   principal: UserPrincipalRef
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
@@ -260,7 +280,7 @@ export function observeLeadTurnRuntime(
   observation: LeadTurnRuntimeBinding &
     Readonly<{ state: LeadTurnObservedState; observedAt: string }>
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
@@ -302,7 +322,7 @@ export function recoverLeadTurnRuntimeBinding(
   principal: UserPrincipalRef,
   binding: LeadTurnRuntimeBinding
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
@@ -336,7 +356,7 @@ export function requestLeadTurnCancellation(
   intentId: string,
   principal: UserPrincipalRef
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
@@ -358,7 +378,11 @@ export function requestLeadTurnCancellation(
   )
 }
 
-/** Terminal publication is distinct from execution. Raw progress can never call this boundary. */
+/**
+ * Terminal publication is distinct from execution. Raw progress can never call this boundary.
+ * Publication appends a new Message, so it is an effect: it stays on the active-only effect gate,
+ * and archived results remain unpublished (REQ 045).
+ */
 export function publishLeadTurnResult(
   database: AgentHqDatabase,
   workspaceId: string,

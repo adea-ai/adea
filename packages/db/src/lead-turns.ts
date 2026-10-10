@@ -145,11 +145,9 @@ async function lockAuthority(
   }
 }
 
-function assertPinned(
-  intent: Intent,
-  authority: Awaited<ReturnType<typeof lockAuthority>>,
-  requireOriginalActor = true
-) {
+type LockedAuthority = Awaited<ReturnType<typeof lockAuthority>>
+
+function assertPinned(intent: Intent, authority: LockedAuthority, requireOriginalActor = true) {
   if (requireOriginalActor && intent.actorUserId !== authority.actorUserId)
     throw new Error('Lead turn version conflict')
   for (const key of [
@@ -220,6 +218,144 @@ export async function createLeadTurn(
   })
 }
 
+/** Channel summary used only for historical access decisions. */
+type HistoricalChannel = Readonly<{
+  id: string
+  agentId: string | null
+  version: number
+  lifecycleState: 'active' | 'archived'
+}>
+
+type HistoricalAccess =
+  | Readonly<{ lifecycleState: 'active'; channel: HistoricalChannel; authority: LockedAuthority }>
+  | Readonly<{ lifecycleState: 'archived'; channel: HistoricalChannel }>
+
+/**
+ * Current access to archived history (REQ 045). It requires a live workspace membership and a
+ * current user participant. Actor-only mutations, such as cancellation, also need the same
+ * runtime.invoke permission and audience membership as lockAuthority. It compares no pinned
+ * execution state, because archival bumps the channel version. It grants no new effect.
+ */
+async function lockArchivedAccess(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  requireAudienceMemberships: boolean
+) {
+  const [workspace] = await tx
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
+    .for('share')
+  const [member] = await tx
+    .select({ id: workspaceMemberships.id, role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, principal.userId)
+      )
+    )
+    .for('share')
+  if (!workspace || !member) throw new Error('Lead turn unavailable')
+  if (
+    requireAudienceMemberships &&
+    !(
+      await authorizeWorkspaceAction(
+        { permission: 'runtime.invoke', principal, workspaceId },
+        { findMembership: async () => member }
+      )
+    ).allowed
+  )
+    throw new Error('Lead turn unavailable')
+  const participants = await tx
+    .select({
+      principalKind: channelParticipants.principalKind,
+      userId: channelParticipants.userId,
+    })
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId)
+      )
+    )
+    .for('share')
+  if (!participants.some((p) => p.principalKind === 'user' && p.userId === principal.userId))
+    throw new Error('Lead turn unavailable')
+  if (requireAudienceMemberships) {
+    const audienceUsers = participants.flatMap((p) => (p.userId ? [p.userId] : []))
+    const audienceMemberships = await tx
+      .select({ userId: workspaceMemberships.userId })
+      .from(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, workspaceId),
+          inArray(workspaceMemberships.userId, audienceUsers)
+        )
+      )
+      .for('share')
+    if (audienceMemberships.length !== audienceUsers.length)
+      throw new Error('Lead turn unavailable')
+  }
+}
+
+/**
+ * Canonical historical access for an existing channel. Active channels keep the full pinned
+ * lockAuthority checks unchanged. Archived channels use lockArchivedAccess and are never
+ * admissible for a new effect.
+ */
+async function lockHistoricalChannel(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  requireAudienceMemberships: boolean
+): Promise<HistoricalAccess> {
+  const [channel] = await tx
+    .select({
+      id: channels.id,
+      kind: channels.kind,
+      agentId: channels.agentId,
+      taskId: channels.taskId,
+      version: channels.version,
+      lifecycleState: channels.lifecycleState,
+    })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+  if (!channel || channel.kind !== 'direct_agent' || channel.taskId)
+    throw new Error('Lead turn unavailable')
+  const summary: HistoricalChannel = {
+    id: channel.id,
+    agentId: channel.agentId,
+    version: channel.version,
+    lifecycleState: channel.lifecycleState,
+  }
+  if (channel.lifecycleState === 'active') {
+    const authority = await lockAuthority(
+      tx,
+      workspaceId,
+      channelId,
+      principal,
+      requireAudienceMemberships
+    )
+    return { lifecycleState: 'active', channel: summary, authority }
+  }
+  await lockArchivedAccess(tx, workspaceId, channelId, principal, requireAudienceMemberships)
+  return { lifecycleState: 'archived', channel: summary }
+}
+
+/** Pins an active admission to its live authority, or checks an archived admission's channel identity. */
+function assertHistoricalIntent(intent: Intent, access: HistoricalAccess) {
+  if (access.lifecycleState === 'active') {
+    assertPinned(intent, access.authority, false)
+    return
+  }
+  if (access.channel.agentId !== intent.agentId || access.channel.version < intent.channelVersion)
+    throw new Error('Lead turn unavailable')
+}
+
 /** Inspection is authorized against live authority, never a persisted grant. */
 export async function getLeadTurnForUser(
   database: Database,
@@ -239,7 +375,7 @@ export async function getLeadTurnForUser(
         )
       )
     if (!message) throw new Error('Lead turn unavailable')
-    const authority = await lockAuthority(tx, workspaceId, message.channelId, principal, false)
+    const access = await lockHistoricalChannel(tx, workspaceId, message.channelId, principal, false)
     const [liveMessage] = await tx
       .select({ id: messages.id })
       .from(messages)
@@ -253,7 +389,7 @@ export async function getLeadTurnForUser(
         and(eq(leadTurnIntents.messageId, messageId), eq(leadTurnIntents.workspaceId, workspaceId))
       )
     if (!intent) return null
-    assertPinned(intent, authority, false)
+    assertHistoricalIntent(intent, access)
     return receipt(intent)
   })
 }
@@ -302,96 +438,31 @@ export async function withAuthorizedLeadTurn<T>(
   })
 }
 
-/**
- * Read-only authority for retained lead-turn history (REQ 045). Archived channels stay observable
- * to current workspace members who are still channel participants. The live membership, participant
- * and channel rows are checked on every read. Pinned execution authority is not compared, because
- * archival bumps the channel version. This path grants no effect: prepare, dispatch, funding and
- * new turns keep lockAuthority's active-only gate.
- */
-async function lockReadAuthority(
-  tx: AgentHqTransaction,
-  workspaceId: string,
-  intent: Intent,
-  principal: UserPrincipalRef
-) {
-  const [workspace] = await tx
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
-    .for('share')
-  const [member] = await tx
-    .select({ id: workspaceMemberships.id })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .for('share')
-  if (!workspace || !member) throw new Error('Lead turn unavailable')
-  const [channel] = await tx
-    .select({
-      id: channels.id,
-      kind: channels.kind,
-      agentId: channels.agentId,
-      taskId: channels.taskId,
-      version: channels.version,
-      lifecycleState: channels.lifecycleState,
-    })
-    .from(channels)
-    .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
-    .for('share')
-  if (
-    !channel ||
-    channel.kind !== 'direct_agent' ||
-    channel.agentId !== intent.agentId ||
-    channel.taskId ||
-    channel.version < intent.channelVersion
-  )
-    throw new Error('Lead turn unavailable')
-  const [participant] = await tx
-    .select({ id: channelParticipants.id })
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.workspaceId, workspaceId),
-        eq(channelParticipants.channelId, channel.id),
-        eq(channelParticipants.principalKind, 'user'),
-        eq(channelParticipants.userId, principal.userId)
-      )
-    )
-    .for('share')
-  if (!participant) throw new Error('Lead turn unavailable')
-  return {
-    membershipId: member.id,
-    channel: {
-      id: channel.id,
-      version: channel.version,
-      lifecycleState: channel.lifecycleState,
-    },
-  }
-}
-
-export type ReadLeadTurnChannel = Readonly<{
+export type HistoricalLeadTurnChannel = Readonly<{
   id: string
   version: number
   lifecycleState: 'active' | 'archived'
 }>
 
-/** Trusted read boundary for retained history. Authorized archived admissions stay observable; no effect is granted. */
-export async function withReadAuthorizedLeadTurn<T>(
+/**
+ * Canonical boundary for an existing admission that is observed, reconciled or cancelled. It
+ * never admits a new effect. With `mutation` false, any current participant may read, observe or
+ * recover binding. With `mutation` true, only the original actor may cancel, and only with the
+ * same permission and audience checks as active mutations. Archived channels stay observable and
+ * reconcilable; their new effects remain denied by withAuthorizedLeadTurn.
+ */
+export async function withHistoricalLeadTurn<T>(
   database: Database,
   workspaceId: string,
   intentId: string,
   principal: UserPrincipalRef,
+  mutation: boolean,
   operation: (
     tx: AgentHqTransaction,
     intent: Intent,
     message: typeof messages.$inferSelect,
     controlPlaneWorkspaceId: string,
-    channel: ReadLeadTurnChannel
+    channel: HistoricalLeadTurnChannel
   ) => Promise<T>
 ) {
   return database.transaction(async (tx) => {
@@ -399,8 +470,16 @@ export async function withReadAuthorizedLeadTurn<T>(
       .select()
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
-    if (!intent) throw new Error('Lead turn unavailable')
-    const { channel } = await lockReadAuthority(tx, workspaceId, intent, principal)
+    if (!intent || (mutation && intent.actorUserId !== principal.userId))
+      throw new Error('Lead turn unavailable')
+    const access = await lockHistoricalChannel(
+      tx,
+      workspaceId,
+      intent.channelId,
+      principal,
+      mutation
+    )
+    assertHistoricalIntent(intent, access)
     const [message] = await tx
       .select()
       .from(messages)
@@ -418,7 +497,11 @@ export async function withReadAuthorizedLeadTurn<T>(
       .where(eq(workspaces.id, workspaceId))
     if (!message || message.senderUserId !== intent.actorUserId || !workspace)
       throw new Error('Lead turn unavailable')
-    return operation(tx, intent, message, workspace.id, channel)
+    return operation(tx, intent, message, workspace.id, {
+      id: access.channel.id,
+      version: access.channel.version,
+      lifecycleState: access.channel.lifecycleState,
+    })
   })
 }
 
@@ -430,7 +513,7 @@ export async function getLatestLeadTurnForChannel(
   principal: UserPrincipalRef
 ) {
   return database.transaction(async (tx) => {
-    await lockAuthority(tx, workspaceId, channelId, principal, false)
+    await lockHistoricalChannel(tx, workspaceId, channelId, principal, false)
     const [latest] = await tx
       .select({ id: leadTurnIntents.id })
       .from(leadTurnIntents)
@@ -445,7 +528,7 @@ export async function getLatestLeadTurnForChannel(
       .orderBy(sql`${messages.sequence} desc`)
       .limit(1)
     if (!latest) return null
-    return withAuthorizedLeadTurn(
+    return withHistoricalLeadTurn(
       tx,
       workspaceId,
       latest.id,

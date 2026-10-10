@@ -1,7 +1,7 @@
 import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { withReadAuthorizedLeadTurn } from './lead-turns'
+import { withHistoricalLeadTurn } from './lead-turns'
 import { channels } from './schema/conversations'
 import { leadTurnIntents } from './schema/lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -175,7 +175,7 @@ export function parseLeadTurnRollbackAuthority(value: unknown): LeadTurnRollback
   return record as unknown as LeadTurnRollbackFenceAuthority
 }
 
-type FenceRow = Readonly<{
+export type LeadTurnFenceRow = Readonly<{
   rollbackFencedAt: Date | null
   rollbackFenceActorKind: string | null
   rollbackFenceActorRef: string | null
@@ -183,7 +183,7 @@ type FenceRow = Readonly<{
   rollbackFenceAuthority: unknown
 }>
 
-function attributionOf(row: FenceRow): LeadTurnRollbackAttribution | undefined {
+function attributionOf(row: LeadTurnFenceRow): LeadTurnRollbackAttribution | undefined {
   if (!row.rollbackFencedAt) return undefined
   const { rollbackFenceActorKind: kind, rollbackFenceActorRef: ref } = row
   const reason = row.rollbackFenceReason
@@ -198,6 +198,26 @@ function attributionOf(row: FenceRow): LeadTurnRollbackAttribution | undefined {
     actor: kind === 'user' ? { kind, userId: ref } : { kind, operatorId: ref },
     reason: reason as LeadTurnRollbackFenceReason,
     authority: parseLeadTurnRollbackAuthority(row.rollbackFenceAuthority),
+  }
+}
+
+/**
+ * Fence facts emitted by the signed product reader to CP. Null when the admission is not fenced.
+ * Retained authority (membership and channel detail) stays inside Adea and is not emitted.
+ */
+export type LeadTurnRollbackFenceEmission = Readonly<{
+  fencedAt: string
+  reason: LeadTurnRollbackFenceReason
+  actor: Readonly<{ kind: 'user'; userId: string } | { kind: 'operator'; operatorId: string }>
+}>
+
+export function rollbackFenceEmission(row: LeadTurnFenceRow): LeadTurnRollbackFenceEmission | null {
+  const attribution = attributionOf(row)
+  if (!attribution) return null
+  return {
+    fencedAt: attribution.fencedAt,
+    reason: attribution.reason,
+    actor: attribution.actor,
   }
 }
 
@@ -339,9 +359,10 @@ export type LeadTurnRollbackState = Readonly<{
 }>
 
 /**
- * Rollback reader for the admitted actor or a current participant. It uses the read authority
- * path, so authorized archived history stays observable while every effect remains denied. A
- * denied user gets the same unavailable answer and learns nothing about the fence.
+ * Rollback reader for a current participant. It uses the canonical historical boundary shared with
+ * getLeadTurnForUser and readLeadTurnRuntime, so authorized archived history stays observable and
+ * no effect is granted. A denied user gets the same unavailable answer and learns nothing about
+ * the fence.
  */
 export function readLeadTurnRollbackState(
   database: AgentHqDatabase,
@@ -349,11 +370,12 @@ export function readLeadTurnRollbackState(
   intentId: string,
   principal: UserPrincipalRef
 ): Promise<LeadTurnRollbackState> {
-  return withReadAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
     principal,
+    false,
     async (tx, intent, _message, _controlPlaneWorkspaceId, channel) => {
       const [row] = await tx
         .select()

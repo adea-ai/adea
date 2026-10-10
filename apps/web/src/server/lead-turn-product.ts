@@ -51,13 +51,13 @@ export function createLeadTurnProduct(
   const service = createLeadTurnRuntime({
     ...dependencies,
     store: {
-      authorize: (scope, mutation) =>
+      authorize: (scope, purpose) =>
         resolveLeadTurnAuthority(
           database,
           scope.workspaceId,
           scope.intentId,
           principal(scope),
-          mutation
+          purpose
         ),
       read: (scope) =>
         readLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope)),
