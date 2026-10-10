@@ -57,6 +57,11 @@ function refuse(): never {
  * stream on every path. The 16 KB limit is charged while reading, so an
  * unbounded or hostile body is refused and cancelled instead of buffered
  * whole; an abort (deadline) also cancels the stream.
+ *
+ * Cancelling a reader makes a pending `read()` resolve `done: true`, so a
+ * complete prefix already buffered would otherwise look like a finished body.
+ * The signal is therefore checked before reading starts, after every read and
+ * before the parsed document is accepted: an aborted body is never accepted.
  */
 async function readBoundedAssertion(response: Response, signal: AbortSignal): Promise<unknown> {
   const body = response.body
@@ -70,7 +75,9 @@ async function readBoundedAssertion(response: Response, signal: AbortSignal): Pr
   signal.addEventListener('abort', onAbort, { once: true })
   try {
     for (;;) {
+      if (signal.aborted) refuse()
       const chunk = await reader.read()
+      if (signal.aborted) refuse()
       if (chunk.done) break
       size += chunk.value.byteLength
       if (size > MAX_RESPONSE_BYTES) refuse()
@@ -86,6 +93,7 @@ async function readBoundedAssertion(response: Response, signal: AbortSignal): Pr
       reader.releaseLock()
     }
   }
+  if (signal.aborted) refuse()
   const text = new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))))
   if (text.length === 0) refuse()
   return JSON.parse(text) as unknown

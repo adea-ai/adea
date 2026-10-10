@@ -211,6 +211,51 @@ describe('Control API management current authority client (#1215)', () => {
     expect(Date.now() - started).toBeLessThan(1_000)
   })
 
+  test('a complete prefix followed by a stall is refused once the deadline cancels the body', async () => {
+    let cancelled = false
+    const prefixThenStall = (async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          start(controller) {
+            // A complete `{ asserted: true }` document is buffered, then the
+            // stream never closes; cancelling it must not let the prefix pass.
+            controller.enqueue(new TextEncoder().encode('{"asserted":true}'))
+          },
+        })
+      )) as unknown as typeof fetch
+    const started = Date.now()
+    await expect(client(prefixThenStall, 40)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  test('a complete body that arrives after the deadline already fired is refused and released', async () => {
+    let cancelled = false
+    const late = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"asserted":true}'))
+            controller.close()
+          },
+        })
+      )
+    }) as unknown as typeof fetch
+    await expect(client(late, 20)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
+  })
+
   test('an unknown boundary is refused without a hop', async () => {
     let fetches = 0
     const counting = (async () => {
