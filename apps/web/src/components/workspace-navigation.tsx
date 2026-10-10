@@ -842,9 +842,16 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       )
   }
 
+  // One switch per `?workspace=` link. The param stays in the URL until the switch
+  // resolves, and the active workspace only catches up when the summary lands, so
+  // without this guard every settle re-runs the switch and its scene write.
+  let handledDeepLinkWorkspace: string | undefined
   createEffect(() => {
     const requestedWorkspace = currentSearch().workspace
-    if (!requestedWorkspace) return
+    if (!requestedWorkspace) {
+      handledDeepLinkWorkspace = undefined
+      return
+    }
     if (requestedWorkspace === props.activeWorkspace?.id) {
       // Already there: drop the param unless channel/task deep links still
       // need it as a scoping guard for the surface.
@@ -861,9 +868,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return
     }
     const workspace = orderedWorkspaces().find(({ id }) => id === requestedWorkspace)
-    if (!workspace || switchingWorkspaceId()) return
+    if (!workspace || switchingWorkspaceId() || handledDeepLinkWorkspace === requestedWorkspace)
+      return
+    handledDeepLinkWorkspace = requestedWorkspace
     void switchToWorkspace(workspace).then((switched) => {
-      if (!switched) return
+      if (!switched) {
+        handledDeepLinkWorkspace = undefined
+        return
+      }
       const rest = { ...currentSearch() }
       delete rest.workspace
       void navigate({
