@@ -60,7 +60,7 @@
     "typescript6": "npm:typescript@^6.0.3"
   },
   "overrides": {
-    "@adea-ai/themes": "0.9.10",
+    "@adea-ai/themes": "0.10.3",
     "@capacitor/android": "8.5.1",
     "@capacitor/cli": "8.5.1",
     "@capacitor/core": "8.5.1",
