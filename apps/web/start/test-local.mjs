@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { writeLocalWorkerConfig } from './local-worker-config.mjs'
-import { runWithPullBackoff } from './docker-pull-backoff.mjs'
+import { captureCommand, runWithPullBackoff } from '../../../scripts/docker-pull-backoff.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -54,33 +54,33 @@ function run(command, args, cwd = root, env = environment) {
   })
 }
 // The compose file pins postgres by digest, but the pull still goes to a shared
-// registry that rate-limits anonymous pulls from hosted runners. Output is captured
-// so the rate-limit signature can be recognized, then echoed once the attempt settles.
+// registry that rate-limits anonymous pulls from hosted runners. The attempt is
+// asynchronous so the worker and cleanup process handling keeps running while compose
+// waits. Each attempt's output is echoed once it settles, so a rate-limited attempt
+// stays visible in the log.
 async function composeUpPostgres() {
-  const result = await runWithPullBackoff(() =>
-    spawnSync(
-      'docker',
-      [
-        'compose',
-        '-p',
-        project,
-        '-f',
-        'compose.yml',
-        'up',
-        '-d',
-        '--wait',
-        '--wait-timeout',
-        '60',
-        'postgres',
-      ],
-      { cwd: root, encoding: 'utf8', stdio: 'pipe', env: databaseEnvironment }
-    )
-  )
-  if (result.stdout) process.stdout.write(result.stdout)
-  if (result.stderr) process.stderr.write(result.stderr)
+  const args = [
+    'compose',
+    '-p',
+    project,
+    '-f',
+    'compose.yml',
+    'up',
+    '-d',
+    '--wait',
+    '--wait-timeout',
+    '60',
+    'postgres',
+  ]
+  const result = await runWithPullBackoff(async () => {
+    const attempt = await captureCommand('docker', args, { cwd: root, env: databaseEnvironment })
+    if (attempt.stdout) process.stdout.write(attempt.stdout)
+    if (attempt.stderr) process.stderr.write(attempt.stderr)
+    return attempt
+  })
   if (result.error) throw result.error
   if (result.status !== 0) {
-    throw new Error(`docker compose up postgres exited ${String(result.status)}`)
+    throw new Error(`docker ${args.join(' ')} exited ${String(result.status)}`)
   }
 }
 function startWorker(config, port, inspector, secure = false) {
