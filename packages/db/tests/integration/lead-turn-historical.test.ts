@@ -19,6 +19,7 @@ import {
   readLeadTurnRuntime,
   recoverLeadTurnRuntimeBinding,
   requestLeadTurnCancellation,
+  resolveLeadTurnAuthority,
 } from '../../src/lead-turn-runtime'
 import { fenceLeadTurnForRollback, readLeadTurnRollbackState } from '../../src/lead-turn-rollback'
 import { channelParticipants, messages, workspaceMemberships, workspaces } from '../../src/schema'
@@ -540,5 +541,76 @@ describe.skipIf(!databaseUrl)('lead-turn historical reads and reconciliation', (
     expect(
       await readLeadTurnRollbackState(connection.db, workspace.id, pin.intentId, f.owner.principal)
     ).toMatchObject({ channelLifecycleState: 'archived' })
+  })
+
+  test('negative contract: a fenced admission is refused at effect authority, before any runtime call', async () => {
+    const f = await fixture()
+    const { owner, workspace, pin } = f
+    await prepareLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, pin)
+    await fenceLeadTurnForRollback(connection.db, workspace.id, pin.intentId, ownerFence(f))
+    // The runtime calls authorize('effect') before adapter.prepare or adapter.dispatch, so the refusal
+    // must come from here, not later from the prepare or pending writes.
+    await expect(
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'effect')
+    ).rejects.toThrow('LEAD_TURN_FENCED')
+    await expect(
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'read')
+    ).resolves.toMatchObject({ intentId: pin.intentId })
+  })
+
+  test('negative contract: archived effect authority is denied, while archived read and cancel authority remain available', async () => {
+    const f = await fixture()
+    const { owner, workspace, pin, binding } = f
+    await dispatched(f)
+    await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+      ...binding,
+      state: 'running',
+      observedAt: new Date().toISOString(),
+    })
+    await archive(f)
+    await denied(
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'effect')
+    )
+    await expect(
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'read')
+    ).resolves.toMatchObject({ intentId: pin.intentId })
+    await expect(
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'cancel')
+    ).resolves.toMatchObject({ intentId: pin.intentId })
+  })
+
+  test('negative contract: archived publication is denied and writes no message, even when the runtime reports completion', async () => {
+    const f = await fixture()
+    const { owner, workspace, pin, binding } = f
+    await dispatched(f)
+    await observeLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, {
+      ...binding,
+      state: 'completed',
+      observedAt: new Date().toISOString(),
+    })
+    await archive(f)
+    const before = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.channelId, f.topic.id))
+    await denied(
+      publishLeadTurnResult(
+        connection.db,
+        workspace.id,
+        pin.intentId,
+        owner.principal,
+        binding,
+        'Answer',
+        grant
+      )
+    )
+    const after = await connection.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(eq(messages.channelId, f.topic.id))
+    expect(after).toHaveLength(before.length)
+    expect(
+      await readLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal)
+    ).not.toHaveProperty('publishedMessageId')
   })
 })

@@ -250,9 +250,26 @@ applied, `db:verify` passed (48 applied migrations).
 test/*.test.ts start/ui-tailwind-sources.test.ts`): 442 pass, 0 fail (72 files).
 - Root `format:check`: exit 0. Root `oxlint --deny-warnings`: exit 0. `packages/db` typecheck and
   `apps/web` typecheck: exit 0.
-- Cross-product contract (`apps/web/test/lead-product-contract.test.ts`): 10 pass with
-  `CONTROL_PLANE_CHECKOUT` set to the control-plane checkout at `ec742819`. The drift guard and CP
-  parser and reader tests both run there. Without a checkout the CP-consumer tests skip, and the drift
-  guard passes (1 pass, 2 skip). CI does not set the variable, so the consumer tests skip in CI.
+- Cross-product contract (`apps/web/test/lead-product-contract.test.ts`): 8 pass with
+  `CONTROL_PLANE_CHECKOUT` set to the control-plane checkout at `ec742819`. Without a checkout, 3 pass
+  and 5 skip. CI does not set the variable, so the CP-consumer tests skip in CI.
+- Negative contract checks, all passing:
+  - Adea side: expired unfenced evidence is 404 at the expiry boundary and admitted one millisecond
+    before it. An archived admission is 404 whether the lookup returns nothing or denies.
+  - Runtime, `lead-turn-negative-contract.test.ts`: a refused effect authority stops prepare and
+    dispatch before any adapter call. A fenced dispatch refused at pending reaches no runtime
+    dispatch. Archived publication is withheld.
+  - Database, `lead-turn-historical.test.ts`: a fenced admission is refused at effect authority,
+    before any runtime call. Archived effect authority is denied while archived read and cancel
+    authority stay available. Archived publication writes no message.
+  - CP side, through CP's real production authority: expired v1 evidence is `PI_PRODUCTION_PRODUCT_DENIED`,
+    and the same bytes are admitted before expiry. Fenced evidence is `PI_PRODUCT_READER_UNAVAILABLE`.
+    An archived 404 yields no evidence.
+- Code change in this pass beyond tests: `resolveLeadTurnAuthority('effect')` now refuses a fenced
+  admission before the runtime is called. This adds a denial. Previously `adapter.prepare` could run
+  before the fence check at `store.prepare`.
+- Unapproved proposal (not applied, not in this branch): an additive fence-envelope change, with
+  identity and pin fields, in the fenced branch of the handler. It was validated from scratch and
+  dry-runs cleanly. It is held for root review, and its patch text is in the handoff, not in the repo.
 - Not run in this pass: root `typecheck` via turbo (the pre-commit hook runs it on commit), root
   `test:coverage`, Playwright E2E, packaged and desktop suites, performance, soak, and root `build`.

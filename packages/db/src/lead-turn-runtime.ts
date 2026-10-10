@@ -96,7 +96,12 @@ export function resolveLeadTurnAuthority(
         intentId,
         principal,
         true,
-        async (_tx, intent, _message, cpWorkspaceId) => authority(intent, cpWorkspaceId)
+        async (tx, intent, _message, cpWorkspaceId) => {
+          // Refuse a fenced admission here, before the runtime is called. Otherwise adapter.prepare runs
+          // before store.prepare reaches the fence check.
+          await assertLeadTurnNotFenced(tx, intent.id, 'share')
+          return authority(intent, cpWorkspaceId)
+        }
       )
     : withHistoricalLeadTurn(
         database,
