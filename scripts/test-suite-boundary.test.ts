@@ -127,6 +127,33 @@ describe('test suite boundaries', () => {
     expect(journeys!.args).toContain('apps/web/e2e/workspace-project-placement.spec.ts')
   })
 
+  test('keeps the workspace creation-draft browser specs in the normal E2E shard exactly once', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const suite = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' && args.includes('apps/web/e2e/workspace-nav.spec.ts')
+    )
+    expect(suite).toBeDefined()
+    for (const spec of [
+      'apps/web/e2e/workspace-nav.spec.ts',
+      'apps/web/e2e/workspace-creation-owner.spec.ts',
+    ]) {
+      expect(suite!.args.filter((arg) => arg === spec)).toHaveLength(1)
+    }
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot
