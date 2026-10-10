@@ -28,6 +28,7 @@ import {
   createTemporaryUserSession,
   createWorkspaceWithOwner,
   messages,
+  removeWorkspaceMembership,
   revokeGroupGrant,
   channels,
   type DatabaseConnection,
@@ -346,15 +347,48 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     expect(await countMessages(channelId, 'intruder write')).toBe(0)
   })
 
-  test('KNOWN GAP: a granted plain workspace member is refused by the route pre-gate on write', async () => {
-    // Pins the current behaviour so the gap stays visible. authorizeConversationWrite
-    // admits workspace.update or project editors only, before the group fence runs.
-    // Flip to expect(201) once that pre-gate admits live group grants.
+  test('a granted plain workspace member writes to the group and reads it back', async () => {
+    // Plain `member` role: no workspace.update, no project editorship. The live
+    // canonical audience grant is the write authority for this group channel.
     const f = await fixture()
     const { channelId } = await createGroup(f, { audience: [f.plain] })
     const write = await postText(f, channelId, f.plain, 'plain member write')
+    expect(write.status).toBe(201)
+    expect(await countMessages(channelId, 'plain member write')).toBe(1)
+    expect(await readTexts(f, channelId, f.owner)).toContain('plain member write')
+  })
+
+  test('a plain workspace member without a group grant is refused on write with zero writes', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.member] })
+    const write = await postText(f, channelId, f.plain, 'ungranted plain write')
     expect(write.status).toBe(404)
-    expect(await countMessages(channelId, 'plain member write')).toBe(0)
+    expect(await countMessages(channelId, 'ungranted plain write')).toBe(0)
+  })
+
+  test('a plain member whose group grant is revoked is refused on write with zero writes', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.plain] })
+    const revoked = await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
+      grantId: `gra_aud_0_${channelId}`,
+      kind: 'audience',
+      revokedAt: new Date().toISOString(),
+    })
+    expect(revoked).toEqual({ revoked: true })
+    const write = await postText(f, channelId, f.plain, 'revoked plain write')
+    expect(write.status).toBe(404)
+    expect(await countMessages(channelId, 'revoked plain write')).toBe(0)
+  })
+
+  test('a granted principal whose workspace membership was removed is refused on write', async () => {
+    // Membership is the separately required capability: the live grant does not
+    // survive removal from the owning workspace.
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.plain] })
+    expect(await removeWorkspaceMembership(connection.db, f.workspace.id, f.plain)).toBe(true)
+    const write = await postText(f, channelId, f.plain, 'removed member write')
+    expect(write.status).toBe(404)
+    expect(await countMessages(channelId, 'removed member write')).toBe(0)
   })
 
   test('group message by id: a held pre-join message is refused, a granted one is served', async () => {
