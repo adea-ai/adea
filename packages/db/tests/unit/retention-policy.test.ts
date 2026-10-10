@@ -3,6 +3,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   CLEANUP_COVERAGE_KINDS,
   evaluateRetentionDeletion,
+  type RetentionAuthorization,
+  type TrustedCleanupExecutor,
   MAX_RETENTION_PERIOD_DAYS,
   parseRetentionPeriods,
   RETENTION_CATEGORIES,
@@ -34,7 +36,18 @@ const DAY = 86_400_000
 const SUBJECT = 'fixture-subject-1'
 const CLOUD = 'fixture-cloud-executor'
 const NATIVE = 'fixture-native-executor'
-const TRUSTED: ReadonlySet<string> = new Set([CLOUD, NATIVE])
+const AUTHORIZED_SINCE = '2026-01-01T00:00:00.000Z'
+const AUTHORIZED_UNTIL = '2027-01-01T00:00:00.000Z'
+
+/** Fixture executors authorized across the whole test window and never revoked. */
+const TRUSTED: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+  [CLOUD, { authorizedFrom: AUTHORIZED_SINCE, authorizedUntil: null, revokedAt: null }],
+  [NATIVE, { authorizedFrom: AUTHORIZED_SINCE, authorizedUntil: null, revokedAt: null }],
+])
+
+function authorization(overrides: Partial<RetentionAuthorization> = {}): RetentionAuthorization {
+  return { grantedAt: ANCHOR, expiresAt: AUTHORIZED_UNTIL, revokedAt: null, ...overrides }
+}
 
 const EVERY_CATEGORY_EXPIRED = parseRetentionPeriods(
   Object.fromEntries(RETENTION_CATEGORIES.map((category) => [category, 30]))
@@ -50,8 +63,9 @@ function candidate(overrides: Partial<RetentionCandidate> = {}): RetentionCandid
     subjectId: SUBJECT,
     anchorAt: ANCHOR,
     holds: [],
-    sharedReferenceCount: 0,
+    activeReferenceCount: 0,
     reconciliationOpen: false,
+    authorization: authorization(),
     ...overrides,
   }
 }
@@ -91,7 +105,7 @@ function evaluate(overrides: Partial<RetentionEvaluationInput> = {}) {
     candidate: candidate(),
     periods: EVERY_CATEGORY_EXPIRED,
     receipts: [],
-    trustedExecutorIds: TRUSTED,
+    trustedExecutors: TRUSTED,
     now: NOW,
     ...overrides,
   })
@@ -191,9 +205,9 @@ describe('holds, periods, shared references and reconciliation refuse deletion',
   test('shared references and open reconciliation refuse deletion', () => {
     expect(
       evaluate({
-        candidate: candidate({ category: 'artifacts', sharedReferenceCount: 2 }),
+        candidate: candidate({ category: 'artifacts', activeReferenceCount: 2 }),
       })
-    ).toEqual({ outcome: 'refused', reason: 'shared_reference_retained' })
+    ).toEqual({ outcome: 'refused', reason: 'active_reference_retained' })
     expect(
       evaluate({
         candidate: candidate({ category: 'receipts', reconciliationOpen: true }),
@@ -209,7 +223,7 @@ describe('holds, periods, shared references and reconciliation refuse deletion',
         now: EARLY,
         candidate: candidate({
           holds: [{ id: 'fixture-hold-1', releasedAt: null }],
-          sharedReferenceCount: 1,
+          activeReferenceCount: 1,
         }),
       })
     ).toEqual({ outcome: 'refused', reason: 'hold_active' })
@@ -217,7 +231,7 @@ describe('holds, periods, shared references and reconciliation refuse deletion',
       evaluate({
         periods: thirtyDays,
         now: ANCHOR,
-        candidate: candidate({ sharedReferenceCount: 1 }),
+        candidate: candidate({ activeReferenceCount: 1 }),
       })
     ).toEqual({ outcome: 'refused', reason: 'retention_period_running' })
   })
@@ -355,7 +369,7 @@ describe('trusted cleanup gates deletion', () => {
 
   test('decisions never echo subject identifiers or timestamps', () => {
     const decision = evaluate({
-      candidate: candidate({ sharedReferenceCount: 1 }),
+      candidate: candidate({ activeReferenceCount: 1 }),
       receipts: [],
     })
     const serialized = JSON.stringify(decision)
@@ -368,7 +382,8 @@ describe('recording cleanup receipts', () => {
   test('records a trusted receipt as a frozen, normalized value', () => {
     const recorded = recordCleanupReceipt(
       { ...receipt('primary', 'delete', 'completed', EARLY), extra: 'ignored' },
-      TRUSTED
+      TRUSTED,
+      NOW
     )
     expect(recorded).toEqual(receipt('primary', 'delete', 'completed', EARLY))
     expect(Object.isFrozen(recorded)).toBe(true)
@@ -409,7 +424,7 @@ describe('recording cleanup receipts', () => {
     ]
     for (const [value, code] of cases) {
       try {
-        recordCleanupReceipt(value, TRUSTED)
+        recordCleanupReceipt(value, TRUSTED, NOW)
         throw new Error('expected refusal')
       } catch (error) {
         expect((error as RetentionPolicyError).code).toBe(code)
@@ -429,7 +444,7 @@ describe('candidate validation', () => {
       candidate({ category: 'unknown' as RetentionCategory }),
       candidate({ subjectId: '' }),
       candidate({ anchorAt: '2026-13-01T00:00:00Z' }),
-      candidate({ sharedReferenceCount: -1 }),
+      candidate({ activeReferenceCount: -1 }),
       candidate({ holds: [null as never] }),
       candidate({ holds: [{ id: 'fixture-hold-1', releasedAt: 'soon' }] }),
     ]
@@ -441,6 +456,148 @@ describe('candidate validation', () => {
         expect((error as RetentionPolicyError).code).toBe('invalid_candidate')
       }
     }
+  })
+})
+
+describe('current authorization gates cleanup', () => {
+  const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+
+  test('an expired request authorization refuses even with verified receipts', () => {
+    expect(
+      evaluate({
+        candidate: candidate({
+          authorization: authorization({ expiresAt: '2026-10-08T00:00:00.000Z' }),
+        }),
+        receipts: verifiedReceipts(required),
+      })
+    ).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+  })
+
+  test('a request that is not yet granted, or revoked at or before now, is refused', () => {
+    for (const authorizationOverride of [
+      { grantedAt: '2026-10-20T00:00:00.000Z' },
+      { revokedAt: '2026-10-08T00:00:00.000Z' },
+      { revokedAt: NOW },
+    ]) {
+      expect(
+        evaluate({ candidate: candidate({ authorization: authorization(authorizationOverride) }) })
+      ).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+    }
+  })
+
+  test('a revocation scheduled after now leaves the request current', () => {
+    expect(
+      evaluate({
+        candidate: candidate({
+          authorization: authorization({ revokedAt: '2026-10-20T00:00:00.000Z' }),
+        }),
+      })
+    ).toEqual({ outcome: 'cleanup_ready' })
+  })
+
+  test('malformed authorization timestamps are refused as an invalid candidate', () => {
+    for (const authorizationOverride of [
+      { expiresAt: 'soon' },
+      { grantedAt: '2026-13-01T00:00:00Z' },
+      { revokedAt: 'later' },
+    ]) {
+      expect(() =>
+        evaluate({ candidate: candidate({ authorization: authorization(authorizationOverride) }) })
+      ).toThrow(RetentionPolicyError)
+    }
+  })
+})
+
+describe('executor authority gates receipts', () => {
+  const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+
+  test('a revoked executor disqualifies its verified receipts, so cleanup is re-dispatched', () => {
+    const revoked: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+      [CLOUD, { authorizedFrom: AUTHORIZED_SINCE, authorizedUntil: null, revokedAt: EARLY }],
+    ])
+    expect(evaluate({ receipts: verifiedReceipts(required), trustedExecutors: revoked })).toEqual({
+      outcome: 'cleanup_ready',
+    })
+  })
+
+  test('receipts observed before the executor was authorized do not count', () => {
+    const lateAuthorization: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+      [
+        CLOUD,
+        { authorizedFrom: '2026-10-01T12:00:00.000Z', authorizedUntil: null, revokedAt: null },
+      ],
+    ])
+    expect(
+      evaluate({ receipts: verifiedReceipts(required), trustedExecutors: lateAuthorization })
+    ).toEqual({
+      outcome: 'pending',
+      blockers: required.map((coverage) => ({
+        kind: 'coverage',
+        coverage,
+        reason: 'coverage_incomplete',
+      })),
+    })
+  })
+
+  test('an executor whose authorization window has ended no longer counts, even for results observed inside it', () => {
+    const endedWindow: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+      [
+        CLOUD,
+        {
+          authorizedFrom: AUTHORIZED_SINCE,
+          authorizedUntil: '2026-10-01T12:00:00.000Z',
+          revokedAt: null,
+        },
+      ],
+    ])
+    expect(
+      evaluate({ receipts: verifiedReceipts(required), trustedExecutors: endedWindow })
+    ).toEqual({ outcome: 'cleanup_ready' })
+  })
+
+  test('recording refuses revoked executors and results observed outside their authorization', () => {
+    const revoked: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+      [CLOUD, { authorizedFrom: AUTHORIZED_SINCE, authorizedUntil: null, revokedAt: EARLY }],
+    ])
+    const inWindow = receipt('primary', 'delete', 'completed', EARLY)
+    expect(() => recordCleanupReceipt(inWindow, revoked, NOW)).toThrow('untrusted_executor')
+    const notYetAuthorized: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
+      [
+        CLOUD,
+        { authorizedFrom: '2026-10-05T00:00:00.000Z', authorizedUntil: null, revokedAt: null },
+      ],
+    ])
+    expect(() => recordCleanupReceipt(inWindow, notYetAuthorized, NOW)).toThrow(
+      'untrusted_executor'
+    )
+  })
+})
+
+describe('legal holds and active references block verified cleanup', () => {
+  const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+
+  test('verified receipts do not override a live reference from another scope', () => {
+    expect(
+      evaluate({
+        candidate: candidate({ category: 'artifacts', activeReferenceCount: 1 }),
+        receipts: verifiedReceipts(RETENTION_COVERAGE_RULES.artifacts.requiredCoverage),
+      })
+    ).toEqual({ outcome: 'refused', reason: 'active_reference_retained' })
+  })
+
+  test('a legal hold stops verified cleanup until released, then verification proceeds', () => {
+    const held = candidate({ holds: [{ id: 'fixture-legal-hold', releasedAt: null }] })
+    expect(evaluate({ candidate: held, receipts: verifiedReceipts(required) })).toEqual({
+      outcome: 'refused',
+      reason: 'hold_active',
+    })
+    const released = candidate({
+      holds: [{ id: 'fixture-legal-hold', releasedAt: '2026-10-05T00:00:00.000Z' }],
+    })
+    expect(evaluate({ candidate: released, receipts: verifiedReceipts(required) })).toEqual({
+      outcome: 'verified_complete',
+      coverage: required,
+    })
   })
 })
 

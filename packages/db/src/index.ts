@@ -51,6 +51,7 @@ export {
   type CleanupReceipt,
   type CleanupReceiptOperation,
   type CleanupReceiptOutcome,
+  type RetentionAuthorization,
   type RetentionBlocker,
   type RetentionCandidate,
   type RetentionCategory,
@@ -60,6 +61,7 @@ export {
   type RetentionPeriods,
   type RetentionPolicyErrorCode,
   type RetentionRefusalReason,
+  type TrustedCleanupExecutor,
 } from './retention-policy'
 export {
   enqueueTaskSubmission,

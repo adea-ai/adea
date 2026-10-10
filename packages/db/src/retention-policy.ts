@@ -178,18 +178,42 @@ export type RetentionHold = {
 }
 
 /**
+ * The current authority for one deletion request. It is current only between
+ * `grantedAt` and `expiresAt`, and only while `revokedAt` is unset or in the
+ * future. Open-ended authority is not representable.
+ */
+export type RetentionAuthorization = {
+  readonly grantedAt: string
+  readonly expiresAt: string
+  readonly revokedAt: string | null
+}
+
+/**
  * One subject in one category. `anchorAt` is the timestamp the retention period
- * runs from. `sharedReferenceCount` counts live references from other scopes,
- * such as an artifact still used elsewhere. `reconciliationOpen` marks an
- * external effect or audit reconciliation that is not yet closed.
+ * runs from. `activeReferenceCount` counts references from other scopes that are
+ * still live, such as an artifact still used elsewhere. `reconciliationOpen`
+ * marks an external effect or audit reconciliation that is not yet closed.
  */
 export type RetentionCandidate = {
   readonly category: RetentionCategory
   readonly subjectId: string
   readonly anchorAt: string
   readonly holds: readonly RetentionHold[]
-  readonly sharedReferenceCount: number
+  readonly activeReferenceCount: number
   readonly reconciliationOpen: boolean
+  readonly authorization: RetentionAuthorization
+}
+
+/**
+ * A cleanup executor the caller has authenticated. Its receipts count only while
+ * it is authorized: each receipt must be observed inside the authorized window,
+ * and a revocation at or before the evaluation instant disqualifies all of its
+ * receipts. Revocation fails closed.
+ */
+export type TrustedCleanupExecutor = {
+  readonly authorizedFrom: string
+  readonly authorizedUntil: string | null
+  readonly revokedAt: string | null
 }
 
 export type CleanupReceiptOperation = 'delete' | 'read_check'
@@ -239,16 +263,47 @@ function parseReceipt(value: unknown): CleanupReceipt {
   })
 }
 
+function executorIsCurrent(executor: TrustedCleanupExecutor, nowMs: number): boolean {
+  return (
+    Date.parse(executor.authorizedFrom) <= nowMs &&
+    (executor.authorizedUntil === null || nowMs < Date.parse(executor.authorizedUntil)) &&
+    (executor.revokedAt === null || Date.parse(executor.revokedAt) > nowMs)
+  )
+}
+
+function executorAuthorizedAt(executor: TrustedCleanupExecutor, observedMs: number): boolean {
+  return (
+    Date.parse(executor.authorizedFrom) <= observedMs &&
+    (executor.authorizedUntil === null || observedMs < Date.parse(executor.authorizedUntil))
+  )
+}
+
+function receiptIsTrusted(
+  receipt: CleanupReceipt,
+  executors: ReadonlyMap<string, TrustedCleanupExecutor>,
+  nowMs: number
+): boolean {
+  const executor = executors.get(receipt.executorId)
+  return (
+    executor !== undefined &&
+    executorIsCurrent(executor, nowMs) &&
+    executorAuthorizedAt(executor, Date.parse(receipt.observedAt))
+  )
+}
+
 /**
- * Record a cleanup receipt from a trusted executor. Receipts from any other
- * executor are rejected and never count toward verification.
+ * Record a cleanup receipt from an authorized executor, judged at `now`. A
+ * receipt from an unknown, unauthorized, revoked, or out-of-window executor is
+ * rejected and never counts toward verification.
  */
 export function recordCleanupReceipt(
   value: unknown,
-  trustedExecutorIds: ReadonlySet<string>
+  executors: ReadonlyMap<string, TrustedCleanupExecutor>,
+  now: string
 ): CleanupReceipt {
   const receipt = parseReceipt(value)
-  if (!trustedExecutorIds.has(receipt.executorId)) fail('untrusted_executor')
+  const nowMs = timestampMs(now, 'invalid_candidate')
+  if (!receiptIsTrusted(receipt, executors, nowMs)) fail('untrusted_executor')
   return receipt
 }
 
@@ -256,8 +311,9 @@ export type RetentionRefusalReason =
   | 'policy_unset'
   | 'hold_active'
   | 'retention_period_running'
-  | 'shared_reference_retained'
+  | 'active_reference_retained'
   | 'reconciliation_open'
+  | 'authorization_not_current'
   | 'cleanup_failed'
 
 export type RetentionBlocker =
@@ -278,7 +334,7 @@ export type RetentionEvaluationInput = {
   readonly candidate: RetentionCandidate
   readonly periods: RetentionPeriods
   readonly receipts: readonly unknown[]
-  readonly trustedExecutorIds: ReadonlySet<string>
+  readonly trustedExecutors: ReadonlyMap<string, TrustedCleanupExecutor>
   readonly now: string
 }
 
@@ -286,7 +342,7 @@ function parseCandidate(value: RetentionCandidate): RetentionCandidate {
   if (!RETENTION_CATEGORIES.includes(value.category)) fail('invalid_candidate')
   opaqueId(value.subjectId, 'invalid_candidate')
   timestampMs(value.anchorAt, 'invalid_candidate')
-  count(value.sharedReferenceCount, 'invalid_candidate')
+  count(value.activeReferenceCount, 'invalid_candidate')
   if (typeof value.reconciliationOpen !== 'boolean' || !Array.isArray(value.holds))
     fail('invalid_candidate')
   for (const hold of value.holds) {
@@ -294,11 +350,24 @@ function parseCandidate(value: RetentionCandidate): RetentionCandidate {
     opaqueId(hold.id, 'invalid_candidate')
     if (hold.releasedAt !== null) timestampMs(hold.releasedAt, 'invalid_candidate')
   }
+  const authorization = value.authorization
+  if (typeof authorization !== 'object' || authorization === null) fail('invalid_candidate')
+  timestampMs(authorization.grantedAt, 'invalid_candidate')
+  timestampMs(authorization.expiresAt, 'invalid_candidate')
+  if (authorization.revokedAt !== null) timestampMs(authorization.revokedAt, 'invalid_candidate')
   return value
 }
 
 function holdIsActive(hold: RetentionHold, nowMs: number): boolean {
   return hold.releasedAt === null || Date.parse(hold.releasedAt) > nowMs
+}
+
+function authorizationIsCurrent(authorization: RetentionAuthorization, nowMs: number): boolean {
+  return (
+    Date.parse(authorization.grantedAt) <= nowMs &&
+    nowMs < Date.parse(authorization.expiresAt) &&
+    (authorization.revokedAt === null || Date.parse(authorization.revokedAt) > nowMs)
+  )
 }
 
 function blockedCoverage(
@@ -345,9 +414,11 @@ function coverageState(
 
 /**
  * Evaluate one deletion candidate in fixed order: unset period, active hold,
- * running period, shared reference, open reconciliation, then cleanup
- * coverage. `cleanup_ready` means cleanup may be dispatched, not that data is
- * gone. Only `verified_complete` supports reporting deletion as complete.
+ * running period, active reference, open reconciliation, current authorization,
+ * then cleanup coverage. Receipts count only from executors that are authorized
+ * at `now` and were authorized when they observed the result. `cleanup_ready`
+ * means cleanup may be dispatched, not that data is gone. Only
+ * `verified_complete` supports reporting deletion as complete.
  */
 export function evaluateRetentionDeletion(input: RetentionEvaluationInput): RetentionDecision {
   const candidate = parseCandidate(input.candidate)
@@ -362,9 +433,11 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
 
   const expiresAtMs = anchorMs + period * DAY_MS
   if (nowMs < expiresAtMs) return { outcome: 'refused', reason: 'retention_period_running' }
-  if (candidate.sharedReferenceCount > 0)
-    return { outcome: 'refused', reason: 'shared_reference_retained' }
+  if (candidate.activeReferenceCount > 0)
+    return { outcome: 'refused', reason: 'active_reference_retained' }
   if (candidate.reconciliationOpen) return { outcome: 'refused', reason: 'reconciliation_open' }
+  if (!authorizationIsCurrent(candidate.authorization, nowMs))
+    return { outcome: 'refused', reason: 'authorization_not_current' }
 
   const rule = RETENTION_COVERAGE_RULES[candidate.category]
   if (rule.eventualBackupExpiry)
@@ -375,7 +448,7 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
     .filter(
       (receipt) =>
         receipt.subjectId === candidate.subjectId &&
-        input.trustedExecutorIds.has(receipt.executorId)
+        receiptIsTrusted(receipt, input.trustedExecutors, nowMs)
     )
   if (receipts.length === 0) return { outcome: 'cleanup_ready' }
 

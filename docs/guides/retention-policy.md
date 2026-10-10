@@ -39,10 +39,13 @@ need review.
 1. `policy_unset`: period is null.
 2. `hold_active`.
 3. `retention_period_running`: now is before anchor plus the period.
-4. `shared_reference_retained`: live references from other scopes remain.
+4. `active_reference_retained`: live references from other scopes remain.
 5. `reconciliation_open`: an external effect or audit reconciliation is open.
-6. `backups` return `pending` with `backup_expiry`.
-7. Cleanup coverage, from trusted receipts for this subject only:
+6. `authorization_not_current`: the deletion request is not granted yet, has
+   expired, or was revoked at or before now. Open-ended authority is not
+   representable.
+7. `backups` return `pending` with `backup_expiry`.
+8. Cleanup coverage, from trusted receipts for this subject only:
    - no receipts: `cleanup_ready`. Cleanup may be dispatched; data is not gone.
    - a failed delete, or a read check with residual data: `refused` with `cleanup_failed`.
    - unreachable or in-progress executors, or missing verification: `pending`
@@ -50,9 +53,12 @@ need review.
    - a completed delete plus a later zero-residual read check for every required
      kind: `verified_complete`.
 
-Receipts from untrusted executors are ignored in evaluation and rejected by
-`recordCleanupReceipt`. Malformed receipts or candidates throw
-`RetentionPolicyError` with a code only.
+An executor counts only while it is authorized now and was authorized when it
+observed the result. A revocation at or before now disqualifies all of that
+executor's receipts, so its cleanup must be re-dispatched through a current
+executor. Unknown, unauthorized, revoked, or out-of-window receipts are ignored
+in evaluation and rejected by `recordCleanupReceipt`. Malformed receipts or
+candidates throw `RetentionPolicyError` with a code only.
 
 ## Not implemented here
 
@@ -67,5 +73,7 @@ Receipts from untrusted executors are ignored in evaluation and rejected by
 2. Backup retention and expiry duration (REQ 143).
 3. The per-category coverage sets above.
 4. The trusted executor registry, and where receipts are stored.
-5. Whether a shared artifact stays while any other scope references it, or only
-   while a live grant exists.
+5. Whether a reference stays active while any other scope holds it, or only
+   while a live grant exists. The gate currently takes an injected count.
+6. The authority that issues deletion requests and executor authorizations, and
+   the maximum lifetime of each.
