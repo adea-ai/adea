@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 
 import {
   canonicalPortableJson,
@@ -14,7 +14,14 @@ import { type AgentHqDatabase, createDatabase, type DatabaseConnection } from '.
 import { createTemporaryUserSession } from '../../src/identity'
 import { exportPortableWorkspace, readCompletePortableContent } from '../../src/portable-export'
 import { PortableExportError } from '../../src/portable-export-content'
-import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
+import {
+  createMessage,
+  createProjectChannel,
+  listChannelsForUser,
+  listMessagesForUser,
+} from '../../src/conversations'
+import { archiveProject, createProject } from '../../src/projects'
+import { createTask } from '../../src/tasks'
 import { importPortableWorkspace } from '../../src/portable-import'
 import { PortableImportError } from '../../src/portable-import-guards'
 import { portableContentDigest } from '../../src/portable-export-content'
@@ -92,7 +99,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
   afterAll(async () => {
     for (const workspaceId of created) await deleteWorkspace(workspaceId)
     await connection.close()
-  })
+  }, 120_000)
 
   async function deleteWorkspace(workspaceId: string) {
     // Break the message thread links first: they are RESTRICT foreign keys.
@@ -881,6 +888,63 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       fixture.projectB.id
     )
     expect(JSON.stringify(withoutGrant)).not.toContain(canary.membersText)
+  })
+
+  test('an archived project leaves the export with its channel, tasks and messages', async () => {
+    const owner = await createTemporaryUserSession(db, {
+      credentialDigest: `${canary.sessionDigest}-archive`,
+      displayName: 'Archive Owner',
+      expiresAt: future(),
+    })
+    const { workspace } = await createWorkspaceWithOwner(db, {
+      idempotencyKey: `portable-archive-${run}`,
+      name: 'Archived project export',
+      owner: owner.principal,
+    })
+    created.push(workspace.id)
+    const project = await createProject(db, workspace.id, owner.principal, {
+      iconKey: 'folder',
+      name: `Archived project ${run}`,
+    })
+    const channel = await createProjectChannel(db, workspace.id, project.id, owner.principal, {
+      idempotencyKey: `portable-archive-channel-${run}`,
+      title: 'Archived lane',
+    })
+    const archivedText = `ARCHIVED-PROJECT-CANARY-${run}`
+    const taskTitle = `ARCHIVED-TASK-CANARY-${run}`
+    await createMessage(db, workspace.id, channel.id, owner.principal, {
+      bodyText: archivedText,
+      idempotencyKey: `portable-archive-message-${run}`,
+      sender: owner.principal,
+    })
+    await createTask(
+      db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Archived objective', projectId: project.id, title: taskTitle },
+      { idempotencyKey: `portable-archive-task-${run}`, requestId: randomUUID() }
+    )
+
+    const before = await exportPortableWorkspace(db, {
+      principal: owner.principal,
+      workspaceId: workspace.id,
+    })
+    expect(before.content.projects.map((row) => row.projectId)).toContain(project.id)
+    expect(JSON.stringify(before)).toContain(archivedText)
+
+    await archiveProject(db, workspace.id, project.id, owner.principal)
+    const after = await exportPortableWorkspace(db, {
+      principal: owner.principal,
+      workspaceId: workspace.id,
+    })
+    expect(validatePortableWorkspaceExport(after).ok).toBe(true)
+    expect(after.content.projects.map((row) => row.projectId)).not.toContain(project.id)
+    const serialized = JSON.stringify(after)
+    expect(serialized).not.toContain(project.id)
+    expect(serialized).not.toContain(channel.id)
+    expect(serialized).not.toContain(archivedText)
+    expect(serialized).not.toContain(taskTitle)
+    expect(after.exclusions.map((exclusion) => exclusion.class)).toContain('archived_projects')
   })
 
   test('the export carries exactly the messages the canonical readers serve the same principal', async () => {

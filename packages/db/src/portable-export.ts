@@ -65,13 +65,16 @@ const MESSAGE_PAGE = 100
 
 /**
  * Test seam. `beforeMessagePage` runs before each message page is read, so a test can pause
- * an export between pages and change authority before the next page. Production callers pass
- * no hooks.
+ * an export between pages and change authority before the next page. `beforeStep` runs before
+ * the tasks are read, before the content references are checked, and before the final access
+ * check, so a test can pause an export between those reads and before its last check. Production
+ * callers pass no hooks.
  */
 export type PortableExportHooks = Readonly<{
   beforeMessagePage?: (
     page: Readonly<{ afterSequence: number | undefined; channelId: string }>
   ) => void | Promise<void>
+  beforeStep?: (step: Readonly<{ name: 'contentRefs' | 'final' | 'tasks' }>) => void | Promise<void>
 }>
 
 /**
@@ -115,6 +118,7 @@ async function accessNow(
     .where(
       and(
         eq(projects.workspaceId, workspaceId),
+        eq(projects.lifecycleState, 'active'),
         isNull(projects.deletedAt),
         visibleProjectCondition(projects.id, scope)
       )
@@ -231,6 +235,7 @@ async function readRequesterInputs(
       .where(
         and(
           eq(projects.workspaceId, workspaceId),
+          eq(projects.lifecycleState, 'active'),
           isNull(projects.deletedAt),
           visibleProjectCondition(projects.id, scope)
         )
@@ -254,6 +259,7 @@ async function readRequesterInputs(
     hooks
   )
 
+  await hooks?.beforeStep?.({ name: 'tasks' })
   const taskRows = bounded(
     await transaction
       .select()
@@ -276,6 +282,7 @@ async function readRequesterInputs(
       ...taskRows.flatMap((row) => (row.objectiveContentRefId ? [row.objectiveContentRefId] : [])),
     ]),
   ]
+  await hooks?.beforeStep?.({ name: 'contentRefs' })
   const visibleContentRefIds = new Set<string>()
   for (const id of candidateRefIds)
     if (await isContentRefVisible(transaction, workspaceId, principal.userId, id))
@@ -632,6 +639,7 @@ export async function exportPortableWorkspace(
     const inputs = await readRequesterInputs(transaction, input.principal, start, input.hooks)
     // The families above are read statement by statement, so a revocation can land between
     // them. Checking once more after the last read denies the export before anything is built.
+    await input.hooks?.beforeStep?.({ name: 'final' })
     await assertStanding(transaction, input.workspaceId, input.principal, start)
     return buildPortableWorkspaceExport(mapPortableContent(inputs), {
       exportedAt: input.exportedAt ?? new Date(),

@@ -146,6 +146,13 @@ export const PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS: readonly PortableExportExclus
     },
     {
       authority: 'workspace (#1221)',
+      class: 'archived_projects',
+      reason:
+        'Archived projects are not served by the canonical project readers. The export omits them with their channels, tasks and content references, and a project archived during an export denies it. Their history stays in the product; an archive export belongs to retention (#1221).',
+      treatment: 'excluded',
+    },
+    {
+      authority: 'workspace (#1221)',
       class: 'soft_deleted_records',
       reason:
         'Soft-deleted projects and records pending retention are not exported. Permanent deletion and retention belong to #1221.',
