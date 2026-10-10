@@ -263,6 +263,22 @@ export {
   type GroupStoreDatabase,
 } from './group-channels'
 export {
+  AddressedTurnError,
+  causalIdForAddressedTurn,
+  claimAddressedTurn,
+  decideAddressedTurn,
+  DEFAULT_ADDRESSED_TURN_BUDGET,
+  loadAddressedTurns,
+  recordAddressedTurnResponse,
+  supersedeAddressedTurns,
+  type AddressedAgentTurn,
+  type AddressedTurnBudget,
+  type AddressedTurnClaim,
+  type AddressedTurnClaimInput,
+  type AddressedTurnDecision,
+  type AddressedTurnStore,
+} from './group-turn-coordinator'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
