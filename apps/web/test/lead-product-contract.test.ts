@@ -153,12 +153,14 @@ const controlPlaneCheckout = process.env.CONTROL_PLANE_CHECKOUT
 
 // Loads the control-plane's own modules from the checkout named by CONTROL_PLANE_CHECKOUT.
 const loadControlPlane = async (root: string) => {
-  const [evidence, http] = await Promise.all([
+  const [evidence, http, fence] = await Promise.all([
     import(`${root}/apps/control-api/src/models/production-lead-product.ts`),
     import(`${root}/apps/control-api/src/models/production-product-http.ts`),
+    import(`${root}/apps/control-api/src/models/lead-product-fence.ts`),
   ])
   return {
     ProductionLeadProductEvidenceSchema: evidence.ProductionLeadProductEvidenceSchema,
+    fencedOperationPolicy: fence.fencedOperationPolicy,
     createProductionLeadProductAuthority: evidence.createProductionLeadProductAuthority,
     createProductionProductHttpReader: http.createProductionProductHttpReader,
   }
@@ -239,16 +241,25 @@ describe.skipIf(!controlPlaneCheckout)(
       expect(() => cp.ProductionLeadProductEvidenceSchema.parse(fenced.body)).toThrow()
     })
 
-    test('the current CP strict parser refuses the v2 pinned body, so CP fails closed until its consumer is updated', async () => {
+    test('CP preserves pinned v2 fence facts without accepting them as new-admission evidence', async () => {
       const cp = await loadFromCheckout()
       const fencedV2 = await contract('fenced-v2')
       expect(() => cp.ProductionLeadProductEvidenceSchema.parse(fencedV2.body)).toThrow()
       await expect(
         readerFor(cp, fencedV2.status, fencedV2.body).readCurrent(consumerInput)
-      ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
+      ).resolves.toEqual(fencedV2.body)
+      expect(cp.fencedOperationPolicy('v2')).toEqual({
+        prepare: 'refuse',
+        dispatch: 'refuse',
+        status: 'observe',
+        progress: 'observe',
+        cancel: 'cancel-as-actor',
+        resume: 'refuse',
+        publication: 'refuse',
+      })
     })
 
-    test('the control-plane HTTP reader returns v1 evidence and refuses a fenced admission as unavailable', async () => {
+    test('the control-plane HTTP reader preserves v1 fence facts but their policy refuses every action', async () => {
       const cp = await loadFromCheckout()
       const unfenced = await contract('unfenced')
       const admitted = await readerFor(cp, unfenced.status, unfenced.body).readCurrent(
@@ -258,7 +269,16 @@ describe.skipIf(!controlPlaneCheckout)(
       const fenced = await contract('fenced')
       await expect(
         readerFor(cp, fenced.status, fenced.body).readCurrent(consumerInput)
-      ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
+      ).resolves.toEqual(fenced.body)
+      expect(cp.fencedOperationPolicy('v1')).toEqual({
+        prepare: 'refuse',
+        dispatch: 'refuse',
+        status: 'refuse',
+        progress: 'refuse',
+        cancel: 'refuse',
+        resume: 'refuse',
+        publication: 'refuse',
+      })
     })
 
     test('negative: CP refuses expired v1 evidence and admits it before expiry (same bytes, only the clock differs)', async () => {
@@ -273,16 +293,21 @@ describe.skipIf(!controlPlaneCheckout)(
       ).rejects.toThrow('PI_PRODUCTION_PRODUCT_DENIED')
     })
 
-    test('negative: CP refuses a fenced admission through its authority, so prepare and dispatch cannot resolve', async () => {
+    test('CP authority returns fence facts that cannot be parsed as new-admission evidence', async () => {
       const cp = await loadFromCheckout()
-      const fenced = await contract('fenced')
-      const product = {
-        readCurrent: (input: unknown) =>
-          readerFor(cp, fenced.status, fenced.body).readCurrent(input as never),
+      for (const variant of ['fenced', 'fenced-v2', 'fenced-v2-operator']) {
+        const fenced = await contract(variant)
+        const product = {
+          readCurrent: (input: unknown) =>
+            readerFor(cp, fenced.status, fenced.body).readCurrent(input as never),
+        }
+        const authority = await authorityFor(cp, product, '2026-10-09T12:00:00.000Z')
+        const current = await authority.readCurrent(consumerInput)
+        expect(current).toEqual(fenced.body)
+        expect(() => cp.ProductionLeadProductEvidenceSchema.parse(current)).toThrow()
+        expect(current).not.toHaveProperty('selectionRef')
+        expect(current).not.toHaveProperty('profileVersionId')
       }
-      await expect(
-        (await authorityFor(cp, product, '2026-10-09T12:00:00.000Z')).readCurrent(consumerInput)
-      ).rejects.toThrow('PI_PRODUCT_READER_UNAVAILABLE')
     })
 
     test('negative: an archived admission (404) yields no CP evidence, which the admission parser then refuses', async () => {
