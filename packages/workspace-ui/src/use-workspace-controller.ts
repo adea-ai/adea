@@ -179,8 +179,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     agentActions: {
       archive: (agentId: string) => archiveAgent.mutateAsync(agentId).then(() => undefined),
-      assignProject: (agentId: string, projectId: string | null) =>
-        assignAgentProject.mutateAsync({ agentId, projectId }).then(() => undefined),
+      assignProject: (agentId: string, projectId: string | null, expectedRevision: number) =>
+        assignAgentProject
+          .mutateAsync({ agentId, expectedRevision, projectId })
+          .then((result) => result.agent),
       profile: (
         agentId: string,
         profile: Parameters<typeof changeAgentProfile.mutateAsync>[0]['profile']
@@ -188,7 +190,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       presentation: (
         agentId: string,
         presentation: Parameters<typeof updateAgentPresentation.mutateAsync>[0]['presentation']
-      ) => updateAgentPresentation.mutateAsync({ agentId, presentation }).then(() => undefined),
+      ) =>
+        updateAgentPresentation
+          .mutateAsync({ agentId, presentation })
+          .then((result) => result.agent),
     },
     get agentBusy() {
       return [archiveAgent, assignAgentProject, changeAgentProfile, updateAgentPresentation].some(

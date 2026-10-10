@@ -74,8 +74,11 @@ optional correlation id.
 
 Structural workspace-lead provisioning emits the existing `agent.created` event exactly
 once, in the identity transaction. Concurrent retries return the same Agent without a
-second event or model call. Lead designation, a missing structural profile, provider
-authentication and execution acceptance remain separate state. New direct topics use the
+second event or model call. Exactly one designation exists per workspace
+(`agents_workspace_lead_unique`): other workspaces provision independently, and a direct write
+cannot designate a second lead. Provisioning never rewrites custom Agent rows, profile pins,
+placement or their `agent.created` attribution. Lead designation, a missing structural profile,
+provider authentication and execution acceptance remain separate state. New direct topics use the
 same `channel.created` event; they preserve the canonical channel audience rather than
 copying a previous conversation's messages or participants.
 
@@ -111,6 +114,16 @@ owner/admin membership while holding its row, and serializes Agent changes
 with a row lock and expected revision. The opening form snapshot survives
 refetches: stale edits return a conflict instead of replacing another pin.
 The additive `profile_revision` column starts existing rows at zero.
+
+Presentation and project-placement edits (`PATCH .../agents/:agentId/presentation` and
+`POST .../agents/:agentId/project`) carry the Agent `revision` they opened. The database locks
+the active Agent row, refuses any other revision with `AGENT_REVISION_CONFLICT` (409) without
+writing, and advances `revision` by one in the same transaction as the change. This counter is
+separate from `profile.revision`: a rename never invalidates a profile pin, and a re-pin never
+invalidates a placement opening. Archive is a lifecycle transition rather than a revision-checked
+edit, and a designated lead cannot be archived or placed under a Project. Migration
+`0045_agent-edit-revisions.sql` adds the counter with a nonnegative check; existing Agents start
+at zero. The `agent.presentation_updated` and `agent.project_assigned` payloads are unchanged.
 
 This increment establishes explicit pin adoption only. Submission must still
 snapshot the pin in its own transaction and record the immutable ExecutionPlan
@@ -416,3 +429,13 @@ This proves liveness, never execution acceptance.
   `releaseWorkspaceCache`.
 - `apps/web/test/start-client-denylist.json`: the server stream modules cannot
   appear in a browser bundle.
+- `packages/db/tests/integration/agent-edit-revisions.test.ts`: presentation and placement
+  revision conflicts without writes, one winner for concurrent openings, profile and presentation
+  revisions advancing independently, and lead edits conflicting on a stale opening.
+- `packages/db/tests/integration/workspace-leads.test.ts`: one lead per workspace, cross-workspace
+  independence, direct-write refusal by constraint name, lead placement and archive refusal, and
+  custom Agent row and `agent.created` attribution preservation.
+- `packages/db/tests/integration/lead-identity-migration.test.ts`: applies the reviewed 0042 and
+  0045 SQL to realistic old-shape copies and requires every pre-existing column of Agents,
+  channels, participants, messages, mentions, read states, memberships and events to survive.
+- `apps/web/test/agent-edit-request.test.ts`: strict revision, field and placement parsing.

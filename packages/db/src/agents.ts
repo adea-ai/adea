@@ -19,9 +19,16 @@ type AgentCreateInput = Readonly<{
 type AgentPresentationInput = Readonly<{
   avatarRef?: string | null
   characterRef?: string | null
+  /** The Agent revision the editor opened; a stale opening conflicts instead of overwriting. */
+  expectedRevision: number
   name?: string
   presentationMetadata?: Readonly<Record<string, string>>
   roleSummary?: string | null
+}>
+
+type AgentProjectInput = Readonly<{
+  expectedRevision: number
+  projectId: string | null
 }>
 
 function summary(row: typeof agents.$inferSelect): AgentSummary {
@@ -40,6 +47,7 @@ function summary(row: typeof agents.$inferSelect): AgentSummary {
       version: row.profileVersion,
       revision: row.profileRevision,
     }),
+    revision: row.revision,
     ...(row.roleSummary ? { roleSummary: row.roleSummary } : {}),
     ...(row.projectId ? { projectId: row.projectId } : {}),
     updatedAt: row.updatedAt.toISOString(),
@@ -104,6 +112,36 @@ async function requireProfileManager(
     .for('share')
   if (!membership || !['owner', 'admin'].includes(membership.role))
     throw new Error('Agent unavailable')
+}
+
+function isAgentRevision(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/**
+ * Lock the active Agent row and accept the edit only when the editor opened the
+ * current revision. Holding the row lock through commit serializes concurrent edits.
+ */
+async function lockAgentRevision(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  agentId: string,
+  expectedRevision: number
+): Promise<typeof agents.$inferSelect> {
+  const [current] = await transaction
+    .select()
+    .from(agents)
+    .where(
+      and(
+        eq(agents.id, agentId),
+        eq(agents.workspaceId, workspaceId),
+        eq(agents.lifecycleState, 'active')
+      )
+    )
+    .for('update')
+  if (!current) throw new Error('Agent unavailable')
+  if (current.revision !== expectedRevision) throw new AgentRevisionConflictError()
+  return current
 }
 
 export async function createAgent(
@@ -255,14 +293,22 @@ export async function assignAgentToProject(
   workspaceId: string,
   agentId: string,
   principal: UserPrincipalRef,
-  projectId: string | null
+  input: AgentProjectInput
 ): Promise<AgentSummary> {
+  if (!isAgentRevision(input.expectedRevision)) throw new AgentRevisionConflictError()
+  const { projectId } = input
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
+    const current = await lockAgentRevision(
+      transaction,
+      workspaceId,
+      agentId,
+      input.expectedRevision
+    )
     if (projectId) await requireActiveProject(transaction, workspaceId, projectId)
     const [updated] = await transaction
       .update(agents)
-      .set({ projectId, updatedAt: new Date() })
+      .set({ projectId, revision: current.revision + 1, updatedAt: new Date() })
       .where(
         and(
           eq(agents.id, agentId),
@@ -288,8 +334,15 @@ export async function updateAgentPresentation(
   principal: UserPrincipalRef,
   input: AgentPresentationInput
 ): Promise<AgentSummary> {
+  if (!isAgentRevision(input.expectedRevision)) throw new AgentRevisionConflictError()
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
+    const current = await lockAgentRevision(
+      transaction,
+      workspaceId,
+      agentId,
+      input.expectedRevision
+    )
     const [updated] = await transaction
       .update(agents)
       .set({
@@ -304,6 +357,7 @@ export async function updateAgentPresentation(
         ...(input.roleSummary !== undefined
           ? { roleSummary: input.roleSummary?.trim() || null }
           : {}),
+        revision: current.revision + 1,
         updatedAt: new Date(),
       })
       .where(
@@ -403,6 +457,14 @@ export async function changeAgentProfile(
     })
     return summary(updated)
   })
+}
+
+/** A presentation or placement edit was opened against a superseded Agent revision. */
+export class AgentRevisionConflictError extends Error {
+  constructor() {
+    super('Agent changed; refresh and retry')
+    this.name = 'AgentRevisionConflictError'
+  }
 }
 
 export class AgentProfileConflictError extends Error {

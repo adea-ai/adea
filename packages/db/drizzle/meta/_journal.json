@@ -320,15 +320,22 @@
     {
       "idx": 45,
       "version": "7",
-      "when": 1791512705826,
-      "tag": "0045_solid_ted_forrester",
+      "when": 1791512397967,
+      "tag": "0045_agent-edit-revisions",
       "breakpoints": true
     },
     {
       "idx": 46,
       "version": "7",
-      "when": 1791525239347,
-      "tag": "0046_wealthy_mister_fear",
+      "when": 1791526300162,
+      "tag": "0046_artifact_reference_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791617189306,
+      "tag": "0047_nasty_the_spike",
       "breakpoints": true
     }
   ]

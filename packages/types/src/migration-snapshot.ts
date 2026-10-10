@@ -22,9 +22,14 @@
 // structure error, never a silent claim of completeness. A record that is
 // malformed, over a documented bound, or whose audience/ownership
 // classification is ambiguous, is `quarantined` and excluded from matching.
-// Identifier and digest fields are format- and length-bounded, so a hostile
-// or corrupt value can never travel into comparator findings verbatim.
-// Inconclusive input can never yield a success verdict.
+// Identifier and digest fields are format- and length-bounded, and every
+// record — of any shape, primitives and top-level arrays included — is
+// bounded on total bytes, property slots and array width BEFORE any
+// canonicalization — including fields destined to be ignored as extra
+// properties and records already headed for a quarantine path — so a hostile
+// or corrupt value can never be canonicalized first, and can never travel
+// into comparator findings verbatim. Inconclusive input can never yield a
+// success verdict.
 
 /**
  * Format version of the snapshot document contract. Bump it when a record
@@ -51,6 +56,33 @@ export const MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION = 10_000
  * output size bounded by the documented input bounds.
  */
 export const MIGRATION_SNAPSHOT_MAX_FINDINGS = 100_000
+
+/**
+ * Maximum serialized size of one record, in UTF-8 bytes, counting the
+ * complete JSON encoding — string quotes, object braces, array brackets,
+ * commas and colons included — and every key and value the record carries,
+ * including extra properties the comparator would otherwise ignore. Enforced
+ * by an early-exit structural walk BEFORE any canonicalization, hashing or
+ * comparison, so oversized input is quarantined by limit instead of being
+ * canonicalized first. Per-code-unit costs are conservative upper bounds of
+ * the UTF-8 (or JSON-escaped) size, and a `bigint` value is rejected as
+ * over-bound outright because its serialization length is unbounded.
+ */
+export const MIGRATION_SNAPSHOT_MAX_RECORD_BYTES = 8_192
+
+/**
+ * Maximum number of property slots on one record: object entries plus array
+ * element slots, at any depth, including extra properties. Enforced before
+ * canonicalization; the walk aborts as soon as the bound is crossed, which
+ * also bounds the walk itself.
+ */
+export const MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES = 64
+
+/**
+ * Maximum length of any array nested inside one record. Enforced before the
+ * array is walked, so a wide hostile array is rejected in constant time.
+ */
+export const MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH = 64
 
 /**
  * Every record family a snapshot document may carry, in sorted order.
@@ -442,7 +474,12 @@ export type MigrationSnapshotFinding = Readonly<{
   detail: Readonly<Partial<Record<MigrationSnapshotFindingDetailKey, string>>>
   family: MigrationSnapshotFamily
   findingClass: MigrationSnapshotFindingClass
-  /** Deterministic: `<class>:<family>:<side>:<stableId>[:<field>]`. */
+  /**
+   * Deterministic: `<class>:<family>:<side>:<tuple(stableId, field)>`, where
+   * `tuple` is the comparator's collision-safe composite-key encoding (parts
+   * are escaped and joined; an absent field is a typed marker), so two
+   * distinct `(stableId, field)` pairs can never join to the same id.
+   */
   id: string
   side: MigrationSnapshotFindingSide
   stableId: string
@@ -482,9 +519,12 @@ export type MigrationSnapshotComparison = Readonly<{
  * of the wrong shape. `ambiguous`: the record is shaped but its audience or
  * ownership classification is not one of the known values, so the comparator
  * refuses to guess which side of an access comparison it belongs to.
- * `limit`: the field is well-formed in shape but exceeds a documented bound
- * (identifier length), so accepting it would break the comparator's bounded
- * input and output guarantees.
+ * `limit`: the record is well-formed enough to compare but exceeds a
+ * documented bound — an identifier over its length bound, a record over the
+ * byte, property-slot or array-width bounds, or text carrying surrounding
+ * whitespace — so accepting it would break the comparator's bounded input
+ * and output guarantees. Size bounds are decided before canonicalization,
+ * and the issue names a contract field (or `record`), never supplied text.
  */
 export type MigrationSnapshotRecordIssue =
   | Readonly<{ field: string; kind: 'ambiguous' }>
@@ -544,6 +584,132 @@ function nullableIdentifierField(field: string, value: unknown): FieldCheck {
   return identifierField(field, value)
 }
 
+/**
+ * Serialized JSON byte length of `text` WITHOUT its surrounding quotes,
+ * capped: returns a value greater than `remaining` as soon as the remaining
+ * budget is exceeded, so oversized text is detected without scanning the
+ * rest. Per-code-unit costs are conservative upper bounds of the serialized
+ * form: ASCII control characters cost their longest escape (`\u00XX`, 6),
+ * the quote and backslash cost their two-byte escape, plain ASCII costs 1,
+ * and each non-ASCII code unit costs 6 — enough for its `\uXXXX` escape (a
+ * surrogate pair therefore costs 12) and for raw UTF-8, which never exceeds
+ * 4 bytes per code unit.
+ */
+function utf8LengthCapped(text: string, remaining: number): number {
+  let bytes = 0
+  for (let index = 0; index < text.length; index++) {
+    const codeUnit = text.charCodeAt(index)
+    bytes += codeUnit < 0x20 || codeUnit > 0x7e ? 6 : codeUnit === 0x22 || codeUnit === 0x5c ? 2 : 1
+    if (bytes > remaining) return bytes
+  }
+  return bytes
+}
+
+/**
+ * Mutable measurement budget for the shape walk: both counters only ever
+ * decrease, and every descent consumes at least one property slot, so the
+ * walk itself is bounded by `MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES` steps
+ * and can never recurse unboundedly.
+ */
+type ShapeBudget = { bytes: number; properties: number }
+
+type ShapeViolation = 'array_width' | 'bytes' | 'properties'
+
+/**
+ * Early-exit structural walk over a record's own properties — including the
+ * extra properties comparison would ignore. Returns the first bound crossed,
+ * or null when the record fits every documented size bound. Nothing is
+ * canonicalized, hashed or copied: the byte budget is charged with the
+ * COMPLETE serialized form, so the bound covers the JSON encoding itself and
+ * not just its content — string quotes (2 per string, values and object
+ * keys alike), the colon after each key, object braces and array brackets
+ * (2 per container), and the comma between consecutive members or items.
+ * Fixed-cost leaves use conservative bounds of their serialization: numbers
+ * cost 24 (`-1.7976931348623157e+308`), booleans 5, and `null`/`undefined`/
+ * functions/symbols 12 (`"~undefined"` is the longest encoding); `bigint` is
+ * rejected outright (its serialization length is unbounded). Every charge is
+ * checked before descending and text measurement stops once the budget is
+ * exceeded, so a crossing is detected without scanning the remainder.
+ */
+function recordShapeViolation(value: unknown, budget: ShapeBudget): ShapeViolation | null {
+  if (value === null || typeof value !== 'object') {
+    if (typeof value === 'string') {
+      budget.bytes -= 2
+      if (budget.bytes < 0) return 'bytes'
+      budget.bytes -= utf8LengthCapped(value, budget.bytes)
+      return budget.bytes < 0 ? 'bytes' : null
+    }
+    if (typeof value === 'bigint') return 'bytes'
+    budget.bytes -= typeof value === 'number' ? 24 : typeof value === 'boolean' ? 5 : 12
+    return budget.bytes < 0 ? 'bytes' : null
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH) return 'array_width'
+    budget.bytes -= 2
+    if (budget.bytes < 0) return 'bytes'
+    let first = true
+    for (const item of value) {
+      if (first) first = false
+      else {
+        budget.bytes -= 1
+        if (budget.bytes < 0) return 'bytes'
+      }
+      budget.properties -= 1
+      if (budget.properties < 0) return 'properties'
+      const violation = recordShapeViolation(item, budget)
+      if (violation) return violation
+    }
+    return null
+  }
+  budget.bytes -= 2
+  if (budget.bytes < 0) return 'bytes'
+  let first = true
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue
+    if (first) first = false
+    else {
+      budget.bytes -= 1
+      if (budget.bytes < 0) return 'bytes'
+    }
+    budget.properties -= 1
+    if (budget.properties < 0) return 'properties'
+    budget.bytes -= 1
+    if (budget.bytes < 0) return 'bytes'
+    budget.bytes -= 2
+    if (budget.bytes < 0) return 'bytes'
+    budget.bytes -= utf8LengthCapped(key, budget.bytes)
+    if (budget.bytes < 0) return 'bytes'
+    const violation = recordShapeViolation((value as Record<string, unknown>)[key], budget)
+    if (violation) return violation
+  }
+  return null
+}
+
+/**
+ * Check any intake value — of any shape — against the documented size bounds
+ * — total serialized JSON bytes (structure included: quotes, delimiters,
+ * separators), property slots and array width — BEFORE any canonicalization.
+ * The walk measures non-object input directly: a string by its quotes plus
+ * capped content length, a `bigint` over-bound outright (its serialization
+ * length is unbounded), and other primitives or null by fixed upper bounds;
+ * a top-level array is width-, slot- and byte-bounded like any nested one.
+ * Returns a typed `limit` issue on the first bound crossed, or null when the
+ * value fits. The issue never names or echoes supplied content: the field is
+ * the contract literal `record`. Accepts `unknown` because real snapshot
+ * intake is untrusted — no value may bypass the bounds by not being an
+ * object. Exported so consumers can quarantine an oversized value without
+ * canonicalizing it (bounded descriptor instead of a content fingerprint).
+ */
+export function migrationSnapshotRecordShapeIssue(
+  record: unknown
+): MigrationSnapshotRecordIssue | null {
+  const violation = recordShapeViolation(record, {
+    bytes: MIGRATION_SNAPSHOT_MAX_RECORD_BYTES,
+    properties: MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES,
+  })
+  return violation ? { field: 'record', kind: 'limit' } : null
+}
+
 function firstIssue(checks: readonly FieldCheck[]): MigrationSnapshotRecordIssue | null {
   for (const item of checks) {
     if (!item.ok) return { field: item.field, kind: item.kind ?? 'malformed' }
@@ -553,10 +719,11 @@ function firstIssue(checks: readonly FieldCheck[]): MigrationSnapshotRecordIssue
 
 /**
  * Validate one record against the snapshot contract. Returns the first issue
- * found, or null when the record is well-formed and unambiguous. The issue
- * names the offending field and never echoes the offending value. A null or
- * non-object input is a structural rejection on the `record` field itself,
- * never a runtime error.
+ * found, or null when the record is well-formed and unambiguous. Size bounds
+ * (record bytes, property slots, array width — extra properties included)
+ * are decided first, before canonicalization; the issue names the offending
+ * field and never echoes the offending value. A null or non-object input is
+ * a structural rejection on the `record` field itself, never a runtime error.
  */
 export function migrationSnapshotRecordIssue(
   record: MigrationSnapshotRecord
@@ -564,6 +731,8 @@ export function migrationSnapshotRecordIssue(
   if (typeof record !== 'object' || record === null) {
     return { field: 'record', kind: 'malformed' }
   }
+  const shapeIssue = migrationSnapshotRecordShapeIssue(record)
+  if (shapeIssue) return shapeIssue
   if (!isMigrationSnapshotFamily(record.family)) return { field: 'family', kind: 'malformed' }
 
   switch (record.family) {

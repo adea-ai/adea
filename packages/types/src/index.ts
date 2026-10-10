@@ -116,6 +116,11 @@ export type AgentSummary = {
     /** Timestamp of this response's check attempt, including unavailable results. */
     checkedAt?: string
   }>
+  /**
+   * Presentation and project-placement revision. Edits carry the revision they opened
+   * against; profile pins are versioned separately by `profile.revision`.
+   */
+  revision?: number
   roleSummary?: string
   projectId?: string
   updatedAt: string
