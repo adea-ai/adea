@@ -331,3 +331,15 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+export {
+  exportPortableWorkspace,
+  PortableExportError,
+  type PortableExportFailureCode,
+  portableContentDigest,
+} from './portable-export'
+export {
+  importPortableWorkspace,
+  PortableImportError,
+  type PortableImportFailureCode,
+  type PortableImportResult,
+} from './portable-import'
