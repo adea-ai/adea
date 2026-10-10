@@ -5,7 +5,13 @@ import { and, eq } from 'drizzle-orm'
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createArtifact, deleteArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createMessage, deleteMessage, editMessage } from '../../src/conversations'
+import {
+  createDirectAgentTopic,
+  createMessage,
+  deleteMessage,
+  editMessage,
+  listMessagesForUser,
+} from '../../src/conversations'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import {
   markLeadTurnDispatchPending,
@@ -15,6 +21,7 @@ import {
 } from '../../src/lead-turn-runtime'
 import { listWorkspaceEventsAfter, workspaceEventWindow } from '../../src/event-log'
 import {
+  admissionForParticipant,
   authorizeGroupChannelHistoryRead,
   authorizeGroupChannelPublication,
   authorizeGroupChannelTurn,
@@ -3602,7 +3609,7 @@ describe('durable binding, fences and shared read boundary', () => {
     }
   })
 
-  test('grant-gated writes fail closed before any database access', async () => {
+  T('grant-gated writes fail closed before any database access', async () => {
     // Shell-level validate-before-write, DB-free: invalid rosters never reach
     // a transaction. Lives here (not in unit scope) so the transactional
     // shell stays out of the unit coverage universe.
@@ -3669,4 +3676,228 @@ describe('durable binding, fences and shared read boundary', () => {
     expect(replacement).toBeInstanceOf(GroupCreationError)
     expect(stubCalls.count).toBe(1)
   })
+
+  T(
+    'cross-workspace journey: foreign agents never join, revocation denies all group effects, unrelated context intact',
+    async () => {
+      // One end-to-end journey across two workspaces with same-named agents:
+      // tenant-bounded invitation, active conversation, revocation, then
+      // history/event/publication/dispatch denial — with the foreign workspace
+      // and the private direct lane provably untouched.
+      const f = await isolatedFixture()
+      try {
+        const otherOwner = (
+          await createTemporaryUserSession(f.local.db, {
+            credentialDigest: `journey-other-${crypto.randomUUID()}`,
+            expiresAt: new Date(Date.now() + 60_000),
+          })
+        ).principal
+        const other = await createWorkspaceWithOwner(f.local.db, {
+          idempotencyKey: crypto.randomUUID(),
+          name: 'Foreign',
+          owner: otherOwner,
+        })
+        const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
+          name: 'Echo',
+          profileId: 'lead',
+          profileVersion: '1',
+        })
+        const echoAway = await createAgent(f.local.db, other.workspace.id, otherOwner, {
+          name: 'Echo',
+          profileId: 'lead',
+          profileVersion: '1',
+        })
+        const channelId = crypto.randomUUID()
+        const founder = {
+          expiresAt: null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        }
+        const homeEnlistment = {
+          agent: { agentId: echoHome.id, workspaceId: f.workspace.id },
+          expiresAt: null,
+          grantId: 'gra_echo_home',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        }
+        // A foreign same-named agent cannot be invited: tenant bounding rejects
+        // the cross-workspace grant with zero writes.
+        const foreignEnlistment = {
+          agent: { agentId: echoAway.id, workspaceId: other.workspace.id },
+          expiresAt: null,
+          grantId: 'gra_echo_away',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        }
+        const rejected = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [founder],
+            enlistmentGrants: [homeEnlistment, foreignEnlistment],
+          }),
+          channelId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
+          now: NOW,
+          title: 'Group',
+        }).then(
+          () => {
+            throw new Error('cross-workspace enlistment must fail')
+          },
+          (error: unknown) => error
+        )
+        expect(rejected).toBeInstanceOf(GroupCreationError)
+        expect(
+          (rejected as GroupCreationError).rejections.some(
+            (entry) => entry.scope === 'candidate' && entry.reason === 'participant_cross_tenant'
+          )
+        ).toBe(true)
+        // Permitted invitation: the home agent enlists; the conversation lives.
+        const { channel } = await createGroupChannelWithGrants(
+          f.local.db,
+          f.workspace.id,
+          f.owner,
+          {
+            candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+              audienceGrants: [founder],
+              enlistmentGrants: [homeEnlistment],
+            }),
+            channelId,
+            idempotencyKey: crypto.randomUUID(),
+            now: NOW,
+            title: 'Group',
+          }
+        )
+        const gate = { channel, workspaceId: f.workspace.id }
+        const { latest: eventsStart } = await workspaceEventWindow(f.local.db, f.workspace.id)
+        const foreignWindow = await workspaceEventWindow(f.local.db, other.workspace.id)
+        await postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          {
+            message: { bodyText: 'kickoff', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: NOW }
+        )
+        const agentSender = { agentId: echoHome.id, kind: 'agent' } as const
+        await postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          agentSender,
+          {
+            message: { bodyText: 'echo replies', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: NOW }
+        )
+        // Private direct lane in the same workspace, plus a foreign baseline.
+        const direct = await createDirectAgentTopic(
+          f.local.db,
+          f.workspace.id,
+          echoHome.id,
+          f.owner,
+          {
+            idempotencyKey: crypto.randomUUID(),
+            title: 'Private topic',
+          }
+        )
+        await createMessage(f.local.db, f.workspace.id, direct.id, f.owner, {
+          bodyText: 'private note',
+          idempotencyKey: crypto.randomUUID(),
+          sender: f.owner,
+        })
+        // Revoke the founder's audience grant: every group effect denies after.
+        await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+          grantId: 'gra_owner',
+          kind: 'audience',
+          revokedAt: LATER,
+        })
+        const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+        const admission =
+          admissionForParticipant(roster, f.owner) ??
+          (() => {
+            throw new Error('founder admission must persist as a row')
+          })()
+        expect(
+          authorizeGroupChannelHistoryRead(gate, {
+            admission,
+            entry: { occurredAt: LATER, sequence: 0 },
+            now: LATER,
+            sharingGrants: [],
+          })
+        ).toMatchObject({ action: 'deny', reason: 'history_participation_revoked' })
+        // Agent dispatch admission for the revoked actor is denied at the
+        // shared writer without any fence or route.
+        await expect(
+          createLeadTurn(f.local.db, f.workspace.id, channelId, f.owner, {
+            bodyText: 'must not dispatch',
+            idempotencyKey: crypto.randomUUID(),
+            mentions: [],
+          })
+        ).rejects.toThrow('Lead turn unavailable')
+        // Publication of the founder's earlier work is held, job untouched.
+        const staleJob = {
+          authorization: admission.authorization,
+          completedAt: NOW,
+          jobId: 'job_kickoff',
+          participant: f.owner,
+        }
+        expect(
+          authorizeGroupChannelPublication(gate, {
+            admission,
+            job: staleJob,
+            now: LATER,
+            publisher: f.owner,
+          })
+        ).toMatchObject({ action: 'hold', reason: 'publication_participation_revoked' })
+        // Unrelated context intact: the private direct lane still reads and
+        // writes (direct channels bypass the group gate by design), the
+        // foreign workspace shows no group events, and no foreign identity
+        // ever entered the roster.
+        const directMessages = await listMessagesForUser(
+          f.local.db,
+          f.workspace.id,
+          direct.id,
+          f.owner,
+          {}
+        )
+        expect(directMessages.messages.map((message) => message.bodyText)).toContain('private note')
+        const foreignEvents = await listWorkspaceEventsAfter(
+          f.local.db,
+          other.workspace.id,
+          foreignWindow.latest,
+          100
+        )
+        expect(foreignEvents).toHaveLength(0)
+        const homeEvents = await listWorkspaceEventsAfter(
+          f.local.db,
+          f.workspace.id,
+          eventsStart,
+          100
+        )
+        expect(homeEvents.length).toBeGreaterThan(0)
+        const fresh = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+        expect(
+          fresh.some(
+            (entry) =>
+              entry.participant.kind === 'agent' && entry.participant.agentId === echoAway.id
+          )
+        ).toBe(false)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
 })
