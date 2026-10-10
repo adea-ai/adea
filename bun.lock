@@ -23,14 +23,14 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/dev-view": "workspace:*",
       },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@capacitor/android": "8.5.2",
         "@capacitor/core": "8.5.2",
@@ -43,7 +43,7 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
@@ -86,21 +86,21 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/ui": "0.122.3",
         "lucide-solid": "^1.51.0",
@@ -113,7 +113,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -122,11 +122,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.87.0",
+      "version": "0.88.0",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -141,7 +141,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/auth": "workspace:*",
         "@adea-ai/remote-content": "workspace:*",
@@ -156,11 +156,11 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
-        "@adea-ai/themes": "0.10.1",
+        "@adea-ai/themes": "0.10.3",
         "@adea-ai/types": "workspace:*",
         "@adea-ai/ui": "0.122.3",
         "@adea-ai/workspace-nav": "workspace:*",
@@ -186,18 +186,18 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial": {
       "name": "@adea-ai/spatial",
-      "version": "0.87.0",
+      "version": "0.88.0",
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -205,13 +205,13 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.87.0",
+      "version": "0.88.0",
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
-        "@adea-ai/themes": "0.10.1",
+        "@adea-ai/themes": "0.10.3",
         "@adea-ai/ui": "0.122.3",
         "lucide-solid": "^1.51.0",
         "solid-js": "^1.9.15",
@@ -223,7 +223,7 @@
     },
     "packages/workspace-nav": {
       "name": "@adea-ai/workspace-nav",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -238,7 +238,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.87.0",
+      "version": "0.88.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
@@ -260,7 +260,7 @@
     },
   },
   "overrides": {
-    "@adea-ai/themes": "0.9.10",
+    "@adea-ai/themes": "0.10.3",
     "@capacitor/android": "8.5.1",
     "@capacitor/cli": "8.5.1",
     "@capacitor/core": "8.5.1",
@@ -308,7 +308,7 @@
 
     "@adea-ai/state": ["@adea-ai/state@workspace:packages/state"],
 
-    "@adea-ai/themes": ["@adea-ai/themes@0.9.10", "", {}, "sha512-GupC7WbuUanQf3l4DxbMvdumgNDU3DTUJyBqDM9Ic2sGnbX1k4ir8MlHWSV6qhDzxX/uH3wdJufYQtD2MrPVrQ=="],
+    "@adea-ai/themes": ["@adea-ai/themes@0.10.3", "", {}, "sha512-3Ze/w3IR+pcIqAppvsDAlidnsbq+JnVeEDomXP7QLZb6pjw+GvupZgE1Ayisvsr3bTSvOtm9I2glp6b2/OjubQ=="],
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
