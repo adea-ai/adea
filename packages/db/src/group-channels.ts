@@ -83,6 +83,7 @@ import {
   loadGroupRoster,
   loadGroupSharingGrants,
   participantKey,
+  requireAgentEnlistmentSource,
   requireGroupManagementAuthority,
   requireGroupMembership,
   requireGroupParticipantLiveness,
@@ -107,6 +108,7 @@ export {
   loadGroupSharingGrants,
   participantKey,
   partitionGroupChannelHistory,
+  requireAgentEnlistmentSource,
   requireGroupManagementAuthority,
   requireGroupMembership,
   requireGroupParticipantLiveness,
@@ -667,8 +669,19 @@ export async function createGroupChannelWithGrants(
 
   return database.transaction(async (transaction) => {
     await requireGroupMembership(transaction, workspaceId, principal)
-    for (const admission of roster)
-      await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
+    // Standing is proven per authority: humans through host membership,
+    // Agents through their own source workspace (never host equality).
+    for (const [candidateIndex, candidate] of input.candidates.entries()) {
+      if (candidate.kind === 'human')
+        await requireGroupParticipantLiveness(transaction, workspaceId, candidate.participant)
+      else
+        await requireAgentEnlistmentSource(
+          transaction,
+          candidateIndex,
+          candidate.agentId,
+          candidate.workspaceId
+        )
+    }
     // No conflict arbiter: concurrent retries carry the same explicit id,
     // so the primary key itself can collide before the idempotency key is
     // visible. Any conflict falls through to the replay path, which loads
@@ -815,8 +828,17 @@ export async function setGroupChannelParticipantsInTransaction(
   // a newcomer join point always lands after every committed message.
   await barrier.afterChannelLock?.()
   if (channel.version !== validated.expectedVersion) throw new Error('Channel version conflict')
-  for (const admission of validated.roster)
-    await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
+  for (const [candidateIndex, candidate] of validated.candidates.entries()) {
+    if (candidate.kind === 'human')
+      await requireGroupParticipantLiveness(transaction, workspaceId, candidate.participant)
+    else
+      await requireAgentEnlistmentSource(
+        transaction,
+        candidateIndex,
+        candidate.agentId,
+        candidate.workspaceId
+      )
+  }
   const stored = await loadGroupRoster(transaction, workspaceId, channelId)
   const storedByParticipant = new Map(
     stored.map((admission) => [participantKey(workspaceId, admission.participant), admission])

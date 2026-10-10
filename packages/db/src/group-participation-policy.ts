@@ -257,7 +257,12 @@ export function validateGroupCreation(input: GroupCreationInput): GroupCreationV
     const participant = { agentId, kind: 'agent' } as const
     if (!hasText(agentId) || !hasText(workspaceId))
       return reject(participant, 'participant_unqualified')
-    if (workspaceId !== input.workspaceId) return reject(participant, 'participant_cross_tenant')
+    // Enlisted Agents keep their source workspace: the host workspace never
+    // confers authority over them. The claimed source must be nonblank and
+    // match the grant's own qualified identity here; the transactional layer
+    // then proves it against the Agent registry (true home workspace and
+    // active standing) before anything persists — a spoofed source fails
+    // there with `grant_workspace_mismatch`, never here by equality.
     if (!enlistmentGrant) return reject(participant, 'grant_absent')
     if (!sameQualifiedAgentIdentity(enlistmentGrant.agent, candidate))
       return reject(participant, 'grant_mismatched_participant')

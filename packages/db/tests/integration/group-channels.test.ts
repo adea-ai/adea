@@ -3678,7 +3678,7 @@ describe('durable binding, fences and shared read boundary', () => {
   })
 
   T(
-    'cross-workspace journey: foreign agents never join, revocation denies all group effects, unrelated context intact',
+    'cross-workspace journey: spoofed sources fail, revocation denies all group effects, unrelated context intact',
     async () => {
       // One end-to-end journey across two workspaces with same-named agents:
       // tenant-bounded invitation, active conversation, revocation, then
@@ -3726,10 +3726,13 @@ describe('durable binding, fences and shared read boundary', () => {
           revision: 1,
           revokedAt: null,
         }
-        // A foreign same-named agent cannot be invited: tenant bounding rejects
-        // the cross-workspace grant with zero writes.
+        // A spoofed source fails with zero writes: the grant claims the
+        // foreign agent lives in the host workspace, but the registry
+        // proves its true home is elsewhere. A properly qualified foreign
+        // grant is legitimate (see the two-workspace case below) — only
+        // the lie is rejected, never by host equality.
         const foreignEnlistment = {
-          agent: { agentId: echoAway.id, workspaceId: other.workspace.id },
+          agent: { agentId: echoAway.id, workspaceId: f.workspace.id },
           expiresAt: null,
           grantId: 'gra_echo_away',
           groupId: channelId,
@@ -3742,20 +3745,22 @@ describe('durable binding, fences and shared read boundary', () => {
             audienceGrants: [founder],
             enlistmentGrants: [homeEnlistment, foreignEnlistment],
           }),
-          channelId: crypto.randomUUID(),
+          // Same group id the grants were issued for: the spoof must be
+          // the reason this fails, not a mismatched group.
+          channelId,
           idempotencyKey: crypto.randomUUID(),
           now: NOW,
           title: 'Group',
         }).then(
           () => {
-            throw new Error('cross-workspace enlistment must fail')
+            throw new Error('spoofed enlistment must fail')
           },
           (error: unknown) => error
         )
         expect(rejected).toBeInstanceOf(GroupCreationError)
         expect(
           (rejected as GroupCreationError).rejections.some(
-            (entry) => entry.scope === 'candidate' && entry.reason === 'participant_cross_tenant'
+            (entry) => entry.scope === 'candidate' && entry.reason === 'grant_workspace_mismatch'
           )
         ).toBe(true)
         // Permitted invitation: the home agent enlists; the conversation lives.
@@ -3895,6 +3900,200 @@ describe('durable binding, fences and shared read boundary', () => {
               entry.participant.kind === 'agent' && entry.participant.agentId === echoAway.id
           )
         ).toBe(false)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'two-workspace authorized group: same-name Agents keep qualified identity and dispatch correctly',
+    async () => {
+      // REQ 021 / A05 reconciliation: the host workspace scopes the
+      // conversation but never confers authority over foreign Agents. Both
+      // Echos enlist with their true source workspace; labels stay qualified;
+      // the single workspace lead — here the FOREIGN one — dispatches with
+      // its own home profile; revocation and ungranted access deny.
+      const f = await isolatedFixture()
+      try {
+        const otherOwner = (
+          await createTemporaryUserSession(f.local.db, {
+            credentialDigest: `two-ws-owner-${crypto.randomUUID()}`,
+            expiresAt: new Date(Date.now() + 60_000),
+          })
+        ).principal
+        const other = await createWorkspaceWithOwner(f.local.db, {
+          idempotencyKey: crypto.randomUUID(),
+          name: 'Second',
+          owner: otherOwner,
+        })
+        const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
+          name: 'Echo',
+          profileId: 'lead',
+          profileVersion: '1',
+        })
+        const echoAway = await createAgent(f.local.db, other.workspace.id, otherOwner, {
+          name: 'Echo',
+          profileId: 'lead',
+          profileVersion: '1',
+        })
+        // The foreign workspace's lead is the group's single lead.
+        const leadAway = await ensureWorkspaceLead(f.local.db, other.workspace.id, otherOwner)
+        const channelId = crypto.randomUUID()
+        const founder = {
+          expiresAt: null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        }
+        const { channel, roster } = await createGroupChannelWithGrants(
+          f.local.db,
+          f.workspace.id,
+          f.owner,
+          {
+            candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+              audienceGrants: [founder],
+              enlistmentGrants: [
+                {
+                  agent: { agentId: echoHome.id, workspaceId: f.workspace.id },
+                  expiresAt: null,
+                  grantId: 'gra_echo_home',
+                  groupId: channelId,
+                  issuedAt: ISSUED,
+                  revision: 1,
+                  revokedAt: null,
+                },
+                {
+                  agent: { agentId: echoAway.id, workspaceId: other.workspace.id },
+                  expiresAt: null,
+                  grantId: 'gra_echo_away_plain',
+                  groupId: channelId,
+                  issuedAt: ISSUED,
+                  revision: 1,
+                  revokedAt: null,
+                },
+                {
+                  agent: { agentId: leadAway.id, workspaceId: other.workspace.id },
+                  expiresAt: null,
+                  grantId: 'gra_echo_away',
+                  groupId: channelId,
+                  issuedAt: ISSUED,
+                  revision: 1,
+                  revokedAt: null,
+                },
+              ],
+            }),
+            channelId,
+            idempotencyKey: crypto.randomUUID(),
+            now: NOW,
+            title: 'Group',
+          }
+        )
+        // Qualified identity survives the round trip: the stored enlistment
+        // rows joined to the registry agree on each Agent's true home, and
+        // the two same-named Agents carry distinct workspace-qualified labels.
+        const enlistments = await f.local.db
+          .select({
+            agentId: schema.groupEnlistmentGrants.agentId,
+            agentWorkspaceId: schema.agents.workspaceId,
+            grantId: schema.groupEnlistmentGrants.grantId,
+          })
+          .from(schema.groupEnlistmentGrants)
+          .innerJoin(schema.agents, eq(schema.agents.id, schema.groupEnlistmentGrants.agentId))
+          .where(
+            and(
+              eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+              eq(schema.groupEnlistmentGrants.channelId, channelId)
+            )
+          )
+        expect(enlistments).toHaveLength(3)
+        const labels = enlistments.map((row) => `${row.agentWorkspaceId}:${row.agentId}`)
+        expect(new Set(labels).size).toBe(3)
+        expect(labels).toContain(`${f.workspace.id}:${echoHome.id}`)
+        expect(labels).toContain(`${other.workspace.id}:${echoAway.id}`)
+        expect(labels).toContain(`${other.workspace.id}:${leadAway.id}`)
+        expect(roster).toHaveLength(4)
+        // Both Agents converse; the foreign one posts under its own identity.
+        await postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          {
+            message: { bodyText: 'kickoff', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: NOW }
+        )
+        await postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          { agentId: leadAway.id, kind: 'agent' },
+          {
+            message: { bodyText: 'foreign echo replies', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: NOW }
+        )
+        // Correct dispatch: the single (foreign) lead resolves and its turn
+        // pins the home workspace's agent row, not the host's.
+        const admitted = await createLeadTurn(f.local.db, f.workspace.id, channelId, f.owner, {
+          bodyText: 'dispatch to foreign lead',
+          idempotencyKey: crypto.randomUUID(),
+          mentions: [],
+        })
+        expect(admitted.message.sequence).toBeGreaterThanOrEqual(1)
+        const [intent] = await f.local.db
+          .select()
+          .from(schema.leadTurnIntents)
+          .where(eq(schema.leadTurnIntents.messageId, admitted.message.id))
+          .limit(1)
+        expect(intent?.agentId).toBe(leadAway.id)
+        // An ungranted same-name agent reads and writes nothing.
+        const stranger = await createAgent(f.local.db, other.workspace.id, otherOwner, {
+          name: 'Echo',
+          profileId: 'lead',
+          profileVersion: '1',
+        })
+        await expect(
+          postGroupChannelMessage(
+            f.local.db,
+            f.workspace.id,
+            channelId,
+            f.owner,
+            { agentId: stranger.id, kind: 'agent' },
+            {
+              message: { bodyText: 'must not land', idempotencyKey: crypto.randomUUID() },
+              mode: 'direct',
+            },
+            { now: NOW }
+          )
+        ).rejects.toThrow()
+        // Revoking the foreign enlistment denies its reads while the home
+        // agent keeps working.
+        await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+          grantId: 'gra_echo_away',
+          kind: 'enlistment',
+          revokedAt: LATER,
+        })
+        const after = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+        const awayAdmission =
+          admissionForParticipant(after, { agentId: leadAway.id, kind: 'agent' }) ??
+          (() => {
+            throw new Error('foreign admission must persist as a row')
+          })()
+        expect(
+          authorizeGroupChannelTurn(
+            { channel, workspaceId: f.workspace.id },
+            { admission: awayAdmission, now: LATER }
+          )
+        ).toMatchObject({ action: 'deny' })
       } finally {
         await f.local.close()
       }

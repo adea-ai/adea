@@ -124,13 +124,16 @@ async function lockAuthority(
       : null
   const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
   if (!leadAgentId) throw new Error('Lead turn unavailable')
+  // Tool authority is source-scoped: a group lead Agent is pinned in its
+  // own home workspace (proved at enlist time), never the host's. Direct
+  // channels keep their bound agent; the row read is identical either way.
   const [agent] = await tx
     .select()
     .from(agents)
     .where(
       and(
         eq(agents.id, leadAgentId),
-        eq(agents.workspaceId, workspaceId),
+        ...(channel.kind === 'group' ? [] : [eq(agents.workspaceId, workspaceId)]),
         eq(agents.isWorkspaceLead, true),
         eq(agents.lifecycleState, 'active'),
         isNull(agents.projectId)
