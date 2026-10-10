@@ -375,7 +375,7 @@ export function readLeadTurnRollbackState(
     workspaceId,
     intentId,
     principal,
-    false,
+    'read',
     async (tx, intent, _message, _controlPlaneWorkspaceId, channel) => {
       const [row] = await tx
         .select()
