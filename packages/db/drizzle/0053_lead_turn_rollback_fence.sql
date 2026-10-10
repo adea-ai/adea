@@ -1,0 +1,1 @@
+ALTER TABLE "app"."lead_turn_intents" ADD COLUMN "rollback_fenced_at" timestamp with time zone;

@@ -372,6 +372,13 @@
       "when": 1791912761448,
       "tag": "0052_lead_handoff_target",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791935618387,
+      "tag": "0053_lead_turn_rollback_fence",
+      "breakpoints": true
     }
   ]
 }
