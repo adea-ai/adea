@@ -6,7 +6,7 @@ Files: `m18-readiness-inventory.json` (the criteria, probes and sources, reviewe
 
 ## Revisions
 
-- Main: `34a3eaad69b6f2d671fd802bfe21bb629e7609ff` (`feat(db): wire artifact-reference grants into publication and retrieval (#1216) (#1246)`). The first measurement and the dev-server attempts used `9fb30c495ca9a4d7e680c24746924cc264e93203`, which was main at that time. Only the bundle and build numbers were repeated at the new main, and they did not change.
+- Main: `34a3eaad69b6f2d671fd802bfe21bb629e7609ff` (`feat(db): wire artifact-reference grants into publication and retrieval (#1216) (#1246)`). The first measurement used `9fb30c495ca9a4d7e680c24746924cc264e93203`, which was main at that time. The whole measurement was then re-run at the new main. The dev-server attempts were not repeated, so they stay at `9fb30c49`. The bundle numbers did not change; the build took 251 s instead of 192 s (finding 3).
 - Candidate heads: the 13 open draft PRs listed at the end, at the SHAs measured. #1240 is excluded because an external owner reserved it. #1242 is excluded because it is a dependency update. #1246 has merged into main, so it is measured as part of main.
 - Presence probes ran against each head's git tree. The bundle, axe and E2E results apply to main only. No candidate head was built or scanned.
 
