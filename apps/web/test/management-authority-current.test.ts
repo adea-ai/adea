@@ -75,12 +75,13 @@ describe('Control API management current authority client (#1215)', () => {
     server.stop(true)
   })
 
-  function client(fetchImpl?: typeof fetch) {
+  function client(fetchImpl?: typeof fetch, timeoutMs?: number) {
     return createControlPlaneManagementCurrentAuthority({
       credential: async () => ({ token: TOKEN, workspaceId: WORKSPACE }),
       environment: { CONTROL_PLANE_ORIGIN: `http://127.0.0.1:${server.port}` },
       now: () => MANAGEMENT_NOW,
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      ...(timeoutMs ? { timeoutMs } : {}),
     })
   }
 
@@ -156,6 +157,58 @@ describe('Control API management current authority client (#1215)', () => {
       })(request, 'effect')
     ).rejects.toBeInstanceOf(ManagementAuthorityError)
     expect(fetches).toBe(0)
+  })
+
+  test('an oversize body is refused at the 16 KB bound and its stream is cancelled', async () => {
+    let pulled = 0
+    let cancelled = false
+    const oversize = (async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          pull(controller) {
+            pulled += 1
+            controller.enqueue(new Uint8Array(8 * 1024).fill(120))
+          },
+        })
+      )) as unknown as typeof fetch
+    await expect(client(oversize)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
+    // The 16 KB bound is reached within three 8 KB chunks (one may be queued
+    // ahead); an unbounded read would keep pulling this infinite stream.
+    expect(pulled).toBeLessThanOrEqual(4)
+  })
+
+  test('the deadline aborts the owned request and body stream', async () => {
+    let aborted = false
+    let cancelled = false
+    const stalled = (async (_url: unknown, init?: { signal?: AbortSignal }) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => {
+          aborted = true
+        },
+        { once: true }
+      )
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+        })
+      )
+    }) as unknown as typeof fetch
+    const started = Date.now()
+    await expect(client(stalled, 40)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(aborted).toBe(true)
+    expect(cancelled).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
   })
 
   test('an unknown boundary is refused without a hop', async () => {
