@@ -285,6 +285,7 @@ export {
   claimAddressedTurn,
   decideAddressedTurn,
   DEFAULT_ADDRESSED_TURN_BUDGET,
+  dispatchAddressedTurn,
   loadAddressedTurns,
   recordAddressedTurnResponse,
   supersedeAddressedTurns,
