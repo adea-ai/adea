@@ -57,6 +57,10 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Archive and reopen of optional workspaces (#1175): the real shell end to end, and the
+  // targeted settings harness for the confirmation, refusal and retry cases.
+  'apps/web/e2e/workspace-archive-lifecycle.spec.ts',
+  'apps/web/e2e/workspace-archive-settings.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

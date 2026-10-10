@@ -90,10 +90,12 @@ test('an optional workspace archives from the real shell, is found after a reloa
   await archiveRow.click()
 
   // The shell settles on the personal Home. The archived workspace's own panel unmounts with it, so
-  // the durable archived list below is the recovery check, not the transient archive status.
+  // the success toast, which the shell mounts above the panels, is what confirms the archive here.
+  // The durable archived list below is the recovery check.
   await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible({
     timeout: 30_000,
   })
+  await expect(page.getByText(`${workspaceName} is archived`, { exact: true })).toBeVisible()
   expect(workspaceIds(await callApi(page, 'GET', '/api/workspaces'))).not.toContain(workspaceId)
   const bootstrap = await callApi(page, 'POST', '/api/workspaces/bootstrap', {})
   expect(

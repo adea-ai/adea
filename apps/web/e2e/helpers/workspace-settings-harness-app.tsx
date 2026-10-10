@@ -1,6 +1,7 @@
 import '../../src/start/globals.css'
 import { createSignal, Show, onCleanup, onMount } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Toaster } from '@adea-ai/ui/components/ui/toast'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
 import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
@@ -213,6 +214,7 @@ function Harness() {
           Switch fixture workspace
         </Button>
       </Show>
+      <Toaster position="bottom-right" />
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>

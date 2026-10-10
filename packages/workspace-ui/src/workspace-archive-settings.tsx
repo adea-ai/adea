@@ -3,6 +3,7 @@ import { useArchiveWorkspaceMutation } from '@adea-ai/data'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { toast } from '@adea-ai/ui/components/ui/toast'
 import { createSignal, Show } from 'solid-js'
 
 type ArchiveTarget = Readonly<{ id: string; name: string }>
@@ -22,7 +23,9 @@ function archiveFailureMessage(failure: unknown): string {
  * Archives an optional workspace for its owner. The confirmation captures the target by ID and name
  * when it opens, so a change to the active workspace while it is open cannot retarget the archive.
  * Archive hides the workspace and keeps its history and links; the server repeats the owner check and
- * refuses Home. Reopen lives in the durable archived-workspaces list, not in this row.
+ * refuses Home. Reopen lives in the durable archived-workspaces list, not in this row. Success is a
+ * shared toast rather than a line in this panel: archive moves the shell off the workspace, which
+ * unmounts this panel, and the toast outlives it.
  */
 export function WorkspaceArchiveSettings(props: {
   client: AgentHqApiClient
@@ -30,12 +33,10 @@ export function WorkspaceArchiveSettings(props: {
 }) {
   const archive = useArchiveWorkspaceMutation(props.client)
   const [target, setTarget] = createSignal<ArchiveTarget | null>(null)
-  const [status, setStatus] = createSignal('')
   const [error, setError] = createSignal<string | null>(null)
 
   function openConfirmation() {
     setError(null)
-    setStatus('')
     setTarget({ id: props.workspace.id, name: props.workspace.name })
   }
 
@@ -46,7 +47,9 @@ export function WorkspaceArchiveSettings(props: {
     try {
       await archive.mutateAsync(captured.id)
       setTarget(null)
-      setStatus(`${captured.name} is archived. Its history and links are kept.`)
+      toast.success(`${captured.name} is archived`, {
+        description: 'Its history and links are kept.',
+      })
     } catch (failure) {
       setError(archiveFailureMessage(failure))
     }
@@ -90,11 +93,6 @@ export function WorkspaceArchiveSettings(props: {
               </div>
             </>
           )}
-        </Show>
-        <Show when={status()}>
-          <p role="status" aria-label="Archive status">
-            {status()}
-          </p>
         </Show>
         <Show when={error()}>
           <Alert variant="destructive">

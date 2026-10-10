@@ -38,7 +38,9 @@ async function openArchiveHarness(
 
 const archiveButton = (page: Page) =>
   page.getByRole('button', { name: 'Archive workspace', exact: true })
-const archiveStatus = (page: Page) => page.getByRole('status', { name: 'Archive status' })
+// Success is the shared toast, so it is found the same way whether or not the panel is still mounted.
+const archivedToast = (page: Page) =>
+  page.getByText('Settings harness is archived', { exact: true })
 const reopenRow = (page: Page, name: string) =>
   page.getByRole('button', { name: `Reopen ${name}`, exact: true })
 const root = (page: Page) => page.locator('#harness-root')
@@ -52,9 +54,7 @@ test('the owner archives an optional workspace, finds it in the archived list, a
     page.getByText('Archive Settings harness? It is hidden from your workspace list.')
   ).toBeVisible()
   await archiveButton(page).click()
-  await expect(archiveStatus(page)).toHaveText(
-    'Settings harness is archived. Its history and links are kept.'
-  )
+  await expect(archivedToast(page)).toBeVisible()
   await expect(reopenRow(page, 'Settings harness')).toBeVisible()
   await reopenRow(page, 'Settings harness').click()
   await expect(page.getByRole('status', { name: 'Archived workspaces status' })).toHaveText(
@@ -72,9 +72,7 @@ test('an archived workspace stays listed after the panel closes and reopens from
   const errors = await openArchiveHarness(page)
   await archiveButton(page).click()
   await archiveButton(page).click()
-  await expect(archiveStatus(page)).toHaveText(
-    'Settings harness is archived. Its history and links are kept.'
-  )
+  await expect(archivedToast(page)).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Open settings fixture' }).click()
   await expect(reopenRow(page, 'Settings harness')).toBeVisible()
@@ -99,9 +97,7 @@ test('the confirmation keeps its captured target when the active workspace chang
     page.getByText('Archive Settings harness? It is hidden from your workspace list.')
   ).toBeVisible()
   await archiveButton(page).click()
-  await expect(archiveStatus(page)).toHaveText(
-    'Settings harness is archived. Its history and links are kept.'
-  )
+  await expect(archivedToast(page)).toBeVisible()
   await expect(root(page)).toHaveAttribute('data-archive-target', 'workspace-settings-e2e')
   expect(errors).toEqual([])
 })
@@ -124,9 +120,7 @@ test('a refused archive keeps the workspace, explains the refusal, and retries',
   await expect(root(page)).toHaveAttribute('data-archive-calls', '1')
   await root(page).evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
   await archiveButton(page).click()
-  await expect(archiveStatus(page)).toHaveText(
-    'Settings harness is archived. Its history and links are kept.'
-  )
+  await expect(archivedToast(page)).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -141,9 +135,7 @@ test('a transient failure shows a retry message, and a double click archives onc
   await expect(root(page)).toHaveAttribute('data-archive-calls', '1')
   await root(page).evaluate((element) => element.setAttribute('data-archive-mode', 'ok'))
   await archiveButton(page).click()
-  await expect(archiveStatus(page)).toHaveText(
-    'Settings harness is archived. Its history and links are kept.'
-  )
+  await expect(archivedToast(page)).toBeVisible()
   await expect(root(page)).toHaveAttribute('data-archive-calls', '2')
   expect(errors).toEqual([])
 })
