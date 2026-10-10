@@ -96,7 +96,7 @@ allowed-principal list, so no dispatch can be built from it.
   "workspaceId": "wsp_<26-char>",
   "dispatchPermitted": false,
   "rollbackFence": {
-    "fencedAt": "<ISO-8601>",
+    "fencedAt": "<canonical UTC ISO-8601, not later than Adea's clock>",
     "reason": "rollback_cohort | operator_intervention",
     "actor": { "kind": "user", "userId": "<uuid>" }
   }
@@ -105,6 +105,16 @@ allowed-principal list, so no dispatch can be built from it.
 
 `rollbackFence.actor` is `{ "kind": "operator", "operatorId": "<id>" }` for operator fences. The
 response has `cache-control: private, no-store` and returns HTTP 200.
+
+**Envelope gate (checked before any branch).** A product with `dispatchPermitted: false` needs a fence,
+and a product with a fence needs `dispatchPermitted: false`. The fence must have exactly the keys
+`actor`, `fencedAt` and `reason`. `reason` must be one of the two values above. The actor must be exactly
+`{ kind, userId }` with a UUID, or `{ kind, operatorId }` with a valid operator id. `fencedAt` must be in
+canonical UTC form and not later than the verifier's clock, with no skew tolerance. Anything else is
+refused with the same 404 and no fence facts. The fence response's `intentId` and `workspaceId` are the
+requested selectors, after the product's identity has been checked against them. A fenced admission past
+its lifetime still returns fence facts only. The normal freshness check and the signature, membership
+and audience checks are unchanged.
 
 **Archived or unauthorized admission.** HTTP 404 `{ "code": "LEAD_PRODUCT_UNAVAILABLE" }`. A 404
 does not mean "not fenced". CP must treat it as "no dispatchable product", and must not infer a fence
@@ -186,16 +196,14 @@ golden fixtures in `apps/web/test/contracts/`, when `CONTROL_PLANE_CHECKOUT` poi
 3. **Keep archived publication and archived admissions denied.** Adea returns 404 for archived
    admissions, which CP reads as unavailable. Archived observation for CP is a separate decision.
 
-### Required Adea-side change (blocked, see the status note below)
+### Adea-side pins (not in this change, root decision)
 
-The fence-only body must also carry the pins and identity that item 1 needs: `authorityRevision`
-(the channel version), `canonicalActorPrincipalId`, `scopeRef` and `allowedPrincipalIds`. These are
-identity and pin fields only, with no prompt, profile or message content. The unfenced path does not
-change. The change is in `apps/web/src/server/lead-product-reader.ts`: compute the actor and scope
-before the fence branch, and move the freshness check after it. The edit was denied by the auto-mode
-permission classifier, so it was not applied. The branch's handler is at the committed version, and
-the fence-only fixture is at its current shape. A follow-up contract fixture update will be needed
-when it lands.
+The coordinated CP change in item 1 also needs `authorityRevision`, `canonicalActorPrincipalId`,
+`scopeRef` and `allowedPrincipalIds` on the fenced body. This head does not add them. The fence-only body
+carries only the identity and the validated fence facts described above. Adding the pins widens what the
+fenced body discloses, so root decides that separately. Until then CP must refuse fenced results for every
+operation. The typed CP proposal, including the pinned variant as a decision item, is in
+[m18-01-3-cp-consumer-proposal.md](m18-01-3-cp-consumer-proposal.md).
 
 ### Remaining CP obligations
 
@@ -233,6 +241,21 @@ Pre-fence code ignores the fence.
   [#1180](https://github.com/adea-ai/adea/issues/1180): open upstream dependencies. #1174 is closed.
 
 ## Validation
+
+**Envelope gate proof (this head, `apps/web` only; no database code changed).**
+
+- Focused: `apps/web/test/lead-product-fence-envelope-gate.test.ts` (12 tests) and the existing
+  `lead-product-fence-envelope-negative`, `lead-product-reader-fence`, `lead-product-reader` and
+  `lead-product-contract` files: 32 pass, 5 skip (the contract tests need `CONTROL_PLANE_CHECKOUT`), 0 fail.
+- Red check: the new gate file, run against a temporary copy of the earlier committed handler, gave 7 fail
+  and 5 pass. The copy was removed afterwards.
+- Full `apps/web` test suite (`bun --conditions=browser test test/*.test.ts start/ui-tailwind-sources.test.ts`):
+  480 pass, 5 skip, 0 fail.
+- `tsc --noEmit` in `apps/web`: exit 0. `oxlint --deny-warnings apps/web`: no findings.
+  `oxfmt --check` on the changed files: clean.
+- Not re-run: `apps/web` `vite build`, since its script runs `cf-typegen` and `sync-assets`, which write
+  into the tree. The `packages/db` suites, root scans and E2E were not re-run, because this change does
+  not touch them.
 
 **Current chain proof (canonical 0047–0050, then rollback as 0051).** Local Postgres 16 container, with
 databases created for this proof only.
@@ -294,17 +317,16 @@ test/*.test.ts start/ui-tailwind-sources.test.ts`): 442 pass, 0 fail (72 files).
   status and cancel service for missing, stale and mismatched runtime responses.
   `packages/db/tests/integration/lead-turn-fence-envelope-negative.test.ts` covers the rollback reader
   and the effect and cancel authority.
-- Gaps the committed handler does not refuse, found by probing it. They are not committed as tests,
-  because they would fail. (a) A product with `dispatchPermitted: false` and no envelope is served as
-  a dispatchable v1 admission with the prompt. The database never produces that combination, but the
-  handler does not check it. (b) A malformed envelope, a `fencedAt` in the future or an unknown actor
-  kind is emitted unvalidated. A fence envelope that contradicts `dispatchPermitted: true` is also
-  emitted.
-- Unapproved proposal (uncommitted, not applied, not in this branch): an additive, insertion-only
-  handler patch that closes (a) and (b) and adds the identity and pin fields. It comes with its tests
-  and fixture updates, in the worktree folder `review/lead-1244-envelope-proposal.patch`. The gap tests
-  fail against the committed handler and pass against the patched copy, and the patch dry-runs with
-  `git apply --check`.
+- Gaps found by probing the earlier handler, now closed on this head. (a) A product with
+  `dispatchPermitted: false` and no envelope was served as a dispatchable v1 admission. (b) A malformed
+  envelope, a `fencedAt` in the future, an unknown actor kind, or an envelope that contradicted
+  `dispatchPermitted: true` was emitted unvalidated. `readFenceEnvelope` in
+  `apps/web/src/server/lead-product-reader.ts` refuses all of these before any branch is chosen. Its tests
+  are in `apps/web/test/lead-product-fence-envelope-gate.test.ts`. Seven of them fail against the earlier
+  handler. The other five (identity and preserved behaviour) pass against both.
+- `review/lead-1244-envelope-proposal.patch` (untracked, not applied) also adds the identity and pin
+  fields. This head does not apply it. Its validation is a subset of the committed gate, which is stricter:
+  exact keys, canonical `fencedAt`, and UUID or operator-id actor refs.
 - Migration collision with #1229 is recorded in `docs/evidence/m18-01-3-migration-collision.md`.
   Nothing is renumbered.
 - Not run in this pass: root `typecheck` via turbo (the pre-commit hook runs it on commit), root

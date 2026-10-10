@@ -3,8 +3,8 @@ import type { CurrentLeadTurnProduct } from '@adea-ai/db'
 import { createLeadProductReaderHandler } from '../src/server/lead-product-reader'
 
 // Negative checks against the real signed current-product handler, for missing, stale and mismatched
-// fence envelopes. Every case here passes against the handler as committed. The handler is not changed
-// by this file. Any envelope validation that is missing from the handler is a proposal, not a test here.
+// fence envelopes. The envelope gate itself (dispatchPermitted, shape, reason, actor, fencedAt) is covered
+// in lead-product-fence-envelope-gate.test.ts. The cases here must keep passing with the gate in place.
 
 const cpWorkspaceId = 'wsp_0123456789ABCDEFGHJKMNPQRS'
 const intentId = '6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7'

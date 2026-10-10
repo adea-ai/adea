@@ -58,6 +58,55 @@ async function readSelectors(request: Request) {
     reader.releaseLock()
   }
 }
+const fenceReasons: ReadonlySet<string> = new Set(['operator_intervention', 'rollback_cohort'])
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const operatorIdPattern = /^[a-z0-9][a-z0-9._:-]{0,127}$/
+type FenceFacts = Readonly<{
+  fencedAt: string
+  reason: string
+  actor: Readonly<{ kind: 'user'; userId: string } | { kind: 'operator'; operatorId: string }>
+}>
+const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]) =>
+  Object.keys(value).toSorted().join(',') === [...keys].toSorted().join(',')
+
+/**
+ * Checks the fence envelope against dispatchPermitted before any response branch is chosen.
+ * Returns null for a dispatchable, unfenced admission, the fence facts for a valid fenced one, and
+ * undefined to refuse. Any shape that is neither refuses.
+ */
+function readFenceEnvelope(
+  product: CurrentLeadTurnProduct,
+  now: number
+): FenceFacts | null | undefined {
+  const fence: unknown = product.rollbackFence
+  const dispatchPermitted: unknown = product.dispatchPermitted
+  if (fence === null) return dispatchPermitted === true ? null : undefined
+  if (!isRecord(fence) || dispatchPermitted !== false) return undefined
+  if (!hasExactKeys(fence, ['actor', 'fencedAt', 'reason'])) return undefined
+  const { fencedAt, reason, actor } = fence
+  if (typeof fencedAt !== 'string' || typeof reason !== 'string' || !fenceReasons.has(reason))
+    return undefined
+  if (!isRecord(actor)) return undefined
+  // Only the canonical UTC form the database emits, and never later than this verifier's clock.
+  const at = Date.parse(fencedAt)
+  if (!Number.isFinite(at) || at > now || new Date(at).toISOString() !== fencedAt) return undefined
+  if (
+    actor.kind === 'user' &&
+    hasExactKeys(actor, ['kind', 'userId']) &&
+    typeof actor.userId === 'string' &&
+    uuidPattern.test(actor.userId)
+  )
+    return { fencedAt, reason, actor: { kind: 'user', userId: actor.userId } }
+  if (
+    actor.kind === 'operator' &&
+    hasExactKeys(actor, ['kind', 'operatorId']) &&
+    typeof actor.operatorId === 'string' &&
+    operatorIdPattern.test(actor.operatorId)
+  )
+    return { fencedAt, reason, actor: { kind: 'operator', operatorId: actor.operatorId } }
+  return undefined
+}
+
 /** Authenticated private service read. The browser cannot supply actor, profile, selection or grants. */
 export function createLeadProductReaderHandler(dependencies: LeadProductReaderDependencies) {
   return async (request: Request): Promise<Response> => {
@@ -87,21 +136,25 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
           // Canonical product locks remain held across final service verification and response construction.
           if (!(await dependencies.verify(request, selectors.workspaceId, selectors.principalId)))
             return unavailable()
-          // A fenced admission is not admissible. The signed reader returns only its fence facts, with
-          // no prompt, profile, scope or principal, so no dispatch can be built from this response.
-          if (product.rollbackFence) {
+          // Fail closed before any branch: a fence must be well formed, not from the future, and agree with
+          // dispatchPermitted. A product with no fence is refused unless dispatch is explicitly permitted.
+          const now = dependencies.now?.() ?? Date.now()
+          const fence = readFenceEnvelope(product, now)
+          if (fence === undefined) return unavailable()
+          // A fenced admission is not admissible. The response carries only the requested identity and the
+          // validated fence facts: no prompt, profile, scope or principal, so no dispatch can be built from it.
+          if (fence) {
             return Response.json(
               {
                 schemaVersion: 'pi-lead-intent-fence/v1',
-                intentId: product.intentId,
-                workspaceId: product.controlPlaneWorkspaceId,
+                intentId: selectors.intentId,
+                workspaceId: selectors.workspaceId,
                 dispatchPermitted: false,
-                rollbackFence: product.rollbackFence,
+                rollbackFence: fence,
               },
               { headers: { 'cache-control': 'private, no-store' } }
             )
           }
-          const now = dependencies.now?.() ?? Date.now()
           const createdAt = Date.parse(product.intentCreatedAt)
           const expiresAt = createdAt + dependencies.lifetimeMs
           if (!Number.isFinite(createdAt) || createdAt > now || expiresAt <= now)
