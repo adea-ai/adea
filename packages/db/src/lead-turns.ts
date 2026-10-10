@@ -20,6 +20,7 @@ import {
   workspaces,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
+import { addressedAgentTurns } from './schema/addressed-agent-turns'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type Intent = typeof leadTurnIntents.$inferSelect
@@ -57,7 +58,11 @@ async function lockAuthority(
   channelId: string,
   principal: UserPrincipalRef,
   requireAudienceMemberships = true,
-  clock: () => string = liveLeadClock
+  clock: () => string = liveLeadClock,
+  // When provided, the resolved lead must equal the expected addressed
+  // Agent INSIDE this same transaction: a lead change racing admission
+  // denies instead of launching a different Agent.
+  expectedAgentId?: string
 ) {
   const [workspace] = await tx
     .select({ id: workspaces.id })
@@ -124,6 +129,8 @@ async function lockAuthority(
       : null
   const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
   if (!leadAgentId) throw new Error('Lead turn unavailable')
+  if (expectedAgentId !== undefined && leadAgentId !== expectedAgentId)
+    throw new Error('Lead turn unavailable')
   // Tool authority is source-scoped: a group lead Agent is pinned in its
   // own home workspace (proved at enlist time), never the host's. Direct
   // channels keep their bound agent; the row read is identical either way.
@@ -325,6 +332,198 @@ export async function createLeadTurn(
     // every effect with zero rows surviving.
     await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
     return { message, leadTurn: receipt(intent) }
+  })
+}
+
+/**
+ * Addressed dispatch admission for group channels (M15.02, adea-ai/adea#1179).
+ * Reuses the canonical admission boundary above — same lockAuthority (with
+ * the expected addressed Agent enforced inside the transaction), same
+ * freshness gates, same intent shape — but attaches the intent to the
+ * ALREADY-STORED human trigger message instead of minting another human
+ * message. No body is invented and no content is duplicated: the trigger
+ * row stays the single source of content and context, linked by
+ * `messageId`. Concurrent first-time admits converge on one row through
+ * the message-unique key plus a reselect, exactly like duplicate claims.
+ */
+export async function admitAddressedLeadTurn(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{
+    triggerMessageId: string
+    expectedAgentId: string
+    requestedModelSelections?: RequestedRoleModelSelections
+    /**
+     * Coordinator claim this admission serves. When provided, the claim
+     * row locks FIRST in this same transaction and must be live
+     * (`claimed`/`dispatching`); it flips to `dispatching` and binds the
+     * minted intent atomically with it. Terminal transitions and the
+     * executable admission therefore share one serialization boundary:
+     * a cancel/supersede that commits first wins with zero mint, and one
+     * that arrives after loses the row race with zero effect — never a
+     * terminal claim with a live uncancelled intent.
+     */
+    claim?: Readonly<{ id: string }>
+  }>,
+  options: Readonly<{ clock?: () => string }> = {}
+): Promise<{ leadTurn: ReturnType<typeof receipt>; triggerMessageId: string }> {
+  const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
+  const clock = options.clock ?? liveLeadClock
+  return database.transaction(async (tx) => {
+    // Canonical lock order: CHANNEL before claims, everywhere. The human
+    // post path holds the channel row across its supersede, so admission
+    // takes the same order — never the reverse — and the two serialize
+    // instead of deadlocking. Lock modes below do not matter for the
+    // order guarantee; first-conflicting-lock-wins decides the sequence.
+    const [channel] = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.id, channelId),
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.lifecycleState, 'active')
+        )
+      )
+      .limit(1)
+      .for('update')
+    if (!channel) throw new Error('Lead turn unavailable')
+    if (input.claim) {
+      const [locked] = await tx
+        .select()
+        .from(addressedAgentTurns)
+        .where(
+          and(
+            eq(addressedAgentTurns.id, input.claim.id),
+            eq(addressedAgentTurns.workspaceId, workspaceId)
+          )
+        )
+        .limit(1)
+        .for('update')
+      // Full claim-to-admission binding: the claim must name this exact
+      // channel, this exact trigger, the expected Agent, and an addresser
+      // the current principal may act as (addresser or manager).
+      // Anything less fails before any authority is read.
+      if (
+        !locked ||
+        locked.channelId !== channelId ||
+        locked.triggerMessageId !== input.triggerMessageId ||
+        locked.agentId !== input.expectedAgentId ||
+        (locked.state !== 'claimed' && locked.state !== 'dispatching')
+      )
+        throw new Error('Lead turn unavailable')
+      if (locked.addresserUserId !== principal.userId) {
+        const [membership] = await tx
+          .select({ role: workspaceMemberships.role })
+          .from(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, workspaceId),
+              eq(workspaceMemberships.userId, principal.userId)
+            )
+          )
+          .limit(1)
+        if (membership?.role !== 'owner' && membership?.role !== 'admin')
+          throw new Error('Lead turn unavailable')
+      }
+    }
+    const authority = await lockAuthority(
+      tx,
+      workspaceId,
+      channelId,
+      principal,
+      true,
+      clock,
+      input.expectedAgentId
+    )
+    const [trigger] = await tx
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.id, input.triggerMessageId),
+          eq(messages.workspaceId, workspaceId),
+          eq(messages.channelId, channelId),
+          isNull(messages.deletedAt)
+        )
+      )
+      .limit(1)
+      .for('share')
+    if (!trigger) throw new Error('Lead turn unavailable')
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+    const [existing] = await tx
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.messageId, trigger.id))
+    if (existing) {
+      assertPinned(existing, authority)
+      if (
+        !sameRequestedRoleModelSelections(
+          existing.requestedModelSelections ?? undefined,
+          requestedModelSelections
+        )
+      )
+        throw new Error('Lead turn model selection conflict')
+      if (input.claim) {
+        // Replay binds exactly like insert (gap a): without this, a
+        // recovery claim would return an executable intent while leaving
+        // intentId null and the claim available for a second dispatch.
+        const rebound = await tx
+          .update(addressedAgentTurns)
+          .set({ intentId: existing.id, state: 'dispatching' })
+          .where(
+            and(
+              eq(addressedAgentTurns.id, input.claim.id),
+              eq(addressedAgentTurns.workspaceId, workspaceId),
+              sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+            )
+          )
+          .returning({ id: addressedAgentTurns.id })
+        if (!rebound[0]) throw new Error('Lead turn unavailable')
+      }
+      await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+      return { leadTurn: receipt(existing), triggerMessageId: trigger.id }
+    }
+    const id = randomUUID()
+    const [inserted] = await tx
+      .insert(leadTurnIntents)
+      .values({
+        ...authority,
+        id,
+        dispatchKey: `lead-turn:${id}`,
+        requestedModelSelections: requestedModelSelections ?? null,
+        messageId: trigger.id,
+        workspaceId,
+        channelId,
+      })
+      .onConflictDoNothing()
+      .returning()
+    const intent =
+      inserted ??
+      (await tx.select().from(leadTurnIntents).where(eq(leadTurnIntents.messageId, trigger.id)))[0]
+    if (!intent) throw new Error('Lead turn unavailable')
+    assertPinned(intent, authority)
+    if (input.claim) {
+      // Bound on BOTH paths: a replayed intent binds exactly like a fresh
+      // one, so a recovery claim never returns an executable intent while
+      // leaving intentId null and state claimed.
+      const bound = await tx
+        .update(addressedAgentTurns)
+        .set({ intentId: intent.id, state: 'dispatching' })
+        .where(
+          and(
+            eq(addressedAgentTurns.id, input.claim.id),
+            eq(addressedAgentTurns.workspaceId, workspaceId),
+            sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+          )
+        )
+        .returning({ id: addressedAgentTurns.id })
+      if (!bound[0]) throw new Error('Lead turn unavailable')
+    }
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+    return { leadTurn: receipt(intent), triggerMessageId: trigger.id }
   })
 }
 
