@@ -76,7 +76,11 @@ function provider(
   return handler
 }
 
-function command(body: unknown, commandScope: Scope = scope): DevCommand {
+function command(
+  body: unknown,
+  commandScope: Scope = scope,
+  overrides: Partial<DevCommand> = {}
+): DevCommand {
   return {
     schemaVersion: 1,
     operation: 'dev.session.list',
@@ -87,6 +91,7 @@ function command(body: unknown, commandScope: Scope = scope): DevCommand {
     scope: commandScope,
     capabilities: ['dev.session.read'],
     body,
+    ...overrides,
   } as DevCommand
 }
 
@@ -1024,6 +1029,118 @@ describe('workspace deletion session detachment', () => {
       })
       expect(restarted.getSession(session.id)?.archived).toBe(true)
       expect(restarted.archiveRecords()).toHaveLength(1)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('Dev-to-Chat-to-Dev transfer preserves native identity and never spawns a second session', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-project-session-transfer-'))
+    try {
+      const runtime = seedRuntime(dataDir)
+      const transfer = provider(runtime, 'dev.session.transferInput')
+      const list = provider(runtime, 'dev.session.list')
+
+      const toChat = transfer(
+        command(
+          {
+            runtimeSessionId: session.id,
+            expectedGeneration: session.generation,
+            fromView: 'dev',
+            toView: 'chat',
+            expectedOwnerVersion: session.version,
+          },
+          scope,
+          {
+            resource: { kind: 'runtime_session', id: session.id, generation: session.generation },
+          }
+        )
+      ) as RuntimeSession
+      expect(toChat).toMatchObject({
+        id: session.id,
+        projectId: session.projectId,
+        repoId: session.repoId,
+        worktreeId: session.worktreeId,
+        projection: 'structured',
+        lifecycle: 'active',
+        generation: session.generation + 1,
+        version: session.version + 1,
+      })
+
+      const toDev = transfer(
+        command(
+          {
+            runtimeSessionId: session.id,
+            expectedGeneration: toChat.generation,
+            fromView: 'chat',
+            toView: 'dev',
+            expectedOwnerVersion: toChat.version,
+          },
+          scope,
+          {
+            resource: { kind: 'runtime_session', id: session.id, generation: toChat.generation },
+          }
+        )
+      ) as RuntimeSession
+      expect(toDev).toMatchObject({
+        id: session.id,
+        projectId: session.projectId,
+        repoId: session.repoId,
+        worktreeId: session.worktreeId,
+        generation: session.generation + 2,
+        version: session.version + 2,
+      })
+
+      // The registry still holds exactly the one native session: the view
+      // round-trip transferred input ownership, it did not spawn a session.
+      const items = (list(command({})) as { items: RuntimeSession[] }).items
+      expect(items).toHaveLength(1)
+      expect(items[0]).toMatchObject({
+        id: session.id,
+        projectId: session.projectId,
+        repoId: session.repoId,
+        worktreeId: session.worktreeId,
+      })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('an unsupported structured projection stays one truthful fallback session', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-project-session-fallback-'))
+    try {
+      const runtime = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      runtime.upsertProject(project)
+      runtime.upsertSession({ ...session, projection: 'terminal_fallback' })
+
+      const items = (
+        provider(runtime, 'dev.session.list')(command({})) as { items: RuntimeSession[] }
+      ).items
+      expect(items).toHaveLength(1)
+      expect(items[0]).toMatchObject({
+        id: session.id,
+        projectId: session.projectId,
+        worktreeId: session.worktreeId,
+        projection: 'terminal_fallback',
+      })
+
+      // The Chat view resolves the same native session; no second session is
+      // created for a fallback projection (the surface label is proved by the
+      // chat-surface presentation tests).
+      const fetched = provider(
+        runtime,
+        'dev.session.get'
+      )(command({ runtimeSessionId: session.id })) as RuntimeSession
+      expect(fetched).toMatchObject({
+        id: session.id,
+        projectId: session.projectId,
+        worktreeId: session.worktreeId,
+        projection: 'terminal_fallback',
+      })
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
