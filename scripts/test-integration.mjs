@@ -54,6 +54,26 @@ function run(command, args, environment) {
   }
 }
 
+// The host port a running compose postgres actually publishes. The runner connects to the port it
+// computed, so this is read back rather than trusted.
+function composePublishedPostgresPort() {
+  const result = spawnSync('docker', ['compose', 'port', 'postgres', '5432'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  if (result.error || result.status !== 0) {
+    throw new Error('Could not read the published port of the running local postgres service')
+  }
+  const port = result.stdout.trim().split(/\r?\n/).at(-1)?.split(':').at(-1)
+  if (!port) {
+    throw new Error(
+      `Unreadable published port for the running local postgres: ${result.stdout.trim()}`
+    )
+  }
+  return port
+}
+
 function runningComposeServices() {
   const result = spawnSync('docker', ['compose', 'ps', '--status', 'running', '--services'], {
     cwd: root,
@@ -211,6 +231,18 @@ if (ciEnvironment && !dockerDaemonAvailable()) {
   throw new Error(
     'Docker is required in CI: the migration-snapshot capture proofs and the cutover and candidate rehearsals need the throwaway capture instance and must not skip.'
   )
+}
+
+// A running local postgres must be the instance this target names. The runner connects to the
+// port it computed, so a project already publishing another port (or a second checkout sharing the
+// default project name) would otherwise be reused silently. Fail before any build instead.
+if (!usesExplicitDatabase && runningComposeServices().includes('postgres')) {
+  const publishedPort = composePublishedPostgresPort()
+  if (publishedPort !== localDatabasePort) {
+    throw new Error(
+      `The compose project "${process.env.COMPOSE_PROJECT_NAME ?? 'agent-hq (compose.yml default)'}" already runs postgres on host port ${publishedPort}, but this local target is port ${localDatabasePort}. Set COMPOSE_PROJECT_NAME and ADEA_POSTGRES_PORT to one isolated project and port; the runner does not connect to an instance it cannot match.`
+    )
+  }
 }
 
 let startedLocalPostgres = false

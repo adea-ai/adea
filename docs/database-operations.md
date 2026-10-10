@@ -77,7 +77,7 @@ runs every integration case. To run against Neon instead, export the three
 canonical URLs for an isolated development/preview branch; never point the
 write-heavy suite at a production or owner connection.
 
-The runner's local target follows `ADEA_POSTGRES_PORT`, so the tests and the compose service agree on the port. The compose project name is fixed to `agent-hq` in `compose.yml`, so a second checkout that must not share that instance should also set `COMPOSE_PROJECT_NAME` and its own `ADEA_POSTGRES_PORT`. In CI the lane fails before any build when Docker is unavailable: the migration-snapshot capture proofs and the cutover rehearsals must not skip.
+The runner's local target follows `ADEA_POSTGRES_PORT`, so the tests and the compose service agree on the port. The compose project name is fixed to `agent-hq` in `compose.yml`, so a second checkout that must not share that instance should also set `COMPOSE_PROJECT_NAME` and its own `ADEA_POSTGRES_PORT`. The runner refuses before any build when a running local postgres publishes a different host port than `ADEA_POSTGRES_PORT`, so it never connects to an instance it did not match. In CI the lane fails before any build when Docker is unavailable: the migration-snapshot capture proofs and the cutover rehearsals must not skip.
 
 ## Health and configuration validation
 
