@@ -35,6 +35,24 @@ export function captureDialogBackgroundState(
 }
 
 /**
+ * A modal that is actually present in the layout owns the background. A
+ * hidden-but-mounted dialog must not block repair, so visibility is part of
+ * the ownership test.
+ */
+export type DialogQueryRoot = {
+  querySelectorAll(selector: string): ArrayLike<{ getClientRects(): ArrayLike<unknown> }>
+}
+
+export function hasVisibleModal(root: DialogQueryRoot): boolean {
+  const dialogs = root.querySelectorAll('[role="dialog"], [role="alertdialog"]')
+  for (let index = 0; index < dialogs.length; index += 1) {
+    const dialog = dialogs[index]
+    if (dialog && dialog.getClientRects().length > 0) return true
+  }
+  return false
+}
+
+/**
  * Restores the captured pre-open state. Returns whether anything changed.
  * Skipped while another modal is present so a second overlay keeps ownership
  * of the background it is hiding.

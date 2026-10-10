@@ -3,6 +3,7 @@ import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import { describeExecutionAttempt } from './execution-location-copy'
 import {
   captureDialogBackgroundState,
+  hasVisibleModal,
   restoreDialogBackgroundState,
 } from './dialog-background-state'
 import {
@@ -199,6 +200,12 @@ const priorityPickerOptions = priorityOptions.map((option) =>
  */
 let activeBackgroundLease: (() => void) | undefined
 
+/** Cancels the active post-close background lease (a new owner took over). */
+export function cancelTaskBackgroundLease() {
+  activeBackgroundLease?.()
+  activeBackgroundLease = undefined
+}
+
 export function TaskPanel(props: CreateProps | EditProps) {
   const editing = () => (props.mode === 'edit' ? props : undefined)
   const initial = props.mode === 'edit' ? props.task : undefined
@@ -257,37 +264,25 @@ export function TaskPanel(props: CreateProps | EditProps) {
   onCleanup(() => {
     if (typeof document === 'undefined' || !capturedBackground) return
     let cancelled = false
-    let idle = 0
-    let rafId: number | undefined
     const restore = () =>
       restoreDialogBackgroundState({
         element: document.querySelector('.workspace-frame'),
         body: document.body,
         captured: capturedBackground,
-        hasOtherModal: () =>
-          Boolean(document.querySelector('[role="dialog"], [role="alertdialog"]')),
+        hasOtherModal: () => hasVisibleModal(document),
       })
     let observer: MutationObserver | undefined
     const cancel = () => {
       cancelled = true
       observer?.disconnect()
-      if (rafId !== undefined && typeof cancelAnimationFrame !== 'undefined') {
-        cancelAnimationFrame(rafId)
-      }
       if (activeBackgroundLease === cancel) activeBackgroundLease = undefined
     }
-    const step = () => {
-      if (cancelled) return
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        idle = 0
-      } else {
-        restore()
-        idle += 1
-      }
-      if (idle < 15) rafId = requestAnimationFrame(step)
-      else cancel()
-    }
     if (typeof MutationObserver !== 'undefined') {
+      // The lease is owned by this close until the next panel mounts (or the
+      // board unmounts). A write Kobalte scheduled before disposal can land at
+      // any later frame, so it deliberately does not expire on a timer; it
+      // only ever restores the state captured before this panel's modal opened
+      // and skips while a visible modal owns the background.
       observer = new MutationObserver(() => {
         if (!cancelled) restore()
       })
@@ -298,9 +293,13 @@ export function TaskPanel(props: CreateProps | EditProps) {
       observer.observe(document.body, { childList: true })
     }
     activeBackgroundLease = cancel
-    setTimeout(() => {
-      if (!cancelled) rafId = requestAnimationFrame(step)
-    })
+    // Release the background once on the same deferral boundary Kobalte uses;
+    // later writes are caught by the observers above.
+    setTimeout(() =>
+      requestAnimationFrame(() => {
+        if (!cancelled) restore()
+      })
+    )
   })
 
   const trimmedTitle = () => title().trim()

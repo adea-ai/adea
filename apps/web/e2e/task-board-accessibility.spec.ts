@@ -222,13 +222,29 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await expect(taskSheet).toHaveCount(0)
     await assertAccessibleBoard()
 
-    // A write scheduled before the dialog closed can land after it. The panel
-    // restores the state it captured, so a late aria-hidden write while no
-    // dialog is open must not stick.
+    // A write Kobalte scheduled before disposal can land at any later frame.
+    // Schedule one explicitly after 25 animation frames (well beyond the
+    // earlier 15-frame lease) and wait for a marker proving it landed before
+    // asserting the panel-owned repair restored the frame.
+    await page.evaluate(() => {
+      let frames = 0
+      const step = () => {
+        frames += 1
+        if (frames < 25) {
+          requestAnimationFrame(step)
+          return
+        }
+        const frame = document.querySelector('.workspace-frame')
+        frame?.setAttribute('aria-hidden', 'true')
+        frame?.setAttribute('data-late-write', '1')
+      }
+      requestAnimationFrame(step)
+    })
+    await expect(page.locator('.workspace-frame')).toHaveAttribute('data-late-write', '1')
+    await expect(page.locator('.workspace-frame')).not.toHaveAttribute('aria-hidden', 'true')
     await page
       .locator('.workspace-frame')
-      .evaluate((frame) => frame.setAttribute('aria-hidden', 'true'))
-    await expect(page.locator('.workspace-frame')).not.toHaveAttribute('aria-hidden', 'true')
+      .evaluate((frame) => frame.removeAttribute('data-late-write'))
     await assertAccessibleBoard()
 
     const openFromCard = async (name: string) => {
@@ -236,8 +252,13 @@ test.describe('the task board stays in the accessibility tree across sheet close
       await expect(taskSheet).toBeVisible()
     }
 
-    // Escape
+    // A newer modal opened while that repair is still owned must keep its own
+    // background state: the reopened sheet hides the frame and the previous
+    // lease must not strip it. Escape then restores the accessible board.
     await openFromCard(TASK_TITLE)
+    await expect
+      .poll(async () => page.locator('.workspace-frame').getAttribute('aria-hidden'))
+      .toBe('true')
     await page.keyboard.press('Escape')
     await expect(taskSheet).toHaveCount(0)
     await assertAccessibleBoard()

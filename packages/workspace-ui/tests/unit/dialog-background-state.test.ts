@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 
 import {
   captureDialogBackgroundState,
+  hasVisibleModal,
   restoreDialogBackgroundState,
 } from '../../src/dialog-background-state'
 
@@ -93,4 +94,18 @@ test('missing capture or element is a no-op', () => {
     })
   ).toBe(false)
   expect(captureDialogBackgroundState(null, body())).toBeUndefined()
+})
+
+test('only a visible dialog owns the background', () => {
+  const selector = '[role="dialog"], [role="alertdialog"]'
+  const visible = { getClientRects: () => [{}] }
+  const hidden = { getClientRects: () => [] }
+  const root = (dialogs: Array<{ getClientRects(): ArrayLike<unknown> }>) => ({
+    querySelectorAll: (query: string) => (query === selector ? dialogs : []),
+  })
+
+  expect(hasVisibleModal(root([]))).toBe(false)
+  expect(hasVisibleModal(root([hidden]))).toBe(false)
+  expect(hasVisibleModal(root([hidden, visible]))).toBe(true)
+  expect(hasVisibleModal(root([visible]))).toBe(true)
 })

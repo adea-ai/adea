@@ -1,6 +1,6 @@
 import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import { Play, Plus, Search, X } from 'lucide-solid'
-import { createMemo, createSignal, Show } from 'solid-js'
+import { createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -20,7 +20,7 @@ import { keyedRows, type KeyedRow } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
 import { ProjectIcon } from './project-icon'
-import { TaskPanel } from './task-detail'
+import { cancelTaskBackgroundLease, TaskPanel } from './task-detail'
 import {
   kindOption,
   priorityOption,
@@ -67,6 +67,9 @@ type Props = Readonly<{
 }>
 
 export function TaskBoard(props: Props) {
+  // The board owns the lifetime of any post-close background repair: leaving
+  // the board releases it so no observer outlives the surface it protects.
+  onCleanup(() => cancelTaskBackgroundLease())
   const [creating, setCreating] = createSignal(false)
   const [query, setQuery] = createSignal('')
   const [boardError, setBoardError] = createSignal<string | null>(null)
