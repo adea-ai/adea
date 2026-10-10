@@ -48,6 +48,7 @@ export {
   deleteArtifact,
   getArtifactForUser,
   listArtifactsForUser,
+  readArtifactReferenceEvidenceById,
   setArtifactAvailability,
   type ArtifactCreateInput,
 } from './artifacts'
@@ -56,6 +57,11 @@ export {
   authorizeArtifactReferenceRetrieval,
   readArtifactReferenceEvidence,
 } from './artifact-reference-policy'
+export {
+  publishArtifactReference,
+  retrieveArtifactReference,
+  type ArtifactReferenceServiceResult,
+} from './artifact-reference-service'
 export {
   readCurrentArtifactReferenceGrant,
   registerArtifactReferenceGrant,
