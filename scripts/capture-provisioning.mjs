@@ -176,11 +176,17 @@ export function startCaptureProvisioning(
     const deadline = Date.now() + 60_000
     let ready = false
     while (Date.now() < deadline) {
-      const probe = spawnSync('docker', ['exec', name, 'pg_isready', '-U', 'postgres'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 10_000,
-      })
+      // Probe over TCP inside the container. The image's init phase runs a temporary server that
+      // listens on its socket only, so a socket probe can succeed before the final server starts.
+      const probe = spawnSync(
+        'docker',
+        ['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres'],
+        {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 10_000,
+        }
+      )
       if (probe.error) throw probe.error
       if (probe.status === 0) {
         ready = true
