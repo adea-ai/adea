@@ -151,6 +151,5 @@ changes another user's membership order.
 
 The opt-in [installed SDK / production-factory consumer proof](../../docs/guides/pi-production-factory-consumer-proof.md)
 uses a reviewed CP checkout and actual public candidate packages with an owned restricted
-PG database. Its preflight and process-fault regressions are in the normal DB unit inventory;
-the connected fixture requires explicit verified inputs and never substitutes a mocked SDK or
-live configuration.
+PG database. Its preflight regressions are in the normal DB unit inventory; the connected
+fixture requires explicit verified inputs and never substitutes a mocked SDK or live config.

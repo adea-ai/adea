@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
-import type { ApiAgentResponse } from '@adea-ai/api-client'
-import { assignAgentToProject } from '@adea-ai/db'
+import type { ApiAgentProjectInput, ApiAgentResponse } from '@adea-ai/api-client'
+import { AgentRevisionConflictError, assignAgentToProject } from '@adea-ai/db'
 import { applicationDatabase } from '../../../../../../../../server/database'
+import { parseAgentProjectChange } from '../../../../../../../../server/agent-edit-request'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
@@ -10,6 +11,7 @@ import {
 import { authorizeWorkspace } from '../../../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../../../server/workspace-principal'
 import {
+  agentRevisionConflictResponse,
   workspaceInvalidRequestResponse,
   workspaceJsonResponse,
   workspaceUnavailableResponse,
@@ -25,14 +27,13 @@ async function post(
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
-  let projectId: unknown
+  let input: ApiAgentProjectInput | null
   try {
-    projectId = ((await request.json()) as Record<string, unknown>).projectId
+    input = parseAgentProjectChange(await request.json())
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
-  if (projectId !== null && (typeof projectId !== 'string' || !projectId.trim()))
-    return workspaceInvalidRequestResponse(request)
+  if (!input) return workspaceInvalidRequestResponse(request)
   try {
     const payload: ApiAgentResponse = {
       agent: await assignAgentToProject(
@@ -40,11 +41,12 @@ async function post(
         workspaceId,
         agentId,
         resolution.principal,
-        projectId
+        input
       ),
     }
     return workspaceJsonResponse(payload, resolution, request)
-  } catch {
+  } catch (error) {
+    if (error instanceof AgentRevisionConflictError) return agentRevisionConflictResponse(request)
     return workspaceUnavailableResponse(request)
   }
 }

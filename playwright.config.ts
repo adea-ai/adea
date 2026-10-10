@@ -1,6 +1,18 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const baseURL = process.env.PERF_BASE_URL ?? 'http://localhost:3000'
+// PERF_BASE_URL points the suite at an already-running server and disables
+// the managed webServer below. E2E_PORT is the local-run escape from the
+// shared port 3000: the managed server starts on 127.0.0.1:<E2E_PORT> with
+// --strictPort, so a stale or foreign listener can never be silently reused
+// (the local lane reuses an existing server on the default port). CI leaves
+// both unset and gets the historical behavior unchanged.
+const isolatedPort = process.env.E2E_PORT ? Number(process.env.E2E_PORT) : undefined
+if (isolatedPort !== undefined && (!Number.isInteger(isolatedPort) || isolatedPort < 1024)) {
+  throw new Error(`E2E_PORT must be an integer >= 1024, got ${process.env.E2E_PORT}`)
+}
+const baseURL =
+  process.env.PERF_BASE_URL ??
+  (isolatedPort === undefined ? 'http://localhost:3000' : `http://127.0.0.1:${isolatedPort}`)
 // The E2E web server boots the app, which needs a migrated database. CI and
 // local shells without DATABASE_URL fall back to the compose Postgres that
 // scripts/e2e-setup.mjs starts (same defaults as test-integration.mjs).
@@ -51,9 +63,11 @@ export default defineConfig({
   webServer: process.env.PERF_BASE_URL
     ? undefined
     : {
-        command: 'cd apps/web && bun run dev',
+        command: isolatedPort
+          ? `cd apps/web && bun run dev -- --port ${isolatedPort} --strictPort --host 127.0.0.1`
+          : 'cd apps/web && bun run dev',
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: !process.env.CI && isolatedPort === undefined,
         timeout: 120_000,
         env: { ...process.env, ...e2eDatabaseEnvironment },
       },

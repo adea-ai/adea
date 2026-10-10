@@ -434,6 +434,105 @@ describe.skipIf(!connectionUrl)('account-wide directory and inbox', () => {
     expect(await findAccountAgent(connection.db, alice, 'not-a-uuid')).toBeNull()
   })
 
+  test('search filters authorized rows only, for the whole cursor walk', async () => {
+    const owner = await user('search-owner')
+    const member = await user('search-member')
+    const outsider = await user('search-outsider')
+    const workspaceId = await workspace(owner, 'Search HQ')
+    await addWorkspaceMembership(connection.db, workspaceId, member, 'member')
+
+    // Case-insensitive substring over the Agent's name…
+    const studioAlpha = await agent(workspaceId, owner, 'Studio Alpha')
+    const studioBeta = await agent(workspaceId, owner, 'Studio Beta')
+    await agent(workspaceId, owner, 'Garden Helper')
+    // …and over the conversation's title, for the inbox.
+    const studioLane = await projectWithChannel(workspaceId, owner, 'Studio Sync')
+    await post(workspaceId, studioLane.channelId, owner)
+    const gardenLane = await projectWithChannel(workspaceId, owner, 'Garden Club')
+    await post(workspaceId, gardenLane.channelId, owner)
+
+    const names = async (principal: UserPrincipalRef, q: string) =>
+      (await accountAgentDirectory(connection.db, principal, { q })).agents.map(({ name }) => name)
+    const titles = async (principal: UserPrincipalRef, q: string) =>
+      (await accountConversationInbox(connection.db, principal, { q })).conversations.map(
+        ({ title }) => title
+      )
+
+    expect(await names(owner, 'STUDIO')).toEqual(['Studio Alpha', 'Studio Beta'])
+    expect(await titles(owner, 'studio')).toEqual(['Studio Sync'])
+    expect(await names(owner, 'garden')).toEqual(['Garden Helper'])
+    // No match is an ordinary empty page, not an error.
+    expect(await names(owner, 'nothing-matches-this')).toEqual([])
+    expect(await titles(owner, 'nothing-matches-this')).toEqual([])
+    // An outsider matching by name still matches nothing: the filter runs
+    // inside the authorization, so denied rows never surface.
+    expect(await names(outsider, 'studio')).toEqual([])
+    expect(await titles(outsider, 'studio')).toEqual([])
+
+    // A hidden project's Agent cannot be found by searching for its exact name.
+    const secret = await projectWithChannel(workspaceId, owner, 'Secret Ops')
+    const hidden = await agent(workspaceId, owner, 'Studio Secret', secret.projectId)
+    await setProjectVisibility(connection.db, workspaceId, secret.projectId, owner, 'members')
+    expect(await names(member, 'studio secret')).toEqual([])
+    expect(await names(owner, 'studio secret')).toEqual([hidden.name])
+    await setProjectMember(connection.db, workspaceId, secret.projectId, owner, {
+      role: 'viewer',
+      userId: member.userId,
+    })
+    expect(await names(member, 'studio secret')).toEqual([hidden.name])
+
+    // The filter is constant across a keyset walk: page one minted under `q`
+    // continues under `q` and repeats nothing, and the unfiltered walk still
+    // sees every row — search narrows, it does not hide.
+    const firstPage = await accountAgentDirectory(connection.db, owner, {
+      limit: 1,
+      q: 'studio',
+    })
+    expect(firstPage.agents.map(({ id }) => id)).toEqual([studioAlpha.id])
+    expect(firstPage.nextCursor).toBeDefined()
+    const secondPage = await accountAgentDirectory(connection.db, owner, {
+      after: firstPage.nextCursor!,
+      limit: 1,
+      q: 'studio',
+    })
+    expect(secondPage.agents.map(({ id }) => id)).toEqual([studioBeta.id])
+    expect(
+      (await accountAgentDirectory(connection.db, owner, { q: 'studio' })).agents.map(
+        ({ id }) => id
+      )
+    ).toEqual([studioAlpha.id, studioBeta.id, hidden.id])
+    expect(
+      (await accountAgentDirectory(connection.db, owner)).agents.filter(({ name }) =>
+        name.includes('Studio')
+      ).length
+    ).toBe(3)
+
+    // Archived rows stay excluded until asked for, even when they match. A
+    // primary project channel is never archivable, so the matching archived
+    // row is a topic channel under its own project.
+    const retired = await projectWithChannel(workspaceId, owner, 'Retired Shell')
+    const archivedTopic = await createProjectChannel(
+      connection.db,
+      workspaceId,
+      retired.projectId,
+      owner,
+      {
+        idempotencyKey: `search-${crypto.randomUUID()}`,
+        title: 'Studio Retired',
+      }
+    )
+    await post(workspaceId, archivedTopic.id, owner)
+    await archiveChannel(connection.db, workspaceId, archivedTopic.id, owner, archivedTopic.version)
+    expect(await titles(owner, 'studio')).toEqual(['Studio Sync'])
+    expect(
+      (
+        await accountConversationInbox(connection.db, owner, { includeArchived: true, q: 'studio' })
+      ).conversations
+        .map(({ id }) => id)
+        .toSorted()
+    ).toEqual([archivedTopic.id, studioLane.channelId].toSorted())
+  })
+
   test('inbox pagination walks a stable keyset while the account keeps moving', async () => {
     const alice = await user('page-owner')
     const workspaceId = await workspace(alice, 'Paging HQ')

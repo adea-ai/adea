@@ -570,22 +570,31 @@ export function ConventionalWorkspaceShell(props: {
                               setSurface('conversation')
                             }}
                             onUpdate={async (agent, input) => {
+                              // Presentation and placement share one Agent revision. Each saved edit
+                              // names the revision it opened, and the next edit chains the revision
+                              // the server returned; a superseded opening conflicts without writing.
+                              let revision = agent.revision ?? 0
                               if (
                                 input.name.trim() !== agent.name ||
                                 input.roleSummary !== (agent.roleSummary ?? null) ||
                                 input.avatarRef !== (agent.avatarRef ?? null) ||
                                 input.characterRef !== (agent.characterRef ?? null)
                               )
-                                await controller.agentActions.presentation(agent.id, {
-                                  avatarRef: input.avatarRef,
-                                  characterRef: input.characterRef,
-                                  name: input.name,
-                                  roleSummary: input.roleSummary,
-                                })
+                                revision =
+                                  (
+                                    await controller.agentActions.presentation(agent.id, {
+                                      avatarRef: input.avatarRef,
+                                      characterRef: input.characterRef,
+                                      expectedRevision: revision,
+                                      name: input.name,
+                                      roleSummary: input.roleSummary,
+                                    })
+                                  ).revision ?? revision + 1
                               if (input.projectId !== (agent.projectId ?? null))
                                 await controller.agentActions.assignProject(
                                   agent.id,
-                                  input.projectId
+                                  input.projectId,
+                                  revision
                                 )
                               if (
                                 input.profileId.trim() !== agent.profile.id ||

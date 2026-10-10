@@ -1,4 +1,6 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
+import type { AccountDirectoryPageInput } from '@adea-ai/types/account-directory'
 import type { TaskSummary } from '@adea-ai/types'
 import { workspaceStore } from '@adea-ai/state'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
@@ -71,11 +73,16 @@ export const artifactQueryKeys = {
 /**
  * User-scoped account queries. They sit outside the per-workspace
  * `['workspaces', workspaceId]` prefix, so a workspace switch (which releases
- * that prefix) keeps them, and they describe every workspace at once.
+ * that prefix) keeps them, and they describe every workspace at once. The
+ * directory and inbox carry their page input in the key: cached pages are
+ * scoped to the signed-in account's authorization context — the server answers
+ * from the caller's own memberships alone, and no workspace id participates.
  */
 export const accountQueryKeys = {
   all: ['account'] as const,
   summary: ['account', 'summary'] as const,
+  directory: (input: AccountDirectoryPageInput = {}) => ['account', 'directory', input] as const,
+  inbox: (input: AccountDirectoryPageInput = {}) => ['account', 'inbox', input] as const,
 }
 
 /** How often the account summary polls for workspaces without an open stream. */
@@ -87,6 +94,16 @@ export const accountQueryOptions = {
     queryFn: () => client.accountSummary(),
     refetchInterval: ACCOUNT_SUMMARY_REFETCH_INTERVAL_MS,
     refetchOnWindowFocus: true,
+  }),
+  /** One keyset page of the account-wide Agents directory (M11.03). */
+  directory: (client: AccountDirectoryApiClient, input: AccountDirectoryPageInput = {}) => ({
+    queryKey: accountQueryKeys.directory(input),
+    queryFn: () => client.accountAgentDirectory(input),
+  }),
+  /** One keyset page of the account-wide conversation inbox (M11.03). */
+  inbox: (client: AccountDirectoryApiClient, input: AccountDirectoryPageInput = {}) => ({
+    queryKey: accountQueryKeys.inbox(input),
+    queryFn: () => client.accountConversationInbox(input),
   }),
 }
 
@@ -689,8 +706,13 @@ export const agentQueryOptions = {
 }
 export const agentMutationOptions = {
   assignProject: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
-    mutationFn: (input: Readonly<{ agentId: string; projectId: string | null }>) =>
-      client.assignAgentToProject(workspaceId, input.agentId, input.projectId),
+    mutationFn: (
+      input: Readonly<{ agentId: string; expectedRevision: number; projectId: string | null }>
+    ) =>
+      client.assignAgentToProject(workspaceId, input.agentId, {
+        expectedRevision: input.expectedRevision,
+        projectId: input.projectId,
+      }),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToProject']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
       await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })

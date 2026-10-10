@@ -51,8 +51,14 @@ describe('Agent API client', () => {
       profileId: 'engineer',
       profileVersion: '1',
     })
-    await client.assignAgentToProject('workspace-1', 'agent-1', 'project-1')
-    await client.updateAgentPresentation('workspace-1', 'agent-1', { avatarRef: 'avatar:ada' })
+    await client.assignAgentToProject('workspace-1', 'agent-1', {
+      expectedRevision: 0,
+      projectId: 'project-1',
+    })
+    await client.updateAgentPresentation('workspace-1', 'agent-1', {
+      avatarRef: 'avatar:ada',
+      expectedRevision: 1,
+    })
     await client.changeAgentProfile('workspace-1', 'agent-1', {
       expectedRevision: 0,
       profileId: 'engineer',
@@ -68,5 +74,31 @@ describe('Agent API client', () => {
       ['POST', '/api/v1/workspaces/workspace-1/agents/agent-1/profile'],
       ['DELETE', '/api/v1/workspaces/workspace-1/agents/agent-1'],
     ])
+  })
+  test('sends the opening revision with every presentation and placement edit', async () => {
+    const requests: Request[] = []
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        requests.push(new Request(input, init))
+        return Response.json({ agent: { ...agent, revision: 1 } })
+      },
+    })
+    await client.assignAgentToProject('workspace-1', 'agent-1', {
+      expectedRevision: 0,
+      projectId: null,
+    })
+    await client.updateAgentPresentation('workspace-1', 'agent-1', {
+      expectedRevision: 1,
+      name: 'Ada Lovelace',
+      roleSummary: null,
+    })
+
+    expect(await requests[0]!.json()).toEqual({ expectedRevision: 0, projectId: null })
+    expect(await requests[1]!.json()).toEqual({
+      expectedRevision: 1,
+      name: 'Ada Lovelace',
+      roleSummary: null,
+    })
   })
 })

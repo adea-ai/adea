@@ -258,6 +258,16 @@ async function requireGrantIssuerAuthority(
       )
     )
     .limit(1)
+    // Hold the issuer's membership row AND the source workspace row through
+    // the grant write: a concurrent membership removal or workspace
+    // archive/deletion blocks until this transaction commits, so the grant
+    // can never anchor an authority that is already revoked or a workspace
+    // that is no longer live at commit time; a removal that committed first
+    // is simply not seen here. The unqualified share lock covers exactly the
+    // joined result — the issuer's one membership row and the one workspace
+    // row — and two grant transactions on the same issuer still run
+    // concurrently, because SHARE locks are mutually compatible.
+    .for('share')
   if (!membership) reject('grant_issuer_unauthorized')
   if (membership.deletedAt !== null) reject('grant_workspace_inactive')
   if (membership.role !== 'owner' && membership.role !== 'admin')
@@ -274,6 +284,10 @@ async function requireWorkspaceLive(
     .from(workspaces)
     .where(and(eq(workspaces.id, workspaceId), isNull(workspaces.deletedAt)))
     .limit(1)
+    // Same serialization as the issuer's membership row: an archive or
+    // deletion of this workspace cannot commit between this read and the
+    // grant write, and one that committed first is not seen here.
+    .for('share')
   if (!workspace) reject('grant_workspace_inactive')
 }
 
