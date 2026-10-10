@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { conversationErrorResponse } from '../src/server/conversation-request'
+import { conversationErrorResponse } from '../src/server/conversation-response'
 import type { WorkspacePrincipalResolution } from '../src/server/workspace-principal'
 
 test('changed requested-model replay is an explicit conflict with no runtime or credential details', async () => {
