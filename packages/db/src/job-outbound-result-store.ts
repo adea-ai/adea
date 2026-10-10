@@ -17,10 +17,17 @@
 import { and, desc, eq, isNull } from 'drizzle-orm'
 
 import { readArtifactReferenceEvidence } from './artifact-reference-policy'
-import { withArtifactReferenceGrantLocks } from './artifact-reference-grants'
+import {
+  ArtifactReferenceGrantError,
+  withArtifactReferenceGrantLocks,
+} from './artifact-reference-grants'
 import { createMessage } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { decodeJobOutboundBinding, encodeJobOutboundBinding } from './job-outbound-binding'
+import {
+  decodeJobOutboundBinding,
+  encodeJobOutboundBinding,
+  jobOutboundMessageKey,
+} from './job-outbound-binding'
 import type {
   JobOutboundAccess,
   JobOutboundAudience,
@@ -139,7 +146,7 @@ export async function readJobOutboundAccess(
  */
 export async function readJobOutboundAudience(
   database: Database,
-  input: Readonly<{ channelId: string; userId: string; workspaceId: string }>
+  input: Readonly<{ channelId: string; forWrite?: boolean; userId: string; workspaceId: string }>
 ): Promise<JobOutboundAudience> {
   const none: JobOutboundAudience = {
     channelId: null,
@@ -148,6 +155,7 @@ export async function readJobOutboundAudience(
     channelVersion: null,
     participant: false,
     workspaceLive: false,
+    workspaceRole: null,
   }
   if (!isUuid(input.channelId) || !isUuid(input.userId) || !isUuid(input.workspaceId)) return none
   const [workspace] = await database
@@ -166,22 +174,36 @@ export async function readJobOutboundAudience(
     .from(channels)
     .where(and(eq(channels.id, input.channelId), eq(channels.workspaceId, input.workspaceId)))
     .limit(1)
+    .for(input.forWrite ? 'update' : 'share')
+  const [membership] = await database
+    .select({ role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, input.workspaceId),
+        eq(workspaceMemberships.userId, input.userId)
+      )
+    )
+    .limit(1)
     .for('share')
-  const [participant] = channel
-    ? await database
-        .select({ id: channelParticipants.id })
-        .from(channelParticipants)
-        .where(
-          and(
-            eq(channelParticipants.workspaceId, input.workspaceId),
-            eq(channelParticipants.channelId, channel.id),
-            eq(channelParticipants.principalKind, 'user'),
-            eq(channelParticipants.userId, input.userId)
+  // The publish path never reads participant standing: its write is checked by the message
+  // write itself. Skipping the lock keeps it from waiting on a concurrent roster write.
+  const [participant] =
+    channel && !input.forWrite
+      ? await database
+          .select({ id: channelParticipants.id })
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, input.workspaceId),
+              eq(channelParticipants.channelId, channel.id),
+              eq(channelParticipants.principalKind, 'user'),
+              eq(channelParticipants.userId, input.userId)
+            )
           )
-        )
-        .limit(1)
-        .for('share')
-    : []
+          .limit(1)
+          .for('share')
+      : []
   return {
     channelId: channel?.id ?? null,
     channelIsGroup: channel?.kind === 'group',
@@ -189,6 +211,7 @@ export async function readJobOutboundAudience(
     channelVersion: channel?.version ?? null,
     participant: Boolean(participant),
     workspaceLive: Boolean(workspace),
+    workspaceRole: membership?.role ?? null,
   }
 }
 
@@ -242,6 +265,7 @@ export async function readJobOutboundPublication(
     artifact,
     artifactLinkCount: links.length,
     bodyText: message.bodyText,
+    idempotencyKey: message.idempotencyKey,
     channelId: message.channelId,
     deleted: message.deletedAt !== null,
     edited: message.editedAt !== null || message.version !== 1,
@@ -285,6 +309,19 @@ export function jobOutboundReadsFor(database: Database): JobOutboundReads {
  * registration lock; without one, the run is a plain transaction. Both pass the
  * transaction to the callback, so a publication write joins the same transaction.
  */
+/**
+ * The #1207 lock refuses an artifact it cannot lock as livable (deleted, quarantined,
+ * unknown, or in an inactive workspace). Those refusals mean no authority, so the
+ * scope falls back to a plain transaction with no grant state: the gates then deny
+ * or omit by name, rather than the caller receiving an exception.
+ */
+const UNLIVABLE_ARTIFACT_CODES: ReadonlySet<string> = new Set([
+  'grant_artifact_deleted',
+  'grant_artifact_quarantined',
+  'grant_artifact_unknown',
+  'grant_workspace_inactive',
+])
+
 export function createJobOutboundAuthorizer(
   database: AgentHqDatabase
 ): JobOutboundAuthorize<AgentHqTransaction> {
@@ -294,9 +331,20 @@ export function createJobOutboundAuthorizer(
         run({ grantState: null, reads: jobOutboundReadsFor(transaction), transaction })
       )
     }
-    return withArtifactReferenceGrantLocks(database, scope, (transaction, grantState) =>
-      run({ grantState, reads: jobOutboundReadsFor(transaction), transaction })
-    )
+    try {
+      return await withArtifactReferenceGrantLocks(database, scope, (transaction, grantState) =>
+        run({ grantState, reads: jobOutboundReadsFor(transaction), transaction })
+      )
+    } catch (error) {
+      if (
+        !(error instanceof ArtifactReferenceGrantError) ||
+        !UNLIVABLE_ARTIFACT_CODES.has(error.code)
+      )
+        throw error
+      return database.transaction((transaction) =>
+        run({ grantState: null, reads: jobOutboundReadsFor(transaction), transaction })
+      )
+    }
   }
 }
 
@@ -379,7 +427,7 @@ export async function writeJobOutboundPublication(
     {
       bodyText: result.summary,
       executionRef: jobId,
-      idempotencyKey: `job-outbound:v1:${jobId}:${binding.channelVersion}`,
+      idempotencyKey: jobOutboundMessageKey(binding),
       sender: { kind: 'system', systemId: encodeJobOutboundBinding(binding) },
     }
   )

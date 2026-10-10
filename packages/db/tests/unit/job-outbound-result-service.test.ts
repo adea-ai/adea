@@ -8,6 +8,7 @@ import type {
 } from '@adea-ai/types'
 import {
   encodeJobOutboundBinding,
+  jobOutboundMessageKey,
   summarySha256,
   type JobOutboundBinding,
 } from '../../src/job-outbound-binding'
@@ -108,6 +109,7 @@ const ACTIVE: JobOutboundAudience = {
   channelVersion: 4,
   participant: true,
   workspaceLive: true,
+  workspaceRole: 'member',
 }
 
 type World = {
@@ -145,6 +147,7 @@ function world(overrides: Partial<World> = {}): World {
       deleted: false,
       edited: false,
       executionRef: 'job-1',
+      idempotencyKey: jobOutboundMessageKey(binding()),
       messageId: MESSAGE,
       senderKind: 'system',
       senderSystemId: encodeJobOutboundBinding(binding()),
@@ -155,18 +158,18 @@ function world(overrides: Partial<World> = {}): World {
 }
 
 function linkedWorld(overrides: Partial<World> = {}): World {
+  const linkedBinding = binding({
+    artifact: artifactBinding(),
+    grant: { grantId: 'artifact-grant-1', revision: 1 },
+  })
   return world({
     grantState: liveState,
     publication: {
       ...world().publication!,
       artifact: artifactTarget,
       artifactLinkCount: 1,
-      senderSystemId: encodeJobOutboundBinding(
-        binding({
-          artifact: artifactBinding(),
-          grant: { grantId: 'artifact-grant-1', revision: 1 },
-        })
-      ),
+      idempotencyKey: jobOutboundMessageKey(linkedBinding),
+      senderSystemId: encodeJobOutboundBinding(linkedBinding),
     },
     ...overrides,
   })
@@ -399,5 +402,34 @@ describe('job outbound result service', () => {
     await h.service.publish(publishInput, h.write)
     await h.service.deliver(deliverInput, async () => {})
     expect(JSON.stringify([state.job, state.publication])).toBe(before)
+  })
+})
+
+describe('artifact omission at the service boundary (#1217 root review)', () => {
+  test('an omitted artifact publishes the summary through the same atomic write, with no artifact identity', async () => {
+    const state = linkedWorld({ grantState: { ...liveState, revoked: true } })
+    const h = harness(state)
+    const writtenBindings: unknown[] = []
+    const write = async (_context: { transaction: unknown }, decision: { binding: unknown }) => {
+      writtenBindings.push(decision.binding)
+      return MESSAGE
+    }
+    const result = await h.service.publish(
+      {
+        artifact: { authority: { kind: 'workspace_grant' }, grant: grantRecord },
+        artifactPolicy: 'omit_unauthorized',
+        destination,
+        jobId: 'job-1',
+        result: { artifact: artifactTarget, jobId: 'job-1', summary: SUMMARY },
+      },
+      write
+    )
+    expect(result).toMatchObject({
+      decision: { action: 'publish', artifactOmitted: 'grant_revoked' },
+      messageId: MESSAGE,
+    })
+    expect(writtenBindings).toHaveLength(1)
+    expect(JSON.stringify(writtenBindings)).not.toContain('artifact-1')
+    expect(JSON.stringify(writtenBindings)).not.toContain('artifact-grant-1')
   })
 })

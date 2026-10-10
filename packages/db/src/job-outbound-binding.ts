@@ -134,3 +134,14 @@ export function decodeJobOutboundBinding(value: string | null): JobOutboundBindi
   const frozen = Object.freeze(binding)
   return encodeJobOutboundBinding(frozen) === value ? frozen : null
 }
+
+/**
+ * The idempotency key a publication message must carry. It is derived from the
+ * binding itself, so an approval is anchored to the message identity: a sender value
+ * and an execution reference alone cannot match it.
+ */
+export function jobOutboundMessageKey(binding: JobOutboundBinding): string {
+  return `job-outbound:v1:${binding.jobId}:${createHash('sha256')
+    .update(encodeJobOutboundBinding(binding), 'utf8')
+    .digest('hex')}`
+}

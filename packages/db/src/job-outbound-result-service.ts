@@ -25,6 +25,7 @@ import {
   type JobOutboundAccess,
   type JobOutboundArtifactClaim,
   type JobOutboundArtifactCurrent,
+  type JobOutboundArtifactPolicy,
   type JobOutboundAudience,
   type JobOutboundDeliveryDecision,
   type JobOutboundDestination,
@@ -51,7 +52,7 @@ export type JobOutboundReads = Readonly<{
     input: Readonly<{ artifactId: string; principalUserId: string; workspaceId: string }>
   ) => Promise<ArtifactReferenceEvidence | null>
   readAudience: (
-    input: Readonly<{ channelId: string; userId: string; workspaceId: string }>
+    input: Readonly<{ channelId: string; forWrite?: boolean; userId: string; workspaceId: string }>
   ) => Promise<JobOutboundAudience>
   readJobSource: (jobId: string) => Promise<JobOutboundJobSource | null>
   readPublication: (
@@ -99,6 +100,8 @@ export type JobOutboundDeliveryResolution = Readonly<{
 
 export type JobOutboundPublishInput = Readonly<{
   artifact: JobOutboundArtifactClaim | null
+  /** Defaults to `require`: an unauthorized artifact holds the publication. */
+  artifactPolicy?: JobOutboundArtifactPolicy
   destination: JobOutboundDestination
   jobId: string
   result: unknown
@@ -194,9 +197,12 @@ export function createJobOutboundResultService<TTransaction>(
               })
             : null
           // The destination's revision is read as the job's original actor, who must be able to write there.
+          // Publication writes the channel row (its message sequence), so the write lock is taken up
+          // front. A shared lock upgraded later deadlocks against a concurrent roster write.
           const audience = job
             ? await reads.readAudience({
                 channelId: input.destination.channelId,
+                forWrite: true,
                 userId: job.originalActorUserId,
                 workspaceId: input.destination.workspaceId,
               })
@@ -213,6 +219,7 @@ export function createJobOutboundResultService<TTransaction>(
           )
           const decision = decideJobOutboundPublication({
             artifact,
+            artifactPolicy: input.artifactPolicy ?? 'require',
             audience,
             destination: input.destination,
             job,

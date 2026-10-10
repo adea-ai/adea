@@ -30,6 +30,7 @@ import {
 
 import {
   decodeJobOutboundBinding,
+  jobOutboundMessageKey,
   summarySha256,
   type JobOutboundBinding,
 } from './job-outbound-binding'
@@ -92,6 +93,8 @@ export type JobOutboundAudience = Readonly<{
   channelIsGroup: boolean
   channelLive: boolean
   channelVersion: number | null
+  /** The principal's current role in the destination workspace; null when not a member. */
+  workspaceRole: 'owner' | 'admin' | 'member' | null
   participant: boolean
   workspaceLive: boolean
 }>
@@ -110,6 +113,8 @@ export type JobOutboundPublication = Readonly<{
   deleted: boolean
   edited: boolean
   executionRef: string | null
+  /** The idempotency key the message was written under. */
+  idempotencyKey: string
   messageId: string
   senderKind: 'agent' | 'system' | 'user'
   senderSystemId: string | null
@@ -127,9 +132,16 @@ export type JobOutboundArtifactCurrent = Readonly<{
   grantState: ArtifactReferenceGrantState | null
 }>
 
+/**
+ * `require`: an artifact the destination may not receive holds the whole publication.
+ * `omit_unauthorized`: publish the summary without the artifact, and report why.
+ */
+export type JobOutboundArtifactPolicy = 'require' | 'omit_unauthorized'
+
 export type JobOutboundPublicationInput = Readonly<{
   artifact: (JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null
   /** The actor's standing in the destination channel; its revision is bound into the publication. */
+  artifactPolicy: JobOutboundArtifactPolicy
   audience: JobOutboundAudience | null
   destination: JobOutboundDestination
   job: JobOutboundJobSource | null
@@ -156,11 +168,14 @@ export type JobOutboundPublicationHoldReason =
   | 'job_not_completed'
   | 'job_source_mismatch'
   | 'job_unavailable'
+  | 'recipient_not_destination_member'
   | 'source_access_lost'
 
 export type JobOutboundPublicationDecision =
   | Readonly<{
       action: 'publish'
+      /** Why the artifact was omitted from a summary-only publication; null when none was omitted. */
+      artifactOmitted: ArtifactReferenceRefusalReason | null
       binding: JobOutboundBinding
       destination: JobOutboundDestination
       jobId: string
@@ -204,6 +219,7 @@ export type JobOutboundPublicationDenialReason =
 
 export type JobOutboundAudienceDenial =
   | 'audience_revision_changed'
+  | 'recipient_not_destination_member'
   | 'destination_channel_mismatch'
   | 'destination_channel_unavailable'
   | 'destination_workspace_unavailable'
@@ -358,22 +374,24 @@ function jobDenial(
     return 'job_not_completed'
   return null
 }
-
-/**
- * The destination check shared by publish and delivery: the channel is the exact
- * one named, it is a live group channel in a live workspace, and its current
- * revision is the one the publication is bound to.
- */
 type DestinationDenial =
   | 'destination_channel_mismatch'
   | 'destination_channel_unavailable'
   | 'destination_workspace_unavailable'
+  | 'recipient_not_destination_member'
 
+/**
+ * The destination check shared by publish and delivery. The principal must be a
+ * current member of the destination workspace, and the channel must be the exact
+ * one named: a live group channel in a live workspace with a known revision. A
+ * membership removal leaves no role, so it denies here.
+ */
 function destinationDenial(
   audience: JobOutboundAudience | null,
   channelId: string
 ): DestinationDenial | null {
   if (!audience || !audience.workspaceLive) return 'destination_workspace_unavailable'
+  if (audience.workspaceRole === null) return 'recipient_not_destination_member'
   if (audience.channelId !== channelId) return 'destination_channel_mismatch'
   if (!audience.channelIsGroup || !audience.channelLive) return 'destination_channel_unavailable'
   if (audience.channelVersion === null) return 'destination_channel_unavailable'
@@ -381,10 +399,36 @@ function destinationDenial(
 }
 
 /**
+ * The artifact refusal for a publication, or null when the destination may receive
+ * it. A claim with no grant is malformed; a target for another audience is refused;
+ * otherwise the publication gate decides against current evidence and registration.
+ */
+function artifactPublicationRefusal(
+  input: JobOutboundPublicationInput,
+  target: ArtifactReferenceTarget,
+  audienceWorkspaceId: string
+): ArtifactReferenceRefusalReason | null {
+  const claim = input.artifact
+  if (!claim?.grant) return 'grant_malformed'
+  if (target.audienceWorkspaceId !== audienceWorkspaceId) return 'audience_not_authorized'
+  const decision: ArtifactReferencePublicationDecision = authorizeArtifactReferencePublication({
+    authority: claim.authority,
+    evidence: claim.evidence,
+    grant: claim.grant,
+    grantState: claim.grantState,
+    now: input.now,
+    target,
+  })
+  return decision.action === 'hold' ? decision.reason : null
+}
+
+/**
  * Publication gate, in order: result, job identity and completion, the original
- * actor's source access, the destination (outbound and exact), and the artifact
- * claim. On publish, the decision carries the binding the message will be written
- * with, so the write and the authorization cannot disagree.
+ * actor's source access, the destination (outbound, exact, and the actor a current
+ * member), and the artifact. An artifact refusal holds the publication, unless the
+ * caller allowed omission: then the summary publishes without the artifact, the
+ * binding and link carry no artifact identity, and the reason is reported.
+ * Claim-level inconsistencies are never omitted; they are client errors.
  */
 export function decideJobOutboundPublication(
   input: JobOutboundPublicationInput
@@ -407,7 +451,6 @@ export function decideJobOutboundPublication(
   if (result.jobId !== jobId) return hold('result', 'result_job_mismatch')
   if ((result.artifact !== null) !== (input.artifact !== null))
     return hold('result', 'artifact_claim_mismatch')
-  if (result.artifact !== null && !input.artifact?.grant) return hold('artifact', 'grant_malformed')
 
   const jobReason = jobDenial(input.job, jobId, input.now)
   if (jobReason || !input.job) return hold('job', jobReason ?? 'job_unavailable')
@@ -424,55 +467,53 @@ export function decideJobOutboundPublication(
   if (audienceReason || !audience || audience.channelVersion === null)
     return hold('destination', audienceReason ?? 'destination_channel_unavailable')
 
-  if (result.artifact !== null && input.artifact) {
+  let keptArtifact: ArtifactReferenceTarget | null = null
+  let grant: ArtifactReferenceGrant | null = null
+  let artifactOmitted: ArtifactReferenceRefusalReason | null = null
+  if (result.artifact !== null) {
     if (result.artifact.sourceWorkspaceId !== input.job.sourceWorkspaceId)
       return hold('job', 'job_source_mismatch')
-    if (result.artifact.audienceWorkspaceId !== destination.workspaceId)
-      return hold('artifact', 'audience_not_authorized')
-    const artifact: ArtifactReferencePublicationDecision = authorizeArtifactReferencePublication({
-      authority: input.artifact.authority,
-      evidence: input.artifact.evidence,
-      grant: input.artifact.grant,
-      grantState: input.artifact.grantState,
-      now: input.now,
-      target: result.artifact,
-    })
-    if (artifact.action === 'hold') return hold('artifact', artifact.reason)
+    const refusal = artifactPublicationRefusal(input, result.artifact, destination.workspaceId)
+    if (refusal === null) {
+      keptArtifact = result.artifact
+      grant = input.artifact?.grant ?? null
+    } else if (input.artifactPolicy === 'omit_unauthorized') {
+      artifactOmitted = refusal
+    } else {
+      return hold('artifact', refusal)
+    }
   }
 
-  const channelVersion = audience.channelVersion
-  const claimedGrant = result.artifact === null ? null : (input.artifact?.grant ?? null)
+  const published = projectJobOutboundRelease(result, keptArtifact !== null)
   const binding: JobOutboundBinding = {
     actorUserId: input.job.originalActorUserId,
     artifact:
-      result.artifact === null || claimedGrant === null
+      keptArtifact === null || grant === null
         ? null
         : {
-            artifactId: result.artifact.artifactId,
-            checksumSha256: result.artifact.checksumSha256,
-            sourceWorkspaceId: result.artifact.sourceWorkspaceId,
-            version: result.artifact.version,
+            artifactId: keptArtifact.artifactId,
+            checksumSha256: keptArtifact.checksumSha256,
+            sourceWorkspaceId: keptArtifact.sourceWorkspaceId,
+            version: keptArtifact.version,
           },
     channelId: destination.channelId,
-    channelVersion,
-    grant:
-      claimedGrant === null
-        ? null
-        : { grantId: claimedGrant.grantId, revision: claimedGrant.revision },
+    channelVersion: audience.channelVersion,
+    grant: grant === null ? null : { grantId: grant.grantId, revision: grant.revision },
     jobId,
-    summarySha256: summarySha256(result.summary),
+    summarySha256: summarySha256(published.summary),
     workspaceId: destination.workspaceId,
   }
-  return { action: 'publish', binding, destination, jobId, result }
+  return { action: 'publish', artifactOmitted, binding, destination, jobId, result: published }
 }
 
 /**
- * Delivery gate, in order: the canonical publication decodes to a binding and is
- * unaltered; its job, actor, destination and summary match the binding; the job
- * and the actor's source access are current; the recipient is a participant of
- * the exact channel at the bound channel revision; and the artifact link, row,
- * and grant match the binding and pass the retrieval gate. The released text is
- * the approved body.
+ * Delivery gate, in order: the canonical publication decodes to a binding and its
+ * idempotency key is the one that binding derives, so the approval is anchored to
+ * the message itself; the publication is unaltered and matches its job, actor and
+ * destination; the job and actor's source access are current; the recipient is a
+ * current member and participant of the exact channel at the bound revision; and
+ * any artifact link and row match the binding and pass the retrieval gate. The
+ * released text is the approved body.
  */
 export function decideJobOutboundDelivery(
   input: JobOutboundDeliveryInput
@@ -491,6 +532,8 @@ export function decideJobOutboundDelivery(
     return { action: 'deny', gate: 'job', reason: jobReason ?? 'job_unavailable' }
 
   if (publication.deleted || publication.edited)
+    return { action: 'deny', gate: 'publication', reason: 'publication_altered' }
+  if (publication.idempotencyKey !== jobOutboundMessageKey(binding))
     return { action: 'deny', gate: 'publication', reason: 'publication_altered' }
   if (publication.workspaceId === job.sourceWorkspaceId)
     return { action: 'deny', gate: 'publication', reason: 'destination_not_outbound' }

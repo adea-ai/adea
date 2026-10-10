@@ -8,6 +8,7 @@ import type {
 } from '@adea-ai/types'
 import {
   encodeJobOutboundBinding,
+  jobOutboundMessageKey,
   summarySha256,
   type JobOutboundBinding,
 } from '../../src/job-outbound-binding'
@@ -64,6 +65,7 @@ function audience(overrides: Partial<JobOutboundAudience> = {}): JobOutboundAudi
     channelVersion: 4,
     participant: true,
     workspaceLive: true,
+    workspaceRole: 'member',
     ...overrides,
   }
 }
@@ -157,6 +159,7 @@ function publicationRow(overrides: Partial<JobOutboundPublication> = {}): JobOut
     edited: false,
     executionRef: 'job-1',
     messageId: 'message-1',
+    idempotencyKey: jobOutboundMessageKey(binding()),
     senderKind: 'system',
     senderSystemId: encodeJobOutboundBinding(binding()),
     workspaceId: DEST,
@@ -165,20 +168,20 @@ function publicationRow(overrides: Partial<JobOutboundPublication> = {}): JobOut
 }
 
 function linkedRow(overrides: Partial<JobOutboundPublication> = {}): JobOutboundPublication {
+  const linkedBinding = binding({
+    artifact: {
+      artifactId: 'artifact-1',
+      checksumSha256: CHECKSUM,
+      sourceWorkspaceId: SOURCE,
+      version: 3,
+    },
+    grant: { grantId: 'artifact-grant-1', revision: 1 },
+  })
   return publicationRow({
     artifact: target(),
     artifactLinkCount: 1,
-    senderSystemId: encodeJobOutboundBinding(
-      binding({
-        artifact: {
-          artifactId: 'artifact-1',
-          checksumSha256: CHECKSUM,
-          sourceWorkspaceId: SOURCE,
-          version: 3,
-        },
-        grant: { grantId: 'artifact-grant-1', revision: 1 },
-      })
-    ),
+    idempotencyKey: jobOutboundMessageKey(linkedBinding),
+    senderSystemId: encodeJobOutboundBinding(linkedBinding),
     ...overrides,
   })
 }
@@ -212,6 +215,7 @@ function publish(
 ): JobOutboundPublicationInput {
   return {
     artifact: null,
+    artifactPolicy: 'require',
     audience: audience(),
     destination,
     job: job(),
@@ -310,7 +314,10 @@ describe('decideJobOutboundPublication', () => {
 
 function forged(value: JobOutboundBinding) {
   return delivery({
-    publication: publicationRow({ senderSystemId: encodeJobOutboundBinding(value) }),
+    publication: publicationRow({
+      idempotencyKey: jobOutboundMessageKey(value),
+      senderSystemId: encodeJobOutboundBinding(value),
+    }),
   })
 }
 
@@ -407,7 +414,7 @@ describe('decideJobOutboundDelivery', () => {
     ).toEqual({ action: 'deny', gate: 'audience', reason: 'audience_revision_changed' })
   })
 
-  test('joinedAt is not a revision: an unchanged channel revision releases to a participant', () => {
+  test('an unchanged channel revision releases to a participant (membership join time is not a revision)', () => {
     expect(decideJobOutboundDelivery(delivery({ recipientAudience: audience() }))).toMatchObject({
       action: 'deliver',
     })
@@ -485,5 +492,115 @@ describe('decideJobOutboundDelivery', () => {
       })
     )
     expect(JSON.stringify(decision)).not.toContain(CANARY)
+  })
+})
+
+describe('artifact-free summaries (#1217 root review)', () => {
+  test('omit_unauthorized publishes the summary without the artifact, and binds no artifact identity', () => {
+    const decision = decideJobOutboundPublication(
+      publish({
+        artifact: { ...claim({ grant: grant({ revision: 2 }) }), ...current() },
+        artifactPolicy: 'omit_unauthorized',
+        result: { artifact: target(), jobId: 'job-1', summary: SUMMARY },
+      })
+    )
+    expect(decision).toMatchObject({
+      action: 'publish',
+      artifactOmitted: 'grant_revision_stale',
+      binding: { artifact: null, grant: null },
+      result: { artifact: null, summary: SUMMARY },
+    })
+    expect(JSON.stringify(decision)).not.toContain('artifact-1')
+    expect(JSON.stringify(decision)).not.toContain('artifact-grant-1')
+  })
+
+  test('a quarantined artifact is omitted by name, not released or held when the policy allows it', () => {
+    const decision = decideJobOutboundPublication(
+      publish({
+        artifact: {
+          ...claim(),
+          ...current({ evidence: evidence({ availability: 'quarantined' }) }),
+        },
+        artifactPolicy: 'omit_unauthorized',
+        result: { artifact: target(), jobId: 'job-1', summary: SUMMARY },
+      })
+    )
+    expect(decision).toMatchObject({ action: 'publish', artifactOmitted: 'artifact_quarantined' })
+  })
+
+  test('omission is not a way around claim, job, or destination checks', () => {
+    expect(
+      decideJobOutboundPublication(
+        publish({
+          artifactPolicy: 'omit_unauthorized',
+          result: { artifact: target(), jobId: 'job-1', summary: SUMMARY },
+        })
+      )
+    ).toMatchObject({ action: 'hold', gate: 'result', reason: 'artifact_claim_mismatch' })
+    expect(
+      decideJobOutboundPublication(
+        publish({
+          artifact: { ...claim({ grant: grant({ sourceWorkspaceId: 'ws-other' }) }), ...current() },
+          artifactPolicy: 'omit_unauthorized',
+          result: {
+            artifact: target({ sourceWorkspaceId: 'ws-other' }),
+            jobId: 'job-1',
+            summary: SUMMARY,
+          },
+        })
+      )
+    ).toMatchObject({ action: 'hold', gate: 'job', reason: 'job_source_mismatch' })
+  })
+
+  test('require (the default) still holds an unauthorized artifact, with nothing published', () => {
+    expect(
+      decideJobOutboundPublication(
+        publish({
+          artifact: { ...claim(), ...current({ grantState: grantState({ revoked: true }) }) },
+          artifactPolicy: 'require',
+          result: { artifact: target(), jobId: 'job-1', summary: SUMMARY },
+        })
+      )
+    ).toMatchObject({ action: 'hold', gate: 'artifact', reason: 'grant_revoked' })
+  })
+})
+
+describe('membership fencing and approval anchoring (#1217 root review)', () => {
+  test('publish holds an actor who is no longer a destination member', () => {
+    expect(
+      decideJobOutboundPublication(publish({ audience: audience({ workspaceRole: null }) }))
+    ).toMatchObject({
+      action: 'hold',
+      gate: 'destination',
+      reason: 'recipient_not_destination_member',
+    })
+  })
+
+  test('delivery denies a recipient whose destination membership was removed', () => {
+    expect(
+      decideJobOutboundDelivery(delivery({ recipientAudience: audience({ workspaceRole: null }) }))
+    ).toEqual({ action: 'deny', gate: 'audience', reason: 'recipient_not_destination_member' })
+  })
+
+  test('a valid-looking binding whose stored key is not the key it derives is altered, never approved', () => {
+    const decision = decideJobOutboundDelivery(
+      delivery({
+        publication: publicationRow({ idempotencyKey: 'job-outbound:v1:job-1:forged' }),
+      })
+    )
+    expect(decision).toEqual({ action: 'deny', gate: 'publication', reason: 'publication_altered' })
+  })
+
+  test('sender identity and executionRef alone never authorize: a user message with both is refused', () => {
+    expect(
+      decideJobOutboundDelivery(
+        delivery({
+          publication: publicationRow({
+            idempotencyKey: jobOutboundMessageKey(binding()),
+            senderKind: 'user',
+          }),
+        })
+      )
+    ).toEqual({ action: 'deny', gate: 'publication', reason: 'publication_unavailable' })
   })
 })

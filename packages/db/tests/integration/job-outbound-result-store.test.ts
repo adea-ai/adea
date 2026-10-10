@@ -34,6 +34,7 @@ import {
   messages,
   workspaceMemberships,
 } from '../../src/schema'
+import { encodeJobOutboundBinding, summarySha256 } from '../../src/job-outbound-binding'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
 import { completeTask, createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -581,8 +582,8 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       reg.artifact.version
     )
     // The #1207 lock refuses a quarantined artifact with its own typed error: fail closed, nothing released.
-    await expect(
-      service().deliver(
+    expect(
+      await service().deliver(
         {
           jobId: f.task.id,
           messageId: outcome.messageId,
@@ -590,7 +591,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         },
         async () => {}
       )
-    ).rejects.toMatchObject({ code: 'grant_artifact_quarantined' })
+    ).toMatchObject({ action: 'deny', gate: 'artifact', reason: 'artifact_binding_mismatch' })
   })
 
   test('concurrent revocation and release: once revocation has committed, no later release succeeds', async () => {
@@ -623,5 +624,185 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(
       await readJobOutboundPublication(connection.db, { jobId: f.task.id, messageId: 'not-a-uuid' })
     ).toBeNull()
+  })
+
+  test('artifact-free summary: a revoked artifact publishes the summary with no link and no artifact identity', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const outcome = await publishJobOutboundMessage(service(), {
+      artifact: reg.claim,
+      artifactPolicy: 'omit_unauthorized',
+      destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
+      jobId: f.task.id,
+      result: { artifact: reg.target, jobId: f.task.id, summary: 'Summary without the report.' },
+    })
+    expect(outcome.decision).toMatchObject({
+      action: 'publish',
+      artifactOmitted: 'grant_revoked',
+      result: { artifact: null },
+    })
+    if (!outcome.messageId) throw new Error('expected a message id')
+    const links = await connection.db
+      .select({ artifactId: messageArtifactReferences.artifactId })
+      .from(messageArtifactReferences)
+      .where(eq(messageArtifactReferences.messageId, outcome.messageId))
+    expect(links).toEqual([])
+    const stored = await readJobOutboundPublication(connection.db, {
+      jobId: f.task.id,
+      messageId: outcome.messageId,
+    })
+    expect(stored?.artifactLinkCount).toBe(0)
+    expect(stored?.senderSystemId ?? '').not.toContain(reg.artifact.id)
+    expect(await deliver(f, outcome.messageId)).toMatchObject({
+      action: 'deliver',
+      result: { artifact: null, summary: 'Summary without the report.' },
+    })
+  })
+
+  test('a quarantined artifact is omitted by name under omit_unauthorized, and held under require', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    await setArtifactAvailability(
+      connection.db,
+      f.workspace.id,
+      reg.artifact.id,
+      f.owner.principal,
+      'quarantined',
+      reg.artifact.version
+    )
+    const held = await publishArtifact(f, reg)
+    expect(held).toMatchObject({
+      decision: { action: 'hold', gate: 'artifact', reason: 'artifact_quarantined' },
+      messageId: null,
+    })
+    const omitted = await publishJobOutboundMessage(service(), {
+      artifact: reg.claim,
+      artifactPolicy: 'omit_unauthorized',
+      destination: { channelId: f.channelA.id, workspaceId: f.destination.id },
+      jobId: f.task.id,
+      result: { artifact: reg.target, jobId: f.task.id, summary: 'Report withheld.' },
+    })
+    expect(omitted.decision).toMatchObject({
+      action: 'publish',
+      artifactOmitted: 'artifact_quarantined',
+    })
+  })
+
+  test('membership removal: a recipient removed from the destination workspace is not released to', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Written before removal.')
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f.destination.id),
+          eq(workspaceMemberships.userId, f.recipient.principal.userId)
+        )
+      )
+    expect(await deliver(f, messageId)).toEqual({
+      action: 'deny',
+      gate: 'audience',
+      reason: 'recipient_not_destination_member',
+    })
+  })
+
+  test('forged approval: a system message with a valid binding but a foreign key is never released', async () => {
+    const f = await fixture()
+    const version = await rosterVersion(f.channelA.id)
+    const binding = {
+      actorUserId: f.owner.principal.userId,
+      artifact: null,
+      channelId: f.channelA.id,
+      channelVersion: version,
+      grant: null,
+      jobId: f.task.id,
+      summarySha256: summarySha256('Forged summary.'),
+      workspaceId: f.destination.id,
+    }
+    const forged = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      {
+        bodyText: 'Forged summary.',
+        executionRef: f.task.id,
+        idempotencyKey: `not-derived-${crypto.randomUUID()}`,
+        sender: { kind: 'system', systemId: encodeJobOutboundBinding(binding) },
+      }
+    )
+    expect(await deliver(f, forged.id)).toEqual({
+      action: 'deny',
+      gate: 'publication',
+      reason: 'publication_altered',
+    })
+  })
+
+  test('concurrent publication and revocation: a message exists exactly when its publication was authorized', async () => {
+    const f = await fixture()
+    const reg = await registeredArtifact(f)
+    const [outcome] = await Promise.all([
+      publishArtifact(f, reg),
+      revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner.principal, reg.grantId),
+    ])
+    const rows = await jobMessages(f.channelA.id, f.task.id)
+    expect(rows).toHaveLength(outcome.decision.action === 'publish' ? 1 : 0)
+    if (rows[0]) {
+      expect(await deliver(f, rows[0].id)).toEqual({
+        action: 'deny',
+        gate: 'artifact',
+        reason: 'grant_revoked',
+      })
+    }
+  })
+
+  test('concurrent roster change and publication: no release reaches a removed recipient, in either order', async () => {
+    const f = await fixture()
+    const version = await rosterVersion(f.channelA.id)
+    const [outcome] = await Promise.all([
+      publishTo(f, f.channelA.id, 'Concurrent with a roster change.').then((messageId) => ({
+        messageId,
+      })),
+      setChannelParticipants(
+        connection.db,
+        f.destination.id,
+        f.channelA.id,
+        f.owner.principal,
+        [f.owner.principal],
+        version
+      ),
+    ])
+    expect(await deliver(f, outcome.messageId)).toMatchObject({
+      action: 'deny',
+      gate: 'audience',
+    })
+  })
+
+  test('concurrent membership removal and release: once removal has committed, no later release succeeds', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Released during removal.')
+    const [released] = await Promise.all([
+      deliver(f, messageId),
+      connection.db
+        .delete(workspaceMemberships)
+        .where(
+          and(
+            eq(workspaceMemberships.workspaceId, f.destination.id),
+            eq(workspaceMemberships.userId, f.recipient.principal.userId)
+          )
+        ),
+    ])
+    expect(['deliver', 'deny'].includes(released.action)).toBe(true)
+    expect(await deliver(f, messageId)).toEqual({
+      action: 'deny',
+      gate: 'audience',
+      reason: 'recipient_not_destination_member',
+    })
   })
 })
