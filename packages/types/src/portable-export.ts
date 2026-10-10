@@ -35,6 +35,21 @@ export const PORTABLE_WORKSPACE_EXPORT_FORMAT = 'adea.portable-workspace-export'
 export const PORTABLE_WORKSPACE_EXPORT_FORMAT_VERSION = 1 as const
 
 /** Bounds per family. A workspace above a bound fails the export closed rather than truncating. */
+/**
+ * The ledger classes whose data lives outside this document and outside any destination that
+ * lacks their port: artifact bytes and locations (#86), native runtime state, replica ciphertext
+ * (#193), transient remote envelopes and control-plane identifiers. An import reports each class of
+ * this set that the bundle withholds as an unavailable external domain. A bundle naming a class
+ * outside the version-1 ledger is refused, so an unknown domain never passes silently.
+ */
+export const PORTABLE_EXTERNAL_DOMAIN_CLASSES = [
+  'artifact_bytes_and_locations',
+  'control_plane_identifiers',
+  'e2e_ciphertext_replicas',
+  'remote_content_envelopes',
+  'runtime_execution_state',
+] as const
+
 export const PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS = 10_000
 export const PORTABLE_WORKSPACE_EXPORT_MAX_MESSAGE_TEXT_LENGTH = 100_000
 

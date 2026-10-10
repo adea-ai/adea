@@ -171,6 +171,39 @@ API.
   restores into and drops the scratch database, as `portable-restore-clean.test.ts` already does. No
   grant or credential was added.
 
+## End-to-end residency proof
+
+`apps/web/test/integration/portable-residency-e2e.test.ts` (8 tests) builds the source only through
+existing APIs: a workspace, a participants-only group, a members-only project with a task, content refs,
+`upsertContentReplica` for an E2E-synchronized body ref, artifacts with object-store, external-harness and
+native execution references, native session references on a message, a workspace invitation and a
+temporary session. It exports through the GET handler as the owner, a participant and an outsider. It
+restores the owner's bundle through the POST handler into a clean scratch database. No native checkpoint is
+transplanted, and no replica storage is invented.
+
+It proves:
+
+- Source-owned audience: the owner receives the whole source view. A participant and a listed viewer
+  receive their records. An outsider receives neither.
+- No credential, ciphertext, locator, provenance or native reference appears in any bundle or in the
+  destination. A canary test confirms the same values are in the source, so their absence is a real
+  exclusion.
+- Destination refusals write nothing. An existing workspace answers 409 `target_exists`. An importer without
+  the creation permission gets the unavailable response, as elsewhere. A ledger class the version-1 format
+  does not name answers 422 without echoing it. A digest mismatch answers 422.
+- Explicit external domains: the import reports `artifact_bytes_and_locations`,
+  `control_plane_identifiers`, `e2e_ciphertext_replicas`, `remote_content_envelopes` and
+  `runtime_execution_state` as `unavailable`, each with its authority. This destination restores none of them.
+
+Upstream dependencies, exact:
+
+- Artifact bytes, locators and provenance redaction, external harness references: #86 (M20.09).
+- Artifact references across workspaces: #1180 (M15.03).
+- Replica restore and E2E keys: #193 (M5.11).
+- Native session and checkpoint portability: no open issue exists. `docs/specs/runtime-nodes.md` excludes
+  native session state from node projections, and REQ 097 keeps checkpoints to references. Restoring native
+  sessions would need a new issue, not a port.
+
 ## Traceability to issue #1226 and the TDD
 
 The issue lists requirements REQ 045, 055, 097, 140 to 145 and 177, and tests A27, A35, A36 and

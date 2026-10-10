@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   canonicalPortableJson,
+  PORTABLE_EXTERNAL_DOMAIN_CLASSES,
   PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
   PORTABLE_WORKSPACE_EXPORT_FORMAT,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
@@ -254,6 +255,11 @@ describe('portable workspace export contract', () => {
     expect(issuesOf(gapped).map((issue) => issue.path)).toContain(
       'content.messages[1].channelOrder'
     )
+  })
+
+  test('every external domain class is named by the version-1 ledger, so an import can report each one', () => {
+    const ledger = PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS.map((exclusion) => exclusion.class)
+    for (const cls of PORTABLE_EXTERNAL_DOMAIN_CLASSES) expect(ledger).toContain(cls)
   })
 
   test('rejects values that are not documents without throwing', () => {

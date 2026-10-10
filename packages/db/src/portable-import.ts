@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto'
 import {
   canonicalPortableJson,
   type PortableExportExclusion,
+  PORTABLE_EXTERNAL_DOMAIN_CLASSES,
   type PortableWorkspaceExport,
   type UserPrincipalRef,
 } from '@adea-ai/types'
@@ -55,8 +56,33 @@ import {
 } from './schema'
 import { appendWorkspaceEvent } from './transactions'
 
+/** An external domain the bundle withholds. This destination restores none of them, so each is unavailable. */
+export type PortableExternalDomain = Readonly<{
+  authority: string
+  class: string
+  status: 'unavailable'
+  treatment: string
+}>
+
+/** The bundle's withheld external domains, each reported unavailable, in class order. */
+function externalDomainsOf(
+  exclusions: readonly PortableExportExclusion[]
+): readonly PortableExternalDomain[] {
+  const external: readonly string[] = PORTABLE_EXTERNAL_DOMAIN_CLASSES
+  return exclusions
+    .filter((exclusion) => external.includes(exclusion.class))
+    .map((exclusion) => ({
+      authority: exclusion.authority,
+      class: exclusion.class,
+      status: 'unavailable' as const,
+      treatment: exclusion.treatment,
+    }))
+    .toSorted((left, right) => (left.class < right.class ? -1 : left.class > right.class ? 1 : 0))
+}
+
 export type PortableImportResult = Readonly<{
   contentDigest: string
+  externalDomains: readonly PortableExternalDomain[]
   counts: Readonly<{
     agents: number
     channelParticipants: number
@@ -437,6 +463,7 @@ export async function importPortableWorkspace(
         tasks: content.tasks.length,
       }),
       deferred: document.exclusions,
+      externalDomains: externalDomainsOf(document.exclusions),
       workspaceId,
     })
   })
