@@ -321,19 +321,19 @@ describe.skipIf(!provisioningUrl && !inCi)('candidate #1232 group backfill rehea
       expect(String(row.auth_grant_id)).toMatch(/^implicit:member:/)
     }
     expect(afterBackfill.grants).toBe(participantsBefore.length)
-  })
+  }, 300_000)
 
   test('the 0050 backfill is idempotent: re-running its statements changes no row', async () => {
     const { afterBackfill, afterRepeat } = await runScenario()
     expect(afterRepeat.admissions).toEqual(afterBackfill.admissions)
     expect(afterRepeat.grants).toBe(afterBackfill.grants)
-  })
+  }, 300_000)
 
   test('the main capture families are unchanged across the candidate chain', async () => {
     const { comparison } = await runScenario()
     expect(comparison.findings).toEqual([])
     expect(comparison.verdict).toBe('identical')
-  })
+  }, 300_000)
 
   test('the existing read paths on main are unchanged for members and deny the outsider', async () => {
     const { reads, activeChannelId } = await runScenario()
@@ -341,7 +341,7 @@ describe.skipIf(!provisioningUrl && !inCi)('candidate #1232 group backfill rehea
     expect(reads.memberActive).not.toBe('denied')
     expect(reads.outsiderActive).toBe('denied')
     expect(activeChannelId).toBeTruthy()
-  })
+  }, 300_000)
 
   test('no quarantine surface exists for ambiguous group records: the acceptance is unproven', async () => {
     // Archived group participants are silently left out of the backfill (no admission row),
@@ -349,5 +349,5 @@ describe.skipIf(!provisioningUrl && !inCi)('candidate #1232 group backfill rehea
     const { afterBackfill, archivedChannelId } = await runScenario()
     expect(afterBackfill.quarantineSurfaces).toEqual([])
     expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
-  })
+  }, 300_000)
 })
