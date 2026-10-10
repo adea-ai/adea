@@ -330,6 +330,13 @@
       "when": 1791526300162,
       "tag": "0046_artifact_reference_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791611333200,
+      "tag": "0052_retention_cleanup_authority",
+      "breakpoints": true
     }
   ]
 }

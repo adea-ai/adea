@@ -1,6 +1,8 @@
 import {
   parseRuntimeNodePullRequest,
+  parseRuntimeNodeRetentionReceiptRequest,
   verifyRuntimeNodePull,
+  verifyRuntimeNodeRetentionReceipt,
   RUNTIME_NODE_PULL_WINDOW_MS,
   RUNTIME_NODE_PULL_FUTURE_MS,
   RUNTIME_NODE_PULLS_PER_MINUTE,
@@ -30,6 +32,8 @@ import {
   TaskSubmissionError,
 } from './task-submissions'
 import { appendWorkspaceEvent } from './transactions'
+import { recordRetentionCleanupReceipt } from './retention-cleanup'
+import type { RetentionCategory } from './retention-policy'
 
 export class RuntimeNodeDeliveryError extends Error {
   constructor(readonly code: 'unavailable' | 'replayed' | 'rate_limited') {
@@ -383,5 +387,34 @@ export async function pullRuntimeNodeCommand(
     const command = await deliver()
     if (!withinWindow(input, Date.now())) throw new RuntimeNodeDeliveryError('unavailable')
     return command
+  })
+}
+
+/**
+ * Node-authenticated trusted cleanup receipt (#1221). Envelope authentication is
+ * the pull path's: the node's active signing key, the bounded issuance window,
+ * and a signature over the body digest. Every envelope failure gives the same
+ * `unavailable` answer as a pull, so an unknown, unpaired, or revoked node looks
+ * like a bad signature. The envelope nonce is the receipt's idempotency key, so
+ * a replay of the same body is a replay and a different body under that nonce
+ * conflicts.
+ */
+export async function recordRuntimeNodeRetentionReceipt(
+  database: AgentHqDatabase,
+  scope: RuntimeNodeDeliveryScope,
+  value: unknown
+) {
+  const body = parseRuntimeNodeRetentionReceiptRequest(value)
+  if (!body || !withinWindow(body.envelope, Date.now()))
+    throw new RuntimeNodeDeliveryError('unavailable')
+  const key = await signingKey(database, scope, body.envelope.keyId)
+  if (!key || !(await verifyRuntimeNodeRetentionReceipt(scope, body, key.publicKey)))
+    throw new RuntimeNodeDeliveryError('unavailable')
+  return recordRetentionCleanupReceipt(database, {
+    category: body.category as RetentionCategory,
+    executor: { kind: 'runtime_node', runtimeNodeId: scope.runtimeNodeId },
+    idempotencyKey: body.envelope.nonce,
+    receipt: { ...body.receipt, category: body.category },
+    workspaceId: scope.workspaceId,
   })
 }

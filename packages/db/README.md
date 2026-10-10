@@ -29,6 +29,15 @@ Resolve sessions with `findUserPrincipalsByAuthIdentity()` and pass only the ret
 `PrincipalRef` into authorization code. Provider subjects are authentication keys, never domain
 user IDs or workspace foreign keys.
 
+## Retention gate
+
+`src/retention-policy.ts` holds the per-category retention rules and the pure deletion gate
+(M18.02, #1221). Periods are unset until approved, so every deletion is refused by default.
+Verified completion needs trusted delete and read-check receipts for every required coverage kind.
+Durable holds, deletion authority, and cleanup receipts live in `retention_*` tables
+(migration 0052). `src/retention-cleanup.ts` composes the gate over them. Both are described
+in the [retention policy guide](../../docs/guides/retention-policy.md).
+
 ## Migration workflow
 
 1. Change the domain schema and add or update tests.
