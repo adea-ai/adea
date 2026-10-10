@@ -194,6 +194,24 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         runtimeSessionId: 'sess-1',
         state: 'prepared',
       }
+    case 'nativeSessions':
+      return {
+        accountId: 'acct-1',
+        activeHarnessRunId: null,
+        agentProfileId: 'prf-1',
+        agentProfileVersion: 1,
+        archived: false,
+        family: 'nativeSessions',
+        generation: 1,
+        harnessInstallationId: null,
+        lifecycle: 'ready',
+        projectId: 'prj-1',
+        runtimeNodeId: 'node-1',
+        sessionRef: 'session-1',
+        version: 1,
+        workspaceId: 'wsp-1',
+        worktreeId: 'wt-1',
+      }
     case 'runtimeNodes':
       return {
         family: 'runtimeNodes',
@@ -269,7 +287,7 @@ describe('migration snapshot contract constants', () => {
   })
 
   test('every record family a migration must inventory is present, sorted and unique', () => {
-    expect(migrationSnapshotFamilies.length).toBe(21)
+    expect(migrationSnapshotFamilies.length).toBe(22)
     expect(isSorted([...migrationSnapshotFamilies])).toBe(true)
     expect(new Set(migrationSnapshotFamilies).size).toBe(migrationSnapshotFamilies.length)
     for (const family of [

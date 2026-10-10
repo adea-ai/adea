@@ -103,6 +103,7 @@ export const migrationSnapshotFamilies = [
   'leadTurnRuntime',
   'memberships',
   'messages',
+  'nativeSessions',
   'projectMembers',
   'projects',
   'readState',
@@ -392,6 +393,41 @@ export type LeadTurnRuntimeSnapshotRecord = Readonly<{
   state: string
 }>
 
+/** The canonical lifecycle values reported by the runtime's session read. */
+const nativeSessionLifecycles = [
+  'preparing',
+  'ready',
+  'active',
+  'disconnected',
+  'completed',
+  'failed',
+  'cancelled',
+] as const
+
+/**
+ * One canonical runtime session as reported by the execution host's
+ * `dev.session.list` read (capability `dev.session.read`). The inventory is
+ * runtime-owned: this record is only ever produced by composing that
+ * authoritative page through an injected source, never by a local catalogue.
+ */
+export type NativeSessionSnapshotRecord = Readonly<{
+  family: 'nativeSessions'
+  accountId: string
+  activeHarnessRunId: string | null
+  agentProfileId: string | null
+  agentProfileVersion: number | null
+  archived: boolean
+  generation: number
+  harnessInstallationId: string | null
+  lifecycle: string
+  projectId: string
+  runtimeNodeId: string
+  sessionRef: string
+  version: number
+  workspaceId: string
+  worktreeId: string
+}>
+
 /**
  * A paired runtime node's product-visible identity and health facts.
  */
@@ -438,6 +474,7 @@ export type MigrationSnapshotRecord =
   | LeadTurnRuntimeSnapshotRecord
   | MembershipSnapshotRecord
   | MessageSnapshotRecord
+  | NativeSessionSnapshotRecord
   | ProjectMemberSnapshotRecord
   | ProjectSnapshotRecord
   | ReadStateSnapshotRecord
@@ -991,6 +1028,27 @@ export function migrationSnapshotRecordIssue(
         nullableIdentifierField('runtimeSessionId', record.runtimeSessionId),
         nullableIdentifierField('publishedMessageId', record.publishedMessageId),
         check('cancelRequested', isBoolean(record.cancelRequested)),
+      ])
+    case 'nativeSessions':
+      return firstIssue([
+        identifierField('sessionRef', record.sessionRef),
+        identifierField('accountId', record.accountId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('runtimeNodeId', record.runtimeNodeId),
+        identifierField('projectId', record.projectId),
+        identifierField('worktreeId', record.worktreeId),
+        enumField('lifecycle', record.lifecycle, nativeSessionLifecycles),
+        check('archived', isBoolean(record.archived)),
+        check('generation', isNonNegativeSafeInteger(record.generation)),
+        check('version', isNonNegativeSafeInteger(record.version)),
+        nullableIdentifierField('agentProfileId', record.agentProfileId),
+        check(
+          'agentProfileVersion',
+          record.agentProfileVersion === null ||
+            isNonNegativeSafeInteger(record.agentProfileVersion)
+        ),
+        nullableIdentifierField('harnessInstallationId', record.harnessInstallationId),
+        nullableIdentifierField('activeHarnessRunId', record.activeHarnessRunId),
       ])
     case 'runtimeNodes':
       return firstIssue([

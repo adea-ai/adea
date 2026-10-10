@@ -571,6 +571,25 @@ describe('migration snapshot comparator', () => {
           state: 'prepared',
         },
       ]),
+      nativeSessions: section([
+        {
+          accountId: 'acct-1',
+          activeHarnessRunId: null,
+          agentProfileId: 'prf-1',
+          agentProfileVersion: 1,
+          archived: false,
+          family: 'nativeSessions',
+          generation: 1,
+          harnessInstallationId: null,
+          lifecycle: 'ready',
+          projectId: 'prj-1',
+          runtimeNodeId: 'node-1',
+          sessionRef: 'session-1',
+          version: 1,
+          workspaceId: 'wsp-1',
+          worktreeId: 'wt-1',
+        },
+      ]),
       runtimeNodes: section([
         {
           family: 'runtimeNodes',

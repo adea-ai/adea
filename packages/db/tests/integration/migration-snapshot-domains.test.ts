@@ -9,6 +9,7 @@ import type {
   MigrationSnapshotSection,
   UserPrincipalRef,
 } from '@adea-ai/types'
+import type { RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import {
   registerArtifactReferenceGrant,
@@ -24,6 +25,7 @@ import {
   captureMigrationSnapshot,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
+import { NativeSessionInventoryError } from '../../src/native-session-inventory'
 import {
   artifactReferenceGrants,
   contentRefs,
@@ -68,6 +70,21 @@ function identity(snapshotId: string, capturedAt = new Date('2026-02-01T00:00:00
 
 function section(records: MigrationSnapshotRecord[]): MigrationSnapshotSection {
   return { limit: records.length + 1, records, truncated: false }
+}
+
+function runtimeSession(overrides: Partial<RuntimeSession> = {}): RuntimeSession {
+  return {
+    archived: false,
+    generation: 1,
+    id: 'sess-1',
+    lifecycle: 'ready',
+    projectId: 'prj-1',
+    repoId: 'repo-1',
+    scope: { accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' },
+    version: 1,
+    worktreeId: 'wt-1',
+    ...overrides,
+  }
 }
 
 function grantRecordOf(document: MigrationSnapshotDocument, grantId: string) {
@@ -318,7 +335,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       unknownReason: 'unsupported_family',
     })
     expect(result.document.sections.nativeSessions).toBeUndefined()
-    expect(MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES).not.toContain('nativeSessions')
+    expect(MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES).toContain('nativeSessions')
     expect(MIGRATION_SNAPSHOT_UNSUPPORTED_DOMAINS).toContain('nativeSessions')
 
     // Capture is bounded and read-only by construction.
@@ -572,5 +589,80 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     expect(readStateComparison.findings).toContainEqual(
       expect.objectContaining({ family: 'readState', findingClass: 'lost_read_state' })
     )
+  })
+
+  test('composes the runtime-owned session inventory through the injected canonical source', async () => {
+    const captured = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-native'),
+      nativeSessionInventory: {
+        listRuntimeSessions: async () => ({
+          items: [
+            runtimeSession({
+              agentProfileId: 'prf-1',
+              agentProfileVersion: 2,
+              id: 'sess-z',
+              lifecycle: 'active',
+            }),
+            runtimeSession({ id: 'sess-a' }),
+          ],
+        }),
+      },
+      requestedDomains: ['nativeSessions'],
+    })
+    expect(captured.domains).toEqual([
+      { domain: 'nativeSessions', status: 'captured', unknownReason: null },
+    ])
+    expect(
+      captured.document.sections.nativeSessions?.records.map((record) => record.sessionRef)
+    ).toEqual(['sess-a', 'sess-z'])
+    expect(captured.document.sections.nativeSessions?.records).toContainEqual(
+      expect.objectContaining({
+        agentProfileId: 'prf-1',
+        agentProfileVersion: 2,
+        lifecycle: 'active',
+        sessionRef: 'sess-z',
+      })
+    )
+
+    // An authoritative empty page is a captured zero, not an unknown.
+    const empty = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-native-empty'),
+      nativeSessionInventory: { listRuntimeSessions: async () => ({ items: [] }) },
+      requestedDomains: ['nativeSessions'],
+    })
+    expect(empty.domains).toEqual([
+      { domain: 'nativeSessions', status: 'captured', unknownReason: null },
+    ])
+    expect(empty.document.sections.nativeSessions?.records).toEqual([])
+
+    // A denied read stays an explicit unknown with no section.
+    const denied = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-native-denied'),
+      nativeSessionInventory: {
+        listRuntimeSessions: async () => {
+          throw new NativeSessionInventoryError('denied', 'capability refused')
+        },
+      },
+      requestedDomains: ['nativeSessions'],
+    })
+    expect(denied.domains).toEqual([
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
+    ])
+    expect(denied.document.sections.nativeSessions).toBeUndefined()
+
+    // A payload outside the canonical contract is refused, never captured.
+    const invalid = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-native-invalid'),
+      nativeSessionInventory: {
+        listRuntimeSessions: async () => ({
+          items: [runtimeSession({ lifecycle: 'bogus' as RuntimeSession['lifecycle'] })],
+        }),
+      },
+      requestedDomains: ['nativeSessions'],
+    })
+    expect(invalid.domains).toEqual([
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
+    ])
+    expect(invalid.document.sections.nativeSessions).toBeUndefined()
   })
 })

@@ -165,6 +165,29 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     binding: ['channelId', 'threadRootMessageId', 'workspaceId'],
     digests: [],
   },
+  nativeSessions: {
+    // The runtime owns the session; the record mirrors its identity, scope,
+    // lifecycle and profile binding. Scope and profile identity are links, the
+    // profile version is a digest, and the runtime's monotonic counters plus
+    // lifecycle state are attributes.
+    attributes: [
+      { field: 'archived' },
+      { field: 'generation' },
+      { field: 'lifecycle' },
+      { field: 'version' },
+    ],
+    binding: [
+      'accountId',
+      'activeHarnessRunId',
+      'agentProfileId',
+      'harnessInstallationId',
+      'projectId',
+      'runtimeNodeId',
+      'workspaceId',
+      'worktreeId',
+    ],
+    digests: ['agentProfileVersion'],
+  },
   projectMembers: {
     // A project grant belongs to exactly one workspace: a workspace-only
     // change is a remap of the grant, never an identical match.
@@ -380,6 +403,8 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.replicaId
     case 'leadTurnRuntime':
       return record.intentId
+    case 'nativeSessions':
+      return record.sessionRef
     case 'runtimeNodes':
       return record.runtimeNodeId
     case 'taskSubmissions':

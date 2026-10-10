@@ -67,6 +67,10 @@ import {
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
+  captureNativeSessionSection,
+  type NativeSessionInventorySource,
+} from './native-session-inventory'
+import {
   agents,
   artifactReferenceGrants,
   authIdentities,
@@ -113,10 +117,11 @@ export const MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES: readonly MigrationSn
   migrationSnapshotFamilies
 
 /**
- * Domains a migration must account for that this capture cannot inventory: the
- * canonical runtime owns native sessions, and only their mapping is durable in
- * this database. Requesting one stays unknown with reason `unsupported_family`
- * instead of reading as an empty capture.
+ * Domains a migration must account for that this capture cannot inventory from
+ * the database alone: the canonical runtime owns native sessions and serves
+ * them through `dev.session.list` (capability `dev.session.read`). Requesting
+ * one without an injected `nativeSessionInventory` source stays unknown with
+ * reason `unsupported_family` instead of reading as an empty capture.
  */
 export const MIGRATION_SNAPSHOT_UNSUPPORTED_DOMAINS = ['nativeSessions'] as const
 
@@ -130,6 +135,7 @@ export const MIGRATION_SNAPSHOT_CAPTURE_PAGE_SIZE = 500
 export const migrationSnapshotCaptureUnknownReasons = [
   'unrecognized_domain',
   'unsupported_family',
+  'inventory_error',
 ] as const
 
 export type MigrationSnapshotCaptureUnknownReason =
@@ -171,6 +177,14 @@ export type MigrationSnapshotCaptureInput = Readonly<{
    * domain status with a typed reason — never an empty success.
    */
   requestedDomains?: readonly string[]
+  /**
+   * Authoritative runtime session inventory source (the canonical
+   * `dev.session.list` read). When absent, a requested `nativeSessions` domain
+   * stays unknown with `unsupported_family`; when present, the composed read is
+   * captured and a denied, unavailable or invalid read stays unknown with
+   * `inventory_error` — never an empty section.
+   */
+  nativeSessionInventory?: NativeSessionInventorySource
 }>
 
 export type MigrationSnapshotCaptureResult = Readonly<{
@@ -240,10 +254,12 @@ function requireCaptureBound(value: number | undefined): number {
  * Duplicate names collapse to one status.
  */
 export function resolveMigrationSnapshotCaptureDomains(
-  requestedDomains: readonly string[] | undefined
+  requestedDomains: readonly string[] | undefined,
+  options?: Readonly<{ nativeSessionInventory?: NativeSessionInventorySource }>
 ): readonly MigrationSnapshotDomainCaptureStatus[] {
   const supported = new Set<string>(MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES)
   const unsupported = new Set<string>(MIGRATION_SNAPSHOT_UNSUPPORTED_DOMAINS)
+  const hasNativeSessionInventory = options?.nativeSessionInventory !== undefined
   const names = requestedDomains ?? [...supported]
   const resolved = new Map<string, MigrationSnapshotDomainCaptureStatus>()
   for (const domain of names) {
@@ -254,6 +270,10 @@ export function resolveMigrationSnapshotCaptureDomains(
     }
     if (resolved.has(domain)) continue
     if (supported.has(domain)) {
+      if (domain === 'nativeSessions' && !hasNativeSessionInventory) {
+        resolved.set(domain, { domain, status: 'unknown', unknownReason: 'unsupported_family' })
+        continue
+      }
       resolved.set(domain, { domain, status: 'captured', unknownReason: null })
       continue
     }
@@ -652,6 +672,8 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.replicaId
     case 'leadTurnRuntime':
       return record.intentId
+    case 'nativeSessions':
+      return record.sessionRef
     case 'runtimeNodes':
       return record.runtimeNodeId
     case 'taskSubmissions':
@@ -1310,6 +1332,13 @@ async function captureFamilySectionByName(
           state: row.state,
         }),
       })
+    case 'nativeSessions':
+      // Composed by `captureNativeSessionSection` outside the database
+      // transaction; `captureDocument` assigns the precomputed section and
+      // never routes this family through the database switch.
+      throw new Error(
+        'nativeSessions is composed from the runtime inventory, not captured from this database'
+      )
     case 'runtimeNodes':
       return captureFamilySection(transaction, bound, {
         fetchPage: (offset, rowsBound) =>
@@ -1384,7 +1413,8 @@ async function captureDocument(
   identity: MigrationSnapshotIdentity,
   domains: readonly MigrationSnapshotDomainCaptureStatus[],
   bound: number,
-  capturedAt: Date
+  capturedAt: Date,
+  nativeSessionSection?: MigrationSnapshotSection
 ): Promise<MigrationSnapshotDocument> {
   const captured = new Set(
     domains.filter((domain) => domain.status === 'captured').map((domain) => domain.domain)
@@ -1394,6 +1424,10 @@ async function captureDocument(
   const sections: Partial<Record<MigrationSnapshotFamily, MigrationSnapshotSection>> = {}
   for (const family of migrationSnapshotFamilies) {
     if (!captured.has(family)) continue
+    if (family === 'nativeSessions') {
+      if (nativeSessionSection) sections[family] = nativeSessionSection
+      continue
+    }
     sections[family] = await captureFamilySectionByName(transaction, family, bound, capturedAt)
   }
   return Object.freeze({
@@ -1411,17 +1445,38 @@ async function captureDocument(
  */
 export async function captureMigrationSnapshotInTransaction(
   transaction: AgentHqTransaction,
-  input: MigrationSnapshotCaptureInput
+  input: MigrationSnapshotCaptureInput,
+  composition?: Readonly<{ nativeSessionSection?: MigrationSnapshotSection }>
 ): Promise<MigrationSnapshotCaptureResult> {
   const identity = requireCaptureIdentity(input.identity)
-  const domains = resolveMigrationSnapshotCaptureDomains(input.requestedDomains)
   const bound = requireCaptureBound(input.limitPerFamily)
+  let domains = resolveMigrationSnapshotCaptureDomains(input.requestedDomains, {
+    nativeSessionInventory: input.nativeSessionInventory,
+  })
+  const nativeSessionSection = composition?.nativeSessionSection
+  if (
+    nativeSessionSection === undefined &&
+    domains.some((domain) => domain.domain === 'nativeSessions' && domain.status === 'captured')
+  ) {
+    // A declared source with no composed read stays an explicit unknown; the
+    // caller must compose the runtime read outside its own transaction.
+    domains = domains.map((domain) =>
+      domain.domain === 'nativeSessions'
+        ? {
+            domain: 'nativeSessions',
+            status: 'unknown' as const,
+            unknownReason: 'inventory_error' as const,
+          }
+        : domain
+    )
+  }
   const document = await captureDocument(
     transaction,
     identity,
     domains,
     bound,
-    input.identity.capturedAt
+    input.identity.capturedAt,
+    nativeSessionSection
   )
   return Object.freeze({ document, domains })
 }
@@ -1442,11 +1497,42 @@ export async function captureMigrationSnapshot(
   input: MigrationSnapshotCaptureInput
 ): Promise<MigrationSnapshotCaptureResult> {
   const identity = requireCaptureIdentity(input.identity)
-  const domains = resolveMigrationSnapshotCaptureDomains(input.requestedDomains)
   const bound = requireCaptureBound(input.limitPerFamily)
+  let domains = resolveMigrationSnapshotCaptureDomains(input.requestedDomains, {
+    nativeSessionInventory: input.nativeSessionInventory,
+  })
+  // The runtime read is composed before the database transaction opens: the
+  // read-only snapshot transaction must not be held open across bridge I/O.
+  let nativeSessionSection: MigrationSnapshotSection | undefined
+  if (
+    domains.some((domain) => domain.domain === 'nativeSessions' && domain.status === 'captured')
+  ) {
+    try {
+      nativeSessionSection = await captureNativeSessionSection(input.nativeSessionInventory!, bound)
+    } catch {
+      // Denied, unavailable or invalid runtime inventory stays an explicit
+      // unknown with no section — never an empty capture.
+      domains = domains.map((domain) =>
+        domain.domain === 'nativeSessions'
+          ? {
+              domain: 'nativeSessions',
+              status: 'unknown' as const,
+              unknownReason: 'inventory_error' as const,
+            }
+          : domain
+      )
+    }
+  }
   const document = await database.transaction(
     (transaction) =>
-      captureDocument(transaction, identity, domains, bound, input.identity.capturedAt),
+      captureDocument(
+        transaction,
+        identity,
+        domains,
+        bound,
+        input.identity.capturedAt,
+        nativeSessionSection
+      ),
     MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG
   )
   return Object.freeze({ document, domains })

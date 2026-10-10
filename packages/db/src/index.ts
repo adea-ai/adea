@@ -25,6 +25,13 @@ export {
   type MigrationSnapshotPayloadDigestInconclusiveReason,
 } from './migration-snapshot-capture'
 export {
+  captureNativeSessionSection,
+  NativeSessionInventoryError,
+  type NativeSessionInventoryFailure,
+  type NativeSessionInventoryPage,
+  type NativeSessionInventorySource,
+} from './native-session-inventory'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
