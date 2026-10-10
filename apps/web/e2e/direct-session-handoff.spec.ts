@@ -78,6 +78,17 @@ function section(page: Page) {
   return page.getByRole('region', { name: 'Direct session handoff' })
 }
 
+test('turn initiation explains requesting and its limit', async ({ page }) => {
+  const errors = await openHarness(page)
+  // Fresh channel-linked session with no turn: the initiation guidance
+  // names what requesting does and keeps the unverified-claim limit
+  // explicit, beside the enabled request control.
+  await expect(section(page).getByText(/Hand off to request lead coordination/)).toBeVisible()
+  await expect(section(page).getByText(/retained request alone never coordinates/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Hand off to lead', exact: true })).toBeEnabled()
+  expectNoErrors(errors)
+})
+
 test('a direct session attaches read-only: nothing is invented from the bound run', async ({
   page,
 }) => {

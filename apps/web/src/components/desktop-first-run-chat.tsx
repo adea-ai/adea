@@ -4,6 +4,7 @@ import {
   FirstRunOnboarding,
   DevWorkspaceSidebar,
   devBindingsFromProjection,
+  handoffTurnNeedsRefresh,
   resolveDevSelection,
   resolveHandoffSessionAuthority,
 } from '@adea-ai/dev-view/chat'
@@ -22,6 +23,7 @@ import {
   requestLeadHandoff,
   resolveLeadHandoffSupply,
 } from '../lib/lead-handoff-supply'
+import { createLeadStatusPoll } from '../lib/lead-handoff-poll'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -326,6 +328,17 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   createEffect(() => {
     resolveLeadSupply(false)
   })
+
+  // Lead-status polling (#1177): while an unsettled turn is observed —
+  // awaiting admission, dispatching, or live — re-read on the shared 30s
+  // visible-only cadence so the surface converges without a manual check.
+  // Terminal turns stop the poll; hidden windows and offline browsers
+  // issue no reads; reconnects re-read once. Overlaps stay safe: supply
+  // application is epoch-guarded, so a late poll commits nothing.
+  createLeadStatusPoll(
+    () => resolveLeadSupply(true),
+    () => handoffTurnNeedsRefresh(leadSupply().turn?.state)
+  )
 
   // Explicit handoff request (#1177): first the session authority gate
   // (existence, scope, task binding, liveness, ACTUAL current generation,

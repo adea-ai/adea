@@ -128,6 +128,15 @@ const TERMINAL_LEAD_TURN_STATES: readonly HandoffLeadTurnState[] = [
   'timed_out',
 ]
 
+/** Whether a turn in this state can still transition, so a status re-read
+ *  can observe something new. Terminal turns released the session; every
+ *  other state — including blocked/unknown claims still awaiting admission
+ *  — may move, and polling them is how the surface converges without a
+ *  manual check. */
+export function handoffTurnNeedsRefresh(state: HandoffLeadTurnState | undefined): boolean {
+  return state !== undefined && !TERMINAL_LEAD_TURN_STATES.includes(state)
+}
+
 /**
  * How the supplied harness-run candidate relates to the register binding.
  * `bound` (object fully validated) and `registered` (register id only, no
@@ -426,6 +435,19 @@ export function deriveDirectSessionHandoff(
       input.leadMismatchReason !== undefined
         ? `The observed turn is not bound to this session (${input.leadMismatchReason}), so it grants no coordination. The session stays read-only.`
         : 'The supplied turn is not bound to the active workspace lead, so it grants no coordination. The session stays read-only.'
+  } else if (
+    input.mode === 'attached' &&
+    input.leadChannelId !== undefined &&
+    input.leadTurn === undefined &&
+    input.claimedTurn === undefined
+  ) {
+    // Turn-initiation guidance: what requesting does and — explicitly —
+    // what it does not. The retained request is checked automatically and
+    // stays re-checkable by hand, but a retained request alone never
+    // coordinates: only runtime-observed execution bound to this session
+    // does, so the host-session claim underneath stays unverified here.
+    notice =
+      'Hand off to request lead coordination for this session at the current generation. The request is retained and its status is checked automatically, but a retained request alone never coordinates.'
   }
 
   // Stopping the LEAD cancels the caller's own admitted turn through the

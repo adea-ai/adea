@@ -287,7 +287,12 @@ stale row, which the derivation names as stale with re-request);
 exact repeats dedupe to one retained intent; non-privileged
 callers fail before target resolution (runtime.invoke is
 owner/admin-only, so the hidden-project task check stands as
-defense-in-depth behind admission authority).
+defense-in-depth behind admission authority); turn-initiation
+guidance in the notice area (what requesting does, retained
+request alone never coordinates); lead-status polling on the
+shared 30s visible-only cadence while a turn is unsettled
+(offline/hidden issue no reads, reconnects re-read, failures keep
+last state, manual check stays).
 CP935 status: target observation shapes merged (requestedTarget
 untrusted routing annotation + observedTarget session/task from
 verified records, no generation field by design). The Adea

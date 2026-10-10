@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 import {
   deriveDirectSessionHandoff,
+  handoffTurnNeedsRefresh,
   deriveHandoffModeForSurface,
   hasOpenApproval,
   resolveLeadClaim,
@@ -933,5 +934,55 @@ describe('lead-agent binding', () => {
       reason:
         'the retained request targets generation 3 but the session is at generation 5; no explicit target-bound execution observation exists',
     })
+  })
+})
+
+describe('handoff turn refresh predicate', () => {
+  test('unsettled states need refresh; terminal states and absence do not', () => {
+    for (const state of [
+      'blocked',
+      'unknown',
+      'prepared',
+      'dispatch_pending',
+      'starting',
+      'running',
+      'awaiting_input',
+      'cancelling',
+    ] as const)
+      expect(handoffTurnNeedsRefresh(state)).toBe(true)
+    for (const state of ['completed', 'failed', 'cancelled', 'timed_out'] as const)
+      expect(handoffTurnNeedsRefresh(state)).toBe(false)
+    expect(handoffTurnNeedsRefresh(undefined)).toBe(false)
+  })
+})
+
+describe('turn-initiation guidance', () => {
+  test('an attached channel-linked session without any turn explains requesting', () => {
+    const view = deriveDirectSessionHandoff(input({ leadChannelId: 'channel-1' }))
+    expect(view.mode).toBe('attached')
+    expect(view.notice).toMatch(/Hand off to request lead coordination/)
+    expect(view.notice).toMatch(/retained request alone never coordinates/)
+    expect(view.controls.handoff_to_lead.available).toBe(true)
+  })
+
+  test('no initiation guidance without a linked channel or beside a live notice', () => {
+    expect(deriveDirectSessionHandoff(input()).notice ?? '').not.toMatch(
+      /Hand off to request lead coordination/
+    )
+    const claimed = input({
+      leadChannelId: 'channel-1',
+      claimedTurn: {
+        intentId: '00000000-0000-4000-8000-0000000000a1',
+        agentId: '00000000-0000-4000-8000-0000000000b2',
+        state: 'blocked',
+        canCancel: false,
+        handoffTarget: {
+          runtimeSessionId: 'session-1',
+          taskId: '00000000-0000-4000-8000-0000000000f1',
+          observedGeneration: 3,
+        },
+      },
+    })
+    expect(deriveDirectSessionHandoff(claimed).notice).toMatch(/requested for this session/)
   })
 })
