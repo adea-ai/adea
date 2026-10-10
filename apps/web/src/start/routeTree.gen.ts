@@ -22,6 +22,7 @@ import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/mark
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
+import { Route as ApiWorkspacesArchivedRouteImport } from './routes/api/workspaces/archived'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
 import { Route as ApiWorkspacesClaimRouteImport } from './routes/api/workspaces/claim'
 import { Route as ApiWorkspacesReorderRouteImport } from './routes/api/workspaces/reorder'
@@ -37,6 +38,7 @@ import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './rout
 import { Route as ApiV1AccountAgentsRouteImport } from './routes/api/v1/account/agents'
 import { Route as ApiV1AccountConversationsRouteImport } from './routes/api/v1/account/conversations'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
+import { Route as ApiWorkspacesWorkspaceIdArchiveRouteImport } from './routes/api/workspaces/$workspaceId/archive'
 import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections'
 import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api/workspaces/$workspaceId/delete'
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
@@ -181,6 +183,11 @@ const ApiWorkspacesWorkspaceIdRoute =
     path: '/$workspaceId',
     getParentRoute: () => ApiWorkspacesRoute,
   } as any)
+const ApiWorkspacesArchivedRoute = ApiWorkspacesArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
+  getParentRoute: () => ApiWorkspacesRoute,
+} as any)
 const ApiWorkspacesBootstrapRoute = ApiWorkspacesBootstrapRouteImport.update({
   id: '/bootstrap',
   path: '/bootstrap',
@@ -260,6 +267,12 @@ const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
   path: '/api/v1/account/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesWorkspaceIdArchiveRoute =
+  ApiWorkspacesWorkspaceIdArchiveRouteImport.update({
+    id: '/archive',
+    path: '/archive',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
 const ApiWorkspacesWorkspaceIdCloudConnectionsRoute =
   ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport.update({
     id: '/cloud-connections',
@@ -728,6 +741,7 @@ export interface FileRoutesByFullPath {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -743,6 +757,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -832,6 +847,7 @@ export interface FileRoutesByTo {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -847,6 +863,7 @@ export interface FileRoutesByTo {
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -937,6 +954,7 @@ export interface FileRoutesById {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -952,6 +970,7 @@ export interface FileRoutesById {
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -1043,6 +1062,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1058,6 +1078,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1147,6 +1168,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1162,6 +1184,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1251,6 +1274,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1266,6 +1290,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1485,6 +1510,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdRouteImport
       parentRoute: typeof ApiWorkspacesRoute
     }
+    '/api/workspaces/archived': {
+      id: '/api/workspaces/archived'
+      path: '/archived'
+      fullPath: '/api/workspaces/archived'
+      preLoaderRoute: typeof ApiWorkspacesArchivedRouteImport
+      parentRoute: typeof ApiWorkspacesRoute
+    }
     '/api/workspaces/bootstrap': {
       id: '/api/workspaces/bootstrap'
       path: '/bootstrap'
@@ -1589,6 +1621,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/account/summary'
       preLoaderRoute: typeof ApiV1AccountSummaryRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces/$workspaceId/archive': {
+      id: '/api/workspaces/$workspaceId/archive'
+      path: '/archive'
+      fullPath: '/api/workspaces/$workspaceId/archive'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdArchiveRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
     }
     '/api/workspaces/$workspaceId/cloud-connections': {
       id: '/api/workspaces/$workspaceId/cloud-connections'
@@ -2169,6 +2208,7 @@ const ApiWorkspacesWorkspaceIdSkillsRouteWithChildren =
   )
 
 interface ApiWorkspacesWorkspaceIdRouteChildren {
+  ApiWorkspacesWorkspaceIdArchiveRoute: typeof ApiWorkspacesWorkspaceIdArchiveRoute
   ApiWorkspacesWorkspaceIdCloudConnectionsRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   ApiWorkspacesWorkspaceIdDeleteRoute: typeof ApiWorkspacesWorkspaceIdDeleteRoute
   ApiWorkspacesWorkspaceIdModelConnectionsRoute: typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -2178,6 +2218,7 @@ interface ApiWorkspacesWorkspaceIdRouteChildren {
 
 const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildren =
   {
+    ApiWorkspacesWorkspaceIdArchiveRoute: ApiWorkspacesWorkspaceIdArchiveRoute,
     ApiWorkspacesWorkspaceIdCloudConnectionsRoute:
       ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren,
     ApiWorkspacesWorkspaceIdDeleteRoute: ApiWorkspacesWorkspaceIdDeleteRoute,
@@ -2195,6 +2236,7 @@ const ApiWorkspacesWorkspaceIdRouteWithChildren =
 
 interface ApiWorkspacesRouteChildren {
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  ApiWorkspacesArchivedRoute: typeof ApiWorkspacesArchivedRoute
   ApiWorkspacesBootstrapRoute: typeof ApiWorkspacesBootstrapRoute
   ApiWorkspacesClaimRoute: typeof ApiWorkspacesClaimRoute
   ApiWorkspacesReorderRoute: typeof ApiWorkspacesReorderRoute
@@ -2202,6 +2244,7 @@ interface ApiWorkspacesRouteChildren {
 
 const ApiWorkspacesRouteChildren: ApiWorkspacesRouteChildren = {
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
+  ApiWorkspacesArchivedRoute: ApiWorkspacesArchivedRoute,
   ApiWorkspacesBootstrapRoute: ApiWorkspacesBootstrapRoute,
   ApiWorkspacesClaimRoute: ApiWorkspacesClaimRoute,
   ApiWorkspacesReorderRoute: ApiWorkspacesReorderRoute,

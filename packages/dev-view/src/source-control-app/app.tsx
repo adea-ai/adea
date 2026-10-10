@@ -74,6 +74,12 @@ export type SourceControlAppProps = Readonly<{
   storage?: KeyValueStorage
   /** Switch the workspace to the Dev view (after selecting a session). */
   onOpenDev?: () => void
+  /**
+   * The host mounts the workspace's default toast stack. This app then sends its
+   * notices to that stack and mounts no stack of its own, so embedded use never
+   * shows two. Standalone use leaves it unset and keeps its own named stack.
+   */
+  hostToaster?: boolean
   now?: () => number
   /** Cloud project names keyed by project id; the register stores none. */
   projectNames?: DevProjectNames
@@ -99,7 +105,7 @@ const TOAST_REGION = 'source-control'
  */
 const ERROR_TOAST_DURATION_MS = 7000
 
-function notifyOf(message: string, tone: 'success' | 'error', region: string): number {
+function notifyOf(message: string, tone: 'success' | 'error', region: string | undefined): number {
   if (tone === 'error')
     return toast.error(message, {
       region,
@@ -279,7 +285,7 @@ function ConnectedApp(
   }>()
 
   const notify = (message: string, tone: 'success' | 'error' = 'success'): number =>
-    notifyOf(message, tone, TOAST_REGION)
+    notifyOf(message, tone, props.hostToaster ? undefined : TOAST_REGION)
 
   /** Re-check one provider from the Git providers dialog and say what
    *  happened: the row chip flips with the state, and a toast carries the
@@ -683,10 +689,13 @@ function ConnectedApp(
           menus and tooltips), and rendering it at the root keeps that rung
           meaningful no matter which stacking context the view that owns the
           notification happens to sit in. An open dialog must never bury an
-          error toast — the Git providers dialog is exactly where one fires. */}
-      <Portal>
-        <Toaster region={TOAST_REGION} position="bottom-right" />
-      </Portal>
+          error toast — the Git providers dialog is exactly where one fires.
+          Embedded (hostToaster), the host's default stack carries these instead. */}
+      <Show when={!props.hostToaster}>
+        <Portal>
+          <Toaster region={TOAST_REGION} position="bottom-right" />
+        </Portal>
+      </Show>
     </main>
   )
 }

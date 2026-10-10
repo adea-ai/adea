@@ -79,6 +79,8 @@ write-heavy suite at a production or owner connection.
 
 The runner's local target follows `ADEA_POSTGRES_PORT`, so the tests and the compose service agree on the port. The compose project name is fixed to `agent-hq` in `compose.yml`, so a second checkout that must not share that instance should also set `COMPOSE_PROJECT_NAME` and its own `ADEA_POSTGRES_PORT`. The runner refuses before any build when a running local postgres publishes a different host port than `ADEA_POSTGRES_PORT`, so it never connects to an instance it did not match. In CI the lane fails before any build when Docker is unavailable: the migration-snapshot capture proofs and the cutover rehearsals must not skip.
 
+`ADEA_INTEGRATION_SHARD=<index>/<total>` (for example `1/2`) runs one explicit half of the package suites. Shard 1 also runs the route-flow suite, so it is never run twice. `bun scripts/test-integration.mjs --plan` prints the selection without touching a database or Docker.
+
 ## Health and configuration validation
 
 Run the health probe from an environment that has `psql` and the three canonical variables:
@@ -106,7 +108,7 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Never edit an applied migration. Add a forward fix.
 - Prefer expand/migrate/contract changes. Roll back application code independently while the expanded schema remains compatible.
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.
-- Pull-request CI applies the full migration history twice and compares the Drizzle journal before running transaction integration tests on its isolated Neon branch.
+- Pull-request CI applies the full migration history twice and compares the Drizzle journal on each of two isolated Neon branches, `preview/pr-<number>-<branch>-s1` and `-s2`. Each branch runs one half of the integration inventory, and the required `Migrate Neon Branch` check passes only when both shards pass. Closing the pull request deletes both shard branches and any legacy `preview/pr-<number>-<branch>` branch that exists.
 
 ### Control Plane scopes (`0033`, expand only)
 

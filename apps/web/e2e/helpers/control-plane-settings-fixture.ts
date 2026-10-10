@@ -86,6 +86,10 @@ export function controlPlaneSettingsClient(mode: 'scoped' | 'unavailable'): Agen
           { code: 'CONTROL_PLANE_UNAVAILABLE', message: 'Control Plane is not configured' },
           { status: 503 }
         )
+      // General reads the owner's archived workspaces (#1175). The harness keeps none, so the list is
+      // empty; the request above is recorded like every other, and specs assert it by method and path.
+      if (url.pathname === '/api/workspaces/archived' && method === 'GET')
+        return Response.json({ workspaces: [] })
       const runtimeInventory = await runtimeInventoryFixtureResponse(url, init?.signal ?? undefined)
       if (runtimeInventory) return runtimeInventory
       const path = url.pathname.replace(/^\/api\/workspaces\/[^/]+\//u, '')
