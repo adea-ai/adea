@@ -206,3 +206,54 @@ describe('lead revision signal', () => {
     expect(workspaceLeadRevision('ws-revision-b')).toBe(other)
   })
 })
+
+describe('lead load: roster refresh hook', () => {
+  test('a provisioning write refreshes the roster list exactly once', async () => {
+    const { client, calls } = fakeClient({ canManage: true })
+    let refreshes = 0
+    await loadWorkspaceLeadSetup({
+      client,
+      workspaceId: 'workspace-1',
+      isCurrent: always,
+      onProvisioned: () => {
+        refreshes += 1
+      },
+    })
+    expect(calls.writes).toBe(1)
+    expect(refreshes).toBe(1)
+  })
+
+  test('an existing lead never refreshes the roster list', async () => {
+    const { client } = fakeClient({ lead: unconfiguredLead, canManage: true })
+    let refreshes = 0
+    await loadWorkspaceLeadSetup({
+      client,
+      workspaceId: 'workspace-1',
+      isCurrent: always,
+      onProvisioned: () => {
+        refreshes += 1
+      },
+    })
+    expect(refreshes).toBe(0)
+  })
+
+  test('a write that lands after a scope switch does not refresh the new scope', async () => {
+    let current = true
+    const { client } = fakeClient({
+      write: async () => {
+        current = false
+        return { lead: unconfiguredLead }
+      },
+    })
+    let refreshes = 0
+    await loadWorkspaceLeadSetup({
+      client,
+      workspaceId: 'workspace-old',
+      isCurrent: () => current,
+      onProvisioned: () => {
+        refreshes += 1
+      },
+    })
+    expect(refreshes).toBe(0)
+  })
+})

@@ -33,6 +33,8 @@ export async function loadWorkspaceLeadSetup(input: {
   client: WorkspaceLeadClient
   workspaceId: string
   isCurrent(): boolean
+  /** Called once a lead was written in the current scope, so the roster list can refetch. */
+  onProvisioned?: () => void
 }): Promise<WorkspaceLeadLoad> {
   const { client, workspaceId } = input
   const [leadRead, connections, defaultsPage] = await Promise.all([
@@ -62,20 +64,24 @@ export async function loadWorkspaceLeadSetup(input: {
   let lead = leadRead.value.lead
   let provisioning: 'failed' | undefined
   let failure: 'auth_required' | 'not_permitted' | undefined
+  let written = false
   if (!lead && denied) failure = 'not_permitted'
   else if (!lead) {
     // The scope check sits immediately before the write.
     if (!input.isCurrent()) return STALE
     try {
-      const written = (await client.ensureWorkspaceLead(workspaceId)).lead
-      if (written?.isWorkspaceLead) lead = written
-      else provisioning = 'failed'
+      const response = (await client.ensureWorkspaceLead(workspaceId)).lead
+      if (response?.isWorkspaceLead) {
+        lead = response
+        written = true
+      } else provisioning = 'failed'
     } catch (error) {
       if (failureOf(error) === 'auth_required') failure = 'auth_required'
       else provisioning = 'failed'
     }
     // A write that completes after a scope switch is not applied to the new scope.
     if (!input.isCurrent()) return STALE
+    if (written) input.onProvisioned?.()
   }
   return {
     current: true,

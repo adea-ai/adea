@@ -1,17 +1,24 @@
 import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
+import type { AgentSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { loadWorkspaceLeadSetup, type WorkspaceLeadClient } from './workspace-lead-load'
 import { workspaceLeadRevision } from './workspace-lead-revision'
 import type { WorkspaceLeadSetup } from './workspace-lead-setup'
 
 /**
- * Canonical lead setup status for one workspace. Each workspace change, retry, or
- * lead-relevant change elsewhere starts a new scoped load; an earlier load that
- * settles after that point cannot apply.
+ * Canonical lead setup status for one workspace. A workspace change, a retry, a
+ * lead-relevant change elsewhere, or a change to the roster's agent list (the
+ * same query the Agents surface invalidates on profile, presentation, and project
+ * saves) starts a new scoped load. An earlier load that settles after that point
+ * cannot apply.
  */
 export function WorkspaceLeadStatus(props: {
   client: WorkspaceLeadClient
   workspaceId: string
+  /** The roster's agent list. Its refetches are the lead's reload signal. */
+  agents?: readonly AgentSummary[]
+  /** Called after this status provisions the lead, so the roster list can refetch. */
+  onProvisioned?: () => void
   onSignIn?: () => void
 }) {
   const [setup, setSetup] = createSignal<WorkspaceLeadSetup>()
@@ -21,11 +28,17 @@ export function WorkspaceLeadStatus(props: {
   createEffect(() => {
     const workspaceId = props.workspaceId
     const client = props.client
+    void props.agents
     void attempt()
     void workspaceLeadRevision(workspaceId)
     const request = (token += 1)
     setSetup(undefined)
-    loadWorkspaceLeadSetup({ client, workspaceId, isCurrent: () => request === token }).then(
+    loadWorkspaceLeadSetup({
+      client,
+      workspaceId,
+      isCurrent: () => request === token,
+      onProvisioned: () => props.onProvisioned?.(),
+    }).then(
       (result) => {
         if (result.current && request === token) setSetup(result.setup)
       },

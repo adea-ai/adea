@@ -63,6 +63,9 @@ type LeadState = {
   home: { lead: Lead | null; posts: number; gets: number }
   defaults: { revision: number; lead?: typeof readyChoice }
   defaultsRequests: number
+  /** Profile saves through the roster's Customize form, and the agent they named. */
+  profileSaves: number
+  profileSaveAgentId: string | null
   /** Holds the next matching request until the returned function is called. */
   hold(kind: Hold): () => void
 }
@@ -127,6 +130,8 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
     home: { lead: leadFor(homeWorkspace.id, true), posts: 0, gets: 0 },
     defaults: { revision: 1 },
     defaultsRequests: 0,
+    profileSaves: 0,
+    profileSaveAgentId: null,
     hold(kind) {
       let open!: () => void
       holds[kind] = new Promise<void>((resolve) => {
@@ -202,6 +207,32 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
     const request = route.request()
     const url = new URL(request.url())
     const method = request.method()
+    const profileRoute = /\/workspaces\/workspace-e2e\/agents\/([^/]+)\/profile$/.exec(url.pathname)
+    if (profileRoute && method === 'POST') {
+      // The roster's Customize save: the named agent's profile becomes approved.
+      const body = (request.postDataJSON?.() ?? {}) as { profileId: string; profileVersion: string }
+      state.profileSaves += 1
+      state.profileSaveAgentId = profileRoute[1]!
+      if (state.lead && state.lead.id === profileRoute[1]) {
+        const revision = Number(state.lead.revision ?? 0) + 1
+        state.lead = {
+          ...state.lead,
+          profile: {
+            id: body.profileId,
+            revision,
+            state: 'available',
+            version: body.profileVersion,
+          },
+          revision,
+          // The server advances updatedAt with the profile, so the roster row refreshes.
+          updatedAt: '2026-08-30T12:01:00.000Z',
+        }
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { agent: state.lead },
+      })
+    }
     const leadRoute = /\/workspaces\/([^/]+)\/agents\/lead$/.exec(url.pathname)
     if (leadRoute) {
       const workspaceId = leadRoute[1]
@@ -245,7 +276,11 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
     }
     if (method !== 'GET') return route.fulfill({ contentType: 'application/json', json: {} })
     if (url.pathname.endsWith('/agents'))
-      return route.fulfill({ contentType: 'application/json', json: [researchAgent] })
+      // The roster lists every agent row, the workspace lead included.
+      return route.fulfill({
+        contentType: 'application/json',
+        json: [researchAgent, ...(state.lead ? [state.lead] : [])],
+      })
     if (url.pathname.endsWith('/projects') || url.pathname.endsWith('/tasks'))
       return route.fulfill({ contentType: 'application/json', json: [] })
     if (url.pathname.includes('/read-state'))
@@ -468,4 +503,47 @@ test('the lead status sits inside the roster padding, under the header', async (
   // Inside the directory's left padding, and below the header rather than flush to the top.
   expect(status!.x).toBeGreaterThanOrEqual(directory!.x + 16)
   expect(status!.y).toBeGreaterThanOrEqual(header!.y + header!.height)
+})
+
+test('an auto-provisioned lead reaches Customize, and its profile save updates the mounted status without a reload', async ({
+  page,
+}) => {
+  const state = await mountShell(page)
+  await openAgents(page)
+  await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'unconfigured',
+    { timeout: 30_000 }
+  )
+  expect(state.posts).toBe(1)
+  // The provisioned lead is a roster row, so Customize reaches the same agent.
+  const leadCard = page
+    .locator('article')
+    .filter({ has: page.getByRole('heading', { name: 'Workspace lead', exact: true }) })
+  await expect(leadCard).toBeVisible()
+
+  // Same-document marker: a reload would clear it.
+  await page.evaluate(() => {
+    ;(window as unknown as { journeyDocument: string }).journeyDocument = 'same'
+  })
+  await leadCard.getByRole('button', { name: 'Customize', exact: true }).click()
+  const form = page.locator('form.conventional-agent-customization')
+  await form.getByLabel('Profile ID').fill('prf_lead_approved')
+  await form.getByLabel('Profile version ID').fill('pfv_lead_v1')
+  await form.getByRole('button', { name: 'Save changes' }).click()
+
+  // The roster refetch and the status both settle on the saved profile.
+  await expect.poll(() => state.profileSaves).toBe(1)
+  expect(state.profileSaveAgentId).toBe(state.lead?.id)
+  await expect(page.locator('#workspace-main').getByTestId('lead-setup-state')).toHaveAttribute(
+    'data-state',
+    'funding_blocked',
+    { timeout: 30_000 }
+  )
+  await expect(page.getByText('prf_lead_approved').first()).toBeVisible()
+  // Setup stayed idempotent and the document was never reloaded.
+  expect(state.posts).toBe(1)
+  expect(
+    await page.evaluate(() => (window as unknown as { journeyDocument?: string }).journeyDocument)
+  ).toBe('same')
 })

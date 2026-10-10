@@ -575,6 +575,8 @@ export function ConventionalWorkspaceShell(props: {
                                 <WorkspaceLeadStatus
                                   client={controller.client}
                                   workspaceId={controller.workspaceId!}
+                                  agents={controller.agents}
+                                  onProvisioned={() => void controller.refreshAgents()}
                                 />
                               </Suspense>
                             }
