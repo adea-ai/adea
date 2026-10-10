@@ -11,9 +11,10 @@ import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
-import { decideGroupHistoryRead } from './group-participation-policy'
+import { decideGroupHistoryRead, decideGroupTurn } from './group-participation-policy'
 import {
   admissionForParticipant,
+  loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
 } from './group-participation-store'
@@ -1405,6 +1406,33 @@ export async function getMessageForUser(
   return summary
 }
 
+/**
+ * Group message writes are turns: editing, deleting or otherwise mutating
+ * requires a live participation grant, not just a participant row. Non-group
+ * channels skip this entirely; a denied turn answers like a missing channel.
+ */
+async function requireGroupTurn(
+  database: Database,
+  workspaceId: string,
+  channel: Pick<ChannelRow, 'id' | 'kind'>,
+  principal: UserPrincipalRef
+) {
+  if (channel.kind !== 'group') return
+  const admission = await loadGroupAdmission(
+    database,
+    workspaceId,
+    channel.id,
+    { kind: 'user', userId: principal.userId },
+    { forUpdate: true }
+  )
+  const decision = decideGroupTurn({
+    admission,
+    groupId: channel.id,
+    now: new Date().toISOString(),
+  })
+  if (decision.action !== 'allow') throw new Error('Channel unavailable')
+}
+
 export async function editMessage(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -1416,7 +1444,14 @@ export async function editMessage(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
-    await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
+    const channel = await requireChannelAccess(
+      transaction,
+      workspaceId,
+      message.channelId,
+      principal,
+      'write'
+    )
+    await requireGroupTurn(transaction, workspaceId, channel, principal)
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1461,7 +1496,14 @@ export async function deleteMessage(
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
     const message = await requireMessage(transaction, workspaceId, messageId)
-    await requireChannelAccess(transaction, workspaceId, message.channelId, principal, 'write')
+    const channel = await requireChannelAccess(
+      transaction,
+      workspaceId,
+      message.channelId,
+      principal,
+      'write'
+    )
+    await requireGroupTurn(transaction, workspaceId, channel, principal)
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()

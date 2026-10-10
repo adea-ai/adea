@@ -766,21 +766,30 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   const decision = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
   await options.barrier?.afterGate?.()
-  // Final in-transaction lifetime check: the nested write below can await
-  // its own locks, so re-evaluate on fresh trusted time. A denial here
-  // throws before any write runs and rolls the fence back clean.
-  const final = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+  // Final check re-reads the canonical admission: a removal committed
+  // during the wait denies here, before any write runs.
+  const current =
+    participant === null
+      ? null
+      : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+          forUpdate: true,
+        })
+  const final = authorizeGroupChannelTurn(gate, { admission: current, now: readNow() })
   if (final.action !== 'allow') throw new Error('Channel unavailable')
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
     const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead, {
       clock: options.clock ?? liveGroupClock,
     })
-    // Post-write lifetime check: the awaited write above may have waited on
-    // channel or nested locks until after expiry and then committed. Denial
-    // throws and rolls back ALL of the fence's effects — message, intent,
-    // event — with zero rows surviving.
-    const settled = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+    // Post-write check re-reads too: removal or revocation during the
+    // awaited write denies and rolls back ALL effects with zero rows.
+    const settledLead =
+      participant === null
+        ? null
+        : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+            forUpdate: true,
+          })
+    const settled = authorizeGroupChannelTurn(gate, { admission: settledLead, now: readNow() })
     if (settled.action !== 'allow') throw new Error('Channel unavailable')
     return posted as T extends Readonly<{ mode: 'lead' }>
       ? Awaited<ReturnType<typeof createLeadTurn>>
@@ -792,7 +801,13 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
     ...direct,
     sender,
   })
-  const settled = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+  const settledDirect =
+    participant === null
+      ? null
+      : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+          forUpdate: true,
+        })
+  const settled = authorizeGroupChannelTurn(gate, { admission: settledDirect, now: readNow() })
   if (settled.action !== 'allow') throw new Error('Channel unavailable')
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>

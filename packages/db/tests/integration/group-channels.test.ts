@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
+import type { ConversationParticipantRef, GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
 import { and, eq } from 'drizzle-orm'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createArtifact, deleteArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createMessage } from '../../src/conversations'
+import { createMessage, deleteMessage, editMessage } from '../../src/conversations'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import {
   markLeadTurnDispatchPending,
@@ -18,11 +18,13 @@ import {
   authorizeGroupChannelHistoryRead,
   authorizeGroupChannelPublication,
   authorizeGroupChannelTurn,
+  authorizeGroupChannelTurnNow,
   createGroupChannelWithGrants,
   decideGroupChannelHistoryReadNow,
   decideGroupChannelPublicationNow,
   groupCreationCandidatesFromGrants,
   GroupCreationError,
+  getGroupMessageForUser,
   GroupPublicationHoldError,
   listGroupChannelMessagesForUser,
   loadGroupRoster,
@@ -3087,6 +3089,469 @@ describe('durable binding, fences and shared read boundary', () => {
           )
         )
       expect(after.map((row) => row.id)).toEqual(baseline.map((row) => row.id))
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('same-named agents in two workspaces keep strictly separate authority', async () => {
+    // Each recipient retains its own workspace authority: the ws1 group
+    // enlists ws1's Echo only. Identical display names never merge.
+    const f = await isolatedFixture()
+    const otherOwner = (
+      await createTemporaryUserSession(f.local.db, {
+        credentialDigest: `echo-owner-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    ).principal
+    const second = await createWorkspaceWithOwner(f.local.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Second',
+      owner: otherOwner,
+    })
+    const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
+      name: 'Echo',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    const echoAway = await createAgent(f.local.db, second.workspace.id, otherOwner, {
+      name: 'Echo',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    expect(echoHome.name).toBe(echoAway.name)
+    expect(echoHome.id).not.toBe(echoAway.id)
+    const channelId = crypto.randomUUID()
+    const founder = {
+      expiresAt: null,
+      grantId: 'gra_owner',
+      groupId: channelId,
+      issuedAt: ISSUED,
+      participant: f.owner,
+      revision: 1,
+      revokedAt: null,
+    }
+    await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+      candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+        audienceGrants: [founder],
+        enlistmentGrants: [
+          {
+            agent: { agentId: echoHome.id, workspaceId: f.workspace.id },
+            expiresAt: null,
+            grantId: 'gra_echo',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+      }),
+      channelId,
+      idempotencyKey: crypto.randomUUID(),
+      now: NOW,
+      title: 'Group',
+    })
+    const home: ConversationParticipantRef = { agentId: echoHome.id, kind: 'agent' }
+    const away: ConversationParticipantRef = { agentId: echoAway.id, kind: 'agent' }
+    const entry = { occurredAt: LATER, sequence: 0 }
+    const homeRead = await decideGroupChannelHistoryReadNow(
+      f.local.db,
+      f.workspace.id,
+      channelId,
+      home,
+      entry,
+      LATER
+    )
+    expect(homeRead).toMatchObject({ action: 'allow' })
+    // The same-named foreign agent was never admitted: no reads, no turns.
+    const awayRead = await decideGroupChannelHistoryReadNow(
+      f.local.db,
+      f.workspace.id,
+      channelId,
+      away,
+      entry,
+      LATER
+    )
+    expect(awayRead).toMatchObject({ action: 'deny', reason: 'history_not_participant' })
+    expect(
+      await authorizeGroupChannelTurnNow(f.local.db, f.workspace.id, channelId, away, LATER)
+    ).toMatchObject({ action: 'deny', reason: 'turn_not_participant' })
+    // And nothing in ws1 leaks the other way: the ws1 roster names no
+    // foreign identity.
+    const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+    expect(
+      roster.some(
+        (admission) =>
+          admission.participant.kind === 'agent' && admission.participant.agentId === echoAway.id
+      )
+    ).toBe(false)
+  })
+
+  test('a removed participant takes no further turns, edits or deletes', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const memberGrant = {
+        expiresAt: null,
+        grantId: 'gra_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+      }
+      const created = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder, memberGrant],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.member,
+        f.member,
+        {
+          message: { bodyText: 'before removal', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { now: NOW }
+      )
+      // Owner removes the member; the member's pending turn afterwards denies.
+      await setGroupChannelParticipantsWithGrants(f.local.db, f.workspace.id, channelId, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [],
+        }),
+        expectedVersion: created.channel.version,
+        now: LATER,
+      })
+      expect(
+        await authorizeGroupChannelTurnNow(f.local.db, f.workspace.id, channelId, f.member, LATER)
+      ).toMatchObject({ action: 'deny', reason: 'turn_not_participant' })
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          f.member,
+          {
+            message: { bodyText: 'after removal', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: LATER }
+        )
+      ).rejects.toThrow('Channel unavailable')
+      await expect(
+        editMessage(f.local.db, f.workspace.id, posted.id, f.member, { bodyText: 'rewritten' }, 1)
+      ).rejects.toThrow('Channel unavailable')
+      await expect(
+        deleteMessage(f.local.db, f.workspace.id, posted.id, f.member, 1)
+      ).rejects.toThrow('Channel unavailable')
+      // The founder's own message stands unmodified.
+      const kept = await getGroupMessageForUser(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        posted.id,
+        f.owner,
+        { now: LATER }
+      )
+      expect(kept.bodyText).toBe('before removal')
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a stale roster version conflicts without writing', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const created = await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      await expect(
+        setGroupChannelParticipantsWithGrants(f.local.db, f.workspace.id, channelId, f.owner, {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [founder],
+            enlistmentGrants: [],
+          }),
+          expectedVersion: created.channel.version - 1,
+          now: LATER,
+        })
+      ).rejects.toThrow('Channel version conflict')
+      const roster = await loadGroupRoster(f.local.db, f.workspace.id, channelId)
+      expect(roster).toHaveLength(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('a foreign-workspace artifact link fails closed at publication', async () => {
+    const f = await isolatedFixture()
+    const foreignOwner = (
+      await createTemporaryUserSession(f.local.db, {
+        credentialDigest: `foreign-artifact-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    ).principal
+    const foreign = await createWorkspaceWithOwner(f.local.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Foreign',
+      owner: foreignOwner,
+    })
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const foreignArtifact = await createArtifact(f.local.db, foreign.workspace.id, foreignOwner, {
+        availability: 'available',
+        checksumSha256: 'b'.repeat(64),
+        executionRef: 'execution:foreign-1',
+        filename: 'foreign.txt',
+        location: { reference: 'outputs/foreign-1', runtimeNodeId: 'node-9', type: 'runtime_node' },
+        mediaType: 'text/plain',
+        provenance: { command: 'foreign' },
+        retentionPolicy: 'standard',
+        sensitivity: 'workspace',
+        sizeBytes: 7,
+        sourceArtifactRef: 'runtime-output:foreign-1',
+        sourcePrincipal: { kind: 'user', userId: foreignOwner.userId },
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: { bodyText: 'run it', idempotencyKey: crypto.randomUUID(), mentions: [] },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      // Forge the cross-workspace link the message path would refuse: group
+      // membership must never confer foreign tool privileges.
+      await f.local.db.insert(schema.messageArtifactReferences).values({
+        artifactId: foreignArtifact.id,
+        messageId: posted.message.id,
+        workspaceId: f.workspace.id,
+      })
+      const intentId = posted.leadTurn.intentId
+      const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+      const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intentId,
+        f.owner
+      )
+      const selection = {
+        attemptId,
+        executionId,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        intentId,
+        preparationRef: `prep_${'e'.repeat(32)}`,
+        selectionRef: `msel_${'e'.repeat(32)}`,
+        selectionRevision: 1,
+        workspaceId: controlPlaneWorkspaceId,
+      }
+      await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+      await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: NOW,
+        state: 'completed',
+      })
+      const before = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      const failure = await publishGroupLeadResult(
+        f.local.db,
+        f.workspace.id,
+        f.owner,
+        { binding, bodyText: 'result text', channelId, intentId },
+        { now: NOW }
+      ).then(
+        () => {
+          throw new Error('foreign artifact must hold')
+        },
+        (error: unknown) => error
+      )
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).message).toBe('Group publication artifact unresolved')
+      const after = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      expect(after.map((row) => row.id)).toEqual(before.map((row) => row.id))
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  test('repeated publication delivers exactly once with the same receipt', async () => {
+    // Reconnect/repeat safety: the second identical publish returns the SAME
+    // message id and writes no duplicate — the service digest path, gated by
+    // the same frozen group authority both times.
+    const f = await isolatedFixture()
+    try {
+      const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+      const channelId = crypto.randomUUID()
+      const founder = {
+        expiresAt: null,
+        grantId: 'gra_owner',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.owner,
+        revision: 1,
+        revokedAt: null,
+      }
+      const enlist = {
+        agent: { agentId: lead.id, workspaceId: f.workspace.id },
+        expiresAt: null,
+        grantId: 'gra_lead',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        revision: 1,
+        revokedAt: null,
+      }
+      await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [founder],
+          enlistmentGrants: [enlist],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        {
+          lead: { bodyText: 'run it', idempotencyKey: crypto.randomUUID(), mentions: [] },
+          mode: 'lead',
+        },
+        { now: NOW }
+      )
+      const intentId = posted.leadTurn.intentId
+      const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+      const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intentId,
+        f.owner
+      )
+      const selection = {
+        attemptId,
+        executionId,
+        expiresAt: '2027-01-01T00:00:00.000Z',
+        intentId,
+        preparationRef: `prep_${'e'.repeat(32)}`,
+        selectionRef: `msel_${'e'.repeat(32)}`,
+        selectionRevision: 1,
+        workspaceId: controlPlaneWorkspaceId,
+      }
+      await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+      const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+      await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: NOW,
+        state: 'completed',
+      })
+      const input = { binding, bodyText: 'result text', channelId, intentId }
+      const first = await publishGroupLeadResult(f.local.db, f.workspace.id, f.owner, input, {
+        now: NOW,
+      })
+      const second = await publishGroupLeadResult(f.local.db, f.workspace.id, f.owner, input, {
+        now: NOW,
+      })
+      expect(second).toBe(first)
+      const rows = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, channelId)
+          )
+        )
+      // The lead message plus exactly one result message: no duplicate.
+      expect(rows).toHaveLength(2)
     } finally {
       await f.local.close()
     }
