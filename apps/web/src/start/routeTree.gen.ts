@@ -46,6 +46,7 @@ import { Route as ApiInternalPiDurableLeadProductCurrentRouteImport } from './ro
 import { Route as ApiV1AccountAgentsAgentIdRouteImport } from './routes/api/v1/account/agents/$agentId'
 import { Route as ApiV1AccountConversationsConversationIdRouteImport } from './routes/api/v1/account/conversations/$conversationId'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
+import { Route as ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-grants'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
@@ -76,6 +77,8 @@ import { Route as ApiWorkspacesWorkspaceIdSkillsSkillIdRevokeRouteImport } from 
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+import { Route as ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+import { Route as ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
@@ -312,6 +315,12 @@ const ApiV1WorkspacesWorkspaceIdAgentsRoute =
     path: '/api/v1/workspaces/$workspaceId/agents',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute =
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/artifact-grants',
+    path: '/api/v1/workspaces/$workspaceId/artifact-grants',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdArtifactsRoute =
   ApiV1WorkspacesWorkspaceIdArtifactsRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/artifacts',
@@ -491,6 +500,18 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute =
     id: '/project',
     path: '/project',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute =
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRouteImport.update({
+    id: '/$grantId/regrant',
+    path: '/$grantId/regrant',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute =
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRouteImport.update({
+    id: '/$grantId/revoke',
+    path: '/$grantId/revoke',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute,
   } as any)
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute =
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRouteImport.update({
@@ -744,6 +765,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -774,6 +796,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
@@ -847,6 +871,7 @@ export interface FileRoutesByTo {
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -877,6 +902,8 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
@@ -951,6 +978,7 @@ export interface FileRoutesById {
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -981,6 +1009,8 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/project': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute
+  '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
@@ -1056,6 +1086,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1086,6 +1117,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
@@ -1159,6 +1192,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1189,6 +1223,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
@@ -1262,6 +1298,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1292,6 +1329,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+    | '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
@@ -1355,6 +1394,7 @@ export interface RootRouteChildren {
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
   ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -1639,6 +1679,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/workspaces/$workspaceId/artifact-grants': {
+      id: '/api/v1/workspaces/$workspaceId/artifact-grants'
+      path: '/api/v1/workspaces/$workspaceId/artifact-grants'
+      fullPath: '/api/v1/workspaces/$workspaceId/artifact-grants'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/workspaces/$workspaceId/artifacts': {
       id: '/api/v1/workspaces/$workspaceId/artifacts'
       path: '/api/v1/workspaces/$workspaceId/artifacts'
@@ -1848,6 +1895,20 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/agents/$agentId/project'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProjectRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant': {
+      id: '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+      path: '/$grantId/regrant'
+      fullPath: '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/regrant'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute
+    }
+    '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke': {
+      id: '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
+      path: '/$grantId/revoke'
+      fullPath: '/api/v1/workspaces/$workspaceId/artifact-grants/$grantId/revoke'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute
     }
     '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': {
       id: '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
@@ -2255,6 +2316,24 @@ const ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdAgentsRouteChildren,
   )
 
+interface ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteChildren {
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteChildren: ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute:
+      ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRegrantRoute,
+    ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute:
+      ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteChildren,
+  )
+
 interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
@@ -2522,6 +2601,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiInternalPiDurableLeadProductCurrentRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
+  ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute:
+    ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:
     ApiV1WorkspacesWorkspaceIdArtifactsRoute,
   ApiV1WorkspacesWorkspaceIdChannelsRoute:
