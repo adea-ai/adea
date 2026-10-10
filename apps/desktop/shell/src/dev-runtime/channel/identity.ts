@@ -80,6 +80,11 @@ export type DeviceWorkspaceSelection = Readonly<{
 }>
 
 export type DesktopIdentityVerifier = Readonly<{
+  /** Owner-only deletion receipt, independent of membership after deletion. */
+  workspaceDeletionState?(input: {
+    credential: WorkspaceMembershipCredential
+    workspaceId: string
+  }): Promise<'active' | 'cleanup_pending' | 'deleted'>
   /**
    * Proves the credential is live and returns the workspace ids it belongs
    * to. A refused credential throws; the shell never binds on a guess.
@@ -198,6 +203,8 @@ export type DesktopIdentityAuthority = Readonly<{
    *  the active identity returns to the device selection or the device-local
    *  scope. */
   unbind(reason: string): void
+  /** Retire an explicitly deleted workspace, including offline memberships. */
+  forgetWorkspace(workspaceId: string): void
   /**
    * Selects the device workspace scope for a cloud workspace the presented
    * credential is a verified member of. Online, the cloud listing is
@@ -344,6 +351,20 @@ export function createCloudIdentityVerifier(options: {
     }
   }
   return {
+    async workspaceDeletionState(input) {
+      const { proof } = assertMembershipCredential(input.credential)
+      const id = assertUuidField(input.workspaceId, 'workspace id')
+      const body = (await cloudJson(`/api/workspaces/${id}/delete`, proof)) as {
+        workspaceId?: unknown
+        state?: unknown
+      }
+      if (
+        body?.workspaceId !== id ||
+        (body.state !== 'active' && body.state !== 'cleanup_pending' && body.state !== 'deleted')
+      )
+        throw new ChannelRejection('corrupt_state', 'workspace deletion receipt was malformed', 502)
+      return body.state
+    },
     async verifySession(input) {
       const body = await cloudJson('/api/workspaces', input)
       if (!Array.isArray(body)) {
@@ -521,6 +542,22 @@ export function createDesktopIdentityAuthority(options: {
   }
 
   return {
+    forgetWorkspace(workspaceId) {
+      assertUuidField(workspaceId, 'workspace id')
+      membershipStore.save(
+        membershipStore.load().records.filter((entry) => entry.workspaceId !== workspaceId)
+      )
+      let changed = false
+      if (loadBinding()?.scope.workspaceId === workspaceId) {
+        persistBinding(undefined)
+        changed = true
+      }
+      if (loadSelection()?.workspaceId === workspaceId) {
+        selectionStore.save([])
+        changed = true
+      }
+      if (changed) notify('selected')
+    },
     currentScope() {
       return activeIdentity().scope
     },

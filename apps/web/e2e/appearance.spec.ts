@@ -249,8 +249,8 @@ test.describe('appearance', () => {
     ).toBeVisible()
 
     // The custom picker rejects unparseable input and normalizes valid colors.
-    await accent.getByRole('radio', { name: 'Custom' }).press('Space')
-    const hex = editor(panel).getByRole('textbox', { name: 'Custom accent' })
+    await editor(panel).locator('input[type="color"]').fill('#2563eb')
+    const hex = editor(panel).getByRole('textbox', { name: 'Custom accent', exact: true })
     await hex.fill('not-a-color')
     await hex.blur()
     await expect(hex).toHaveValue('not-a-color')
@@ -269,7 +269,7 @@ test.describe('appearance', () => {
     await expect(
       editor(panel).getByText('Violet · Controls, glyphs, selections, code, and activity.')
     ).toBeVisible()
-    await expect(accent.getByRole('radio', { name: 'Custom', exact: true })).toHaveCount(1)
+    await expect(editor(panel).getByRole('button', { name: 'Custom', exact: true })).toHaveCount(1)
 
     // The picker renders the designed swatch grid: exactly six preset
     // swatches — each painted with its catalogue color for the resolved

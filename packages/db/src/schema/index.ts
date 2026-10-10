@@ -4,6 +4,7 @@ export {
   authorizationAuditRecords,
   workspaceInvitationRole,
   workspaceInvitations,
+  workspaceDeletions,
   workspaceMemberships,
   workspaceRole,
   workspaces,
@@ -68,6 +69,7 @@ export {
   artifactSensitivity,
   artifacts,
 } from './artifacts'
+export { artifactReferenceGrants } from './artifact-reference-grants'
 export {
   channelKind,
   channelLifecycleState,

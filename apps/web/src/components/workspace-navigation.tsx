@@ -2,17 +2,34 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, onCleanup, Show, type Accessor, type JSX } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  Show,
+  type Accessor,
+  type JSX,
+} from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { settledData, useAgentListQuery, useUpdateWorkspaceMutation } from '@adea-ai/data'
+import { useQueryClient } from '@tanstack/solid-query'
+import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
+import { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
+import type { AccountDirectoryAgent } from '@adea-ai/types/account-directory'
+import {
+  settledData,
+  useAgentListQuery,
+  useUpdateWorkspaceMutation,
+  useReorderWorkspacesMutation,
+  useWorkspaceListQuery,
+} from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { PanelRightClose, PanelRightOpen } from 'lucide-solid'
+import { PanelRightClose, PanelRightOpen, Users, Inbox as InboxIcon } from 'lucide-solid'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
   WorkspacePlatformServices,
@@ -64,6 +81,13 @@ import {
 import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
 import {
+  conversationOpenPatch,
+  directoryTitle,
+  parseDirectorySection,
+  watchAccountIdentity,
+  type AccountDirectorySection,
+} from '../lib/account-directory'
+import {
   createDevWorkspaceNavHost,
   type DevGlobalNavContext,
   type DevGlobalNavSlots,
@@ -87,6 +111,13 @@ const VersionDialog = __ADEA_DESKTOP_COMPONENTS__
 
 const AppLibraryPage = lazyComponent(
   () => import('@adea-ai/workspace-ui/app-library-page').then((module) => module.AppLibraryPage),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
+
+// The account-wide directory surface (M11.03) rides its own chunk like the
+// App Library: opening it is the only thing that pays for it.
+const AccountDirectorySurface = lazyComponent(
+  () => import('./account-directory').then(({ AccountDirectorySurface: Surface }) => Surface),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
@@ -389,10 +420,16 @@ function WorkspaceDetailsOverlay(props: {
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
+  workspaceOrder: readonly WorkspaceSummary[]
 }) {
+  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceDetailsDialog
+      workspaceOrder={props.workspaceOrder}
+      onReorderWorkspaces={async (workspaceIds) => {
+        await reorderWorkspaces.mutateAsync(workspaceIds)
+      }}
       client={props.client}
       onClose={props.onClose}
       onUpdateWorkspace={async (update) => {
@@ -455,6 +492,19 @@ export type WorkspaceNavigationProps = Readonly<{
   renderProjectDialog?: DevProjectFlow['renderDialog']
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
+  /**
+   * Builds the account-scoped directory client for the account-wide directory
+   * and inbox surface (M11.03). The desktop lane supplies one whose credential
+   * re-resolves from the live shell session on every request; without it the
+   * surface uses the cookie-authenticated browser default.
+   */
+  accountDirectoryClient?: () => AccountDirectoryApiClient | undefined
+  /**
+   * The signed-in principal's stable id, from the lane's own principal source.
+   * A change clears the account-scoped caches (`watchAccountIdentity`); absent,
+   * the guard stays inert.
+   */
+  accountPrincipalId?: () => string | null | undefined
   chatEntry?: (
     fallback: JSX.Element,
     archiveAction: JSX.Element,
@@ -470,6 +520,7 @@ export type WorkspaceNavigationProps = Readonly<{
   devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
+  onWorkspaceDeleted?(result: ApiWorkspaceDeleteResponse): void
   platform: 'desktop' | 'web'
   characterDesigner?: boolean
   roomDesigner?: boolean
@@ -519,6 +570,8 @@ function appLibraryMoveAnnouncementFor(
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const workspaceList = useWorkspaceListQuery(props.client)
+  const orderedWorkspaces = () => settledData(workspaceList) ?? props.workspaces
   const unavailableRuntime = createUnavailableDevUtilityRuntime('channel_unauthenticated')
   const utilityRuntime = props.services.devRuntime ?? {
     ...unavailableRuntime,
@@ -643,6 +696,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
 
+  // Account-wide cache hygiene (M11.03): the directory and inbox keys live
+  // outside the per-workspace prefix on purpose, so an account identity change
+  // — and only that — clears them. A workspace switch keeps them, which is the
+  // query-key independence the surface is built on. The identity accessor is
+  // the lane's own principal source (the cookie bootstrap on web, the shell
+  // session state on desktop) — never a second session-establishing bootstrap.
+  watchAccountIdentity(useQueryClient(), () => props.accountPrincipalId?.() ?? null)
+
   const requestedAppId = () =>
     currentSearch().app ??
     (roomDesignerEnabled() || characterDesignerEnabled() ? 'virtual' : currentSearch().view) ??
@@ -654,7 +715,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const designerActive = () =>
     view() === 'virtual' && (roomDesignerEnabled() || characterDesignerEnabled())
   const contextualUtilitiesAvailable = () =>
-    ['dev', 'chat', 'virtual'].includes(activeAppId()) && !libraryOpen() && !designerActive()
+    ['dev', 'chat', 'virtual'].includes(activeAppId()) &&
+    !libraryOpen() &&
+    !directoryOpen() &&
+    !designerActive()
   const contextualUtilitiesVisible = () =>
     contextualUtilitiesAvailable() &&
     (view() !== 'dev' ||
@@ -759,7 +823,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // helper so the surface can show the in-flight affordance and an effect
   // re-run can't fire a second authorize for a switch already in progress.
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = createSignal<string>()
-  const switchToWorkspace = (workspace: (typeof props.workspaces)[number]) => {
+  const switchToWorkspace = (workspace: WorkspaceSummary) => {
     if (workspace.id === props.activeWorkspace?.id) return Promise.resolve(false)
     if (switchingWorkspaceId()) return Promise.resolve(false)
     setSwitchingWorkspaceId(workspace.id)
@@ -794,7 +858,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       }
       return
     }
-    const workspace = props.workspaces.find(({ id }) => id === requestedWorkspace)
+    const workspace = orderedWorkspaces().find(({ id }) => id === requestedWorkspace)
     if (!workspace || switchingWorkspaceId()) return
     void switchToWorkspace(workspace).then((switched) => {
       if (!switched) return
@@ -817,7 +881,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [devBreadcrumb, setDevBreadcrumb] = createSignal<DevBreadcrumbSelection>()
   const topBarBreadcrumbs = (): readonly WorkspaceBreadcrumb[] | undefined => {
     const workspace = props.activeWorkspace
-    if (libraryOpen() || designerActive() || !workspace) return undefined
+    if (libraryOpen() || directoryOpen() || designerActive() || !workspace) return undefined
     if (activeAppId() === 'dev') return devBreadcrumbs(workspace, devBreadcrumb())
     if (activeAppId() === 'chat' || activeAppId() === 'virtual') return navBreadcrumbs()?.()
     return undefined
@@ -828,7 +892,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // reset context identically.
   const workspaceHost: WorkspaceNavHost = {
     get workspaces() {
-      return props.workspaces
+      return orderedWorkspaces()
     },
     get devSummary() {
       return props.devSummary?.()
@@ -894,7 +958,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
-    workspaces: () => props.workspaces,
+    workspaces: () => orderedWorkspaces(),
     // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
     active: () =>
       view() === 'dev' ||
@@ -1081,6 +1145,48 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   }
 
+  // The account-wide directory surface (M11.03). Like the App Library it is a
+  // global surface driven by the router search: `?directory=agents|inbox`
+  // replaces the workspace view while the top bar and rail stay. Its results
+  // never scope to the selected workspace.
+  const directorySection = () => parseDirectorySection(currentSearch().directory)
+  const directoryOpen = () => directorySection() !== undefined
+  // The desktop lane supplies a builder whose client re-resolves the shell
+  // session per request (so a same-workspace rotation reaches the mounted
+  // surface); the web default is the cookie-authenticated browser client,
+  // created once for this frame.
+  const accountDirectoryClient = createMemo<AccountDirectoryApiClient>(
+    () => props.accountDirectoryClient?.() ?? new AccountDirectoryApiClient()
+  )
+  const openDirectory = (section: AccountDirectorySection | undefined) =>
+    applySearch({ directory: section })
+  // Opening a directory Agent mirrors the search-result path: the Agent is
+  // selected in its OWN workspace — a user-initiated switch's store reset has
+  // already run by the time the switch resolves — and the Agents surface opens
+  // in Chat.
+  const openDirectoryAgent = (agent: AccountDirectoryAgent) => {
+    openDirectory(undefined)
+    const select = () => {
+      const store = workspaceStore.getState()
+      store.setSelectedAgentId(agent.id)
+      store.setActiveSurface('agents')
+      store.setGlobalPanel(null)
+      if (activeAppId() !== 'chat' || libraryOpen()) changeApp('chat')
+    }
+    if (agent.workspaceId === props.activeWorkspace?.id) {
+      select()
+      return
+    }
+    // The ordered workspace list (the live server-side order) is the canonical
+    // membership source, so a directory jump reaches workspaces the lane
+    // bootstrap snapshot may not include yet.
+    const workspace = orderedWorkspaces().find(({ id }) => id === agent.workspaceId)
+    if (!workspace) return
+    void switchToWorkspace(workspace).then((switched) => {
+      if (switched) select()
+    })
+  }
+
   const setRoomDesignerRoute = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled)
     const nextUrl = new URL(window.location.href)
@@ -1159,17 +1265,70 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <WorkspaceTopBar
         hideSidebarToggle={designerActive() || chatShellBootstrapFallback()}
         platform={props.platform}
-        title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
+        title={
+          directoryOpen()
+            ? directoryTitle(directorySection() ?? 'agents')
+            : libraryOpen()
+              ? 'App Library'
+              : (props.activeWorkspace?.name ?? 'Adea')
+        }
         breadcrumbs={topBarBreadcrumbs()}
         onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
         showDevActions={activeAppId() === 'dev'}
         resources={
-          <RuntimeResourcesControl
-            runtime={props.services.devRuntime}
-            openExternal={openExternal}
-            onOpenSession={openDevSession}
-          />
+          <>
+            {/* The account-wide directory and inbox entries (M11.03): global
+                surfaces, so the actions sit with the other workspace-wide
+                controls in the top bar's end section. */}
+            <ActionButton
+              type="button"
+              variant="toolbar"
+              size="icon-sm"
+              data-expanded={directoryOpen() && directorySection() === 'agents' ? '' : undefined}
+              tooltip={
+                directoryOpen() && directorySection() === 'agents'
+                  ? 'Close the global Agents directory'
+                  : 'Open the global Agents directory'
+              }
+              tooltipIcon={<Users aria-hidden="true" />}
+              aria-label="Global Agents directory"
+              aria-pressed={directoryOpen() && directorySection() === 'agents'}
+              onClick={() =>
+                openDirectory(
+                  directoryOpen() && directorySection() === 'agents' ? undefined : 'agents'
+                )
+              }
+            >
+              <Users aria-hidden="true" />
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="toolbar"
+              size="icon-sm"
+              data-expanded={directoryOpen() && directorySection() === 'inbox' ? '' : undefined}
+              tooltip={
+                directoryOpen() && directorySection() === 'inbox'
+                  ? 'Close the global conversation inbox'
+                  : 'Open the global conversation inbox'
+              }
+              tooltipIcon={<InboxIcon aria-hidden="true" />}
+              aria-label="Global conversation inbox"
+              aria-pressed={directoryOpen() && directorySection() === 'inbox'}
+              onClick={() =>
+                openDirectory(
+                  directoryOpen() && directorySection() === 'inbox' ? undefined : 'inbox'
+                )
+              }
+            >
+              <InboxIcon aria-hidden="true" />
+            </ActionButton>
+            <RuntimeResourcesControl
+              runtime={props.services.devRuntime}
+              openExternal={openExternal}
+              onOpenSession={openDevSession}
+            />
+          </>
         }
         showTitleControls={activeAppId() === 'source-control'}
         sidebarMount={setSidebarActionMount}
@@ -1299,27 +1458,38 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         >
           <div class="workspace-contextual-utility-frame__view">
             <Show
-              when={!libraryOpen()}
+              when={!libraryOpen() && !directoryOpen()}
               fallback={
-                <AppLibraryPage
-                  focusSearchRequest={librarySearchRequest()}
-                  focusSearchRequestHandled={librarySearchRequestHandled()}
-                  onFocusSearchRequestHandled={(request) =>
-                    setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
-                  }
-                  preferences={railPreferences()}
-                  onReorder={(id, targetId, position) => {
-                    const previous = railPreferences()
-                    const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
-                    if (next !== previous) persistRailPreferences(next)
-                    return appLibraryMoveAnnouncementFor(id, previous, next)
-                  }}
-                  onSetEnabled={(id, enabled) =>
-                    persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
-                  }
-                  onOpen={(id) => changeApp(id)}
-                  onReset={() => persistRailPreferences(defaultRailPreferences)}
-                />
+                libraryOpen() ? (
+                  <AppLibraryPage
+                    focusSearchRequest={librarySearchRequest()}
+                    focusSearchRequestHandled={librarySearchRequestHandled()}
+                    onFocusSearchRequestHandled={(request) =>
+                      setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
+                    }
+                    preferences={railPreferences()}
+                    onReorder={(id, targetId, position) => {
+                      const previous = railPreferences()
+                      const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
+                      if (next !== previous) persistRailPreferences(next)
+                      return appLibraryMoveAnnouncementFor(id, previous, next)
+                    }}
+                    onSetEnabled={(id, enabled) =>
+                      persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
+                    }
+                    onOpen={(id) => changeApp(id)}
+                    onReset={() => persistRailPreferences(defaultRailPreferences)}
+                  />
+                ) : (
+                  <AccountDirectorySurface
+                    client={accountDirectoryClient()}
+                    section={directorySection() ?? 'agents'}
+                    workspaces={props.workspaces}
+                    onSwitchSection={(section) => openDirectory(section)}
+                    onOpenAgent={openDirectoryAgent}
+                    onOpenConversation={(entry) => applySearch(conversationOpenPatch(entry))}
+                  />
+                )
               }
             >
               <Show
@@ -1455,6 +1625,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       </Show>
       <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
         <WorkspaceDetailsOverlay
+          workspaceOrder={orderedWorkspaces()}
           client={props.client}
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)

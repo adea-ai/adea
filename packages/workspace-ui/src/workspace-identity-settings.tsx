@@ -57,6 +57,7 @@ export function WorkspaceIdentitySettings(props: {
     setEmoji(props.workspace.logo.kind === 'emoji' ? props.workspace.logo.value : '')
   })
 
+  const defaultIcon = () => (props.workspace.isPersonal ? ('home' as const) : ('box' as const))
   const editable = () => Boolean(props.onUpdate)
   const save = async (update: WorkspaceUpdate) => {
     if (!props.onUpdate) return
@@ -81,7 +82,7 @@ export function WorkspaceIdentitySettings(props: {
   const commitEmoji = () => {
     const value = emoji().trim()
     if (!value) {
-      if (props.workspace.logo.kind !== 'monogram') void save({ logo: { kind: 'monogram' } })
+      if (props.workspace.logo.kind === 'emoji') void save({ logo: { kind: defaultIcon() } })
       return
     }
     const valid = emojiLogoValue(value)
@@ -100,7 +101,7 @@ export function WorkspaceIdentitySettings(props: {
       saving: 'Saving…',
       saved: 'Saved.',
       conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',
-      error: 'The change could not be saved. Use one emoji, or clear it to use initials.',
+      error: 'Could not save. Use one emoji or clear it for the workspace icon.',
     })[state()]
 
   return (
@@ -122,7 +123,7 @@ export function WorkspaceIdentitySettings(props: {
           }}
         />
       </SettingsRow>
-      <SettingsRow label="Mark" description="One emoji, or leave blank to use the name's initials.">
+      <SettingsRow label="Mark" description="One emoji, or blank for the workspace icon.">
         <div class="workspace-identity-settings__mark">
           <WorkspaceIdentityMark
             accent={props.workspace.accent}
@@ -134,7 +135,7 @@ export function WorkspaceIdentitySettings(props: {
             aria-label="Workspace emoji"
             value={emoji()}
             maxLength={16}
-            placeholder="Initials"
+            placeholder="Workspace icon"
             disabled={!editable()}
             onInput={(event) => setEmoji(event.currentTarget.value)}
             onBlur={commitEmoji}
@@ -150,10 +151,10 @@ export function WorkspaceIdentitySettings(props: {
               disabled={!editable()}
               onClick={() => {
                 setEmoji('')
-                void save({ logo: { kind: 'monogram' } })
+                void save({ logo: { kind: defaultIcon() } })
               }}
             >
-              Use initials
+              Use workspace icon
             </Button>
           </Show>
         </div>
@@ -181,7 +182,12 @@ export function WorkspaceIdentitySettings(props: {
           <RadioGroupItem value="work" label="Work" />
         </RadioGroup>
       </SettingsRow>
-      <p class="conventional-settings-note" role="status" aria-live="polite">
+      <p
+        class="conventional-settings-note"
+        role="status"
+        aria-label="Workspace identity save status"
+        aria-live="polite"
+      >
         {status()}
       </p>
     </>

@@ -64,6 +64,14 @@ export type ProjectSessionRuntime = Readonly<{
   }): Project
   /** Test/ops introspection: the durable archive journal, oldest first. */
   archiveRecords(): readonly ArchiveRecord[]
+  /** A workspace deletion must never turn a live session into fabricated
+   * completion. Archived metadata alone is not proof that its process exited. */
+  workspaceDeletionBlockers(): readonly string[]
+  /** Archives idle sessions and detaches cloud-project bindings in one write.
+   * Harness-owned files and history stay at their original locations. */
+  archiveWorkspaceForDeletion(detachProjects?: boolean): number
+  workspaceDeletionSessions(): readonly RuntimeSession[]
+  workspaceDeletionProjects(): readonly Project[]
 }>
 
 /**
@@ -1147,6 +1155,51 @@ export function registerProjectSessionRuntime(input: {
   }
   return {
     providers,
+    workspaceDeletionBlockers() {
+      return record.sessions
+        .filter((entry) => !entry.archived && LIVE_SESSION_STATES.has(entry.lifecycle))
+        .map((entry) => entry.id)
+    },
+    workspaceDeletionSessions: () => [...record.sessions],
+    workspaceDeletionProjects: () => record.projects.map(toProject),
+    archiveWorkspaceForDeletion(detachProjects = true) {
+      if (
+        record.sessions.some((entry) => !entry.archived && LIVE_SESSION_STATES.has(entry.lifecycle))
+      )
+        throw new DevAuthorityError(
+          'invalid_state',
+          'stop or archive live sessions before deleting the workspace'
+        )
+      const toArchive = record.sessions.filter((entry) => !entry.archived)
+      const sessions = record.sessions.map((entry) =>
+        entry.archived ? entry : { ...entry, archived: true, version: entry.version + 1 }
+      )
+      const previous = record
+      record = {
+        ...record,
+        projects: detachProjects ? [] : record.projects,
+        sessions,
+        sessionCreates: [],
+        archiveRecords: [
+          ...record.archiveRecords,
+          ...toArchive.map((entry) =>
+            archiveRecord(
+              sessions.find((session) => session.id === entry.id)!,
+              input.scope,
+              'archived',
+              'Workspace permanently deleted'
+            )
+          ),
+        ],
+      }
+      try {
+        save()
+      } catch (error) {
+        record = previous
+        throw error
+      }
+      return toArchive.length
+    },
     upsertProject(project) {
       if (!UUID_PATTERN.test(project.id))
         throw new DevAuthorityError('identity_mismatch', 'project id must be a lowercase UUID')

@@ -82,6 +82,11 @@ test('every settings section survives missing desktop services and repeated navi
     await tab.click()
     await expect(tab).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator(`#settings-panel-${section}`)).toBeVisible()
+    await expect(tab).toHaveAttribute('aria-controls', `settings-panel-${section}`)
+    await expect(page.locator(`#settings-panel-${section}`)).toHaveAttribute(
+      'aria-labelledby',
+      (await tab.getAttribute('id'))!
+    )
     if (section === 'appearance')
       await expect(dialog.getByRole('status')).toHaveText(
         'Appearance settings are unavailable in this view.'
@@ -324,6 +329,11 @@ test('every workspace settings section renders standalone and keeps its deep lin
     await tab.click()
     await expect(tab).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator(`#workspace-settings-panel-${section}`)).toBeVisible()
+    await expect(tab).toHaveAttribute('aria-controls', `workspace-settings-panel-${section}`)
+    await expect(page.locator(`#workspace-settings-panel-${section}`)).toHaveAttribute(
+      'aria-labelledby',
+      (await tab.getAttribute('id'))!
+    )
     await expect(
       dialog.getByRole('heading', {
         name: workspaceSettingsSectionLabels[section],
@@ -353,11 +363,18 @@ test('General saves workspace identity changes as they are made', async ({ page 
     page.getByRole('dialog', { name: 'Settings harness workspace settings' })
   ).toBeVisible()
   const panel = page.locator('#workspace-settings-panel-general')
-  await expect(panel.getByRole('status')).toHaveText('Changes save as you make them.')
+  await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
+    'Changes save as you make them.'
+  )
+  await expect(panel.getByRole('status', { name: 'Workspace order position' })).toHaveText(
+    'Position 1 of 2'
+  )
   const name = panel.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Renamed harness')
   await name.press('Enter')
-  await expect(panel.getByRole('status')).toHaveText('Saved.')
+  await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
+    'Saved.'
+  )
   // The title follows the saved name.
   await expect(
     page.getByRole('dialog', { name: 'Renamed harness workspace settings' })
@@ -599,5 +616,28 @@ test('publish form textareas honor their rows contract', async ({ page }) => {
   expect(probe.content).toMatchObject({ fieldSizing: 'fixed', rows: '5' })
   expect(Number.parseFloat(probe.manifest!.height)).toBeGreaterThan(140)
   expect(Number.parseFloat(probe.content!.height)).toBeGreaterThan(90)
+  expect(errors).toEqual([])
+})
+
+test('opening another workspace settings section resets its panel scroll position', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 540 })
+  const errors = await openControlPlaneHarness(page, 'scoped', 'connections')
+  const dialog = page.getByRole('dialog', { name: 'Settings harness workspace settings' })
+  const scrollport = dialog.locator('.conventional-settings-panel')
+  await expect
+    .poll(() => scrollport.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(100)
+  await scrollport.evaluate((element) => {
+    element.scrollTop = 100
+  })
+  await expect.poll(() => scrollport.evaluate((element) => element.scrollTop)).toBe(100)
+  await dialog.getByRole('tab', { name: 'General', exact: true }).click()
+  await expect(page.locator('#workspace-settings-panel-general')).toBeVisible()
+  await expect.poll(() => scrollport.evaluate((element) => element.scrollTop)).toBe(0)
+  await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeInViewport({
+    ratio: 0.99,
+  })
   expect(errors).toEqual([])
 })

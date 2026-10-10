@@ -72,7 +72,13 @@ export async function controlPlaneScopeIds(
   const [workspace] = await database
     .select({ controlPlaneWorkspaceId: workspaces.controlPlaneWorkspaceId })
     .from(workspaces)
-    .where(and(eq(workspaces.id, input.workspaceId), isNull(workspaces.deletedAt)))
+    .where(
+      and(
+        eq(workspaces.id, input.workspaceId),
+        isNull(workspaces.deletedAt),
+        isNull(workspaces.deletionRequestedAt)
+      )
+    )
     .limit(1)
   if (!workspace || !isControlPlaneIdentifier('wsp', workspace.controlPlaneWorkspaceId)) return null
   if (input.projectId === undefined)
@@ -93,4 +99,24 @@ export async function controlPlaneScopeIds(
     projectId: project.controlPlaneProjectId,
     workspaceId: workspace.controlPlaneWorkspaceId,
   })
+}
+
+/** Reserve external ownership before a mutating service credential is issued.
+ * The conditional workspace update serializes with deletion preparation. */
+export async function markWorkspaceControlPlaneUsed(
+  database: AgentHqDatabase,
+  workspaceId: string
+): Promise<void> {
+  const rows = await database
+    .update(workspaces)
+    .set({ controlPlaneUsedAt: new Date() })
+    .where(
+      and(
+        eq(workspaces.id, workspaceId),
+        isNull(workspaces.deletedAt),
+        isNull(workspaces.deletionRequestedAt)
+      )
+    )
+    .returning({ id: workspaces.id })
+  if (!rows.length) throw new Error('Workspace unavailable')
 }

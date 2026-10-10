@@ -69,7 +69,8 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrapData()?.activeWorkspace
+    bootstrapData()?.activeWorkspace ??
+    undefined
   const workspaceId = () => activeWorkspace()?.id
   const projects = useProjectListQuery(client(), workspaceId)
   const channels = useChannelListQuery(client(), workspaceId)
@@ -123,7 +124,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   createEffect(() => {
     const data = bootstrapData()
     if (!persistenceReady() || !data || activeWorkspace()) return
-    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
+    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace?.id ?? null)
   })
 
   let explicitSelection: string | null = null
@@ -178,8 +179,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     agentActions: {
       archive: (agentId: string) => archiveAgent.mutateAsync(agentId).then(() => undefined),
-      assignProject: (agentId: string, projectId: string | null) =>
-        assignAgentProject.mutateAsync({ agentId, projectId }).then(() => undefined),
+      assignProject: (agentId: string, projectId: string | null, expectedRevision: number) =>
+        assignAgentProject
+          .mutateAsync({ agentId, expectedRevision, projectId })
+          .then((result) => result.agent),
       profile: (
         agentId: string,
         profile: Parameters<typeof changeAgentProfile.mutateAsync>[0]['profile']
@@ -187,7 +190,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       presentation: (
         agentId: string,
         presentation: Parameters<typeof updateAgentPresentation.mutateAsync>[0]['presentation']
-      ) => updateAgentPresentation.mutateAsync({ agentId, presentation }).then(() => undefined),
+      ) =>
+        updateAgentPresentation
+          .mutateAsync({ agentId, presentation })
+          .then((result) => result.agent),
     },
     get agentBusy() {
       return [archiveAgent, assignAgentProject, changeAgentProfile, updateAgentPresentation].some(

@@ -12,7 +12,15 @@
 // workspace metadata; the text is restricted local content and never leaves
 // this module except to the authorized workspace's own callers.
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -35,6 +43,7 @@ export type MemoryErrorCode =
   | 'memory_stale_revision'
   | 'memory_limit_exceeded'
   | 'memory_invalid_state'
+  | 'memory_unavailable'
 
 /** A typed store refusal. The message is the stable code, never text. */
 export class MemoryStoreError extends Error {
@@ -81,6 +90,10 @@ export type MemoryStore = Readonly<{
   reject(workspaceId: string, input: { entryId: unknown; expectedRevision: unknown }): void
   injectionEnabled(workspaceId: string): boolean
   setInjectionEnabled(workspaceId: string, enabled: unknown): boolean
+  /** Delete authenticated workspace-owned notes and its injection override.
+   * Refuses ambiguous/unreadable ownership before touching any record. */
+  validateWorkspacePurge(workspaceId: string): number
+  purgeWorkspace(workspaceId: string): number
   /** The launch preamble for the workspace's ACTIVE entries, or undefined
    *  when injection is off or there is nothing to inject. */
   preamble(workspaceId: string): MemoryPreamble | undefined
@@ -230,6 +243,49 @@ export function createMemoryStore(options: {
     return records
   }
 
+  function purgeRecords(workspaceId: string) {
+    const id = assertMemoryWorkspaceId(workspaceId)
+    const records = workspaceRecords(id)
+    // Unknown ownership or filesystem indirection must never be silently skipped.
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue
+      const entryId = name.slice(0, -5)
+      const stat = lstatSync(join(dir, name))
+      const record = UUID_PATTERN.test(entryId) ? readRecord(entryId) : undefined
+      if (
+        !stat.isFile() ||
+        stat.isSymbolicLink() ||
+        !record ||
+        !UUID_PATTERN.test(record.workspaceId)
+      )
+        throw new MemoryStoreError('memory_unavailable')
+    }
+    // A relabelled file cannot make deletion consume another workspace's
+    // ciphertext. Authenticate the complete set before the first unlink.
+    try {
+      for (const record of records) open(record, id)
+    } catch {
+      throw new MemoryStoreError('memory_unavailable')
+    }
+    const settingsStat = lstatSync(settingsFile, { throwIfNoEntry: false })
+    if (settingsStat) {
+      if (!settingsStat.isFile() || settingsStat.isSymbolicLink())
+        throw new MemoryStoreError('memory_unavailable')
+      const settings = JSON.parse(readFileSync(settingsFile, 'utf8')) as Settings
+      if (
+        settings?.version !== 1 ||
+        !settings.injection ||
+        typeof settings.injection !== 'object' ||
+        Array.isArray(settings.injection) ||
+        Object.entries(settings.injection).some(
+          ([key, value]) => !UUID_PATTERN.test(key) || typeof value !== 'boolean'
+        )
+      )
+        throw new MemoryStoreError('memory_unavailable')
+    }
+    return records
+  }
+
   function readEntries(workspaceId: string): {
     entries: WorkspaceMemoryEntry[]
     unreadable: number
@@ -369,6 +425,16 @@ export function createMemoryStore(options: {
       rmSync(recordFile(record.id), { force: true })
     },
     injectionEnabled,
+    validateWorkspacePurge: (workspaceId) => purgeRecords(workspaceId).length,
+    purgeWorkspace(workspaceId) {
+      const id = assertMemoryWorkspaceId(workspaceId)
+      const records = purgeRecords(id)
+      for (const record of records) rmSync(recordFile(record.id), { force: true })
+      const settings = readSettings()
+      delete settings.injection[id]
+      writeAtomic(settingsFile, settings)
+      return records.length
+    },
     setInjectionEnabled(workspaceId, enabled) {
       const id = assertMemoryWorkspaceId(workspaceId)
       if (typeof enabled !== 'boolean') throw new MemoryStoreError('memory_invalid_input')

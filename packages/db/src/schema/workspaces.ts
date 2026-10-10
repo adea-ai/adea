@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -29,10 +30,16 @@ export const workspaces = appSchema.table(
     scene: text('scene').default('home').notNull(),
     /** A theme-provided accent id, or null for the theme default. */
     accent: text('accent'),
-    logoKind: text('logo_kind').default('monogram').notNull(),
+    logoKind: text('logo_kind').default('box').notNull(),
     /** The emoji grapheme when `logo_kind` is `emoji`; null otherwise. */
     logoValue: text('logo_value'),
     version: integer('version').default(1).notNull(),
+    /** Stable personal/root identity; never writable through workspace settings. */
+    isPersonal: boolean('is_personal').default(false).notNull(),
+    /** Visible while supported native cleanup is in progress; root remains. */
+    deletionRequestedAt: timestamp('deletion_requested_at', { mode: 'date', withTimezone: true }),
+    /** Conservative external ownership marker; pre-migration scopes are unknown. */
+    controlPlaneUsedAt: timestamp('control_plane_used_at', { mode: 'date', withTimezone: true }),
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
@@ -49,6 +56,13 @@ export const workspaces = appSchema.table(
       sql`${table.controlPlaneWorkspaceId} ~ '^wsp_[0-9A-HJKMNP-TV-Z]{26}$'`
     ),
     unique('workspaces_owner_idempotency_unique').on(table.ownerUserId, table.idempotencyKey),
+    uniqueIndex('workspaces_personal_owner_unique')
+      .on(table.ownerUserId)
+      .where(sql`${table.isPersonal}`),
+    check(
+      'workspaces_personal_active',
+      sql`not ${table.isPersonal} or (${table.deletedAt} is null and ${table.deletionRequestedAt} is null)`
+    ),
     check('workspaces_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('workspaces_idempotency_nonempty', sql`length(btrim(${table.idempotencyKey})) > 0`),
     check('workspaces_scene_valid', sql`${table.scene} in ('home', 'work')`),
@@ -58,7 +72,7 @@ export const workspaces = appSchema.table(
     ),
     check(
       'workspaces_logo_valid',
-      sql`(${table.logoKind} = 'monogram' and ${table.logoValue} is null) or (${table.logoKind} = 'emoji' and length(${table.logoValue}) between 1 and 16)`
+      sql`(${table.logoKind} in ('monogram', 'home', 'box') and ${table.logoValue} is null) or (${table.logoKind} = 'emoji' and length(${table.logoValue}) between 1 and 16)`
     ),
     check('workspaces_version_positive', sql`${table.version} > 0`),
     index('workspaces_owner_idx').on(table.ownerUserId, table.deletedAt),
@@ -88,6 +102,20 @@ export const workspaceMemberships = appSchema.table(
     index('workspace_memberships_user_order_idx').on(table.userId, table.sortOrder),
     index('workspace_memberships_workspace_role_idx').on(table.workspaceId, table.role),
   ]
+)
+
+/** Minimal permanent-deletion receipt: no workspace content, names or secrets. */
+export const workspaceDeletions = appSchema.table(
+  'workspace_deletions',
+  {
+    workspaceId: uuid('workspace_id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('workspace_deletions_owner_idx').on(table.ownerUserId)]
 )
 
 export const authorizationAuditRecords = appSchema.table(

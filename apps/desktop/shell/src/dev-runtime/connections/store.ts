@@ -19,6 +19,7 @@
 // Both stores hold ids only. Secret material never enters either file.
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 
 import type {
   GitHostingBinding,
@@ -302,6 +303,27 @@ export function createHarnessAccountProfileStore(input: {
     load: () => decodeStoredProfiles(store.load().records),
     save: (records) => store.save(decodeStoredProfiles(records)),
   })
+}
+
+/** Removes one workspace's bindings and reverse links, never reusable
+ * account profiles or their vaulted secrets. Safe to repeat after a crash. */
+export function detachWorkspaceConnections(input: { dataDir: string; scope: Scope }): void {
+  const bindings = createWorkspaceConnectionsStore(input)
+  bindings.read() // Validate the partition before touching shared state.
+  const profiles = createHarnessAccountProfileStore(input)
+  const digest = scopeDigest(input.scope)
+  const next = profiles.load().map((profile) =>
+    profile.boundBy.includes(digest)
+      ? {
+          ...profile,
+          boundBy: profile.boundBy.filter((id) => id !== digest),
+          version: profile.version + 1,
+        }
+      : profile
+  )
+  profiles.save(next)
+  rmSync(workspaceConnectionsFile(input.dataDir, input.scope), { force: true })
+  rmSync(join(input.dataDir, CONNECTIONS_STORE_DIRECTORY, `audit-${digest}.jsonl`), { force: true })
 }
 
 export function isHarnessAccountFamily(value: unknown): value is HarnessAccountFamily {

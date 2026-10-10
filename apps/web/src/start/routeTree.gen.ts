@@ -24,6 +24,7 @@ import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
 import { Route as ApiWorkspacesClaimRouteImport } from './routes/api/workspaces/claim'
+import { Route as ApiWorkspacesReorderRouteImport } from './routes/api/workspaces/reorder'
 import { Route as AuthDesktopCompleteRouteImport } from './routes/auth/desktop/complete'
 import { Route as ApiAuthDesktopAuthorizeRouteImport } from './routes/api/auth/desktop/authorize'
 import { Route as ApiAuthDesktopExchangeRouteImport } from './routes/api/auth/desktop/exchange'
@@ -32,13 +33,19 @@ import { Route as ApiAuthDesktopRefreshRouteImport } from './routes/api/auth/des
 import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desktop/revoke'
 import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api/marketplace/installations/get'
 import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
+import { Route as ApiV1AccountAgentsRouteImport } from './routes/api/v1/account/agents'
+import { Route as ApiV1AccountConversationsRouteImport } from './routes/api/v1/account/conversations'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
 import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections'
+import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api/workspaces/$workspaceId/delete'
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
 import { Route as ApiInternalPiDurableLeadProductCurrentRouteImport } from './routes/api/internal/pi-durable/lead-product/current'
+import { Route as ApiV1AccountAgentsAgentIdRouteImport } from './routes/api/v1/account/agents/$agentId'
+import { Route as ApiV1AccountConversationsConversationIdRouteImport } from './routes/api/v1/account/conversations/$conversationId'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
+import { Route as ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-references'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
@@ -182,6 +189,11 @@ const ApiWorkspacesClaimRoute = ApiWorkspacesClaimRouteImport.update({
   path: '/claim',
   getParentRoute: () => ApiWorkspacesRoute,
 } as any)
+const ApiWorkspacesReorderRoute = ApiWorkspacesReorderRouteImport.update({
+  id: '/reorder',
+  path: '/reorder',
+  getParentRoute: () => ApiWorkspacesRoute,
+} as any)
 const AuthDesktopCompleteRoute = AuthDesktopCompleteRouteImport.update({
   id: '/auth/desktop/complete',
   path: '/auth/desktop/complete',
@@ -224,6 +236,17 @@ const ApiMarketplaceInstallationsUninstallRoute =
     path: '/api/marketplace/installations/uninstall',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1AccountAgentsRoute = ApiV1AccountAgentsRouteImport.update({
+  id: '/api/v1/account/agents',
+  path: '/api/v1/account/agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1AccountConversationsRoute =
+  ApiV1AccountConversationsRouteImport.update({
+    id: '/api/v1/account/conversations',
+    path: '/api/v1/account/conversations',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
   id: '/api/v1/account/summary',
   path: '/api/v1/account/summary',
@@ -233,6 +256,12 @@ const ApiWorkspacesWorkspaceIdCloudConnectionsRoute =
   ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport.update({
     id: '/cloud-connections',
     path: '/cloud-connections',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdDeleteRoute =
+  ApiWorkspacesWorkspaceIdDeleteRouteImport.update({
+    id: '/delete',
+    path: '/delete',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
   } as any)
 const ApiWorkspacesWorkspaceIdModelConnectionsRoute =
@@ -259,10 +288,28 @@ const ApiInternalPiDurableLeadProductCurrentRoute =
     path: '/api/internal/pi-durable/lead-product/current',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1AccountAgentsAgentIdRoute =
+  ApiV1AccountAgentsAgentIdRouteImport.update({
+    id: '/$agentId',
+    path: '/$agentId',
+    getParentRoute: () => ApiV1AccountAgentsRoute,
+  } as any)
+const ApiV1AccountConversationsConversationIdRoute =
+  ApiV1AccountConversationsConversationIdRouteImport.update({
+    id: '/$conversationId',
+    path: '/$conversationId',
+    getParentRoute: () => ApiV1AccountConversationsRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdAgentsRoute =
   ApiV1WorkspacesWorkspaceIdAgentsRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/agents',
     path: '/api/v1/workspaces/$workspaceId/agents',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute =
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/artifact-references',
+    path: '/api/v1/workspaces/$workspaceId/artifact-references',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdArtifactsRoute =
@@ -669,6 +716,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
+  '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
   '/auth/desktop/complete': typeof AuthDesktopCompleteRoute
   '/api/auth/desktop/authorize': typeof ApiAuthDesktopAuthorizeRoute
   '/api/auth/desktop/exchange': typeof ApiAuthDesktopExchangeRoute
@@ -677,13 +725,19 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
+  '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
+  '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
+  '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
+  '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -764,6 +818,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
+  '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
   '/auth/desktop/complete': typeof AuthDesktopCompleteRoute
   '/api/auth/desktop/authorize': typeof ApiAuthDesktopAuthorizeRoute
   '/api/auth/desktop/exchange': typeof ApiAuthDesktopExchangeRoute
@@ -772,13 +827,19 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
+  '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
+  '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
+  '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
+  '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -860,6 +921,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
+  '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
   '/auth/desktop/complete': typeof AuthDesktopCompleteRoute
   '/api/auth/desktop/authorize': typeof ApiAuthDesktopAuthorizeRoute
   '/api/auth/desktop/exchange': typeof ApiAuthDesktopExchangeRoute
@@ -868,13 +930,19 @@ export interface FileRoutesById {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
+  '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
+  '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
+  '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
+  '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -957,6 +1025,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
+    | '/api/workspaces/reorder'
     | '/auth/desktop/complete'
     | '/api/auth/desktop/authorize'
     | '/api/auth/desktop/exchange'
@@ -965,13 +1034,19 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/revoke'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
+    | '/api/v1/account/agents'
+    | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/internal/pi-durable/lead-product/current'
+    | '/api/v1/account/agents/$agentId'
+    | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1052,6 +1127,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
+    | '/api/workspaces/reorder'
     | '/auth/desktop/complete'
     | '/api/auth/desktop/authorize'
     | '/api/auth/desktop/exchange'
@@ -1060,13 +1136,19 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/revoke'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
+    | '/api/v1/account/agents'
+    | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/internal/pi-durable/lead-product/current'
+    | '/api/v1/account/agents/$agentId'
+    | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1147,6 +1229,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
+    | '/api/workspaces/reorder'
     | '/auth/desktop/complete'
     | '/api/auth/desktop/authorize'
     | '/api/auth/desktop/exchange'
@@ -1155,13 +1238,19 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/revoke'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
+    | '/api/v1/account/agents'
+    | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/internal/pi-durable/lead-product/current'
+    | '/api/v1/account/agents/$agentId'
+    | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1248,9 +1337,12 @@ export interface RootRouteChildren {
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
   ApiMarketplaceInstallationsGetRoute: typeof ApiMarketplaceInstallationsGetRoute
   ApiMarketplaceInstallationsUninstallRoute: typeof ApiMarketplaceInstallationsUninstallRoute
+  ApiV1AccountAgentsRoute: typeof ApiV1AccountAgentsRouteWithChildren
+  ApiV1AccountConversationsRoute: typeof ApiV1AccountConversationsRouteWithChildren
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
   ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -1380,6 +1472,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiWorkspacesClaimRouteImport
       parentRoute: typeof ApiWorkspacesRoute
     }
+    '/api/workspaces/reorder': {
+      id: '/api/workspaces/reorder'
+      path: '/reorder'
+      fullPath: '/api/workspaces/reorder'
+      preLoaderRoute: typeof ApiWorkspacesReorderRouteImport
+      parentRoute: typeof ApiWorkspacesRoute
+    }
     '/auth/desktop/complete': {
       id: '/auth/desktop/complete'
       path: '/auth/desktop/complete'
@@ -1436,6 +1535,20 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiMarketplaceInstallationsUninstallRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/account/agents': {
+      id: '/api/v1/account/agents'
+      path: '/api/v1/account/agents'
+      fullPath: '/api/v1/account/agents'
+      preLoaderRoute: typeof ApiV1AccountAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/account/conversations': {
+      id: '/api/v1/account/conversations'
+      path: '/api/v1/account/conversations'
+      fullPath: '/api/v1/account/conversations'
+      preLoaderRoute: typeof ApiV1AccountConversationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/account/summary': {
       id: '/api/v1/account/summary'
       path: '/api/v1/account/summary'
@@ -1448,6 +1561,13 @@ declare module '@tanstack/solid-router' {
       path: '/cloud-connections'
       fullPath: '/api/workspaces/$workspaceId/cloud-connections'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/workspaces/$workspaceId/delete': {
+      id: '/api/workspaces/$workspaceId/delete'
+      path: '/delete'
+      fullPath: '/api/workspaces/$workspaceId/delete'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdDeleteRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
     }
     '/api/workspaces/$workspaceId/model-connections': {
@@ -1478,11 +1598,32 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiInternalPiDurableLeadProductCurrentRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/account/agents/$agentId': {
+      id: '/api/v1/account/agents/$agentId'
+      path: '/$agentId'
+      fullPath: '/api/v1/account/agents/$agentId'
+      preLoaderRoute: typeof ApiV1AccountAgentsAgentIdRouteImport
+      parentRoute: typeof ApiV1AccountAgentsRoute
+    }
+    '/api/v1/account/conversations/$conversationId': {
+      id: '/api/v1/account/conversations/$conversationId'
+      path: '/$conversationId'
+      fullPath: '/api/v1/account/conversations/$conversationId'
+      preLoaderRoute: typeof ApiV1AccountConversationsConversationIdRouteImport
+      parentRoute: typeof ApiV1AccountConversationsRoute
+    }
     '/api/v1/workspaces/$workspaceId/agents': {
       id: '/api/v1/workspaces/$workspaceId/agents'
       path: '/api/v1/workspaces/$workspaceId/agents'
       fullPath: '/api/v1/workspaces/$workspaceId/agents'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/artifact-references': {
+      id: '/api/v1/workspaces/$workspaceId/artifact-references'
+      path: '/api/v1/workspaces/$workspaceId/artifact-references'
+      fullPath: '/api/v1/workspaces/$workspaceId/artifact-references'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/artifacts': {
@@ -1988,6 +2129,7 @@ const ApiWorkspacesWorkspaceIdSkillsRouteWithChildren =
 
 interface ApiWorkspacesWorkspaceIdRouteChildren {
   ApiWorkspacesWorkspaceIdCloudConnectionsRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  ApiWorkspacesWorkspaceIdDeleteRoute: typeof ApiWorkspacesWorkspaceIdDeleteRoute
   ApiWorkspacesWorkspaceIdModelConnectionsRoute: typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   ApiWorkspacesWorkspaceIdReopenRoute: typeof ApiWorkspacesWorkspaceIdReopenRoute
   ApiWorkspacesWorkspaceIdSkillsRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
@@ -1997,6 +2139,7 @@ const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildr
   {
     ApiWorkspacesWorkspaceIdCloudConnectionsRoute:
       ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren,
+    ApiWorkspacesWorkspaceIdDeleteRoute: ApiWorkspacesWorkspaceIdDeleteRoute,
     ApiWorkspacesWorkspaceIdModelConnectionsRoute:
       ApiWorkspacesWorkspaceIdModelConnectionsRoute,
     ApiWorkspacesWorkspaceIdReopenRoute: ApiWorkspacesWorkspaceIdReopenRoute,
@@ -2013,17 +2156,45 @@ interface ApiWorkspacesRouteChildren {
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   ApiWorkspacesBootstrapRoute: typeof ApiWorkspacesBootstrapRoute
   ApiWorkspacesClaimRoute: typeof ApiWorkspacesClaimRoute
+  ApiWorkspacesReorderRoute: typeof ApiWorkspacesReorderRoute
 }
 
 const ApiWorkspacesRouteChildren: ApiWorkspacesRouteChildren = {
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
   ApiWorkspacesBootstrapRoute: ApiWorkspacesBootstrapRoute,
   ApiWorkspacesClaimRoute: ApiWorkspacesClaimRoute,
+  ApiWorkspacesReorderRoute: ApiWorkspacesReorderRoute,
 }
 
 const ApiWorkspacesRouteWithChildren = ApiWorkspacesRoute._addFileChildren(
   ApiWorkspacesRouteChildren,
 )
+
+interface ApiV1AccountAgentsRouteChildren {
+  ApiV1AccountAgentsAgentIdRoute: typeof ApiV1AccountAgentsAgentIdRoute
+}
+
+const ApiV1AccountAgentsRouteChildren: ApiV1AccountAgentsRouteChildren = {
+  ApiV1AccountAgentsAgentIdRoute: ApiV1AccountAgentsAgentIdRoute,
+}
+
+const ApiV1AccountAgentsRouteWithChildren =
+  ApiV1AccountAgentsRoute._addFileChildren(ApiV1AccountAgentsRouteChildren)
+
+interface ApiV1AccountConversationsRouteChildren {
+  ApiV1AccountConversationsConversationIdRoute: typeof ApiV1AccountConversationsConversationIdRoute
+}
+
+const ApiV1AccountConversationsRouteChildren: ApiV1AccountConversationsRouteChildren =
+  {
+    ApiV1AccountConversationsConversationIdRoute:
+      ApiV1AccountConversationsConversationIdRoute,
+  }
+
+const ApiV1AccountConversationsRouteWithChildren =
+  ApiV1AccountConversationsRoute._addFileChildren(
+    ApiV1AccountConversationsRouteChildren,
+  )
 
 interface ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
@@ -2323,11 +2494,15 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMarketplaceInstallationsGetRoute: ApiMarketplaceInstallationsGetRoute,
   ApiMarketplaceInstallationsUninstallRoute:
     ApiMarketplaceInstallationsUninstallRoute,
+  ApiV1AccountAgentsRoute: ApiV1AccountAgentsRouteWithChildren,
+  ApiV1AccountConversationsRoute: ApiV1AccountConversationsRouteWithChildren,
   ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
   ApiInternalPiDurableLeadProductCurrentRoute:
     ApiInternalPiDurableLeadProductCurrentRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute:
+    ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:
     ApiV1WorkspacesWorkspaceIdArtifactsRoute,
   ApiV1WorkspacesWorkspaceIdChannelsRoute:

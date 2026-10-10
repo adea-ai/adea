@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/app-ui",
-  "version": "0.86.0",
+  "version": "0.87.0",
   "private": true,
   "description": "Adea application preferences, host adapters, and product styles over the shared UI system.",
   "keywords": [
@@ -69,8 +69,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/themes": "0.9.10",
-    "@adea-ai/ui": "0.122.2",
+    "@adea-ai/themes": "0.10.1",
+    "@adea-ai/ui": "0.122.3",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

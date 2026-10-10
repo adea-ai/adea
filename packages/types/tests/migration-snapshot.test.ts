@@ -3,6 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import {
   isMigrationSnapshotFamily,
   MIGRATION_SNAPSHOT_FORMAT_VERSION,
+  MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH,
+  MIGRATION_SNAPSHOT_MAX_RECORD_BYTES,
+  MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES,
   migrationAgentLifecycleStates,
   migrationChannelVisibilities,
   migrationContentAvailabilities,
@@ -16,6 +19,7 @@ import {
   migrationSnapshotFindingClasses,
   migrationSnapshotFindingDetailKeys,
   migrationSnapshotRecordIssue,
+  migrationSnapshotRecordShapeIssue,
   migrationTaskLifecycleStates,
   migrationWorkspaceRoles,
   type MigrationSnapshotRecord,
@@ -160,6 +164,30 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
 function withField(record: MigrationSnapshotRecord, field: string, value: unknown) {
   return { ...record, [field]: value } as MigrationSnapshotRecord
 }
+
+/**
+ * Serialized byte length of a printable-ASCII fixture. The canonical
+ * encoding permutes object keys but never adds or removes a byte, and
+ * printable ASCII carries no escapes, so this equals the length the shape
+ * walk must charge — which lets boundary fixtures sit EXACTLY on the
+ * documented bound.
+ */
+const serializedBytes = (value: unknown): number => JSON.stringify(value).length
+
+/**
+ * Length of the filler `pad` extra property that brings a record carrying
+ * `host` exactly to `target` serialized bytes. The pad property contributes
+ * its characters plus its own quoting and separators, so the boundary is
+ * derived from the true serializer rather than hand arithmetic. Fix the pad
+ * per pair and grow only the host between the at-bound and over-bound
+ * fixtures — recomputing it would silently resize the record back onto the
+ * bound.
+ */
+const padFor = (base: MigrationSnapshotRecord, host: unknown, target: number): number =>
+  target - serializedBytes(withField(base, 'host', host)) - 9 // `,` + `"pad":` + two quotes
+
+const recordWithPad = (base: MigrationSnapshotRecord, host: unknown, pad: number) =>
+  withField(withField(base, 'host', host), 'pad', 'x'.repeat(pad))
 
 function withoutField(record: MigrationSnapshotRecord, field: string) {
   const copy = { ...record } as Record<string, unknown>
@@ -390,5 +418,194 @@ describe('migration snapshot bounds and record structure', () => {
       field: 'record',
       kind: 'malformed',
     })
+  })
+})
+
+describe('migration snapshot record input bounds', () => {
+  test('the byte, property-count and array-width bounds are documented constants', () => {
+    expect(MIGRATION_SNAPSHOT_MAX_RECORD_BYTES).toBe(8_192)
+    expect(MIGRATION_SNAPSHOT_MAX_RECORD_PROPERTIES).toBe(64)
+    expect(MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH).toBe(64)
+  })
+
+  test('an oversized record byte size is a typed limit issue, decided before canonicalization', () => {
+    const marker = 'SECRET-BYTES-MARKER'
+    const issue = migrationSnapshotRecordIssue(
+      withField(validRecord('memberships'), 'host', marker.repeat(1_000))
+    )
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    // The issue names no supplied content.
+    expect(JSON.stringify(issue)).not.toContain(marker)
+    // Well within the bound, an extra property stays ignored as before.
+    expect(
+      migrationSnapshotRecordIssue(withField(validRecord('memberships'), 'host', 'small value'))
+    ).toBeNull()
+  })
+
+  test('an oversized property count is a typed limit issue, decided before canonicalization', () => {
+    const bloated: Record<string, unknown> = { ...validRecord('memberships') }
+    for (let index = 0; index < 100; index++) bloated[`host-${index}`] = 'x'
+    expect(migrationSnapshotRecordIssue(bloated as MigrationSnapshotRecord)).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+  })
+
+  test('an oversized array width inside a record is a typed limit issue', () => {
+    const over = withField(
+      validRecord('memberships'),
+      'host',
+      Array.from({ length: 65 }, () => 'x')
+    )
+    expect(migrationSnapshotRecordIssue(over)).toEqual({ field: 'record', kind: 'limit' })
+    // At the documented bound the array is just an ignored extra property.
+    // 4 contract fields + the host key + 59 elements = exactly 64 slots.
+    const atBound = withField(
+      validRecord('memberships'),
+      'host',
+      Array.from({ length: 59 }, () => 'x')
+    )
+    expect(migrationSnapshotRecordIssue(atBound)).toBeNull()
+  })
+
+  test('oversized content nested under an ignored extra property is still bounded', () => {
+    const marker = 'SECRET-NESTED-MARKER'
+    const nested = {
+      ...validRecord('memberships'),
+      host: { deep: { deeper: marker.repeat(500) } },
+    } as MigrationSnapshotRecord
+    const issue = migrationSnapshotRecordIssue(nested)
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    expect(JSON.stringify(issue)).not.toContain(marker)
+  })
+
+  test('an oversized top-level string is a typed limit issue, decided before canonicalization', () => {
+    const marker = 'SECRET-TOP-STRING-MARKER'
+    const issue = migrationSnapshotRecordShapeIssue(marker.repeat(4_096))
+    expect(issue).toEqual({ field: 'record', kind: 'limit' })
+    // The issue names no supplied content.
+    expect(JSON.stringify(issue)).not.toContain(marker)
+    // A string well within the byte bound is not a size issue.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(64))).toBeNull()
+  })
+
+  test('escape expansion counts against the byte bound: quotes, backslashes and control characters', () => {
+    // The bound measures the SERIALIZED record. JSON escapes the quote and
+    // the backslash to two bytes, so 4,100 of them serialize to 8,200 bytes —
+    // over the 8,192-byte bound even though the raw characters count 4,100.
+    expect(migrationSnapshotRecordShapeIssue('"'.repeat(4_100))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    expect(migrationSnapshotRecordShapeIssue('\\'.repeat(4_100))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Control characters serialize through their six-byte \u00XX escape.
+    expect(migrationSnapshotRecordShapeIssue('\u0001'.repeat(1_370))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // The same characters inside the bound are not flagged: 4,000 quotes
+    // serialize to exactly 8,000 bytes, and 1,365 control characters to
+    // 8,190 — both within the 8,192-byte bound.
+    expect(migrationSnapshotRecordShapeIssue('"'.repeat(4_000))).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue('\u0001'.repeat(1_365))).toBeNull()
+    // Plain ASCII of the same magnitude keeps its one byte per character.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(8_000))).toBeNull()
+  })
+
+  test('the byte bound covers the complete serialized form: string quotes included', () => {
+    // The reported hole: an 8,192-character ASCII string is 8,194 bytes as
+    // JSON once its two quotes are counted, yet it passed the shape gate.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(8_192))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // 8,190 characters serialize to exactly 8,192 bytes with their quotes —
+    // at the bound, not over it, so still admitted.
+    expect(migrationSnapshotRecordShapeIssue('x'.repeat(8_190))).toBeNull()
+    // The same accounting applies to a string value inside a record: sized
+    // so the record's complete serialization sits exactly on the bound, it
+    // stays a valid record; one more character crosses it.
+    const base = validRecord('memberships')
+    const pad = padFor(base, 'x'.repeat(8_000), 8_192)
+    const atBound = recordWithPad(base, 'x'.repeat(8_000), pad)
+    expect(serializedBytes(atBound)).toBe(8_192)
+    expect(migrationSnapshotRecordIssue(atBound)).toBeNull()
+    const overBound = recordWithPad(base, 'x'.repeat(8_001), pad)
+    expect(serializedBytes(overBound)).toBe(8_193)
+    expect(migrationSnapshotRecordIssue(overBound)).toEqual({ field: 'record', kind: 'limit' })
+  })
+
+  test('the byte bound covers the complete serialized form: quoted keys and colons included', () => {
+    const base = validRecord('memberships')
+    // A key serializes as `"…key…":` — its quotes and its colon are charged
+    // exactly like the key's characters are.
+    const withKeyOfLength = (keyLength: number): MigrationSnapshotRecord => {
+      const record: Record<string, unknown> = { ...base }
+      record['k'.repeat(keyLength)] = 'v'
+      return record as MigrationSnapshotRecord
+    }
+    // An empty extra key already serializes with its quotes and colon, so a
+    // key of length n adds exactly n bytes over that baseline.
+    const keyPad = 8_192 - serializedBytes(withKeyOfLength(0))
+    expect(serializedBytes(withKeyOfLength(keyPad))).toBe(8_192)
+    expect(migrationSnapshotRecordIssue(withKeyOfLength(keyPad))).toBeNull()
+    expect(serializedBytes(withKeyOfLength(keyPad + 1))).toBe(8_193)
+    expect(migrationSnapshotRecordIssue(withKeyOfLength(keyPad + 1))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+  })
+
+  test('the byte bound covers the complete serialized form: container delimiters and separators included', () => {
+    const base = validRecord('memberships')
+    // An array pays its brackets and the comma between its items; a nested
+    // object pays its braces, quoted keys and colons at every depth.
+    const arrayValue = ['x'.repeat(100), 'x'.repeat(100)]
+    const nestedValue = { deep: { deeper: 'x'.repeat(50) } }
+    for (const host of [arrayValue, nestedValue]) {
+      const pad = padFor(base, host, 8_192)
+      const atBound = recordWithPad(base, host, pad)
+      expect(serializedBytes(atBound)).toBe(8_192)
+      expect(migrationSnapshotRecordIssue(atBound)).toBeNull()
+      // One more element (4 bytes: comma plus its quotes) or one more inner
+      // character, pad unchanged, crosses the bound.
+      const grown = Array.isArray(host)
+        ? [...host, 'x']
+        : { deep: { deeper: `${host.deep.deeper}x` } }
+      const overBound = recordWithPad(base, grown, pad)
+      expect(serializedBytes(overBound)).toBeGreaterThan(8_192)
+      expect(migrationSnapshotRecordIssue(overBound)).toEqual({ field: 'record', kind: 'limit' })
+    }
+  })
+
+  test('an oversized top-level array is a typed limit issue, by width or by bytes', () => {
+    const marker = 'SECRET-TOP-ARRAY-MARKER'
+    // Over the array-width bound.
+    expect(migrationSnapshotRecordShapeIssue(Array.from({ length: 65 }, () => 'x'))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Within the width bound but over the byte bound.
+    const wide = Array.from({ length: 64 }, () => marker.repeat(8))
+    expect(migrationSnapshotRecordShapeIssue(wide)).toEqual({ field: 'record', kind: 'limit' })
+    expect(JSON.stringify(migrationSnapshotRecordShapeIssue(wide))).not.toContain(marker)
+  })
+
+  test('a bigint is over-bound outright and bounded primitive shapes fit the byte bound', () => {
+    // A bigint's serialization length is unbounded: rejected without scanning.
+    expect(migrationSnapshotRecordShapeIssue(BigInt('9'.repeat(10_000)))).toEqual({
+      field: 'record',
+      kind: 'limit',
+    })
+    // Fixed-cost primitives and null fit the byte bound: the walk reports no
+    // size issue for them (malformed-shape handling belongs to the record
+    // validation and the comparator's intake, not to the size walk).
+    expect(migrationSnapshotRecordShapeIssue(42)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(true)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(null)).toBeNull()
+    expect(migrationSnapshotRecordShapeIssue(undefined)).toBeNull()
   })
 })

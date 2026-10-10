@@ -11,6 +11,14 @@ import type { AgentLifecycleState, AgentProfileState } from './index'
 export type AccountDirectoryPageInput = Readonly<{
   /** Opaque continuation cursor from the previous page's `nextCursor`. */
   after?: string
+  /**
+   * Server-authoritative case-insensitive substring over the row's own
+   * display identity (Agent name, conversation title). The filter runs inside
+   * the authorized query, so a denied row cannot match, and it is constant
+   * across a cursor walk — every page of one search still steps through one
+   * total order over stable ids. Empty values never reach the server.
+   */
+  q?: string
   /** Also list archived rows. Live rows only by default. */
   includeArchived?: boolean
   /** Page size. The server clamps it to 1..100 (default 50). */

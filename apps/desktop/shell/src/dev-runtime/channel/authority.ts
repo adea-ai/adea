@@ -240,6 +240,8 @@ export function createChannelAuthority(options?: {
    *  `dispatchLocal` lane passes none (there is no channel to bind), which is
    *  sound because its envelope holds no client-supplied bytes. */
   authorizeCommand?: (command: DevCommand, identity?: ChannelIdentity) => void | Promise<void>
+  /** Synchronous final lifecycle fence after async admission and accounting. */
+  assertCommandAllowed?: (command: DevCommand) => void
 }) {
   const now = options?.now ?? (() => Date.now())
   const policy: TrustedLoopbackPolicy = {
@@ -252,6 +254,27 @@ export function createChannelAuthority(options?: {
   const nonces = new Map<string, Map<string, number>>()
   const grants = new Map<string, GrantRecord>()
   const commandProviders = new Map<DevOperation, DevCommandHandler>()
+  const inFlight = new Map<string, number>()
+  const scopeKey = (scope: Scope) =>
+    JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
+  async function runProvider(
+    provider: DevCommandHandler,
+    command: DevCommand,
+    identity?: { channelId: string; clientCredentialId: string }
+  ) {
+    const key = scopeKey(command.scope)
+    inFlight.set(key, (inFlight.get(key) ?? 0) + 1)
+    try {
+      // Re-admit after accounting begins: an async eligibility check may
+      // yield across a deletion fence being installed.
+      options?.assertCommandAllowed?.(command)
+      return await provider(command, identity)
+    } finally {
+      const remaining = (inFlight.get(key) ?? 1) - 1
+      if (remaining) inFlight.set(key, remaining)
+      else inFlight.delete(key)
+    }
+  }
   const streamProviders = new Map<DevStreamProtocol, boolean>()
   const auditRecords: ChannelAuditRecord[] = []
   const counters = {
@@ -612,7 +635,7 @@ export function createChannelAuthority(options?: {
       const provider = commandProviders.get(frame.command.operation)
       let value: unknown
       if (provider) {
-        value = await provider(frame.command, {
+        value = await runProvider(provider, frame.command, {
           channelId: frame.channelId,
           clientCredentialId: frame.clientCredentialId,
         })
@@ -793,7 +816,7 @@ export function createChannelAuthority(options?: {
       const provider = commandProviders.get(decoded.operation)
       let value: unknown
       if (provider) {
-        value = await provider(decoded)
+        value = await runProvider(provider, decoded)
       } else {
         counters.capabilityDenied += 1
         return refusal(
@@ -1075,6 +1098,7 @@ export function createChannelAuthority(options?: {
     authenticateLegacyRequest,
     legacyProofMessage,
     execute,
+    inFlightCommands: (scope: Scope) => inFlight.get(scopeKey(scope)) ?? 0,
     dispatchLocal,
     capabilitySnapshot,
     mintEventsToken,
