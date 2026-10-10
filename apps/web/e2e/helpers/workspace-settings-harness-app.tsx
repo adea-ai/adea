@@ -1,12 +1,14 @@
 import '../../src/start/globals.css'
 import { createSignal, Show, onCleanup, onMount } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Toaster } from '@adea-ai/ui/components/ui/toast'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
 import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
 import { workspaceSettingsSectionFromHash } from '@adea-ai/workspace-ui/workspace-settings-section'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
+import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/workspace-ui/platform'
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
@@ -32,6 +34,58 @@ const transcription: TranscriptionProvider = {
   async start() {
     throw new Error('Transcription is outside this permission fixture')
   },
+}
+
+const harnessRoot = () => document.querySelector('#harness-root')!
+const countCall = (name: string) => {
+  const next = Number(harnessRoot().getAttribute(name) ?? 0) + 1
+  harnessRoot().setAttribute(name, String(next))
+  return next
+}
+
+// The owner's archived rows outlive the dialog that archived them, as the query cache does in the app.
+let archivedRows: WorkspaceSummary[] = []
+const fixtureNames: Record<string, string> = {
+  'settings-sibling': 'Secondary',
+  'workspace-settings-e2e': 'Settings harness',
+}
+
+/**
+ * The archive fixture's contract: archive, reopen and the archived listing answer from module state
+ * and data attributes, so the spec can stage success, a refusal, a transient failure and a repeat.
+ */
+function archiveFixtureClient(): AgentHqApiClient {
+  return {
+    async archiveWorkspace(workspaceId: string) {
+      countCall('data-archive-calls')
+      harnessRoot().setAttribute('data-archive-target', workspaceId)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const mode = harnessRoot().getAttribute('data-archive-mode')
+      if (mode === 'unavailable')
+        throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+      if (mode === 'error')
+        throw new ApiClientError(
+          'Workspace could not be archived. Try again.',
+          500,
+          'workspace_archive_failed'
+        )
+      archivedRows = [
+        ...archivedRows.filter((row) => row.id !== workspaceId),
+        { ...initialWorkspace, id: workspaceId, name: fixtureNames[workspaceId] ?? workspaceId },
+      ]
+      return { archived: true as const, workspaceId }
+    },
+    async listArchivedWorkspaces() {
+      return { workspaces: archivedRows }
+    },
+    async reopenWorkspace(workspaceId: string) {
+      countCall('data-reopen-calls')
+      const row = archivedRows.find((candidate) => candidate.id === workspaceId)
+      if (!row) throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+      archivedRows = archivedRows.filter((candidate) => candidate.id !== workspaceId)
+      return { workspace: { ...row, canArchive: true } }
+    },
+  } as unknown as AgentHqApiClient
 }
 
 let storedPreferences: WorkspacePreferences | null = null
@@ -83,6 +137,8 @@ function Harness() {
       ? { kind: 'home' as const }
       : initialWorkspace.logo,
     canDelete: !document.querySelector('#harness-root')?.hasAttribute('data-read-only'),
+    canArchive:
+      document.querySelector('#harness-root')?.hasAttribute('data-archive-client') ?? false,
   })
   const sibling = {
     ...initialWorkspace,
@@ -119,10 +175,14 @@ function Harness() {
   const controlPlaneMode = document
     .querySelector('#harness-root')
     ?.getAttribute('data-control-plane')
+  const archiveMode =
+    document.querySelector('#harness-root')?.hasAttribute('data-archive-client') ?? false
   const [client, setClient] = createSignal(
     controlPlaneMode === 'scoped' || controlPlaneMode === 'unavailable'
       ? controlPlaneSettingsClient(controlPlaneMode)
-      : undefined
+      : archiveMode
+        ? archiveFixtureClient()
+        : undefined
   )
   const switchScope = (event: Event) => {
     const detail = (event as CustomEvent<{ workspaceId?: string; replaceClient?: boolean }>).detail
@@ -138,6 +198,23 @@ function Harness() {
   return (
     <>
       <Button onClick={() => setOpen(true)}>Open settings fixture</Button>
+      <Show when={archiveMode}>
+        <Button
+          id="switch-fixture-workspace"
+          onClick={() =>
+            setWorkspace({
+              ...initialWorkspace,
+              id: 'settings-sibling',
+              name: 'Secondary',
+              logo: { kind: 'box' as const },
+              canArchive: true,
+            } as WorkspaceSummary)
+          }
+        >
+          Switch fixture workspace
+        </Button>
+      </Show>
+      <Toaster position="bottom-right" />
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>
@@ -207,10 +284,11 @@ function Harness() {
   )
 }
 
-// The query provider is mounted only for the Control Plane fixtures, so the
+// The query provider is mounted only for the Control Plane and archive fixtures, so the
 // default harness still proves every section renders with no providers.
 function Providers() {
-  return document.querySelector('#harness-root')?.hasAttribute('data-control-plane') ? (
+  const root = document.querySelector('#harness-root')
+  return root?.hasAttribute('data-control-plane') || root?.hasAttribute('data-archive-client') ? (
     <AgentHqQueryProvider>
       <Harness />
     </AgentHqQueryProvider>

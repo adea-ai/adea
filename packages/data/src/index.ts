@@ -37,6 +37,7 @@ export function settledData<TData>(result: {
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
+  archived: ['workspaces', 'archived'] as const,
   bootstrap: ['workspaces', 'bootstrap'] as const,
   detail: (workspaceId: string) => ['workspaces', 'detail', workspaceId] as const,
   list: ['workspaces', 'list'] as const,
@@ -876,6 +877,13 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  archive: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (workspaceId: string) => client.archiveWorkspace(workspaceId),
+    onSuccess: async (_result: unknown, workspaceId: string) => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(workspaceId) })
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
+    },
+  }),
   reopen: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (workspaceId: string) => client.reopenWorkspace(workspaceId),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['reopenWorkspace']>>) => {
@@ -961,6 +969,10 @@ export const workspaceDeleteMutationOptions = (
 })
 
 export const workspaceQueryOptions = {
+  archived: (client: AgentHqApiClient) => ({
+    queryKey: workspaceQueryKeys.archived,
+    queryFn: async () => (await client.listArchivedWorkspaces()).workspaces,
+  }),
   bootstrap: (client: AgentHqApiClient) => ({
     queryKey: workspaceQueryKeys.bootstrap,
     queryFn: () => client.bootstrapWorkspace(),
@@ -977,6 +989,10 @@ export const workspaceQueryOptions = {
   }),
 }
 
+export function useArchivedWorkspacesQuery(client: AgentHqApiClient) {
+  return useQuery(() => workspaceQueryOptions.archived(client))
+}
+
 export function useWorkspaceListQuery(client: AgentHqApiClient) {
   return useQuery(() => workspaceQueryOptions.list(client))
 }
@@ -988,6 +1004,16 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.archive(client, queryClient))
+}
+
+export function useReopenWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.reopen(client, queryClient))
 }
 
 export function useDeleteWorkspaceMutation(client: AgentHqApiClient) {
