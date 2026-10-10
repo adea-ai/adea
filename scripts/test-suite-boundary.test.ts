@@ -40,8 +40,14 @@ describe('test suite boundaries', () => {
     expect(integrationRunner).toContain('DATABASE_MIGRATION_URL')
     expect(integrationRunner).toContain("spawnSync('docker'")
     expect(integrationRunner).toContain("'compose'")
-    expect(integrationRunner).toContain("'tests'")
-    expect(integrationRunner).toContain("'integration'")
+    // The package and route-flow locations live in the inventory module the runner imports.
+    const integrationInventory = readFileSync(
+      resolve(root, 'scripts/integration-inventory.mjs'),
+      'utf8'
+    )
+    expect(integrationRunner).toContain("from './integration-inventory.mjs'")
+    expect(integrationInventory).toContain("'tests', 'integration'")
+    expect(integrationInventory).toContain("'apps', 'web', 'test', 'integration'")
     expect(packageJson.scripts['test:e2e']).toContain('playwright')
     // The Dev View chunk budget is a documented-raise ratchet, not a silent
     // dial: the check script carries the raise rationale, and this pin makes
@@ -184,11 +190,12 @@ describe('test suite boundaries', () => {
     expect(neonWorkflow).not.toContain('packages/auth test:integration')
   })
 
-  test('forwards the integration shard to Bun and keeps the route flow on shard 1', () => {
+  test('partitions the integration inventory explicitly instead of delegating to Bun --shard', () => {
     const runner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
-    expect(runner).toContain('`--shard=${shardSpec}`')
-    expect(runner).toContain("shardSpec.startsWith('1/')")
-    expect(runner).toContain('ADEA_INTEGRATION_SHARD must look like 1/2')
+    expect(runner).toContain("from './integration-inventory.mjs'")
+    expect(runner).not.toContain('--shard=')
+    expect(runner).toContain('...plan.packageFiles')
+    expect(runner).toContain('plan.routeFiles.length > 0')
   })
 
   test('builds desktop releases entirely on GitHub-hosted runners', () => {
