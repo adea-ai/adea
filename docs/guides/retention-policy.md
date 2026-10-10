@@ -60,10 +60,48 @@ executor. Unknown, unauthorized, revoked, or out-of-window receipts are ignored
 in evaluation and rejected by `recordCleanupReceipt`. Malformed receipts or
 candidates throw `RetentionPolicyError` with a code only.
 
+## Durable storage and the stored gate
+
+Migration `0047_retention_cleanup_authority` adds three tables, and
+`packages/db/src/retention-cleanup.ts` composes the pure gate over them:
+
+- `retention_holds`: active while `released_at` is null.
+- `retention_deletion_authorizations`: at most one unrevoked row per subject
+  (partial unique index). Expiry is fixed, never open-ended.
+- `retention_cleanup_receipts`: append-only rows bound to the recording runtime
+  node, unique per workspace idempotency key.
+
+Entry points, all typed through `RetentionCleanupError`:
+
+- `grantRetentionDeletionAuthorization`, `revokeRetentionDeletionAuthorization`,
+  `placeRetentionHold`, `releaseRetentionHold`: owner or admin of a live
+  workspace, checked against membership at the moment of the act.
+- `recordRetentionCleanupReceipt`: accepts only from a runtime node that
+  `requireEligibleRuntimeNode` accepts now. The receipt's claimed executor must
+  equal the authenticated node. A repeated key with the same payload replays;
+  with a different payload it conflicts. A new receipt needs current authority.
+- `withRetentionDeletionGate`: decides under locks and runs a callback with the
+  decision while the locks are held, so a dispatch cannot act on a stale
+  decision. `evaluateStoredRetentionDeletion` is the decision alone.
+
+Time is the database clock. Every operation for one subject takes the same
+transaction-scoped advisory lock. Artifact gates lock the artifact row first, in
+the order reference registration uses. Active references for artifacts are the
+live rows of `artifact_reference_grants`.
+
 ## Not implemented here
 
-- Persisting receipts or any database migration.
-- Executors, deletion execution, backup expiry, export, or any scheduler.
+- Deletion execution, executors, backup expiry, export, or any scheduler. No
+  caller dispatches cleanup, and no period is configured.
+- Reference registration does not consult retention authority. A grant that
+  commits after a `cleanup_ready` decision, and before any deletion, is not
+  blocked by this slice.
+- Non-artifact categories have no authoritative reference store yet, so their
+  active-reference count is zero. The owning domain must supply
+  `reconciliationOpen`.
+- Receipts are append-only by API only. No database trigger enforces it.
+- Existing workspace deletion refuses to proceed while holds, authorities, or
+  receipts exist (`restrict` foreign keys).
 - Changes to the existing relay ciphertext purge (`relay:purge`).
 
 ## Decisions needed before general release
@@ -72,8 +110,14 @@ candidates throw `RetentionPolicyError` with a code only.
    timestamp each one runs from.
 2. Backup retention and expiry duration (REQ 143).
 3. The per-category coverage sets above.
-4. The trusted executor registry, and where receipts are stored.
+4. Whether a rotated executor signing key keeps the node's earlier receipts
+   countable. The gate currently counts receipts only from nodes with an active
+   verified key, and judges them against the node's creation time.
 5. Whether a reference stays active while any other scope holds it, or only
    while a live grant exists. The gate currently takes an injected count.
-6. The authority that issues deletion requests and executor authorizations, and
-   the maximum lifetime of each.
+6. The maximum lifetime of a deletion authority. Only "expires after now" is
+   enforced today.
+7. Whether reference registration must refuse while a live deletion authority
+   exists for the artifact (the gap noted under "Not implemented").
+8. Whether workspace deletion should block on retention rows, or move them with
+   an explicit cleanup procedure.

@@ -233,13 +233,8 @@ export type CleanupReceipt = {
   readonly observedAt: string
 }
 
-const RECEIPT_OPERATIONS: readonly CleanupReceiptOperation[] = ['delete', 'read_check']
-const RECEIPT_OUTCOMES: readonly CleanupReceiptOutcome[] = [
-  'completed',
-  'in_progress',
-  'unreachable',
-  'failed',
-]
+export const RECEIPT_OPERATIONS = ['delete', 'read_check'] as const
+export const RECEIPT_OUTCOMES = ['completed', 'in_progress', 'unreachable', 'failed'] as const
 
 function parseReceipt(value: unknown): CleanupReceipt {
   if (typeof value !== 'object' || value === null) fail('invalid_receipt')

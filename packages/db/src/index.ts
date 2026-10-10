@@ -64,6 +64,25 @@ export {
   type TrustedCleanupExecutor,
 } from './retention-policy'
 export {
+  evaluateStoredRetentionDeletion,
+  grantRetentionDeletionAuthorization,
+  placeRetentionHold,
+  readLiveRetentionDeletionAuthorization,
+  recordRetentionCleanupReceipt,
+  releaseRetentionHold,
+  retentionCleanupErrorCodes,
+  RetentionCleanupError,
+  revokeRetentionDeletionAuthorization,
+  withRetentionDeletionGate,
+  type RetentionAuthorizationRecord,
+  type RetentionCleanupErrorCode,
+  type RetentionGateContext,
+  type RetentionGateInput,
+  type RetentionHoldRecord,
+  type StoredCleanupReceiptInput,
+  type StoredCleanupReceiptRecord,
+} from './retention-cleanup'
+export {
   enqueueTaskSubmission,
   getTaskSubmissionForUser,
   TaskSubmissionError,
