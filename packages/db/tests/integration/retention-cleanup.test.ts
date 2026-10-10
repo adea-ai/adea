@@ -588,11 +588,12 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
   test('expiry is judged on the database clock: authority and receipts stop counting', async () => {
     const { node, owner, workspace } = await fixture('expiry')
     const subject = crypto.randomUUID()
-    const expiresAt = new Date(Date.now() + 1_500).toISOString()
-    await grantRetentionDeletionAuthorization(connection.db, {
+    // The lifetime leaves room for a loaded host between the grant and the first
+    // receipt. The test then waits for the granted expiry itself, not a fixed sleep.
+    const granted = await grantRetentionDeletionAuthorization(connection.db, {
       actor: owner,
       category: 'messages',
-      expiresAt,
+      expiresAt: new Date(Date.now() + 5_000).toISOString(),
       subjectId: subject,
       workspaceId: workspace.id,
     })
@@ -618,7 +619,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       ).outcome
     ).toBe('verified_complete')
 
-    await sleep(1_800)
+    await sleep(Date.parse(granted.expiresAt) - Date.now() + 200)
     expect(
       await evaluateStoredRetentionDeletion(
         connection.db,

@@ -95,15 +95,11 @@ export const retentionDeletionAuthorizations = appSchema.table(
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     category: retentionCategory('category').notNull(),
     subjectId: text('subject_id').notNull(),
-    grantedByUserId: uuid('granted_by_user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'restrict' }),
+    grantedByUserId: uuid('granted_by_user_id').notNull(),
     grantedAt: timestamp('granted_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
-    revokedByUserId: uuid('revoked_by_user_id').references(() => users.id, {
-      onDelete: 'restrict',
-    }),
+    revokedByUserId: uuid('revoked_by_user_id'),
     ...timestampColumns(),
   },
   (table) => [
@@ -115,6 +111,17 @@ export const retentionDeletionAuthorizations = appSchema.table(
       'retention_deletion_authorizations_subject_bounded',
       sql`char_length(${table.subjectId}) between 1 and 128`
     ),
+    // Explicit names: the generated defaults exceed PostgreSQL's 63-byte identifier limit.
+    foreignKey({
+      columns: [table.grantedByUserId],
+      foreignColumns: [users.id],
+      name: 'retention_deletion_authorizations_granted_by_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.revokedByUserId],
+      foreignColumns: [users.id],
+      name: 'retention_deletion_authorizations_revoked_by_fk',
+    }).onDelete('restrict'),
     check(
       'retention_deletion_authorizations_expiry_after_grant',
       sql`${table.expiresAt} > ${table.grantedAt}`
@@ -141,9 +148,7 @@ export const retentionCleanupReceipts = appSchema.table(
      * outlives its generation: a regrant starts a new id, and older rows never
      * count toward it.
      */
-    authorizationId: uuid('authorization_id')
-      .notNull()
-      .references(() => retentionDeletionAuthorizations.id, { onDelete: 'restrict' }),
+    authorizationId: uuid('authorization_id').notNull(),
     executorSigningFingerprint: text('executor_signing_fingerprint').notNull(),
     idempotencyKey: text('idempotency_key').notNull(),
     category: retentionCategory('category').notNull(),
@@ -158,6 +163,11 @@ export const retentionCleanupReceipts = appSchema.table(
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      columns: [table.authorizationId],
+      foreignColumns: [retentionDeletionAuthorizations.id],
+      name: 'retention_cleanup_receipts_authorization_fk',
+    }).onDelete('restrict'),
     foreignKey({
       columns: [table.workspaceId, table.runtimeNodeId],
       foreignColumns: [runtimeNodes.workspaceId, runtimeNodes.id],

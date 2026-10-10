@@ -1,5 +1,5 @@
 {
-  "id": "112bca4a-3351-401c-8f45-24717946db83",
+  "id": "232b8130-0478-48dc-b907-cb08e416c738",
   "prevId": "9da08adb-cf66-4161-8e1b-d98e798675ec",
   "version": "7",
   "dialect": "postgresql",
@@ -4347,8 +4347,8 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "retention_cleanup_receipts_authorization_id_retention_deletion_authorizations_id_fk": {
-          "name": "retention_cleanup_receipts_authorization_id_retention_deletion_authorizations_id_fk",
+        "retention_cleanup_receipts_authorization_fk": {
+          "name": "retention_cleanup_receipts_authorization_fk",
           "tableFrom": "retention_cleanup_receipts",
           "tableTo": "retention_deletion_authorizations",
           "schemaTo": "app",
@@ -4504,8 +4504,8 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "retention_deletion_authorizations_granted_by_user_id_users_id_fk": {
-          "name": "retention_deletion_authorizations_granted_by_user_id_users_id_fk",
+        "retention_deletion_authorizations_granted_by_fk": {
+          "name": "retention_deletion_authorizations_granted_by_fk",
           "tableFrom": "retention_deletion_authorizations",
           "tableTo": "users",
           "schemaTo": "app",
@@ -4514,8 +4514,8 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "retention_deletion_authorizations_revoked_by_user_id_users_id_fk": {
-          "name": "retention_deletion_authorizations_revoked_by_user_id_users_id_fk",
+        "retention_deletion_authorizations_revoked_by_fk": {
+          "name": "retention_deletion_authorizations_revoked_by_fk",
           "tableFrom": "retention_deletion_authorizations",
           "tableTo": "users",
           "schemaTo": "app",
