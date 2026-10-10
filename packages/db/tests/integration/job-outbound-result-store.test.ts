@@ -1430,6 +1430,33 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
   })
 
+  test('a completion whose destination is in its own source workspace is refused before the Task completes', async () => {
+    const f = await fixture({ complete: false })
+    const sourceChannel = await createGroupChannel(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        idempotencyKey: crypto.randomUUID(),
+        title: 'Source group',
+      }
+    )
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+    await expect(
+      completeJob(f, key, outboundRequest(f, { channelId: sourceChannel.id }))
+    ).rejects.toThrow('Destination unavailable')
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(sourceChannel.id, f.task.id)).toEqual([])
+    // The same key with an outbound destination completes and publishes once.
+    const published = await completeJob(f, key, outboundRequest(f))
+    expect(published.publication).toMatchObject({ decision: { action: 'publish' } })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([
+      { id: published.publication.messageId },
+    ])
+  })
+
   test('a requester who can complete the source task but cannot reach the destination channel is refused; the Task and the publication are unchanged', async () => {
     const f = await fixture({ complete: false })
     // Source admin (so may complete the source Task) and destination workspace member who is

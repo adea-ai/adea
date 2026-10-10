@@ -220,7 +220,9 @@ export async function completeTaskAndPublishOutboundResult(
     .from(channels)
     .where(eq(channels.id, request.channelId))
     .limit(1)
-  if (!channel) throw new Error('Destination unavailable')
+  // An outbound result publishes into another workspace. A destination in the source workspace is
+  // not outbound, so the request is refused before the Task completes, not held after it.
+  if (!channel || channel.workspaceId === workspaceId) throw new Error('Destination unavailable')
 
   let registration: Awaited<ReturnType<typeof presentedRegistration>> = null
   if (request.artifact) {

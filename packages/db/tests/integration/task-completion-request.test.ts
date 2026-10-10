@@ -44,7 +44,13 @@ describe.skipIf(!url)('task completion through the request path, on real data', 
       { objective: 'Completion objective', title: 'Completion task' },
       { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
     )
-    const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+    // An outbound result publishes into a separate audience workspace, never the source.
+    const { workspace: audience } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Audience workspace',
+      owner: owner.principal,
+    })
+    const channel = await createGroupChannel(connection.db, audience.id, owner.principal, {
       idempotencyKey: crypto.randomUUID(),
       title: 'Results',
     })
