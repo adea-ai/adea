@@ -126,6 +126,28 @@ describe('test suite boundaries', () => {
     expect(journeys).toBeDefined()
   })
 
+  test('keeps the cross-product session journeys (#1223) in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const journeys = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' && args.includes('apps/web/e2e/chat-continuity.spec.ts')
+    )
+    expect(journeys).toBeDefined()
+    expect(journeys!.args).toContain('apps/web/e2e/workspace-project-placement.spec.ts')
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot

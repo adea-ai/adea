@@ -53,6 +53,11 @@ const specs = [
   // trip and reconnect convergence, driven through the real directory and
   // inbox surfaces instead of fetching their APIs from the page.
   'apps/web/e2e/account-directory-ui.spec.ts',
+  // Cross-product session journeys (#1223): chat continuity and
+  // workspace/project placement over real app routes with isolated
+  // fixtures — same actual-authentication class as the account specs.
+  'apps/web/e2e/chat-continuity.spec.ts',
+  'apps/web/e2e/workspace-project-placement.spec.ts',
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
