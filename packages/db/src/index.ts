@@ -397,6 +397,7 @@ export {
   type LeadTurnAcceptedSelection,
   type LeadTurnRuntimeBinding,
   type LeadTurnObservedState,
+  type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
 export {
   assertLeadTurnRollbackFenceRequest,
@@ -411,6 +412,7 @@ export {
   type LeadTurnRollbackFence,
   type LeadTurnRollbackFenceActor,
   type LeadTurnRollbackFenceAuthority,
+  type LeadTurnRollbackFenceEmission,
   type LeadTurnRollbackFenceReason,
   type LeadTurnRollbackFenceRequest,
   type LeadTurnRollbackState,

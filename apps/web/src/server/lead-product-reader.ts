@@ -87,6 +87,20 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
           // Canonical product locks remain held across final service verification and response construction.
           if (!(await dependencies.verify(request, selectors.workspaceId, selectors.principalId)))
             return unavailable()
+          // A fenced admission is not admissible. The signed reader returns only its fence facts, with
+          // no prompt, profile, scope or principal, so no dispatch can be built from this response.
+          if (product.rollbackFence) {
+            return Response.json(
+              {
+                schemaVersion: 'pi-lead-intent-fence/v1',
+                intentId: product.intentId,
+                workspaceId: product.controlPlaneWorkspaceId,
+                dispatchPermitted: false,
+                rollbackFence: product.rollbackFence,
+              },
+              { headers: { 'cache-control': 'private, no-store' } }
+            )
+          }
           const now = dependencies.now?.() ?? Date.now()
           const createdAt = Date.parse(product.intentCreatedAt)
           const expiresAt = createdAt + dependencies.lifetimeMs
