@@ -402,6 +402,8 @@ window.workspaceNavigationPresentationHarness = {
     archivedSessionAvailable = true
     return router.navigate({ search: { view: 'virtual' } as never, replace: true })
   },
+  showSourceControl: () =>
+    router.navigate({ search: { view: 'chat', app: 'source-control' } as never, replace: true }),
 }
 
 declare global {
@@ -430,6 +432,7 @@ declare global {
       releaseArchiveList(): void
       showChat(): Promise<void>
       showVirtual(): Promise<void>
+      showSourceControl(): Promise<void>
     }
   }
 }
