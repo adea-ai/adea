@@ -23,7 +23,9 @@ type Job = {
   steps: Step[]
 }
 const workflow = Bun.YAML.parse(workflowText) as {
+  on: { pull_request: { types: string[] } }
   permissions?: unknown
+  concurrency: { 'cancel-in-progress': string }
   jobs: Record<string, Job>
 }
 const jobs = workflow.jobs
@@ -119,6 +121,107 @@ describe('Neon branch lifecycle workflow', () => {
       expect(step.with?.branch).toBeUndefined()
       expect(step.if).toContain("!cancelled() && github.event.action == 'closed'")
       expect(step.if).toContain("!= ''")
+    }
+  })
+})
+
+type Event = { action: string; draft: boolean }
+
+// Evaluates the expression subset these conditions use. GitHub's single-quoted strings and
+// operators are valid JavaScript once the context names are bound to the event.
+function evaluate(source: string, event: Event) {
+  const script = source
+    .replaceAll('always()', 'true')
+    .replaceAll('github.event.pull_request.draft', 'draft')
+    .replaceAll('github.event.action', 'action')
+  return Boolean(new Function('action', 'draft', `return (${script})`)(event.action, event.draft))
+}
+
+// Mirrors the runner for job-level conditions: a job starts when its condition holds and every
+// job it needs succeeded. Only always() lets a skipped dependency leave a job running.
+const jobOrder = ['setup', 'create_neon_branch', 'migrate_gate', 'delete_neon_branch']
+function jobsThatRun(event: Event) {
+  const ran = new Map<string, boolean>()
+  for (const id of jobOrder) {
+    const job = jobs[id]!
+    const dependenciesRan = [job.needs ?? []].flat().every((need) => ran.get(need) === true)
+    const condition = job.if === undefined || evaluate(job.if, event)
+    const bypassesDependencies = job.if?.includes('always()') === true
+    ran.set(id, condition && (dependenciesRan || bypassesDependencies))
+  }
+  return Object.fromEntries(jobOrder.map((id) => [id, ran.get(id)]))
+}
+
+// A pull_request event starts the workflow only when its action is listed under `types`; then the
+// job conditions decide which jobs run.
+function lifecycle(event: Event) {
+  const started = workflow.on.pull_request.types.includes(event.action)
+  const idle = Object.fromEntries(jobOrder.map((id) => [id, false]))
+  return { started, jobs: started ? jobsThatRun(event) : idle }
+}
+
+describe('Neon branch lifecycle triggers', () => {
+  test('starts only on the actions that may run heavy validation', () => {
+    expect([...workflow.on.pull_request.types].toSorted()).toEqual([
+      'closed',
+      'ready_for_review',
+      'synchronize',
+    ])
+  })
+
+  test('opened and reopened never start the workflow, so Draft Guard can convert them first', () => {
+    for (const action of ['opened', 'reopened']) {
+      for (const draft of [true, false]) {
+        expect(lifecycle({ action, draft }).started).toBe(false)
+      }
+    }
+  })
+
+  test('a ready pull request runs both shards and the gate on ready_for_review and each push', () => {
+    for (const action of ['ready_for_review', 'synchronize']) {
+      expect(lifecycle({ action, draft: false })).toEqual({
+        started: true,
+        jobs: {
+          setup: true,
+          create_neon_branch: true,
+          migrate_gate: true,
+          delete_neon_branch: true,
+        },
+      })
+    }
+  })
+
+  test('draft pushes start the workflow but run no job, so no migration runs', () => {
+    expect(lifecycle({ action: 'synchronize', draft: true })).toEqual({
+      started: true,
+      jobs: {
+        setup: false,
+        create_neon_branch: false,
+        migrate_gate: false,
+        delete_neon_branch: false,
+      },
+    })
+  })
+
+  test('closed pull requests only clean up, whether or not they were drafts', () => {
+    for (const draft of [true, false]) {
+      expect(lifecycle({ action: 'closed', draft })).toEqual({
+        started: true,
+        jobs: {
+          setup: true,
+          create_neon_branch: false,
+          migrate_gate: false,
+          delete_neon_branch: true,
+        },
+      })
+    }
+  })
+
+  test('only closed events bypass cancel-in-progress', () => {
+    const cancel = workflow.concurrency['cancel-in-progress'].replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+    expect(evaluate(cancel, { action: 'closed', draft: false })).toBe(false)
+    for (const action of ['ready_for_review', 'synchronize']) {
+      expect(evaluate(cancel, { action, draft: false })).toBe(true)
     }
   })
 })

@@ -2,7 +2,10 @@ name: Create/Delete Branch for Pull Request
 
 on:
   pull_request:
+    # opened and reopened are deliberately absent: Draft Guard converts ready pull requests to draft
+    # on those events, and heavy validation starts only after an explicit ready_for_review.
     types:
+      - synchronize
       - ready_for_review
       - closed
 
