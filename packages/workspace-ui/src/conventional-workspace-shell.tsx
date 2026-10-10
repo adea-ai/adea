@@ -11,6 +11,7 @@ import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
 import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspaceController } from './use-workspace-controller'
+import type { WorkspaceCreationContext } from '@adea-ai/workspace-nav/workspace-nav'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
@@ -75,6 +76,8 @@ export type WorkspaceDeepLink = Readonly<{
 }>
 
 export function ConventionalWorkspaceShell(props: {
+  /** The signed-in owner for the sidebar's creation draft; absent for guests and unknown identities. */
+  creationContext?: WorkspaceCreationContext
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
   /** Shared archived-session affordance at the end of the common sidebar. */
@@ -444,6 +447,7 @@ export function ConventionalWorkspaceShell(props: {
               <WorkspaceNavSidebar
                 view="chat"
                 client={controller.client}
+                creationContext={props.creationContext}
                 activeWorkspace={controller.activeWorkspace}
                 host={workspaceHost()}
                 archiveAction={props.archiveAction}

@@ -125,6 +125,8 @@ export type DevWorkspaceNavHost = Readonly<{
   globalNav?: DevGlobalNavSlots
   activeWorkspaceId?: string
   activeWorkspaceName?: string
+  /** The signed-in owner for the inline creation draft; absent for guests and unknown identities. */
+  creationContext?: WorkspaceCreationContext
   workspaces?: readonly DevNavWorkspaceInput[]
   /** The active workspace's cloud projects; undefined until the list settles. */
   projects?: readonly DevNavCloudProject[]
@@ -165,9 +167,9 @@ export type DevWorkspaceSidebarProps = Readonly<{
   /** The navigation landmark's name inside the sidebar. */
   navigationLabel?: string
   /**
-   * Owner/placement facts for the inline draft's context line when the
-   * host knows them; unknown labels render honestly. Forwarded to the
-   * shared nav; no current caller feeds it (no account identity in scope).
+   * Owner/placement facts for the inline draft's context line. Unknown labels
+   * render honestly. Forwarded to the shared nav; an explicit prop wins over
+   * the host's owner, which the web host feeds from the signed-in account.
    */
   creationContext?: WorkspaceCreationContext
   /** Dev-only status line above the tree (runtime unavailable). */
@@ -706,7 +708,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
             return (
               <WorkspaceNav
                 label={props.navigationLabel ?? 'Workspaces'}
-                creationContext={props.creationContext}
+                creationContext={props.creationContext ?? props.host?.creationContext}
                 tree={source().tree}
                 adapter={adapter}
                 groupBy={groupBy()}
