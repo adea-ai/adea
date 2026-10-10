@@ -6,7 +6,6 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { AgentRoster } from './agent-roster'
-import { WorkspaceLeadStatus } from './workspace-lead-status'
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { TaskBoard } from './task-board'
@@ -28,6 +27,13 @@ const CreateGroupDialog = lazy(() =>
 )
 const ProjectCreateDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
+)
+// The lead status is off the chat route's static graph: it loads when the Agents
+// surface opens, and the chat route budget measures only static imports.
+const WorkspaceLeadStatus = lazy(() =>
+  import('./workspace-lead-status').then((module) => ({
+    default: module.WorkspaceLeadStatus,
+  }))
 )
 const ModalDialog = lazy(() =>
   import('@adea-ai/ui/components/ui/modal-dialog').then((module) => ({
@@ -562,10 +568,12 @@ export function ConventionalWorkspaceShell(props: {
                           }
                         >
                           <>
-                            <WorkspaceLeadStatus
-                              client={controller.client}
-                              workspaceId={controller.workspaceId!}
-                            />
+                            <Suspense fallback={<p role="status">Checking the workspace lead…</p>}>
+                              <WorkspaceLeadStatus
+                                client={controller.client}
+                                workspaceId={controller.workspaceId!}
+                              />
+                            </Suspense>
                             <AgentRoster
                               agents={controller.agents}
                               busy={controller.createAgentBusy || controller.agentBusy}
