@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { writeLocalWorkerConfig } from './local-worker-config.mjs'
+import { runWithPullBackoff } from './docker-pull-backoff.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -51,6 +52,36 @@ function run(command, args, cwd = root, env = environment) {
       code === 0 ? ok() : fail(new Error(`${command} ${args.join(' ')} exited ${code}`))
     )
   })
+}
+// The compose file pins postgres by digest, but the pull still goes to a shared
+// registry that rate-limits anonymous pulls from hosted runners. Output is captured
+// so the rate-limit signature can be recognized, then echoed once the attempt settles.
+async function composeUpPostgres() {
+  const result = await runWithPullBackoff(() =>
+    spawnSync(
+      'docker',
+      [
+        'compose',
+        '-p',
+        project,
+        '-f',
+        'compose.yml',
+        'up',
+        '-d',
+        '--wait',
+        '--wait-timeout',
+        '60',
+        'postgres',
+      ],
+      { cwd: root, encoding: 'utf8', stdio: 'pipe', env: databaseEnvironment }
+    )
+  )
+  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.stderr) process.stderr.write(result.stderr)
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`docker compose up postgres exited ${String(result.status)}`)
+  }
 }
 function startWorker(config, port, inspector, secure = false) {
   const log = createWriteStream(resolve(evidence, `worker-${port}.log`))
@@ -163,24 +194,7 @@ const hostConfig = resolve(evidence, 'host.json')
 await writeLocalWorkerConfig(hostConfig, host)
 try {
   databaseStarted = true
-  await run(
-    'docker',
-    [
-      'compose',
-      '-p',
-      project,
-      '-f',
-      'compose.yml',
-      'up',
-      '-d',
-      '--wait',
-      '--wait-timeout',
-      '60',
-      'postgres',
-    ],
-    root,
-    databaseEnvironment
-  )
+  await composeUpPostgres()
   await run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], root, databaseEnvironment)
   startWorker(hostConfig, hostPort, inspector, true)
   const entryStatus = async () => (await localHttps(`${baseURL}/api/web-entry`)).status
