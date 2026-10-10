@@ -15,6 +15,11 @@ import {
   postGroupChannelMessage,
 } from '../../src/group-channels'
 import { ensureWorkspaceLead } from '../../src/agents'
+import {
+  markLeadTurnDispatchPending,
+  observeLeadTurnRuntime,
+  prepareLeadTurnRuntime,
+} from '../../src/lead-turn-runtime'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -69,12 +74,6 @@ type LockWait = Readonly<{
   state: string
 }>
 
-type BackendState = Readonly<{
-  pid: number
-  state: string
-  waitEvent: string | null
-}>
-
 /** Lock-waiting backends with blocker pid chains (SQL evidence, not sleeps). */
 async function lockWaits(observer: DatabaseConnection): Promise<readonly LockWait[]> {
   // Wide full-row selects push the FROM clause far right: keep 2000 chars
@@ -95,24 +94,6 @@ async function lockWaits(observer: DatabaseConnection): Promise<readonly LockWai
     query: String(row.query ?? ''),
     state: String(row.state ?? ''),
   }))
-}
-
-async function backendState(
-  observer: DatabaseConnection,
-  pid: number
-): Promise<BackendState | null> {
-  const rows = await observer.db.execute(sql`
-    SELECT pid, state, wait_event
-      FROM pg_stat_activity
-     WHERE pid = ${pid}
-  `)
-  const row = rows[0]
-  if (!row) return null
-  return {
-    pid: row.pid as number,
-    state: String(row.state ?? ''),
-    waitEvent: row.wait_event == null ? null : String(row.wait_event),
-  }
 }
 
 async function waitFor(check: () => Promise<boolean>, label: string): Promise<void> {
@@ -194,9 +175,13 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     return { channelId, lead, owner, triggerMessageId: trigger.id, workspace }
   }
 
-  T('cancel nests channel-wait inside a claim-holding transaction: cycle proven', async () => {
-    // A dispatched claim (bound intent, no runtime row) so the nested
-    // cancellation reaches the channel lock before failing fast.
+  T('cancel flip commits before intent-cancel: no mutual wait can form', async () => {
+    // Fixed-structure proof (the nesting it replaces is gone): the flip
+    // commits first and is immediately visible, while the follow-up
+    // intent-cancel transaction waits on a held channel row. A holder
+    // that then requests the claim row proceeds — nothing holds
+    // claim-while-wanting-channel anymore, so no application cycle exists
+    // to cut and no intervention is needed for settlement.
     const f = await leadGroup()
     const input = claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner)
     const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
@@ -239,9 +224,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
           .for('update')
         holderParked()
         await holderGate
-        // After release: request the claim row. It is held by the
-        // canceller's outer transaction, so this SELECT blocks — closing
-        // the application-level cycle (proven below, then cut to drain).
+        // After release: request the claim row. The flip already committed
+        // (proven visible below), so this SELECT must proceed at once —
+        // asserting commit (not abort) below proves no inversion remains.
         await tx
           .select({ id: schema.addressedAgentTurns.id })
           .from(schema.addressedAgentTurns)
@@ -254,9 +239,9 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       holding.catch(() => {})
       await holderParkedPromise
 
-      // CANCELLER: real production cancel. Outer flips the claim
-      // (uncommitted) and stays open across the nested intent-cancel,
-      // which must then wait on the held channel row.
+      // CANCELLER: real production cancel. The flip commits first; only
+      // then does the follow-up intent-cancel transaction run — and it
+      // must wait on the held channel row.
       const cancelling = cancelAddressedTurn(
         canceller.db,
         f.workspace.id,
@@ -265,7 +250,8 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       )
       void cancelling.catch(() => {})
       // PROOF 1: a backend waits on the channel row, blocked by the
-      // holder — the nested transaction inside the open outer one.
+      // holder — the intent-cancel transaction running after the flip
+      // committed (not nested inside an open outer transaction).
       let nestedPid = 0
       await waitFor(async () => {
         const waits = await lockWaits(observer)
@@ -275,59 +261,26 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         if (nested) nestedPid = nested.pid
         return nested !== undefined
       }, 'nested channel wait')
-      // PROOF 2: the uncommitted flip is invisible to a separate
-      // connection — the outer transaction is still open, holding the
-      // claim lock while awaiting JavaScript.
+      // PROOF 2: the flip is ALREADY visible to a separate connection
+      // while the intent-cancel still waits — the structural inversion of
+      // the old nesting (uncommitted `dispatching`).
       const [visible] = await observer.db
         .select({ state: schema.addressedAgentTurns.state })
         .from(schema.addressedAgentTurns)
         .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
         .limit(1)
-      expect(visible?.state).toBe('dispatching')
-      // PROOF 3: release the holder into the claim request and observe the
-      // mutual wait — holder blocked by the canceller's outer backend
-      // (idle-in-transaction: the JavaScript edge the detector cannot see),
-      // nested still blocked by the holder. No 40P01 can fire on this
-      // shape; both would park forever without intervention.
+      expect(visible?.state).toBe('cancelled')
+      // Release: the holder's claim request proceeds (nothing holds the
+      // claim lock anymore), the nested call fails fast typed, and cancel
+      // succeeds — with zero intervention and zero deadlock. Poll for the
+      // nested backend leaving the lock wait (a single snapshot could be
+      // stale), then assert the typed outcome.
       releaseHolder()
-      let holderBlockedBy: readonly number[] = []
+      await holding
       await waitFor(async () => {
         const waits = await lockWaits(observer)
-        const holderWait = waits.find((wait) => wait.pid === holderPid)
-        if (holderWait) holderBlockedBy = holderWait.blockedBy
-        return holderWait !== undefined && holderWait.query.includes('"addressed_agent_turns"')
-      }, 'holder claim wait')
-      expect(holderBlockedBy.length).toBeGreaterThan(0)
-      const outerPid = holderBlockedBy[0]!
-      const outer = await backendState(observer, outerPid)
-      expect(outer?.state).toBe('idle in transaction')
-      const rechecked = await lockWaits(observer)
-      expect(
-        rechecked.some((wait) => wait.pid === nestedPid && wait.blockedBy.includes(holderPid))
-      ).toBe(true)
-      // Drain by cancelling the HOLDER's stuck statement (test-local,
-      // bounded): it rolls back, the nested call fails fast typed, and the
-      // outer cancel commits. Exact codes recorded, nothing swallowed.
-      await observer.db.execute(sql`SELECT pg_cancel_backend(${holderPid})`)
-      const holdingOutcome = await holding.then(
-        () => 'committed' as const,
-        (error: unknown) => {
-          // Drizzle wraps driver errors: the SQLSTATE lives on cause.
-          const cause =
-            error && typeof error === 'object' && 'cause' in error
-              ? (error as { cause?: unknown }).cause
-              : null
-          const code =
-            (error && typeof error === 'object' && 'code' in error
-              ? String((error as { code?: unknown }).code)
-              : null) ??
-            (cause && typeof cause === 'object' && 'code' in cause
-              ? String((cause as { code?: unknown }).code)
-              : 'unknown')
-          return `aborted:${code}`
-        }
-      )
-      expect(['committed', 'aborted:57014', 'aborted:40P01']).toContain(holdingOutcome)
+        return !waits.some((wait) => wait.pid === nestedPid)
+      }, 'nested drain')
       await expect(cancelling).resolves.toEqual({
         runtimeCancelRequested: false,
         state: 'cancelled',
@@ -573,5 +526,129 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     } finally {
       await runner.close()
     }
+  })
+
+  T('cancel and admission settle in either conflict order without deadlock', async () => {
+    // Both live interleavings: cancel-flip racing a fresh admission on a
+    // sibling triple, repeated. Every side settles typed — cancel always
+    // succeeds; dispatch either wins (duplicate + bound intent) or loses
+    // to the committed flip (turn_cancelled). No 40P01, no hangs: neither
+    // side holds one row while wanting another across transactions.
+    const f = await leadGroup()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.lead.id))
+    for (let round = 0; round < 3; round += 1) {
+      const revision = 100 + round
+      const input = claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner, {
+        dispatchRevision: revision,
+      })
+      const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+        now: NOW,
+      })
+      expect(pre.status).toBe('claimed')
+      const [cancelOutcome, dispatchOutcome] = await Promise.all([
+        cancelAddressedTurn(connection.db, f.workspace.id, f.owner, pre.turn.id).then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ error, ok: false as const })
+        ),
+        dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, { now: NOW }).then(
+          (value) => ({ ok: true as const, value }),
+          (error: unknown) => ({ error, ok: false as const })
+        ),
+      ])
+      expect(cancelOutcome.ok).toBe(true)
+      if (cancelOutcome.ok) {
+        expect(cancelOutcome.value.state).toBe('cancelled')
+      }
+      if (dispatchOutcome.ok) {
+        expect(dispatchOutcome.value.claim.status).toBe('duplicate')
+      } else {
+        // The only legal loss: the flip committed first (lead and budget
+        // are stable here, nothing else denies).
+        expect(dispatchOutcome.error).toMatchObject({
+          name: 'AddressedTurnError',
+          reason: 'turn_cancelled',
+        })
+      }
+      const [row] = await connection.db
+        .select({ state: schema.addressedAgentTurns.state })
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+        .limit(1)
+      expect(row?.state).toBe('cancelled')
+    }
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    // At most one intent per triple that dispatch won; cancelled-first
+    // triples mint nothing.
+    expect(intents.length).toBeLessThanOrEqual(3)
+  })
+
+  T('runtime cancellation fires end-to-end when an executor holds the intent', async () => {
+    // Full boundary proof: prepare + observe a fabricated-but-valid
+    // runtime binding (executor holds dispatchId), then cancel through
+    // the coordinator and assert cancelRequestedAt is actually set —
+    // runtimeCancelRequested true means something, not a default.
+    const f = await leadGroup()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.lead.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner)
+    const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(pre.status).toBe('claimed')
+    const dispatched = await dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(dispatched.claim.status).toBe('duplicate')
+    const [bound] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, pre.turn.id))
+      .limit(1)
+    expect(bound?.intentId).not.toBeNull()
+    const [canonicalWorkspace] = await connection.db
+      .select()
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, f.workspace.id))
+    const execution = crypto
+      .randomUUID()
+      .replaceAll('-', '')
+      .slice(0, 26)
+      .toUpperCase()
+      .replace(/[ILOU]/g, '0')
+    const pin = {
+      attemptId: `att_${execution}`,
+      executionId: `exe_${execution}`,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      intentId: bound!.intentId!,
+      preparationRef: `prep_${crypto.randomUUID().replaceAll('-', '')}`,
+      selectionRef: `msel_${crypto.randomUUID().replaceAll('-', '')}`,
+      selectionRevision: 1,
+      workspaceId: canonicalWorkspace!.controlPlaneWorkspaceId,
+    }
+    await prepareLeadTurnRuntime(connection.db, f.workspace.id, bound!.intentId!, f.owner, pin)
+    await markLeadTurnDispatchPending(connection.db, f.workspace.id, bound!.intentId!, f.owner, pin)
+    await observeLeadTurnRuntime(connection.db, f.workspace.id, bound!.intentId!, f.owner, {
+      ...pin,
+      dispatchId: `dispatch_${crypto.randomUUID().replaceAll('-', '')}`,
+      observedAt: new Date().toISOString(),
+      runtimeSessionId: `ses_${execution}`,
+      state: 'running',
+    })
+    const outcome = await cancelAddressedTurn(connection.db, f.workspace.id, f.owner, pre.turn.id)
+    expect(outcome).toEqual({ runtimeCancelRequested: true, state: 'cancelled' })
+    const [runtime] = await connection.db
+      .select()
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, bound!.intentId!))
+      .limit(1)
+    expect(runtime?.cancelRequestedAt).not.toBeNull()
   })
 })
