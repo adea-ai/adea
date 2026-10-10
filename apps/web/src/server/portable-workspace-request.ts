@@ -3,6 +3,7 @@ import 'server-only'
 import {
   type AgentHqDatabase,
   exportPortableWorkspace,
+  type PortableExportHooks,
   importPortableWorkspace,
   PortableExportError,
   PortableImportError,
@@ -87,11 +88,13 @@ export async function portableWorkspaceExportResponse(
   request: Request,
   database: AgentHqDatabase,
   resolution: WorkspacePrincipalResolution,
-  workspaceId: string
+  workspaceId: string,
+  options: Readonly<{ hooks?: PortableExportHooks }> = {}
 ) {
   if (!isConversationUuid(workspaceId)) return workspaceInvalidRequestResponse(request)
   try {
     const document = await exportPortableWorkspace(database, {
+      hooks: options.hooks,
       principal: resolution.principal,
       workspaceId,
     })

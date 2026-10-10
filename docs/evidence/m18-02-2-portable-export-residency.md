@@ -50,9 +50,29 @@ The export does not decide audience itself. Channels and messages come from
 `listChannelsForUser` and `listMessagesForUser`, the readers the workspace API serves.
 Whatever gate those readers apply is applied here too. Content refs go through
 `isContentRefVisible`. Tasks and projects use the same project predicate the product's
-list readers use. Membership is read inside the export's repeatable-read snapshot, and
-every message page re-checks membership and channel access, so a revocation landing
-mid-export denies the next page.
+list readers use.
+
+The export runs at READ COMMITTED, not in one snapshot: a REPEATABLE READ snapshot is
+fixed at the first statement, so a revocation committed mid-export would be invisible to
+every later check. The requester's access is checked in three places:
+
+- At the start: role, workspace status, visible projects and visible channels.
+- Before every message page, after the page's test seam: role, workspace status and
+  visible projects. The canonical message reader checks membership and channel access
+  for the page itself.
+- After the last read and before the document is built: the start checks again, plus
+  every channel the canonical reader served at the start.
+
+A change that removes any part of the starting access (a removed membership, a removed
+channel participant, a removed project grant, a role change, or a deleted or
+being-deleted workspace) denies the whole export with the same 404 as no access. No
+partial document is returned.
+
+The families are read statement by statement, so records can be seen at slightly
+different moments. The digest covers exactly what was read and restores verbatim. A
+revocation undone before the last check is not observed, and the bundle then holds a
+partial view, never records the requester could not read when they were read. A content
+ref's own visibility is checked when it is read, not in the access check.
 
 Two rules are the export's own, and both are conservative:
 
@@ -73,6 +93,14 @@ Regression coverage: `packages/db/tests/integration/portable-export.test.ts` pro
 that the export's messages equal what the canonical readers serve the same principal,
 and that an encoded job binding placed in a system sender, a runtime reference or a
 task's linked artifact references never appears in any export.
+
+Mid-export revocation: `apps/web/test/integration/portable-export-midstream-revocation.test.ts`
+starts the export through the GET handler, pauses it before the second message page of a
+channel, revokes the reader's membership, channel participation or project grant with the
+domain API, and resumes it. Each revocation returns 404 with no message text from the channel.
+Two controls with unchanged authority, one group channel and one project channel, serve every
+message of their channel across the same pause. Before the READ COMMITTED change the three
+revocation scenarios returned 200 instead of 404.
 
 ## Blocked on #1232 and #1237: pre-join and publication withholding
 
@@ -151,6 +179,10 @@ and the bound), the route-flow tests, and the clean-destination restore test.
 Residual limits, recorded rather than claimed:
 
 - Pre-join and publication withholding regressions are blocked on #1232 and #1237.
+- The export is not one point-in-time snapshot (see Read authorization). A revocation
+  undone between two checks yields a partial view, not unauthorized content.
+- Revocation coverage is membership, channel participation and project grants. Changes
+  to a single content ref's visibility are read-time only.
 - Artifact versions and provenance (REQ 144) are not exported until #86 lands.
   Offline-executor status (A27) is not represented: availability is not exported.
 - Archived channel history is not exported (see above).

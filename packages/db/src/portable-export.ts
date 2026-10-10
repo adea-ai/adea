@@ -1,11 +1,12 @@
 // Authorized portable workspace export: the readers (M18.02.2, #1226).
 //
-// The export is the requester's own view of one workspace, read inside ONE
-// REPEATABLE READ, READ ONLY transaction so every family is observed at a single
-// database snapshot. Authority is re-checked on every call: a principal with no current
-// membership, a removed membership, or a deleted or being-deleted workspace all fail with
-// the same "Workspace unavailable" error, so an export never reveals that the workspace
-// exists. A hidden project is not an error; its records are simply absent.
+// The export is the requester's own view of one workspace, read inside a READ COMMITTED,
+// READ ONLY transaction. The requester's access is checked when the export starts, before
+// every message page, and after the last read (`assertAccess` and `assertStanding`), so a
+// revocation committed mid-export denies it. A principal with no current membership, a
+// removed membership, or a deleted or being-deleted workspace all fail with the same
+// "Workspace unavailable" error, so an export never reveals that the workspace exists. A
+// hidden project is not an error; its records are simply absent.
 //
 // Visibility is the product's own current read authorization, not a copy of it. Channels
 // and messages come from `listChannelsForUser` and `listMessagesForUser`, the readers the
@@ -62,31 +63,140 @@ import {
 /** Messages are read through the canonical reader in pages of this size; the reader's own limit is 100. */
 const MESSAGE_PAGE = 100
 
-/** One snapshot for the whole document; the export never reads a family outside it. */
-export const PORTABLE_EXPORT_TRANSACTION_CONFIG = Object.freeze({
-  accessMode: 'read only',
-  isolationLevel: 'repeatable read',
-} as const)
+/**
+ * Test seam. `beforeMessagePage` runs before each message page is read, so a test can pause
+ * an export between pages and change authority before the next page. Production callers pass
+ * no hooks.
+ */
+export type PortableExportHooks = Readonly<{
+  beforeMessagePage?: (
+    page: Readonly<{ afterSequence: number | undefined; channelId: string }>
+  ) => void | Promise<void>
+}>
 
 /**
- * Every message the principal can read, through the canonical reader, channel
- * by channel and page by page. Each page re-checks membership and channel
- * access inside the snapshot, so a revocation that lands mid-export denies the
- * next page instead of leaking the rest.
+ * READ COMMITTED, so each statement sees the commits made before it. Under REPEATABLE READ the
+ * snapshot is fixed at the first statement, and a revocation committed mid-export would be
+ * invisible to every later check. The families are therefore not one point-in-time snapshot;
+ * the requester's access is checked before every message page and after the last read instead.
+ */
+export const PORTABLE_EXPORT_TRANSACTION_CONFIG = Object.freeze({
+  accessMode: 'read only',
+  isolationLevel: 'read committed',
+} as const)
+
+/** The requester's access to the workspace: role, workspace row and the projects they can read. */
+type Access = Readonly<{
+  projectIds: ReadonlySet<string>
+  scope: ProjectAccessScope
+  workspace: WorkspaceRow
+}>
+
+/** The requester's access when the export began, and the channels the canonical reader served them. */
+type Standing = Access & Readonly<{ channelIds: ReadonlySet<string> }>
+
+/** The requester's access now, or null when it is gone. */
+async function accessNow(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<Access | null> {
+  const scope = await resolveProjectAccessScope(transaction, workspaceId, principal.userId)
+  if (!scope) return null
+  const [workspace] = await transaction
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1)
+  if (!workspace || workspace.deletedAt || workspace.deletionRequestedAt) return null
+  const projectRows = await transaction
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.workspaceId, workspaceId),
+        isNull(projects.deletedAt),
+        visibleProjectCondition(projects.id, scope)
+      )
+    )
+    .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+  return {
+    projectIds: new Set(bounded(projectRows, 'projects').map((row) => row.id)),
+    scope,
+    workspace,
+  }
+}
+
+/** The ids of the channels the canonical reader serves the requester now. */
+async function channelIdsNow(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<Set<string>> {
+  const channelRows = await listChannelsForUser(transaction, workspaceId, principal)
+  return new Set(channelRows.map((channel) => channel.id))
+}
+
+function containsAll(current: ReadonlySet<string>, required: ReadonlySet<string>): boolean {
+  for (const id of required) if (!current.has(id)) return false
+  return true
+}
+
+/**
+ * Throws `denied` unless the requester still has the access the export started with: the same
+ * role, and every project they could read. The check reads committed state, so a revocation
+ * committed before it is observed.
+ */
+async function assertAccess(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  start: Access
+): Promise<void> {
+  const now = await accessNow(transaction, workspaceId, principal)
+  if (!now || now.scope.role !== start.scope.role || !containsAll(now.projectIds, start.projectIds))
+    throw new PortableExportError('denied', 'Workspace unavailable')
+}
+
+/** `assertAccess`, and every channel the canonical reader served at the start is still served. */
+async function assertStanding(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  start: Standing
+): Promise<void> {
+  await assertAccess(transaction, workspaceId, principal, start)
+  const channelIds = await channelIdsNow(transaction, workspaceId, principal)
+  if (!containsAll(channelIds, start.channelIds))
+    throw new PortableExportError('denied', 'Workspace unavailable')
+}
+
+/**
+ * Every message the principal can read, through the canonical reader, channel by channel and
+ * page by page. Before each page the access the export started with is checked again, after
+ * the test seam. A reader that refuses mid-page is a denial when the standing has gone, and
+ * its own error otherwise.
  */
 async function readVisibleMessages(
   transaction: AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
-  channels: readonly ChannelSummary[]
+  channels: readonly ChannelSummary[],
+  start: Standing,
+  hooks: PortableExportHooks | undefined
 ): Promise<MessageSummary[]> {
   const messages: MessageSummary[] = []
   for (const channel of channels) {
     let afterSequence: number | undefined
     for (;;) {
+      await hooks?.beforeMessagePage?.({ afterSequence, channelId: channel.id })
+      await assertAccess(transaction, workspaceId, principal, start)
       const page = await listMessagesForUser(transaction, workspaceId, channel.id, principal, {
         afterSequence,
         limit: MESSAGE_PAGE,
+      }).catch(async (error: unknown) => {
+        await assertStanding(transaction, workspaceId, principal, start)
+        throw error
       })
       messages.push(...page.messages)
       bounded(messages, 'messages')
@@ -108,10 +218,11 @@ async function readVisibleMessages(
  */
 async function readRequesterInputs(
   transaction: AgentHqTransaction,
-  workspace: WorkspaceRow,
   principal: UserPrincipalRef,
-  scope: ProjectAccessScope
+  start: Standing,
+  hooks: PortableExportHooks | undefined
 ): Promise<ReadInputs> {
+  const { scope, workspace } = start
   const workspaceId = workspace.id
   const projectRows = bounded(
     await transaction
@@ -134,7 +245,14 @@ async function readRequesterInputs(
     (channel) => !channel.projectId || projectIds.has(channel.projectId)
   )
   bounded(channels, 'channels')
-  const messages = await readVisibleMessages(transaction, workspaceId, principal, channels)
+  const messages = await readVisibleMessages(
+    transaction,
+    workspaceId,
+    principal,
+    channels,
+    start,
+    hooks
+  )
 
   const taskRows = bounded(
     await transaction
@@ -491,33 +609,33 @@ export async function readCompletePortableContent(
 /**
  * Export one workspace as the principal may see it. Denies with the same
  * indistinguishable error for every reason of no access, including a removed
- * membership: the membership is read inside the export's snapshot, so a
- * revocation committed before the export is always observed.
+ * membership. The requester's access is checked when the export starts, before every
+ * message page, and after the last read: a revocation committed before any of those
+ * checks denies the export, and no partial document is returned.
  */
 export async function exportPortableWorkspace(
   database: AgentHqDatabase,
-  input: Readonly<{ exportedAt?: Date; principal: UserPrincipalRef; workspaceId: string }>
+  input: Readonly<{
+    exportedAt?: Date
+    hooks?: PortableExportHooks
+    principal: UserPrincipalRef
+    workspaceId: string
+  }>
 ): Promise<PortableWorkspaceExport> {
   return database.transaction(async (transaction) => {
-    const scope = await resolveProjectAccessScope(
-      transaction,
-      input.workspaceId,
-      input.principal.userId
-    )
-    if (!scope) throw new PortableExportError('denied', 'Workspace unavailable')
-    const [workspace] = await transaction
-      .select()
-      .from(workspaces)
-      .where(eq(workspaces.id, input.workspaceId))
-      .limit(1)
-    if (!workspace || workspace.deletedAt || workspace.deletionRequestedAt)
-      throw new PortableExportError('denied', 'Workspace unavailable')
-    const content = mapPortableContent(
-      await readRequesterInputs(transaction, workspace, input.principal, scope)
-    )
-    return buildPortableWorkspaceExport(content, {
+    const access = await accessNow(transaction, input.workspaceId, input.principal)
+    if (!access) throw new PortableExportError('denied', 'Workspace unavailable')
+    const start: Standing = {
+      ...access,
+      channelIds: await channelIdsNow(transaction, input.workspaceId, input.principal),
+    }
+    const inputs = await readRequesterInputs(transaction, input.principal, start, input.hooks)
+    // The families above are read statement by statement, so a revocation can land between
+    // them. Checking once more after the last read denies the export before anything is built.
+    await assertStanding(transaction, input.workspaceId, input.principal, start)
+    return buildPortableWorkspaceExport(mapPortableContent(inputs), {
       exportedAt: input.exportedAt ?? new Date(),
-      exportedBy: { role: scope.role, userId: scope.userId },
+      exportedBy: { role: start.scope.role, userId: start.scope.userId },
     })
   }, PORTABLE_EXPORT_TRANSACTION_CONFIG)
 }

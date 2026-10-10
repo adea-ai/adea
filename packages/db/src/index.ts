@@ -331,7 +331,11 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
-export { exportPortableWorkspace, readCompletePortableContent } from './portable-export'
+export {
+  exportPortableWorkspace,
+  type PortableExportHooks,
+  readCompletePortableContent,
+} from './portable-export'
 export {
   PORTABLE_SYSTEM_SENDER_ID,
   PortableExportError,
