@@ -1,11 +1,20 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import {
+  parseRequestedRoleModelSelections,
+  type RequestedRoleModelSelections,
+} from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
+import { rollbackFenceEmission, type LeadTurnRollbackFenceEmission } from './lead-turn-rollback'
 import { leadTurnIntents } from './schema/lead-turns'
 import { workspaces } from './schema/workspaces'
 
-/** Private canonical product evidence. This is not runtime, funding or transport authority. */
+/**
+ * Private canonical product evidence. This is not runtime, funding or transport authority.
+ * `rollbackFence` and `dispatchPermitted` are the fence fields CP must honour (see the evidence
+ * record's emitted-field contract). `dispatchPermitted` is false whenever `rollbackFence` is set.
+ */
 export type CurrentLeadTurnProduct = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
@@ -24,6 +33,9 @@ export type CurrentLeadTurnProduct = Readonly<{
   profileVersion: string
   profileRevision: number
   prompt: string
+  rollbackFence: LeadTurnRollbackFenceEmission | null
+  dispatchPermitted: boolean
+  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 /**
@@ -102,6 +114,15 @@ export async function withCurrentLeadTurnProduct<T>(
             profileVersion: intent.profileVersion,
             profileRevision: intent.profileRevision,
             prompt: message.bodyText,
+            rollbackFence: rollbackFenceEmission(intent),
+            dispatchPermitted: intent.rollbackFencedAt === null,
+            ...(intent.requestedModelSelections === null
+              ? {}
+              : {
+                  requestedModelSelections: parseRequestedRoleModelSelections(
+                    intent.requestedModelSelections
+                  ),
+                }),
           })
         )
       }

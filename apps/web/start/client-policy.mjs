@@ -32,8 +32,11 @@ export function forbiddenClientModule(id) {
 /** Native-only hosts must be absent from the rendered production web graph. */
 /** @param {string} id */
 export function desktopOnlyClientModule(id) {
-  return /\/apps\/web\/src\/components\/(?:desktop-workspace-entry|desktop-first-run-chat|version-dialog)\.tsx$/.test(
-    id.replaceAll('\\', '/')
+  const path = id.replaceAll('\\', '/')
+  return (
+    /\/apps\/web\/src\/components\/(?:desktop-workspace-entry|desktop-first-run-chat|version-dialog)\.tsx$/.test(
+      path
+    ) || /\/apps\/web\/src\/lib\/(?:desktop-chat-presentation|desktop-permissions)\.ts$/.test(path)
   )
 }
 

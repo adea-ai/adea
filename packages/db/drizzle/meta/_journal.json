@@ -330,6 +330,41 @@
       "when": 1791526300162,
       "tag": "0046_artifact_reference_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791527300162,
+      "tag": "0047_requested_role_model_selections",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791602651133,
+      "tag": "0048_graceful_prima",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791602651134,
+      "tag": "0049_group_participation_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791602651135,
+      "tag": "0050_group_legacy_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791610243414,
+      "tag": "0051_lead_turn_rollback_fence",
+      "breakpoints": true
     }
   ]
 }

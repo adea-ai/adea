@@ -20,6 +20,10 @@ export const DEFAULT_CYCLE_WEIGHT = 1000
 // Measured request cycles per file: client Query and Sync messages through a counting proxy
 // against local PostgreSQL, one file per process (2026-10-10). Keys are repository-relative.
 // Zero means the file issues no requests through the proxy.
+// The ten entries for files added on this branch (artifact-reference-service through
+// project-state-promotion) are estimates, not counting-proxy measurements: CI shard
+// durations scaled at 0.0702 s per cycle unit, the ratio over the measured entries. Weights
+// only balance the split, so an estimate changes placement, never correctness.
 export const INTEGRATION_CYCLE_WEIGHTS = Object.freeze({
   'apps/web/test/integration/account-directory-routes.test.ts': 722,
   'packages/auth/tests/integration/adapter.test.ts': 0,
@@ -31,22 +35,32 @@ export const INTEGRATION_CYCLE_WEIGHTS = Object.freeze({
   'packages/db/tests/integration/agents.test.ts': 178,
   'packages/db/tests/integration/artifact-reference-grants.test.ts': 1173,
   'packages/db/tests/integration/artifact-reference-policy.test.ts': 384,
+  'packages/db/tests/integration/artifact-reference-service.test.ts': 228,
   'packages/db/tests/integration/artifacts.test.ts': 205,
+  'packages/db/tests/integration/blank-workspace-isolation.test.ts': 47,
   'packages/db/tests/integration/content-refs.test.ts': 112,
   'packages/db/tests/integration/content-replicas.test.ts': 140,
   'packages/db/tests/integration/control-plane-identifiers.test.ts': 125,
   'packages/db/tests/integration/conversations.test.ts': 769,
   'packages/db/tests/integration/desktop-auth.test.ts': 14,
   'packages/db/tests/integration/event-audience.test.ts': 830,
+  'packages/db/tests/integration/group-channels.test.ts': 13355,
+  'packages/db/tests/integration/group-migration-proof.test.ts': 26,
   'packages/db/tests/integration/identity.test.ts': 31,
   'packages/db/tests/integration/lead-identity-migration.test.ts': 101,
   'packages/db/tests/integration/lead-topic-migration.test.ts': 28,
+  'packages/db/tests/integration/lead-turn-fence-envelope-negative.test.ts': 845,
+  'packages/db/tests/integration/lead-turn-historical.test.ts': 1007,
   'packages/db/tests/integration/lead-turn-product.test.ts': 651,
+  'packages/db/tests/integration/lead-turn-rollback.test.ts': 2675,
   'packages/db/tests/integration/lead-turn-runtime.test.ts': 599,
   'packages/db/tests/integration/lead-turns.test.ts': 1201,
+  'packages/db/tests/integration/management-authority-consumption.test.ts': 43,
   'packages/db/tests/integration/migration-snapshot-capture.test.ts': 0,
+  'packages/db/tests/integration/migration-snapshot-domains.test.ts': 4,
   'packages/db/tests/integration/migrations.test.ts': 26,
   'packages/db/tests/integration/personal-workspaces.test.ts': 650,
+  'packages/db/tests/integration/project-state-promotion.test.ts': 312,
   'packages/db/tests/integration/projects.test.ts': 370,
   'packages/db/tests/integration/read-state-counts.test.ts': 944,
   'packages/db/tests/integration/read-state-search.test.ts': 700,

@@ -1,16 +1,17 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiProjectCreateInput, ApiProjectResponse } from '@adea-ai/api-client'
-import { createProject, isProjectId, isProjectSourceKind, listProjectsForUser } from '@adea-ai/db'
+import { isProjectId, isProjectSourceKind, listProjectsForUser } from '@adea-ai/db'
 
+import { applicationDatabase } from '../../../../../../server/database'
 import { runAfterResponse } from '../../../../../../server/background-task'
 import { initializeControlPlaneProjectState } from '../../../../../../server/control-plane-project-state'
 import { controlPlaneScopeResolver } from '../../../../../../server/control-plane-scope'
-import { applicationDatabase } from '../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../server/desktop-workspace'
+import { applicationManagementOperations } from '../../../../../../server/management-composition'
 import { authorizeWorkspace } from '../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../server/workspace-principal'
 import {
@@ -72,30 +73,33 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
   if (!input.name || input.name.length > 80 || !input.iconKey || input.iconKey.length > 80) {
     return workspaceInvalidRequestResponse(request)
   }
-  try {
-    const payload: ApiProjectResponse = {
-      project: await createProject(applicationDatabase(), workspaceId, resolution.principal, input),
-    }
-    // ADR 0013: initialize the project's Control Plane state once the row has
-    // committed, after the response and in its own request scope (its own
-    // database connection), so a slow or failing Control Plane never fails
-    // or delays project creation.
-    const projectId = payload.project.id
-    runAfterResponse(() =>
-      withRequestScope(() =>
-        initializeControlPlaneProjectState(controlPlaneScopeResolver(workspaceId, projectId))
-      )
-    )
-    return workspaceJsonResponse(payload, resolution, request, { status: 201 })
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Project unavailable') {
+  const operation = applicationManagementOperations()
+  const outcome = await operation.projectCreate({
+    iconKey: input.iconKey,
+    ...(input.id ? { id: input.id } : {}),
+    name: input.name,
+    principal: resolution.principal,
+    ...(input.sourceKind ? { sourceKind: input.sourceKind } : {}),
+    workspaceId,
+  })
+  if (!outcome.ok) {
+    if (outcome.failure.code === 'conflict') return projectConflictResponse(request)
+    if (outcome.failure.code === 'unavailable' || outcome.failure.code === 'forbidden')
       return workspaceUnavailableResponse(request)
-    }
-    if (error instanceof Error && error.message === 'Project id conflict') {
-      return projectConflictResponse(request)
-    }
-    throw error
+    throw new Error('Project creation failed')
   }
+  const payload: ApiProjectResponse = { project: outcome.value }
+  // ADR 0013: initialize the project's Control Plane state once the row has
+  // committed, after the response and in its own request scope (its own
+  // database connection), so a slow or failing Control Plane never fails
+  // or delays project creation.
+  const projectId = payload.project.id
+  runAfterResponse(() =>
+    withRequestScope(() =>
+      initializeControlPlaneProjectState(controlPlaneScopeResolver(workspaceId, projectId))
+    )
+  )
+  return workspaceJsonResponse(payload, resolution, request, { status: 201 })
 }
 
 function options(request: Request) {

@@ -13,6 +13,8 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /** Exact requested lead choice from the immutable intent; null or absent means workspace default. */
+  requestedLeadSelection?: Readonly<{ selectionRef: string; selectionRevision: number }> | null
 }>
 export type LeadRuntimeBinding = Readonly<{
   schemaVersion: 'pi-lead-dispatch/v1'
@@ -63,9 +65,50 @@ export type LeadRuntimeAdapter = {
       Readonly<{ resultContentDigest: string }>
   ) => Promise<void>
 }
+/**
+ * `read` observes or reconciles an admission, including archived history. `cancel` is the original
+ * actor's cancellation. `effect` admits new work: prepare and dispatch, active-only and fence-gated.
+ */
+export type LeadRuntimeAuthorityPurpose = 'cancel' | 'effect' | 'read'
+/**
+ * Authority one runtime operation obtained for itself, for its own scope only. It is created and
+ * consumed inside that operation and is never stored, so no later call can reuse it.
+ */
+type LeadRuntimeHeldAuthority = Readonly<{
+  purpose: 'cancel' | 'effect'
+  userId: string
+  authority: LeadRuntimeAuthority
+}>
+function holdAuthority(
+  scope: LeadRuntimeScope,
+  purpose: 'cancel' | 'effect',
+  authority: LeadRuntimeAuthority
+): LeadRuntimeHeldAuthority {
+  return Object.freeze({ purpose, userId: scope.userId, authority })
+}
+/** Re-checks an operation's held authority against its own scope; it grants nothing new. */
+function checkedHeld(scope: LeadRuntimeScope, held: LeadRuntimeHeldAuthority) {
+  if (
+    held.userId !== scope.userId ||
+    held.authority.intentId !== scope.intentId ||
+    held.authority.workspaceId !== scope.workspaceId
+  )
+    throw new Error('Lead turn unavailable')
+  return held.authority
+}
 export type LeadRuntimeStore = {
-  authorize(scope: LeadRuntimeScope, mutation: boolean): Promise<LeadRuntimeAuthority>
-  read(scope: LeadRuntimeScope): Promise<LeadRuntimeStored | undefined>
+  authorize(
+    scope: LeadRuntimeScope,
+    purpose: LeadRuntimeAuthorityPurpose
+  ): Promise<LeadRuntimeAuthority>
+  /**
+   * Stored row for `read`, which is the default. A mutation purpose is passed only by the runtime
+   * operation that authorized that same purpose for this call.
+   */
+  read(
+    scope: LeadRuntimeScope,
+    purpose?: LeadRuntimeAuthorityPurpose
+  ): Promise<LeadRuntimeStored | undefined>
   prepare(scope: LeadRuntimeScope, prepared: LeadPreparedSelection): Promise<void>
   pending(scope: LeadRuntimeScope, prepared: LeadPreparedSelection): Promise<void>
   observe(scope: LeadRuntimeScope, value: LeadRuntimeObservation): Promise<LeadRuntimeStored>
@@ -121,6 +164,19 @@ function binding(value: unknown, intentId: string, prior?: LeadRuntimeStored): L
     runtimeSessionId: value.runtimeSessionId as string,
   }
 }
+const REQUESTED_MODEL_MISMATCH = 'REQUESTED_MODEL_MISMATCH'
+/** A requested lead choice is exact: any other prepared selection or revision is not admissible. */
+function requestedLeadMatches(
+  authority: LeadRuntimeAuthority,
+  value: Readonly<{ selectionRef: string; selectionRevision: number }>
+) {
+  const requested = authority.requestedLeadSelection
+  return (
+    !requested ||
+    (requested.selectionRef === value.selectionRef &&
+      requested.selectionRevision === value.selectionRevision)
+  )
+}
 function prepared(value: LeadPreparedSelection, authority: LeadRuntimeAuthority, now: Date) {
   if (
     value.intentId !== authority.intentId ||
@@ -153,12 +209,25 @@ export function createLeadTurnRuntime(
 ) {
   const { store, adapter } = options
   const now = options.now ?? (() => new Date())
+  /** Ordinary readers request only `read`. A mutation purpose needs the same operation's held authority. */
+  function storedRecord(
+    scope: LeadRuntimeScope,
+    purpose: LeadRuntimeAuthorityPurpose,
+    held?: LeadRuntimeHeldAuthority
+  ) {
+    if (purpose !== 'read') {
+      if (!held || held.purpose !== purpose) throw new Error('Lead turn unavailable')
+      checkedHeld(scope, held)
+    }
+    return store.read(scope, purpose)
+  }
   async function projection(
     scope: LeadRuntimeScope,
-    reasonCode?: LeadTurnReasonCode
+    reasonCode?: LeadTurnReasonCode,
+    held?: LeadRuntimeHeldAuthority
   ): Promise<ApiLeadTurnStatus> {
-    const authority = await store.authorize(scope, false)
-    const stored = await store.read(scope)
+    const authority = held ? checkedHeld(scope, held) : await store.authorize(scope, 'read')
+    const stored = await storedRecord(scope, held?.purpose ?? 'read', held)
     return {
       schemaVersion: 'adea-lead-turn/v1',
       intentId: authority.intentId,
@@ -185,8 +254,12 @@ export function createLeadTurnRuntime(
           : {}),
     }
   }
-  async function observation(scope: LeadRuntimeScope, value: unknown) {
-    const prior = await store.read(scope)
+  async function observation(
+    scope: LeadRuntimeScope,
+    value: unknown,
+    held?: LeadRuntimeHeldAuthority
+  ) {
+    const prior = await storedRecord(scope, held?.purpose ?? 'read', held)
     const bound = binding(value, scope.intentId, prior)
     if (!record(value) || !isState(value.state)) throw new Error('RUNTIME_RESPONSE_INVALID')
     const at =
@@ -197,34 +270,50 @@ export function createLeadTurnRuntime(
     await store.observe(scope, { ...bound, state: value.state, observedAt: at })
     return bound
   }
-  async function guarded(scope: LeadRuntimeScope, work: () => Promise<void>) {
+  async function guarded(
+    scope: LeadRuntimeScope,
+    work: () => Promise<void>,
+    held?: LeadRuntimeHeldAuthority
+  ) {
     try {
       await work()
-      return await projection(scope)
+      return await projection(scope, undefined, held)
     } catch (error) {
       return projection(
         scope,
         error instanceof Error && error.message === 'RUNTIME_RESPONSE_INVALID'
           ? 'RUNTIME_RESPONSE_INVALID'
-          : 'RUNTIME_UNAVAILABLE'
+          : error instanceof Error && error.message === REQUESTED_MODEL_MISMATCH
+            ? 'REQUESTED_MODEL_MISMATCH'
+            : 'RUNTIME_UNAVAILABLE',
+        held
       )
     }
   }
   return {
-    snapshot: projection,
+    snapshot: (scope: LeadRuntimeScope) => projection(scope),
     async prepare(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
-      if (!adapter?.prepare) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
-      return guarded(scope, async () => {
-        await store.prepare(scope, prepared(await adapter.prepare!(authority), authority, now()))
-      })
+      const authority = await store.authorize(scope, 'effect')
+      const held = holdAuthority(scope, 'effect', authority)
+      if (!adapter?.prepare) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE', held)
+      return guarded(
+        scope,
+        async () => {
+          const selected = prepared(await adapter.prepare!(authority), authority, now())
+          // Refuse before any preparation is stored: the runtime may not substitute another model.
+          if (!requestedLeadMatches(authority, selected)) throw new Error(REQUESTED_MODEL_MISMATCH)
+          await store.prepare(scope, selected)
+        },
+        held
+      )
     },
     async dispatch(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
-      if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
+      const authority = await store.authorize(scope, 'effect')
+      const held = holdAuthority(scope, 'effect', authority)
+      if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE', held)
       if (!options.authorizeConfirmedStart)
-        return projection(scope, 'FUNDING_CONFIRMATION_REQUIRED')
-      const prior = await store.read(scope)
+        return projection(scope, 'FUNDING_CONFIRMATION_REQUIRED', held)
+      const prior = await storedRecord(scope, 'effect', held)
       if (
         !prior?.executionId ||
         !prior.attemptId ||
@@ -233,48 +322,53 @@ export function createLeadTurnRuntime(
         !prior.preparationRef ||
         !prior.preparationExpiresAt
       )
-        return projection(scope, 'FUNDING_CONFIRMATION_REQUIRED')
-      return guarded(scope, async () => {
-        const accepted = prepared(
-          {
-            workspaceId: authority.controlPlaneWorkspaceId,
-            intentId: authority.intentId,
-            executionId: prior.executionId!,
-            attemptId: prior.attemptId!,
-            selectionRef: prior.selectionRef!,
-            selectionRevision: prior.selectionRevision!,
-            preparationRef: prior.preparationRef!,
-            expiresAt: prior.preparationExpiresAt!,
-          },
-          authority,
-          now()
-        )
-        const pin = prepared(
-          await options.authorizeConfirmedStart!(authority, accepted),
-          authority,
-          now()
-        )
-        for (const key of [
-          'workspaceId',
-          'intentId',
-          'executionId',
-          'attemptId',
-          'selectionRef',
-          'selectionRevision',
-          'preparationRef',
-          'expiresAt',
-        ] as const)
-          if (pin[key] !== accepted[key]) throw new Error('RUNTIME_RESPONSE_INVALID')
-        await store.pending(scope, pin)
-        const value = await adapter.dispatch(authority, `lead-turn:${scope.intentId}`, pin)
-        const bound = binding(value, scope.intentId, await store.read(scope))
-        if (bound.executionId !== pin.executionId || bound.attemptId !== pin.attemptId)
-          throw new Error('RUNTIME_RESPONSE_INVALID')
-        await observation(scope, value)
-      })
+        return projection(scope, 'FUNDING_CONFIRMATION_REQUIRED', held)
+      return guarded(
+        scope,
+        async () => {
+          const accepted = prepared(
+            {
+              workspaceId: authority.controlPlaneWorkspaceId,
+              intentId: authority.intentId,
+              executionId: prior.executionId!,
+              attemptId: prior.attemptId!,
+              selectionRef: prior.selectionRef!,
+              selectionRevision: prior.selectionRevision!,
+              preparationRef: prior.preparationRef!,
+              expiresAt: prior.preparationExpiresAt!,
+            },
+            authority,
+            now()
+          )
+          if (!requestedLeadMatches(authority, accepted)) throw new Error(REQUESTED_MODEL_MISMATCH)
+          const pin = prepared(
+            await options.authorizeConfirmedStart!(authority, accepted),
+            authority,
+            now()
+          )
+          for (const key of [
+            'workspaceId',
+            'intentId',
+            'executionId',
+            'attemptId',
+            'selectionRef',
+            'selectionRevision',
+            'preparationRef',
+            'expiresAt',
+          ] as const)
+            if (pin[key] !== accepted[key]) throw new Error('RUNTIME_RESPONSE_INVALID')
+          await store.pending(scope, pin)
+          const value = await adapter.dispatch(authority, `lead-turn:${scope.intentId}`, pin)
+          const bound = binding(value, scope.intentId, await storedRecord(scope, 'effect', held))
+          if (bound.executionId !== pin.executionId || bound.attemptId !== pin.attemptId)
+            throw new Error('RUNTIME_RESPONSE_INVALID')
+          await observation(scope, value, held)
+        },
+        held
+      )
     },
     async status(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, false)
+      const authority = await store.authorize(scope, 'read')
       let prior = await store.read(scope)
       if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
       let withheld = false
@@ -310,7 +404,7 @@ export function createLeadTurnRuntime(
             prior
           )
           // Recheck current audience after the transport await; the repository holds the same pins at commit.
-          await store.authorize(scope, false)
+          await store.authorize(scope, 'read')
           prior = await store.recover(scope, recovered)
         }
         if (!prior?.dispatchId) return
@@ -355,17 +449,23 @@ export function createLeadTurnRuntime(
       return withheld ? projection(scope, 'PUBLICATION_WITHHELD') : result
     },
     async cancel(scope: LeadRuntimeScope) {
-      const authority = await store.authorize(scope, true)
-      const prior = await store.read(scope)
-      if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE')
-      if (!prior?.dispatchId) return projection(scope, 'RUNTIME_UNAVAILABLE')
-      return guarded(scope, async () => {
-        await store.cancelRequested(scope)
-        await observation(
-          scope,
-          await adapter.cancel(authority, prior.dispatchId!, `lead-cancel:${prior.dispatchId}`)
-        )
-      })
+      const authority = await store.authorize(scope, 'cancel')
+      const held = holdAuthority(scope, 'cancel', authority)
+      const prior = await storedRecord(scope, 'cancel', held)
+      if (!adapter) return projection(scope, 'ADMISSION_SERVICE_UNAVAILABLE', held)
+      if (!prior?.dispatchId) return projection(scope, 'RUNTIME_UNAVAILABLE', held)
+      return guarded(
+        scope,
+        async () => {
+          await store.cancelRequested(scope)
+          await observation(
+            scope,
+            await adapter.cancel(authority, prior.dispatchId!, `lead-cancel:${prior.dispatchId}`),
+            held
+          )
+        },
+        held
+      )
     },
     async progress(
       scope: LeadRuntimeScope,
@@ -373,7 +473,7 @@ export function createLeadTurnRuntime(
     ): Promise<ApiLeadTurnProgressResponse> {
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
         throw new Error('Invalid lead progress cursor')
-      const authority = await store.authorize(scope, false)
+      const authority = await store.authorize(scope, 'read')
       const prior = await store.read(scope)
       if (!adapter || !prior?.dispatchId)
         return { leadTurn: await projection(scope), events: [], nextSequence: afterSequence }

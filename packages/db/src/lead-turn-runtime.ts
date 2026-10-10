@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createRuntimeResultMessage } from './conversations'
-import { withAuthorizedLeadTurn } from './lead-turns'
+import { parseRequestedRoleModelSelections } from './lead-model-selections'
+import { assertLeadTurnNotFenced } from './lead-turn-rollback'
+import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
 export type LeadTurnAcceptedSelection = Readonly<{
@@ -64,48 +66,92 @@ function assertBinding(row: Row, value: LeadTurnRuntimeBinding) {
   )
     throw new Error('RUNTIME_RESPONSE_INVALID')
 }
+/**
+ * `read` observes or reconciles an existing admission, and archived history stays available.
+ * `cancel` is the original actor's cancellation, with the same archived-history access. `effect`
+ * admits new work, so it stays active-only and fence-gated (prepare, dispatch, funding).
+ */
+export type LeadTurnAuthorityPurpose = 'cancel' | 'effect' | 'read'
+
 export function resolveLeadTurnAuthority(
   database: AgentHqDatabase,
   workspaceId: string,
   intentId: string,
   principal: UserPrincipalRef,
-  mutation = false
+  purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
-  return withAuthorizedLeadTurn(
-    database,
+  const authority = (
+    intent: {
+      id: string
+      messageId: string
+      actorUserId: string
+      requestedModelSelections: unknown
+    },
+    controlPlaneWorkspaceId: string
+  ) => ({
+    intentId: intent.id,
+    messageId: intent.messageId,
     workspaceId,
-    intentId,
-    principal,
-    mutation,
-    async (_tx, intent, _message, controlPlaneWorkspaceId) => ({
-      intentId: intent.id,
-      messageId: intent.messageId,
-      workspaceId,
-      controlPlaneWorkspaceId,
-      originalActorRef: `user:${intent.actorUserId}` as const,
-    })
-  )
+    controlPlaneWorkspaceId,
+    originalActorRef: `user:${intent.actorUserId}` as const,
+    // #1232: absent means the workspace lead default; a present reference is the exact immutable choice.
+    requestedLeadSelection:
+      parseRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined)?.lead ?? null,
+  })
+  return purpose === 'effect'
+    ? withAuthorizedLeadTurn(
+        database,
+        workspaceId,
+        intentId,
+        principal,
+        true,
+        async (tx, intent, _message, cpWorkspaceId) => {
+          // Refuse a fenced admission here, before the runtime is called. Otherwise adapter.prepare runs
+          // before store.prepare reaches the fence check.
+          await assertLeadTurnNotFenced(tx, intent.id, 'share')
+          return authority(intent, cpWorkspaceId)
+        }
+      )
+    : withHistoricalLeadTurn(
+        database,
+        workspaceId,
+        intentId,
+        principal,
+        purpose,
+        async (_tx, intent, _message, cpWorkspaceId) => authority(intent, cpWorkspaceId)
+      )
 }
+async function readStoredRuntime(
+  tx: AgentHqTransaction,
+  intent: { id: string; messageId: string }
+) {
+  const [row] = await tx
+    .select()
+    .from(leadTurnRuntime)
+    .where(eq(leadTurnRuntime.intentId, intent.id))
+  return row ? summary(row, intent.messageId) : undefined
+}
+
+/**
+ * Stored runtime row. `read` is the default direct-only historical access. A mutation purpose is
+ * for the runtime operation that has itself authorized it: `cancel` for the claim holder's active
+ * group cancellation, or `effect` for the actor's prepare and dispatch. Each keeps its own
+ * boundary check; no other purpose reaches a group.
+ */
 export function readLeadTurnRuntime(
   database: AgentHqDatabase,
   workspaceId: string,
   intentId: string,
-  principal: UserPrincipalRef
+  principal: UserPrincipalRef,
+  purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
-  return withAuthorizedLeadTurn(
-    database,
-    workspaceId,
-    intentId,
-    principal,
-    false,
-    async (tx, intent) => {
-      const [row] = await tx
-        .select()
-        .from(leadTurnRuntime)
-        .where(eq(leadTurnRuntime.intentId, intent.id))
-      return row ? summary(row, intent.messageId) : undefined
-    }
-  )
+  return purpose === 'effect'
+    ? withAuthorizedLeadTurn(database, workspaceId, intentId, principal, true, (tx, intent) =>
+        readStoredRuntime(tx, intent)
+      )
+    : withHistoricalLeadTurn(database, workspaceId, intentId, principal, purpose, (tx, intent) =>
+        readStoredRuntime(tx, intent)
+      )
 }
 /** Caller identifiers are selectors only; exact accepted product authority is resolved server-side. */
 export async function authorizeLeadTurnFundingBinding(
@@ -137,6 +183,7 @@ export async function authorizeLeadTurnFundingBinding(
       principal,
       true,
       async (tx, intent) => {
+        await assertLeadTurnNotFenced(tx, intent.id, 'share')
         const [current] = await tx
           .select()
           .from(leadTurnRuntime)
@@ -169,6 +216,7 @@ export function prepareLeadTurnRuntime(
     principal,
     true,
     async (tx, intent, _message, cpWorkspaceId) => {
+      await assertLeadTurnNotFenced(tx, intent.id)
       if (
         selection.workspaceId !== cpWorkspaceId ||
         selection.intentId !== intentId ||
@@ -223,6 +271,7 @@ export function markLeadTurnDispatchPending(
     principal,
     true,
     async (tx, intent) => {
+      await assertLeadTurnNotFenced(tx, intent.id)
       const [row] = await tx
         .select()
         .from(leadTurnRuntime)
@@ -256,12 +305,12 @@ export function observeLeadTurnRuntime(
   observation: LeadTurnRuntimeBinding &
     Readonly<{ state: LeadTurnObservedState; observedAt: string }>
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
     principal,
-    false,
+    'bind',
     async (tx, intent) => {
       const [row] = await tx
         .select()
@@ -298,12 +347,12 @@ export function recoverLeadTurnRuntimeBinding(
   principal: UserPrincipalRef,
   binding: LeadTurnRuntimeBinding
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
     principal,
-    false,
+    'bind',
     async (tx, intent) => {
       const [row] = await tx
         .select()
@@ -332,12 +381,12 @@ export function requestLeadTurnCancellation(
   intentId: string,
   principal: UserPrincipalRef
 ) {
-  return withAuthorizedLeadTurn(
+  return withHistoricalLeadTurn(
     database,
     workspaceId,
     intentId,
     principal,
-    true,
+    'cancel',
     async (tx, intent) => {
       const [row] = await tx
         .select()
@@ -354,7 +403,11 @@ export function requestLeadTurnCancellation(
   )
 }
 
-/** Terminal publication is distinct from execution. Raw progress can never call this boundary. */
+/**
+ * Terminal publication is distinct from execution. Raw progress can never call this boundary.
+ * Publication appends a new Message, so it is an effect: it stays on the active-only effect gate,
+ * and archived results remain unpublished (REQ 045).
+ */
 export function publishLeadTurnResult(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -381,6 +434,9 @@ export function publishLeadTurnResult(
           .for('update')
         if (!row || row.state !== 'completed') throw new Error('PUBLICATION_WITHHELD')
         assertBinding(row, binding)
+        // A fenced admission never publishes, even for a completed result. The share lock serialises this check
+        // against a concurrent fence on the same admission, and it runs before the grant is consulted.
+        await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
         await assertCurrentGrant()
         const digest = createHash('sha256')

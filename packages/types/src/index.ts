@@ -189,6 +189,12 @@ export type ProjectSummary = Readonly<{
   sortOrder: number
   sourceKind: ProjectSourceKind
   updatedAt: string
+  /**
+   * Monotonic optimistic revision; every write to the project row increments
+   * it, so an observed value is stale after any later write — including two
+   * writes in the same millisecond. Timestamps remain display-only.
+   */
+  version: number
   visibility: ProjectVisibility
   workspaceId: string
 }>
