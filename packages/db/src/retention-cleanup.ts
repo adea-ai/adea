@@ -283,16 +283,15 @@ async function trustedExecutorsFor(
   return executors
 }
 
-/** Active references from other workspaces: live, unrevoked, not expired at `nowMs`. */
-async function activeArtifactReferenceCount(
+/** Active references from other workspaces, read under the subject lock. Expiry is judged at the decision instant. */
+async function activeArtifactReferenceRows(
   transaction: AgentHqTransaction,
   workspaceId: string,
   category: string,
-  subjectId: string,
-  nowMs: number
-): Promise<number> {
-  if (category !== 'artifacts') return 0
-  const rows = await transaction
+  subjectId: string
+): Promise<Array<{ expiresAt: string | null }>> {
+  if (category !== 'artifacts') return []
+  return transaction
     .select({ expiresAt: artifactReferenceGrants.expiresAt })
     .from(artifactReferenceGrants)
     .where(
@@ -302,7 +301,10 @@ async function activeArtifactReferenceCount(
         isNull(artifactReferenceGrants.revokedAt)
       )
     )
-  // Fail closed: an expiry that cannot be read is treated as still live.
+}
+
+/** Live references at `nowMs`. Fail closed: an expiry that cannot be read is still live. */
+function liveReferenceCount(rows: readonly { expiresAt: string | null }[], nowMs: number): number {
   return rows.filter((row) => row.expiresAt === null || !(Date.parse(row.expiresAt) <= nowMs))
     .length
 }
@@ -320,6 +322,8 @@ function holdRecord(row: typeof retentionHolds.$inferSelect): RetentionHoldRecor
 /**
  * Authority to delete one subject: owner or admin of its workspace grants it
  * with a fixed expiry, and at most one unrevoked grant exists per subject.
+ * Authority is judged after the subject lock, so a waiting admin cannot act on
+ * a membership that ended while it waited.
  */
 export async function grantRetentionDeletionAuthorization(
   database: AgentHqDatabase,
@@ -334,12 +338,17 @@ export async function grantRetentionDeletionAuthorization(
   validateScope(input.workspaceId, input.category, input.subjectId)
   const expiresMs = timestampMs(input.expiresAt)
   return database.transaction(async (transaction) => {
-    await requireAuthority(transaction, input.workspaceId, input.actor)
     await lockSubject(transaction, input.workspaceId, input.category, input.subjectId)
+    await requireAuthority(transaction, input.workspaceId, input.actor)
+    const existing = await liveAuthorization(
+      transaction,
+      input.workspaceId,
+      input.category,
+      input.subjectId
+    )
     const nowMs = await databaseNowMs(transaction)
     if (expiresMs <= nowMs) reject('invalid_input')
-    if (await liveAuthorization(transaction, input.workspaceId, input.category, input.subjectId))
-      reject('authorization_conflict')
+    if (existing) reject('authorization_conflict')
     const [row] = await transaction
       .insert(retentionDeletionAuthorizations)
       .values({
@@ -362,6 +371,7 @@ export async function revokeRetentionDeletionAuthorization(
 ): Promise<RetentionAuthorizationRecord> {
   if (!UUID.test(input.workspaceId) || !UUID.test(input.authorizationId)) reject('invalid_input')
   return database.transaction(async (transaction) => {
+    // A pre-check, so an actor without authority learns nothing about the target.
     await requireAuthority(transaction, input.workspaceId, input.actor)
     const [target] = await transaction
       .select({
@@ -378,6 +388,8 @@ export async function revokeRetentionDeletionAuthorization(
       .limit(1)
     if (!target) reject('authorization_not_found')
     await lockSubject(transaction, input.workspaceId, target.category, target.subjectId)
+    // Judged again at the decision: the membership may have changed while waiting for the lock.
+    await requireAuthority(transaction, input.workspaceId, input.actor)
     const nowMs = await databaseNowMs(transaction)
     const [row] = await transaction
       .update(retentionDeletionAuthorizations)
@@ -395,7 +407,7 @@ export async function revokeRetentionDeletionAuthorization(
   })
 }
 
-/** Place a legal or security hold. Owner or admin only. */
+/** Place a legal or security hold. Owner or admin only, judged after the subject lock. */
 export async function placeRetentionHold(
   database: AgentHqDatabase,
   input: Readonly<{
@@ -407,8 +419,8 @@ export async function placeRetentionHold(
 ): Promise<RetentionHoldRecord> {
   validateScope(input.workspaceId, input.category, input.subjectId)
   return database.transaction(async (transaction) => {
-    await requireAuthority(transaction, input.workspaceId, input.actor)
     await lockSubject(transaction, input.workspaceId, input.category, input.subjectId)
+    await requireAuthority(transaction, input.workspaceId, input.actor)
     const [row] = await transaction
       .insert(retentionHolds)
       .values({
@@ -439,6 +451,7 @@ export async function releaseRetentionHold(
       .limit(1)
     if (!target) reject('hold_not_found')
     await lockSubject(transaction, input.workspaceId, target.category, target.subjectId)
+    await requireAuthority(transaction, input.workspaceId, input.actor)
     const nowMs = await databaseNowMs(transaction)
     const [row] = await transaction
       .update(retentionHolds)
@@ -487,18 +500,23 @@ export async function recordRetentionCleanupReceipt(
     reject('invalid_input')
   if (!(RETENTION_CATEGORIES as readonly string[]).includes(input.category)) reject('invalid_input')
   const executorId = input.executor.runtimeNodeId
-  const payload =
-    typeof input.receipt === 'object' && input.receipt !== null
-      ? (input.receipt as Record<string, unknown>)
-      : {}
+  if (typeof input.receipt !== 'object' || input.receipt === null) reject('invalid_input')
+  const payload = input.receipt as Record<string, unknown>
   if (payload.executorId !== undefined && payload.executorId !== executorId)
     reject('receipt_untrusted')
   if (typeof payload.subjectId !== 'string') reject('invalid_input')
   const subjectId = payload.subjectId
   validateScope(input.workspaceId, input.category, subjectId)
+  // Request identity is explicit and never synthesized. The receipt must name its
+  // category, and the live request it answers, in its payload. A missing or
+  // different value is refused, so a late receipt cannot be relabeled as a newer
+  // generation.
+  if (payload.category !== input.category) reject('receipt_request_mismatch')
 
   return database.transaction(async (transaction) => {
-    const nowMs = await databaseNowMs(transaction)
+    // Lock first. Every read below is ordered by the subject lock, and a receipt
+    // that waited for it is judged at admission, not at arrival.
+    await lockSubject(transaction, input.workspaceId, input.category, subjectId)
     let eligible: Awaited<ReturnType<typeof requireEligibleRuntimeNode>>
     try {
       eligible = await requireEligibleRuntimeNode(transaction, input.workspaceId, executorId)
@@ -506,8 +524,6 @@ export async function recordRetentionCleanupReceipt(
       if (error instanceof RuntimeNodeError) reject('receipt_untrusted')
       throw error
     }
-    await lockSubject(transaction, input.workspaceId, input.category, subjectId)
-
     // Evidence binds to the live deletion generation, never to the subject alone.
     const authority = await liveAuthorization(
       transaction,
@@ -515,25 +531,15 @@ export async function recordRetentionCleanupReceipt(
       input.category,
       subjectId
     )
-    if (!authority || authority.expiresAt.getTime() <= nowMs) reject('authorization_not_current')
-    if (payload.requestId !== undefined && payload.requestId !== authority.id)
-      reject('receipt_request_mismatch')
-    if (payload.category !== undefined && payload.category !== input.category)
-      reject('receipt_request_mismatch')
-
+    if (!authority) reject('authorization_not_current')
+    if (payload.requestId !== authority.id) reject('receipt_request_mismatch')
     const executors = await trustedExecutorsFor(transaction, input.workspaceId, [executorId])
+    // The decision instant: sampled after the lock and every read above.
+    const nowMs = await databaseNowMs(transaction)
+    if (authority.expiresAt.getTime() <= nowMs) reject('authorization_not_current')
     let receipt: CleanupReceipt
     try {
-      receipt = recordCleanupReceipt(
-        {
-          ...payload,
-          category: input.category,
-          executorId,
-          requestId: authority.id,
-        },
-        executors,
-        iso(nowMs)
-      )
+      receipt = recordCleanupReceipt({ ...payload, executorId }, executors, iso(nowMs))
     } catch (error) {
       if (error instanceof RetentionPolicyError) {
         if (error.code === 'untrusted_executor') reject('receipt_untrusted')
@@ -643,28 +649,14 @@ export async function withRetentionDeletionGate<T>(
     if (input.category === 'artifacts')
       await lockArtifactRow(transaction, input.workspaceId, input.subjectId)
     await lockSubject(transaction, input.workspaceId, input.category, input.subjectId)
-    const nowMs = await databaseNowMs(transaction)
-    const now = iso(nowMs)
 
+    // Every awaited read happens under the lock, before the decision instant is sampled.
     const authority = await liveAuthorization(
       transaction,
       input.workspaceId,
       input.category,
       input.subjectId
     )
-    // A missing grant is refused through the same current-authority rule: an
-    // epoch-bounded record is never current, and every earlier refusal still
-    // takes precedence.
-    const epoch = iso(0)
-    const authorization: RetentionAuthorization = authority
-      ? {
-          expiresAt: authority.expiresAt.toISOString(),
-          grantedAt: authority.grantedAt.toISOString(),
-          id: authority.id,
-          revokedAt: null,
-        }
-      : { expiresAt: epoch, grantedAt: epoch, id: NO_AUTHORITY, revokedAt: epoch }
-
     const holdRows = await transaction
       .select()
       .from(retentionHolds)
@@ -675,11 +667,6 @@ export async function withRetentionDeletionGate<T>(
           eq(retentionHolds.subjectId, input.subjectId)
         )
       )
-    const holds: RetentionHold[] = holdRows.map((row) => ({
-      id: row.id,
-      releasedAt: row.releasedAt?.toISOString() ?? null,
-    }))
-
     // Only evidence recorded under the live request generation can count. Earlier
     // generations and other categories never reach the pure gate.
     const receiptRows = authority
@@ -695,6 +682,12 @@ export async function withRetentionDeletionGate<T>(
             )
           )
       : []
+    const referenceRows = await activeArtifactReferenceRows(
+      transaction,
+      input.workspaceId,
+      input.category,
+      input.subjectId
+    )
     const receipts: CleanupReceipt[] = receiptRows.map((row) => ({
       category: row.category,
       coverage: row.coverage,
@@ -712,19 +705,32 @@ export async function withRetentionDeletionGate<T>(
       receipts.map((receipt) => receipt.executorId)
     )
 
-    const activeReferenceCount = await activeArtifactReferenceCount(
-      transaction,
-      input.workspaceId,
-      input.category,
-      input.subjectId,
-      nowMs
-    )
+    // The final decision instant: sampled after the last awaited read. Expiry of the
+    // authority, of each reference, and of each receipt window is judged here.
+    const nowMs = await databaseNowMs(transaction)
+    const now = iso(nowMs)
+    const epoch = iso(0)
+    // A missing grant is refused through the same current-authority rule: an
+    // epoch-bounded record is never current, and every earlier refusal still
+    // takes precedence.
+    const authorization: RetentionAuthorization = authority
+      ? {
+          expiresAt: authority.expiresAt.toISOString(),
+          grantedAt: authority.grantedAt.toISOString(),
+          id: authority.id,
+          revokedAt: null,
+        }
+      : { expiresAt: epoch, grantedAt: epoch, id: NO_AUTHORITY, revokedAt: epoch }
+    const holds: RetentionHold[] = holdRows.map((row) => ({
+      id: row.id,
+      releasedAt: row.releasedAt?.toISOString() ?? null,
+    }))
 
     let decision: RetentionDecision
     try {
       decision = evaluateRetentionDeletion({
         candidate: {
-          activeReferenceCount,
+          activeReferenceCount: liveReferenceCount(referenceRows, nowMs),
           anchorAt: input.anchorAt,
           authorization,
           category: input.category,

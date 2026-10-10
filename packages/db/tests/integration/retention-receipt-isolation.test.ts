@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -7,9 +7,11 @@ import { fingerprintOf } from '../../src/runtime-nodes'
 import {
   evaluateStoredRetentionDeletion,
   grantRetentionDeletionAuthorization,
+  readLiveRetentionDeletionAuthorization,
   recordRetentionCleanupReceipt,
   RetentionCleanupError,
   revokeRetentionDeletionAuthorization,
+  withRetentionDeletionGate,
   type RetentionGateInput,
   type StoredCleanupReceiptInput,
 } from '../../src/retention-cleanup'
@@ -86,6 +88,36 @@ async function attempt(call: () => Promise<{ outcome: string }>): Promise<string
     if (error instanceof RetentionCleanupError) return error.code
     throw error
   }
+}
+
+/**
+ * Test executor. A dispatcher names the category and the live request a receipt
+ * answers, so this helper reads the live authority and fills those two fields
+ * when a test does not set them. Production code never does this, and the
+ * omitted-identity regressions call `recordRetentionCleanupReceipt` directly.
+ */
+async function recordAsExecutor(
+  database: DatabaseConnection['db'],
+  input: StoredCleanupReceiptInput
+) {
+  const payload = input.receipt as Record<string, unknown>
+  const live =
+    payload.requestId === undefined && typeof payload.subjectId === 'string'
+      ? await readLiveRetentionDeletionAuthorization(
+          database,
+          input.workspaceId,
+          input.category,
+          payload.subjectId
+        )
+      : null
+  return recordRetentionCleanupReceipt(database, {
+    ...input,
+    receipt: {
+      ...payload,
+      category: payload.category ?? input.category,
+      ...(payload.requestId === undefined && live ? { requestId: live.id } : {}),
+    },
+  })
 }
 
 function blockerFor(decision: RetentionDecision, coverage: CleanupCoverageKind) {
@@ -223,7 +255,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     await grant(actor, workspaceId, subject)
     const future = new Date(Date.now() + 60_000).toISOString()
     const result = await attempt(() =>
-      recordRetentionCleanupReceipt(
+      recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -243,7 +275,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const generation = await grant(actor, workspaceId, subject)
     const grantedMs = Date.parse(generation.grantedAt)
     const stale = await attempt(() =>
-      recordRetentionCleanupReceipt(
+      recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -255,7 +287,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     )
     expect(stale).toBe('receipt_outside_window')
     const atGrant = await attempt(() =>
-      recordRetentionCleanupReceipt(
+      recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -280,7 +312,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       const generation = await grant(actor, workspaceId, subject)
       const at = new Date(Date.parse(generation.grantedAt) + 5).toISOString()
       for (const [position, outcome] of order.entries()) {
-        await recordRetentionCleanupReceipt(
+        await recordAsExecutor(
           connection.db,
           recordInput(
             workspaceId,
@@ -310,7 +342,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       const generation = await grant(actor, workspaceId, subject)
       const deleteAt = new Date(Date.parse(generation.grantedAt) + 5).toISOString()
       const readAt = new Date(Date.parse(generation.grantedAt) + 6).toISOString()
-      await recordRetentionCleanupReceipt(
+      await recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -323,7 +355,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       const residualRead = observed(subject, 'primary', 'read_check', readAt, { residualCount: 3 })
       const order = clean ? [cleanRead, residualRead] : [residualRead, cleanRead]
       for (const [position, receipt] of order.entries()) {
-        await recordRetentionCleanupReceipt(
+        await recordAsExecutor(
           connection.db,
           recordInput(workspaceId, executor, `equal-read-${index}-${position}`, receipt)
         )
@@ -347,7 +379,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       const generation = await grant(actor, workspaceId, subject)
       const base = Date.parse(generation.grantedAt)
       for (const kind of CHECKS) {
-        await recordRetentionCleanupReceipt(
+        await recordAsExecutor(
           connection.db,
           recordInput(
             workspaceId,
@@ -356,7 +388,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
             observed(subject, kind, 'delete', new Date(base + 5).toISOString())
           )
         )
-        await recordRetentionCleanupReceipt(
+        await recordAsExecutor(
           connection.db,
           recordInput(
             workspaceId,
@@ -377,7 +409,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const generation = await grant(actor, workspaceId, subject)
     const base = Date.parse(generation.grantedAt)
     for (const kind of CHECKS) {
-      await recordRetentionCleanupReceipt(
+      await recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -386,7 +418,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
           observed(subject, kind, 'delete', new Date(base + 5).toISOString())
         )
       )
-      await recordRetentionCleanupReceipt(
+      await recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -412,7 +444,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const at = new Date(Date.parse(generation.grantedAt) + 5).toISOString()
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
+        recordAsExecutor(
           connection.db,
           recordInput(
             workspaceId,
@@ -446,7 +478,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
 
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
+        recordAsExecutor(
           connection.db,
           recordInput(workspaceId, executor, 'request-old', { ...body, requestId: first.id })
         )
@@ -454,7 +486,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     ).toBe('receipt_request_mismatch')
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
+        recordAsExecutor(
           connection.db,
           recordInput(workspaceId, executor, 'request-category', { ...body, category: 'logs' })
         )
@@ -462,7 +494,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     ).toBe('receipt_request_mismatch')
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
+        recordAsExecutor(
           connection.db,
           recordInput(workspaceId, executor, 'request-live', { ...body, requestId: second.id })
         )
@@ -478,10 +510,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const original = observed(subject, 'primary', 'delete', firstAt)
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
-          connection.db,
-          recordInput(workspaceId, executor, 'replay-key', original)
-        )
+        recordAsExecutor(connection.db, recordInput(workspaceId, executor, 'replay-key', original))
       )
     ).toBe('recorded')
     await revokeRetentionDeletionAuthorization(connection.db, {
@@ -492,16 +521,13 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const second = await grant(actor, workspaceId, subject)
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
-          connection.db,
-          recordInput(workspaceId, executor, 'replay-key', original)
-        )
+        recordAsExecutor(connection.db, recordInput(workspaceId, executor, 'replay-key', original))
       )
     ).toBe('receipt_outside_window')
     const laterAt = new Date(Date.parse(second.grantedAt) + 5).toISOString()
     expect(
       await attempt(() =>
-        recordRetentionCleanupReceipt(
+        recordAsExecutor(
           connection.db,
           recordInput(
             workspaceId,
@@ -520,7 +546,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     const generation = await grant(actor, workspaceId, subject, 'messages')
     const at = new Date(Date.parse(generation.grantedAt) + 5).toISOString()
     for (const kind of CHECKS) {
-      await recordRetentionCleanupReceipt(
+      await recordAsExecutor(
         connection.db,
         recordInput(
           workspaceId,
@@ -534,5 +560,267 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     expect(
       await evaluateStoredRetentionDeletion(connection.db, gateInput(workspaceId, subject, 'logs'))
     ).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+  })
+
+  /** Polls pg_locks until a lock request is waiting. Fails loudly instead of racing. */
+  async function waitForWaiter(kind: 'advisory' | 'authorizations'): Promise<void> {
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      const [row] = await connection.db.execute(
+        kind === 'advisory'
+          ? sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted`
+          : sql`select count(*)::int as n from pg_locks l join pg_class c on c.oid = l.relation where c.relname = 'retention_deletion_authorizations' and not l.granted`
+      )
+      if (Number((row as { n?: unknown }).n) > 0) return
+      await sleep(20)
+    }
+    throw new Error(`no waiter observed for ${kind}`)
+  }
+
+  /** A grant whose lifetime is short enough to expire inside a test, measured from the grant. */
+  async function grantFor(
+    actor: UserPrincipalRef,
+    workspaceId: string,
+    subjectId: string,
+    lifetimeMs: number
+  ) {
+    const record = await grantRetentionDeletionAuthorization(connection.db, {
+      actor,
+      category: 'messages',
+      expiresAt: new Date(Date.now() + lifetimeMs).toISOString(),
+      subjectId,
+      workspaceId,
+    })
+    await sleep(20)
+    return record
+  }
+
+  test('an old-request receipt that omits its request identity is refused after regrant and stores nothing', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('omit-request')
+    const subject = crypto.randomUUID()
+    const first = await grant(actor, workspaceId, subject)
+    await revokeRetentionDeletionAuthorization(connection.db, {
+      actor,
+      authorizationId: first.id,
+      workspaceId,
+    })
+    const second = await grant(actor, workspaceId, subject)
+    // Observed after the new grant, but still answering the old request: no identity is named.
+    const late = observed(
+      subject,
+      'primary',
+      'delete',
+      new Date(Date.parse(second.grantedAt) + 5).toISOString()
+    )
+    expect(
+      await attempt(() =>
+        recordRetentionCleanupReceipt(
+          connection.db,
+          recordInput(workspaceId, executor, 'late-omitted', late)
+        )
+      )
+    ).toBe('receipt_request_mismatch')
+    expect(await storedCount(workspaceId)).toBe(0)
+  })
+
+  test('an old-request receipt that names its earlier request is refused after regrant', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('named-old-request')
+    const subject = crypto.randomUUID()
+    const first = await grant(actor, workspaceId, subject)
+    await revokeRetentionDeletionAuthorization(connection.db, {
+      actor,
+      authorizationId: first.id,
+      workspaceId,
+    })
+    const second = await grant(actor, workspaceId, subject)
+    const late = {
+      ...observed(
+        subject,
+        'primary',
+        'delete',
+        new Date(Date.parse(second.grantedAt) + 5).toISOString()
+      ),
+      category: 'messages',
+      requestId: first.id,
+    }
+    expect(
+      await attempt(() =>
+        recordAsExecutor(connection.db, recordInput(workspaceId, executor, 'late-named', late))
+      )
+    ).toBe('receipt_request_mismatch')
+    expect(await storedCount(workspaceId)).toBe(0)
+  })
+
+  test('a receipt that omits its category is refused even when it names the live request', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('omit-category')
+    const subject = crypto.randomUUID()
+    const generation = await grant(actor, workspaceId, subject)
+    const bare = {
+      ...observed(
+        subject,
+        'primary',
+        'delete',
+        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+      ),
+      requestId: generation.id,
+    }
+    expect(
+      await attempt(() =>
+        recordRetentionCleanupReceipt(
+          connection.db,
+          recordInput(workspaceId, executor, 'omit-category', bare)
+        )
+      )
+    ).toBe('receipt_request_mismatch')
+    expect(await storedCount(workspaceId)).toBe(0)
+  })
+
+  test('a receipt that names the live request and category is recorded', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('explicit-live')
+    const subject = crypto.randomUUID()
+    const generation = await grant(actor, workspaceId, subject)
+    const explicit = {
+      ...observed(
+        subject,
+        'primary',
+        'delete',
+        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+      ),
+      category: 'messages',
+      requestId: generation.id,
+    }
+    expect(
+      await attempt(() =>
+        recordAsExecutor(
+          connection.db,
+          recordInput(workspaceId, executor, 'explicit-live', explicit)
+        )
+      )
+    ).toBe('recorded')
+    expect(await storedCount(workspaceId)).toBe(1)
+  })
+
+  test('a receipt waiting on the subject lock is judged at admission, not at arrival', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('lock-expiry')
+    const subject = crypto.randomUUID()
+    const generation = await grantFor(actor, workspaceId, subject, 1_500)
+    let enteredGate!: () => void
+    const gateEntered = new Promise<void>((resolve) => {
+      enteredGate = resolve
+    })
+    let releaseGate!: () => void
+    const gateReleased = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    // The gate holds the subject lock. The receipt arrives while the grant is still live.
+    const gate = withRetentionDeletionGate(
+      connection.db,
+      gateInput(workspaceId, subject),
+      async (decision) => {
+        enteredGate()
+        await gateReleased
+        return decision
+      }
+    )
+    await gateEntered
+    const receipt = {
+      ...observed(
+        subject,
+        'primary',
+        'delete',
+        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+      ),
+      category: 'messages',
+      requestId: generation.id,
+    }
+    const admission = recordAsExecutor(
+      connection.db,
+      recordInput(workspaceId, executor, 'lock-expiry', receipt)
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error })
+    )
+    await waitForWaiter('advisory')
+    // The grant expires while the receipt waits.
+    await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
+    releaseGate()
+    await gate
+    const outcome = await admission
+    expect(outcome).toEqual({ error: expect.any(RetentionCleanupError) })
+    expect((outcome as { error: RetentionCleanupError }).error.code).toBe(
+      'authorization_not_current'
+    )
+    expect(await storedCount(workspaceId)).toBe(0)
+  })
+
+  test('a receipt waiting on the subject lock is admitted when the grant is still live at admission', async () => {
+    const { executor, owner: actor, workspaceId } = await fixture('lock-live')
+    const subject = crypto.randomUUID()
+    const generation = await grant(actor, workspaceId, subject)
+    let enteredGate!: () => void
+    const gateEntered = new Promise<void>((resolve) => {
+      enteredGate = resolve
+    })
+    let releaseGate!: () => void
+    const gateReleased = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    const gate = withRetentionDeletionGate(
+      connection.db,
+      gateInput(workspaceId, subject),
+      async (decision) => {
+        enteredGate()
+        await gateReleased
+        return decision
+      }
+    )
+    await gateEntered
+    const receipt = {
+      ...observed(
+        subject,
+        'primary',
+        'delete',
+        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+      ),
+      category: 'messages',
+      requestId: generation.id,
+    }
+    const admission = recordAsExecutor(
+      connection.db,
+      recordInput(workspaceId, executor, 'lock-live', receipt)
+    )
+    await waitForWaiter('advisory')
+    releaseGate()
+    await gate
+    expect((await admission).outcome).toBe('recorded')
+  })
+
+  test('the gate judges expiry at its final decision, after waiting on its authority read', async () => {
+    const { owner: actor, workspaceId } = await fixture('gate-expiry')
+    const subject = crypto.randomUUID()
+    const generation = await grantFor(actor, workspaceId, subject, 1_500)
+    let enteredHolder!: () => void
+    const holderEntered = new Promise<void>((resolve) => {
+      enteredHolder = resolve
+    })
+    let releaseHolder!: () => void
+    const holderReleased = new Promise<void>((resolve) => {
+      releaseHolder = resolve
+    })
+    // An ACCESS EXCLUSIVE lock on the authority table blocks the gate's first read.
+    const holder = connection.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`lock table app.retention_deletion_authorizations in access exclusive mode`
+      )
+      enteredHolder()
+      await holderReleased
+    })
+    await holderEntered
+    const gate = evaluateStoredRetentionDeletion(connection.db, gateInput(workspaceId, subject))
+    await waitForWaiter('authorizations')
+    await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
+    releaseHolder()
+    await holder
+    expect(await gate).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
   })
 })

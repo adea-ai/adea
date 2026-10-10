@@ -12,6 +12,7 @@ import { fingerprintOf, revokeRuntimeNode } from '../../src/runtime-nodes'
 import {
   grantRetentionDeletionAuthorization as grantAuthority,
   placeRetentionHold,
+  readLiveRetentionDeletionAuthorization,
   recordRetentionCleanupReceipt,
   releaseRetentionHold,
   revokeRetentionDeletionAuthorization,
@@ -19,6 +20,7 @@ import {
   evaluateStoredRetentionDeletion,
   withRetentionDeletionGate,
   type RetentionGateInput,
+  type StoredCleanupReceiptInput,
 } from '../../src/retention-cleanup'
 import {
   parseRetentionPeriods,
@@ -145,6 +147,36 @@ async function refusalCode(operation: () => Promise<unknown>): Promise<string> {
  */
 const grantedAtBySubject = new Map<string, number>()
 
+/**
+ * Test executor. A dispatcher names the category and the live request a receipt
+ * answers, so this helper reads the live authority and fills those two fields
+ * when a test does not set them. Production code never does this, and the
+ * omitted-identity regressions call `recordRetentionCleanupReceipt` directly.
+ */
+async function recordAsExecutor(
+  database: DatabaseConnection['db'],
+  input: StoredCleanupReceiptInput
+) {
+  const payload = input.receipt as Record<string, unknown>
+  const live =
+    payload.requestId === undefined && typeof payload.subjectId === 'string'
+      ? await readLiveRetentionDeletionAuthorization(
+          database,
+          input.workspaceId,
+          input.category,
+          payload.subjectId
+        )
+      : null
+  return recordRetentionCleanupReceipt(database, {
+    ...input,
+    receipt: {
+      ...payload,
+      category: payload.category ?? input.category,
+      ...(payload.requestId === undefined && live ? { requestId: live.id } : {}),
+    },
+  })
+}
+
 function observedAnchor(subjectId: string): Date {
   const grantedAt = grantedAtBySubject.get(subjectId)
   if (grantedAt === undefined) throw new Error('fixture subject has no grant')
@@ -266,7 +298,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     const results = []
     for (const [index, receipt] of receipts.entries()) {
       results.push(
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category,
           executor: executorOf(node),
           idempotencyKey: `${keyPrefix}-${index}`,
@@ -463,7 +495,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       subjectId: subject,
     }
     const submit = (receipt: object, key = 'replay-key') =>
-      recordRetentionCleanupReceipt(connection.db, {
+      recordAsExecutor(connection.db, {
         category: 'messages',
         executor: executorOf(node),
         idempotencyKey: key,
@@ -510,7 +542,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     }
     const outcomes = await Promise.all(
       [1, 2, 3].map(() =>
-        recordRetentionCleanupReceipt(connection.db, {
+        recordAsExecutor(connection.db, {
           category: 'messages',
           executor: executorOf(node),
           idempotencyKey: 'concurrent-key',
@@ -550,7 +582,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     const other = await makeNode(workspace.id, owner, 'impostor')
     expect(
       await refusalCode(() =>
-        recordRetentionCleanupReceipt(connection.db, {
+        recordAsExecutor(connection.db, {
           category: 'messages',
           executor: executorOf(node),
           idempotencyKey: 'forged-executor',
@@ -574,7 +606,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     ).toEqual({ outcome: 'cleanup_ready' })
     expect(
       await refusalCode(() =>
-        recordRetentionCleanupReceipt(connection.db, {
+        recordAsExecutor(connection.db, {
           category: 'messages',
           executor: executorOf(node),
           idempotencyKey: 'after-revocation',
@@ -628,7 +660,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     ).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
     expect(
       await refusalCode(() =>
-        recordRetentionCleanupReceipt(connection.db, {
+        recordAsExecutor(connection.db, {
           category: 'messages',
           executor: executorOf(node),
           idempotencyKey: 'after-expiry',
@@ -951,7 +983,7 @@ describe.skipIf(!connectionUrl)(
         subjectId: subject,
         workspaceId,
       })
-      const error = await recordRetentionCleanupReceipt(connection.db, {
+      const error = await recordAsExecutor(connection.db, {
         category: 'messages',
         executor,
         idempotencyKey: 'future-receipt',
@@ -978,14 +1010,14 @@ describe.skipIf(!connectionUrl)(
       const at = observedAnchor(subject)
       const coverage = RETENTION_COVERAGE_RULES.messages.requiredCoverage
       for (const [index, kind] of coverage.entries()) {
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category: 'messages',
           executor,
           idempotencyKey: `tie-delete-${index}`,
           receipt: receiptFor(subject, kind, 'delete', at),
           workspaceId,
         })
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category: 'messages',
           executor,
           idempotencyKey: `tie-read-${index}`,
@@ -1018,14 +1050,14 @@ describe.skipIf(!connectionUrl)(
       })
       const at = observedAnchor(subject)
       for (const [index, kind] of RETENTION_COVERAGE_RULES.messages.requiredCoverage.entries()) {
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category: 'messages',
           executor,
           idempotencyKey: `generation-delete-${index}`,
           receipt: receiptFor(subject, kind, 'delete', at),
           workspaceId,
         })
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category: 'messages',
           executor,
           idempotencyKey: `generation-read-${index}`,
@@ -1081,7 +1113,7 @@ describe.skipIf(!connectionUrl)(
         workspaceId,
       })
       const predating = new Date(Date.parse(second.grantedAt) - 1)
-      const error = await recordRetentionCleanupReceipt(connection.db, {
+      const error = await recordAsExecutor(connection.db, {
         category: 'messages',
         executor,
         idempotencyKey: 'predating-receipt',
@@ -1106,7 +1138,7 @@ describe.skipIf(!connectionUrl)(
       })
       const at = observedAnchor(subject)
       for (const [index, kind] of RETENTION_COVERAGE_RULES.messages.requiredCoverage.entries()) {
-        await recordRetentionCleanupReceipt(connection.db, {
+        await recordAsExecutor(connection.db, {
           category: 'messages',
           executor,
           idempotencyKey: `category-delete-${index}`,
