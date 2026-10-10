@@ -46,6 +46,7 @@ import { Route as ApiV1AccountAgentsAgentIdRouteImport } from './routes/api/v1/a
 import { Route as ApiV1AccountConversationsConversationIdRouteImport } from './routes/api/v1/account/conversations/$conversationId'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-grants'
+import { Route as ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifact-references'
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
@@ -312,6 +313,12 @@ const ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute =
   ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/artifact-grants',
     path: '/api/v1/workspaces/$workspaceId/artifact-grants',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute =
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/artifact-references',
+    path: '/api/v1/workspaces/$workspaceId/artifact-references',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdArtifactsRoute =
@@ -752,6 +759,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -856,6 +864,7 @@ export interface FileRoutesByTo {
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -961,6 +970,7 @@ export interface FileRoutesById {
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/artifact-grants': typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifact-references': typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -1067,6 +1077,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifact-grants'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1171,6 +1182,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifact-grants'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1275,6 +1287,7 @@ export interface FileRouteTypes {
     | '/api/v1/account/conversations/$conversationId'
     | '/api/v1/workspaces/$workspaceId/agents'
     | '/api/v1/workspaces/$workspaceId/artifact-grants'
+    | '/api/v1/workspaces/$workspaceId/artifact-references'
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
@@ -1369,6 +1382,7 @@ export interface RootRouteChildren {
   ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
@@ -1650,6 +1664,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/artifact-grants'
       fullPath: '/api/v1/workspaces/$workspaceId/artifact-grants'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/artifact-references': {
+      id: '/api/v1/workspaces/$workspaceId/artifact-references'
+      path: '/api/v1/workspaces/$workspaceId/artifact-references'
+      fullPath: '/api/v1/workspaces/$workspaceId/artifact-references'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactReferencesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/artifacts': {
@@ -2561,6 +2582,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute:
     ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren,
+  ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute:
+    ApiV1WorkspacesWorkspaceIdArtifactReferencesRoute,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:
     ApiV1WorkspacesWorkspaceIdArtifactsRoute,
   ApiV1WorkspacesWorkspaceIdChannelsRoute:
