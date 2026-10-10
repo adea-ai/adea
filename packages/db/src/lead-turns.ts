@@ -20,6 +20,7 @@ import {
   workspaces,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
+import { addressedAgentTurns } from './schema/addressed-agent-turns'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type Intent = typeof leadTurnIntents.$inferSelect
@@ -354,12 +355,42 @@ export async function admitAddressedLeadTurn(
     triggerMessageId: string
     expectedAgentId: string
     requestedModelSelections?: RequestedRoleModelSelections
+    /**
+     * Coordinator claim this admission serves. When provided, the claim
+     * row locks FIRST in this same transaction and must be live
+     * (`claimed`/`dispatching`); it flips to `dispatching` and binds the
+     * minted intent atomically with it. Terminal transitions and the
+     * executable admission therefore share one serialization boundary:
+     * a cancel/supersede that commits first wins with zero mint, and one
+     * that arrives after loses the row race with zero effect — never a
+     * terminal claim with a live uncancelled intent.
+     */
+    claim?: Readonly<{ id: string }>
   }>,
   options: Readonly<{ clock?: () => string }> = {}
 ): Promise<{ leadTurn: ReturnType<typeof receipt>; triggerMessageId: string }> {
   const requestedModelSelections = parseRequestedRoleModelSelections(input.requestedModelSelections)
   const clock = options.clock ?? liveLeadClock
   return database.transaction(async (tx) => {
+    if (input.claim) {
+      const [locked] = await tx
+        .select()
+        .from(addressedAgentTurns)
+        .where(
+          and(
+            eq(addressedAgentTurns.id, input.claim.id),
+            eq(addressedAgentTurns.workspaceId, workspaceId)
+          )
+        )
+        .limit(1)
+        .for('update')
+      if (
+        !locked ||
+        (locked.state !== 'claimed' && locked.state !== 'dispatching') ||
+        locked.channelId !== channelId
+      )
+        throw new Error('Lead turn unavailable')
+    }
     const authority = await lockAuthority(
       tx,
       workspaceId,
@@ -419,6 +450,20 @@ export async function admitAddressedLeadTurn(
       (await tx.select().from(leadTurnIntents).where(eq(leadTurnIntents.messageId, trigger.id)))[0]
     if (!intent) throw new Error('Lead turn unavailable')
     assertPinned(intent, authority)
+    if (input.claim) {
+      const bound = await tx
+        .update(addressedAgentTurns)
+        .set({ intentId: intent.id, state: 'dispatching' })
+        .where(
+          and(
+            eq(addressedAgentTurns.id, input.claim.id),
+            eq(addressedAgentTurns.workspaceId, workspaceId),
+            sql`${addressedAgentTurns.state} in ('claimed', 'dispatching')`
+          )
+        )
+        .returning({ id: addressedAgentTurns.id })
+      if (!bound[0]) throw new Error('Lead turn unavailable')
+    }
     await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
     return { leadTurn: receipt(intent), triggerMessageId: trigger.id }
   })

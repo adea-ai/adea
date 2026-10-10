@@ -1203,4 +1203,117 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       ['cancelled', `${other.workspace.id}:${leadAway.id}`],
     ])
   })
+
+  T('parked cancel between claim and admission mints nothing', async () => {
+    // The folded boundary: cancel commits after the claim but before the
+    // admission transaction, which then finds a terminal claim and denies
+    // with zero mint — no flip/admit/bind interval exists anymore.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(pre.status).toBe('claimed')
+    let release!: () => void
+    let markParked!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const parkedPromise = new Promise<void>((resolve) => {
+      markParked = resolve
+    })
+    const dispatching = dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      barrier: {
+        beforeDispatchDecision: async () => {
+          markParked()
+          await gate
+        },
+      },
+      now: NOW,
+    })
+    await parkedPromise
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, f.owner, pre.turn.id)
+    ).resolves.toEqual({ runtimeCancelRequested: false, state: 'cancelled' })
+    release()
+    await expect(dispatching).rejects.toMatchObject({
+      name: 'AddressedTurnError',
+      reason: 'turn_cancelled',
+    })
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intents).toHaveLength(0)
+  })
+
+  T('parked human post supersedes before admission: no intent survives', async () => {
+    // Production wiring in the race: the newer human message retires the
+    // claim through the fenced post path while dispatch is parked; the
+    // resumed admission finds it terminal and mints nothing executable.
+    const f = await groupWithAgent()
+    await connection.db
+      .update(schema.agents)
+      .set({ isWorkspaceLead: true })
+      .where(eq(schema.agents.id, f.agent.id))
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    let release!: () => void
+    let markParked!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const parkedPromise = new Promise<void>((resolve) => {
+      markParked = resolve
+    })
+    const dispatching = dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      barrier: {
+        beforeDispatchDecision: async () => {
+          markParked()
+          await gate
+        },
+      },
+      now: NOW,
+    })
+    await parkedPromise
+    await postGroupChannelMessage(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      f.owner,
+      {
+        message: { bodyText: 'newer human input', idempotencyKey: crypto.randomUUID() },
+        mode: 'direct',
+      },
+      { now: NOW }
+    )
+    release()
+    await expect(dispatching).rejects.toMatchObject({
+      name: 'AddressedTurnError',
+      reason: 'turn_superseded',
+    })
+    const intents = await connection.db
+      .select({ id: schema.leadTurnIntents.id })
+      .from(schema.leadTurnIntents)
+      .where(eq(schema.leadTurnIntents.channelId, f.channelId))
+    expect(intents).toHaveLength(0)
+  })
+
+  T('outsiders cannot replay an already-cancelled turn as success', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+      now: NOW,
+    })
+    expect(first.status).toBe('claimed')
+    await cancelAddressedTurn(connection.db, f.workspace.id, f.owner, first.turn.id)
+    const outsider = await user('outsider')
+    await expect(
+      cancelAddressedTurn(connection.db, f.workspace.id, outsider, first.turn.id)
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_cancel_unauthorized' })
+  })
 })
