@@ -1,7 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -10,8 +19,10 @@ import {
   parseJunit,
   REQUIRED_IDS,
   REQUIREMENT_IDS,
+  CommandError,
   gitCheckout,
   repositoryIo,
+  runCommand,
   STATUS,
   validateEvidenceManifest,
 } from './evidence-manifest.mjs'
@@ -197,32 +208,48 @@ const statusOf = (report, id) => report.results.find((result) => result.id === i
  * Authorized read of the declared repository at one pinned commit: a treeless partial clone
  * fetched by exact SHA. The commit graph arrives with the commit, and trees and blobs load
  * lazily from the same remote. A different repository, or a revision it does not contain,
- * fails to read and throws. Nothing here relies on the local checkout's history.
+ * fails to read and throws. Every git step has a deadline, and a failed step removes the
+ * temporary clone before it throws. Nothing here relies on the local checkout's history.
  */
-function fetchPinnedHistory(name, pin) {
-  const dir = mkdtempSync(join(tmpdir(), 'adea-evidence-origin-'))
-  const git = (args) =>
-    spawnSync('git', args, {
+const SETUP_TIMEOUT_MS = 30_000
+const FETCH_TIMEOUT_MS = 120_000
+function fetchPinnedHistory(
+  name,
+  pin,
+  {
+    remote = `https://github.com/${name}.git`,
+    git = 'git',
+    timeoutMs = FETCH_TIMEOUT_MS,
+    scratch = tmpdir(),
+  } = {}
+) {
+  const dir = mkdtempSync(join(scratch, 'adea-evidence-origin-'))
+  const run = (args, budget) =>
+    runCommand(git, args, {
       cwd: dir,
-      encoding: 'utf8',
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs: budget,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_HTTP_LOW_SPEED_LIMIT: '1000',
+        GIT_HTTP_LOW_SPEED_TIME: '30',
+      },
     })
-  const setup = [
-    ['init', '-q', '--bare'],
-    ['config', 'remote.origin.url', `https://github.com/${name}.git`],
-    ['config', 'remote.origin.promisor', 'true'],
-    ['config', 'remote.origin.partialclonefilter', 'tree:0'],
-    ['config', 'extensions.partialClone', 'origin'],
-  ]
-  for (const args of setup) {
-    if (git(args).status !== 0) throw new Error(`cannot configure a read of ${name}`)
-  }
-  const fetch = git(['fetch', '--quiet', '--no-tags', '--filter=tree:0', 'origin', pin])
-  if (fetch.status !== 0) {
+  try {
+    const setup = [
+      ['init', '-q', '--bare'],
+      ['config', 'remote.origin.url', remote],
+      ['config', 'remote.origin.promisor', 'true'],
+      ['config', 'remote.origin.partialclonefilter', 'tree:0'],
+      ['config', 'extensions.partialClone', 'origin'],
+    ]
+    for (const args of setup) run(args, Math.min(timeoutMs, SETUP_TIMEOUT_MS))
+    run(['fetch', '--quiet', '--no-tags', '--filter=tree:0', 'origin', pin], timeoutMs)
+    return dir
+  } catch (error) {
     rmSync(dir, { recursive: true, force: true })
-    throw new Error(`cannot read ${pin} from ${name}: ${fetch.stderr.trim()}`)
+    throw new Error(`cannot read ${pin} from ${name}: ${error.message}`, { cause: error })
   }
-  return dir
 }
 
 describe('evidence manifest id universe', () => {
@@ -632,6 +659,165 @@ describe('bounded reads and provenance on real git and working files', () => {
       expect(() => repositoryIo({ 'control-plane': dir })).toThrow('repository mapping needs adea')
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/** Run a command that must fail, and return its error. Throws if it succeeds. */
+const failureOf = (run) => {
+  try {
+    run()
+  } catch (error) {
+    return error
+  }
+  throw new Error('expected the command to fail')
+}
+
+describe('bounded git subprocesses (fail closed)', () => {
+  const fakeDirs = []
+  // A stand-in git: a shell script with the given body. Every fake is removed after the block.
+  const fakeGit = (body) => {
+    const dir = mkdtempSync(join(tmpdir(), 'adea-evidence-fake-git-'))
+    fakeDirs.push(dir)
+    const path = join(dir, 'git')
+    writeFileSync(path, `#!/bin/sh\n${body}\n`)
+    chmodSync(path, 0o755)
+    return path
+  }
+  afterAll(() => {
+    for (const dir of fakeDirs) rmSync(dir, { recursive: true, force: true })
+  })
+  const committed = JSON.parse(
+    readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
+  )
+  const { sourceSha: pin, rootCommit } = committed.repositories.adea
+  // An `ls-tree -l -z` entry for the requested path: a five-byte regular blob.
+  const LISTING = 'printf \'100644 blob 0000000000000000000000000000000000000000 5\\t%s\\0\' "$6"'
+
+  test('a command that succeeds returns its output', () => {
+    expect(
+      runCommand(process.execPath, ['-e', "process.stdout.write('ok')"], { timeoutMs: 20_000 })
+    ).toBe('ok')
+  })
+
+  test('a nonzero exit keeps its status and stderr', () => {
+    const error = failureOf(() =>
+      runCommand(process.execPath, ['-e', "process.stderr.write('boom'); process.exit(3)"], {
+        timeoutMs: 20_000,
+      })
+    )
+    expect(error).toBeInstanceOf(CommandError)
+    expect(error.code).toBe('nonzero')
+    expect(error.status).toBe(3)
+    expect(error.stderr).toContain('boom')
+  })
+
+  test('a command past its deadline is killed and reported as a timeout', () => {
+    const started = Date.now()
+    const error = failureOf(() =>
+      runCommand(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { timeoutMs: 300 })
+    )
+    expect(error.code).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(15_000)
+  })
+
+  test('a grandchild that holds the output open cannot keep the call past its deadline', () => {
+    const script =
+      "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 8000)'], { stdio: 'inherit' }); setTimeout(() => {}, 60000)"
+    const started = Date.now()
+    const error = failureOf(() => runCommand(process.execPath, ['-e', script], { timeoutMs: 300 }))
+    expect(error.code).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(6_000)
+  })
+
+  test('a command that cannot start is a spawn error', () => {
+    const error = failureOf(() =>
+      runCommand('adea-evidence-no-such-command', ['status'], { timeoutMs: 5_000 })
+    )
+    expect(error.code).toBe('spawn')
+  })
+
+  test('output beyond the limit is refused, not truncated', () => {
+    const error = failureOf(() =>
+      runCommand(process.execPath, ['-e', "process.stdout.write('x'.repeat(4096))"], {
+        timeoutMs: 20_000,
+        maxBuffer: 1024,
+      })
+    )
+    expect(error.code).toBe('output')
+  })
+
+  test('an absent commit is false, but a failed read is an error', () => {
+    const absent = fakeGit('echo "fatal: Not a valid object name $2" >&2\nexit 128')
+    expect(gitCheckout(root, { git: absent }).commitExists(pin)).toBe(false)
+    const failing = fakeGit('echo "fatal: could not fetch" >&2\nexit 2')
+    expect(failureOf(() => gitCheckout(root, { git: failing }).commitExists(pin)).code).toBe(
+      'nonzero'
+    )
+  })
+
+  test('a hung git step fails closed within its deadline', () => {
+    const hung = fakeGit('exec sleep 30')
+    const started = Date.now()
+    expect(
+      failureOf(() => gitCheckout(root, { git: hung, timeoutMs: 300 }).commitExists(pin)).code
+    ).toBe('timeout')
+    expect(
+      failureOf(() => gitCheckout(root, { git: hung, timeoutMs: 300 }).rootCommits(pin)).code
+    ).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(15_000)
+  })
+
+  test('a failed blob read is an error, not a missing file', () => {
+    const git = fakeGit(
+      `case "$1" in\n  ls-tree) ${LISTING} ;;\n  cat-file) echo "fatal: could not fetch blob" >&2; exit 2 ;;\n  *) exit 2 ;;\nesac`
+    )
+    const blob = gitCheckout(root, { git }).blobAtSha(pin, 'example.test.ts')
+    expect(blob).toMatchObject({ regular: true, size: 5 })
+    expect(failureOf(() => blob.bytes()).code).toBe('nonzero')
+  })
+
+  test('validation reports a failed git read as a schema error, never as a pass', () => {
+    const git = fakeGit(
+      `case "$1" in\n  cat-file) if [ "$2" = "-e" ]; then exit 0; fi; echo "fatal: could not fetch blob" >&2; exit 2 ;;\n  rev-list) echo ${rootCommit} ;;\n  ls-tree) ${LISTING} ;;\n  *) exit 2 ;;\nesac`
+    )
+    const io = { ...repositoryIo({ adea: root }), checkout: () => gitCheckout(root, { git }) }
+    const report = validateEvidenceManifest(committed, io)
+    expect(report.ok).toBe(false)
+    expect(report.results).toEqual([])
+    expect(report.schemaErrors[0]).toMatch(/^git read failed \(nonzero\)/)
+  })
+
+  test('a failed authorized read removes its temporary clone before it throws', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'adea-evidence-scratch-'))
+    try {
+      const error = failureOf(() =>
+        fetchPinnedHistory('adea-ai/adea', pin, {
+          remote: 'file:///adea-evidence-no-such-remote',
+          timeoutMs: 20_000,
+          scratch,
+        })
+      )
+      expect(error.message).toContain('cannot read')
+      expect(readdirSync(scratch)).toEqual([])
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+
+  test('a hung authorized read is bounded and removes its temporary clone', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'adea-evidence-scratch-'))
+    try {
+      const hung = fakeGit('exec sleep 30')
+      const started = Date.now()
+      const error = failureOf(() =>
+        fetchPinnedHistory('adea-ai/adea', pin, { git: hung, timeoutMs: 300, scratch })
+      )
+      expect(error.message).toContain('timed out after 300 ms')
+      expect(Date.now() - started).toBeLessThan(15_000)
+      expect(readdirSync(scratch)).toEqual([])
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
     }
   })
 })

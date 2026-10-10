@@ -23,6 +23,9 @@ import { fileURLToPath } from 'node:url'
 // checkouts are supplied by the caller and must contain the declared root commit.
 // Files are read only when they are regular, within the root, and under
 // MAX_EVIDENCE_BYTES. Unmapped ids stay `pending`.
+// Git reads run under explicit deadlines and output limits (runCommand). A failed or
+// timed-out read fails the report closed as a `git read failed` schema error; it is never
+// read as a missing file.
 
 export const SCHEMA_VERSION = 1
 export const ISSUE = 1225
@@ -108,28 +111,115 @@ function parseJson(bytes) {
   }
 }
 
-/** One local checkout, read through git. Blobs come from committed trees, not the disk. */
-export function gitCheckout(root) {
-  const git = (args, encoding) =>
-    spawnSync('git', args, {
-      cwd: root,
-      encoding,
-      maxBuffer: MAX_EVIDENCE_BYTES * 4,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+// Every git read runs under an explicit deadline and an output limit. Lazy promisor fetches
+// in a treeless clone run inside these calls, so a stalled transfer ends as a CommandError
+// instead of blocking the validator or the test that asked for it. The GIT_HTTP_* settings
+// also end a stalled transfer inside git itself.
+export const GIT_READ_TIMEOUT_MS = 60_000
+const GIT_ENV = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_HTTP_LOW_SPEED_LIMIT: '1000',
+  GIT_HTTP_LOW_SPEED_TIME: '30',
+}
+// git's wording for an object the repository does not have. Any other nonzero exit is a
+// failed read, not an absent object.
+const ABSENT_OBJECT = /Not a valid object name|bad object|unknown revision/
+
+/** A subprocess that produced no usable result. It is never read as an absent object or as empty output. */
+export class CommandError extends Error {
+  constructor(code, message, { command, args, status = null, signal = null, stderr = '' } = {}) {
+    super(message)
+    this.name = 'CommandError'
+    this.code = code
+    this.command = command
+    this.args = args
+    this.status = status
+    this.signal = signal
+    this.stderr = stderr
+  }
+}
+
+/**
+ * Run one subprocess under a deadline. A timeout, a signal, a spawn failure, a nonzero exit,
+ * output over the limit or missing output throws a CommandError. Nothing returns null or a
+ * partial result.
+ */
+export function runCommand(
+  command,
+  args,
+  {
+    cwd,
+    env = process.env,
+    timeoutMs = GIT_READ_TIMEOUT_MS,
+    encoding = 'utf8',
+    maxBuffer = MAX_EVIDENCE_BYTES * 4,
+  } = {}
+) {
+  const label = [command, args[0]].filter(Boolean).join(' ')
+  const result = spawnSync(command, args, {
+    cwd,
+    env,
+    encoding,
+    maxBuffer,
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+  })
+  const stderr = String(result.stderr ?? '')
+  const fail = (code, message) => {
+    throw new CommandError(code, message, {
+      command,
+      args,
+      status: result.status ?? null,
+      signal: result.signal ?? null,
+      stderr,
     })
+  }
+  if (result.error?.code === 'ETIMEDOUT')
+    fail('timeout', `${label} timed out after ${timeoutMs} ms`)
+  if (result.error?.code === 'ENOBUFS')
+    fail('output', `${label} wrote more than ${maxBuffer} bytes`)
+  if (result.error)
+    fail('spawn', `${label} could not run: ${result.error.code ?? result.error.message}`)
+  if (result.signal) fail('signal', `${label} was stopped by ${result.signal}`)
+  if (result.status !== 0) {
+    fail(
+      'nonzero',
+      `${label} exited with status ${result.status}: ${stderr.trim().split('\n')[0] ?? ''}`
+    )
+  }
+  if (result.stdout === null || result.stdout === undefined)
+    fail('output', `${label} produced no output`)
+  if (Buffer.byteLength(result.stdout) > maxBuffer)
+    fail('output', `${label} wrote more than ${maxBuffer} bytes`)
+  return result.stdout
+}
+
+/** One local checkout, read through git. Blobs come from committed trees, not the disk. */
+export function gitCheckout(root, { git = 'git', timeoutMs = GIT_READ_TIMEOUT_MS } = {}) {
+  const run = (args, encoding = 'utf8') =>
+    runCommand(git, args, { cwd: root, timeoutMs, encoding, env: { ...process.env, ...GIT_ENV } })
   return {
     commitExists(sha) {
-      return git(['cat-file', '-e', `${sha}^{commit}`]).status === 0
+      try {
+        run(['cat-file', '-e', `${sha}^{commit}`])
+        return true
+      } catch (error) {
+        if (
+          error instanceof CommandError &&
+          error.code === 'nonzero' &&
+          ABSENT_OBJECT.test(error.stderr)
+        ) {
+          return false
+        }
+        throw error
+      }
     },
     rootCommits(sha) {
-      const result = git(['rev-list', '--max-parents=0', sha], 'utf8')
-      if (result.status !== 0) return []
-      return result.stdout.split('\n').filter(Boolean)
+      return run(['rev-list', '--max-parents=0', sha]).split('\n').filter(Boolean)
     },
     blobAtSha(sha, path) {
-      const listing = git(['ls-tree', '-l', '-z', sha, '--', path], 'utf8')
-      if (listing.status !== 0) return null
-      const match = listing.stdout
+      const listing = run(['ls-tree', '-l', '-z', sha, '--', path])
+      const match = listing
         .split('\0')
         .map((line) => LS_TREE.exec(line))
         .filter(Boolean)
@@ -140,7 +230,7 @@ export function gitCheckout(root) {
         regular: type === 'blob' && REGULAR_BLOB_MODES.has(mode),
         mode,
         size: size === '-' ? 0 : Number(size),
-        bytes: () => git(['cat-file', 'blob', `${sha}:${path}`]).stdout,
+        bytes: () => run(['cat-file', 'blob', `${sha}:${path}`], 'buffer'),
       }
     },
   }
@@ -712,7 +802,19 @@ function manifestErrors(manifest, io) {
  * Returns `{ ok, schemaErrors, results, counts }`. `ok` is false on any schema error
  * or invalid mapping. `strict` also requires every id to be candidate-compatible.
  */
-export function validateEvidenceManifest(manifest, io, { strict = false } = {}) {
+export function validateEvidenceManifest(manifest, io, options = {}) {
+  try {
+    return validateChecked(manifest, io, options)
+  } catch (error) {
+    // A git read that failed or timed out leaves the evidence unverified. Report it as a
+    // schema error so the report fails closed: no partial pass, no skip, no "missing" file.
+    if (!(error instanceof CommandError)) throw error
+    const message = `git read failed (${error.code}): ${error.message}`
+    return { ok: false, schemaErrors: [message], results: [], counts: countStatuses([]) }
+  }
+}
+
+function validateChecked(manifest, io, { strict = false } = {}) {
   const schemaErrors = manifestErrors(manifest, io)
   if (schemaErrors.length > 0) {
     return { ok: false, schemaErrors, results: [], counts: countStatuses([]) }
