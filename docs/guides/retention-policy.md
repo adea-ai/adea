@@ -108,10 +108,38 @@ chain lands unchanged. Until then, do not run `db:generate` on this branch: the
 branch source does not contain the canonical group and rollback schema, so a
 diff would propose dropping those tables.
 
+## HTTP boundary (#1243)
+
+Two handlers expose this slice. Route files only delegate to them, and
+`scripts/retention-route-boundary.test.ts` pins that.
+
+- `POST /api/v1/workspaces/{workspaceId}/runtime-nodes/{runtimeNodeId}/retention/cleanup-receipts`
+  is node-authenticated, with no user session. The node signs an envelope
+  (`keyId`, `nonce`, `issuedAt`, `signature`) with its active signing key. The
+  purpose is `retention.cleanup_receipt`, and the signed bytes include a SHA-256
+  digest of the category and receipt. The envelope nonce is the receipt's
+  idempotency key. Envelope failures return `runtime_node_unavailable` (404) for
+  an unknown, unpaired, revoked, or unsigned node, the same as a pull. Gate
+  refusals return `retention_<code>` (409), for example
+  `retention_receipt_request_mismatch`, `retention_authorization_not_current`,
+  or `retention_receipt_conflict`. A malformed body or an oversized body returns
+  `invalid_request` (400).
+- `GET /api/v1/workspaces/{workspaceId}/retention/status?category=&subjectId=`
+  is read-only, owner or admin only, through the existing `runtime.invoke`
+  privilege. No permission is minted. It reports the live authority, holds,
+  evidence counts for the live generation, and the period decision. While a
+  period is unset the decision is `refused: policy_unset`. A configured period
+  reports `undetermined: anchor_required`, because the owning domain's anchor is
+  not part of this read.
+
+These routes do not dispatch cleanup, and no period is configured. The period
+decision is recorded separately in `docs/guides/retention-period-decision.md`.
+
 ## Not implemented here
 
 - Deletion execution, executors, backup expiry, export, or any scheduler. No
   caller dispatches cleanup, and no period is configured.
+- Grant, revoke, hold, and release routes. Only receipt submission and status are wired.
 - Reference registration does not consult retention authority. A grant that
   commits after a `cleanup_ready` decision, and before any deletion, is not
   blocked by this slice.

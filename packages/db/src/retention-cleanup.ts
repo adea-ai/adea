@@ -770,3 +770,84 @@ export async function readLiveRetentionDeletionAuthorization(
   const row = await liveAuthorization(database, workspaceId, category, subjectId)
   return row ? authorizationRecord(row) : null
 }
+
+export type RetentionStatusView = Readonly<{
+  authorization: RetentionAuthorizationRecord | null
+  category: RetentionCategory
+  decision:
+    | Readonly<{ outcome: 'refused'; reason: 'policy_unset' }>
+    | Readonly<{ outcome: 'undetermined'; reason: 'anchor_required' }>
+  evidence: Readonly<{ coverage: Readonly<Record<string, number>>; receipts: number }>
+  holds: ReadonlyArray<Readonly<{ id: string; releasedAt: string | null }>>
+  periodConfigured: boolean
+  subjectId: string
+  workspaceId: string
+}>
+
+/**
+ * Read-only retention status for one subject (#1221). It writes nothing, takes
+ * no lock, and dispatches nothing. Evidence counts come only from the live
+ * generation. The period decision stays fail-closed: while a category's period is
+ * unset the answer is `policy_unset`. A configured period cannot be judged here,
+ * because the owning domain's anchor is not part of this read.
+ */
+export async function readRetentionStatus(
+  database: AgentHqDatabase,
+  input: Readonly<{
+    category: RetentionCategory
+    periods?: RetentionPeriods
+    subjectId: string
+    workspaceId: string
+  }>
+): Promise<RetentionStatusView> {
+  validateScope(input.workspaceId, input.category, input.subjectId)
+  const periods = input.periods ?? UNSET_RETENTION_PERIODS
+  const periodConfigured = periods[input.category] !== null
+  const authority = await liveAuthorization(
+    database,
+    input.workspaceId,
+    input.category,
+    input.subjectId
+  )
+  const holds = await database
+    .select({ id: retentionHolds.id, releasedAt: retentionHolds.releasedAt })
+    .from(retentionHolds)
+    .where(
+      and(
+        eq(retentionHolds.workspaceId, input.workspaceId),
+        eq(retentionHolds.category, input.category),
+        eq(retentionHolds.subjectId, input.subjectId)
+      )
+    )
+  const receipts = authority
+    ? await database
+        .select({ coverage: retentionCleanupReceipts.coverage })
+        .from(retentionCleanupReceipts)
+        .where(
+          and(
+            eq(retentionCleanupReceipts.workspaceId, input.workspaceId),
+            eq(retentionCleanupReceipts.category, input.category),
+            eq(retentionCleanupReceipts.subjectId, input.subjectId),
+            eq(retentionCleanupReceipts.authorizationId, authority.id)
+          )
+        )
+    : []
+  const coverage: Record<string, number> = {}
+  for (const row of receipts) coverage[row.coverage] = (coverage[row.coverage] ?? 0) + 1
+  return Object.freeze({
+    authorization: authority ? authorizationRecord(authority) : null,
+    category: input.category,
+    decision: periodConfigured
+      ? ({ outcome: 'undetermined', reason: 'anchor_required' } as const)
+      : ({ outcome: 'refused', reason: 'policy_unset' } as const),
+    evidence: Object.freeze({ coverage: Object.freeze(coverage), receipts: receipts.length }),
+    holds: Object.freeze(
+      holds.map((row) =>
+        Object.freeze({ id: row.id, releasedAt: row.releasedAt?.toISOString() ?? null })
+      )
+    ),
+    periodConfigured,
+    subjectId: input.subjectId,
+    workspaceId: input.workspaceId,
+  })
+}

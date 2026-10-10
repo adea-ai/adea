@@ -27,6 +27,7 @@ export {
 export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
+  recordRuntimeNodeRetentionReceipt,
   RuntimeNodeDeliveryError,
 } from './runtime-node-delivery'
 
@@ -72,8 +73,10 @@ export {
   releaseRetentionHold,
   retentionCleanupErrorCodes,
   RetentionCleanupError,
+  readRetentionStatus,
   revokeRetentionDeletionAuthorization,
   withRetentionDeletionGate,
+  type RetentionStatusView,
   type RetentionAuthorizationRecord,
   type RetentionCleanupErrorCode,
   type RetentionGateContext,
