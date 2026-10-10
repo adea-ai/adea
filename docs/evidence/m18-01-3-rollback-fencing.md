@@ -268,8 +268,24 @@ test/*.test.ts start/ui-tailwind-sources.test.ts`): 442 pass, 0 fail (72 files).
 - Code change in this pass beyond tests: `resolveLeadTurnAuthority('effect')` now refuses a fenced
   admission before the runtime is called. This adds a denial. Previously `adapter.prepare` could run
   before the fence check at `store.prepare`.
-- Unapproved proposal (not applied, not in this branch): an additive fence-envelope change, with
-  identity and pin fields, in the fenced branch of the handler. It was validated from scratch and
-  dry-runs cleanly. It is held for root review, and its patch text is in the handoff, not in the repo.
+- Envelope negatives against the real handlers (committed, all passing against the committed code):
+  `apps/web/test/lead-product-fence-envelope-negative.test.ts` covers the signed reader for missing,
+  stale and mismatched envelopes. `apps/web/test/lead-turn-status-cancel-negative.test.ts` covers the
+  status and cancel service for missing, stale and mismatched runtime responses.
+  `packages/db/tests/integration/lead-turn-fence-envelope-negative.test.ts` covers the rollback reader
+  and the effect and cancel authority.
+- Gaps the committed handler does not refuse, found by probing it. They are not committed as tests,
+  because they would fail. (a) A product with `dispatchPermitted: false` and no envelope is served as
+  a dispatchable v1 admission with the prompt. The database never produces that combination, but the
+  handler does not check it. (b) A malformed envelope, a `fencedAt` in the future or an unknown actor
+  kind is emitted unvalidated. A fence envelope that contradicts `dispatchPermitted: true` is also
+  emitted.
+- Unapproved proposal (uncommitted, not applied, not in this branch): an additive, insertion-only
+  handler patch that closes (a) and (b) and adds the identity and pin fields. It comes with its tests
+  and fixture updates, in the worktree folder `review/lead-1244-envelope-proposal.patch`. The gap tests
+  fail against the committed handler and pass against the patched copy, and the patch dry-runs with
+  `git apply --check`.
+- Migration collision with #1229 is recorded in `docs/evidence/m18-01-3-migration-collision.md`.
+  Nothing is renumbered.
 - Not run in this pass: root `typecheck` via turbo (the pre-commit hook runs it on commit), root
   `test:coverage`, Playwright E2E, packaged and desktop suites, performance, soak, and root `build`.
