@@ -2,6 +2,7 @@ import type { AccountWorkspaceSummary, UserPrincipalRef } from '@adea-ai/types'
 import { sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { filterVisibleJobOutboundRows } from './job-outbound-read'
 import {
   channelParticipants,
   channelReadStates,
@@ -16,9 +17,25 @@ import {
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
+/** One channel's row in the summary query. A channel with no membership row is `null`. */
+type SummaryChannelRow = {
+  channelId: string | null
+  manuallyUnread: boolean
+  mentions: number | string
+  ordinaryUnread: boolean
+  publications: readonly {
+    executionRef: string | null
+    id: string
+    senderKind: string
+    senderSystemId: string | null
+  }[]
+  sortOrder: number
+  workspaceId: string
+}
+
 /**
  * Counts-only unread status for every live workspace the principal belongs to
- * (ADR 0011, "Counts-only cross-workspace status"), in one grouped query.
+ * (ADR 0011, "Counts-only cross-workspace status"), in one statement.
  *
  * Membership is the only authority: the query starts from the principal's own
  * memberships, so a workspace they do not belong to can never appear. Channel
@@ -28,13 +45,15 @@ type Database = AgentHqDatabase | AgentHqTransaction
  * every project, everyone else sees `workspace` projects and the `members`
  * projects that list them (`visibleProjectCondition`).
  *
- * - `unreadChannels` counts channels whose newest live top-level message
- *   (`channels.latest_message_sequence`) is past the user's channel frontier,
- *   or that the user marked unread. Thread-only replies do not count here;
- *   the in-workspace read state still reports them.
+ * - `unreadChannels` counts channels with a live top-level message the user can
+ *   see past their channel frontier, or that the user marked unread. A job
+ *   publication is counted only while the user is authorized for it (#1217): the
+ *   statement returns each channel's ordinary unread flag and its unread
+ *   publications, and the publications are gated here, only when there are any.
+ *   Thread-only replies do not count here; the in-workspace read state still
+ *   reports them.
  * - `mentions` counts live, unread top-level messages in those channels that
- *   mention the user (`message_mentions`). The lateral count runs only for
- *   channels that are already unread by sequence.
+ *   mention the user (`message_mentions`). Publications carry no mentions.
  *
  * Nothing in the result names a channel, message, or person.
  */
@@ -42,18 +61,44 @@ export async function accountWorkspaceSummaries(
   database: Database,
   principal: UserPrincipalRef
 ): Promise<readonly AccountWorkspaceSummary[]> {
-  const rows = await database.execute<{
-    mentions: number
-    unreadChannels: number
-    workspaceId: string
-  }>(sql`
+  const rows = await database.execute<SummaryChannelRow>(sql`
     select
       membership.workspace_id as "workspaceId",
-      (count(channel.id) filter (
-        where channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0)
-          or coalesce(read_state.manually_unread, false)
-      ))::int as "unreadChannels",
-      coalesce(sum(mention.count), 0)::int as "mentions"
+      membership.sort_order as "sortOrder",
+      channel.id as "channelId",
+      coalesce(read_state.manually_unread, false) as "manuallyUnread",
+      (
+        channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0)
+        and exists (
+          select 1 from ${messages} as unread
+          where unread.channel_id = channel.id
+            and unread.workspace_id = channel.workspace_id
+            and unread.thread_root_message_id is null
+            and unread.deleted_at is null
+            and unread.sequence > coalesce(read_state.last_read_sequence, 0)
+            and not (
+              unread.sender_kind = 'system'
+              and unread.sender_system_id like 'job-outbound:v1:%'
+            )
+        )
+      ) as "ordinaryUnread",
+      case when channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0) then (
+        select coalesce(json_agg(json_build_object(
+          'id', publication.id,
+          'executionRef', publication.execution_ref,
+          'senderKind', publication.sender_kind,
+          'senderSystemId', publication.sender_system_id
+        )), '[]'::json)
+        from ${messages} as publication
+        where publication.channel_id = channel.id
+          and publication.workspace_id = channel.workspace_id
+          and publication.thread_root_message_id is null
+          and publication.deleted_at is null
+          and publication.sender_kind = 'system'
+          and publication.sender_system_id like 'job-outbound:v1:%'
+          and publication.sequence > coalesce(read_state.last_read_sequence, 0)
+      ) else '[]'::json end as "publications",
+      coalesce(mention.count, 0) as "mentions"
     from ${workspaceMemberships} as membership
     inner join ${workspaces} as workspace
       on workspace.id = membership.workspace_id and workspace.deleted_at is null
@@ -100,15 +145,37 @@ export async function accountWorkspaceSummaries(
         and message.sequence > coalesce(read_state.last_read_sequence, 0)
     ) as mention on true
     where membership.user_id = ${principal.userId}
-    group by membership.workspace_id, membership.sort_order
     order by membership.sort_order asc, membership.workspace_id asc
   `)
+  const channelRows = [...rows]
+  // Gate only the publications the summary found. With none, this adds no statement.
+  const publications = channelRows.flatMap((row) => row.publications)
+  const authorized = new Set(
+    (publications.length
+      ? await filterVisibleJobOutboundRows(database, publications, principal.userId)
+      : []
+    ).map((row) => row.id)
+  )
+
+  const summaries = new Map<string, { mentions: number; unreadChannels: number }>()
+  for (const row of channelRows) {
+    const summary = summaries.get(row.workspaceId) ?? { mentions: 0, unreadChannels: 0 }
+    if (row.channelId !== null) {
+      const unread =
+        row.manuallyUnread ||
+        row.ordinaryUnread ||
+        row.publications.some((publication) => authorized.has(publication.id))
+      if (unread) summary.unreadChannels += 1
+      summary.mentions += Number(row.mentions)
+    }
+    summaries.set(row.workspaceId, summary)
+  }
   return Object.freeze(
-    [...rows].map((row) =>
+    [...summaries].map(([workspaceId, summary]) =>
       Object.freeze({
-        mentions: Number(row.mentions),
-        unreadChannels: Number(row.unreadChannels),
-        workspaceId: row.workspaceId,
+        mentions: summary.mentions,
+        unreadChannels: summary.unreadChannels,
+        workspaceId,
       })
     )
   )

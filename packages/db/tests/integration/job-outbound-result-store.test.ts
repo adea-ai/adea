@@ -21,7 +21,14 @@ import {
   setChannelParticipants,
 } from '../../src/conversations'
 import { searchWorkspaceForUser } from '../../src/search'
+import { accountConversationInbox } from '../../src/account-inbox'
+import { accountWorkspaceSummaries } from '../../src/account-summary'
 import { listWorkspaceEventsAfter } from '../../src/event-log'
+import {
+  listReadStateForUser,
+  markChannelReadState,
+  markThreadReadState,
+} from '../../src/read-state'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
@@ -1429,6 +1436,209 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         (delivery) => delivery.kind === 'deliver' && delivery.event.aggregateId === ordinary.id
       )
     ).toBe(true)
+  })
+
+  test('an unauthorized publication is neither unread nor the exposed frontier in read state, the account summary or the inbox; mark-read cannot run past it; a regrant does not revive it', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const sequenceOf = async (messageId: string) => {
+      const [row] = await connection.db
+        .select({ sequence: messages.sequence })
+        .from(messages)
+        .where(eq(messages.id, messageId))
+        .limit(1)
+      return row!.sequence
+    }
+    const channelRead = async () =>
+      (await listReadStateForUser(connection.db, f.destination.id, reader)).find(
+        (row) => row.channelId === f.channelA.id
+      )!
+    const summaryUnread = async () =>
+      (await accountWorkspaceSummaries(connection.db, reader)).find(
+        (row) => row.workspaceId === f.destination.id
+      )!.unreadChannels
+    const inboxRow = async () =>
+      (await accountConversationInbox(connection.db, reader)).conversations.find(
+        (row) => row.id === f.channelA.id
+      )!
+
+    // An ordinary message the reader reads through: the watermark is its sequence.
+    const ordinary = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      {
+        bodyText: 'Ordinary update.',
+        idempotencyKey: `ordinary-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      }
+    )
+    await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read')
+    const ordinarySeq = await sequenceOf(ordinary.id)
+    expect(await channelRead()).toMatchObject({
+      lastReadSequence: ordinarySeq,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+
+    // An authorized publication past the watermark: unread everywhere, and the newest frontier.
+    const reg = await registeredArtifact(f)
+    const published = await publishArtifact(f, reg)
+    const publicationSeq = await sequenceOf(published.messageId!)
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: publicationSeq,
+      topLevelUnreadCount: 1,
+      unread: true,
+    })
+    expect(await summaryUnread()).toBe(1)
+    expect(await inboxRow()).toMatchObject({
+      latestTopLevelSequence: publicationSeq,
+      topLevelUnreadCount: 1,
+      unread: true,
+    })
+
+    // Revoked: not unread anywhere, and the exposed frontier walks down past it to the ordinary message.
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: ordinarySeq,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+    expect(await summaryUnread()).toBe(0)
+    expect(await inboxRow()).toMatchObject({
+      latestTopLevelSequence: ordinarySeq,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+
+    // Mark-read cannot run past what the reader can see, and a stale sequence cannot rewind.
+    await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read')
+    expect(await channelRead()).toMatchObject({ lastReadSequence: ordinarySeq })
+    await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read', 0)
+    expect(await channelRead()).toMatchObject({ lastReadSequence: ordinarySeq })
+
+    // A hidden publication cannot be the root of a thread the reader marks.
+    await expect(
+      markThreadReadState(
+        connection.db,
+        f.destination.id,
+        f.channelA.id,
+        published.messageId!,
+        reader,
+        'read'
+      )
+    ).rejects.toThrow('Read state unavailable')
+
+    // A regrant does not revive a publication: it stays bound to the revision it was published
+    // under, so it remains hidden, and nothing about it turns unread again.
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: ordinarySeq,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+    expect(await summaryUnread()).toBe(0)
+    expect(publicationSeq).toBeGreaterThan(ordinarySeq)
+  })
+
+  test('a publication hidden only by the original actor losing source authority is unread again when that authority returns, because mark-read never ran past it', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const sequenceOf = async (messageId: string) => {
+      const [row] = await connection.db
+        .select({ sequence: messages.sequence })
+        .from(messages)
+        .where(eq(messages.id, messageId))
+        .limit(1)
+      return row!.sequence
+    }
+    const channelRead = async () =>
+      (await listReadStateForUser(connection.db, f.destination.id, reader)).find(
+        (row) => row.channelId === f.channelA.id
+      )!
+    const summaryUnread = async () =>
+      (await accountWorkspaceSummaries(connection.db, reader)).find(
+        (row) => row.workspaceId === f.destination.id
+      )!.unreadChannels
+    const ordinary = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      {
+        bodyText: 'Ordinary update.',
+        idempotencyKey: `ordinary-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+      }
+    )
+    await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read')
+    const ordinarySeq = await sequenceOf(ordinary.id)
+    const reg = await registeredArtifact(f)
+    const published = await publishArtifact(f, reg)
+    const publicationSeq = await sequenceOf(published.messageId!)
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: publicationSeq,
+      topLevelUnreadCount: 1,
+      unread: true,
+    })
+
+    // The original actor (the owner) stops being an owner or admin of the source: the publication's
+    // source authority is lost, so it is hidden from the reader for as long as that holds.
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.userId, f.owner.principal.userId),
+          eq(workspaceMemberships.workspaceId, f.workspace.id)
+        )
+      )
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: ordinarySeq,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+    expect(await summaryUnread()).toBe(0)
+
+    // Mark-read while hidden reads through the visible frontier, not the publication.
+    await markChannelReadState(connection.db, f.destination.id, f.channelA.id, reader, 'read')
+    expect(await channelRead()).toMatchObject({ lastReadSequence: ordinarySeq })
+
+    // Authority returns: the publication is past the watermark, so it is unread again.
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'owner' })
+      .where(
+        and(
+          eq(workspaceMemberships.userId, f.owner.principal.userId),
+          eq(workspaceMemberships.workspaceId, f.workspace.id)
+        )
+      )
+    expect(await channelRead()).toMatchObject({
+      latestTopLevelSequence: publicationSeq,
+      topLevelUnreadCount: 1,
+      unread: true,
+    })
+    expect(await summaryUnread()).toBe(1)
   })
 
   test('a held publication commits the completion and writes nothing; a retry converges to one message once the grant is restored', async () => {

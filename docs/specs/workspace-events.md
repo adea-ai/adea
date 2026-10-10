@@ -298,14 +298,23 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   message, or person.
 - **One grouped query.** Channel visibility matches read state: active
   channels that are workspace-visible or list the caller as a participant.
-  `unreadChannels` counts those whose `channels.latest_message_sequence` is
-  past `channel_read_states.last_read_sequence` (missing state reads as 0), or
-  that are marked `manually_unread`. Thread-only replies do not make a channel
-  unread here; the in-workspace read state still counts them. `mentions`
+  `unreadChannels` counts those with a top-level message the caller can see past
+  `channel_read_states.last_read_sequence` (missing state reads as 0), or that
+  are marked `manually_unread`. A job publication is seen only while the caller
+  is authorized for it under the publication gates; a hidden publication is not
+  unread (#1217). The check starts from `channels.latest_message_sequence` and
+  excludes the caller's hidden unread publications, which are read from the
+  unread range of channels that have unread. Thread-only replies do not make a
+  channel unread here; the in-workspace read state still counts them. `mentions`
   counts live, unread top-level messages in those channels that mention the
   caller (`message_mentions`, indexed by `message_mentions_user_idx`).
 - **The frontier column.** `channels.latest_message_sequence` (migration
   `0031`) is the newest live top-level message sequence, 0 when there is none.
+  It is the stored starting point only: the frontier a reader is shown, and the
+  watermark mark-read writes, is the newest top-level message that reader can
+  see (#1217). A hidden publication at the top is walked past to the newest
+  visible message; the walk costs the hidden publications at the top of that
+  channel, in batches of 16 indexed rows.
   `createMessage` advances it with `GREATEST` in the insert transaction, so
   out-of-order commits never move it back; a thread reply leaves it alone.
   `deleteMessage` of the current newest top-level message moves it back to the

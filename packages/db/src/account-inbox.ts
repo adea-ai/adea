@@ -14,6 +14,11 @@ import {
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
+  hiddenUnreadCountByChannel,
+  readHiddenUnreadPublications,
+  readVisibleTopLevelFrontiers,
+} from './job-outbound-frontier'
+import {
   channelParticipants,
   channelReadStates,
   channels,
@@ -27,6 +32,61 @@ import {
 } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
+
+/**
+ * Applies the principal's current publication authority to inbox rows. A hidden unread
+ * publication is not an unread message, and the exposed frontier is the newest message the
+ * principal can see. Only the rows' own channels are read, so a page costs its channels.
+ */
+async function withPublicationAuthority(
+  database: Database,
+  principal: UserPrincipalRef,
+  rows: readonly InboxRow[]
+): Promise<InboxRow[]> {
+  if (!rows.length) return []
+  // The frontier message is joined in the row, so this reads only the publications, and only
+  // for rows that have an unread one.
+  const frontiers = await readVisibleTopLevelFrontiers(
+    database,
+    principal,
+    rows.map((row) => {
+      const latestSequence = Number(row.latestTopLevelSequence)
+      return {
+        channelId: row.id,
+        latestSequence,
+        top:
+          latestSequence > 0
+            ? row.topId
+              ? {
+                  executionRef: row.topExecutionRef,
+                  id: row.topId,
+                  sequence: latestSequence,
+                  senderKind: row.topSenderKind ?? 'user',
+                  senderSystemId: row.topSenderSystemId,
+                }
+              : null
+            : undefined,
+        workspaceId: row.workspaceId,
+      }
+    })
+  )
+  const flagged = rows.filter((row) => row.hasUnreadPublication).map((row) => row.id)
+  const hidden = flagged.length
+    ? await readHiddenUnreadPublications(database, principal, {
+        channelIds: flagged,
+        workspaceIds: [...new Set(rows.map((row) => row.workspaceId))],
+      })
+    : []
+  const hiddenByChannel = hiddenUnreadCountByChannel(hidden)
+  return rows.map((row) => ({
+    ...row,
+    latestTopLevelSequence: frontiers.get(row.id) ?? 0,
+    topLevelUnreadCount: Math.max(
+      0,
+      Number(row.topLevelUnreadCount) - (hiddenByChannel.get(row.id) ?? 0)
+    ),
+  }))
+}
 
 type InboxRow = {
   id: string
@@ -50,6 +110,12 @@ type InboxRow = {
   topLevelUnreadCount: string | number
   threadUnreadCount: string | number
   unreadMentions: string | number
+  /** The stored frontier message, joined so the frontier costs no extra read (#1217). */
+  topId: string | null
+  topExecutionRef: string | null
+  topSenderKind: string | null
+  topSenderSystemId: string | null
+  hasUnreadPublication: boolean
 }
 
 // The account-wide inbox lists conversations from every workspace the
@@ -69,7 +135,9 @@ type InboxRow = {
 // Unread state reuses the counts-only account summary's contract (ADR 0011):
 // the denormalized `channels.latest_message_sequence` frontier gates the
 // top-level count, so a read conversation costs no message access; the
-// mention lateral runs only for channels unread by sequence. Thread unread
+// mention lateral runs only for channels unread by sequence. A job publication
+// is counted and exposed only while the principal is authorized for it (#1217),
+// applied to the page's own rows. Thread unread
 // follows the canonical workspace read-state semantics exactly — the sum of
 // live replies past each thread's frontier, plus one per manually-unread
 // thread — so an inbox row and the workspace read state can never disagree.
@@ -97,6 +165,20 @@ const inboxSelection = sql`
     to_char(channel.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
       as "updatedAtText",
     channel.latest_message_sequence as "latestTopLevelSequence",
+    top_message.id as "topId",
+    top_message.execution_ref as "topExecutionRef",
+    top_message.sender_kind as "topSenderKind",
+    top_message.sender_system_id as "topSenderSystemId",
+    exists (
+      select 1 from ${messages} as publication
+      where publication.channel_id = channel.id
+        and publication.workspace_id = channel.workspace_id
+        and publication.thread_root_message_id is null
+        and publication.deleted_at is null
+        and publication.sender_kind = 'system'
+        and publication.sender_system_id like 'job-outbound:v1:%'
+        and publication.sequence > coalesce(read_state.last_read_sequence, 0)
+    ) as "hasUnreadPublication",
     coalesce(read_state.manually_unread, false) as "manuallyUnread",
     (
       case when channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0) then (
@@ -176,6 +258,12 @@ const inboxAuthorization = (userId: string) => sql`
       on read_state.workspace_id = channel.workspace_id
       and read_state.user_id = ${userId}
       and read_state.channel_id = channel.id
+    left join ${messages} as top_message
+      on top_message.channel_id = channel.id
+      and top_message.workspace_id = channel.workspace_id
+      and top_message.sequence = channel.latest_message_sequence
+      and top_message.thread_root_message_id is null
+      and top_message.deleted_at is null
     left join lateral (
       select count(*) as count
       from ${messageMentions} as mentioned
@@ -273,11 +361,11 @@ export async function accountConversationInbox(
     order by channel.updated_at desc, channel.id desc
     limit ${limit + 1}
   `)
-  const page = [...rows].slice(0, limit)
-  const last = page.at(-1)
+  const pageRows = await withPublicationAuthority(database, principal, [...rows].slice(0, limit))
+  const last = pageRows.at(-1)
   return Object.freeze({
-    conversations: Object.freeze(page.map(inboxEntry)),
-    ...(page.length < rows.length && last
+    conversations: Object.freeze(pageRows.map(inboxEntry)),
+    ...(pageRows.length < rows.length && last
       ? {
           // The exact timestamp text, not a Date-normalized one: PostgreSQL
           // compares microseconds while `Date` holds only milliseconds.
@@ -314,5 +402,7 @@ export async function findAccountConversation(
     and channel.id = ${conversationId}::uuid
     limit 1
   `)
-  return row ? inboxEntry(row) : null
+  if (!row) return null
+  const [current] = await withPublicationAuthority(database, principal, [row])
+  return current ? inboxEntry(current) : null
 }
