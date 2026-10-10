@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 
 /**
  * Production-composed host proof (#1215). Uses the real
@@ -35,6 +36,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   let routeModule: typeof import('../src/server/lead-management-route')
   let scopeModule: typeof import('../src/server/request-scope')
   let typesModule: typeof import('@adea-ai/types/management')
+  let authorizationModule: typeof import('../src/server/workspace-authorization')
   let connection: import('@adea-ai/db').DatabaseConnection
   let cpServer: ReturnType<typeof Bun.serve>
 
@@ -49,10 +51,14 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   const servicePrincipalId = 'svc_pi-lead-management'
   const now = Date.parse('2026-10-09T12:00:00.000Z')
 
-  async function signedDecision(binding: { [key: string]: unknown }, decisionId: string) {
+  async function signedDecision(
+    binding: { [key: string]: unknown },
+    decisionId: string,
+    actorUserId: string = principal.userId
+  ) {
     const claims = {
       actionDigest: binding.actionDigest,
-      actorUserId: principal.userId,
+      actorUserId,
       approvalAudienceRef: 'audience:fixture',
       approvalExpiresAt: new Date(now + 120_000).toISOString(),
       approvalInteractionId: `interaction-${decisionId}`,
@@ -133,6 +139,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     routeModule = await import('../src/server/lead-management-route')
     scopeModule = await import('../src/server/request-scope')
     typesModule = await import('@adea-ai/types/management')
+    authorizationModule = await import('../src/server/workspace-authorization')
 
     connection = dbModule.createDatabase(connectionUrl!)
     const temporary = await dbModule.createTemporaryUserSession(connection.db, {
@@ -536,5 +543,103 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       principal
     )
     expect(active?.lifecycleState).toBe('active')
+  })
+
+  test('a revoked principal leaves zero effects and no allowed audit row', async () => {
+    const member = await dbModule.createTemporaryUserSession(connection.db, {
+      credentialDigest: `digest-${crypto.randomUUID()}`,
+      expiresAt: new Date(now + 3_600_000),
+    })
+    await dbModule.addWorkspaceMembership(connection.db, workspaceId, member.principal, 'admin')
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Before revocation',
+    })
+    const input = { name: 'Denied rename' }
+    const binding = await typesModule.managementCallBinding({
+      input,
+      operation: 'project.update',
+      targetId: created.id,
+      workspaceId,
+    })
+    if (!binding) throw new Error('unreachable')
+    // The shared authorization API allows the admin member before revocation
+    // and denies the same principal afterwards; both decisions are audited.
+    expect(
+      (
+        await authorizationModule.authorizeWorkspace(
+          member.principal,
+          'workspace.update',
+          workspaceId
+        )
+      ).allowed
+    ).toBe(true)
+    await dbModule.removeWorkspaceMembership(connection.db, workspaceId, member.principal)
+    expect(
+      (
+        await authorizationModule.authorizeWorkspace(
+          member.principal,
+          'workspace.update',
+          workspaceId
+        )
+      ).allowed
+    ).toBe(false)
+    const auditBefore = await connection.db
+      .select()
+      .from(dbModule.authorizationAuditRecords)
+      .where(eq(dbModule.authorizationAuditRecords.workspaceId, workspaceId))
+
+    const decisionId = `decision-${crypto.randomUUID()}`
+    const token = await signedDecision(binding, decisionId, member.principal.userId)
+    cpSeen.length = 0
+    cpMode = 'ok'
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(input, binding, token))
+    )
+    expect(response.status).toBe(403)
+    // Zero effects: the project is untouched and the refused decision was
+    // never claimed.
+    const unchanged = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(unchanged?.name).toBe('Before revocation')
+    // The refused delivery consumed the decision as failed — never a success
+    // and never reusable — so a retry cannot execute it.
+    expect(
+      await dbModule.claimManagementAuthorityDecision(connection.db, {
+        actionDigest: binding.actionDigest,
+        authorityRef: `credential-${decisionId}`,
+        authorityRevision: 7,
+        decisionId,
+        inputDigest: binding.inputDigest,
+        operation: binding.operation,
+        targetDigest: binding.targetDigest,
+        targetId: binding.targetId,
+        workspaceId,
+      })
+    ).toEqual({ priorState: 'failed', state: 'recovery_required' })
+    // Zero audit success rows for the refused delivery; the denial is
+    // attributed to the revoked principal.
+    const auditAfter = await connection.db
+      .select()
+      .from(dbModule.authorizationAuditRecords)
+      .where(eq(dbModule.authorizationAuditRecords.workspaceId, workspaceId))
+    expect(auditAfter.filter((row) => row.decision === 'allowed').length).toBe(
+      auditBefore.filter((row) => row.decision === 'allowed').length
+    )
+    expect(
+      auditAfter.filter(
+        (row) => row.decision === 'denied' && row.principalId === member.principal.userId
+      ).length
+    ).toBeGreaterThan(
+      auditBefore.filter(
+        (row) => row.decision === 'denied' && row.principalId === member.principal.userId
+      ).length
+    )
+    // The CP admission assertion is reached; the effect boundary is not.
+    expect(cpSeen).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
   })
 })
