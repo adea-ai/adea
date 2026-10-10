@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { migrationSnapshotFamilies } from '@adea-ai/types'
 import { listMessagesForUser } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
@@ -164,7 +165,13 @@ async function executeScenario() {
     { archived: true }
   )
 
-  const before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
+  // The main families the canonical capture proves on both sides of the chain. nativeSessions needs an
+  // inventory source this rehearsal does not supply, so it is excluded rather than compared as unknown.
+  const mainFamilies = migrationSnapshotFamilies.filter((family) => family !== 'nativeSessions')
+  const before = await captureMigrationSnapshot(connection.db, {
+    identity: identity('before'),
+    requestedDomains: mainFamilies,
+  })
   const participantsBefore = await participantRows(connection, workspaceId)
 
   // Then the rest of the canonical chain: #1232's 0049 and 0050 backfill, applied on a database
@@ -195,7 +202,10 @@ async function executeScenario() {
     grants: await implicitGrantCount(connection, workspaceId),
   }
 
-  const after = await captureMigrationSnapshot(connection.db, { identity: identity('after') })
+  const after = await captureMigrationSnapshot(connection.db, {
+    identity: identity('after'),
+    requestedDomains: mainFamilies,
+  })
   const comparison = compareMigrationSnapshots({ after: after.document, before: before.document })
 
   const reads = {
@@ -445,8 +455,13 @@ describe.skipIf(!provisioningUrl && !inCi)(
 
     test('the main capture families are unchanged across the canonical chain', async () => {
       const { comparison } = await runScenario()
-      expect(comparison.findings).toEqual([])
-      expect(comparison.verdict).toBe('identical')
+      // No determinate change on any main family. nativeSessions is outside this capture's scope, so
+      // the comparator reports it unknown on both sides and the verdict is inconclusive by contract.
+      expect(comparison.findings.map((finding) => finding.family)).toEqual(['nativeSessions'])
+      expect(
+        comparison.findings.every((finding) => finding.findingClass === 'unknown_domain')
+      ).toBe(true)
+      expect(comparison.verdict).toBe('inconclusive')
     })
 
     test('the existing read paths on main are unchanged for members and deny the outsider', async () => {

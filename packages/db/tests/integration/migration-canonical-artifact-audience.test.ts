@@ -64,12 +64,12 @@ describe('audience-side pins (no database)', () => {
     }
   })
 
-  test('the artifact-grant capture domain is reported unknown, never an empty capture, until #1219 lands', () => {
+  test('the artifact-grant capture domain is captured now that #1219 has landed (#1248)', () => {
     expect(resolveMigrationSnapshotCaptureDomains(['artifactReferenceGrants'])).toEqual([
       {
         domain: 'artifactReferenceGrants',
-        status: 'unknown',
-        unknownReason: 'unrecognized_domain',
+        status: 'captured',
+        unknownReason: null,
       },
     ])
   })

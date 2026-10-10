@@ -22,6 +22,12 @@ import {
   type MigrationSnapshotCaptureIdentityInput,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
+import { migrationSnapshotFamilies } from '@adea-ai/types'
+import {
+  captureLegacyMigrationSnapshot,
+  LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
+  legacyCapturedFamilies,
+} from '../../src/migration-snapshot-legacy'
 import { listReadStateForUser } from '../../src/read-state'
 import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
 import { listTasksForUser } from '../../src/tasks'
@@ -272,6 +278,39 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
 const ids = (rows: readonly { id: string }[] | 'denied') =>
   rows === 'denied' ? 'denied' : rows.map((row) => row.id).toSorted()
 
+/**
+ * The families both sides of the cutover capture, from the registered pre-0046 version. Every other
+ * family is recorded as absent by schema or not read by the legacy path, never as empty.
+ */
+const COMPARED_FAMILIES = legacyCapturedFamilies(LEGACY_MIGRATION_SNAPSHOT_VERSIONS['pre-0046']!)
+/** Contract families outside the compared scope: the comparator reports each as unknown, never as zero. */
+const UNPROVEN_FAMILIES = migrationSnapshotFamilies
+  .filter((family) => !COMPARED_FAMILIES.includes(family))
+  .toSorted()
+
+/**
+ * The product baseline at the pre-0046 state. The merged product readers name columns and relations
+ * that the historical schema lacks, so the baseline is unavailable evidence, never an empty answer.
+ * Only a missing column or relation is accepted as that evidence; any other error still throws.
+ */
+async function baselineProductReads(
+  connection: DatabaseConnection,
+  fixture: Fixture
+): Promise<{ unavailable: string } | { value: Awaited<ReturnType<typeof readThroughProduct>> }> {
+  try {
+    return { value: await readThroughProduct(connection, fixture) }
+  } catch (error) {
+    // drizzle wraps the driver error; the missing object is named on the wrapped cause.
+    for (const candidate of [error, (error as { cause?: unknown } | null)?.cause]) {
+      const text = candidate instanceof Error ? candidate.message : String(candidate)
+      const missing = /(column|relation) "([^"]+)" does not exist/.exec(text)
+      if (missing)
+        return { unavailable: `${missing[1]} "${missing[2]}" does not exist before 0046` }
+    }
+    throw error
+  }
+}
+
 /** Product reads per principal, keyed by stable id. Denials are values; other errors throw. */
 async function readThroughProduct(connection: DatabaseConnection, fixture: Fixture) {
   const { db } = connection
@@ -366,8 +405,17 @@ async function executeScenario() {
     grantsTablePresent: await tablePresent(connection, 'app.artifact_reference_grants'),
   }
   const fixture = await seedLegacyFixture(connection)
-  const before = await captureMigrationSnapshot(connection.db, { identity: identity('before') })
-  const baselineReads = await readThroughProduct(connection, fixture)
+  const before = await captureLegacyMigrationSnapshot(connection.db, {
+    identity: identity('before'),
+    versionId: 'pre-0046',
+  })
+  const baselineReads = await baselineProductReads(connection, fixture)
+  // The canonical typed capture, on the same populated pre-0046 state, restricted to the compared
+  // families. Where it is valid it must agree with the legacy readers record for record.
+  const typedBefore = await captureMigrationSnapshot(connection.db, {
+    identity: identity('before-typed'),
+    requestedDomains: COMPARED_FAMILIES,
+  })
 
   // Cutover: the remaining journal entry, applied unchanged.
   await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
@@ -376,7 +424,10 @@ async function executeScenario() {
     grantsTablePresent: await tablePresent(connection, 'app.artifact_reference_grants'),
     artifactRows: await artifactRowCount(connection, fixture.artifactId),
   }
-  const after = await captureMigrationSnapshot(connection.db, { identity: identity('after') })
+  const after = await captureMigrationSnapshot(connection.db, {
+    identity: identity('after'),
+    requestedDomains: COMPARED_FAMILIES,
+  })
   const cutoverComparison = compareMigrationSnapshots({
     after: after.document,
     before: before.document,
@@ -421,6 +472,7 @@ async function executeScenario() {
     artifactRows: await artifactRowCount(connection, fixture.artifactId),
   }
   const again = await captureMigrationSnapshot(connection.db, {
+    requestedDomains: COMPARED_FAMILIES,
     identity: identity('after-repeat'),
   })
   const repeatComparison = compareMigrationSnapshots({
@@ -470,6 +522,7 @@ async function executeScenario() {
     again,
     baselineReads,
     afterReads,
+    typedBefore,
     repeatReads,
     cutoverComparison,
     repeatComparison,
@@ -512,46 +565,58 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(pre.grantsTablePresent).toBe(false)
   }, 300_000)
 
+  test('on the same populated pre-0046 database, the legacy capture equals the canonical typed capture', async () => {
+    const { before, typedBefore } = await runScenario()
+    expect(before.document.sections).toEqual(typedBefore.document.sections)
+    expect(Object.keys(before.document.sections).toSorted()).toEqual(
+      [...COMPARED_FAMILIES].toSorted()
+    )
+  })
+
   test('the cutover applies the remaining journal entry and changes no captured record', async () => {
     const { cutover, journalLength, cutoverComparison, baselineReads, afterReads } =
       await runScenario()
     expect(cutover.applied).toBe(journalLength)
     expect(cutover.grantsTablePresent).toBe(true)
     expect(cutover.artifactRows).toBe(1)
-    expect(cutoverComparison.findings).toEqual([])
-    expect(cutoverComparison.verdict).toBe('identical')
-    expect(afterReads).toEqual(baselineReads)
+    // No determinate divergence on any family both sides prove. The two families outside the compared
+    // scope stay unknown by contract (absent by schema before 0046, not read by the legacy path), so the
+    // verdict is inconclusive, never a success.
+    expect(cutoverComparison.findings.map((finding) => finding.findingClass)).toEqual(
+      UNPROVEN_FAMILIES.map(() => 'unknown_domain')
+    )
+    expect(cutoverComparison.findings.map((finding) => finding.family).toSorted()).toEqual(
+      UNPROVEN_FAMILIES
+    )
+    expect(cutoverComparison.verdict).toBe('inconclusive')
+    // The pre-0046 product baseline is unavailable evidence (see the capture test); after cutover the
+    // product answers, and the document comparison carries the audience and identity facts.
+    expect('unavailable' in baselineReads).toBe(true)
+    expect(afterReads.owner.sharedMessages).toHaveLength(2)
   }, 300_000)
 
-  test('the capture covers the rehearsed families and the fixture is read through the product', async () => {
-    const { before, baselineReads } = await runScenario()
+  test('the capture covers the legacy families, records absent and unread families explicitly, and keeps audience facts', async () => {
+    const { before, baselineReads, fixture } = await runScenario()
     const families = Object.keys(before.document.sections).toSorted()
-    expect(families).toEqual(
-      [
-        'agents',
-        'channelParticipants',
-        'channels',
-        'contentRefs',
-        'events',
-        'executionAttempts',
-        'identityBindings',
-        'invitations',
-        'memberships',
-        'messages',
-        'projectMembers',
-        'projects',
-        'readState',
-        'tasks',
-        'temporarySessions',
-        'workspaces',
-      ].toSorted()
-    )
+    expect(families).toEqual([...COMPARED_FAMILIES].toSorted())
+    expect(before.provenance.versionId).toBe('pre-0046')
+    expect(before.provenance.migrations.count).toBe(46)
+    expect(before.provenance.absentBySchema).toEqual({
+      artifactReferenceGrants: { reason: expect.any(String), table: 'artifact_reference_grants' },
+    })
+    expect(Object.keys(before.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(before.document.sections.executionAttempts?.records.length).toBeGreaterThanOrEqual(1)
     expect(before.document.sections.readState?.records.length).toBeGreaterThanOrEqual(1)
-    expect(baselineReads.owner.sharedMessages).toHaveLength(2)
-    expect(baselineReads.outsider.sharedMessages).toBe('denied')
-    expect(baselineReads.collaborator.sharedMessages).toBe('denied')
-    expect(baselineReads.collaborator.archivedMessages).toBe('denied')
+    const audience = before.document.sections.channelParticipants?.records ?? []
+    expect(
+      audience.some(
+        (row) =>
+          row.channelId === fixture.sharedChannelId && row.principalId === fixture.owner.userId
+      )
+    ).toBe(true)
+    expect(audience.some((row) => row.principalId === fixture.outsider.userId)).toBe(false)
+    // The product baseline cannot run on the pre-0046 schema: recorded as unavailable, never as empty.
+    expect(baselineReads).toEqual({ unavailable: expect.stringContaining('does not exist') })
   }, 300_000)
 
   test('repeating the migration and capture is idempotent', async () => {
@@ -559,14 +624,16 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       await runScenario()
     expect(repeat.applied).toBe(journalLength)
     expect(repeat.artifactRows).toBe(1)
-    expect(repeatComparison.findings).toEqual([])
-    expect(repeatComparison.verdict).toBe('identical')
+    expect(repeatComparison.findings.map((finding) => finding.family).toSorted()).toEqual(
+      UNPROVEN_FAMILIES
+    )
+    expect(repeatComparison.verdict).toBe('inconclusive')
     expect(again.document.sections).toEqual(after.document.sections)
     expect(repeatReads).toEqual(afterReads)
   }, 300_000)
 
   test('denied users stay denied through the product read paths after cutover', async () => {
-    const { afterReads, baselineReads, fixture } = await runScenario()
+    const { afterReads, fixture } = await runScenario()
     expect(afterReads.outsider).toEqual({
       channels: 'denied',
       sharedMessages: 'denied',
@@ -580,7 +647,6 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(afterReads.collaborator.archivedMessages).toBe('denied')
     // Message reads exclude archived channels for everyone, participants included.
     expect(afterReads.owner.archivedMessages).toBe('denied')
-    expect(afterReads.owner.archivedMessages).toEqual(baselineReads.owner.archivedMessages)
     // Only the participant sees the archived channel in the includeArchived listing.
     expect(afterReads.owner.channels).toContain(fixture.archivedChannelId)
     expect(afterReads.collaborator.channels).not.toContain(fixture.archivedChannelId)

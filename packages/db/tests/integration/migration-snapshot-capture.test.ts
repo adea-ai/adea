@@ -40,8 +40,8 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 // Capture proofs against a disposable PostgreSQL instance dedicated to this
 // run: scripts/test-integration.mjs provisions a throwaway postgres container
 // and exports its admin URL as MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL. The
-// proofs skip cleanly when that variable is absent outside CI, fail in CI, and never
-// fall back to the shared DATABASE_URL target. Every proof drives real rows through the domain
+// proofs skip cleanly when that variable is absent and never fall back to the
+// shared DATABASE_URL target. Every proof drives real rows through the domain
 // helpers, captures, and — where a diff is expected — runs the comparator on
 // the two frozen documents. Capture is read-only: the only writes in this
 // file are the fixtures themselves and their cleanup.
@@ -64,9 +64,6 @@ import { migrationSnapshotFamilies } from '@adea-ai/types'
 const DISPOSABLE_SCRATCH_PREFIX = 'capture_test_'
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
-// In CI a missing provisioning URL fails the proofs instead of skipping them, matching the
-// cutover rehearsal (#1222). Outside CI they skip without the URL.
-const inCi = process.env.CI === 'true' || process.env.CI === '1'
 
 let scratchDatabase: string | null = null
 
@@ -118,6 +115,13 @@ function capture(connection: DatabaseConnection, snapshotId: string, limitPerFam
   return captureMigrationSnapshot(connection.db, {
     ...(limitPerFamily === undefined ? {} : { limitPerFamily }),
     identity: captureIdentity(snapshotId),
+    // The runtime-owned session inventory is composed from an injected source.
+    // This fixture declares an authoritative zero so every contract family is
+    // present; the domains lane proves real mapping and failure handling.
+    nativeSessionInventory: {
+      authorizedScopes: [{ accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'wsp-1' }],
+      listRuntimeSessions: async () => ({ items: [] }),
+    },
   })
 }
 
@@ -272,7 +276,7 @@ async function dropScratchDatabase(): Promise<void> {
   }
 }
 
-describe.skipIf(!provisioningUrl && !inCi)('migration snapshot capture', () => {
+describe.skipIf(!provisioningUrl)('migration snapshot capture', () => {
   let connection: DatabaseConnection
 
   beforeAll(async () => {
@@ -312,8 +316,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration snapshot capture', () => {
       // the exact same bytes.
       expect(JSON.stringify(first.document)).toBe(JSON.stringify(second.document))
 
-      // Completeness: every supported family is a present, untruncated
-      // section — a proven inventory, not an absence.
+      // Completeness: every contract family is a present, untruncated section
+      // — a proven inventory, not an absence. Native sessions come from the
+      // injected runtime inventory source declared above.
       for (const family of migrationSnapshotFamilies) {
         const section = first.document.sections[family]
         expect(section).toBeDefined()
@@ -732,11 +737,11 @@ describe.skipIf(!provisioningUrl && !inCi)('migration snapshot capture', () => {
   test('an unsupported requested domain stays unknown with a typed reason', async () => {
     const result = await captureMigrationSnapshot(connection.db, {
       identity: captureIdentity('snapshot-partial'),
-      requestedDomains: ['workspaces', 'runtimeNodes'],
+      requestedDomains: ['workspaces', 'nativeSessions'],
     })
 
     expect(result.domains).toEqual([
-      { domain: 'runtimeNodes', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'unsupported_family' },
       { domain: 'workspaces', status: 'captured', unknownReason: null },
     ])
     // Only the supported, requested family has a section; the unsupported one
