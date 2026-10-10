@@ -6,6 +6,11 @@ const connectionUrl = process.env.DATABASE_URL
 describe.skipIf(!connectionUrl)('lead/topic additive migration', () => {
   test('preserves legacy identities, archived bodies, original audiences and read frontiers', async () => {
     const client = postgres(connectionUrl!, { max: 1 })
+    // Pooled runtime URLs can reuse a backend across sessions, so temp fixtures left by an earlier
+    // test in the same shard can survive. Drop any residue before creating this test's copies.
+    await client.unsafe(
+      `drop table if exists pg_temp.agents, pg_temp.channels, pg_temp.messages, pg_temp.channel_participants, pg_temp.channel_read_states`
+    )
     const fixtureSchema = 'pg_temp'
     const namespace = client(fixtureSchema)
     const workspaceId = crypto.randomUUID()
@@ -43,6 +48,9 @@ describe.skipIf(!connectionUrl)('lead/topic additive migration', () => {
         await client`select id from ${namespace}.channels where lifecycle_state='active'`
       ).toHaveLength(3)
     } finally {
+      await client.unsafe(
+        `drop table if exists pg_temp.agents, pg_temp.channels, pg_temp.messages, pg_temp.channel_participants, pg_temp.channel_read_states`
+      )
       await client.end()
     }
 

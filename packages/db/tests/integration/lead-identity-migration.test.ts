@@ -51,6 +51,11 @@ async function expectViolation(promise: Promise<unknown>, code: string, constrai
 describe.skipIf(!connectionUrl)('lead identity additive migrations', () => {
   test('preserve audiences, histories, ownership, and custom Agent identity on realistic old-shape data', async () => {
     const client = postgres(connectionUrl!, { max: 1 })
+    // Pooled runtime URLs can reuse a backend across sessions, so temp fixtures left by an earlier
+    // test in the same shard can survive. Drop any residue before creating this test's copies.
+    await client.unsafe(
+      `drop table if exists pg_temp.workspaces, pg_temp.workspace_memberships, pg_temp.agents, pg_temp.channels, pg_temp.channel_participants, pg_temp.messages, pg_temp.message_mentions, pg_temp.channel_read_states, pg_temp.thread_read_states, pg_temp.workspace_events`
+    )
     try {
       // The hosted runtime role has TEMP but not database CREATE; session-local copies keep
       // the reviewed SQL under test without schema grants.
@@ -603,6 +608,9 @@ describe.skipIf(!connectionUrl)('lead identity additive migrations', () => {
         )
       ).toEqual([{ topics: 2 }])
     } finally {
+      await client.unsafe(
+        `drop table if exists pg_temp.workspaces, pg_temp.workspace_memberships, pg_temp.agents, pg_temp.channels, pg_temp.channel_participants, pg_temp.messages, pg_temp.message_mentions, pg_temp.channel_read_states, pg_temp.thread_read_states, pg_temp.workspace_events`
+      )
       await client.end()
     }
 
