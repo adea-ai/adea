@@ -58,19 +58,27 @@ async function fetchFromPage<T>(
   route: string,
   init?: { method?: string; body?: unknown }
 ): Promise<{ status: number; body: T }> {
+  // Page-bound fetches need a committed origin for relative URLs.
+  // Navigate to the target itself: API documents carry no client router,
+  // so no redirect can ever destroy an open stream or in-flight read.
+  // goto resolves relative paths against the configured baseURL and
+  // succeeds on any HTTP status; only a network failure throws.
+  if (new URL(page.url()).protocol === 'about:') await page.goto(route, { waitUntil: 'commit' })
+  const idempotencyKey = crypto.randomUUID()
   return page.evaluate(
-    async ({ target, options }) => {
+    async ({ target, options, key }) => {
       const response = await fetch(target, {
         method: options.method ?? 'GET',
         headers: {
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': key,
+          'x-request-id': crypto.randomUUID(),
         },
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
       })
       return { status: response.status, body: (await response.json()) as T }
     },
-    { target: route, options: { method: init?.method, body: init?.body } }
+    { target: route, options: { method: init?.method, body: init?.body }, key: idempotencyKey }
   )
 }
 
@@ -154,12 +162,12 @@ test.describe('workspace and project placement over real routes', () => {
         .delete(workspaceMemberships)
         .where(inArray(workspaceMemberships.workspaceId, workspaceIds))
     }
+    if (workspaceIds.length) {
+      await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
+    }
     if (userIds.length) {
       await db.delete(temporaryUserSessions).where(inArray(temporaryUserSessions.userId, userIds))
       await db.delete(users).where(inArray(users.id, userIds))
-    }
-    if (workspaceIds.length) {
-      await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
     }
     await connection.close().catch(() => undefined)
   })
@@ -322,8 +330,14 @@ test.describe('workspace and project placement over real routes', () => {
     )
     expect(listed.body.map((project) => project.id)).toContain(projectId)
 
-    // Restricting to members hides it; reopening reveals it again.
-    const restricted = await fetchFromPage(member.page, projectPath + '/visibility', {
+    // Restricting to members hides it; reopening reveals it again. Only a
+    // manager can change visibility: the member's own attempt fences.
+    const denied = await fetchFromPage(member.page, projectPath + '/visibility', {
+      method: 'PATCH',
+      body: { visibility: 'members' },
+    })
+    expect(denied.status).not.toBe(200)
+    const restricted = await fetchFromPage(owner.page, projectPath + '/visibility', {
       method: 'PATCH',
       body: { visibility: 'members' },
     })
