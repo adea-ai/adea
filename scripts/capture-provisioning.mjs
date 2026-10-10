@@ -20,7 +20,8 @@ import { randomBytes } from 'node:crypto'
 // instance through this module, so every route to the capture proofs and the
 // clean-destination restore tests gets the same instance and the same cleanup.
 export const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
-export const captureProvisioningImage = 'postgres:18-alpine'
+export const captureProvisioningImage =
+  'public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
 
 // The signals that end a run early. Removal of the instance runs on these, on a
 // normal exit and on an error exit, and only for the container this module
