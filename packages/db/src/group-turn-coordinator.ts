@@ -76,6 +76,8 @@ type AddresserProof = Readonly<{
   bound: boolean
   /** Effective human admission at decision time, or null. */
   admission: GroupAdmission | null
+  /** Roster the admission was read from, reused by the decision. */
+  roster: readonly GroupAdmission[]
 }>
 
 async function proveAddresser(
@@ -110,7 +112,7 @@ async function proveAddresser(
   const roster = await loadGroupRoster(store, workspaceId, channelId)
   const admission =
     admissionForParticipant(roster, { kind: 'user', userId: principal.userId }) ?? null
-  return { admission, bound: trigger.senderUserId === principal.userId }
+  return { admission, bound: trigger.senderUserId === principal.userId, roster }
 }
 
 async function isWorkspaceManager(
@@ -294,11 +296,10 @@ export async function claimAddressedTurn(
       .for('update')
     if (!trigger) throw new AddressedTurnError('turn_trigger_unknown')
     // Successive retries converge even when the budget is full: the
-    // retained claim wins before any budget is consulted.
-    const retained = await loadTurnByTriple(store, workspaceId, input)
-    if (retained) return { status: 'duplicate', turn: retained }
-    // Human addressing proof, bound to the canonical trigger in-channel.
-    const { admission, bound } = await proveAddresser(
+    // retained claim wins before any budget is consulted. Authorization
+    // is revalidated FIRST, though — a revoked or forged principal never
+    // obtains even a duplicate turn.
+    const { admission, bound, roster } = await proveAddresser(
       store,
       workspaceId,
       input.channelId,
@@ -309,6 +310,13 @@ export async function claimAddressedTurn(
       admission && evaluateGroupGrantWindow(admission.grant, options.now) === 'effective'
     )
     const addresserBound = bound || (await isWorkspaceManager(store, workspaceId, principal.userId))
+    const retained = await loadTurnByTriple(store, workspaceId, input)
+    if (retained) {
+      if (!addresserBound) throw new AddressedTurnError('turn_trigger_forged')
+      if (!addresserEffective) throw new AddressedTurnError('turn_not_participant')
+      return { status: 'duplicate', turn: retained }
+    }
+    // (Proof already ran above, before the duplicate short-circuit.)
     // Recursive claims inherit the retained root budget, never the
     // caller-supplied one. Parentless claims on a live tree do the same:
     // only the tree's first claim sets the budget, so no caller can
@@ -326,7 +334,6 @@ export async function claimAddressedTurn(
       options.budget ??
       input.budget ??
       DEFAULT_ADDRESSED_TURN_BUDGET
-    const roster = await loadGroupRoster(store, workspaceId, input.channelId)
     const decision = decideAddressedTurn(
       input,
       roster,
@@ -335,6 +342,7 @@ export async function claimAddressedTurn(
       options.now,
       { addresserBound, addresserEffective }
     )
+    // (Roster already loaded by the proof above; reused, not re-read.)
     if (decision.action === 'deny') throw new AddressedTurnError(decision.reason)
     if ((await countTriggerTree(store, input.triggerMessageId)) >= budget.maxTurns)
       throw new AddressedTurnError('turn_budget_exhausted')
@@ -461,12 +469,36 @@ export async function dispatchAddressedTurn(
   options: Readonly<{ now: string; budget?: AddressedTurnBudget }> = { now: '' }
 ) {
   const claim = await claimAddressedTurn(database, workspaceId, principal, input, options)
-  const leadAgentId = await resolveGroupLeadAgentId(
-    database,
-    workspaceId,
-    input.channelId,
-    options.now || new Date().toISOString()
-  )
+  // The durable dispatch path is bound to CURRENT retained state and the
+  // canonical trigger/context — never to a stale decision. A superseded,
+  // cancelled or already-responded claim dispatches nothing: retries
+  // converge on the retained outcome instead of minting fresh intents.
+  // Concurrency is handled at the existing boundaries (the claim's trigger
+  // lock plus the lead-turn adapter's causal idempotency replay), so no
+  // second runtime is invented here.
+  const now = options.now || new Date().toISOString()
+  const [retained] = await database
+    .select()
+    .from(addressedAgentTurns)
+    .where(
+      and(
+        eq(addressedAgentTurns.id, claim.turn.id),
+        eq(addressedAgentTurns.workspaceId, workspaceId)
+      )
+    )
+    .limit(1)
+  if (!retained) throw new AddressedTurnError('turn_claim_unresolved')
+  if (retained.state === 'superseded') throw new AddressedTurnError('turn_superseded')
+  if (retained.state === 'cancelled') throw new AddressedTurnError('turn_cancelled')
+  if (retained.state === 'responded') throw new AddressedTurnError('turn_already_responded')
+  const [trigger] = await database
+    .select({ channelId: messages.channelId, deletedAt: messages.deletedAt })
+    .from(messages)
+    .where(and(eq(messages.id, retained.triggerMessageId), eq(messages.workspaceId, workspaceId)))
+    .limit(1)
+  if (!trigger || trigger.deletedAt || trigger.channelId !== retained.channelId)
+    throw new AddressedTurnError('turn_trigger_unknown')
+  const leadAgentId = await resolveGroupLeadAgentId(database, workspaceId, input.channelId, now)
   if (leadAgentId !== input.agentId) throw new AddressedTurnError('turn_not_lead')
   const intent = await createLeadTurn(database, workspaceId, input.channelId, principal, {
     bodyText: `Addressed turn ${claim.turn.causalId}`,
