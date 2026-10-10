@@ -22,7 +22,7 @@
     "0048_graceful_prima.sql": {
       "sha256": "0c3de21e8eeeb7cfe60a0e10a6fddd4307ede0ce34f62d928ee75317e82d93ce",
       "sourcePullRequest": 1230,
-      "sourceHeadSha": "67b65daa253b1f3f4748a294600f5c79054aa184",
+      "sourceHeadSha": "bee242d2bb2b01429d3b52b09ac9bcc20c853e3e",
       "sourcePath": "packages/db/drizzle/0048_graceful_prima.sql",
       "when": 1791602651133,
       "idx": 48
@@ -30,29 +30,29 @@
     "0049_group_participation_grants.sql": {
       "sha256": "4de26e4e34c7ac2073e5a0fe1be531d9efab73b1e277f7059e9803d6de0069af",
       "sourcePullRequest": 1232,
-      "sourceHeadSha": "2dea088003fe0ee4a9a661eff1c096a81b1e91d9",
+      "sourceHeadSha": "0737222131830b3b1c336c8b13405549306e4893",
       "sourcePath": "packages/db/drizzle/0049_group_participation_grants.sql",
-      "when": 1791530437626,
+      "when": 1791602651134,
       "idx": 49
     },
     "0050_group_legacy_backfill.sql": {
       "sha256": "dc310c7d6686efee5d913f76c14723f10f4bbda8c25d79562f918f3fdee0cb32",
       "sourcePullRequest": 1232,
-      "sourceHeadSha": "2dea088003fe0ee4a9a661eff1c096a81b1e91d9",
+      "sourceHeadSha": "0737222131830b3b1c336c8b13405549306e4893",
       "sourcePath": "packages/db/drizzle/0050_group_legacy_backfill.sql",
-      "when": 1791534000000,
+      "when": 1791602651135,
       "idx": 50
     }
   },
-  "journalSha256": "003020add61f401562b4bf8e68f20a02a9f0ab3b3cbd29b251e207ce8fc18735",
+  "journalSha256": "ff1749431b21c07c947a84e201c2cc9470cac37486267b9bd0faee5f39d7a21e",
   "excluded": [
     {
       "tag": "0047_huge_hitman",
       "sha256": "e7ae01522297b99b4122f6793293e42a2c28d32e7a22e6053ece804e8f108a95",
       "sourcePullRequest": 1232,
       "sourceHeadSha": "2dea088003fe0ee4a9a661eff1c096a81b1e91d9",
-      "reason": "superseded on the canonical chain by #1230's 0047_requested_role_model_selections: both add app.lead_turn_intents.requested_model_selections, so both cannot apply"
+      "reason": "superseded on the canonical chain by #1229 0047_requested_role_model_selections: both add app.lead_turn_intents.requested_model_selections, so both cannot apply. Absent from #1232 head 0737222; last present at the earlier head 2dea0880."
     }
   ],
-  "note": "Canonical incoming chain for the #1241 rehearsal: main through 0046, then #1229, #1230, #1232 in that order. Every entry is copied verbatim from its exact source commit; no timestamp was rewritten. #1230 0048 is byte-identical to #1232 0048 and is vendored once, from #1230."
+  "note": "Canonical incoming chain for the #1241 rehearsal: main through 0046, then #1229, #1230, #1232 in that order. Every entry is copied verbatim from its exact source commit; no timestamp was rewritten. #1230 0048 is byte-identical to #1232 0048 and is vendored once, from #1230. Journal entries for 0047-0050 are the entries at #1232 head 0737222 (which extends #1230 bee242d2 with 0049/0050 timestamped after 0048)."
 }

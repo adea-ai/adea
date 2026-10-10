@@ -16,6 +16,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import {
   captureMigrationSnapshot,
   type MigrationSnapshotCaptureIdentityInput,
+  resolveMigrationSnapshotCaptureDomains,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
 import { workspaceMemberships } from '../../src/schema'
@@ -27,7 +28,12 @@ import {
   timestampOrderViolations,
   verifiedCanonicalChain,
 } from '../fixtures/canonical-chain'
-import { type RehearsalResources, settleAndDispose, view } from '../fixtures/cutover-rehearsal'
+import {
+  DRIZZLE_DIR,
+  type RehearsalResources,
+  settleAndDispose,
+  view,
+} from '../fixtures/cutover-rehearsal'
 
 // Rehearsal of the incoming canonical migration chain for the #1241 proof: main through 0046,
 // then #1229 -> #1230 -> #1232 in that order. The chain is vendored from exact source commits
@@ -43,6 +49,16 @@ import { type RehearsalResources, settleAndDispose, view } from '../fixtures/cut
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
 const SCRATCH_PREFIX = 'rehearsal_1232_'
+// Capture-completeness gap, stated rather than hidden. The migration snapshot inventories 16
+// families and none is a group table. The backfill writes these tables, so the capture cannot
+// see the admissions and grants it creates. Any group table not listed here fails the suite.
+const DECLARED_UNCAPTURED_GROUP_TABLES = [
+  'group_admissions',
+  'group_audience_grants',
+  'group_enlistment_grants',
+  'group_sharing_grants',
+] as const
+
 const identity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
   capturedAt: new Date('2026-01-05T00:00:00.000Z'),
   rehearsalId: 'rehearsal-canonical-chain',
@@ -205,6 +221,7 @@ async function executeScenario() {
 
   return {
     chainApplied: applied,
+    groupTables: await groupTableNames(connection),
     activeChannelId: active.id,
     archivedChannelId: archived.id,
     activeWithMember,
@@ -250,6 +267,16 @@ async function quarantineSurfaces(connection: DatabaseConnection): Promise<strin
   return rows.map((row) => row.table_name)
 }
 
+/** Every group table in the app schema: the set the capture-completeness declaration must cover. */
+async function groupTableNames(connection: DatabaseConnection): Promise<string[]> {
+  const rows = await connection.db.execute<{ table_name: string }>(
+    sql`select table_name from information_schema.tables
+        where table_schema = 'app' and left(table_name, 6) = 'group_'
+        order by table_name`
+  )
+  return rows.map((row) => row.table_name)
+}
+
 /** The `when` of every migration the database has recorded, in order of recording. */
 async function recordedMigrationTimes(connection: DatabaseConnection): Promise<number[]> {
   const rows = await connection.db.execute<{ created_at: string }>(
@@ -286,6 +313,15 @@ function runScenario(): Promise<Scenario> {
 }
 
 describe('incoming canonical chain (no database)', () => {
+  test('a capture request for a group table is unknown, never an empty capture', () => {
+    expect(
+      resolveMigrationSnapshotCaptureDomains(['groupAdmissions', 'groupAudienceGrants'])
+    ).toEqual([
+      { domain: 'groupAdmissions', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'groupAudienceGrants', status: 'unknown', unknownReason: 'unrecognized_domain' },
+    ])
+  })
+
   test('the canonical chain matches its pinned sources byte for byte, with the excluded migration absent', () => {
     const { pins, entries } = verifiedCanonicalChain()
     expect(pins.base.lastTag).toBe(CANONICAL_BASE_TAG)
@@ -350,6 +386,43 @@ describe.skipIf(!provisioningUrl && !inCi)(
       expect(chainApplied.missing).toEqual([])
       expect(chainApplied.duplicates).toEqual([])
       expect(chainApplied.recordedCount).toBe(chainApplied.expectedCount)
+    })
+
+    test('every group table on the canonical chain is a declared capture gap, none silently missing', async () => {
+      const { groupTables } = await runScenario()
+      expect(groupTables).toEqual([...DECLARED_UNCAPTURED_GROUP_TABLES].toSorted())
+    })
+
+    test('fresh and upgrade-from-main application each record every canonical migration exactly once', async () => {
+      const chain = canonicalChainFolders()
+      try {
+        for (const mode of ['fresh', 'upgrade-from-main'] as const) {
+          const scratch = `${SCRATCH_PREFIX}${mode.replaceAll('-', '_')}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+          await adminExecute(`create database "${scratch}"`)
+          const connection = createDatabase(urlForDatabase(scratch))
+          try {
+            if (mode === 'upgrade-from-main')
+              await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+            await migrate(connection.db, { migrationsFolder: chain.full })
+            const result = appliedAgainstJournal(
+              chain.fullEntries,
+              [],
+              await recordedMigrationTimes(connection)
+            )
+            expect({ mode, missing: result.missing, duplicates: result.duplicates }).toEqual({
+              mode,
+              missing: [],
+              duplicates: [],
+            })
+            expect(result.recordedCount).toBe(result.expectedCount)
+          } finally {
+            await connection.close()
+            await adminExecute(`drop database if exists "${scratch}" with (force)`)
+          }
+        }
+      } finally {
+        rmSync(chain.root, { recursive: true, force: true })
+      }
     })
 
     test('the backfill admits exactly the active group participants, once each', async () => {
