@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 import type { UserPrincipalRef } from '@adea-ai/types'
 
@@ -28,6 +28,7 @@ import {
   createJobOutboundStoreService,
   publishJobOutboundMessage,
   readJobOutboundAccess,
+  type JobOutboundCompletionSeams,
   readJobOutboundAudience,
   readJobOutboundPublication,
   readJobOutboundSource,
@@ -39,6 +40,7 @@ import {
   messageArtifactReferences,
   messages,
   taskMutations,
+  taskSubmissions,
   tasks,
   workspaceMemberships,
 } from '../../src/schema'
@@ -967,7 +969,11 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     f: Fixture,
     idempotencyKey: string,
     request: JobOutboundCompletionRequest,
-    options: Readonly<{ actor?: UserPrincipalRef; expectedVersion?: number }> = {}
+    options: Readonly<{
+      actor?: UserPrincipalRef
+      expectedVersion?: number
+      seams?: JobOutboundCompletionSeams
+    }> = {}
   ) {
     return completeTaskAndPublishOutboundResult(
       connection.db,
@@ -979,7 +985,8 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         idempotencyKey,
         requestId: crypto.randomUUID(),
       },
-      request
+      request,
+      options.seams
     )
   }
 
@@ -1025,34 +1032,6 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       )
   }
 
-  /**
-   * Makes the canonical publication for one job fail inside its transaction, as a crash
-   * between completion and publication would. The trigger matches this job's publication
-   * only. The returned function removes it.
-   */
-  async function injectPublicationFault(jobId: string) {
-    const name = `fault_${jobId.replaceAll('-', '_')}`
-    await connection.db.execute(
-      sql.raw(`
-        CREATE OR REPLACE FUNCTION app.${name}() RETURNS trigger LANGUAGE plpgsql AS $$
-        BEGIN
-          IF NEW.execution_ref = '${jobId}' AND NEW.sender_kind = 'system' THEN
-            RAISE EXCEPTION 'injected publication fault';
-          END IF;
-          RETURN NEW;
-        END $$`)
-    )
-    await connection.db.execute(
-      sql.raw(
-        `CREATE TRIGGER ${name} BEFORE INSERT ON app.messages FOR EACH ROW EXECUTE FUNCTION app.${name}()`
-      )
-    )
-    return async () => {
-      await connection.db.execute(sql.raw(`DROP TRIGGER IF EXISTS ${name} ON app.messages`))
-      await connection.db.execute(sql.raw(`DROP FUNCTION IF EXISTS app.${name}()`))
-    }
-  }
-
   /** A real user with a membership in the source and/or destination workspace. */
   async function newUser(
     f: Fixture,
@@ -1081,15 +1060,16 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const f = await fixture({ complete: false })
     const key = crypto.randomUUID()
     const before = await taskState(f)
-    const dropFault = await injectPublicationFault(f.task.id)
-    try {
-      // Drizzle wraps the driver error; the PostgreSQL message is its cause.
-      const error = await completeJob(f, key, outboundRequest(f)).catch((caught: unknown) => caught)
-      expect(error).toBeInstanceOf(Error)
-      expect((error as Error).cause).toMatchObject({ message: 'injected publication fault' })
-    } finally {
-      await dropFault()
-    }
+    // The seam fails after the Task has completed inside the publication transaction.
+    await expect(
+      completeJob(f, key, outboundRequest(f), {
+        seams: {
+          beforePublicationWrite: async () => {
+            throw new Error('injected crash after completion')
+          },
+        },
+      })
+    ).rejects.toThrow('injected crash after completion')
     expect(await taskState(f)).toEqual(before)
     expect(await reservations(f, key)).toEqual([])
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
@@ -1237,6 +1217,98 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     )
     expect(await taskState(f)).toEqual(before)
     expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a held result cannot be moved to a new artifact version: the grant keeps its version, so a retry publishes nothing', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, { artifact: artifactRef(reg), summary: 'Version one.' })
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const held = await completeJob(f, key, request)
+    expect(held.publication).toMatchObject({ decision: { action: 'hold' }, messageId: null })
+
+    // The artifact moves to a new version. The grant's identity fixes its version, so it
+    // cannot be re-registered at the new version under the same grant id.
+    const unavailable = await setArtifactAvailability(
+      connection.db,
+      f.workspace.id,
+      reg.artifact.id,
+      f.owner.principal,
+      'unavailable',
+      reg.artifact.version
+    )
+    const moved = await setArtifactAvailability(
+      connection.db,
+      f.workspace.id,
+      reg.artifact.id,
+      f.owner.principal,
+      'available',
+      unavailable.version
+    )
+    await expect(
+      regrantArtifactReferenceGrant(
+        connection.db,
+        f.workspace.id,
+        f.owner.principal,
+        {
+          artifactId: reg.artifact.id,
+          audienceWorkspaceId: f.destination.id,
+          checksumSha256: CHECKSUM,
+          expiresAt: null,
+          grantId: reg.grantId,
+          version: moved.version,
+        },
+        1
+      )
+    ).rejects.toThrow('Artifact reference grant identity conflict')
+
+    const retry = await completeJob(f, key, request)
+    expect(retry.publication).toMatchObject({ decision: { action: 'hold' }, messageId: null })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  })
+
+  test('a retry after the original actor changed is refused: the approved actor is part of the completion identity', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, { artifact: artifactRef(reg) })
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const held = await completeJob(f, key, request)
+    expect(held.publication).toMatchObject({ decision: { action: 'hold' }, messageId: null })
+
+    const other = await newUser(f, { destination: 'member', source: 'admin' })
+    await connection.db
+      .update(taskSubmissions)
+      .set({ actorUserId: other.userId })
+      .where(eq(taskSubmissions.taskId, f.task.id))
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+
+    await expect(completeJob(f, key, request)).rejects.toThrow('Task idempotency conflict')
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
   })
 

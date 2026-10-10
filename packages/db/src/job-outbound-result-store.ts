@@ -168,11 +168,15 @@ export function createJobOutboundStoreService(
 export async function publishJobOutboundMessage<TPrepared = null>(
   service: JobOutboundResultService<AgentHqTransaction>,
   input: JobOutboundPublishInput,
-  prepare?: JobOutboundPrepare<AgentHqTransaction, TPrepared>
+  prepare?: JobOutboundPrepare<AgentHqTransaction, TPrepared>,
+  beforeWrite?: () => Promise<void>
 ): Promise<JobOutboundPublishResult<TPrepared>> {
   return service.publish(
     input,
-    ({ transaction }, decision) => writeJobOutboundPublication(transaction, decision),
+    async ({ transaction }, decision) => {
+      await beforeWrite?.()
+      return writeJobOutboundPublication(transaction, decision)
+    },
     prepare
   )
 }
@@ -208,7 +212,8 @@ export async function completeTaskAndPublishOutboundResult(
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand,
-  request: JobOutboundCompletionRequest
+  request: JobOutboundCompletionRequest,
+  seams: JobOutboundCompletionSeams = {}
 ): Promise<JobOutboundCompletionOutcome> {
   const [channel] = await database
     .select({ id: channels.id, workspaceId: channels.workspaceId })
@@ -229,10 +234,10 @@ export async function completeTaskAndPublishOutboundResult(
   }
 
   // The completion runs inside the publication's authorization scope. The decision and
-  // the canonical message commit with the completion, or none of them do. The outbound
-  // request is hashed into the completion's idempotency payload, so a retried key can
-  // never replay this completion with a different summary, destination or artifact.
-  const outboundRequest = canonicalOutboundRequest(request)
+  // the canonical message commit with the completion, or none of them do. The completion's
+  // idempotency payload hashes the outbound request and the original actor (see
+  // `canonicalOutboundRequest`), so a retried key cannot replay it with a different summary,
+  // destination, artifact, artifact policy, or original actor.
   const { decision, messageId, prepared } = await publishJobOutboundMessage(
     createJobOutboundStoreService(database),
     {
@@ -263,19 +268,39 @@ export async function completeTaskAndPublishOutboundResult(
         channelId: channel.id,
         command,
         destinationWorkspaceId: channel.workspaceId,
-        outboundRequest,
         principal,
+        request,
         taskId,
         workspaceId,
-      })
+      }),
+    seams.beforePublicationWrite
   )
   if (!prepared) throw new Error('Task completion unavailable')
   return { publication: { decision, messageId }, task: prepared }
 }
 
-/** The outbound request as the idempotency payload hashes it. Every field is present, so a changed one changes the hash. */
-function canonicalOutboundRequest(request: JobOutboundCompletionRequest) {
+/**
+ * Test seams for the completion path. `beforePublicationWrite` runs inside the
+ * publication transaction after the Task has completed and before the message is
+ * written, so throwing there simulates a crash between completion and publication. The
+ * whole transaction, completion included, must roll back.
+ */
+export type JobOutboundCompletionSeams = Readonly<{
+  beforePublicationWrite?: () => Promise<void>
+}>
+
+/**
+ * The completion's idempotency identity for its outbound request. It names the request
+ * as sent (summary, destination, artifact id and grant, artifact policy) and the original
+ * actor the publication will be authored as. The actor is resolved from the job inside
+ * the transaction and is not otherwise pinned. The artifact's version and checksum need
+ * no pin here: a grant's identity fixes both (`sameIdentity` in the #1207 grant store),
+ * so a retry that names the same grant cannot resolve other content. Every field is
+ * present, so any change changes the hash.
+ */
+function canonicalOutboundRequest(request: JobOutboundCompletionRequest, actorUserId: string) {
   return {
+    approvedActorUserId: actorUserId,
     artifact: request.artifact
       ? { artifactId: request.artifact.artifactId, grantId: request.artifact.grantId }
       : null,
@@ -298,14 +323,14 @@ async function completeForPublication(
     channelId: string
     command: TaskCommand
     destinationWorkspaceId: string
-    outboundRequest: ReturnType<typeof canonicalOutboundRequest>
     principal: UserPrincipalRef
+    request: JobOutboundCompletionRequest
     taskId: string
     workspaceId: string
   }>
 ) {
   const { reads, transaction } = context
-  const { command, principal, taskId, workspaceId } = input
+  const { command, principal, request, taskId, workspaceId } = input
   // The destination channel is locked first, before the Task row. createMessage takes the
   // channel and then the Task rows it reopens, so a Task-first order deadlocks against a
   // concurrent attempt on the same channel (observed in the server log).
@@ -327,7 +352,7 @@ async function completeForPublication(
   )
     throw new Error('Job outbound unavailable')
   return completeTask(transaction, workspaceId, taskId, principal, command, {
-    outboundRequest: input.outboundRequest,
+    outboundRequest: canonicalOutboundRequest(request, job.originalActorUserId),
   })
 }
 
