@@ -91,18 +91,23 @@ export const MIGRATION_SNAPSHOT_MAX_ARRAY_WIDTH = 64
  */
 export const migrationSnapshotFamilies = [
   'agents',
+  'artifactReferenceGrants',
   'channelParticipants',
   'channels',
   'contentRefs',
+  'contentReplicas',
   'events',
   'executionAttempts',
   'identityBindings',
   'invitations',
+  'leadTurnRuntime',
   'memberships',
   'messages',
   'projectMembers',
   'projects',
   'readState',
+  'runtimeNodes',
+  'taskSubmissions',
   'tasks',
   'temporarySessions',
   'workspaces',
@@ -345,21 +350,99 @@ export type ExecutionAttemptSnapshotRecord = Readonly<{
   workspaceId: string
 }>
 
+/** A durable artifact-reference grant binding one exact target to one audience. */
+export type ArtifactReferenceGrantSnapshotRecord = Readonly<{
+  family: 'artifactReferenceGrants'
+  artifactId: string
+  audienceWorkspaceId: string
+  checksumSha256: string
+  grantId: string
+  revision: number
+  revoked: boolean
+  sourceWorkspaceId: string
+  version: number
+}>
+
+/** A retained content replica's metadata; ciphertext and nonce never travel. */
+export type ContentReplicaSnapshotRecord = Readonly<{
+  family: 'contentReplicas'
+  availability: string
+  contentRefId: string
+  deleted: boolean
+  digestSha256: string
+  replicaId: string
+  replicaKind: string
+  revision: number
+  schemaVersion: number
+  workspaceId: string
+}>
+
+/**
+ * The durable dispatch binding for one lead turn: the mapping from an intent
+ * to its execution/attempt and the canonical runtime session it owns.
+ */
+export type LeadTurnRuntimeSnapshotRecord = Readonly<{
+  family: 'leadTurnRuntime'
+  attemptId: string
+  cancelRequested: boolean
+  executionId: string
+  intentId: string
+  publishedMessageId: string | null
+  runtimeSessionId: string | null
+  state: string
+}>
+
+/**
+ * A paired runtime node's product-visible identity and health facts.
+ */
+export type RuntimeNodeSnapshotRecord = Readonly<{
+  family: 'runtimeNodes'
+  kind: string
+  pairingState: string
+  platform: string
+  revoked: boolean
+  runtimeNodeId: string
+  softwareVersion: string
+  workspaceId: string
+}>
+
+/** A durable task submission (job dispatch) and its relay cleanup state. */
+export type TaskSubmissionSnapshotRecord = Readonly<{
+  family: 'taskSubmissions'
+  agentId: string
+  ciphertextPurged: boolean
+  locationKind: string
+  profileId: string
+  profileRevision: number
+  profileVersion: string
+  runtimeNodeId: string
+  state: string
+  submissionId: string
+  taskId: string
+  taskVersion: number
+  workspaceId: string
+}>
+
 /** A frozen record of one family. */
 export type MigrationSnapshotRecord =
   | AgentSnapshotRecord
+  | ArtifactReferenceGrantSnapshotRecord
   | ChannelParticipantSnapshotRecord
   | ChannelSnapshotRecord
   | ContentRefSnapshotRecord
+  | ContentReplicaSnapshotRecord
   | EventSnapshotRecord
   | ExecutionAttemptSnapshotRecord
   | IdentityBindingSnapshotRecord
   | InvitationSnapshotRecord
+  | LeadTurnRuntimeSnapshotRecord
   | MembershipSnapshotRecord
   | MessageSnapshotRecord
   | ProjectMemberSnapshotRecord
   | ProjectSnapshotRecord
   | ReadStateSnapshotRecord
+  | RuntimeNodeSnapshotRecord
+  | TaskSubmissionSnapshotRecord
   | TaskSnapshotRecord
   | TemporarySessionSnapshotRecord
   | WorkspaceSnapshotRecord
@@ -869,6 +952,82 @@ export function migrationSnapshotRecordIssue(
         identifierField('controlPlaneWorkspaceId', record.controlPlaneWorkspaceId),
         identifierField('ownerUserId', record.ownerUserId),
         check('archived', isBoolean(record.archived)),
+      ])
+    case 'artifactReferenceGrants':
+      return firstIssue([
+        identifierField('grantId', record.grantId),
+        identifierField('sourceWorkspaceId', record.sourceWorkspaceId),
+        identifierField('audienceWorkspaceId', record.audienceWorkspaceId),
+        identifierField('artifactId', record.artifactId),
+        check('checksumSha256', isDigest(record.checksumSha256)),
+        check('version', isNonNegativeSafeInteger(record.version) && record.version > 0),
+        check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
+        check('revoked', isBoolean(record.revoked)),
+      ])
+    case 'contentReplicas':
+      return firstIssue([
+        identifierField('replicaId', record.replicaId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('contentRefId', record.contentRefId),
+        check(
+          'replicaKind',
+          typeof record.replicaKind === 'string' && record.replicaKind.length > 0
+        ),
+        check(
+          'availability',
+          typeof record.availability === 'string' && record.availability.length > 0
+        ),
+        check('digestSha256', isDigest(record.digestSha256)),
+        check('revision', isNonNegativeSafeInteger(record.revision)),
+        check('schemaVersion', isNonNegativeSafeInteger(record.schemaVersion)),
+        check('deleted', isBoolean(record.deleted)),
+      ])
+    case 'leadTurnRuntime':
+      return firstIssue([
+        identifierField('intentId', record.intentId),
+        identifierField('executionId', record.executionId),
+        identifierField('attemptId', record.attemptId),
+        check('state', typeof record.state === 'string' && record.state.length > 0),
+        nullableIdentifierField('runtimeSessionId', record.runtimeSessionId),
+        nullableIdentifierField('publishedMessageId', record.publishedMessageId),
+        check('cancelRequested', isBoolean(record.cancelRequested)),
+      ])
+    case 'runtimeNodes':
+      return firstIssue([
+        identifierField('runtimeNodeId', record.runtimeNodeId),
+        identifierField('workspaceId', record.workspaceId),
+        check('kind', typeof record.kind === 'string' && record.kind.length > 0),
+        check(
+          'pairingState',
+          typeof record.pairingState === 'string' && record.pairingState.length > 0
+        ),
+        check('platform', typeof record.platform === 'string' && record.platform.length > 0),
+        check(
+          'softwareVersion',
+          typeof record.softwareVersion === 'string' && record.softwareVersion.length > 0
+        ),
+        check('revoked', isBoolean(record.revoked)),
+      ])
+    case 'taskSubmissions':
+      return firstIssue([
+        identifierField('submissionId', record.submissionId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('taskId', record.taskId),
+        identifierField('agentId', record.agentId),
+        identifierField('runtimeNodeId', record.runtimeNodeId),
+        check('state', typeof record.state === 'string' && record.state.length > 0),
+        check(
+          'locationKind',
+          typeof record.locationKind === 'string' && record.locationKind.length > 0
+        ),
+        check('profileId', typeof record.profileId === 'string' && record.profileId.length > 0),
+        check(
+          'profileVersion',
+          typeof record.profileVersion === 'string' && record.profileVersion.length > 0
+        ),
+        check('profileRevision', isNonNegativeSafeInteger(record.profileRevision)),
+        check('taskVersion', isNonNegativeSafeInteger(record.taskVersion)),
+        check('ciphertextPurged', isBoolean(record.ciphertextPurged)),
       ])
   }
 }

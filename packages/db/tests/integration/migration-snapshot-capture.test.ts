@@ -729,11 +729,11 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture', () => {
   test('an unsupported requested domain stays unknown with a typed reason', async () => {
     const result = await captureMigrationSnapshot(connection.db, {
       identity: captureIdentity('snapshot-partial'),
-      requestedDomains: ['workspaces', 'runtimeNodes'],
+      requestedDomains: ['workspaces', 'nativeSessions'],
     })
 
     expect(result.domains).toEqual([
-      { domain: 'runtimeNodes', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'unsupported_family' },
       { domain: 'workspaces', status: 'captured', unknownReason: null },
     ])
     // Only the supported, requested family has a section; the unsupported one

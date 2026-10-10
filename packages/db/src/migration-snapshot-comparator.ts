@@ -206,11 +206,39 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     binding: ['controlPlaneWorkspaceId', 'ownerUserId'],
     digests: [],
   },
+  artifactReferenceGrants: {
+    // Revocation and revision are the grant's own state; the exact target
+    // binding is identity, so a moved grant is a remap, never a match.
+    attributes: [{ field: 'revoked' }],
+    binding: ['artifactId', 'audienceWorkspaceId', 'sourceWorkspaceId', 'version'],
+    digests: ['checksumSha256', 'revision'],
+  },
+  contentReplicas: {
+    attributes: [{ field: 'availability' }, { field: 'deleted' }],
+    binding: ['contentRefId', 'replicaKind', 'workspaceId'],
+    digests: ['digestSha256', 'revision', 'schemaVersion'],
+  },
+  leadTurnRuntime: {
+    attributes: [{ field: 'cancelRequested' }, { field: 'state' }],
+    binding: ['attemptId', 'executionId'],
+    digests: [],
+  },
+  runtimeNodes: {
+    attributes: [{ field: 'pairingState' }, { field: 'revoked' }],
+    binding: ['kind', 'workspaceId'],
+    digests: [],
+  },
+  taskSubmissions: {
+    attributes: [{ field: 'ciphertextPurged' }, { field: 'state' }],
+    binding: ['agentId', 'runtimeNodeId', 'taskId', 'workspaceId'],
+    digests: ['profileRevision', 'taskVersion'],
+  },
 }
 
 /** Families whose rows ARE grants or audience membership: a new row in the
  *  after snapshot is widened access, not merely an unexpected record. */
 const GRANT_FAMILIES: ReadonlySet<MigrationSnapshotFamily> = new Set([
+  'artifactReferenceGrants',
   'channelParticipants',
   'memberships',
   'projectMembers',
@@ -346,6 +374,16 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.sessionId
     case 'workspaces':
       return record.workspaceId
+    case 'artifactReferenceGrants':
+      return record.grantId
+    case 'contentReplicas':
+      return record.replicaId
+    case 'leadTurnRuntime':
+      return record.intentId
+    case 'runtimeNodes':
+      return record.runtimeNodeId
+    case 'taskSubmissions':
+      return record.submissionId
   }
 }
 

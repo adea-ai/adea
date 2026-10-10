@@ -48,22 +48,30 @@ describe('resolveMigrationSnapshotCaptureDomains', () => {
   })
 
   test('a name outside the snapshot contract is unrecognized, not captured', () => {
-    const domains = resolveMigrationSnapshotCaptureDomains(['workspaces', 'runtimeNodes'])
+    const domains = resolveMigrationSnapshotCaptureDomains(['workspaces', 'runtimeSessions'])
     expect(domains).toEqual([
-      { domain: 'runtimeNodes', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'runtimeSessions', status: 'unknown', unknownReason: 'unrecognized_domain' },
       { domain: 'workspaces', status: 'captured', unknownReason: null },
     ])
   })
 
-  test('every contract family name resolves to captured today', () => {
-    const domains = resolveMigrationSnapshotCaptureDomains(migrationSnapshotFamilies)
-    for (const family of migrationSnapshotFamilies) {
+  test('every supported family resolves to captured and native sessions stay explicitly unsupported', () => {
+    const domains = resolveMigrationSnapshotCaptureDomains([
+      ...migrationSnapshotFamilies,
+      'nativeSessions',
+    ])
+    for (const family of MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES) {
       expect(domains).toContainEqual({
         domain: family,
         status: 'captured',
         unknownReason: null,
       })
     }
+    expect(domains).toContainEqual({
+      domain: 'nativeSessions',
+      status: 'unknown',
+      unknownReason: 'unsupported_family',
+    })
   })
 
   test('duplicate requests collapse to one status and stay sorted', () => {

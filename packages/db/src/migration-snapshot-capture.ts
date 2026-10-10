@@ -68,15 +68,20 @@ import {
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   agents,
+  artifactReferenceGrants,
   authIdentities,
   channelParticipants,
   channels,
   channelReadStates,
   contentRefs,
+  contentReplicas,
+  leadTurnRuntime,
   messages,
   projectMembers,
   projects,
+  runtimeNodes,
   taskExecutionAttempts,
+  taskSubmissions,
   tasks,
   temporaryUserSessions,
   threadReadStates,
@@ -106,6 +111,14 @@ export const MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG = Object.freeze({
  */
 export const MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES: readonly MigrationSnapshotFamily[] =
   migrationSnapshotFamilies
+
+/**
+ * Domains a migration must account for that this capture cannot inventory: the
+ * canonical runtime owns native sessions, and only their mapping is durable in
+ * this database. Requesting one stays unknown with reason `unsupported_family`
+ * instead of reading as an empty capture.
+ */
+export const MIGRATION_SNAPSHOT_UNSUPPORTED_DOMAINS = ['nativeSessions'] as const
 
 /**
  * Rows fetched per family page. Each page asks for one extra row (the probe)
@@ -230,6 +243,7 @@ export function resolveMigrationSnapshotCaptureDomains(
   requestedDomains: readonly string[] | undefined
 ): readonly MigrationSnapshotDomainCaptureStatus[] {
   const supported = new Set<string>(MIGRATION_SNAPSHOT_CAPTURE_SUPPORTED_FAMILIES)
+  const unsupported = new Set<string>(MIGRATION_SNAPSHOT_UNSUPPORTED_DOMAINS)
   const names = requestedDomains ?? [...supported]
   const resolved = new Map<string, MigrationSnapshotDomainCaptureStatus>()
   for (const domain of names) {
@@ -246,9 +260,10 @@ export function resolveMigrationSnapshotCaptureDomains(
     resolved.set(domain, {
       domain,
       status: 'unknown',
-      unknownReason: isMigrationSnapshotFamily(domain)
-        ? 'unsupported_family'
-        : 'unrecognized_domain',
+      unknownReason:
+        unsupported.has(domain) || isMigrationSnapshotFamily(domain)
+          ? 'unsupported_family'
+          : 'unrecognized_domain',
     })
   }
   return [...resolved.values()].toSorted((left, right) =>
@@ -631,6 +646,16 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.sessionId
     case 'workspaces':
       return record.workspaceId
+    case 'artifactReferenceGrants':
+      return record.grantId
+    case 'contentReplicas':
+      return record.replicaId
+    case 'leadTurnRuntime':
+      return record.intentId
+    case 'runtimeNodes':
+      return record.runtimeNodeId
+    case 'taskSubmissions':
+      return record.submissionId
   }
 }
 
@@ -1193,6 +1218,162 @@ async function captureFamilySectionByName(
           family: 'workspaces',
           ownerUserId: row.ownerUserId,
           workspaceId: row.id,
+        }),
+      })
+    case 'artifactReferenceGrants':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              artifactId: artifactReferenceGrants.artifactId,
+              audienceWorkspaceId: artifactReferenceGrants.audienceWorkspaceId,
+              checksumSha256: artifactReferenceGrants.checksumSha256,
+              grantId: artifactReferenceGrants.grantId,
+              revokedAt: artifactReferenceGrants.revokedAt,
+              revision: artifactReferenceGrants.revision,
+              sourceWorkspaceId: artifactReferenceGrants.sourceWorkspaceId,
+              version: artifactReferenceGrants.version,
+            })
+            .from(artifactReferenceGrants)
+            .orderBy(asc(artifactReferenceGrants.grantId))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          artifactId: row.artifactId,
+          audienceWorkspaceId: row.audienceWorkspaceId,
+          checksumSha256: row.checksumSha256,
+          family: 'artifactReferenceGrants',
+          grantId: row.grantId,
+          revoked: row.revokedAt !== null,
+          revision: row.revision,
+          sourceWorkspaceId: row.sourceWorkspaceId,
+          version: row.version,
+        }),
+      })
+    case 'contentReplicas':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              availability: contentReplicas.availability,
+              contentRefId: contentReplicas.contentRefId,
+              deletedAt: contentReplicas.deletedAt,
+              digestSha256: contentReplicas.digestSha256,
+              id: contentReplicas.id,
+              replicaKind: contentReplicas.replicaKind,
+              revision: contentReplicas.revision,
+              schemaVersion: contentReplicas.schemaVersion,
+              workspaceId: contentReplicas.workspaceId,
+            })
+            .from(contentReplicas)
+            .orderBy(asc(contentReplicas.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          availability: row.availability,
+          contentRefId: row.contentRefId,
+          deleted: row.deletedAt !== null,
+          digestSha256: row.digestSha256,
+          family: 'contentReplicas',
+          replicaId: row.id,
+          replicaKind: row.replicaKind,
+          revision: row.revision,
+          schemaVersion: row.schemaVersion,
+          workspaceId: row.workspaceId,
+        }),
+      })
+    case 'leadTurnRuntime':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              attemptId: leadTurnRuntime.attemptId,
+              cancelRequestedAt: leadTurnRuntime.cancelRequestedAt,
+              executionId: leadTurnRuntime.executionId,
+              intentId: leadTurnRuntime.intentId,
+              publishedMessageId: leadTurnRuntime.publishedMessageId,
+              runtimeSessionId: leadTurnRuntime.runtimeSessionId,
+              state: leadTurnRuntime.state,
+            })
+            .from(leadTurnRuntime)
+            .orderBy(asc(leadTurnRuntime.intentId))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          attemptId: row.attemptId,
+          cancelRequested: row.cancelRequestedAt !== null,
+          executionId: row.executionId,
+          family: 'leadTurnRuntime',
+          intentId: row.intentId,
+          publishedMessageId: row.publishedMessageId,
+          runtimeSessionId: row.runtimeSessionId,
+          state: row.state,
+        }),
+      })
+    case 'runtimeNodes':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              id: runtimeNodes.id,
+              kind: runtimeNodes.kind,
+              pairingState: runtimeNodes.pairingState,
+              platform: runtimeNodes.platform,
+              revokedAt: runtimeNodes.revokedAt,
+              softwareVersion: runtimeNodes.softwareVersion,
+              workspaceId: runtimeNodes.workspaceId,
+            })
+            .from(runtimeNodes)
+            .orderBy(asc(runtimeNodes.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          family: 'runtimeNodes',
+          kind: row.kind,
+          pairingState: row.pairingState,
+          platform: row.platform,
+          revoked: row.revokedAt !== null,
+          runtimeNodeId: row.id,
+          softwareVersion: row.softwareVersion,
+          workspaceId: row.workspaceId,
+        }),
+      })
+    case 'taskSubmissions':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              agentId: taskSubmissions.agentId,
+              ciphertextPurgedAt: taskSubmissions.ciphertextPurgedAt,
+              id: taskSubmissions.id,
+              locationKind: taskSubmissions.locationKind,
+              profileId: taskSubmissions.profileId,
+              profileRevision: taskSubmissions.profileRevision,
+              profileVersion: taskSubmissions.profileVersion,
+              runtimeNodeId: taskSubmissions.runtimeNodeId,
+              state: taskSubmissions.state,
+              taskId: taskSubmissions.taskId,
+              taskVersion: taskSubmissions.taskVersion,
+              workspaceId: taskSubmissions.workspaceId,
+            })
+            .from(taskSubmissions)
+            .orderBy(asc(taskSubmissions.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          agentId: row.agentId,
+          ciphertextPurged: row.ciphertextPurgedAt !== null,
+          family: 'taskSubmissions',
+          locationKind: row.locationKind,
+          profileId: row.profileId,
+          profileRevision: row.profileRevision,
+          profileVersion: row.profileVersion,
+          runtimeNodeId: row.runtimeNodeId,
+          state: row.state,
+          submissionId: row.id,
+          taskId: row.taskId,
+          taskVersion: row.taskVersion,
+          workspaceId: row.workspaceId,
         }),
       })
   }
