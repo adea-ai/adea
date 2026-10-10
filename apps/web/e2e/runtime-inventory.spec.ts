@@ -27,13 +27,38 @@ async function openInventory(page: Page, mode = 'inventory', section = 'connecti
   return errors
 }
 
+type RecordedRequest = { method: string; path: string }
+
+/** Every request the harness recorded, by method and path (bodies are not compared here). */
+async function recordedRequests(page: Page): Promise<RecordedRequest[]> {
+  const raw = await page.locator('#harness-root').getAttribute('data-requests')
+  return raw === null
+    ? []
+    : (JSON.parse(raw) as RecordedRequest[]).map(({ method, path }) => ({ method, path }))
+}
+
+/**
+ * General reads the owner's archived workspaces (#1175) and nothing else. Asserted exactly, so any
+ * other request from General fails the test rather than being filtered out.
+ */
+const GENERAL_REQUESTS: RecordedRequest[] = [{ method: 'GET', path: '/api/workspaces/archived' }]
+/**
+ * Per-host reads (runtime inventory, health and grants) live under one host's `runtime-nodes/:id`
+ * route. The bare `runtime-nodes` path is the host list the Connections tab renders before any host
+ * opens, so it is not a per-host read.
+ */
+const perHostRequests = (requests: RecordedRequest[]) =>
+  requests.filter(({ path }) => /\/runtime-nodes\/[^/]+/u.test(path))
+
 test('inventory is lazy, separates health/grants and keeps pagination within the inspected host', async ({
   page,
 }) => {
   const errors = await openInventory(page, 'inventory', 'general')
-  expect(await page.locator('#harness-root').getAttribute('data-requests')).toBeNull()
+  await expect.poll(() => recordedRequests(page)).toEqual(GENERAL_REQUESTS)
   await page.getByRole('tab', { name: 'Connections', exact: true }).click()
   await expect(page.getByRole('button', { name: 'View runtimes on Laptop' })).toBeVisible()
+  // Opening the tab reads the host list and no host's inventory, health or grants: those wait for a host to open.
+  expect(perHostRequests(await recordedRequests(page))).toEqual([])
   await page.getByRole('button', { name: 'View runtimes on Laptop' }).focus()
   await expect(page.getByRole('button', { name: 'View runtimes on Laptop' })).toBeFocused()
   await page.keyboard.press('Enter')

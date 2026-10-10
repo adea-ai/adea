@@ -21,6 +21,8 @@ import {
   type WorkspaceSettingsSection,
 } from './workspace-settings-section'
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
+import { WorkspaceArchiveSettings } from './workspace-archive-settings'
+import { WorkspaceArchivedSettings } from './workspace-archived-settings'
 
 const sectionIcons = {
   general: Settings2,
@@ -82,6 +84,9 @@ export function WorkspaceDetailsDialog(props: {
   workspace: WorkspaceSummary
 }) {
   const apiClient = () => props.client ?? props.services?.client
+  // Archive needs a client and an owner's non-Home workspace; the server repeats both checks.
+  const archiveClient = () =>
+    !props.workspace.isPersonal && props.workspace.canArchive ? apiClient() : undefined
   const [section, setSection] = createSignal<WorkspaceSettingsSection>('general')
   const sectionDescription = () =>
     ({
@@ -247,6 +252,14 @@ export function WorkspaceDetailsDialog(props: {
                         Delete workspace
                       </Button>
                     </SettingsRow>
+                  </Show>
+                  <Show when={archiveClient()}>
+                    {(client) => (
+                      <WorkspaceArchiveSettings client={client()} workspace={props.workspace} />
+                    )}
+                  </Show>
+                  <Show when={apiClient()}>
+                    {(client) => <WorkspaceArchivedSettings client={client()} />}
                   </Show>
                 </Show>
                 <Show when={panelSection === 'memory'}>
