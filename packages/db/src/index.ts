@@ -295,6 +295,15 @@ export {
   type LeadTurnObservedState,
 } from './lead-turn-runtime'
 export {
+  classifyLeadTurnRollback,
+  fenceLeadTurnForRollback,
+  readLeadTurnRollbackState,
+  type LeadTurnRollbackDisposition,
+  type LeadTurnRollbackEvidence,
+  type LeadTurnRollbackFence,
+  type LeadTurnRollbackState,
+} from './lead-turn-rollback'
+export {
   archiveTask,
   assignTask,
   cancelTask,

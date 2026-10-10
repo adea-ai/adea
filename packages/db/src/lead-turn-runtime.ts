@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
 import { createRuntimeResultMessage } from './conversations'
+import { assertLeadTurnNotFenced } from './lead-turn-rollback'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
@@ -137,6 +138,7 @@ export async function authorizeLeadTurnFundingBinding(
       principal,
       true,
       async (tx, intent) => {
+        await assertLeadTurnNotFenced(tx, intent.id, 'share')
         const [current] = await tx
           .select()
           .from(leadTurnRuntime)
@@ -169,6 +171,7 @@ export function prepareLeadTurnRuntime(
     principal,
     true,
     async (tx, intent, _message, cpWorkspaceId) => {
+      await assertLeadTurnNotFenced(tx, intent.id)
       if (
         selection.workspaceId !== cpWorkspaceId ||
         selection.intentId !== intentId ||
@@ -223,6 +226,7 @@ export function markLeadTurnDispatchPending(
     principal,
     true,
     async (tx, intent) => {
+      await assertLeadTurnNotFenced(tx, intent.id)
       const [row] = await tx
         .select()
         .from(leadTurnRuntime)

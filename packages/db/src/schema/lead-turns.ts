@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, jsonb, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { agents } from './agents'
 import { channels, messages } from './conversations'
 import { entityId, timestampColumns } from './conventions'
@@ -7,7 +7,11 @@ import { users } from './identity'
 import { appSchema } from './schema'
 import { workspaces } from './workspaces'
 
-/** Immutable, server-owned admission intent. Contains references only, never model auth or bodies. */
+/**
+ * Immutable, server-owned admission intent. Contains references only, never model auth or bodies.
+ * `rollback_fenced_at` is the only post-admission field: set once by the rollback fence (M18.01.3,
+ * #1220), never cleared, and nullable so pre-fence readers and writers remain compatible.
+ */
 export const leadTurnIntents = appSchema.table(
   'lead_turn_intents',
   {
@@ -37,6 +41,7 @@ export const leadTurnIntents = appSchema.table(
     dispatchKey: text('dispatch_key').notNull(),
     state: text('state').default('blocked').notNull(),
     reasonCode: text('reason_code').default('ADMISSION_SERVICE_UNAVAILABLE').notNull(),
+    rollbackFencedAt: timestamp('rollback_fenced_at', { mode: 'date', withTimezone: true }),
     ...timestampColumns(),
   },
   (table) => [

@@ -330,6 +330,13 @@
       "when": 1791526300162,
       "tag": "0046_artifact_reference_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791591529896,
+      "tag": "0047_lead_turn_rollback_fence",
+      "breakpoints": true
     }
   ]
 }
