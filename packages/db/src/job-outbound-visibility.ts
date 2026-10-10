@@ -14,7 +14,10 @@
 import type { ArtifactReferenceGrant, ArtifactReferenceGrantState } from '@adea-ai/types'
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 
-import { currentGrantStateOf } from './artifact-reference-grants'
+import {
+  currentGrantStateOf,
+  lockArtifactReferenceGrantsForRead,
+} from './artifact-reference-grants'
 import {
   artifactEvidenceKey,
   readArtifactReferenceEvidenceBatch,
@@ -407,9 +410,20 @@ export async function readerVisiblePublicationIds(
 ): Promise<ReadonlySet<string>> {
   const candidates = rows.filter((row) => isJobPublicationRow(row) && row.executionRef)
   if (!candidates.length || !isUuid(readerUserId)) return new Set()
+  // One transaction holds the publication, artifact and grant read locks until the decision. Taken
+  // per statement on a pool, they would release before the authority reads that follow them.
+  return database.transaction((transaction) =>
+    readerVisibleIn(transaction, candidates, readerUserId)
+  )
+}
 
+async function readerVisibleIn(
+  transaction: AgentHqTransaction,
+  candidates: readonly PublicationRow[],
+  readerUserId: string
+): Promise<ReadonlySet<string>> {
   const publications = await readPublications(
-    database,
+    transaction,
     unique(candidates.map((row) => row.id).filter(isUuid))
   )
   // A job id that is not a UUID names no readable publication, as the single read did.
@@ -429,23 +443,21 @@ export async function readerVisiblePublicationIds(
       ),
     ])
   )
-  const jobs = await readJobSources(database, unique(readable.map((item) => item.executionRef)))
+  const jobs = await readJobSources(transaction, unique(readable.map((item) => item.executionRef)))
 
-  const grantIds = unique(
+  // Artifacts, then grants, held to the end of this transaction. A revocation that commits after this
+  // point waits for the read, so a visible answer is never built on a grant revoked before it returns.
+  const grantById = await lockArtifactReferenceGrantsForRead(
+    transaction,
     [...bindings.values()].flatMap((binding) =>
-      binding?.artifact && binding.grant ? [binding.grant.grantId] : []
+      binding?.artifact && binding.grant
+        ? [{ artifactId: binding.artifact.artifactId, grantId: binding.grant.grantId }]
+        : []
     )
   )
-  const grantRows = grantIds.length
-    ? await database
-        .select()
-        .from(artifactReferenceGrants)
-        .where(inArray(artifactReferenceGrants.grantId, grantIds))
-    : []
-  const grantById = new Map(grantRows.map((row) => [row.grantId, row]))
 
   const accesses = await readAccesses(
-    database,
+    transaction,
     [...jobs.values()].map((job) => ({
       userId: job.originalActorUserId,
       workspaceId: job.sourceWorkspaceId,
@@ -457,7 +469,7 @@ export async function readerVisiblePublicationIds(
       channelId: publication.channelId,
       workspaceId: publication.workspaceId,
     })
-  const audiences = await readAudiences(database, readerUserId, [...destinations.values()])
+  const audiences = await readAudiences(transaction, readerUserId, [...destinations.values()])
 
   // Each publication's facts, before the reads of its artifact evidence.
   const facts = readable.map((item) => {
@@ -477,7 +489,7 @@ export async function readerVisiblePublicationIds(
     return { binding, claim, evidenceRequest, grant, item, job }
   })
   const evidence = await readArtifactReferenceEvidenceBatch(
-    database as AgentHqDatabase,
+    transaction as unknown as AgentHqDatabase,
     facts.flatMap((fact) =>
       fact.evidenceRequest &&
       isUuid(fact.evidenceRequest.artifactId) &&

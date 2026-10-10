@@ -172,11 +172,8 @@ export async function publishJobOutboundMessage<TPrepared = null>(
   beforeWrite?: () => Promise<void>
 ): Promise<JobOutboundPublishResult<TPrepared>> {
   return service.publish(
-    input,
-    async ({ transaction }, decision) => {
-      await beforeWrite?.()
-      return writeJobOutboundPublication(transaction, decision)
-    },
+    { ...input, ...(beforeWrite ? { beforeWrite } : {}) },
+    async ({ transaction }, decision) => writeJobOutboundPublication(transaction, decision),
     prepare
   )
 }

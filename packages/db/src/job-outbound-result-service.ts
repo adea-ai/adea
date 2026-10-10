@@ -102,6 +102,11 @@ export type JobOutboundPublishInput = Readonly<{
   artifact: JobOutboundArtifactClaim | null
   /** Defaults to `require`: an unauthorized artifact holds the publication. */
   artifactPolicy?: JobOutboundArtifactPolicy
+  /**
+   * A seam that runs after the first judgement and before the write, inside the scope. It may
+   * park. The publication is judged again after it returns, and only that second decision writes.
+   */
+  beforeWrite?: () => Promise<void>
   destination: JobOutboundDestination
   jobId: string
   result: unknown
@@ -203,46 +208,56 @@ export function createJobOutboundResultService<TTransaction>(
         const { grantState, reads, transaction } = context
         // Prepared first, so every read below sees its effects.
         const prepared = prepare ? await prepare(context) : null
-        const job = await reads.readJobSource(input.jobId)
-        const sourceAccess = job
-          ? await reads.readAccess({
-              userId: job.originalActorUserId,
-              workspaceId: job.sourceWorkspaceId,
-            })
-          : null
-        // The destination's revision is read as the job's original actor, who must be able to write there.
-        // Publication writes the channel row (its message sequence), so the write lock is taken up
-        // front. A shared lock upgraded later deadlocks against a concurrent roster write.
-        const audience = job
-          ? await reads.readAudience({
-              channelId: input.destination.channelId,
-              forWrite: true,
-              userId: job.originalActorUserId,
-              workspaceId: input.destination.workspaceId,
-            })
-          : null
-        const sanitized = sanitizeJobOutboundResult(input.result)
-        const target = sanitized.ok ? sanitized.result.artifact : null
-        const artifact = await readArtifactCurrent(
-          reads,
-          input.artifact,
-          job,
-          target?.artifactId ?? null,
-          target?.sourceWorkspaceId ?? null,
-          grantState
-        )
-        const decision = decideJobOutboundPublication({
-          artifact,
-          artifactPolicy: input.artifactPolicy ?? 'require',
-          audience,
-          destination: input.destination,
-          job,
-          jobId: input.jobId,
-          // Sampled after the reads, inside the scope.
-          now: clock(),
-          result: input.result,
-          sourceAccess,
-        })
+        // Judges the publication from fresh reads and a fresh clock. The scope's locks hold the grant,
+        // the artifact and the destination channel, so time is the input that can move on its own.
+        const judge = async () => {
+          const job = await reads.readJobSource(input.jobId)
+          const sourceAccess = job
+            ? await reads.readAccess({
+                userId: job.originalActorUserId,
+                workspaceId: job.sourceWorkspaceId,
+              })
+            : null
+          // The destination's revision is read as the job's original actor, who must be able to write there.
+          // Publication writes the channel row (its message sequence), so the write lock is taken up
+          // front. A shared lock upgraded later deadlocks against a concurrent roster write.
+          const audience = job
+            ? await reads.readAudience({
+                channelId: input.destination.channelId,
+                forWrite: true,
+                userId: job.originalActorUserId,
+                workspaceId: input.destination.workspaceId,
+              })
+            : null
+          const sanitized = sanitizeJobOutboundResult(input.result)
+          const target = sanitized.ok ? sanitized.result.artifact : null
+          const artifact = await readArtifactCurrent(
+            reads,
+            input.artifact,
+            job,
+            target?.artifactId ?? null,
+            target?.sourceWorkspaceId ?? null,
+            grantState
+          )
+          return decideJobOutboundPublication({
+            artifact,
+            artifactPolicy: input.artifactPolicy ?? 'require',
+            audience,
+            destination: input.destination,
+            job,
+            jobId: input.jobId,
+            // Sampled after the reads, inside the scope.
+            now: clock(),
+            result: input.result,
+            sourceAccess,
+          })
+        }
+        const first = await judge()
+        if (first.action !== 'publish') return { decision: first, messageId: null, prepared }
+        // The seam may park for any time. The decision is judged again at the write instant, so a
+        // grant that lapsed while the write waited holds the publication rather than committing it.
+        await input.beforeWrite?.()
+        const decision = await judge()
         if (decision.action !== 'publish') return { decision, messageId: null, prepared }
         // The write runs in the same transaction as the decision: it commits or rolls back with it.
         const messageId = await write({ transaction }, decision)

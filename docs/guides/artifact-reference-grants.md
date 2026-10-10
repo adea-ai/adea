@@ -47,11 +47,26 @@ location, or artifact content.
 
 ## Consumers
 
-Job outbound publication (`job-outbound-*`) reads grant rows directly and applies
-its own revision and revocation checks. Only the store writes those rows, and the
-routes add no other write path. Nothing in this slice changes those consumers.
-Client caches are not invalidated by a revocation. Cross-workspace invalidation is
-a separate feature.
+Job outbound publication (`job-outbound-*`) reads grant rows and applies its own
+revision and revocation checks. Only the store writes those rows, and the routes add
+no other write path.
+
+- **Publication** is judged twice inside its authorization scope: once before the
+  write and once after the write seam, on fresh reads and a fresh clock. A grant that
+  lapses while the write waits holds the publication. The Task still completes.
+- **Visibility** (`readerVisiblePublicationIds`) runs in one transaction. It takes
+  share locks on the publication messages, then on the artifacts and grants, in that
+  order, and holds them until the decision. A revocation that commits later waits for
+  the read, so a read that returns visible is ordered before the revocation. The
+  reader issues a fixed number of statements, not one per publication.
+- **Replayed completions** return the outcome of the first write. Their
+  `outboundPublication` carries the original decision and message id. That response
+  describes the write, not current visibility. Visibility and release are decided at
+  each read and release against the current grant, so a replay after revocation
+  writes nothing new and releases nothing.
+
+Client caches are not invalidated by a revocation. Cross-workspace invalidation is a
+separate feature, and no UI change is part of this slice.
 
 ## Not in this slice
 

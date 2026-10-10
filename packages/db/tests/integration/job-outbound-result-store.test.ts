@@ -86,8 +86,13 @@ const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1
 const NIL_UUID = '00000000-0000-4000-8000-000000000000'
 /** Publications in the large hidden run; more than one unread page and several walk batches. */
 const LARGE_HIDDEN_RUN = 210
-/** The statements one bulk gate issues, measured at 14 to 15; the bound leaves a little headroom. */
-const STATEMENTS_PER_GATE = 16
+/**
+ * The statements one bulk gate issues. Measured at 14 to 15 before visibility took its share
+ * locks, and at 16 to 17 after: one statement locks the artifacts, and one locks the grants, in
+ * the canonical artifact-then-grant order. The bound is per gate and fixed, so it still grows
+ * with pages, not publications.
+ */
+const STATEMENTS_PER_GATE = 17
 const CHECKSUM = 'c'.repeat(64)
 
 /** Statements one call issues on its own connection, excluding connection setup. */
