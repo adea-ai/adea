@@ -31,6 +31,11 @@ private menu implementation and its appearance overrides are removed. The
 remaining `lib/utils` compatibility path re-exports the shared class merger so
 token-derived size overrides follow the shared design-system contract.
 
+Workspace dialogs use the published ModalDialog with their existing non-modal
+Kobalte mode and product layout hooks. Shared background containment restores
+previous inert states after dismissal or asynchronous close. The copied
+workspace ModalDialog and its overlay/header appearance styles are removed.
+
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the

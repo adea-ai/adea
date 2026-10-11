@@ -5,7 +5,7 @@ import { Label } from '@adea-ai/ui/components/ui/label'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { createSignal, For, Show } from 'solid-js'
 
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { RoomIcon } from './room-icon'
 
 const roomTemplates: readonly Readonly<{ functionKey: string; name: string }>[] = [
@@ -30,6 +30,8 @@ export function CreateRoomDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="Create Room"
@@ -121,6 +123,8 @@ export function EditRoomDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title={`Edit ${props.roomName}`}
@@ -193,6 +197,8 @@ export function RenameConversationDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="Rename conversation"
@@ -245,6 +251,8 @@ export function CreateGroupDialog(props: {
   const [error, setError] = createSignal<string | null>(null)
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title="New group conversation"

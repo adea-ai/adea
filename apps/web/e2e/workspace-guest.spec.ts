@@ -114,10 +114,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
   // version, never the "Version unavailable" fallback).
   await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
-  await expect(about.getByRole('button', { name: 'Close dialog' })).toBeVisible()
+  await expect(about.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
   await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
   await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await about.getByRole('button', { name: 'Close', exact: true }).click()
   // Let the dialog (and its inert overlay) fully detach before opening the
   // next one; without the scene's render load this races close animations.
   await expect(about).toBeHidden({ timeout: 20_000 })
@@ -131,7 +131,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()
   await expect(page).toHaveURL(/view=virtual/)
-  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await shortcutSettings.getByRole('button', { name: 'Close', exact: true }).click()
 
   await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
@@ -139,7 +139,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(settings).toBeVisible()
   await expect(page).toHaveURL(/view=virtual/)
   await expect(
-    settings.locator('.conventional-dialog__heading .conventional-settings-logo')
+    settings.locator('[data-slot="dialog-header"] .conventional-settings-logo')
   ).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()

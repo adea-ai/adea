@@ -22,7 +22,7 @@ import {
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 import { keyedRows } from './keyed-rows'
 
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
 import type { PrivateContentResolver } from './platform'
 
@@ -257,6 +257,8 @@ export function WorkspaceSearchDialog(props: {
 
   return (
     <ModalDialog
+      modal={false}
+      class="conventional-dialog"
       open={props.open}
       onClose={props.onClose}
       title={props.scopeChannelId ? 'Search this conversation' : 'Search workspace'}
