@@ -2154,13 +2154,21 @@ display: BrowserPane remains closed to image projection while host redaction
 provenance is `redacted: false`.
 
 Browser annotations respect the same boundary (#718). The pane's annotate
-surface is viewport geometry, never page pixels: the user drags a region (or
-anchors a bounded note) over a frame-shaped box expressed in normalized
+surface is the shared `AnnotationSurface`, displaying viewport geometry, never
+page pixels: the user drags a region (or anchors a bounded note), or presses
+Space for a centered mark before adjusting it with the keyboard, over a
+frame-shaped box expressed in normalized
 0..1 coordinates, and only `dev.browser.annotate` reaches the host, which
 captures the screenshot at submit time and binds the reply's `screenshotId`
 to the frame it captured. A draft is bound to one lane generation and page
 target; any context change, Escape, or the discard control drops it without a
-command. The annotate control is disabled with a stated reason whenever the
+command. While submission is pending, pointer and keyboard geometry changes
+and duplicate submits are disabled; Escape can still discard the draft.
+Completion or draft invalidation releases the pending gate so the next
+annotation can be drawn and submitted. Runtime, account/workspace/session,
+lane generation, target, and disposal changes retire pending replies and clear
+obsolete annotation results; a late reply cannot restore them.
+The annotate control is disabled with a stated reason whenever the
 lane cannot serve a capture — service unavailable, no lane or page target, a
 crashed/closing lane, an agent-owned lane, or the packaged human-embedded
 lane whose CDP handle Electrobun does not expose. Element picking stays
@@ -5889,3 +5897,5 @@ files in the same commit:
 
 Until those files exist, the matching implementation issue remains open; prose
 alone is not evidence of implemented behavior.
+
+Browser lane selection uses published `ListRowControl` buttons in a labelled group. The selected lane has the shared selected treatment and `aria-current`; keyboard activation uses native button semantics. Lane state and ownership remain domain descriptions, and choosing a lane preserves the existing inspection invalidation and scoped target/diagnostic refresh behavior.
