@@ -69,3 +69,9 @@ content; the shared component owns the overlay, header, close action, and
 background containment. These controlled dialogs keep `modal={false}` for
 their existing Kobalte interaction mode while the shared modal manages inert
 background elements and restores their previous state on close or unmount.
+
+Task and creation forms retain domain validation, labels, submission, and layout.
+Published `Label`, `Input`, and `Textarea` own their typography, borders, padding,
+shape, and focus treatment; host selectors must not replace those appearances.
+The task drawer closes through the shared `ActionButton` composition, preserving
+drawer dismissal and focus restoration while adding the standard tooltip.
