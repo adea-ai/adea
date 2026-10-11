@@ -50,6 +50,215 @@ function T(name: string, fn: () => Promise<void>) {
   test(name, fn, 30_000)
 }
 
+type OwnedObservation<T> =
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; error: unknown }
+  | { status: 'timeout'; label: string }
+
+type HolderFailureDisposition =
+  | { kind: 'cleanup'; error: unknown }
+  | { kind: 'failure'; error: unknown }
+
+function holderFailureDisposition(
+  error: unknown,
+  closeRequested: boolean
+): HolderFailureDisposition {
+  if (
+    closeRequested &&
+    error instanceof Error &&
+    'code' in error &&
+    error.code === 'CONNECTION_DESTROYED' &&
+    'errno' in error &&
+    error.errno === 'CONNECTION_DESTROYED' &&
+    error.message.startsWith('write CONNECTION_DESTROYED ')
+  ) {
+    return { kind: 'cleanup', error }
+  }
+  return { kind: 'failure', error }
+}
+
+/** Observe a task within a bound while retaining rejection handlers after timeout. */
+async function observeOwned<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<OwnedObservation<T>> {
+  const observed = promise.then(
+    (value): OwnedObservation<T> => ({ status: 'fulfilled', value }),
+    (error): OwnedObservation<T> => ({ status: 'rejected', error })
+  )
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      observed,
+      new Promise<OwnedObservation<T>>((resolve) => {
+        timer = setTimeout(() => resolve({ status: 'timeout', label }), ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  const outcome = await observeOwned(promise, ms, label)
+  if (outcome.status === 'timeout') throw new Error(`timed out waiting for ${label}`)
+  if (outcome.status === 'rejected') throw outcome.error
+  return outcome.value
+}
+
+type OwnedCloseOutcome =
+  | 'closed'
+  | 'close-timeout'
+  | 'close-error'
+  | 'probe-timeout'
+  | 'close-still-usable'
+  | 'absent'
+
+/** Bound both close and the follow-up probe to one shared deadline. */
+async function closeOwned(
+  pool: DatabaseConnection | null,
+  ms: number,
+  label: string
+): Promise<OwnedCloseOutcome> {
+  if (!pool) return 'absent'
+  const deadline = Date.now() + ms
+  const close = await observeOwned(
+    Promise.resolve().then(() => pool.close()),
+    ms,
+    `close:${label}`
+  )
+  if (close.status === 'timeout') return 'close-timeout'
+
+  const remaining = deadline - Date.now()
+  if (remaining <= 0) return 'probe-timeout'
+  const probe = await observeOwned(
+    Promise.resolve().then(() => pool.db.execute(sql`SELECT 1 AS one`)),
+    remaining,
+    `probe:${label}`
+  )
+  if (probe.status === 'timeout') return 'probe-timeout'
+  if (probe.status === 'fulfilled') return 'close-still-usable'
+  return close.status === 'rejected' ? 'close-error' : 'closed'
+}
+
+/** Keep the body failure primary while retaining any cleanup failure on it. */
+async function preservingCleanup<T>(
+  body: () => Promise<T>,
+  cleanup: () => Promise<void>
+): Promise<T> {
+  let bodyFailed = false
+  let bodyError: unknown
+  let value!: T
+  try {
+    value = await body()
+  } catch (error) {
+    bodyFailed = true
+    bodyError = error
+  }
+
+  let cleanupFailed = false
+  let cleanupError: unknown
+  try {
+    await cleanup()
+  } catch (error) {
+    cleanupFailed = true
+    cleanupError = error
+  }
+
+  if (bodyFailed) {
+    if (cleanupFailed) {
+      if (bodyError instanceof Error) {
+        const errorWithCleanup = bodyError as Error & { cleanupFailures?: readonly unknown[] }
+        try {
+          Object.defineProperty(bodyError, 'cleanupFailures', {
+            configurable: true,
+            enumerable: true,
+            value: [...(errorWithCleanup.cleanupFailures ?? []), cleanupError],
+          })
+        } catch {
+          throw new AggregateError([bodyError, cleanupError], 'Body and cleanup both failed', {
+            cause: bodyError,
+          })
+        }
+      } else {
+        throw new AggregateError([bodyError, cleanupError], 'Body and cleanup both failed', {
+          cause: bodyError,
+        })
+      }
+    }
+    throw bodyError
+  }
+  if (cleanupFailed) throw cleanupError
+  return value
+}
+
+test('bounded observation handles a late rejection after timeout', async () => {
+  let rejectLate!: (error: Error) => void
+  const pending = new Promise<never>((_, reject) => {
+    rejectLate = reject
+  })
+  expect(await observeOwned(pending, 10, 'late rejection')).toEqual({
+    label: 'late rejection',
+    status: 'timeout',
+  })
+  rejectLate(new Error('late task failure'))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+})
+
+test('bounded close also bounds its follow-up probe', async () => {
+  const pool = {
+    close: async () => undefined,
+    db: { execute: () => new Promise<never>(() => {}) },
+  } as unknown as DatabaseConnection
+  expect(await closeOwned(pool, 20, 'deterministic stuck probe')).toBe('probe-timeout')
+})
+
+test('cleanup failure does not replace the original body error', async () => {
+  const bodyError = new Error('body failed')
+  const cleanupError = new Error('cleanup failed')
+  const thrown = await preservingCleanup(
+    async () => {
+      throw bodyError
+    },
+    async () => {
+      throw cleanupError
+    }
+  ).then(
+    () => null,
+    (error: unknown) => error
+  )
+  expect(thrown).toBe(bodyError)
+  expect((bodyError as Error & { cleanupFailures?: readonly unknown[] }).cleanupFailures).toEqual([
+    cleanupError,
+  ])
+})
+
+test('an unexpected holder error after close request stays a cleanup failure', async () => {
+  const injectedError = new Error('injected unexpected holder transaction error')
+  const disposition = holderFailureDisposition(injectedError, true)
+  expect(disposition.kind).toBe('failure')
+  expect(disposition.error).toBe(injectedError)
+  const thrown = await preservingCleanup(
+    async () => undefined,
+    async () => {
+      if (disposition.kind === 'failure') throw disposition.error
+    }
+  ).then(
+    () => null,
+    (error: unknown) => error
+  )
+  expect(thrown).toBe(injectedError)
+  const poolDestroyError = Object.assign(new Error('write CONNECTION_DESTROYED localhost:5432'), {
+    code: 'CONNECTION_DESTROYED',
+    errno: 'CONNECTION_DESTROYED',
+  })
+  const closeDisposition = holderFailureDisposition(poolDestroyError, true)
+  expect(closeDisposition.kind).toBe('cleanup')
+  expect(closeDisposition.error).toBe(poolDestroyError)
+  expect(holderFailureDisposition(poolDestroyError, false).kind).toBe('failure')
+})
+
 function claimInput(
   channelId: string,
   triggerMessageId: string,
@@ -650,5 +859,122 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       .where(eq(schema.leadTurnRuntime.intentId, bound!.intentId!))
       .limit(1)
     expect(runtime?.cancelRequestedAt).not.toBeNull()
+  })
+
+  T('observer failure still releases parks and closes pools boundedly', async () => {
+    let holder: DatabaseConnection | null = null
+    let observer: DatabaseConnection | null = null
+    let releaseHolder: (() => void) | null = null
+    let holderDone = false
+    let holding: Promise<void> | null = null
+    let holderCloseRequested = false
+    let holderFailed = false
+    let holderFailure: unknown = null
+    let holderCleanupFailed = false
+    let holderCleanupError: unknown = null
+    let observerClosed = false
+    let cleanup: Record<string, string> | null = null
+    await preservingCleanup(
+      async () => {
+        const f = await leadGroup()
+        holder = createDatabase(connectionUrl!)
+        observer = createDatabase(connectionUrl!)
+        let holderParked!: () => void
+        const holderGate = new Promise<void>((resolve) => {
+          releaseHolder = resolve
+        })
+        const holderParkedPromise = new Promise<void>((resolve) => {
+          holderParked = resolve
+        })
+        holding = (async () => {
+          try {
+            await holder!.db.transaction(async (tx) => {
+              await tx
+                .select({ id: schema.channels.id })
+                .from(schema.channels)
+                .where(
+                  and(
+                    eq(schema.channels.id, f.channelId),
+                    eq(schema.channels.workspaceId, f.workspace.id)
+                  )
+                )
+                .limit(1)
+                .for('update')
+              holderParked()
+              await holderGate
+            })
+          } catch (error) {
+            const disposition = holderFailureDisposition(error, holderCloseRequested)
+            if (disposition.kind === 'cleanup') {
+              holderCleanupFailed = true
+              holderCleanupError = disposition.error
+            } else {
+              holderFailed = true
+              holderFailure = disposition.error
+            }
+          } finally {
+            holderDone = true
+          }
+        })()
+        await withTimeout(holderParkedPromise, 8000, 'holderParked')
+        expect(await closeOwned(observer, 3000, 'observer-injected')).toBe('closed')
+        observerClosed = true
+        const observed = await observeOwned(lockWaits(observer), 3000, 'observer query after close')
+        expect(observed.status).toBe('rejected')
+      },
+      async () => {
+        releaseHolder?.()
+        let holdingOutcome: OwnedObservation<void> | null = null
+        if (holding) holdingOutcome = await observeOwned(holding, 3000, 'holding before close')
+        if (holdingOutcome?.status === 'timeout') holderCloseRequested = true
+
+        const closeHolder = holder ? await closeOwned(holder, 3000, 'holder') : 'absent'
+        if (holdingOutcome?.status === 'timeout' && holding) {
+          holdingOutcome = await observeOwned(holding, 3000, 'holding after close')
+        }
+        const closeObserver = observerClosed
+          ? 'closed'
+          : observer
+            ? await closeOwned(observer, 3000, 'observer-cleanup')
+            : 'absent'
+        cleanup = {
+          closeHolder,
+          closeObserver,
+          holding: holdingOutcome?.status ?? 'absent',
+        }
+
+        if (holderFailed) throw holderFailure
+        if (holderCleanupFailed) {
+          expect(holderCloseRequested).toBe(true)
+          expect(closeHolder).toBe('closed')
+          expect(holdingOutcome?.status).toBe('fulfilled')
+          expect(holderCleanupError).toMatchObject({
+            code: 'CONNECTION_DESTROYED',
+            errno: 'CONNECTION_DESTROYED',
+          })
+        }
+        expect(cleanup).toEqual({
+          closeHolder: 'closed',
+          closeObserver: 'closed',
+          holding: 'fulfilled',
+        })
+        expect(holderDone).toBe(true)
+      }
+    )
+
+    const fresh = createDatabase(connectionUrl!)
+    await preservingCleanup(
+      async () => {
+        const [one] = await withTimeout(
+          fresh.db.execute(sql`SELECT 1 AS one`),
+          3000,
+          'fresh-pool query'
+        )
+        expect((one as { one: number }).one).toBe(1)
+      },
+      async () => {
+        expect(await closeOwned(fresh, 3000, 'fresh')).toBe('closed')
+      }
+    )
   })
 })
