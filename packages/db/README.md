@@ -77,6 +77,20 @@ It is additive with a default of zero. Apply it before callers that send `expect
 until every writer checks the revision, a pre-0045 writer can edit without advancing it, so
 complete the rollout before relying on conflicts.
 
+Migration 0046 adds #1207's artifact-reference grant table after 0045. Migration 0047 adds only
+the nullable requested lead/child selection column on the immutable lead intent and its strict
+check; it follows 0046 and descends from its snapshot. No migration is renumbered on `main`.
+Omission retains workspace role defaults; a changed choice on the same message/idempotency
+key conflicts. The locked private reader exposes only these requested references; CP validates
+workspace/target/readiness and retains accepted runtime selections. A parent child choice
+never inherits the lead choice. Child overrides require CP-owned canonical child admission.
+The requested references reach CP only through the authenticated lead-product evidence endpoint
+(`requestedModelSelections`); the public prepare request stays `{ intentId }`. CP resolves and pins
+the selection from that canonical evidence. A prepared model that differs from the requested lead
+reference is refused (`REQUESTED_MODEL_MISMATCH`) and never falls back to the workspace default.
+The older runtime workspace declaration must never generate a destructive rollback or renumber
+an applied migration.
+
 ## Permanent workspace deletion
 
 Active permanent deletion is unavailable until server-owned cleanup completion
@@ -139,3 +153,8 @@ identity decisions. No migration or onboarding operation connects an account.
 with no duplicates or foreign IDs, and updates only that member's positions. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
+
+The opt-in [installed SDK / production-factory consumer proof](../../docs/guides/pi-production-factory-consumer-proof.md)
+uses a reviewed CP checkout and actual public candidate packages with an owned restricted
+PG database. Its preflight regressions are in the normal DB unit inventory; the connected
+fixture requires explicit verified inputs and never substitutes a mocked SDK or live config.

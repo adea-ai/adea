@@ -12,6 +12,8 @@ import {
   type LeadTurnView,
 } from './lead-turn-state'
 import { projectModelFunding } from './lead-model-state'
+import { LeadTurnModelChoices } from './lead-turn-model-choices'
+import type { LeadRequestedChoices } from './lead-model-request'
 import { leadTurnPresentation } from './lead-turn-presentation'
 
 /** Displays canonical observations. Reads never start inference or take over a native session. */
@@ -21,6 +23,8 @@ export function LeadTurnControls(props: {
   channelId: string
   audienceEpoch: number
   receipt?: ApiLeadTurnStatus | null
+  requestedChoices?: LeadRequestedChoices
+  onRequestedChoicesChange?: (choices: LeadRequestedChoices) => void
   onTimelineChange: () => void
 }) {
   const [view, setView] = createSignal<LeadTurnView>({
@@ -150,6 +154,14 @@ export function LeadTurnControls(props: {
   }
   return (
     <section aria-label="Workspace lead turn" class="flex flex-col gap-2 px-5 py-3">
+      <Show when={props.onRequestedChoicesChange}>
+        <LeadTurnModelChoices
+          client={props.client}
+          workspaceId={props.workspaceId}
+          choices={props.requestedChoices ?? {}}
+          onChange={(choices) => props.onRequestedChoicesChange?.(choices)}
+        />
+      </Show>
       <div class="flex flex-wrap items-center gap-2">
         <Badge variant="outline">{presentation().label}</Badge>
         <Button

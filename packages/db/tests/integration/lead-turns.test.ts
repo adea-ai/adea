@@ -8,6 +8,7 @@ import {
 } from '../../src/connection'
 import { createDirectAgentTopic, createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
+import { resolveLeadTurnAuthority } from '../../src/lead-turn-runtime'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import {
   agents,
@@ -70,6 +71,114 @@ describe.skipIf(!connectionUrl)('canonical lead-turn intent', () => {
       createLeadTurn(connection.db, workspace.id, topic.id, owner.principal, input)
     return { owner, workspace, lead, topic, input, admit }
   }
+
+  test('changed requested role pins conflict without changing canonical message or intent', async () => {
+    const f = await fixture()
+    const lead = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 }
+    const child = { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 }
+    const input = { ...f.input, requestedModelSelections: { lead, child } }
+    const first = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      input
+    )
+    const replay = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      { ...input, requestedModelSelections: { child, lead } }
+    )
+    expect(replay.leadTurn).toEqual(first.leadTurn)
+    for (const requestedModelSelections of [
+      { lead: { ...lead, selectionRevision: 2 }, child },
+      { lead: child, child },
+      { lead },
+    ])
+      await expect(
+        createLeadTurn(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
+          ...input,
+          requestedModelSelections,
+        })
+      ).rejects.toThrow('model selection conflict')
+    await expect(f.admit()).rejects.toThrow('model selection conflict')
+    const stored = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.requestedModelSelections).toEqual({ lead, child })
+    expect(
+      await connection.db.select().from(messages).where(eq(messages.channelId, f.topic.id))
+    ).toHaveLength(1)
+  })
+
+  test('requested role column rejects snapshots, empty choices and unsafe revisions', async () => {
+    const f = await fixture()
+    const first = await f.admit()
+    const valid = { child: { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 1 } }
+    await connection.db
+      .update(leadTurnIntents)
+      .set({ requestedModelSelections: valid })
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    for (const invalid of [
+      {},
+      { direct: valid.child },
+      { lead: { ...valid.child, credentialRef: 'caller-credential' } },
+      { lead: { ...valid.child, selectionRevision: 0 } },
+      { lead: { ...valid.child, selectionRevision: 9007199254740992 } },
+      { lead: null },
+    ]) {
+      await expect(
+        Promise.resolve(
+          connection.db.execute(
+            sql`update app.lead_turn_intents set requested_model_selections = ${JSON.stringify(invalid)}::jsonb where id = ${first.leadTurn.intentId}`
+          )
+        )
+      ).rejects.toMatchObject({ cause: { code: '23514' } })
+    }
+    const [stored] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
+    expect(stored?.requestedModelSelections).toEqual(valid)
+  })
+
+  test('runtime authority exposes only the exact requested lead reference', async () => {
+    const f = await fixture()
+    const lead = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 3 }
+    const child = { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 }
+    const withLead = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      {
+        ...f.input,
+        idempotencyKey: crypto.randomUUID(),
+        requestedModelSelections: { lead, child },
+      }
+    )
+    const withChildOnly = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      {
+        ...f.input,
+        idempotencyKey: crypto.randomUUID(),
+        requestedModelSelections: { child },
+      }
+    )
+    const defaults = await f.admit()
+    const authorityFor = (intentId: string) =>
+      resolveLeadTurnAuthority(connection.db, f.workspace.id, intentId, f.owner.principal)
+    expect((await authorityFor(withLead.leadTurn.intentId)).requestedLeadSelection).toEqual(lead)
+    expect((await authorityFor(withChildOnly.leadTurn.intentId)).requestedLeadSelection).toBeNull()
+    expect((await authorityFor(defaults.leadTurn.intentId)).requestedLeadSelection).toBeNull()
+  })
 
   test('concurrent retry commits one canonical message, one blocked intent and one event', async () => {
     const f = await fixture()
