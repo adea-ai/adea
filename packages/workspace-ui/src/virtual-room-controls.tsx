@@ -19,7 +19,7 @@ import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
-import { createEffect, createMemo, createSignal, lazy, Show, Suspense } from 'solid-js'
+import { createEffect, createMemo, createSignal, lazy, Show, Suspense, type JSX } from 'solid-js'
 
 import { createClientRequestId } from './request-id'
 import { useWorkspacePersistence } from './use-workspace-persistence'
@@ -36,6 +36,7 @@ const CreateRoomDialog = lazy(() =>
 type SidebarDialog = 'create-group' | 'create-room' | null
 
 export function VirtualRoomControls(props: {
+  archiveAction?: JSX.Element
   client?: AgentHqApiClient
   openChat: () => void
   restoreFocusRef?: () => HTMLElement | undefined
@@ -210,6 +211,7 @@ export function VirtualRoomControls(props: {
   return (
     <>
       <WorkspaceSidebar
+        archiveAction={props.archiveAction}
         agents={settledData(agents) ?? []}
         channelBusy={updateChannelMutation.isPending || archiveChannelMutation.isPending}
         collapsedRoomIds={collapsedRoomIds()}
