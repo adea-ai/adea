@@ -133,6 +133,29 @@ describe('test suite boundaries', () => {
     expect(journeys!.args).toContain('apps/web/e2e/workspace-project-placement.spec.ts')
   })
 
+  test('keeps the archive lifecycle coverage (#1175) in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const main = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' &&
+        args.includes('apps/web/e2e/workspace-archive-lifecycle.spec.ts')
+    )
+    expect(main).toBeDefined()
+    expect(main!.args).toContain('apps/web/e2e/workspace-archive-settings.spec.ts')
+  })
+
   test('keeps the workspace creation-draft browser specs in the normal E2E shard exactly once', () => {
     const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
       "import { spawnSync } from 'node:child_process'",
@@ -157,6 +180,60 @@ describe('test suite boundaries', () => {
       'apps/web/e2e/workspace-creation-owner.spec.ts',
     ]) {
       expect(suite!.args.filter((arg) => arg === spec)).toHaveLength(1)
+    }
+  })
+
+  test('requires the lead role and payer specs in the normal E2E selection, connected proof opt-in', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    for (const [index, total] of [
+      [1, 1],
+      [2, 2],
+    ]) {
+      const calls: { command: string; args: string[] }[] = []
+      runInNewContext(runner, {
+        spawnSync: (command: string, args: string[]) => {
+          calls.push({ command, args })
+          return { status: 0 }
+        },
+        process: { env: { E2E_SHARD_INDEX: String(index), E2E_TOTAL_SHARDS: String(total) } },
+        console,
+      })
+      const main = calls.find(
+        ({ command, args }) =>
+          command === 'playwright' && args.includes('apps/web/e2e/workspace-guest.spec.ts')
+      )
+      expect(main).toBeDefined()
+      expect(main!.args).toContain('apps/web/e2e/lead-role-choices.spec.ts')
+      expect(main!.args).toContain('apps/web/e2e/lead-payer-journey.spec.ts')
+      expect(main!.args).not.toContain('apps/web/e2e/lead-role-choices-connected.spec.ts')
+    }
+    for (const spec of ['lead-role-choices', 'lead-payer-journey', 'lead-role-choices-connected']) {
+      expect(existsSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`))).toBeTrue()
+    }
+    const connected = readFileSync(
+      resolve(root, 'apps/web/e2e/lead-role-choices-connected.spec.ts'),
+      'utf8'
+    )
+    expect(connected).toContain("process.env.PI_ROLE_CONNECTED_PROOF !== '1'")
+  })
+
+  test('keeps the lead E2E fixture servers off the managed dev server cache', () => {
+    // A second Vite instance that shares node_modules/.vite rewrites the dependency hashes the
+    // running app already requested, and the app then fails with a 504 Outdated Optimize Dep.
+    for (const spec of [
+      'lead-role-choices',
+      'lead-payer-journey',
+      'lead-role-choices-connected',
+      'lead-turn-controls',
+      'message-composer',
+    ]) {
+      const source = readFileSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`), 'utf8')
+      expect(source).toContain('    cacheDir,\n')
+      expect(source).toContain('cacheDir = mkdtempSync(join(tmpdir(), ')
+      expect(source).toContain('rmSync(cacheDir, { recursive: true, force: true })')
     }
   })
 
