@@ -174,10 +174,15 @@ staged #400 launch transaction; Customize exposes #400's developer surfaces
 (harness/model pickers, per-conversation overrides, favorites/recents — zeron
 composer-preferences donor pattern) as explicit pins; unpinned outputs still
 resolve through the same layer. Chat never resolves locally and never
-overrides an explicit pin. If the CP contract or entitlements (control-plane#552)
-are not yet pinned, the slice pins the adea-side request/reply types, renders
-`auth_required`/`unavailable` truthfully, and leaves the developer path fully
-functional — it does not fork a local resolver.
+overrides an explicit pin. The composer exposes its decision controls only
+when a host provides both the typed request factory and the decision consumer
+with its resolver and launch callback. With neither or only one input, Chat
+hides the Auto/Customize and Agent controls and any promise that pins reached
+the Control Plane; normal Send and Steer stay available, and loss of the seam
+resets the hidden mode to Auto. Once both inputs are present, CP or entitlement
+failures render their typed `auth_required`/`unavailable` recovery state. This
+consumer seam does not implement the Control Plane integration or a local
+resolver.
 
 The Adea consumer pins control-plane `decision-resolution.v1` at
 `{ major: 1, minor: 0 }`. Its request/reply DTOs and decoder are owned by
@@ -195,6 +200,10 @@ Acceptance criteria:
 - [ ] Auto mode resolves only through the CP decision-layer contract; no
       chat-side harness/model selection logic exists (code inspection is an
       acceptance test).
+- [ ] Mode, Agent, and Customize controls and CP-pins copy are present only
+      when both a typed request factory and a valid decision consumer are
+      available; partial wiring hides them without disabling ordinary Send or
+      Steer.
 - [ ] Auto launch uses the same launch transaction and idempotency rules as
       explicit launches; resolution failures render typed remediation, never
       a silent fallback to a default harness.

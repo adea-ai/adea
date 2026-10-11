@@ -12,6 +12,35 @@
 // Every journey fails on any page error or console error: the chat surface
 // must render and stream without a single one.
 import { expect, test, type Page } from '@playwright/test'
+import { resolve } from 'node:path'
+import type {
+  ComposerDecisionInputs,
+  DecisionResolutionRequest,
+} from '@adea-ai/dev-view/chat'
+
+declare global {
+  interface Window {
+    chatViewDecisionHarness: {
+      setReadiness(
+        readiness: 'none' | 'request-only' | 'consumer-only' | 'ready' | 'deferred'
+      ): void
+      setSession(session: 'initial' | 'other'): void
+      resolvePending(): Promise<void>
+      dispose(): void
+      report(): {
+        runtimeSessionId: string
+        pendingResolutions: number
+        sends: string[]
+        requestInputs: Array<Pick<ComposerDecisionInputs, 'mode' | 'objective' | 'explicitPins'>>
+        clientRequests: Array<
+          Pick<DecisionResolutionRequest, 'contractVersion' | 'workspaceId' | 'objective' | 'explicitPins'>
+        >
+        outcomes: Array<{ kind: string; status?: string; action?: string }>
+        resolvedCallbacks: number
+      }
+    }
+  }
+}
 
 const workspace = {
   id: 'workspace-chat-e2e',
@@ -65,6 +94,185 @@ async function openDraftChatFixture(page: Page, fallback = false) {
   })
   await expect(page.locator('section.dev-chat')).toBeVisible()
 }
+
+async function openDecisionHarness(page: Page, readiness: string) {
+  const path = '/__chat-view-decision-harness'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><head></head><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(`${path}?readiness=${readiness}`)
+  const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/chat-view-decision-harness-app.tsx')
+  await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + entry}'` })
+  await expect(page.locator('section.dev-chat')).toBeVisible()
+}
+
+test('ChatView without a decision contract hides CP selection and keeps ordinary send available', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openDecisionHarness(page, 'none')
+
+  await expect(page.getByLabel('Mode')).toHaveCount(0)
+  await expect(page.getByText('Agent', { exact: true })).toHaveCount(0)
+  await expect(
+    page.getByText('Customize pins are submitted to the Control Plane and remain authoritative.', {
+      exact: true,
+    })
+  ).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Resolve & launch' })).toHaveCount(0)
+
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  await composer.fill('Send through the ordinary Chat host seam.')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().sends)).toEqual([
+    'Send through the ordinary Chat host seam.',
+  ])
+  await expect(composer).toHaveValue('')
+  expect(errors).toEqual([])
+})
+
+test('ChatView requires both decision inputs, resets hidden Customize state, and forwards typed failures', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openDecisionHarness(page, 'ready')
+
+  const mode = page.getByLabel('Mode')
+  await expect(mode).toHaveValue('auto')
+  await mode.selectOption('customize')
+  await expect(
+    page.getByText('Customize pins are submitted to the Control Plane and remain authoritative.', {
+      exact: true,
+    })
+  ).toBeVisible()
+
+  // A consumer without its authoritative request factory is not a usable
+  // decision capability. Removing it hides the entire decision surface.
+  await page.evaluate(() => window.chatViewDecisionHarness.setReadiness('consumer-only'))
+  await expect(page.getByLabel('Mode')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Resolve & launch' })).toHaveCount(0)
+  await expect(
+    page.getByText('Customize pins are submitted to the Control Plane and remain authoritative.', {
+      exact: true,
+    })
+  ).toHaveCount(0)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.setReadiness('request-only'))
+  await expect(page.getByLabel('Mode')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Resolve & launch' })).toHaveCount(0)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.setReadiness('ready'))
+  await expect(mode).toHaveValue('auto')
+
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  await composer.fill('Inspect the selected release candidate.')
+  await page.getByRole('button', { name: 'Resolve & launch' }).click()
+  await expect(page.getByRole('alert')).toContainText('Sign in to continue.')
+
+  const decision = await page.evaluate(() => window.chatViewDecisionHarness.report())
+  expect(decision.requestInputs).toEqual([
+    { mode: 'auto', objective: 'Inspect the selected release candidate.', explicitPins: {} },
+  ])
+  expect(decision.clientRequests).toEqual([
+    {
+      contractVersion: { major: 1, minor: 0 },
+      workspaceId: '00000000-0000-4000-8000-000000000102',
+      objective: 'Inspect the selected release candidate.',
+      explicitPins: {},
+    },
+  ])
+  expect(decision.outcomes).toEqual([
+    { kind: 'failure', status: 'auth_required', action: 'sign_in' },
+  ])
+  expect(decision.resolvedCallbacks).toBe(0)
+
+  await composer.fill('Send normally after the typed recovery.')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().sends)).toEqual([
+    'Send normally after the typed recovery.',
+  ])
+  expect(errors).toEqual([])
+})
+
+async function startDeferredDecision(page: Page) {
+  await openDecisionHarness(page, 'deferred')
+  await page.getByRole('textbox', { name: 'Message runtime' }).fill('Resolve this delayed request.')
+  await page.getByRole('button', { name: 'Resolve & launch' }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().pendingResolutions))
+    .toBe(1)
+}
+
+test('a delayed decision is fenced when its seam disappears and ordinary send remains available', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await startDeferredDecision(page)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.setReadiness('none'))
+  await expect(page.getByRole('button', { name: 'Resolve & launch' })).toHaveCount(0)
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  await composer.fill('Send normally while the old decision is pending.')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().sends))
+    .toEqual(['Send normally while the old decision is pending.'])
+
+  // Restore the same request and consumer identities before the reply lands:
+  // the earlier invalidation must remain latched across an A→B→A transition.
+  await page.evaluate(() => window.chatViewDecisionHarness.setReadiness('deferred'))
+  await expect(page.getByLabel('Mode')).toBeVisible()
+  await page.evaluate(async () => window.chatViewDecisionHarness.resolvePending())
+  const result = await page.evaluate(() => window.chatViewDecisionHarness.report())
+  expect(result.outcomes).toEqual([])
+  expect(result.resolvedCallbacks).toBe(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('.dev-chat__composer-location')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a delayed decision stays fenced across an A-to-B-to-A Chat session switch', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await startDeferredDecision(page)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.setSession('other'))
+  await expect
+    .poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().runtimeSessionId))
+    .toBe('00000000-0000-4000-8000-000000000108')
+  await page.evaluate(() => window.chatViewDecisionHarness.setSession('initial'))
+  await expect
+    .poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().runtimeSessionId))
+    .toBe('00000000-0000-4000-8000-000000000104')
+  await page.evaluate(async () => window.chatViewDecisionHarness.resolvePending())
+  const result = await page.evaluate(() => window.chatViewDecisionHarness.report())
+  expect(result.outcomes).toEqual([])
+  expect(result.resolvedCallbacks).toBe(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('.dev-chat__composer-location')).toHaveCount(0)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.setSession('other'))
+  await page.getByRole('textbox', { name: 'Message runtime' }).fill('Send in the new session.')
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  await expect
+    .poll(() => page.evaluate(() => window.chatViewDecisionHarness.report().sends))
+    .toEqual(['Send in the new session.'])
+  expect(errors).toEqual([])
+})
+
+test('a delayed decision cannot call its consumer after the Chat composer is disposed', async ({
+  page,
+}) => {
+  await startDeferredDecision(page)
+
+  await page.evaluate(() => window.chatViewDecisionHarness.dispose())
+  await page.evaluate(async () => window.chatViewDecisionHarness.resolvePending())
+  const result = await page.evaluate(() => window.chatViewDecisionHarness.report())
+  expect(result.outcomes).toEqual([])
+  expect(result.resolvedCallbacks).toBe(0)
+})
 
 test('renders the canonical conversation surface: transcript rows, live status, and a working composer', async ({
   page,
