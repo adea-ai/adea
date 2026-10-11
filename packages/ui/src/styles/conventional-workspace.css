@@ -48,6 +48,52 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.workspace-contextual-utility-frame {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-contextual-utility-frame__view {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-contextual-utility-frame__view > .workspace-shell--contextual {
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-contextual-utility-frame__view > .conventional-workspace {
+  width: 100%;
+  height: calc(100svh - var(--workspace-topbar-height));
+}
+
+.workspace-contextual-utility-frame--utility-full
+  > .workspace-contextual-utility-frame__view {
+  display: none;
+}
+
+.workspace-contextual-utility-frame--utility-full > .dev-utility--cross-view-full {
+  flex: 1 1 auto;
+  width: auto;
+  border-inline-start: 0;
+}
+
+@media (max-width: 70rem) {
+  .workspace-contextual-utility-frame--utility-full > .dev-utility--cross-view-full {
+    inset-inline: 0;
+  }
+}
+
 .workspace-switching {
   position: absolute;
   inset-block-start: 1rem;

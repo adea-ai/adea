@@ -1256,6 +1256,52 @@ and full-width state are local preferences only. A persisted focus target must
 identify a center leaf; a split-node target is corrupt and falls back to the
 first valid leaf.
 
+The workspace shell owns one scoped V2 layout controller and utility-selection
+state across Dev, Chat, and Virtual. The Dev entry consumes that owner and
+remains the only mount for the Dev center, projection, capability snapshot,
+and session selection. Chat and Virtual mount a lazy right
+utility host on first open; it reuses the Browser, Devices, Agents, and History
+panes without mounting a second Dev entry or creating another layout writer.
+The shared archive-shelf owner serves the Dev footer and the existing shared
+workspace navigation footers in Chat and Virtual. Desktop Chat's direct
+project/session sidebar uses that same owner and shelf. These surfaces continue
+to use the published shared navigation and its existing domain renderers for
+general project, room, and session navigation.
+
+The archive shelf reads pages of up to 500 sessions and follows cursors for at
+most 20 pages. Every row on every page MUST be archived and match the active
+runtime scope. A malformed row, a mismatched scope, an invalid or repeated
+cursor, or reaching the page cap with another cursor MUST report an incomplete
+load; it MUST NOT present the partial rows as a complete listing. A restore
+must find the selected row in that scope's current shelf, retain its listed
+generation, read the exact RuntimeSession with that generation, and unarchive
+with the same expected generation. List, get, and unarchive results are fenced
+by the active view and runtime scope; switching views or changing scope while
+an operation is pending MUST discard its result. The same shelf state and
+restore path back each Chat, Virtual, and Dev footer; room and channel IDs
+never supply a session identity for archive operations.
+
+Session identity is explicit and view-local. Dev publishes only the current
+projection-validated selection. Desktop Chat publishes
+`conversation.runtimeSessionId` only after the selected canonical conversation
+has attached and its scope, project, session, and generation match the
+projection. A desktop presentation hint is not runtime authority. Virtual
+room, channel, and route IDs MUST NOT be converted into or used as a fallback
+for a RuntimeSession ID. Without an authoritative binding, Devices MAY read
+runtime-scope inventory and capability state, while Browser lanes, device
+sessions and mutations, Activity, Agents, and History MUST report their
+session-bound surface unavailable and MUST NOT issue session-bound commands.
+
+Every contextual runtime read or action captures the active view, runtime
+scope, project, RuntimeSession ID, generation, worktree, and runtime status
+before dispatch. It MUST discard a result or follow-up action when that
+identity changes or its host is disposed. Returned session resources MUST
+match both scope and RuntimeSession ID before rendering or mutation. A view
+switch invalidates pending work even when the user later returns to the same
+session. Sessionless utility visibility may be changed in Chat or Virtual, but
+it is not written to a session document until a canonical binding exists; an
+open right utility may then carry forward into that session's V2 document.
+
 ### Worktree
 
 ```text

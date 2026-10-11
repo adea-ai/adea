@@ -1,6 +1,15 @@
 import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
-import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense } from 'solid-js'
+import {
+  createEffect,
+  createSignal,
+  lazy,
+  on,
+  onCleanup,
+  Show,
+  Suspense,
+  type JSX,
+} from 'solid-js'
 import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
@@ -56,6 +65,8 @@ export type WorkspaceDeepLink = Readonly<{
 export function ConventionalWorkspaceShell(props: {
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
+  /** Shared archived-session affordance at the end of the common sidebar. */
+  archiveAction?: JSX.Element
   restoreFocusRef?: () => HTMLElement | undefined
   taskBoardOnly?: boolean
   manageSettings?: boolean
@@ -340,6 +351,7 @@ export function ConventionalWorkspaceShell(props: {
               Skip to workspace content
             </a>
             <WorkspaceSidebar
+              archiveAction={props.archiveAction}
               agents={controller.agents}
               restoreFocusRef={props.restoreFocusRef}
               channelBusy={controller.channelBusy}
