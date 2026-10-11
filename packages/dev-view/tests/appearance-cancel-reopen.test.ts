@@ -38,6 +38,18 @@ function fakeDocument() {
         removeProperty: (name: string) => void delete style[name],
       },
       dataset,
+      setAttribute: (name: string, value: string) => {
+        const key = name
+          .slice(5)
+          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+        dataset[key] = value
+      },
+      removeAttribute: (name: string) => {
+        const key = name
+          .slice(5)
+          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+        delete dataset[key]
+      },
       classList: {
         toggle: (name: string, force: boolean) => {
           if (force) classes.add(name)
