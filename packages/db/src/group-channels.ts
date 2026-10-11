@@ -67,7 +67,7 @@ import { createLeadTurn } from './lead-turns'
 import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
-import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
+import { createMessageInGroupFence, getMessageForUser, listMessagesForUser } from './conversations'
 import { validateGroupCreation } from './group-participation-policy'
 import {
   admissionForParticipant,
@@ -506,7 +506,7 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   }
   const direct = (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>)
     .message
-  const posted = await createMessage(transaction, workspaceId, channelId, principal, {
+  const posted = await createMessageInGroupFence(transaction, workspaceId, channelId, principal, {
     ...direct,
     sender,
   })

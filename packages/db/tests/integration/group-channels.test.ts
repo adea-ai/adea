@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from 'bun:test'
 import type { ConversationParticipantRef, GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createArtifact, deleteArtifact } from '../../src/artifacts'
@@ -50,7 +50,11 @@ import { searchWorkspaceForUser } from '../../src/search'
 import { validateGroupCreation } from '../../src/group-participation-policy'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
-import { addWorkspaceMembership, createWorkspaceWithOwner } from '../../src/workspaces'
+import {
+  addWorkspaceMembership,
+  createWorkspaceWithOwner,
+  removeWorkspaceMembership,
+} from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
 
@@ -844,7 +848,289 @@ async function isolatedFixture() {
   return { local, member, owner, workspace }
 }
 
+/** Foreign lead: the Agent lives in `other`, explicitly enlisted here as the group's only lead. */
+async function foreignLeadGroup() {
+  const f = await isolatedFixture()
+  const otherOwner = (
+    await createTemporaryUserSession(f.local.db, {
+      credentialDigest: `lead-choice-other-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+  ).principal
+  const other = await createWorkspaceWithOwner(f.local.db, {
+    idempotencyKey: crypto.randomUUID(),
+    name: 'Lead source',
+    owner: otherOwner,
+  })
+  const leadAway = await ensureWorkspaceLead(f.local.db, other.workspace.id, otherOwner)
+  const channelId = crypto.randomUUID()
+  await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+    candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+      audienceGrants: [
+        {
+          expiresAt: null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+      enlistmentGrants: [
+        {
+          agent: { agentId: leadAway.id, workspaceId: other.workspace.id },
+          expiresAt: null,
+          grantId: 'gra_lead_away',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+    }),
+    channelId,
+    idempotencyKey: crypto.randomUUID(),
+    now: NOW,
+    title: 'Lead group',
+  })
+  return { channelId, f, leadAway }
+}
+
+function leadPost(
+  idempotencyKey: string,
+  lead: { selectionRef: string; selectionRevision: number }
+) {
+  return {
+    lead: {
+      bodyText: 'lead choice',
+      idempotencyKey,
+      mentions: [],
+      requestedModelSelections: { lead },
+    },
+    mode: 'lead' as const,
+  }
+}
+
+async function memberGroup(
+  f: Awaited<ReturnType<typeof isolatedFixture>>,
+  memberExpiresAt: string | null = null
+) {
+  const channelId = crypto.randomUUID()
+  await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+    candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+      audienceGrants: [
+        {
+          expiresAt: null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        },
+        {
+          expiresAt: memberExpiresAt,
+          grantId: 'gra_member',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.member,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+      enlistmentGrants: [],
+    }),
+    channelId,
+    idempotencyKey: crypto.randomUUID(),
+    now: NOW,
+    title: 'Member group',
+  })
+  return channelId
+}
+
+/**
+ * Holds a SHARE lock on `app.messages`: every write to it waits behind the
+ * lock while plain reads still run. A test parks a generic write on its real
+ * awaited insert, then moves trusted time before releasing the lock.
+ */
+function holdMessageWrites(database: DatabaseConnection['db']) {
+  let acquired!: () => void
+  const locked = new Promise<void>((resolve) => {
+    acquired = resolve
+  })
+  let release!: () => void
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const holder = database.transaction(async (transaction) => {
+    await transaction.execute(sql.raw('lock table app.messages in share mode'))
+    acquired()
+    await released
+  })
+  return { holder, locked, release }
+}
+
+/** Resolves once a write to `table` is queued behind a lock, so the writer reached its awaited write. */
+async function waitForBlockedWrite(database: DatabaseConnection['db'], table: string) {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const blocked = await database.execute(
+      sql`select 1 from pg_stat_activity where wait_event_type = 'Lock' and query ilike ${`insert into%"${table}"%`}`
+    )
+    if (blocked.length > 0) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`no write to ${table} reached its lock`)
+}
+
+/** The message, mention, event and frontier effects a generic write can leave behind. */
+async function channelWrites(
+  database: DatabaseConnection['db'],
+  workspaceId: string,
+  channelId: string
+) {
+  const [messages, mentions, events, channel] = await Promise.all([
+    database
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(eq(schema.messages.channelId, channelId)),
+    database
+      .select({ id: schema.messageMentions.id })
+      .from(schema.messageMentions)
+      .where(eq(schema.messageMentions.workspaceId, workspaceId)),
+    database
+      .select({ id: schema.workspaceEvents.id })
+      .from(schema.workspaceEvents)
+      .where(
+        and(
+          eq(schema.workspaceEvents.workspaceId, workspaceId),
+          eq(schema.workspaceEvents.eventType, 'message.created')
+        )
+      ),
+    database
+      .select({ sequence: schema.channels.latestMessageSequence })
+      .from(schema.channels)
+      .where(eq(schema.channels.id, channelId)),
+  ])
+  return {
+    events: events.length,
+    frontier: channel[0]?.sequence ?? null,
+    mentions: mentions.length,
+    messages: messages.length,
+  }
+}
+
 describe('durable binding, fences and shared read boundary', () => {
+  T('an explicitly granted foreign lead keeps its exact requested choice', async () => {
+    const { channelId, f, leadAway } = await foreignLeadGroup()
+    try {
+      const lead = { selectionRef: `msel_${'d'.repeat(32)}`, selectionRevision: 2 }
+      const posted = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        leadPost(crypto.randomUUID(), lead),
+        { now: NOW }
+      )
+      const [intent] = await f.local.db
+        .select()
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.messageId, posted.message.id))
+        .limit(1)
+      expect(intent?.agentId).toBe(leadAway.id)
+      const authority = await resolveLeadTurnAuthority(
+        f.local.db,
+        f.workspace.id,
+        intent!.id,
+        f.owner
+      )
+      expect(authority.requestedLeadSelection).toEqual(lead)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  T('a foreign lead choice is denied with zero rows once its enlistment is revoked', async () => {
+    const { channelId, f } = await foreignLeadGroup()
+    try {
+      await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_lead_away',
+        kind: 'enlistment',
+        revokedAt: LATER,
+      })
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          leadPost(crypto.randomUUID(), {
+            selectionRef: `msel_${'d'.repeat(32)}`,
+            selectionRevision: 2,
+          }),
+          { now: NOW }
+        )
+      ).rejects.toThrow('Lead turn unavailable')
+      const intents = await f.local.db
+        .select({ id: schema.leadTurnIntents.id })
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.channelId, channelId))
+      const messages = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(eq(schema.messages.channelId, channelId))
+      expect(intents).toHaveLength(0)
+      expect(messages).toHaveLength(0)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  T('a stale lead choice cannot replace the admitted choice of the same turn', async () => {
+    const { channelId, f, leadAway } = await foreignLeadGroup()
+    try {
+      const idempotencyKey = crypto.randomUUID()
+      const current = { selectionRef: `msel_${'d'.repeat(32)}`, selectionRevision: 2 }
+      const first = await postGroupChannelMessage(
+        f.local.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        f.owner,
+        leadPost(idempotencyKey, current),
+        { now: NOW }
+      )
+      await expect(
+        postGroupChannelMessage(
+          f.local.db,
+          f.workspace.id,
+          channelId,
+          f.owner,
+          f.owner,
+          leadPost(idempotencyKey, { ...current, selectionRevision: 1 }),
+          { now: NOW }
+        )
+      ).rejects.toThrow('Lead turn model selection conflict')
+      const intents = await f.local.db
+        .select()
+        .from(schema.leadTurnIntents)
+        .where(eq(schema.leadTurnIntents.channelId, channelId))
+      expect(intents).toHaveLength(1)
+      expect(intents[0]).toMatchObject({
+        agentId: leadAway.id,
+        messageId: first.message.id,
+        requestedModelSelections: { lead: current },
+      })
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  /** A group with the owner founder and `member` admitted by an audience grant the caller may revoke. */
+
   T(
     'a revision 2 regrant never revives a revision 1 admission until the roster rebinds',
     async () => {
@@ -4101,6 +4387,162 @@ describe('durable binding, fences and shared read boundary', () => {
           )
         ).toMatchObject({ action: 'deny' })
       } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'generic writes deny a withheld group user despite restored membership and a retained participant',
+    async () => {
+      const f = await isolatedFixture()
+      try {
+        const channelId = await memberGroup(f)
+        // Membership lapses and is restored; the participant row is never removed.
+        expect(await removeWorkspaceMembership(f.local.db, f.workspace.id, f.member)).toBe(true)
+        await addWorkspaceMembership(f.local.db, f.workspace.id, f.member, 'member')
+        await revokeGroupGrant(f.local.db, f.workspace.id, channelId, f.owner, {
+          grantId: 'gra_member',
+          kind: 'audience',
+          revokedAt: LATER,
+        })
+        const participants = await f.local.db
+          .select({ id: schema.channelParticipants.id })
+          .from(schema.channelParticipants)
+          .where(
+            and(
+              eq(schema.channelParticipants.channelId, channelId),
+              eq(schema.channelParticipants.userId, f.member.userId)
+            )
+          )
+        expect(participants).toHaveLength(1)
+        await expect(
+          createMessage(f.local.db, f.workspace.id, channelId, f.member, {
+            bodyText: 'must not land',
+            idempotencyKey: crypto.randomUUID(),
+            sender: f.member,
+          })
+        ).rejects.toThrow('Channel unavailable')
+        const messages = await f.local.db
+          .select({ id: schema.messages.id })
+          .from(schema.messages)
+          .where(eq(schema.messages.channelId, channelId))
+        expect(messages).toHaveLength(0)
+      } finally {
+        await f.local.close()
+      }
+    }
+  )
+
+  T('generic writes admit a current group user under the same grant', async () => {
+    const f = await isolatedFixture()
+    try {
+      const channelId = await memberGroup(f)
+      const posted = await createMessage(f.local.db, f.workspace.id, channelId, f.member, {
+        bodyText: 'hello group',
+        idempotencyKey: crypto.randomUUID(),
+        sender: f.member,
+      })
+      expect(posted.channelId).toBe(channelId)
+      const messages = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(eq(schema.messages.channelId, channelId))
+      expect(messages).toHaveLength(1)
+    } finally {
+      await f.local.close()
+    }
+  })
+
+  T(
+    'a grant lapsing while a generic group write waits rolls back its message, event, mention and frontier',
+    async () => {
+      const f = await isolatedFixture()
+      let hold: ReturnType<typeof holdMessageWrites> | undefined
+      try {
+        setSystemTime(new Date(NOW))
+        const channelId = await memberGroup(f, '2026-10-08T12:30:00.000Z')
+        const before = await channelWrites(f.local.db, f.workspace.id, channelId)
+        hold = holdMessageWrites(f.local.db)
+        await hold.locked
+        const write = createMessage(f.local.db, f.workspace.id, channelId, f.member, {
+          bodyText: 'must not land',
+          idempotencyKey: crypto.randomUUID(),
+          mentions: [{ kind: 'user', userId: f.owner.userId }],
+          sender: f.member,
+        }).then(
+          () => null,
+          (error: unknown) => error
+        )
+        // Admission passed on trusted NOW; the message insert now waits on the lock.
+        await waitForBlockedWrite(f.local.db, 'messages')
+        // The grant lapses while the awaited write waits, then the lock is released.
+        setSystemTime(new Date(LATER))
+        hold.release()
+        await hold.holder
+        const error = await write
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toBe('Channel unavailable')
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toEqual(before)
+        // Control: the same member posts once the grant is effective again.
+        setSystemTime(new Date(NOW))
+        await createMessage(f.local.db, f.workspace.id, channelId, f.member, {
+          bodyText: 'lands while effective',
+          idempotencyKey: crypto.randomUUID(),
+          sender: f.member,
+        })
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toMatchObject({
+          events: 1,
+          mentions: 0,
+          messages: 1,
+        })
+      } finally {
+        setSystemTime()
+        hold?.release()
+        await hold?.holder.catch(() => undefined)
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'an idempotent replay whose grant lapses while it waits is denied and adds nothing',
+    async () => {
+      const f = await isolatedFixture()
+      let hold: ReturnType<typeof holdMessageWrites> | undefined
+      try {
+        setSystemTime(new Date(NOW))
+        const channelId = await memberGroup(f, '2026-10-08T12:30:00.000Z')
+        const input = {
+          bodyText: 'replayed once',
+          idempotencyKey: crypto.randomUUID(),
+          sender: f.member,
+        }
+        const first = await createMessage(f.local.db, f.workspace.id, channelId, f.member, input)
+        const before = await channelWrites(f.local.db, f.workspace.id, channelId)
+        hold = holdMessageWrites(f.local.db)
+        await hold.locked
+        // The replay's insert conflicts with the committed message but still waits on the lock.
+        const replay = createMessage(f.local.db, f.workspace.id, channelId, f.member, input).then(
+          () => null,
+          (error: unknown) => error
+        )
+        await waitForBlockedWrite(f.local.db, 'messages')
+        setSystemTime(new Date(LATER))
+        hold.release()
+        await hold.holder
+        const error = await replay
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toBe('Channel unavailable')
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toEqual(before)
+        // Control: at a valid time the same replay returns the original message.
+        setSystemTime(new Date(NOW))
+        const again = await createMessage(f.local.db, f.workspace.id, channelId, f.member, input)
+        expect(again.id).toBe(first.id)
+      } finally {
+        setSystemTime()
+        hold?.release()
+        await hold?.holder.catch(() => undefined)
         await f.local.close()
       }
     }

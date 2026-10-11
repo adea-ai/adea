@@ -190,3 +190,28 @@ transaction back instead of losing an update. The migration that adds the enum
 and column is expand-only; its number is provisional until the `main` journal
 confirms it (see the lane handoff
 `docs/plans/m14-03-management-action-contract.md`).
+
+## Group channel write admission
+
+A grant-gated group channel admits a user's writes only while that user's group
+admission is live. Admission is decided on trusted time read after the channel
+row lock (`decideGroupTurn`, the same rule the fenced group post uses).
+
+- The fenced group post (`postGroupChannelMessage`) and `createLeadTurn` decide
+  before the write and again after the nested write, in the same transaction. A
+  denial rolls back the message, intent and event together.
+- The generic `createMessage` path checks a group **user** sender's membership
+  and live admission before its awaited writes and again after them, inside the
+  same transaction. The second check also covers the idempotent-replay branch. A
+  lapse during a wait throws `Channel unavailable` and rolls back the message,
+  mentions, event, frontier and task reopen.
+- Fenced callers use `createMessageInGroupFence`, which is package-internal and
+  is not re-exported from the package index. It skips only the user re-checks
+  above, because those callers already prove admission at their own clock. Their
+  clock readings are unchanged.
+- A group **agent** sender keeps its enlistment check before the writes only, and
+  a **system** sender keeps its existing validation. Neither gains the post-write
+  check here.
+
+Regressions: `packages/db/tests/integration/group-channels.test.ts` (a grant
+lapsing during a waiting generic write, and during a waiting idempotent replay).

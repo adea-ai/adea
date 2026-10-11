@@ -8,7 +8,7 @@ import {
   sameRequestedRoleModelSelections,
   type RequestedRoleModelSelections,
 } from './lead-model-selections'
-import { createMessage } from './conversations'
+import { createMessage, createMessageInGroupFence } from './conversations'
 import { evaluateGroupGrantWindow } from './group-participation-policy'
 import { loadGroupAdmission, resolveGroupLeadAgentId } from './group-participation-store'
 import {
@@ -275,7 +275,7 @@ export async function createLeadTurn(
   const clock = options.clock ?? liveLeadClock
   return database.transaction(async (tx) => {
     const authority = await lockAuthority(tx, workspaceId, channelId, principal, true, clock)
-    const message = await createMessage(tx, workspaceId, channelId, principal, {
+    const message = await createMessageInGroupFence(tx, workspaceId, channelId, principal, {
       ...messageInput,
       sender: principal,
       leadTurn: true,

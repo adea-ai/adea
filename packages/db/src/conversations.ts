@@ -166,6 +166,61 @@ async function requireGroupAgentSender(
     throw new Error('Channel unavailable')
 }
 
+/**
+ * Group senders on the generic boundary clear the same live admission the
+ * fenced group post checks (`decideGroupTurn`), so a caller that skips
+ * postGroupChannelMessage cannot write as a withheld participant. Runs under
+ * the channel row lock the caller already holds (channel before admission, the
+ * fence's order) and never calls the group post back, so there is no
+ * recursion. A fenced caller has proven user admission at trusted time in this
+ * transaction, so it skips only that re-check; membership and Agent standing
+ * still apply to it. System senders are not group participants and keep their
+ * existing validation: no admission applies to them.
+ */
+async function requireGroupSender(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  sender: MessageSenderRef,
+  fenced: boolean
+) {
+  if (sender.kind === 'agent') {
+    await requireGroupAgentSender(database, workspaceId, channelId, sender.agentId)
+    return
+  }
+  if (sender.kind !== 'user') return validateSender(database, workspaceId, sender)
+  await requireWorkspaceUser(database, workspaceId, sender.userId)
+  if (!fenced) await requireGroupUserAdmission(database, workspaceId, channelId, sender.userId)
+}
+
+/**
+ * A group user's live admission, decided on trusted time read under the
+ * channel lock, with the same rule the fenced group post applies. Used before
+ * the writes and again after them, so a lapse during a wait denies.
+ */
+async function requireGroupUserAdmission(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  userId: string
+) {
+  const admission = await loadGroupAdmission(
+    database,
+    workspaceId,
+    channelId,
+    { kind: 'user', userId },
+    { forUpdate: true }
+  )
+  if (
+    decideGroupTurn({
+      admission,
+      groupId: channelId,
+      now: new Date().toISOString(),
+    }).action !== 'allow'
+  )
+    throw new Error('Channel unavailable')
+}
+
 async function requireWorkspaceUser(database: Database, workspaceId: string, userId: string) {
   const [membership] = await database
     .select({ id: workspaceMemberships.id })
@@ -1166,7 +1221,40 @@ export function createMessage(
   principal: UserPrincipalRef,
   input: CreateMessageInput
 ) {
-  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, false)
+  return createMessageWithTextPolicy(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    false,
+    false
+  )
+}
+
+/**
+ * Writer for a caller that already proved group admission at trusted time under
+ * the channel lock, inside this transaction: postGroupChannelMessageInTransaction
+ * and createLeadTurn (whose lockAuthority admits the principal first). It keeps
+ * the fence's own clock readings, so the generic re-check does not add one.
+ * Never call this for an unproven caller; use createMessage.
+ */
+export function createMessageInGroupFence(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: CreateMessageInput
+) {
+  return createMessageWithTextPolicy(
+    transaction,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    false,
+    true
+  )
 }
 
 /** Server-only terminal publication; never expose this text policy as a caller input. */
@@ -1183,7 +1271,15 @@ export function createRuntimeResultMessage(
     sender: Extract<MessageSenderRef, { kind: 'agent' }>
   }>
 ) {
-  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, true)
+  return createMessageWithTextPolicy(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    true,
+    false
+  )
 }
 
 async function createMessageWithTextPolicy(
@@ -1192,7 +1288,8 @@ async function createMessageWithTextPolicy(
   channelId: string,
   principal: UserPrincipalRef,
   input: CreateMessageInput,
-  preserveText: boolean
+  preserveText: boolean,
+  fenced: boolean
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
@@ -1215,13 +1312,20 @@ async function createMessageWithTextPolicy(
         .limit(1)
         .for('update')
     }
-    // Group agent senders prove standing through their enlistment (checked
-    // just below), never through host membership — validateSender keeps the
-    // host-workspace rule for every other lane.
-    if (!(channel.kind === 'group' && input.sender.kind === 'agent'))
-      await validateSender(transaction, workspaceId, input.sender)
-    if (channel.kind === 'group' && input.sender.kind === 'agent')
-      await requireGroupAgentSender(transaction, workspaceId, channelId, input.sender.agentId)
+    // Group senders prove standing through their CURRENT group admission, never
+    // host membership alone; validateSender keeps the host-workspace rule for
+    // every other lane.
+    if (channel.kind === 'group')
+      await requireGroupSender(transaction, workspaceId, channelId, input.sender, fenced)
+    else await validateSender(transaction, workspaceId, input.sender)
+    // The awaited writes below can wait on locks past a grant's expiry, so a
+    // group user re-proves admission after them. A denial throws inside this
+    // transaction and rolls back the message, event, mentions and frontier.
+    // Fenced callers re-check after their own nested write instead.
+    const reproveGroupUser = async () => {
+      if (channel.kind === 'group' && !fenced && input.sender.kind === 'user')
+        await requireGroupUserAdmission(transaction, workspaceId, channelId, input.sender.userId)
+    }
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
     const artifactIds = [...new Set(input.artifactIds ?? [])].toSorted()
@@ -1305,7 +1409,9 @@ async function createMessageWithTextPolicy(
         existing.id,
         principal
       )
-      return messageSummary(transaction, existing)
+      const summary = await messageSummary(transaction, existing)
+      await reproveGroupUser()
+      return summary
     }
     if (!created.threadRootMessageId)
       await advanceChannelLatestSequence(transaction, channelId, created.sequence)
@@ -1338,7 +1444,9 @@ async function createMessageWithTextPolicy(
       workspaceId,
     })
     await reopenTasksForChannelMessage(transaction, workspaceId, channelId, created.id, principal)
-    return messageSummary(transaction, created)
+    const summary = await messageSummary(transaction, created)
+    await reproveGroupUser()
+    return summary
   })
 }
 
