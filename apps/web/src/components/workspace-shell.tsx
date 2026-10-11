@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onMount } from 'solid-js'
+import type { JSX } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { HqSceneId } from '@adea-ai/app-core'
 import { workspaceStore } from '@adea-ai/state'
@@ -31,6 +32,7 @@ const sceneById = Object.fromEntries(sceneOptions.map((option) => [option.id, op
 >
 
 export type WorkspaceShellProps = {
+  archiveAction?: JSX.Element
   apiClient?: AgentHqApiClient
   restoreFocusRef?: () => HTMLElement | undefined
   initialScene: HqSceneId
@@ -63,6 +65,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
   return (
     <main class="workspace-shell workspace-shell--contextual">
       <VirtualRoomControls
+        archiveAction={props.archiveAction}
         client={apiClient()}
         restoreFocusRef={props.restoreFocusRef}
         openChat={() => props.onWorkspaceViewChange?.('chat')}

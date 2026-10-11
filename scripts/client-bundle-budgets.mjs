@@ -271,8 +271,19 @@ export function inspectClientBundle(input) {
   const codeEditor = chunkByPrefix(chunks, 'code-editor-', 'Dev code editor')
   const editorMirror = chunkByPrefix(chunks, 'editor-mirror-', 'Dev editor renderer')
   const fileStream = chunkByPrefix(chunks, 'file-stream-', 'Dev editor file stream')
-  const devUtilityPaneRoots = dynamicImports(devEntry.source)
-    .map((specifier) => resolveRelativeChunk(devEntry.file, specifier))
+  // Shared utility hosts are static Dev shell children whose actual panes
+  // remain lazy. Inspect those children too, excluding shared startup code
+  // so unrelated app routes are not charged to Dev utilities.
+  const devUtilityImporters = [...staticClosure([devEntry], chunksByFile)]
+    .filter((file) => file === devEntry.file || !startupFiles.has(file))
+    .map((file) => chunksByFile.get(file))
+  const devUtilityPaneRoots = [
+    ...new Set(
+      devUtilityImporters.flatMap((chunk) =>
+        dynamicImports(chunk.source).map((specifier) => resolveRelativeChunk(chunk.file, specifier))
+      )
+    ),
+  ]
     .filter(
       (file) =>
         file &&
