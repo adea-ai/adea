@@ -26,6 +26,7 @@ export const workspacePermissions = [
   'workspace.read',
   'workspace.update',
   'workspace.archive',
+  'workspace.delete',
   'workspace.events.read',
   'membership.read',
   'membership.manage',
@@ -125,6 +126,8 @@ export type WorkspaceLogo =
   | Readonly<{ kind: 'emoji'; value: string }>
 
 export type WorkspaceSummary = {
+  /** Presentation capability only; permanent deletion rechecks ownership on the server. */
+  canDelete?: boolean
   accent: WorkspaceAccentId | null
   id: string
   logo: WorkspaceLogo

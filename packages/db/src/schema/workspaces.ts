@@ -90,6 +90,20 @@ export const workspaceMemberships = appSchema.table(
   ]
 )
 
+/** Minimal permanent-deletion receipt: no workspace content, names or secrets. */
+export const workspaceDeletions = appSchema.table(
+  'workspace_deletions',
+  {
+    workspaceId: uuid('workspace_id').primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('workspace_deletions_owner_idx').on(table.ownerUserId)]
+)
+
 export const authorizationAuditRecords = appSchema.table(
   'authorization_audit_records',
   {

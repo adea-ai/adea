@@ -260,6 +260,13 @@
       "when": 1791395188766,
       "tag": "0036_task-submission-intent",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791401614516,
+      "tag": "0037_workspace-deletions",
+      "breakpoints": true
     }
   ]
 }

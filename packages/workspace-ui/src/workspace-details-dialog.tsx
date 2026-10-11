@@ -3,9 +3,19 @@ import type { WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { SettingsNavigation } from '@adea-ai/ui/components/composites/settings'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Input } from '@adea-ai/ui/components/ui/input'
+import { Label } from '@adea-ai/ui/components/ui/label'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
-import { createEffect, createSignal, lazy, Show, type Accessor } from 'solid-js'
+import { createEffect, createSignal, lazy, on, Show, type Accessor } from 'solid-js'
 
 import type { WorkspacePlatformServices } from './platform'
 import {
@@ -55,6 +65,9 @@ export function WorkspaceDetailsDialog(props: {
    */
   client?: AgentHqApiClient
   onClose: () => void
+  onDeleteWorkspace?: (
+    confirmation: Readonly<{ confirmationName: string; expectedVersion: number }>
+  ) => Promise<void>
   /** Saves a versioned workspace identity change; omitted renders read-only. */
   onUpdateWorkspace?: (
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
@@ -68,6 +81,36 @@ export function WorkspaceDetailsDialog(props: {
 }) {
   const apiClient = () => props.client ?? props.services?.client
   const [section, setSection] = createSignal<WorkspaceSettingsSection>('general')
+  let deleteOpener: HTMLButtonElement | undefined
+  const [confirmDelete, setConfirmDelete] = createSignal(false)
+  const [confirmationName, setConfirmationName] = createSignal('')
+  const [deleting, setDeleting] = createSignal(false)
+  const [deleteError, setDeleteError] = createSignal('')
+  const resetDeletion = () => {
+    setConfirmDelete(false)
+    setConfirmationName('')
+    setDeleteError('')
+  }
+  createEffect(on(() => [props.workspace.id, props.workspace.version, props.open], resetDeletion))
+  const deleteConfirmed = async () => {
+    if (deleting() || confirmationName() !== props.workspace.name || !props.onDeleteWorkspace)
+      return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await props.onDeleteWorkspace({
+        confirmationName: confirmationName(),
+        expectedVersion: props.workspace.version,
+      })
+      setDeleting(false)
+      resetDeletion()
+      close()
+    } catch {
+      setDeleteError('Workspace could not be deleted. Check its current name and try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   createEffect(() => {
     if (!props.open) return
@@ -87,6 +130,8 @@ export function WorkspaceDetailsDialog(props: {
     if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash)
   }
   const close = () => {
+    if (deleting()) return
+    resetDeletion()
     if (window.location.hash.startsWith(workspaceSettingsHashPrefix))
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
     props.onClose()
@@ -150,6 +195,22 @@ export function WorkspaceDetailsDialog(props: {
               workspace={props.workspace}
               {...(props.onUpdateWorkspace ? { onUpdate: props.onUpdateWorkspace } : {})}
             />
+            <Show when={props.workspace.canDelete && props.onDeleteWorkspace}>
+              <section class="mt-6 flex flex-col gap-3" aria-label="Delete workspace">
+                <h4>Delete workspace</h4>
+                <p>Permanently remove this workspace and its Adea data for everyone in it.</p>
+                <Button
+                  ref={(element) => { deleteOpener = element }}
+                  variant="destructive"
+                  onClick={() => {
+                    resetDeletion()
+                    setConfirmDelete(true)
+                  }}
+                >
+                  Delete workspace
+                </Button>
+              </section>
+            </Show>
           </div>
         </TabsContent>
         <TabsContent value="memory" id="workspace-settings-panel-memory" class="min-h-0 min-w-0">
@@ -210,6 +271,57 @@ export function WorkspaceDetailsDialog(props: {
           </div>
         </TabsContent>
       </Tabs>
+      <AlertDialog
+        open={confirmDelete()}
+        onOpenChange={(open) => {
+          if (!deleting()) {
+            if (open) setConfirmDelete(true)
+            else resetDeletion()
+          }
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            if (props.open && deleteOpener?.isConnected) {
+              event.preventDefault()
+              deleteOpener.focus()
+            }
+          }}
+        >
+          <AlertDialogTitle>Delete {props.workspace.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes the workspace, projects, tasks, agents, conversations, artifact
+            records and stored content in Adea, and removes access for all members. You cannot undo
+            this. Harness session history, repositories, device-local data and resources in
+            connected cloud services are kept in their original locations.
+          </AlertDialogDescription>
+          <Label for="workspace-delete-confirmation">Type {props.workspace.name} to confirm</Label>
+          <Input
+            id="workspace-delete-confirmation"
+            value={confirmationName()}
+            disabled={deleting()}
+            onInput={(event) => setConfirmationName(event.currentTarget.value)}
+          />
+          <Show when={deleteError()}>
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError()}</AlertDescription>
+            </Alert>
+          </Show>
+          <div class="flex justify-end gap-2">
+            <Button variant="outline" disabled={deleting()} onClick={resetDeletion}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting() || confirmationName() !== props.workspace.name}
+              aria-busy={deleting()}
+              onClick={() => void deleteConfirmed()}
+            >
+              {deleting() ? 'Deleting…' : 'Permanently delete workspace'}
+            </Button>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </ModalDialog>
   )
 }

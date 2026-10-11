@@ -1,5 +1,6 @@
 import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
 import { createEffect, createSignal } from 'solid-js'
+import { Box } from 'lucide-solid'
 
 import { useOptionalTheme } from './theme-provider'
 import { paintAppearanceAccent, paintWorkspaceAccent } from './workspace-accent'
@@ -9,7 +10,7 @@ export type WorkspaceIdentityLogo =
   | Readonly<{ kind: 'emoji'; value: string }>
 
 /**
- * A workspace's mark: its emoji or name initials on a tile painted with the
+ * A workspace's mark: its chosen emoji or a box on a tile painted with the
  * workspace's own accent, so a collapsed workspace stays recognisable while
  * another workspace themes the app.
  */
@@ -44,7 +45,13 @@ export function WorkspaceIdentityMark(props: {
         name={props.name}
         size={props.size ?? 'sm'}
         tone="primary"
-        icon={emoji() ? <span aria-hidden="true">{emoji()}</span> : undefined}
+        icon={
+          emoji() ? (
+            <span aria-hidden="true">{emoji()}</span>
+          ) : (
+            <Box aria-hidden="true" data-workspace-icon="box" />
+          )
+        }
       />
     </span>
   )

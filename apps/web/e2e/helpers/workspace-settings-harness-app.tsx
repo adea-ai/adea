@@ -51,6 +51,7 @@ const desktopSettings = createDesktopSettingsProvider(async (command, args) => {
 
 const initialWorkspace: WorkspaceSummary = {
   id: 'workspace-settings-e2e',
+  canDelete: true,
   name: 'Settings harness',
   scene: 'work',
   accent: null,
@@ -73,7 +74,11 @@ function Harness() {
     .querySelector('#harness-root')
     ?.hasAttribute('data-missing-desktop-bridge')
   const [open, setOpen] = createSignal(true)
-  const [workspace, setWorkspace] = createSignal(initialWorkspace)
+  const [workspace, setWorkspace] = createSignal({
+    ...initialWorkspace,
+    canDelete: !document.querySelector('#harness-root')?.hasAttribute('data-read-only'),
+  })
+  let deleteCalls = 0
   const workspaceDialog = workspaceSettingsSectionFromHash(window.location.hash) !== undefined
   // A versioned in-memory workspace store: a stale version is refused the way
   // the API refuses it, so the General section's conflict path is reachable.
@@ -111,6 +116,19 @@ function Harness() {
             open={open()}
             client={client}
             onClose={() => setOpen(false)}
+            onDeleteWorkspace={async () => {
+              deleteCalls += 1
+              const root = document.querySelector('#harness-root')!
+              root.setAttribute('data-delete-calls', String(deleteCalls))
+              if (root.hasAttribute('data-delete-failure') && deleteCalls === 1)
+                throw new Error('Fixture deletion failed')
+              if (root.hasAttribute('data-delete-delayed'))
+                await new Promise<void>((resolve) =>
+                  window.addEventListener('fixture:delete-complete', () => resolve(), {
+                    once: true,
+                  })
+                )
+            }}
             {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
               ? {}
               : { onUpdateWorkspace: updateWorkspace })}

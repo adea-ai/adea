@@ -16,6 +16,8 @@ import { appendWorkspaceEvent } from './transactions'
 import {
   authorizationAuditRecords,
   projectMembers,
+  users,
+  workspaceDeletions,
   workspaceMemberships,
   workspaces,
 } from './schema'
@@ -36,9 +38,11 @@ function workspaceLogo(row: typeof workspaces.$inferSelect): WorkspaceLogo {
 
 function workspaceSummary(
   row: typeof workspaces.$inferSelect,
-  sortOrder: number
+  sortOrder: number,
+  userId: string
 ): WorkspaceSummary {
   return Object.freeze({
+    canDelete: row.ownerUserId === userId,
     accent: (row.accent as WorkspaceAccentId | null) ?? null,
     id: row.id,
     logo: workspaceLogo(row),
@@ -99,6 +103,24 @@ async function createWorkspaceWithOwnerInTransaction(
   transaction: AgentHqTransaction,
   input: WorkspaceCreationInput
 ): Promise<Readonly<{ created: boolean; workspace: WorkspaceSummary }>> {
+  // Serialize creation with deletion so an old creation key cannot race a
+  // deletion receipt and recreate the workspace after its root was removed.
+  await transaction
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, input.owner.userId))
+    .for('update')
+  const [deleted] = await transaction
+    .select({ id: workspaceDeletions.workspaceId })
+    .from(workspaceDeletions)
+    .where(
+      and(
+        eq(workspaceDeletions.ownerUserId, input.owner.userId),
+        eq(workspaceDeletions.idempotencyKey, input.idempotencyKey)
+      )
+    )
+    .limit(1)
+  if (deleted) throw new Error('Workspace creation conflict')
   const [createdWorkspace] = await transaction
     .insert(workspaces)
     .values({
@@ -127,7 +149,8 @@ async function createWorkspaceWithOwnerInTransaction(
       created: false,
       workspace: workspaceSummary(
         existingWorkspace,
-        await membershipSortOrder(transaction, existingWorkspace.id, input.owner.userId)
+        await membershipSortOrder(transaction, existingWorkspace.id, input.owner.userId),
+        input.owner.userId
       ),
     })
   }
@@ -145,7 +168,10 @@ async function createWorkspaceWithOwnerInTransaction(
     workspaceId: createdWorkspace.id,
   })
 
-  return Object.freeze({ created: true, workspace: workspaceSummary(createdWorkspace, sortOrder) })
+  return Object.freeze({
+    created: true,
+    workspace: workspaceSummary(createdWorkspace, sortOrder, input.owner.userId),
+  })
 }
 
 export async function createWorkspaceWithOwner(
@@ -184,12 +210,23 @@ export async function ensureBootstrapWorkspaces(
   owner: UserPrincipalRef
 ): Promise<WorkspaceSummary[]> {
   return database.transaction(async (transaction) => {
+    // Serialize bootstrap and deletion for this owner: a concurrent last-workspace
+    // deletion must not race an automatic reseed.
+    await transaction
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, owner.userId))
+      .for('update')
+    const deleted = await transaction
+      .select()
+      .from(workspaceDeletions)
+      .where(eq(workspaceDeletions.ownerUserId, owner.userId))
     let rows = await workspacesForUser(transaction, owner)
     const hasBootstrapWorkspace = rows.some(({ workspace }) =>
       ['default', 'default-home', 'default-work'].includes(workspace.idempotencyKey)
     )
 
-    if (rows.length === 0 || hasBootstrapWorkspace) {
+    if ((rows.length === 0 && deleted.length === 0) || hasBootstrapWorkspace) {
       const legacy = rows.find(({ workspace }) => workspace.idempotencyKey === 'default')
       const home = rows.find(({ workspace }) => workspace.idempotencyKey === 'default-home')
       if (legacy && !home) {
@@ -201,14 +238,19 @@ export async function ensureBootstrapWorkspaces(
 
       rows = await workspacesForUser(transaction, owner)
       for (const input of bootstrapWorkspaceInputs) {
-        if (!rows.some(({ workspace }) => workspace.idempotencyKey === input.idempotencyKey)) {
+        if (
+          !deleted.some((row) => row.idempotencyKey === input.idempotencyKey) &&
+          !rows.some(({ workspace }) => workspace.idempotencyKey === input.idempotencyKey)
+        ) {
           await createWorkspaceWithOwnerInTransaction(transaction, { ...input, owner })
         }
         rows = await workspacesForUser(transaction, owner)
       }
     }
 
-    return rows.map(({ sortOrder, workspace }) => workspaceSummary(workspace, sortOrder))
+    return rows.map(({ sortOrder, workspace }) =>
+      workspaceSummary(workspace, sortOrder, owner.userId)
+    )
   })
 }
 
@@ -303,7 +345,9 @@ export async function listWorkspacesForUser(
   principal: UserPrincipalRef
 ): Promise<WorkspaceSummary[]> {
   const rows = await workspacesForUser(database, principal)
-  return rows.map(({ sortOrder, workspace }) => workspaceSummary(workspace, sortOrder))
+  return rows.map(({ sortOrder, workspace }) =>
+    workspaceSummary(workspace, sortOrder, principal.userId)
+  )
 }
 
 export async function getWorkspaceForUser(
@@ -323,7 +367,55 @@ export async function getWorkspaceForUser(
       )
     )
     .limit(1)
-  return row ? workspaceSummary(row.workspace, row.sortOrder) : null
+  return row ? workspaceSummary(row.workspace, row.sortOrder, principal.userId) : null
+}
+
+/** Permanent product-data deletion; external harness history and files are not owned here. */
+export async function deleteWorkspace(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  input: Readonly<{ expectedVersion: number; confirmationName: string }>
+): Promise<void> {
+  await database.transaction(async (transaction) => {
+    await transaction
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, principal.userId))
+      .for('update')
+    const [receipt] = await transaction
+      .select()
+      .from(workspaceDeletions)
+      .where(eq(workspaceDeletions.workspaceId, workspaceId))
+      .limit(1)
+    if (receipt) {
+      if (receipt.ownerUserId !== principal.userId) throw new Error('Workspace unavailable')
+      return
+    }
+    const [workspace] = await transaction
+      .select()
+      .from(workspaces)
+      .where(and(eq(workspaces.id, workspaceId), eq(workspaces.ownerUserId, principal.userId)))
+      .for('update')
+      .limit(1)
+    if (!workspace) throw new Error('Workspace unavailable')
+    if (workspace.version !== input.expectedVersion || workspace.name !== input.confirmationName)
+      throw new WorkspaceVersionConflictError()
+    await transaction.insert(workspaceDeletions).values({
+      workspaceId,
+      ownerUserId: principal.userId,
+      idempotencyKey: workspace.idempotencyKey,
+    })
+    // Memberships deliberately use RESTRICT; audits deliberately have no FK.
+    // Every other workspace-owned row follows the root's verified FK cascades.
+    await transaction
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspaceId))
+    await transaction
+      .delete(authorizationAuditRecords)
+      .where(eq(authorizationAuditRecords.workspaceId, workspaceId))
+    await transaction.delete(workspaces).where(eq(workspaces.id, workspaceId))
+  })
 }
 
 export async function archiveWorkspace(
@@ -371,7 +463,7 @@ export async function reopenWorkspace(
       .limit(1)
     if (!existing) throw new Error('Workspace unavailable')
     const sortOrder = await membershipSortOrder(transaction, workspaceId, principal.userId)
-    if (!existing.deletedAt) return workspaceSummary(existing, sortOrder)
+    if (!existing.deletedAt) return workspaceSummary(existing, sortOrder, principal.userId)
 
     const [workspace] = await transaction
       .update(workspaces)
@@ -391,14 +483,14 @@ export async function reopenWorkspace(
         .where(and(eq(workspaces.id, workspaceId), eq(workspaces.ownerUserId, principal.userId)))
         .limit(1)
       if (!reopened || reopened.deletedAt) throw new Error('Workspace unavailable')
-      return workspaceSummary(reopened, sortOrder)
+      return workspaceSummary(reopened, sortOrder, principal.userId)
     }
     await appendWorkspaceEvent(transaction, {
       eventType: 'workspace.reopened',
       payload: { actorUserId: principal.userId },
       workspaceId,
     })
-    return workspaceSummary(workspace, sortOrder)
+    return workspaceSummary(workspace, sortOrder, principal.userId)
   })
 }
 
@@ -459,7 +551,7 @@ export async function updateWorkspace(
       payload: { actorUserId: principal.userId },
       workspaceId,
     })
-    return workspaceSummary(workspace, membership.sortOrder)
+    return workspaceSummary(workspace, membership.sortOrder, principal.userId)
   })
 }
 

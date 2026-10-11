@@ -596,10 +596,10 @@ function accentEntries(accentOptions: readonly AccentPreset[]): readonly {
 }
 
 /**
- * The designed accent picker: a swatch grid, as the published
+ * The designed accent picker: one evenly spaced row of swatches, as the published
  * `AccentSwatchGroups` idiom draws it — one round swatch per preset, painted
  * with the catalogue's light or dark pair value for the resolved appearance,
- * selection carried by the checked ring. The published composite itself is
+ * selection carried by the checked ring. The Custom button opens the native colour picker; cancelling it leaves the draft alone. The published composite itself is
  * not exported at 0.113.0 and hardcodes a leading "Theme default" swatch the
  * owner removed, so the grid is composed app-locally from the published
  * RadioGroup primitives (the swatch data colors are catalogue values painted
@@ -611,23 +611,26 @@ export function AccentChoices(props: AppearanceEditorProps) {
   const resolvedAppearance = () =>
     props.draft.mode === 'system' ? props.resolvedAppearance : props.draft.mode
   const accentSelection = () => (isCustomAccent(props) ? 'custom' : props.draft.accent)
+  let colorPicker: HTMLInputElement | undefined
+  const openCustomColor = () => {
+    if (!colorPicker || props.saving) return
+    if (typeof colorPicker.showPicker === 'function') colorPicker.showPicker()
+    else colorPicker.click()
+  }
   return (
-    <RadioGroup
-      value={accentSelection()}
-      disabled={props.saving}
-      aria-label="Accent"
-      class="grid-cols-4"
-      data-accent-grid=""
-      onChange={(accent) =>
-        props.onChange({
-          accent: accent === 'custom' ? (props.customAccentValue ?? '') : accent,
-        })
-      }
-    >
-      <For each={accentEntries(props.accentOptions)}>
-        {(option) => (
-          <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
-            {/* The card is the control's published Label (associated by the
+    <div class="flex w-full min-w-0 items-center gap-2" data-accent-choices="">
+      <RadioGroup
+        value={accentSelection()}
+        disabled={props.saving}
+        aria-label="Accent"
+        class="min-w-0 flex-1 grid-flow-col auto-cols-fr"
+        data-accent-grid=""
+        onChange={(accent) => props.onChange({ accent })}
+      >
+        <For each={accentEntries(props.accentOptions)}>
+          {(option) => (
+            <div class="flex justify-center rounded-full focus-within:ring-3 focus-within:ring-ring/50">
+              {/* The card is the control's published Label (associated by the
                 deterministic item/input id pair), so clicking anywhere on the
                 swatch selects the accent; the hidden radio control keeps the
                 group keyboard-driven, the wrapper carries its focus ring, and
@@ -635,47 +638,57 @@ export function AccentChoices(props: AppearanceEditorProps) {
                 cards use. The swatch paints the catalogue's light/dark pair
                 value as an SVG fill — a consumer can neither inline a style
                 nor author palette literals. */}
-            <RadioGroupItem
-              id={`appearance-accent-${option.id}`}
-              value={option.id}
-              controlClass="sr-only"
-            >
-              <Label for={`appearance-accent-${option.id}-input`} class="w-full">
-                <span
-                  class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
-                    'border-primary ring-1 ring-primary': accentSelection() === option.id,
-                  })}
-                >
-                  <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
-                    <circle
-                      cx="8"
-                      cy="8"
-                      r="8"
-                      fill={resolvedAppearance() === 'light' ? option.light : option.dark}
-                    />
-                  </svg>
-                </span>
-                <span class="sr-only">{option.label}</span>
-              </Label>
-            </RadioGroupItem>
-          </div>
-        )}
-      </For>
-      <div class="rounded-md focus-within:ring-3 focus-within:ring-ring/50">
-        <RadioGroupItem id="appearance-accent-custom" value="custom" controlClass="sr-only">
-          <Label for="appearance-accent-custom-input" class="w-full">
-            <span
-              class={cn(
-                'flex h-7 cursor-pointer items-center rounded-md border px-2 text-xs whitespace-nowrap',
-                { 'border-primary ring-1 ring-primary': accentSelection() === 'custom' }
-              )}
-            >
-              Custom
-            </span>
-          </Label>
-        </RadioGroupItem>
-      </div>
-    </RadioGroup>
+              <RadioGroupItem
+                id={`appearance-accent-${option.id}`}
+                value={option.id}
+                controlClass="sr-only"
+              >
+                <Label for={`appearance-accent-${option.id}-input`} class="w-full">
+                  <span
+                    class={cn('block size-6 cursor-pointer rounded-full border p-0.5', {
+                      'border-primary ring-1 ring-primary': accentSelection() === option.id,
+                    })}
+                  >
+                    <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
+                      <circle
+                        cx="8"
+                        cy="8"
+                        r="8"
+                        fill={resolvedAppearance() === 'light' ? option.light : option.dark}
+                      />
+                    </svg>
+                  </span>
+                  <span class="sr-only">{option.label}</span>
+                </Label>
+              </RadioGroupItem>
+            </div>
+          )}
+        </For>
+      </RadioGroup>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={props.saving}
+        aria-pressed={isCustomAccent(props)}
+        onClick={openCustomColor}
+      >
+        Custom
+      </Button>
+      <Input
+        ref={(element) => {
+          colorPicker = element
+        }}
+        type="color"
+        class="sr-only"
+        tabIndex={-1}
+        aria-label="Custom accent color"
+        value={
+          /^#[0-9a-f]{6}$/i.test(props.draft.accent) ? props.draft.accent : props.customAccentValue
+        }
+        disabled={props.saving}
+        onChange={(event) => props.onChange({ accent: event.currentTarget.value })}
+      />
+    </div>
   )
 }
 

@@ -34,6 +34,7 @@ import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api
 import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
 import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections'
+import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api/workspaces/$workspaceId/delete'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents'
@@ -224,6 +225,12 @@ const ApiWorkspacesWorkspaceIdCloudConnectionsRoute =
   ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport.update({
     id: '/cloud-connections',
     path: '/cloud-connections',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiWorkspacesWorkspaceIdDeleteRoute =
+  ApiWorkspacesWorkspaceIdDeleteRouteImport.update({
+    id: '/delete',
+    path: '/delete',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
   } as any)
 const ApiWorkspacesWorkspaceIdReopenRoute =
@@ -614,6 +621,7 @@ export interface FileRoutesByFullPath {
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -700,6 +708,7 @@ export interface FileRoutesByTo {
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -787,6 +796,7 @@ export interface FileRoutesById {
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
@@ -875,6 +885,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -961,6 +972,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -1047,6 +1059,7 @@ export interface FileRouteTypes {
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/summary'
     | '/api/workspaces/$workspaceId/cloud-connections'
+    | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
     | '/api/v1/workspaces/$workspaceId/agents'
@@ -1326,6 +1339,13 @@ declare module '@tanstack/solid-router' {
       path: '/cloud-connections'
       fullPath: '/api/workspaces/$workspaceId/cloud-connections'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/workspaces/$workspaceId/delete': {
+      id: '/api/workspaces/$workspaceId/delete'
+      path: '/delete'
+      fullPath: '/api/workspaces/$workspaceId/delete'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdDeleteRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
     }
     '/api/workspaces/$workspaceId/reopen': {
@@ -1803,6 +1823,7 @@ const ApiWorkspacesWorkspaceIdSkillsRouteWithChildren =
 
 interface ApiWorkspacesWorkspaceIdRouteChildren {
   ApiWorkspacesWorkspaceIdCloudConnectionsRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
+  ApiWorkspacesWorkspaceIdDeleteRoute: typeof ApiWorkspacesWorkspaceIdDeleteRoute
   ApiWorkspacesWorkspaceIdReopenRoute: typeof ApiWorkspacesWorkspaceIdReopenRoute
   ApiWorkspacesWorkspaceIdSkillsRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
 }
@@ -1811,6 +1832,7 @@ const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildr
   {
     ApiWorkspacesWorkspaceIdCloudConnectionsRoute:
       ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren,
+    ApiWorkspacesWorkspaceIdDeleteRoute: ApiWorkspacesWorkspaceIdDeleteRoute,
     ApiWorkspacesWorkspaceIdReopenRoute: ApiWorkspacesWorkspaceIdReopenRoute,
     ApiWorkspacesWorkspaceIdSkillsRoute:
       ApiWorkspacesWorkspaceIdSkillsRouteWithChildren,

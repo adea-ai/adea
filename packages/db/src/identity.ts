@@ -6,6 +6,7 @@ import {
   authIdentities,
   temporaryUserSessions,
   users,
+  workspaceDeletions,
   workspaceMemberships,
   workspaces,
 } from './schema'
@@ -153,6 +154,14 @@ export async function claimTemporaryUserSession(
       )
       .limit(1)
 
+    if (existingIdentity) {
+      await transaction
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, existingIdentity.userId))
+        .for('update')
+    }
+
     const [temporarySession] = await transaction
       .select({
         claimedAt: temporaryUserSessions.claimedAt,
@@ -187,6 +196,7 @@ export async function claimTemporaryUserSession(
         )
       )
       .limit(1)
+      .for('update')
     if (!temporary) throw new Error('Temporary workspace unavailable')
 
     const now = new Date()
@@ -208,6 +218,11 @@ export async function claimTemporaryUserSession(
     }
 
     const targetUserId = existingIdentity.userId
+    // A claimed guest's explicit deletions remain deleted after sign-in.
+    await transaction
+      .update(workspaceDeletions)
+      .set({ ownerUserId: targetUserId })
+      .where(eq(workspaceDeletions.ownerUserId, temporary.userId))
     const memberships = await transaction
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)
@@ -342,9 +357,14 @@ export async function claimTemporaryUserSessionForUser(
         )
       )
       .limit(1)
+      .for('update')
     if (!temporary) throw new Error('Temporary workspace unavailable')
 
     const now = new Date()
+    await transaction
+      .update(workspaceDeletions)
+      .set({ ownerUserId: target.userId })
+      .where(eq(workspaceDeletions.ownerUserId, temporary.userId))
     const memberships = await transaction
       .select({ role: workspaceMemberships.role, workspaceId: workspaceMemberships.workspaceId })
       .from(workspaceMemberships)

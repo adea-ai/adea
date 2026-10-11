@@ -5,8 +5,13 @@
 import { createEffect, createSignal, onCleanup, Show, type Accessor, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
-import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { settledData, useAgentListQuery, useUpdateWorkspaceMutation } from '@adea-ai/data'
+import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
+import {
+  settledData,
+  useAgentListQuery,
+  useUpdateWorkspaceMutation,
+  useDeleteWorkspaceMutation,
+} from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
@@ -385,15 +390,24 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
+  onDeleted: (result: ApiWorkspaceDeleteResponse) => void
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
 }) {
+  const deleteWorkspace = useDeleteWorkspaceMutation(props.client)
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceDetailsDialog
       client={props.client}
       onClose={props.onClose}
+      onDeleteWorkspace={async (confirmation) => {
+        const result = await deleteWorkspace.mutateAsync({
+          workspaceId: props.workspace.id,
+          confirmation,
+        })
+        props.onDeleted(result)
+      }}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
@@ -468,6 +482,7 @@ export type WorkspaceNavigationProps = Readonly<{
   devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
+  onWorkspaceDeleted?(result: ApiWorkspaceDeleteResponse): void
   platform: 'desktop' | 'web'
   characterDesigner?: boolean
   roomDesigner?: boolean
@@ -1430,6 +1445,29 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
         <WorkspaceDetailsOverlay
           client={props.client}
+          onDeleted={(result) => {
+            props.onWorkspaceDeleted?.(result)
+            const next = result.workspaces[0]
+            const state = workspaceStore.getState()
+            state.restoreConventionalState({
+              sidebarGroupBy: Object.fromEntries(
+                Object.entries(state.sidebarGroupBy).filter(([id]) => id !== result.workspaceId)
+              ),
+            })
+            state.switchWorkspace(next?.id ?? null)
+            try {
+              window.localStorage.removeItem(`adea:workspace-events-cursor:${result.workspaceId}`)
+              window.localStorage.removeItem(`adea:workspace-events-resume:${result.workspaceId}`)
+            } catch {
+              // Storage can be disabled; server deletion and navigation still complete.
+            }
+            setHashWorkspaceSettingsOpen(false)
+            void navigate({
+              search: { scene: next?.scene ?? 'home' } as never,
+              hash: '',
+              replace: true,
+            })
+          }}
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)

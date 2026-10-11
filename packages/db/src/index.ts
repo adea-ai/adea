@@ -164,6 +164,7 @@ export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './e
 export {
   addWorkspaceMembership,
   archiveWorkspace,
+  deleteWorkspace,
   createWorkspaceWithOwner,
   ensureBootstrapWorkspaces,
   findWorkspaceMembership,

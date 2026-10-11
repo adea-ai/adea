@@ -101,6 +101,30 @@ function bootstrap(workspaces: readonly (typeof workspace)[]) {
 }
 
 describe('workspace identity mutations', () => {
+  test('deletion removes every workspace cache and selects a remaining workspace; the last deletion stays empty', async () => {
+    const queryClient = new QueryClient()
+    const next = { ...workspace, id: 'workspace-next', name: 'Next' }
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([workspace, next]))
+    queryClient.setQueryData(workspaceQueryKeys.detail(workspace.id), { workspace })
+    queryClient.setQueryData(['workspaces', workspace.id, 'messages', 'list'], ['private content'])
+    queryClient.setQueryData(['workspaces', next.id, 'projects', 'list'], ['keep'])
+    const options = workspaceMutationOptions.delete({} as AgentHqApiClient, queryClient)
+    await options.onSuccess({ deleted: true, workspaceId: workspace.id, workspaces: [next] })
+    expect(queryClient.getQueryData(workspaceQueryKeys.detail(workspace.id))).toBeUndefined()
+    expect(
+      queryClient.getQueryData(['workspaces', workspace.id, 'messages', 'list'])
+    ).toBeUndefined()
+    expect(queryClient.getQueryData(['workspaces', next.id, 'projects', 'list'])).toEqual(['keep'])
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: next,
+      workspaces: [next],
+    })
+    await options.onSuccess({ deleted: true, workspaceId: next.id, workspaces: [] })
+    expect(queryClient.getQueryData(workspaceQueryKeys.bootstrap)).toMatchObject({
+      activeWorkspace: null,
+      workspaces: [],
+    })
+  })
   test('appends a created workspace to the bootstrap list without refetching it', async () => {
     const created = { ...workspace, id: 'workspace-2', name: 'Pink Binder', sortOrder: 1 }
     const queryClient = new QueryClient()

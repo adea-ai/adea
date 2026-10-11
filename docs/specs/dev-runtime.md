@@ -5614,6 +5614,19 @@ device connections pane and Connections › Cloud), deep-linked as
 the workspace settings dialog at the matching section and are rewritten to
 the canonical hash.
 
+General also offers **Delete workspace** to the owner. The confirmation names the
+workspace's current version and requires its exact name; deletion permanently
+prunes its Adea database data and every member's access in one transaction.
+Owner retries are safe. Deleting the last workspace opens the same creation
+screen in web and desktop. New accounts and new guests still receive Home and
+Work; explicit deletions are never automatically reseeded, including after a
+guest claim. A minimal owner/id/creation-key deletion receipt prevents replay
+and reseeding. Default workspace marks use a box; selected emoji marks remain.
+Harness session history, repositories, device-local content and memory, shared
+accounts, and resources in connected cloud services remain in their original
+locations. This operation removes Adea's references; it does not archive or
+terminate an external running session or invoke external cleanup.
+
 Client preference schema:
 
 ```ts
@@ -5725,9 +5738,12 @@ previews), while Adea owns the composition — the text (font) settings rows
 close the option list, after every palette and surface row, and the accent
 picker offers the six presets plus one control named "Custom". The fork keeps
 the published editor's control idioms, not generic radio rows: the accent
-picker draws the published swatch grid — one round swatch per preset painted
+picker draws one equally spaced row of round preset swatches painted
 with the catalogue's light/dark pair value for the resolved appearance,
-selection shown by the checked ring, the single Custom chip beside them, and
+selection shown by the checked ring, and a Custom button at the right which
+opens the native color selector. Opening or cancelling that selector leaves the
+draft unchanged; choosing a color enters the custom draft and keeps the host
+validation and Save/Cancel persistence contract. There is
 no theme-default entry; the mode cards keep their miniature previews; the
 light, dark, and terminal menus render preview-card items (the published
 `ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the

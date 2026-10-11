@@ -7,6 +7,7 @@ export const workspaceRolePermissions = Object.freeze({
     'workspace.read',
     'workspace.update',
     'workspace.archive',
+    'workspace.delete',
     'workspace.events.read',
     'membership.read',
     'membership.manage',
@@ -61,6 +62,7 @@ const privilegedPermissions = new Set<WorkspacePermission>([
   'membership.manage',
   'runtime.invoke',
   'workspace.archive',
+  'workspace.delete',
 ])
 
 export async function authorizeWorkspaceAction(

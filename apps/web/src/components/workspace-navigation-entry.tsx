@@ -3,12 +3,14 @@
 // it from the cookie bootstrap. See
 // docs/decisions/0006-browser-lanes-and-desktop-shell.md.
 import { createApiClient } from '@adea-ai/api-client'
-import { settledData, useWorkspaceBootstrapQuery } from '@adea-ai/data'
-import { useWorkspaceState } from '@adea-ai/state'
+import { settledData, useCreateWorkspaceMutation, useWorkspaceBootstrapQuery } from '@adea-ai/data'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import { createBrowserSettingsProvider } from '@adea-ai/workspace-ui/preferences'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
-import { lazy } from 'solid-js'
+import { lazy, Show } from 'solid-js'
+import { useNavigate } from '@tanstack/solid-router'
+import { WorkspaceEmpty } from './workspace-empty'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import type { WorkspaceShellProps } from './workspace-shell'
 import packageJson from '../../package.json'
@@ -63,12 +65,15 @@ function WebNavigationEntry(props: {
 }) {
   const client = createApiClient()
   const bootstrap = useWorkspaceBootstrapQuery(client)
+  const createWorkspace = useCreateWorkspaceMutation(client)
+  const navigate = useNavigate()
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
-    bootstrapData()?.activeWorkspace
+    bootstrapData()?.activeWorkspace ??
+    undefined
   const principal = () => bootstrapData()?.principal
   const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
   const accountLabel = () =>
@@ -95,7 +100,9 @@ function WebNavigationEntry(props: {
   }
 
   return (
-    <WorkspaceNavigation
+    <Show
+      when={bootstrapData() && bootstrapData()!.workspaces.length === 0}
+      fallback={<WorkspaceNavigation
       account={{
         authenticated: accountAuthenticated(),
         busy: services.account?.busy ?? false,
@@ -112,6 +119,13 @@ function WebNavigationEntry(props: {
       virtual={props.virtual}
       virtualProps={props.virtualProps}
       workspaces={bootstrapData()?.workspaces ?? []}
-    />
+    />}
+    >
+      <WorkspaceEmpty onCreate={async (name) => {
+        const result = await createWorkspace.mutateAsync({ idempotencyKey: crypto.randomUUID(), name, scene: 'home' })
+        workspaceStore.getState().switchWorkspace(result.workspace.id)
+        await navigate({ search: { scene: result.workspace.scene } as never, hash: '', replace: true })
+      }} />
+    </Show>
   )
 }

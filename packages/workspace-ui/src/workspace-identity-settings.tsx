@@ -95,7 +95,7 @@ export function WorkspaceIdentitySettings(props: {
       saving: 'Saving…',
       saved: 'Saved.',
       conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',
-      error: 'The change could not be saved. Use one emoji, or clear it to use initials.',
+      error: 'The change could not be saved. Use one emoji, or clear it to use the workspace icon.',
     })[state()]
 
   return (
@@ -117,7 +117,7 @@ export function WorkspaceIdentitySettings(props: {
           }}
         />
       </SettingsRow>
-      <SettingsRow label="Mark" description="One emoji, or leave blank to use the name's initials.">
+      <SettingsRow label="Mark" description="One emoji, or leave blank to use the workspace icon.">
         <div class="workspace-identity-settings__mark">
           <WorkspaceIdentityMark
             accent={props.workspace.accent}
@@ -129,7 +129,7 @@ export function WorkspaceIdentitySettings(props: {
             aria-label="Workspace emoji"
             value={emoji()}
             maxLength={16}
-            placeholder="Initials"
+            placeholder="Workspace icon"
             disabled={!editable()}
             onInput={(event) => setEmoji(event.currentTarget.value)}
             onBlur={commitEmoji}
@@ -148,7 +148,7 @@ export function WorkspaceIdentitySettings(props: {
                 void save({ logo: { kind: 'monogram' } })
               }}
             >
-              Use initials
+              Use workspace icon
             </Button>
           </Show>
         </div>
