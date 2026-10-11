@@ -37,20 +37,12 @@ describe('private application UI boundary', () => {
     expect(base).not.toContain('scroll-fade')
   })
 
-  test('keeps host surface and gesture policy without copied shared resets', () => {
+  test('keeps host surface policy without copied shared resets', () => {
     const theme = source('styles/theme.css')
-    expect(theme).toContain('.workspace-on-screen-controls')
     expect(theme).toContain("[data-surface='frosted'] .conventional-dialog")
     expect(theme).not.toContain('button:not(:disabled)')
     expect(theme).not.toContain('border-color: var(--border)')
     expect(theme).not.toContain('background: var(--background)')
-  })
-
-  test('keeps on-screen controls clear of the device bottom safe area', () => {
-    const theme = source('styles/theme.css')
-    expect(theme).toContain(
-      '.workspace-on-screen-controls {\n  padding-bottom: env(safe-area-inset-bottom);\n}'
-    )
   })
 
   test('keeps raw and wrapper exemptions at the main-branch ratchet baseline', () => {

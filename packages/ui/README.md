@@ -1,7 +1,7 @@
 # Application UI
 
-This private package owns Adea's scene controls, branding, account composition,
-and persisted appearance adapter. Reusable controls come from the published
+This private package owns Adea's branding, persisted appearance adapter, and
+host surface styles. Reusable controls come from the published
 `@adea-ai/ui` package. Import its component subpaths directly; do not add another
 local primitive or a forwarding barrel here. Scene branding and Three.js runtime
 behavior stay in their owning packages. The Solid stack is recorded in
@@ -24,7 +24,7 @@ the mark when an action needs branding.
 The unused local Toggle, ToggleGroup, RadioGroup, Tabs, Card, and Spinner copies
 and their private exports have been removed. Workspace overlays and controls
 compose published shared components; this package keeps only host preference
-adapters, scene behavior, layout, branding, and surface policy.
+adapters, layout, branding, and surface policy.
 
 Workspace dividers and plugin loading placeholders now use published Separator
 and Skeleton directly. The persistent plugin count status reports loading and completion outside the
@@ -46,7 +46,7 @@ private menu implementation and its appearance overrides are removed. The
 remaining `lib/utils` compatibility path re-exports the shared class merger so
 token-derived size overrides follow the shared design-system contract.
 
-Account and task detail drawers use the published Drawer, retaining their
+Workspace task detail drawers use the published Drawer, retaining their
 controlled state, actions, keyboard dismissal, and focus restoration. Named
 layout hooks bound their widths; the shared component supplies the scrim,
 scrolling surface, and outward drag behavior. The copied Drawer and its private
@@ -132,3 +132,5 @@ catalogue IDs resolve to the default of the same appearance and the original
 stored record is preserved. Run `bun run --cwd packages/ui themes:generate`
 after changing the published source; `bun run --cwd packages/ui themes:check`
 verifies the committed generated files are current.
+
+The unused AccountDrawer, SceneSettings, and OnScreenControls copies and their test-only harnesses are removed. The global account menu composes the published AccountMenu. The external Agent Sim scene engine owns its live scene settings and movement controls and depends on published UI, not this private package. The app retains its `data-agent-hq-on-screen-controls` viewport positioning hook for that engine. Do not restore these unused copies or add generic controls to the host adapter package.

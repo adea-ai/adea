@@ -6,11 +6,8 @@ export {
   type ResolvedTheme,
   type Theme,
 } from './components/theme-provider'
-export { AccountDrawer, type AccountDrawerProps } from './components/account-drawer'
 export { WorkspaceBrand, type WorkspaceBrandProps } from './components/workspace-brand'
 export { WorkspaceLogo } from './components/workspace-logo'
-export { OnScreenControls } from './components/on-screen-controls'
-export { SceneSettings, type SceneSettingsProps } from './components/scene-settings'
 export {
   VersionDialog,
   type SharedDesktopUpdate,
