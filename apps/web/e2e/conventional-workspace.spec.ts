@@ -1994,9 +1994,10 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   expect(bounds).toEqual({ sameWidth: true, below: true })
 })
 
-test('Virtual room designer runs full-bleed without the contextual sidebar', async ({ page }) => {
+for (const designer of ['roomDesigner', 'characterDesigner'] as const) {
+  test(`Virtual ${designer} keeps the global rail without contextual sidebars`, async ({ page }) => {
   await mockConnectedWorkspace(page)
-  await page.goto('/?view=virtual&roomDesigner=1')
+  await page.goto(`/?view=chat&${designer}=1`)
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
   // Edit mode drops the contextual sidebar on purpose: the designer fills the
@@ -2017,9 +2018,30 @@ test('Virtual room designer runs full-bleed without the contextual sidebar', asy
   expect(
     await fallback.evaluate((element) => element.getBoundingClientRect().height)
   ).toBeGreaterThan(600)
-  // The global rail is part of the hidden chrome in edit mode.
-  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toHaveCount(0)
-})
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await expect(rail).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Shared developer utilities' })).toHaveCount(0)
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(toolbar.getByRole('button', { name: /(?:Collapse|Expand) (?:contextual|utility) sidebar/ })).toHaveCount(0)
+  const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
+    const rail = frame.querySelector('.global-rail')!.getBoundingClientRect()
+    const surface = frame.querySelector('.workspace-frame__surface')!.getBoundingClientRect()
+    return { railWidth: rail.width, gap: Math.abs(surface.left - rail.right) }
+  })
+  expect(bounds.railWidth).toBeGreaterThan(0)
+  expect(bounds.gap).toBeLessThanOrEqual(1)
+  await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(page).not.toHaveURL(/(?:roomDesigner|characterDesigner)=1/)
+  await page.goBack()
+  await expect(page).toHaveURL(new RegExp(`${designer}=1`))
+  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
+  await expect(sidebar).toHaveCount(0)
+  await expect(rail).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: /(?:Collapse|Expand) (?:contextual|utility) sidebar/ })).toHaveCount(0)
+  })
+}
 
 test('Chat and Virtual use the same resizable sidebar and preserve selection and thread state', async ({
   page,

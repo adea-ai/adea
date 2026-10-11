@@ -11,7 +11,10 @@ export function workspaceSelection(params) {
   const camera = first(params.camera)
   return {
     dev: first(params.view) === 'dev',
-    virtual: first(params.view) === 'virtual' || (room !== undefined && room !== '0'),
+    virtual:
+      first(params.view) === 'virtual' ||
+      (room !== undefined && room !== '0') ||
+      (characterDesigner !== undefined && characterDesigner !== '0'),
     roomDesigner: room !== undefined && room !== '0',
     characterDesigner: characterDesigner !== undefined && characterDesigner !== '0',
     character: first(params.character),

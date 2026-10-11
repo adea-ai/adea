@@ -168,7 +168,7 @@ describe('workspace query semantics', () => {
     const result = workspaceSelection(input)
     assert.equal(result.roomDesigner, false)
     assert.equal(result.characterDesigner, true)
-    assert.equal(result.virtual, false)
+    assert.equal(result.virtual, true)
   })
   it('round-trips unfamiliar parameters and encoded special characters', () => {
     const query = '?scene=home&x=a%26b&x=c%2Bd&empty=&unicode=%F0%9F%92%9C'
@@ -190,6 +190,8 @@ describe('workspace query semantics', () => {
     }
     assert.equal(workspaceSelection({ roomDesigner: ['0', '1'] }).virtual, false)
     assert.equal(workspaceSelection({ view: 'virtual' }).virtual, true)
+    assert.equal(workspaceSelection({ characterDesigner: '1' }).virtual, true)
+    assert.equal(workspaceSelection({ characterDesigner: '0' }).virtual, false)
     assert.equal(workspaceSelection({ view: 'dev' }).dev, true)
     assert.equal(workspaceSelection({ view: ['chat', 'dev'] }).dev, false)
   })

@@ -160,7 +160,7 @@ for (const width of [320, 768, 1280, 1920]) {
       const utilitiesToggle = devSidebarControl(page, 'Expand utility sidebar')
       await utilitiesToggle.click()
       await expect(
-        page.getByRole('complementary', { name: 'Developer utilities (right)' })
+        page.getByRole('complementary', { name: 'Shared developer utilities' })
       ).toBeVisible()
     } else {
       await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
@@ -354,7 +354,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(projectsSidebar).toBeVisible()
   await expect(leftUtilities).toBeVisible()
 
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await devSidebarControl(page, 'Expand utility sidebar').click()
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   const agentsUtility = rightUtilities.getByRole('button', { name: 'Agents' })
@@ -488,7 +488,7 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await expect(rightUtilities).toBeVisible()
 
   // The layout document is written debounced (250 ms); the reload is the
@@ -507,7 +507,7 @@ test('the Dev shell restores the session layout document after a reload', async 
       .and(page.locator('[aria-valuenow="55"]'))
   ).toHaveCount(1)
   await expect(
-    page.getByRole('complementary', { name: 'Developer utilities (right)' })
+    page.getByRole('complementary', { name: 'Shared developer utilities' })
   ).toBeVisible()
 })
 
@@ -518,7 +518,7 @@ test('the utility selector reveals its pane and the sidebar fills the workspace 
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
 
   await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
   await devToolbarControl(page, 'Collapse left utility sidebar').click()
@@ -564,10 +564,10 @@ test('Dev shell reports when the E2E fixture has no browser read capability', as
   await openDevView(page, '/?view=dev&devE2e=preserved')
   await devSidebarControl(page, 'Expand utility sidebar').click()
 
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await rightUtilities.getByRole('button', { name: 'Browser' }).click()
   await expect(rightUtilities).toContainText(
-    'Requires dev.browser.read, which has not been reported by this provider yet.'
+    'Browser is unavailable because the runtime is not connected.'
   )
   await expect(rightUtilities.getByRole('button', { name: 'Float preview' })).toHaveCount(0)
 })
@@ -755,7 +755,7 @@ test('the Dev shell stays keyboard-operable at 200% zoom with reduced motion', a
   await page.getByRole('link', { name: 'Skip to workspace' }).focus()
   await expect(page.getByRole('link', { name: 'Skip to workspace' })).toBeFocused()
   await devSidebarControl(page, 'Expand utility sidebar').click()
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   await expect(rightUtilities.getByRole('heading', { name: 'Browser' })).toBeVisible()
   await rightUtilities.getByRole('button', { name: 'Agents' }).focus()
   await expect(rightUtilities.getByRole('button', { name: 'Agents' })).toBeFocused()
@@ -774,7 +774,7 @@ test('utility rails, footer selector, persisted widths, and full-height splitter
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
   const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
-  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })
   const selector = leftUtilities.getByRole('group', { name: 'Files and Source Control' })
   const filesButton = selector.getByRole('button', { name: 'Files' })
   const sourceControlButton = selector.getByRole('button', { name: 'Source control' })
