@@ -192,3 +192,31 @@ test('retains aggregate raw, gzip, and file-count ceilings', () => {
   overFiles.total.fileCount = CLIENT_BUNDLE_BUDGETS.total.fileCount + 1
   expect(() => assertClientBundleBudgets(overFiles)).toThrow('Client JavaScript chunk-count budget')
 })
+
+test('attributes panes imported lazily by a shared utility host', () => {
+  const chunks = fixture().map((item) =>
+    item.file === 'src-dev.js'
+      ? { ...item, source: `import "./utility-host-main.js"; ${item.source}` }
+      : item
+  )
+  chunks.push(chunk('utility-host-main.js', 'import("./browser-pane.js");', 3, 2))
+  chunks.push(chunk('browser-pane.js', 'import "./browser-helper.js";', 11, 6))
+  chunks.push(chunk('browser-helper.js', 'export const browser = true;', 4, 2))
+  const report = inspectClientBundle(chunks)
+  expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 24, gzipBytes: 13 })
+  expect(report.views.devUtilityPanes.files).toContain('browser-pane.js')
+  expect(report.views.devUtilityPanes.files).not.toContain('utility-host-main.js')
+})
+
+test('does not attribute unrelated startup lazy routes to Dev utilities', () => {
+  const chunks = fixture().map((item) =>
+    item.file === 'shared-shell.js'
+      ? { ...item, source: 'import("./settings-page.js"); export const shell = true;' }
+      : item
+  )
+  chunks.push(chunk('settings-page.js', 'export const settings = true;', 100, 50))
+  expect(inspectClientBundle(chunks).views.devUtilityPanes).toMatchObject({
+    rawBytes: 9,
+    gzipBytes: 5,
+  })
+})

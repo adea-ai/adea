@@ -5,8 +5,6 @@
  * never fabricates a state — an `unknown` run says unknown, a fallback-only
  * transport offers jump-to-terminal instead of implying structured events.
  */
-import type { HarnessRunState } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/app-ui/lib/utils'
 import { For, Show, type JSX } from 'solid-js'
 
 import {
@@ -15,16 +13,20 @@ import {
   installationDisplayState,
   isGlobalDefault,
   type InstallationDisplayState,
+  type HarnessStatusTone,
 } from './harness-status-model'
 import type { HarnessPreference, HarnessRun, ManagedPiStatus } from '@adea-ai/types/dev-runtime'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
+import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 
-export function harnessStateDotClass(state: HarnessRunState | 'idle'): string {
-  return cn('dev-status-dot', {
-    'dev-status-dot--active': state === 'working',
-    'dev-status-dot--ready': state === 'idle' || state === 'completed',
-    'dev-status-dot--archived': state === 'cancelled',
-  })
+const SHARED_STATUS_TONES: Record<HarnessStatusTone, StatusTone> = {
+  neutral: 'neutral',
+  progress: 'info',
+  success: 'success',
+  failure: 'danger',
+  unknown: 'unknown',
 }
 
 export function HarnessStatusPane(props: {
@@ -55,37 +57,40 @@ export function HarnessStatusPane(props: {
   const rows = (): JSX.Element => (
     <For each={props.preferences}>
       {(preference) => (
-        <li class="dev-session-badge-row">
-          <span>{preference.projectId === undefined ? 'Global' : 'Project'}</span>
-          <span>{INSTALLATION_STATE_LABELS[preferenceState(preference)]}</span>
-          <Show when={isGlobalDefault(preference)}>
-            <span class="dev-row-badge dev-row-badge--success">default</span>
-          </Show>
-        </li>
+        <ListRowControl
+          as="li"
+          description={INSTALLATION_STATE_LABELS[preferenceState(preference)]}
+          trailing={
+            <Show when={isGlobalDefault(preference)}>
+              <Badge variant="secondary">default</Badge>
+            </Show>
+          }
+        >
+          {preference.projectId === undefined ? 'Global' : 'Project'}
+        </ListRowControl>
       )}
     </For>
   )
 
   return (
-    <section aria-label="Harness status" class="dev-session-badges">
-      <p>
-        <span role="img" class={harnessStateDotClass(status().state)} aria-hidden="true" />
-        <span>{status().label}</span>
+    <section aria-label="Harness status">
+      <p class="flex flex-wrap items-center gap-2">
+        <StatusChip label={status().label} tone={SHARED_STATUS_TONES[status().tone]} />
         <Show when={status().run}>
           {(run) => (
-            <span class="dev-row-badge" title="Harness run generation">
+            <Badge variant="outline" title="Harness run generation">
               gen {run().generation}
-            </span>
+            </Badge>
           )}
         </Show>
         <Show when={status().run?.terminalId}>
           {(terminalId) => (
-            <span
-              class="dev-row-badge"
+            <Badge
+              variant="outline"
               title={`Harness process runs in terminal ${terminalId()} (attachTerminal launch)`}
             >
               in terminal
-            </span>
+            </Badge>
           )}
         </Show>
       </p>
@@ -125,7 +130,9 @@ export function HarnessStatusPane(props: {
         </p>
       </Show>
       <Show when={props.preferences.length > 0}>
-        <ul aria-label="Harness preferences">{rows()}</ul>
+        <ul aria-label="Harness preferences" class="flex flex-col gap-1">
+          {rows()}
+        </ul>
       </Show>
     </section>
   )

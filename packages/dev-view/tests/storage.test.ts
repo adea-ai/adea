@@ -57,6 +57,10 @@ function memoryStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial))
   const store = {
     failSet: false,
+    get length() {
+      return data.size
+    },
+    key: (index: number) => [...data.keys()][index] ?? null,
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => {
       if (store.failSet) throw new DOMException('quota exceeded', 'QuotaExceededError')

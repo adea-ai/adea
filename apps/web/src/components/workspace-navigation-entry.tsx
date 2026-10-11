@@ -27,6 +27,7 @@ const requestedScene = () =>
 export function WorkspaceNavigationEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
+  characterDesigner?: boolean
   roomDesigner?: boolean
 }) {
   if (__ADEA_DESKTOP_COMPONENTS__ && isDesktopRuntime()) {
@@ -37,6 +38,7 @@ export function WorkspaceNavigationEntry(props: {
     )
     return (
       <DesktopWorkspaceEntry
+        characterDesigner={props.characterDesigner ?? false}
         roomDesigner={props.roomDesigner ?? false}
         virtual={props.virtual}
         virtualProps={props.virtualProps}
@@ -45,6 +47,7 @@ export function WorkspaceNavigationEntry(props: {
   }
   return (
     <WebNavigationEntry
+      characterDesigner={props.characterDesigner ?? false}
       roomDesigner={props.roomDesigner ?? false}
       virtual={props.virtual}
       virtualProps={props.virtualProps}
@@ -55,6 +58,7 @@ export function WorkspaceNavigationEntry(props: {
 function WebNavigationEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
+  characterDesigner?: boolean
   roomDesigner?: boolean
 }) {
   const client = createApiClient()
@@ -102,6 +106,7 @@ function WebNavigationEntry(props: {
       activeWorkspace={activeWorkspace()}
       client={client}
       platform="web"
+      characterDesigner={props.characterDesigner ?? false}
       roomDesigner={props.roomDesigner ?? false}
       services={services}
       virtual={props.virtual}

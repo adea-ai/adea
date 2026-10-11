@@ -6,9 +6,11 @@ import {
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { JSX } from 'solid-js'
 
 export function ConventionalWorkspaceEntry(props: {
   client: AgentHqApiClient
+  archiveAction?: JSX.Element
   restoreFocusRef?: () => HTMLElement | undefined
   deepLink?: () => WorkspaceDeepLink
   taskBoardOnly?: boolean
@@ -22,6 +24,7 @@ export function ConventionalWorkspaceEntry(props: {
     <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
       <ConventionalWorkspaceShell
         taskBoardOnly={props.taskBoardOnly}
+        archiveAction={props.archiveAction}
         restoreFocusRef={props.restoreFocusRef}
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
