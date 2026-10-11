@@ -53,8 +53,8 @@ import {
   SidebarNavTitle,
 } from '@adea-ai/ui/components/layout/sidebar-nav'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { ShortcutKeys } from '@adea-ai/app-ui/components/shortcut-keys'
 import { wideViewportAtLoad } from '@adea-ai/state'
+import { KbdChord } from '@adea-ai/ui/components/ui/kbd'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
@@ -126,18 +126,9 @@ function ConversationChannelRow(props: {
   unread: JSX.Element
   /** Row menus mount inside the mobile sheet so they stay in its a11y tree. */
   portalMount?: HTMLElement
-  /**
-   * The modal sheet omits row tooltips: a focus tooltip inside the sheet
-   * registers a top-most dismissable layer that swallows the next Escape and
-   * leaves the navigation stuck open. Accessible names carry the actions.
-   */
-  tooltips?: boolean
   /** The compact sheet drops the comfortable rung so row labels keep room. */
   touchTarget?: 'comfortable'
 }) {
-  const optionsTooltip = () =>
-    props.tooltips === false ? undefined : `Conversation options for ${props.label}`
-  const deleteTooltip = () => (props.tooltips === false ? undefined : `Delete ${props.label}`)
   return (
     <SidebarNavRow
       actions={
@@ -148,7 +139,7 @@ function ConversationChannelRow(props: {
               variant="ghost"
               size="icon-md"
               touchTarget={props.touchTarget}
-              tooltip={optionsTooltip()}
+              tooltip={`Conversation options for ${props.label}`}
               aria-label={`Conversation options for ${props.label}`}
             >
               <EllipsisVertical aria-hidden="true" />
@@ -174,7 +165,7 @@ function ConversationChannelRow(props: {
             variant="destructive"
             size="icon-md"
             touchTarget={props.touchTarget}
-            tooltip={deleteTooltip()}
+            tooltip={`Delete ${props.label}`}
             aria-label={`Delete ${props.label}`}
             onClick={() => props.onArchive(props.channel)}
           >
@@ -387,9 +378,6 @@ export function WorkspaceSidebar(props: Props) {
     // The sheet gives row actions a third of the width the inline panel has;
     // dropping the comfortable rung there keeps the labels legible.
     const rowTouchTarget = inSheet ? undefined : ('comfortable' as const)
-    // The sheet also drops action tooltips: their focus layer swallows the
-    // Escape that should dismiss the sheet itself.
-    const rowTooltips = !inSheet
 
     return (
       <SidebarNav
@@ -425,17 +413,13 @@ export function WorkspaceSidebar(props: Props) {
         </Show>
         <SidebarNavHeader>
           <SidebarNavTitle as="h1">{props.workspaceName}</SidebarNavTitle>
-          {/* No tooltip: a focus tooltip would register a top-most dismissable
-              layer inside the sheet and swallow the next Escape, leaving the
-              modal navigation open. The sheet itself is the affordance; the
-              button keeps its accessible name. */}
-          {/* oxlint-disable-next-line adea/require-action-button-tooltip */}
           <ActionButton
             type="button"
             variant="ghost"
             size="icon-md"
             touchTarget="comfortable"
             aria-label="Close workspace navigation"
+            tooltip="Close workspace navigation"
             class="conventional-sidebar__close"
             onClick={() => props.onToggleMobile(false)}
           >
@@ -458,7 +442,7 @@ export function WorkspaceSidebar(props: Props) {
             >
               <MessageCircle aria-hidden="true" />
               Mark all read
-              <ShortcutKeys keys="⇧⌘A" class="ml-auto" />
+              <KbdChord keys="⇧⌘A" size="compact" class="ml-auto" />
             </SidebarNavButton>
           </div>
           <Show when={actionError()}>
@@ -480,7 +464,7 @@ export function WorkspaceSidebar(props: Props) {
                 variant="ghost"
                 size="icon-md"
                 touchTarget="comfortable"
-                tooltip={rowTooltips ? 'Create a room' : undefined}
+                tooltip="Create a room"
                 aria-label="Create Room"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateRoom()}
@@ -533,9 +517,7 @@ export function WorkspaceSidebar(props: Props) {
                                 variant="ghost"
                                 size="icon-md"
                                 touchTarget={rowTouchTarget}
-                                tooltip={
-                                  rowTooltips ? `Room options for ${item().room.name}` : undefined
-                                }
+                                tooltip={`Room options for ${item().room.name}`}
                                 aria-label={`Room options for ${item().room.name}`}
                               >
                                 <EllipsisVertical aria-hidden="true" />
@@ -564,11 +546,7 @@ export function WorkspaceSidebar(props: Props) {
                                 variant="ghost"
                                 size="icon-md"
                                 touchTarget={rowTouchTarget}
-                                tooltip={
-                                  rowTooltips
-                                    ? `${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`
-                                    : undefined
-                                }
+                                tooltip={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                                 aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                                 aria-expanded={!collapsed()}
                                 onClick={() => props.onToggleRoom(item().room.id)}
@@ -658,7 +636,7 @@ export function WorkspaceSidebar(props: Props) {
                 variant="ghost"
                 size="icon-md"
                 touchTarget="comfortable"
-                tooltip={rowTooltips ? 'Create a group conversation' : undefined}
+                tooltip="Create a group conversation"
                 aria-label="Create group conversation"
                 disabled={props.workspaceReady === false}
                 onClick={() => props.onCreateGroup()}
@@ -686,7 +664,6 @@ export function WorkspaceSidebar(props: Props) {
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
                     portalMount={menuMount()}
-                    tooltips={rowTooltips}
                     touchTarget={rowTouchTarget}
                   />
                 )}
@@ -705,7 +682,6 @@ export function WorkspaceSidebar(props: Props) {
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
                     portalMount={menuMount()}
-                    tooltips={rowTooltips}
                     touchTarget={rowTouchTarget}
                   />
                 )}

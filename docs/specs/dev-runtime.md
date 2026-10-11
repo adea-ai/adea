@@ -5628,3 +5628,5 @@ files in the same commit:
 
 Until those files exist, the matching implementation issue remains open; prose
 alone is not evidence of implemented behavior.
+
+Browser lane selection uses published `ListRowControl` buttons in a labelled group. The selected lane has the shared selected treatment and `aria-current`; keyboard activation uses native button semantics. Lane state and ownership remain domain descriptions, and choosing a lane preserves the existing inspection invalidation and scoped target/diagnostic refresh behavior.
