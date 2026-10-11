@@ -22,6 +22,15 @@ html {
   font-size: 16px;
 }
 
+.workspace-feedback-error {
+  position: fixed;
+  inset-block-end: 1rem;
+  inset-inline-start: 50%;
+  z-index: 1000;
+  width: min(32rem, calc(100vw - 2rem));
+  transform: translateX(-50%);
+}
+
 .browser-auth-mode {
   display: grid;
   grid-template-columns: 1fr 1fr;

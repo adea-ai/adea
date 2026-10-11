@@ -41,6 +41,10 @@ import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
+import { desktopAppIcon } from '../lib/desktop-app-icon'
+import { createFeedbackUrl } from '../lib/feedback-url'
+import { openAdeaExternalUrl } from '../lib/external-links'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -123,10 +127,18 @@ const RoomDesignerWorkspace = lazyComponent(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const WorkspaceAboutDialog = lazyComponent(
+const AboutDialog = lazyComponent(
   () =>
-    import('@adea-ai/workspace-ui/workspace-about-dialog').then(
-      ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
+    import('@adea-ai/ui/components/composites/about-dialog').then(
+      ({ AboutDialog: SharedAboutDialog }) => SharedAboutDialog
+    ),
+  { ssr: false }
+)
+
+const HelpCenterDialog = lazyComponent(
+  () =>
+    import('./help-center-dialog').then(
+      ({ HelpCenterDialog: WorkspaceHelpCenterDialog }) => WorkspaceHelpCenterDialog
     ),
   { ssr: false }
 )
@@ -170,15 +182,18 @@ function preloadView(nextView: WorkspaceView) {
 
 // Same trick for the overlay panels: hovering the rail button or the account
 // menu trigger downloads the dialog chunk before the click lands.
-function preloadPanel(panel: 'about' | 'plugins' | 'settings') {
+function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings') {
   if (panel === 'plugins') {
     void import('@adea-ai/workspace-ui/plugins-dialog')
     // The dialog's catalog provider resolves through the same deferred import.
     void import('@adea-ai/workspace-ui/plugins')
   } else if (panel === 'settings') {
     void import('@adea-ai/workspace-ui/workspace-settings')
+  } else if (panel === 'help') {
+    void import('./help-center-dialog')
+    void import('@adea-ai/ui/components/composites/help-center')
   } else {
-    void import('@adea-ai/workspace-ui/workspace-about-dialog')
+    void import('@adea-ai/ui/components/composites/about-dialog')
   }
 }
 
@@ -300,6 +315,9 @@ function appLibraryMoveAnnouncementFor(
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
+  const [aboutOpener, setAboutOpener] = createSignal<HTMLElement>()
+  const [helpOpener, setHelpOpener] = createSignal<HTMLElement>()
+  const [feedbackError, setFeedbackError] = createSignal<string>()
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
@@ -621,6 +639,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         resources={<RuntimeResourcesControl runtime={props.services.devRuntime} />}
         sidebarMount={setSidebarActionMount}
       />
+      <Show when={feedbackError()}>
+        {(message) => (
+          <div class="workspace-feedback-error">
+            <Alert variant="destructive">
+              <AlertDescription>{message()}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+      </Show>
       <GlobalWorkspaceRail
         account={{
           authenticated: props.account.authenticated,
@@ -638,7 +665,26 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             : {}),
           platform: props.platform,
         }}
-        onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
+        onOpenAbout={(opener) => {
+          setAboutOpener(opener)
+          workspaceStore.getState().setGlobalPanel('about')
+        }}
+        onOpenHelp={(opener) => {
+          setHelpOpener(opener)
+          workspaceStore.getState().setGlobalPanel('help')
+        }}
+        onOpenFeedback={() => {
+          void openAdeaExternalUrl(
+            createFeedbackUrl({
+              platform: props.platform,
+              version: props.services.app?.version,
+            })
+          )
+            .then(() => setFeedbackError())
+            .catch(() =>
+              setFeedbackError('Could not open feedback. Try again or open Help Center.')
+            )
+        }}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
         onOpenAppLibrary={() => openAppLibrary()}
         libraryActive={libraryOpen()}
@@ -810,12 +856,30 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         />
       </Show>
       <Show when={globalPanel() === 'about'}>
-        <WorkspaceAboutDialog
-          appName={props.services.app?.name}
+        <AboutDialog
+          appName={props.services.app?.name ?? 'Adea'}
+          appIcon={desktopAppIcon}
+          copyright="Copyright © 2026 0xPlayerOne"
+          sourceUrl="https://github.com/adea-ai/adea"
           open
-          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+          onOpenChange={(open: boolean) => {
+            if (!open) workspaceStore.getState().setGlobalPanel(null)
+          }}
           platform={props.platform}
           version={props.services.app?.version}
+          openExternal={openAdeaExternalUrl}
+          restoreFocusRef={aboutOpener}
+        />
+      </Show>
+      <Show when={globalPanel() === 'help'}>
+        <HelpCenterDialog
+          open
+          feedbackUrl={createFeedbackUrl({
+            platform: props.platform,
+            version: props.services.app?.version,
+          })}
+          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+          restoreFocusRef={helpOpener}
         />
       </Show>
       <Show when={props.updates}>

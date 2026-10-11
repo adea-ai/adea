@@ -3,6 +3,7 @@
 // the full command registry (scripts/desktop-update-boundary.test.ts).
 import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import installedChangelog from '../../../../CHANGELOG.md' with { type: 'text' }
 import {
   downloadUpdateArchive,
   extractUpdateArchive,
@@ -138,7 +139,7 @@ export function createUpdateManager(input: {
     available_version: null,
     release_date: null,
     release_notes: null,
-    changelog: '',
+    changelog: installedChangelog,
     github_url: 'https://github.com/adea-ai/adea/releases',
     phase: 'idle',
     downloaded_bytes: 0,
@@ -193,7 +194,6 @@ export function createUpdateManager(input: {
         available_version: available ? availableVersion : null,
         release_date: release.published_at ?? null,
         release_notes: release.body ?? null,
-        changelog: release.body ?? '',
         github_url: release.html_url ?? 'https://github.com/adea-ai/adea/releases',
         error: null,
         restart_required: false,
@@ -229,7 +229,6 @@ export function createUpdateManager(input: {
           available_version: null,
           release_date: manifest.publishedAt,
           release_notes: manifest.notes,
-          changelog: manifest.notes ?? '',
           github_url: releaseTagUrl(manifest.version),
           restart_required: false,
         })
@@ -240,7 +239,6 @@ export function createUpdateManager(input: {
         available_version: manifest.version,
         release_date: manifest.publishedAt,
         release_notes: manifest.notes,
-        changelog: manifest.notes ?? '',
         github_url: releaseTagUrl(manifest.version),
         error: null,
         restart_required: false,

@@ -118,6 +118,13 @@
       "import": "./dist/workspace-apps.js",
       "default": "./dist/workspace-apps.js"
     },
+    "./keyboard-shortcuts": {
+      "types": "./dist/keyboard-shortcuts.d.ts",
+      "solid": "./src/keyboard-shortcuts.ts",
+      "development": "./src/keyboard-shortcuts.ts",
+      "import": "./dist/keyboard-shortcuts.js",
+      "default": "./dist/keyboard-shortcuts.js"
+    },
     "./app-library-page": {
       "types": "./dist/app-library-page.d.ts",
       "solid": "./src/app-library-page.tsx",
@@ -142,7 +149,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.96.0",
+    "@adea-ai/ui": "0.97.0",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },
