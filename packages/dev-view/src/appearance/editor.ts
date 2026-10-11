@@ -12,6 +12,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { createSignal } from 'solid-js'
+import { normalizeAppearanceEditorFontSettings } from '@adea-ai/ui/lib/appearance-font-settings'
 
 import {
   defaultAppearancePreferences,
@@ -39,7 +40,14 @@ export type AppearanceEditor = Readonly<{
 }>
 
 function samePreferences(left: AppearancePreferencesV2, right: AppearancePreferencesV2): boolean {
+  const leftFonts = normalizeAppearanceEditorFontSettings(left.fonts).settings
+  const rightFonts = normalizeAppearanceEditorFontSettings(right.fonts).settings
   return (
+    (['ui', 'content', 'code'] as const).every(
+      (axis) =>
+        leftFonts[axis].family === rightFonts[axis].family &&
+        leftFonts[axis].size === rightFonts[axis].size
+    ) &&
     left.mode === right.mode &&
     left.lightThemeId === right.lightThemeId &&
     left.darkThemeId === right.darkThemeId &&

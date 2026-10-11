@@ -32,6 +32,10 @@ export type BrowserPaneHarnessReport = {
 }
 
 export type BrowserPaneHarnessControls = {
+  setFonts(
+    settings: import('@adea-ai/ui/lib/appearance-font-settings').AppearanceEditorFontSettings
+  ): void
+  resetFonts(): void
   report(): BrowserPaneHarnessReport
   resolvePendingInventory(): void
   deferNextScreenshot(): number

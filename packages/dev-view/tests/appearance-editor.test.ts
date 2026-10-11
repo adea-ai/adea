@@ -106,3 +106,29 @@ describe('appearance editor (Zeron setter semantics with the save/revert contrac
     expect(editor.differsFromDefaults()).toBe(false)
   })
 })
+
+for (const axis of ['ui', 'content', 'code'] as const) {
+  test(`${axis} font changes participate in preview, save, and rollback`, () => {
+    const editor = createAppearanceEditor(committed)
+    editor.open(committed)
+    const fonts = {
+      ui: { family: 'system', size: 14 },
+      content: { family: 'system', size: 14 },
+      code: { family: 'system', size: 12 },
+    }
+    editor.set({ fonts })
+    expect(editor.dirty()).toBe(false)
+    editor.set({ fonts: { ...fonts, [axis]: { family: 'geist-mono', size: 18 } } })
+    expect(editor.dirty()).toBe(true)
+    expect(editor.draft().fonts?.[axis]).toEqual({ family: 'geist-mono', size: 18 })
+    editor.revert()
+    expect(editor.dirty()).toBe(false)
+    expect(editor.draft()).toEqual(committed)
+    editor.set({ fonts: { ...fonts, [axis]: { family: 'geist', size: 20 } } })
+    const saved = editor.save()
+    expect(editor.dirty()).toBe(false)
+    editor.reset()
+    expect(editor.dirty()).toBe(true)
+    expect(editor.revert()).toEqual(saved)
+  })
+}

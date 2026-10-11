@@ -437,7 +437,7 @@ function ProviderAccountRow(props: {
             Adea uses the {props.row.cli}'s sign-in and never stores a {name()} token. Install the{' '}
             {props.row.cli}, then run this in a terminal:
           </span>
-          <span class="dev-scm-mono">{props.row.login}</span>
+          <span class="dev-scm-owner">{props.row.login}</span>
           <ActionButton
             type="button"
             variant="ghost"

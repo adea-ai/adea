@@ -596,6 +596,16 @@ Issue: [#425](https://github.com/adea-ai/adea/issues/425)
    system mode follows the OS live.
 3. Extend one token manifest to UI, xterm ANSI/palette, CodeMirror syntax/diff/
    search, charts, focus, and selection. Browser pages are not recolored.
+   Appearance typography uses the shared UI/Content/Code projection on every
+   Adea-owned pane: controls, captions, statuses, and owner metadata follow UI;
+   chat/search, onboarding explanations, permission explanations, resource
+   messages, and discussion follow Content; terminal/editor data, browser
+   URLs/inspection/diagnostics, resource ports/error codes, and source-control
+   paths, identifiers, diffs, and logs follow Code. Published controls retain
+   their primitive-owned typography. Computed-role browser coverage spans the
+   real Browser, Resources, Permissions, and Source Control surfaces; terminal
+   acceptance also verifies the same Code preference drives current-generation
+   PTY resize.
 4. Port KiroCrew's category rail, search, installed/discover states, detail
    affordance, and tests to Solid using Adea tokens.
 5. Keep activation restricted to bundled first-party entry IDs. Catalog-only

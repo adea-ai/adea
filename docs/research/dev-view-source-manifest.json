@@ -295,7 +295,7 @@
             "apps/host-daemon/src/terminals/node-pty-fd-leak.test.ts",
             "packages/client-core/test/terminal-websocket-transport.test.ts"
           ],
-          "action": "Copy queue, reconnect, heartbeat, and stale-socket mechanics; add authenticated endpoint, byte sequence, checkpoints, replay, resync, and generation."
+          "action": "Copy queue, reconnect, heartbeat, and stale-socket mechanics; add authenticated endpoint, byte sequence, checkpoints, replay, resync, and generation. Surface and typography refits send changed PTY dimensions through the same generation-bound resize control path; the font regression is pinned by apps/web/e2e/dev-view-terminal-pane.spec.ts."
         },
         {
           "donor": "orca",
@@ -725,7 +725,7 @@
           "donor": "zeron",
           "source": ["crates/ui/src/settings/appearance.rs", "crates/ui/src/settings/widgets.rs"],
           "tests": ["crates/ui/src/settings/appearance.rs"],
-          "action": "Preserve the already accepted Adea appearance composition while extracting controlled Solid presentation to the standalone adea-ai/ui appearance-editor composite: split System miniatures, independent Light/Dark rows, palette bands, accent and surface helper copy. Translate the embedded three-mode, both-appearance and helper-copy tests; font controls/tests remain excluded by #425 amendments. Palette authority remains in themes, and preferences/preview/persistence/native effects remain in application adapters. No GPUI dependency is introduced."
+          "action": "Preserve the already accepted Adea appearance composition while extracting controlled Solid presentation to the standalone adea-ai/ui appearance-editor composite: split System miniatures, independent Light/Dark rows, palette bands, accent and surface helper copy. Translate the embedded three-mode, both-appearance and helper-copy tests; The 2026-10-03 owner follow-up supersedes the earlier #425 font-control exclusion: the shared three-role font group uses the existing shared primitive/catalogue contract, while Adea owns preview and persistence. Project UI scale to interaction text and metadata, Content to readable chat/onboarding/permission/resource/source-control messages, and Code to terminal/editor and technical browser/resource/source-control data without overriding published controls. Computed-role behavior is exercised across ChatTranscript, Browser and Resources panes, the real-provider Permissions and Resources surfaces, Source Control discussion/diffs, and Terminal PTY resize. Palette authority remains in themes, and preferences/preview/persistence/native effects remain in application adapters. No GPUI dependency is introduced."
         }
       ]
     },

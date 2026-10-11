@@ -24,7 +24,7 @@
 .dev-history-search p {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 
 .dev-history-search ol {
@@ -53,10 +53,16 @@
   text-align: start;
 }
 
-.dev-history-search li > button:first-child span:nth-child(2) {
+.dev-history-search__kind {
   color: var(--muted-foreground);
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-ui-scale, 1));
   text-transform: uppercase;
+}
+
+.dev-history-search__title,
+.dev-history-search__preview {
+  font-family: var(--font-content, var(--font-sans));
+  font-size: var(--text-content);
 }
 
 .dev-history-search li > button:first-child span:last-child {

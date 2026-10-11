@@ -24,7 +24,7 @@
   gap: 0.5rem;
   padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-pane-status {
@@ -70,7 +70,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
   color: var(--muted-foreground);
 }
 
@@ -123,7 +124,7 @@
   gap: 0.5rem;
   padding: 0.15rem 0.35rem;
   border-radius: 0.3rem;
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-block[data-state='running'] {
@@ -135,7 +136,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 .dev-terminal-block-exit {
@@ -159,6 +161,8 @@
   min-height: 0;
   flex: 1;
   padding: 0;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 .dev-terminal-surface:focus-visible {
@@ -213,7 +217,7 @@
 .dev-terminal-search-count {
   flex: none;
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-search-case {
@@ -222,7 +226,7 @@
   align-items: center;
   gap: 0.2rem;
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 /* Multiline paste confirmation, shared by the surface and the compose editor. */
@@ -240,7 +244,7 @@
   border-radius: 0.35rem;
   background: var(--background);
   box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim) 32%, transparent);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-editor {
@@ -260,8 +264,8 @@
   background: var(--background);
   color: var(--foreground);
   resize: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 .dev-terminal-editor textarea:focus-visible {
@@ -301,7 +305,7 @@
   padding: 0.35rem 0.6rem;
   border-top: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-raw-note button {
@@ -330,13 +334,13 @@
 
 .dev-terminal-shell-chooser h2 {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-shell-chooser p {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 
 .dev-terminal-shell-chooser ul {
@@ -378,8 +382,8 @@
 
 .dev-terminal-shell-path {
   color: var(--muted-foreground);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.68rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
 }
 
 /* Pane-local screen-reader text (self-contained; no utility-class reliance). */

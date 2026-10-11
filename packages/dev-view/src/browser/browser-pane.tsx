@@ -1093,7 +1093,7 @@ export function BrowserPane(props: BrowserPaneProps) {
             <Show when={annotationResult()}>
               {(shown) => (
                 <p
-                  class="dev-browser__inspection-result"
+                  class="dev-browser__inspection-result dev-browser__annotation-result"
                   role="status"
                   aria-label="Annotation result"
                 >
@@ -1261,7 +1261,9 @@ export function BrowserPane(props: BrowserPaneProps) {
             {(target) => (
               <div class="dev-browser__row">
                 <span class="dev-browser__row-main">
-                  <span>{target.title || target.url}</span>
+                  <span class={target.title ? undefined : 'dev-browser__target-url'}>
+                    {target.title || target.url}
+                  </span>
                   <span class="dev-browser__row-meta">{target.type}</span>
                 </span>
               </div>
