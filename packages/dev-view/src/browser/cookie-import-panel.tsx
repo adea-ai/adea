@@ -19,6 +19,7 @@ import {
   type CookieSource,
 } from './cookie-import-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { isDevUtilityContextChanged } from '../utility-context'
 
 export type CookieImportPanelProps = Readonly<{
   laneId: string
@@ -78,6 +79,7 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
       )) as MutationPlan
       setPreview(previewFromPlan(plan))
     } catch (error) {
+      if (isDevUtilityContextChanged(error)) return
       setPreview(undefined)
       setFailure(errorMessage(error))
     } finally {
@@ -99,6 +101,7 @@ export function CookieImportPanel(props: CookieImportPanelProps) {
       setPreview(undefined)
       setOutcome(importOutcomeMessage(result))
     } catch (error) {
+      if (isDevUtilityContextChanged(error)) return
       // A refused commit (expired digest, moved generation) leaves the plan on
       // screen so the reader can preview it again rather than guess what moved.
       setFailure(errorMessage(error))

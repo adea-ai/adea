@@ -11,49 +11,101 @@ import type {
   DeviceSession,
 } from '@adea-ai/types/dev-runtime'
 import { MonitorSmartphone, Smartphone, Tablet } from 'lucide-solid'
-import { For, Show, createResource, createSignal } from 'solid-js'
+import { For, Show, createResource, createSignal, onCleanup } from 'solid-js'
 
-import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
 import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
 import '../browser/browser-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  createDevUtilityFenceSource,
+  devUtilityContextKey,
+  hasDevUtilitySession,
+  isDevUtilityContextChanged,
+  sameDevUtilityScope,
+  type DevUtilityContextReader,
+  type DevUtilityFence,
+} from '../utility-context'
+import { executeDevUtilityCommand } from '../utility-command'
 
 export type DeviceInventoryPage = { items: readonly DeviceInventoryItem[] }
 export type DeviceSessionsPage = { items: readonly DeviceSession[] }
+type ContextualPage<T> = Readonly<{ contextKey: string; items: readonly T[] }>
 
-export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionId?: string }) {
+export function DevicesPane(props: { context: DevUtilityContextReader }) {
   const [error, setError] = createSignal<string | undefined>(undefined)
-  const scope = () => props.runtime.preferenceScope?.()
+  const context = () => props.context()
+  const runtime = () => context().runtime
+  const fences = createDevUtilityFenceSource(context)
+  onCleanup(() => fences.dispose())
 
-  async function execute<T>(
+  const contextKey = () => {
+    const current = context()
+    return current.runtime.state().status === 'ready' && current.scope
+      ? devUtilityContextKey(current)
+      : undefined
+  }
+  const sessionKey = () => (hasDevUtilitySession(context()) ? contextKey() : undefined)
+
+  function execute<T>(
+    fence: DevUtilityFence | undefined,
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
     body: Record<string, unknown>,
     resource?: { kind: string; id: string; generation: number }
   ): Promise<T> {
-    const activeScope = scope()
-    if (!activeScope) throw new Error('unauthenticated')
-    const reply = await props.runtime.execute(
-      buildDevCommand({ operation, scope: activeScope, body, ...(resource ? { resource } : {}) })
-    )
-    if (!reply.ok) throw reply
-    return reply.value as T
+    return executeDevUtilityCommand<T>(fence, operation, body, resource)
   }
 
-  const serviceReady = () => props.runtime.state().status === 'ready'
-  const [inventory] = createResource(serviceReady, async (ready) =>
-    ready ? execute<DeviceInventoryPage>('dev.device.list', {}) : { items: [] }
-  )
-  const [sessions, { refetch: refetchSessions }] = createResource(serviceReady, async (ready) =>
-    ready ? execute<DeviceSessionsPage>('dev.device.sessions', {}) : { items: [] }
-  )
-  const [capabilities] = createResource(serviceReady, async (ready) =>
-    ready ? execute<DeviceCapabilityReport>('dev.device.capabilities', {}) : undefined
-  )
+  async function executeResource<T>(
+    fence: DevUtilityFence,
+    operation: Parameters<typeof buildDevCommand>[0]['operation'],
+    body: Record<string, unknown>
+  ): Promise<T | undefined> {
+    try {
+      return await execute<T>(fence, operation, body)
+    } catch (requestError) {
+      if (isDevUtilityContextChanged(requestError)) return undefined
+      throw requestError
+    }
+  }
+
+  const serviceReady = () => runtime().state().status === 'ready'
+  const [inventory] = createResource(contextKey, async (key) => {
+    const fence = fences.capture('scope')
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return { items: [] }
+    const page = await executeResource<DeviceInventoryPage>(fence, 'dev.device.list', {})
+    return { contextKey: key, items: page?.items ?? [] }
+  })
+  const [sessions, { refetch: refetchSessions }] = createResource(sessionKey, async (key) => {
+    const fence = fences.capture('session')
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return { items: [] }
+    const page = await executeResource<DeviceSessionsPage>(fence, 'dev.device.sessions', {
+      runtimeSessionId: fence.context.runtimeSessionId!,
+    })
+    return {
+      contextKey: key,
+      items: (page?.items ?? []).filter(
+        (session) =>
+          session.runtimeSessionId === fence.context.runtimeSessionId &&
+          sameDevUtilityScope(session.scope, fence.context.scope)
+      ),
+    }
+  })
+  const [capabilities] = createResource(contextKey, async (key) => {
+    const fence = fences.capture('scope')
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
+    const report = await executeResource<DeviceCapabilityReport>(
+      fence,
+      'dev.device.capabilities',
+      {}
+    )
+    return { contextKey: key, report }
+  })
 
   const platformAvailability = () => {
     if (capabilities.state !== 'ready' && capabilities.state !== 'refreshing') return undefined
-    const rows = capabilities()?.items
+    if (capabilities()?.contextKey !== contextKey()) return undefined
+    const rows = capabilities()?.report?.items
     const ios = rows?.find((item) => item.platform === 'ios')
     const android = rows?.find((item) => item.platform === 'android')
     return ios && android
@@ -63,46 +115,62 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
 
   const inventoryItems = () =>
     inventory.state === 'ready' || inventory.state === 'refreshing'
-      ? (inventory()?.items ?? [])
+      ? inventory()?.contextKey === contextKey()
+        ? (inventory()?.items ?? [])
+        : []
       : []
 
+  const sessionItems = () =>
+    (sessions()?.contextKey === contextKey() ? sessions()?.items : undefined) ?? []
+
   function startDevice(item: DeviceInventoryItem): void {
-    const runtimeSessionId = props.runtimeSessionId
-    if (!runtimeSessionId) {
+    const fence = fences.capture('session')
+    if (
+      !fence ||
+      !inventoryItems().some((current) => current.id === item.id && current.generation === item.generation)
+    ) {
       setError('no active runtime session')
       return
     }
+    const runtimeSessionId = fence.context.runtimeSessionId!
     // `dev.device.start` binds a `device_inventory` resource, so the command
     // MUST carry it — `buildDevCommand` throws without one, which made every
     // inventory-row start fail locally before any request was sent.
     execute<DeviceSession>(
+      fence,
       'dev.device.start',
       { inventoryId: item.id, expectedGeneration: item.generation, runtimeSessionId },
       { kind: 'device_inventory', id: item.id, generation: item.generation }
     )
       .then(() => {
+        if (!fence.isCurrent()) return
         setError(undefined)
         void refetchSessions()
       })
       .catch((reply) =>
-        setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
+        {
+          if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
+            setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
+        }
       )
   }
 
   function startResponsive(): void {
-    const runtimeSessionId = props.runtimeSessionId
-    if (!runtimeSessionId) {
+    const fence = fences.capture('session')
+    if (!fence) {
       setError('no active runtime session')
       return
     }
+    const runtimeSessionId = fence.context.runtimeSessionId!
     // The responsive row is an inventory entry like any other: it needs the
     // same resource binding and generation, not a hardcoded id and no binding.
-    const responsive = findResponsiveInventoryItem(inventory()?.items ?? [])
+    const responsive = findResponsiveInventoryItem(inventoryItems())
     if (!responsive) {
       setError('the responsive device inventory entry is not available')
       return
     }
     execute<DeviceSession>(
+      fence,
       'dev.device.start',
       {
         inventoryId: responsive.id,
@@ -112,16 +180,28 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       { kind: 'device_inventory', id: responsive.id, generation: responsive.generation }
     )
       .then(() => {
+        if (!fence.isCurrent()) return
         setError(undefined)
         void refetchSessions()
       })
       .catch((reply) =>
-        setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
+        {
+          if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
+            setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
+        }
       )
   }
 
   function stopDevice(session: DeviceSession): void {
+    const fence = fences.capture('session')
+    if (
+      !fence ||
+      session.runtimeSessionId !== fence.context.runtimeSessionId ||
+      !sameDevUtilityScope(session.scope, fence.context.scope)
+    )
+      return
     execute<DeviceSession>(
+      fence,
       'dev.device.stop',
       {
         deviceSessionId: session.id,
@@ -131,16 +211,25 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       { kind: 'device_session', id: session.id, generation: session.generation }
     )
       .then(() => {
+        if (!fence.isCurrent()) return
         setError(undefined)
         void refetchSessions()
       })
       .catch((reply) =>
-        setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'stop failed'}`)
+        {
+          if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
+            setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'stop failed'}`)
+        }
       )
   }
 
   const responsiveSession = () =>
-    (sessions()?.items ?? []).find((entry) => entry.kind === 'responsive')
+    sessionItems().find(
+      (entry) =>
+        entry.kind === 'responsive' &&
+        entry.runtimeSessionId === context().runtimeSessionId &&
+        sameDevUtilityScope(entry.scope, context().scope)
+    )
 
   return (
     <section class="dev-browser" aria-label="Devices">
@@ -150,7 +239,11 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
         <span>responsive always available · simulators capability-gated</span>
       </div>
       <Show
-        when={props.runtime.state().status === 'ready'}
+        when={context().scope}
+        fallback={<p class="dev-empty-state" role="status">Device inventory is unavailable until the runtime scope is bound.</p>}
+      >
+      <Show
+        when={serviceReady()}
         fallback={<p class="dev-empty-state">Device sessions are unavailable.</p>}
       >
         <div class="dev-devices__list">
@@ -164,6 +257,11 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
 
           <p class="dev-browser__section-title">Responsive</p>
           <div class="dev-browser__actions">
+            <Show when={!hasDevUtilitySession(context())}>
+              <p class="dev-terminal-muted" role="status">
+                Start and stop actions are unavailable until this view is bound to a canonical runtime session.
+              </p>
+            </Show>
             <Show
               when={responsiveSession()}
               fallback={
@@ -171,7 +269,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={!props.runtimeSessionId}
+                  disabled={!hasDevUtilitySession(context())}
                   onClick={startResponsive}
                 >
                   Start responsive session
@@ -234,7 +332,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                       <For each={group.items}>
                         {(item) => {
                           const attached = () =>
-                            (sessions()?.items ?? []).some(
+                              sessionItems().some(
                               (session) =>
                                 session.inventoryId === item.id && session.state === 'attached'
                             )
@@ -254,14 +352,17 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                   {item.platform} · {item.state}
                                 </span>
                               </span>
-                              <Show
+                      <Show
                                 when={attached()}
                                 fallback={
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    disabled={item.state === 'unauthorized'}
+                                    disabled={
+                                      item.state === 'unauthorized' ||
+                                      !hasDevUtilitySession(context())
+                                    }
                                     onClick={() => startDevice(item)}
                                   >
                                     Start
@@ -273,7 +374,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
                                   variant="outline"
                                   size="sm"
                                   onClick={() => {
-                                    const session = (sessions()?.items ?? []).find(
+                                    const session = sessionItems().find(
                                       (entry) =>
                                         entry.inventoryId === item.id && entry.state === 'attached'
                                     )
@@ -294,6 +395,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
             )}
           </Show>
         </div>
+      </Show>
       </Show>
     </section>
   )
