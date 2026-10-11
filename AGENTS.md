@@ -121,11 +121,12 @@ plugin, and keeps these selected consumer rules enabled as errors:
   dynamic tooltip content and accessible names still require browser checks.
   A passing lint result does not waive either requirement.
 
-Code that predates the rules is exempted **by path** in one override block in
-`.oxlintrc.json`. That block is a ratchet: it only shrinks. Adding a file to it
-is a reviewed change with a stated reason, never a convenience; adding new code
-to an exempted file is subject to the same review. Do not widen the rule options'
-allow-lists for the same reason.
+The consumer rules apply to every source file; no path-based exceptions remain
+in `.oxlintrc.json`. Do not add path overrides, inline suppressions, or broader
+rule allow-lists to bypass shared UI composition. Fix the consumer with a
+published primitive or improve the shared library when its contract is missing.
+The configuration regression tests exercise the actual published plugin through
+Oxlint and prevent these six rules from being disabled or exempted.
 
 <!-- code-foundry-managed: priorities -->
 
@@ -287,6 +288,10 @@ If a check cannot run, state the exact reason. A skipped check is not a passing 
 `bun run lint` (per-package `oxlint` through turbo) enforces it. Fix every
 shadcn finding the same way you fix a type error.
 
+Consumer source must not suppress restyling, raw-color, arbitrary-value,
+inline-style, or unknown-class rules. The shared lint regression scans actual
+source comments so an inline disable cannot silently bypass these checks.
+
 - Design-system components come from `@adea-ai/app-ui/components` for Adea's
   app-local adapters and `@adea-ai/ui/components` for the published shared
   package, alongside `@adea-ai/workspace-ui`. On those components, `class` may set layout only
@@ -298,6 +303,9 @@ shadcn finding the same way you fix a type error.
   `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
   Add new hooks in those stylesheets rather than restyling a component
   inline.
+  Do not add frame-wide descendant resets for controls, focus rings, or SVG
+  dimensions. Shared components own typography, colors, disabled states, focus,
+  and icon sizing; a named host container is not permission to override them.
 - Colors come from the published semantic tokens (`bg-primary`,
   `text-muted-foreground`, `bg-scrim/*`, …). Canonical palette roles and values
   belong in `@adea-ai/themes`; shared structural tokens and UI projections

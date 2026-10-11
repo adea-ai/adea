@@ -232,7 +232,9 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
   page,
 }) => {
   const pane = await mountBrowserPane(page, '?lanes=multiple')
-  const laneTabs = pane.getByRole('tablist', { name: 'Browser lanes' }).getByRole('tab')
+  const laneButtons = pane.getByRole('group', { name: 'Browser lanes' }).getByRole('button')
+  await expect(laneButtons.nth(0)).toHaveAttribute('aria-current', 'true')
+  await expect(laneButtons.nth(1)).not.toHaveAttribute('aria-current')
   const viewportCommands = () =>
     page.evaluate(() =>
       window.browserPaneHarness
@@ -247,7 +249,9 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
     browserLaneId: 'browser-pane-fixture-lane',
   })
 
-  await laneTabs.nth(1).click()
+  await laneButtons.nth(1).click()
+  await expect(laneButtons.nth(1)).toHaveAttribute('aria-current', 'true')
+  await expect(laneButtons.nth(0)).not.toHaveAttribute('aria-current')
   const secondRequest = await page.evaluate(() => window.browserPaneHarness.deferNextViewport())
   await pane.getByRole('button', { name: 'Pixel 8' }).click()
   await expect.poll(async () => (await viewportCommands()).length).toBe(2)
@@ -266,7 +270,7 @@ test('BrowserPane preserves independent viewport results when switching lanes', 
   )
   await expect(pane).toContainText('CSS viewport 412 × 915')
 
-  await laneTabs.nth(0).click()
+  await laneButtons.nth(0).click()
   await expect(pane).toContainText('CSS viewport 393 × 852')
 })
 
