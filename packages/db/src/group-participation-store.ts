@@ -35,6 +35,7 @@ import type {
   GroupSummaryReadDecision,
   GroupTurnDecision,
 } from '@adea-ai/types'
+import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
@@ -52,6 +53,7 @@ import {
   groupEnlistmentGrants,
   groupSharingGrants,
   workspaceMemberships,
+  workspaces,
 } from './schema'
 
 /** Loose structural database surface: the full node or an open transaction. */
@@ -643,19 +645,24 @@ export async function requireGroupParticipantLiveness(
  * Source-workspace standing for an enlisted Agent (M15.01 scope
  * reconciliation, adea-ai/adea#1178). The host workspace never confers
  * authority over foreign Agents, so liveness is proven where the Agent
- * actually lives: the row must exist, be active, and its true home
- * workspace must equal the grant's claimed source. A spoofed source, an
- * unknown id or an inactive Agent fails the whole roster with a typed
- * `GroupCreationError` and zero writes — never by host equality.
+ * actually lives. Source authorization is rechecked under a transaction lock
+ * before any grant write; unauthorized or unknown Agents are returned as
+ * unavailable, while an authorized caller receives a typed rejection for an
+ * inactive Agent or mismatched source claim.
  */
 export async function requireAgentEnlistmentSource(
-  database: GroupStoreDatabase,
+  database: AgentHqTransaction,
   candidateIndex: number,
   agentId: string,
-  claimedWorkspaceId: string
+  claimedWorkspaceId: string,
+  principal: UserPrincipalRef,
+  barrier: Readonly<{
+    afterSourceAuthorityLocks?: () => Promise<void>
+    afterAgentLock?: () => Promise<void>
+  }> = {}
 ) {
   const participant = { agentId, kind: 'agent' } as const
-  const reject = (reason: 'agent_unknown' | 'agent_inactive' | 'grant_workspace_mismatch') => {
+  const reject = (reason: 'agent_inactive' | 'grant_workspace_mismatch') => {
     throw new GroupCreationError([{ candidateIndex, participant, reason, scope: 'candidate' }])
   }
   const [agent] = await database
@@ -663,9 +670,56 @@ export async function requireAgentEnlistmentSource(
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
-  if (!agent) return reject('agent_unknown')
-  if (agent.lifecycleState !== 'active') return reject('agent_inactive')
-  if (agent.workspaceId !== claimedWorkspaceId) return reject('grant_workspace_mismatch')
+  // An unknown Agent and a real Agent whose source workspace is unavailable
+  // must be indistinguishable to the host caller.
+  if (!agent) throw new Error('Agent unavailable')
+
+  // Resolve authority only from the canonical Agent row, then hold both the
+  // membership and workspace rows through the grant write. A concurrent
+  // membership removal, role change, or workspace deletion therefore orders
+  // before or after this transaction instead of racing an earlier route check.
+  const [membership] = await database
+    .select({ role: workspaceMemberships.role, deletionPending: workspaces.deletionRequestedAt })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMemberships.workspaceId))
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, agent.workspaceId),
+        eq(workspaceMemberships.userId, principal.userId),
+        isNull(workspaces.deletedAt)
+      )
+    )
+    .for('share')
+  const authorization = await authorizeWorkspaceAction(
+    { permission: 'workspace.update', principal, workspaceId: agent.workspaceId },
+    {
+      findMembership: async () =>
+        membership
+          ? {
+              role: membership.role,
+              deletionPending: membership.deletionPending !== null,
+            }
+          : null,
+    }
+  )
+  if (!authorization.allowed) throw new Error('Agent unavailable')
+  await barrier.afterSourceAuthorityLocks?.()
+
+  // Archive checks source membership and workspace with compatible SHARE
+  // locks, then updates the Agent row. The Agent row is the serialization
+  // point: lock it after the source authority rows and recheck its canonical
+  // workspace and lifecycle through the grant write.
+  const [lockedAgent] = await database
+    .select({ lifecycleState: agents.lifecycleState, workspaceId: agents.workspaceId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+    .for('share')
+  if (!lockedAgent || lockedAgent.workspaceId !== agent.workspaceId)
+    throw new Error('Agent unavailable')
+  if (lockedAgent.lifecycleState !== 'active') return reject('agent_inactive')
+  if (lockedAgent.workspaceId !== claimedWorkspaceId) return reject('grant_workspace_mismatch')
+  await barrier.afterAgentLock?.()
 }
 
 /**

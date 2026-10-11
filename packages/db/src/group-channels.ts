@@ -679,7 +679,8 @@ export async function createGroupChannelWithGrants(
           transaction,
           candidateIndex,
           candidate.agentId,
-          candidate.workspaceId
+          candidate.workspaceId,
+          principal
         )
     }
     // No conflict arbiter: concurrent retries carry the same explicit id,
@@ -794,6 +795,8 @@ export async function setGroupChannelParticipantsWithGrants(
 /** Test barrier hooks for the roster rewrite; production callers omit them. */
 export type GroupRosterBarrier = Readonly<{
   afterChannelLock?: () => Promise<void>
+  afterSourceAuthorityLocks?: () => Promise<void>
+  afterAgentLock?: () => Promise<void>
 }>
 
 /**
@@ -836,7 +839,12 @@ export async function setGroupChannelParticipantsInTransaction(
         transaction,
         candidateIndex,
         candidate.agentId,
-        candidate.workspaceId
+        candidate.workspaceId,
+        principal,
+        {
+          afterSourceAuthorityLocks: barrier.afterSourceAuthorityLocks,
+          afterAgentLock: barrier.afterAgentLock,
+        }
       )
   }
   const stored = await loadGroupRoster(transaction, workspaceId, channelId)

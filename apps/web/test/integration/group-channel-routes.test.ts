@@ -18,16 +18,20 @@
 
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import {
   addWorkspaceMembership,
+  channels,
+  createAgent,
   createDatabase,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
+  findWorkspaceMembership,
   messages,
   removeWorkspaceMembership,
   revokeGroupGrant,
+  workspaceMemberships,
   type DatabaseConnection,
   type UserPrincipalRef,
 } from '@adea-ai/db'
@@ -60,6 +64,48 @@ mock.module('../../src/server/workspace-principal', () => ({
 
 type Handler = (input: { request: Request; params: Record<string, string> }) => Promise<Response>
 type RouteModule = { server: { handlers: Record<'GET' | 'POST' | 'PATCH', Handler> } }
+type OperationOutcome<T> =
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; reason: unknown }
+
+function observeOperation<T>(operation: Promise<T>): Promise<OperationOutcome<T>> {
+  return operation.then(
+    (value): OperationOutcome<T> => ({ status: 'fulfilled', value }),
+    (reason: unknown): OperationOutcome<T> => ({ status: 'rejected', reason })
+  )
+}
+
+async function waitForGate(gate: Promise<void>, message: string, timeoutMs = 5_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      gate,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function settleOwnedOperations(
+  operations: readonly Promise<OperationOutcome<unknown>>[],
+  primaryFailure: { reason: unknown } | null
+) {
+  const outcomes = await Promise.all(operations)
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  )
+  if (primaryFailure) failures.unshift(primaryFailure.reason)
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      'A race test failed while settling its background operations'
+    )
+  }
+}
 
 const ISSUED = '2026-10-01T00:00:00.000Z'
 
@@ -73,6 +119,17 @@ function audienceGrant(groupId: string, participant: UserPrincipalRef, grantId: 
     revision: 1,
     revokedAt: null,
   }
+}
+
+async function expectUnavailableWithoutAgentDisclosure(
+  response: Response,
+  agentId: string,
+  sourceWorkspaceId: string
+) {
+  expect(response.status).toBe(404)
+  const body = await response.text()
+  expect(body).not.toContain(agentId)
+  expect(body).not.toContain(sourceWorkspaceId)
 }
 
 describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', () => {
@@ -165,6 +222,206 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     expect(response.status).toBe(201)
     return { channelId, response }
   }
+
+  async function postAgentGroup(
+    host: Awaited<ReturnType<typeof fixture>>,
+    agent: Readonly<{ id: string; workspaceId: string }>,
+    claimedWorkspaceId = agent.workspaceId
+  ) {
+    const channelId = randomUUID()
+    const response = await call(
+      channelsRoute,
+      'POST',
+      `/api/v1/workspaces/${host.workspace.id}/channels`,
+      { workspaceId: host.workspace.id },
+      {
+        as: host.owner,
+        idempotencyKey: randomUUID(),
+        body: {
+          kind: 'group',
+          title: 'Foreign Agent group',
+          channelId,
+          audienceGrants: [],
+          enlistmentGrants: [
+            {
+              agent: { agentId: agent.id, workspaceId: claimedWorkspaceId },
+              expiresAt: null,
+              grantId: `gra_agent_${channelId}`,
+              groupId: channelId,
+              issuedAt: ISSUED,
+              revision: 1,
+              revokedAt: null,
+            },
+          ],
+        },
+      }
+    )
+    return { channelId, response }
+  }
+
+  async function waitForSourceMembershipLock() {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const waiters = await connection.client.unsafe<{ pid: number }[]>(
+        `select pid from pg_stat_activity where datname = current_database() and usename = current_user and pid <> pg_backend_pid() and wait_event_type = 'Lock' and query like '%workspace_memberships%'`
+      )
+      if (waiters.length > 0) return true
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    return false
+  }
+
+  test('an unrelated host owner cannot enlist a foreign Agent or learn its source identity', async () => {
+    const host = await fixture()
+    const sourceOwner = await user('foreign-agent-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: randomUUID(),
+      name: 'Foreign Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Foreign Agent',
+      profileId: `prf_${'0'.repeat(25)}1`,
+      profileVersion: `pfv_${'0'.repeat(25)}1`,
+    })
+    expect(await findWorkspaceMembership(connection.db, source.id, host.owner)).toBeNull()
+    const { channelId, response } = await postAgentGroup(host, foreignAgent)
+    await expectUnavailableWithoutAgentDisclosure(response, foreignAgent.id, source.id)
+    const rows = await connection.db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+    expect(rows).toHaveLength(0)
+  })
+
+  test('a forged source-workspace claim cannot substitute host authority for canonical source authority', async () => {
+    const host = await fixture()
+    const sourceOwner = await user('forged-agent-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: randomUUID(),
+      name: 'Canonical Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Canonical Agent',
+      profileId: `prf_${'0'.repeat(25)}2`,
+      profileVersion: `pfv_${'0'.repeat(25)}2`,
+    })
+
+    // The host owner controls the claimed workspace but not the Agent's real home.
+    const { response } = await postAgentGroup(host, foreignAgent, host.workspace.id)
+    await expectUnavailableWithoutAgentDisclosure(response, foreignAgent.id, source.id)
+  })
+
+  test('a source membership revoked before enlistment is denied', async () => {
+    const host = await fixture()
+    const sourceOwner = await user('revoked-agent-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: randomUUID(),
+      name: 'Revoked Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Revoked Agent',
+      profileId: `prf_${'0'.repeat(25)}3`,
+      profileVersion: `pfv_${'0'.repeat(25)}3`,
+    })
+    await addWorkspaceMembership(connection.db, source.id, host.owner, 'admin')
+    expect(await removeWorkspaceMembership(connection.db, source.id, host.owner)).toBe(true)
+
+    const { response } = await postAgentGroup(host, foreignAgent)
+    await expectUnavailableWithoutAgentDisclosure(response, foreignAgent.id, source.id)
+  })
+
+  test('an authorized source-workspace admin can enlist an Agent across workspaces', async () => {
+    const host = await fixture()
+    const sourceOwner = await user('authorized-agent-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: randomUUID(),
+      name: 'Authorized Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Authorized Agent',
+      profileId: `prf_${'0'.repeat(25)}4`,
+      profileVersion: `pfv_${'0'.repeat(25)}4`,
+    })
+    await addWorkspaceMembership(connection.db, source.id, host.owner, 'admin')
+
+    const { response } = await postAgentGroup(host, foreignAgent)
+    expect(response.status).toBe(201)
+  })
+
+  test('source authorization waits for concurrent membership revocation and then denies enlistment', async () => {
+    const host = await fixture()
+    const sourceOwner = await user('racing-agent-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: randomUUID(),
+      name: 'Racing Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Racing Agent',
+      profileId: `prf_${'0'.repeat(25)}5`,
+      profileVersion: `pfv_${'0'.repeat(25)}5`,
+    })
+    await addWorkspaceMembership(connection.db, source.id, host.owner, 'admin')
+
+    let finishRevocation!: () => void
+    let announceLocked!: () => void
+    const locked = new Promise<void>((resolve) => (announceLocked = resolve))
+    const waitToRevoke = new Promise<void>((resolve) => (finishRevocation = resolve))
+    const ownedOperations: Promise<OperationOutcome<unknown>>[] = []
+    let primaryFailure: { reason: unknown } | null = null
+    let waitedForAuthorizationLock = false
+    try {
+      const revocation = connection.db.transaction(async (transaction) => {
+        const [membership] = await transaction
+          .select({ id: workspaceMemberships.id })
+          .from(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, source.id),
+              eq(workspaceMemberships.userId, host.owner.userId)
+            )
+          )
+          .for('update')
+        expect(membership).toBeDefined()
+        announceLocked()
+        await waitToRevoke
+        await transaction
+          .delete(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, source.id),
+              eq(workspaceMemberships.userId, host.owner.userId)
+            )
+          )
+      })
+      const revocationOutcome = observeOperation(revocation)
+      ownedOperations.push(revocationOutcome)
+      await waitForGate(locked, 'membership revocation did not reach its lock barrier')
+
+      const request = postAgentGroup(host, foreignAgent)
+      const requestOutcome = observeOperation(request)
+      ownedOperations.push(requestOutcome)
+      waitedForAuthorizationLock = await waitForSourceMembershipLock()
+      finishRevocation()
+
+      const revocationResult = await revocationOutcome
+      if (revocationResult.status === 'rejected') throw revocationResult.reason
+      const requestResult = await requestOutcome
+      if (requestResult.status === 'rejected') throw requestResult.reason
+      const { response } = requestResult.value
+      expect(waitedForAuthorizationLock).toBe(true)
+      await expectUnavailableWithoutAgentDisclosure(response, foreignAgent.id, source.id)
+    } catch (reason) {
+      primaryFailure = { reason }
+    } finally {
+      finishRevocation()
+      await settleOwnedOperations(ownedOperations, primaryFailure)
+    }
+  })
 
   function messagesUrl(f: Awaited<ReturnType<typeof fixture>>, channelId: string) {
     return `/api/v1/workspaces/${f.workspace.id}/channels/${channelId}/messages`

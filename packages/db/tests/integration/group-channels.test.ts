@@ -4,9 +4,13 @@ import { and, eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
-import { createAgent, ensureWorkspaceLead } from '../../src/agents'
+import { archiveAgent, createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createArtifact, deleteArtifact } from '../../src/artifacts'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import {
+  createDatabase,
+  type AgentHqTransaction,
+  type DatabaseConnection,
+} from '../../src/connection'
 import {
   createDirectAgentTopic,
   createMessage,
@@ -73,6 +77,64 @@ const LATER = '2026-10-08T13:00:00.000Z'
  */
 function T(name: string, fn: () => Promise<void>) {
   test(name, fn, 30_000)
+}
+
+function deferredGate() {
+  let open!: () => void
+  const promise = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { open, promise }
+}
+
+type OperationOutcome<T> =
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; reason: unknown }
+
+type OwnedOperation = {
+  expectedRejection?: () => boolean
+  outcome: Promise<OperationOutcome<unknown>>
+}
+
+function observeOperation<T>(operation: Promise<T>): Promise<OperationOutcome<T>> {
+  return operation.then(
+    (value): OperationOutcome<T> => ({ status: 'fulfilled', value }),
+    (reason: unknown): OperationOutcome<T> => ({ status: 'rejected', reason })
+  )
+}
+
+async function waitForGate(gate: Promise<void>, message: string, timeoutMs = 2_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      gate,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function settleOwnedOperations(
+  operations: readonly OwnedOperation[],
+  primaryFailure: { reason: unknown } | null
+) {
+  const outcomes = await Promise.all(operations.map((operation) => operation.outcome))
+  const failures = outcomes.flatMap((outcome, index) =>
+    outcome.status === 'rejected' && !operations[index]!.expectedRejection?.()
+      ? [outcome.reason]
+      : []
+  )
+  if (primaryFailure) failures.unshift(primaryFailure.reason)
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      'A race test failed while settling its background operations'
+    )
+  }
 }
 
 describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
@@ -414,6 +476,312 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
     ).toBe(0)
     expect(posted.sequence).toBeGreaterThan(0)
   })
+
+  T('source workspace update authority gates enlistment grant roster writes', async () => {
+    const f = await fixture()
+    const sourceOwner = await user('roster-source-owner')
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Roster Agent source',
+      owner: sourceOwner,
+    })
+    const foreignAgent = await createAgent(connection.db, source.id, sourceOwner, {
+      name: 'Roster Agent',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    const channelId = crypto.randomUUID()
+    const founderOnly = grantsFor(channelId, f)
+    founderOnly.audienceGrants = founderOnly.audienceGrants.slice(0, 1)
+    founderOnly.enlistmentGrants = []
+    const created = await createGroupChannelWithGrants(connection.db, f.workspace.id, f.owner, {
+      candidates: groupCreationCandidatesFromGrants(f.workspace.id, founderOnly),
+      channelId,
+      idempotencyKey: crypto.randomUUID(),
+      now: NOW,
+      title: 'Group',
+    })
+    const withForeignAgent = {
+      ...founderOnly,
+      enlistmentGrants: [
+        {
+          agent: { agentId: foreignAgent.id, workspaceId: source.id },
+          expiresAt: null,
+          grantId: 'gra_foreign_roster_agent',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+    }
+
+    await expect(
+      setGroupChannelParticipantsWithGrants(connection.db, f.workspace.id, channelId, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, withForeignAgent),
+        expectedVersion: created.channel.version,
+        now: LATER,
+      })
+    ).rejects.toThrow('Agent unavailable')
+    const deniedGrants = await connection.db
+      .select({ id: schema.groupEnlistmentGrants.id })
+      .from(schema.groupEnlistmentGrants)
+      .where(
+        and(
+          eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+          eq(schema.groupEnlistmentGrants.channelId, channelId)
+        )
+      )
+    expect(deniedGrants).toHaveLength(0)
+
+    await addWorkspaceMembership(connection.db, source.id, f.owner, 'admin')
+    const allowed = await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, withForeignAgent),
+        expectedVersion: created.channel.version,
+        now: LATER,
+      }
+    )
+    expect(
+      allowed.roster.some(
+        (admission) =>
+          admission.participant.kind === 'agent' &&
+          admission.participant.agentId === foreignAgent.id
+      )
+    ).toBe(true)
+  })
+
+  T(
+    'an Agent archive that commits before the locked recheck denies roster enlistment',
+    async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const allGrants = grantsFor(channelId, f)
+      const founderOnly = {
+        ...allGrants,
+        audienceGrants: allGrants.audienceGrants.slice(0, 1),
+        enlistmentGrants: [],
+      }
+      const created = await createGroupChannelWithGrants(connection.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, founderOnly),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Archive ordering',
+      })
+      const candidates = groupCreationCandidatesFromGrants(f.workspace.id, allGrants)
+      const validation = validateGroupCreation({
+        candidates,
+        groupId: channelId,
+        now: LATER,
+        workspaceId: f.workspace.id,
+      })
+      if (!validation.ok) throw new Error('test roster must validate')
+
+      const archiveUpdated = deferredGate()
+      const allowArchiveCommit = deferredGate()
+      const archiveDatabase = {
+        transaction: <T>(callback: (transaction: AgentHqTransaction) => Promise<T>) =>
+          connection.db.transaction(async (transaction) => {
+            const result = await callback(transaction)
+            archiveUpdated.open()
+            await allowArchiveCommit.promise
+            return result
+          }),
+      } as unknown as Parameters<typeof archiveAgent>[0]
+      const sourceAuthorityLocked = deferredGate()
+      const allowAgentRecheck = deferredGate()
+      const ownedOperations: OwnedOperation[] = []
+      let expectedEnlistmentRejection = false
+      let primaryFailure: { reason: unknown } | null = null
+      try {
+        const archiveOrder = archiveAgent(archiveDatabase, f.workspace.id, f.agent.id, f.owner)
+        const archiveOutcome = observeOperation(archiveOrder)
+        ownedOperations.push({ outcome: archiveOutcome })
+        await waitForGate(archiveUpdated.promise, 'archive did not reach its pre-commit barrier')
+        const enlistment = connection.db.transaction((transaction) =>
+          setGroupChannelParticipantsInTransaction(
+            transaction,
+            f.workspace.id,
+            channelId,
+            f.owner,
+            {
+              candidates,
+              expectedVersion: created.channel.version,
+              now: LATER,
+              roster: validation.roster,
+            },
+            {
+              afterSourceAuthorityLocks: async () => {
+                sourceAuthorityLocked.open()
+                await allowAgentRecheck.promise
+              },
+            }
+          )
+        )
+        const enlistmentOutcome = observeOperation(enlistment)
+        ownedOperations.push({
+          outcome: enlistmentOutcome,
+          expectedRejection: () => expectedEnlistmentRejection,
+        })
+        await waitForGate(
+          sourceAuthorityLocked.promise,
+          'enlistment did not reach its source-authority barrier'
+        )
+
+        allowArchiveCommit.open()
+        const archiveResult = await archiveOutcome
+        if (archiveResult.status === 'rejected') throw archiveResult.reason
+        allowAgentRecheck.open()
+        const enlistmentResult = await enlistmentOutcome
+        const error = enlistmentResult.status === 'rejected' ? enlistmentResult.reason : null
+        expect(error).toBeInstanceOf(GroupCreationError)
+        expect((error as GroupCreationError).rejections).toEqual([
+          expect.objectContaining({
+            participant: { agentId: f.agent.id, kind: 'agent' },
+            reason: 'agent_inactive',
+            scope: 'candidate',
+          }),
+        ])
+        expectedEnlistmentRejection = true
+        const storedGrants = await connection.db
+          .select({ id: schema.groupEnlistmentGrants.id })
+          .from(schema.groupEnlistmentGrants)
+          .where(
+            and(
+              eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+              eq(schema.groupEnlistmentGrants.channelId, channelId)
+            )
+          )
+        expect(storedGrants).toHaveLength(0)
+
+        const unauthorizedChannelId = crypto.randomUUID()
+        await expect(
+          createGroupChannelWithGrants(connection.db, f.workspace.id, f.member, {
+            candidates: groupCreationCandidatesFromGrants(
+              f.workspace.id,
+              grantsFor(unauthorizedChannelId, f)
+            ),
+            channelId: unauthorizedChannelId,
+            idempotencyKey: crypto.randomUUID(),
+            now: LATER,
+            title: 'Unauthorized archived Agent',
+          })
+        ).rejects.toThrow('Agent unavailable')
+      } catch (reason) {
+        primaryFailure = { reason }
+      } finally {
+        allowArchiveCommit.open()
+        allowAgentRecheck.open()
+        await settleOwnedOperations(ownedOperations, primaryFailure)
+      }
+    }
+  )
+
+  T(
+    'an Agent enlistment row lock makes a concurrent archive wait for the grant write',
+    async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const allGrants = grantsFor(channelId, f)
+      const founderOnly = {
+        ...allGrants,
+        audienceGrants: allGrants.audienceGrants.slice(0, 1),
+        enlistmentGrants: [],
+      }
+      const created = await createGroupChannelWithGrants(connection.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, founderOnly),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Enlistment ordering',
+      })
+      const candidates = groupCreationCandidatesFromGrants(f.workspace.id, allGrants)
+      const validation = validateGroupCreation({
+        candidates,
+        groupId: channelId,
+        now: LATER,
+        workspaceId: f.workspace.id,
+      })
+      if (!validation.ok) throw new Error('test roster must validate')
+
+      const agentLockHeld = deferredGate()
+      const allowGrantWrite = deferredGate()
+      const ownedOperations: OwnedOperation[] = []
+      let primaryFailure: { reason: unknown } | null = null
+      try {
+        const enlistment = connection.db.transaction((transaction) =>
+          setGroupChannelParticipantsInTransaction(
+            transaction,
+            f.workspace.id,
+            channelId,
+            f.owner,
+            {
+              candidates,
+              expectedVersion: created.channel.version,
+              now: LATER,
+              roster: validation.roster,
+            },
+            {
+              afterAgentLock: async () => {
+                agentLockHeld.open()
+                await allowGrantWrite.promise
+              },
+            }
+          )
+        )
+        const enlistmentOutcome = observeOperation(enlistment)
+        ownedOperations.push({ outcome: enlistmentOutcome })
+        await waitForGate(agentLockHeld.promise, 'enlistment did not reach its Agent-row barrier')
+
+        const archiveOrder = archiveAgent(connection.db, f.workspace.id, f.agent.id, f.owner)
+        const archiveOutcome = observeOperation(archiveOrder)
+        ownedOperations.push({ outcome: archiveOutcome })
+        expect(await raced(archiveOrder, 500)).toBe('blocked')
+
+        allowGrantWrite.open()
+        const [enlistmentResult, archiveResult] = await Promise.all([
+          enlistmentOutcome,
+          archiveOutcome,
+        ])
+        if (enlistmentResult.status === 'rejected') throw enlistmentResult.reason
+        if (archiveResult.status === 'rejected') throw archiveResult.reason
+        const rewritten = enlistmentResult.value
+        expect(
+          rewritten.roster.some(
+            (admission) =>
+              admission.participant.kind === 'agent' && admission.participant.agentId === f.agent.id
+          )
+        ).toBe(true)
+        const [storedGrant] = await connection.db
+          .select({ agentId: schema.groupEnlistmentGrants.agentId })
+          .from(schema.groupEnlistmentGrants)
+          .where(
+            and(
+              eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+              eq(schema.groupEnlistmentGrants.channelId, channelId)
+            )
+          )
+          .limit(1)
+        expect(storedGrant?.agentId).toBe(f.agent.id)
+        const [archived] = await connection.db
+          .select({ lifecycleState: schema.agents.lifecycleState })
+          .from(schema.agents)
+          .where(eq(schema.agents.id, f.agent.id))
+          .limit(1)
+        expect(archived?.lifecycleState).toBe('archived')
+      } catch (reason) {
+        primaryFailure = { reason }
+      } finally {
+        allowGrantWrite.open()
+        await settleOwnedOperations(ownedOperations, primaryFailure)
+      }
+    }
+  )
 
   T('a newcomer joins at the message frontier and sees no earlier history by default', async () => {
     const f = await fixture()
@@ -948,6 +1316,7 @@ async function foreignLeadGroup() {
     name: 'Lead source',
     owner: otherOwner,
   })
+  await addWorkspaceMembership(f.local.db, other.workspace.id, f.owner, 'admin')
   const leadAway = await ensureWorkspaceLead(f.local.db, other.workspace.id, otherOwner)
   const channelId = crypto.randomUUID()
   await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
@@ -4217,6 +4586,7 @@ describe('durable binding, fences and shared read boundary', () => {
           name: 'Foreign',
           owner: otherOwner,
         })
+        await addWorkspaceMembership(f.local.db, other.workspace.id, f.owner, 'admin')
         const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
           name: 'Echo',
           profileId: 'lead',
@@ -4246,11 +4616,10 @@ describe('durable binding, fences and shared read boundary', () => {
           revision: 1,
           revokedAt: null,
         }
-        // A spoofed source fails with zero writes: the grant claims the
-        // foreign agent lives in the host workspace, but the registry
-        // proves its true home is elsewhere. A properly qualified foreign
-        // grant is legitimate (see the two-workspace case below) — only
-        // the lie is rejected, never by host equality.
+        // The host manager also holds source-workspace update authority.
+        // A spoofed source still fails with zero writes: the grant claims
+        // the foreign agent lives in the host workspace, but the registry
+        // proves its true home is elsewhere.
         const foreignEnlistment = {
           agent: { agentId: echoAway.id, workspaceId: f.workspace.id },
           expiresAt: null,
@@ -4430,8 +4799,9 @@ describe('durable binding, fences and shared read boundary', () => {
     'two-workspace authorized group: same-name Agents keep qualified identity and dispatch correctly',
     async () => {
       // REQ 021 / A05 reconciliation: the host workspace scopes the
-      // conversation but never confers authority over foreign Agents. Both
-      // Echos enlist with their true source workspace; labels stay qualified;
+      // conversation but never confers authority over foreign Agents. The
+      // inviter is explicitly an admin in the foreign source workspace.
+      // Both Echos enlist with their true source workspace; labels stay qualified;
       // the single workspace lead — here the FOREIGN one — dispatches with
       // its own home profile; revocation and ungranted access deny.
       const f = await isolatedFixture()
@@ -4447,6 +4817,7 @@ describe('durable binding, fences and shared read boundary', () => {
           name: 'Second',
           owner: otherOwner,
         })
+        await addWorkspaceMembership(f.local.db, other.workspace.id, f.owner, 'admin')
         const echoHome = await createAgent(f.local.db, f.workspace.id, f.owner, {
           name: 'Echo',
           profileId: 'lead',

@@ -247,3 +247,25 @@ enlistment lapsing during a waiting generic write, and during a waiting
 idempotent replay, for both a user and an Agent sender; and group publication on
 one- and two-connection pools, covering replay, a lapse at the check, a deleted
 artifact link and concurrent publications).
+
+## Group Agent enlistment authority
+
+Creating a group or replacing its roster requires the caller to hold
+`workspace.update` in both the host workspace and each enlisted Agent's
+canonical source workspace. The source is resolved from the Agent row, never
+from the grant's claimed workspace. The transaction locks the source membership
+and workspace while checking the shared workspace authorization policy, then
+locks the canonical Agent row `FOR SHARE` and rechecks its source and lifecycle
+before writing the grant. These locks remain through commit, so concurrent
+membership changes, workspace archive, and Agent archive order before or after
+the enlistment. Authorized cross-workspace enlistment remains supported;
+unauthorized or unknown Agents return the same unavailable response. This Agent
+row lock applies to enlistment writes; the message write-fence lifecycle check
+above keeps its separate event-sequence ordering.
+
+`beginWorkspaceDeletion()` and `deleteWorkspace()` currently fail closed with
+`workspace_deletion_cleanup_required` before removing memberships or cascading
+to Agents, so there is no active physical-delete path in this lock protocol. If
+server-verified deletion is enabled later, its workspace and membership cascade
+must be reviewed against enlistment's source-membership → workspace → Agent lock
+order; taking those rows in the inverse order could deadlock with an enlistment.
