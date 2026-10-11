@@ -28,11 +28,75 @@
 
 .workspace-frame__surface {
   position: absolute;
+  display: flex;
   inset-block: var(--workspace-topbar-height) 0;
   inset-inline: var(--workspace-rail-width) 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.workspace-frame__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-frame__utility-sidebar-mount {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-frame__utility-sidebar-mount:empty {
+  display: none;
+}
+
+.workspace-frame__utility-sidebar-mount > .dev-utility--right {
+  height: 100%;
+}
+
+.workspace-frame__surface:has(> .workspace-frame__utility-sidebar-mount .dev-utility--right-full):not(
+    :has(.dev-workspace--focus)
+  )
+  > .workspace-frame__content {
+  display: none;
+}
+
+.workspace-frame__surface:has(> .workspace-frame__utility-sidebar-mount .dev-utility--right-full):not(
+    :has(.dev-workspace--focus)
+  )
+  > .workspace-frame__utility-sidebar-mount {
+  flex: 1 1 auto;
+}
+
+.workspace-frame__surface:has(> .workspace-frame__utility-sidebar-mount .dev-utility--right-full):not(
+    :has(.dev-workspace--focus)
+  )
+  > .workspace-frame__utility-sidebar-mount
+  > .dev-utility--right-full {
+  flex: 1 1 auto;
+  width: auto;
+  border-inline-start: 0;
+}
+
+.workspace-frame__surface:has(.dev-workspace--focus)
+  > .workspace-frame__utility-sidebar-mount
+  > .dev-utility--right {
+  display: none;
+}
+
+@media (max-width: 70rem) {
+  .workspace-frame__surface:has(> .workspace-frame__utility-sidebar-mount .dev-utility--right-full):not(
+      :has(.dev-workspace--focus)
+    )
+    > .workspace-frame__utility-sidebar-mount
+    > .dev-utility--right-full {
+    inset-inline: 0;
+    width: auto;
+    box-shadow: none;
+  }
 }
 .workspace-switching {
   position: absolute;

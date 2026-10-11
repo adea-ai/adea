@@ -9,13 +9,19 @@
 import type { DevError, HarnessRun, RuntimeSession } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 import { Square } from 'lucide-solid'
-import { For, Show, createResource, createSignal } from 'solid-js'
+import { For, Show, createEffect, createSignal } from 'solid-js'
 import { cn } from '@adea-ai/ui/lib/utils'
 
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
 import { ACTIVITY_STATE_LABELS, activityRows, formatElapsed } from './activity-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  createDevUtilityResource,
+  createDevUtilityResourceRequest,
+  sameDevUtilityRequest,
+  type DevUtilityResourceRequest,
+} from '../utility/runtime-resource'
 
 export type ActivityPaneProps = {
   runtime: DevRuntimeService
@@ -34,48 +40,81 @@ function commandError(error: unknown): DevError {
 
 export function ActivityPane(props: ActivityPaneProps) {
   const runtime = () => props.runtime
-  const scope = () => runtime().preferenceScope?.()
   const serviceReady = () => runtime().state().status === 'ready'
+  const request = createDevUtilityResourceRequest(() => ({
+    runtime: runtime(),
+    runtimeSessionId: props.runtimeSessionId,
+  }))
+  const scopeRequest = createDevUtilityResourceRequest(() => ({ runtime: runtime() }), false)
 
   async function execute<T>(
+    key: DevUtilityResourceRequest,
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
     body: Record<string, unknown>,
     resource?: { kind: string; id: string; generation: number }
   ): Promise<T> {
-    const activeScope = scope()
-    if (!activeScope) throw new Error('unauthenticated')
-    const reply = await runtime().execute(
-      buildDevCommand({ operation, scope: activeScope, body, ...(resource ? { resource } : {}) })
+    if (!key.ready || !key.scope) throw new Error('runtime scope unavailable')
+    const reply = await key.runtime.execute(
+      buildDevCommand({ scope: key.scope, operation, body, ...(resource ? { resource } : {}) })
     )
     if (!reply.ok) throw reply
     return reply.value as T
   }
 
-  const [runs, { refetch: refetchRuns }] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as readonly HarnessRun[] }
-    return execute<{ items: readonly HarnessRun[] }>(
-      'dev.harness.runs',
-      props.runtimeSessionId ? { runtimeSessionId: props.runtimeSessionId } : {}
+  const [runs, { refetch: refetchRuns }] = createDevUtilityResource(request, async (key) => {
+    if (!key.ready || !key.scope || !key.runtimeSessionId)
+      return { items: [] as readonly HarnessRun[] }
+    const reply = await key.runtime.execute(
+      buildDevCommand({
+        operation: 'dev.harness.runs',
+        scope: key.scope,
+        body: { runtimeSessionId: key.runtimeSessionId },
+      })
     )
+    if (!reply.ok) throw reply
+    return reply.value as { items: readonly HarnessRun[] }
   })
-  const [sessions] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as readonly RuntimeSession[] }
-    return execute<{ items: readonly RuntimeSession[] }>('dev.session.list', {})
+  const [sessions] = createDevUtilityResource(scopeRequest, async (key) => {
+    if (!key.ready || !key.scope) return { items: [] as readonly RuntimeSession[] }
+    const reply = await key.runtime.execute(
+      buildDevCommand({ operation: 'dev.session.list', scope: key.scope, body: {} })
+    )
+    if (!reply.ok) throw reply
+    return reply.value as { items: readonly RuntimeSession[] }
   })
 
   const generationFor = (runtimeSessionId: string): number | undefined =>
-    sessions()?.items.find((session) => session.id === runtimeSessionId)?.generation
+    sessions()?.value.items.find((session) => session.id === runtimeSessionId)?.generation
 
   const [actionError, setActionError] = createSignal<DevError | undefined>(undefined)
   const [busy, setBusy] = createSignal(false)
+  let actionGeneration = 0
 
-  async function cancelRun(row: { runtimeSessionId: string; id: string }): Promise<void> {
+  createEffect(() => {
+    request()
+    actionGeneration += 1
+    setBusy(false)
+    setActionError(undefined)
+  })
+
+  async function cancelRun(
+    row: { runtimeSessionId: string; id: string; request: DevUtilityResourceRequest }
+  ): Promise<void> {
+    if (
+      !sameDevUtilityRequest(row.request, request()) ||
+      row.request.runtimeSessionId !== row.runtimeSessionId
+    )
+      return
     const generation = generationFor(row.runtimeSessionId)
     if (generation === undefined) return
+    const action = ++actionGeneration
+    const isCurrentAction = () =>
+      action === actionGeneration && sameDevUtilityRequest(row.request, request())
     setBusy(true)
     setActionError(undefined)
     try {
       await execute<HarnessRun>(
+        row.request,
         'dev.session.cancelHarness',
         {
           runtimeSessionId: row.runtimeSessionId,
@@ -84,15 +123,24 @@ export function ActivityPane(props: ActivityPaneProps) {
         },
         { kind: 'runtime_session', id: row.runtimeSessionId, generation }
       )
+      if (!isCurrentAction()) return
       await refetchRuns()
     } catch (error) {
-      setActionError(commandError(error))
+      if (isCurrentAction()) setActionError(commandError(error))
     } finally {
-      setBusy(false)
+      if (isCurrentAction()) setBusy(false)
     }
   }
 
-  const rows = () => activityRows(runs()?.items ?? [], Date.now())
+  const rows = () => {
+    const snapshot = runs()
+    return snapshot
+      ? activityRows(snapshot.value.items, Date.now()).map((row) => ({
+          ...row,
+          request: snapshot.request,
+        }))
+      : []
+  }
 
   return (
     <div class="dev-activity" role="region" aria-label="Activity">
@@ -133,9 +181,15 @@ export function ActivityPane(props: ActivityPaneProps) {
                     <Button
                       type="button"
                       class="dev-resources__cancel"
-                      disabled={busy() || generationFor(row.runtimeSessionId) === undefined}
-                      title={
+                      disabled={
+                        busy() ||
+                        !sameDevUtilityRequest(row.request, request()) ||
                         generationFor(row.runtimeSessionId) === undefined
+                      }
+                      title={
+                        !sameDevUtilityRequest(row.request, request())
+                          ? 'The selected runtime session changed; refresh before cancelling'
+                          : generationFor(row.runtimeSessionId) === undefined
                           ? 'The session generation is unknown; cancel is unavailable'
                           : 'Cancel this run'
                       }

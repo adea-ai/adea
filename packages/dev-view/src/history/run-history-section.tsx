@@ -5,10 +5,14 @@
  */
 import type { HarnessRun } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
-import { Show, createResource } from 'solid-js'
+import { Show } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
+import {
+  createDevUtilityResource,
+  createDevUtilityResourceRequest,
+} from '../utility/runtime-resource'
 import { RunHistoryPane } from './run-history-pane'
 
 export type RunHistorySectionProps = {
@@ -18,18 +22,20 @@ export type RunHistorySectionProps = {
 
 export function RunHistorySection(props: RunHistorySectionProps) {
   const runtime = () => props.runtime
-  const scope = () => runtime().preferenceScope?.()
   const serviceReady = () => runtime().state().status === 'ready'
 
-  const [runs] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as readonly HarnessRun[] }
-    const activeScope = scope()
-    if (!activeScope) return { items: [] as readonly HarnessRun[] }
-    const reply = await runtime().execute(
+  const request = createDevUtilityResourceRequest(() => ({
+    runtime: runtime(),
+    runtimeSessionId: props.runtimeSessionId,
+  }))
+  const [runs] = createDevUtilityResource(request, async (key) => {
+    if (!key.ready || !key.scope || !key.runtimeSessionId)
+      return { items: [] as readonly HarnessRun[] }
+    const reply = await key.runtime.execute(
       buildDevCommand({
         operation: 'dev.harness.runs',
-        scope: activeScope,
-        body: props.runtimeSessionId ? { runtimeSessionId: props.runtimeSessionId } : {},
+        scope: key.scope,
+        body: { runtimeSessionId: key.runtimeSessionId },
       })
     )
     if (!reply.ok) throw reply
@@ -38,7 +44,7 @@ export function RunHistorySection(props: RunHistorySectionProps) {
 
   return (
     <Show when={serviceReady()} fallback={<p class="dev-pane-state__line">Runtime unavailable</p>}>
-      <RunHistoryPane runs={runs()?.items ?? []} />
+      <RunHistoryPane runs={runs()?.value.items ?? []} />
     </Show>
   )
 }
