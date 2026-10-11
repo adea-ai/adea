@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, setSystemTime, test } from 'bun:test'
 import type { ConversationParticipantRef, GroupAdmission, UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
 
 import { createAgent, ensureWorkspaceLead } from '../../src/agents'
 import { createArtifact, deleteArtifact } from '../../src/artifacts'
@@ -1062,6 +1064,104 @@ async function channelWrites(
     mentions: mentions.length,
     messages: messages.length,
   }
+}
+
+/**
+ * A pool of `max` connections built with createDatabase's settings. A
+ * publication that needs a second checkout inside its transaction starves on a
+ * pool this small, so the regressions below fail by blocking, not by slowing.
+ */
+function boundedDatabase(max: number) {
+  const client = postgres(connectionUrl!, {
+    max,
+    connect_timeout: 10,
+    idle_timeout: 20,
+    prepare: false,
+  })
+  return { client, db: drizzle(client, { schema }) }
+}
+
+/**
+ * A group whose lead Agent is enlisted and whose lead turn has completed, ready
+ * to publish. Grants run past the wall clock because lockAuthority reads it
+ * live; a test that needs a lapse injects a later instant into the publication
+ * check only.
+ */
+async function completedLeadJob(
+  f: Awaited<ReturnType<typeof isolatedFixture>>,
+  options: Readonly<{ ownerExpiresAt?: string | null }> = {}
+) {
+  const lead = await ensureWorkspaceLead(f.local.db, f.workspace.id, f.owner)
+  const channelId = crypto.randomUUID()
+  await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+    candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+      audienceGrants: [
+        {
+          expiresAt: options.ownerExpiresAt ?? null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+      enlistmentGrants: [
+        {
+          agent: { agentId: lead.id, workspaceId: f.workspace.id },
+          expiresAt: null,
+          grantId: 'gra_lead',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+    }),
+    channelId,
+    idempotencyKey: crypto.randomUUID(),
+    now: NOW,
+    title: 'Publication group',
+  })
+  const posted = await postGroupChannelMessage(
+    f.local.db,
+    f.workspace.id,
+    channelId,
+    f.owner,
+    f.owner,
+    {
+      lead: { bodyText: 'run it', idempotencyKey: crypto.randomUUID(), mentions: [] },
+      mode: 'lead',
+    },
+    { now: NOW }
+  )
+  const intentId = posted.leadTurn.intentId
+  const { controlPlaneWorkspaceId } = await resolveLeadTurnAuthority(
+    f.local.db,
+    f.workspace.id,
+    intentId,
+    f.owner
+  )
+  const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
+  const selection = {
+    attemptId,
+    executionId,
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    intentId,
+    preparationRef: `prep_${'e'.repeat(32)}`,
+    selectionRef: `msel_${'e'.repeat(32)}`,
+    selectionRevision: 1,
+    workspaceId: controlPlaneWorkspaceId,
+  }
+  await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
+  await markLeadTurnDispatchPending(f.local.db, f.workspace.id, intentId, f.owner, selection)
+  const binding = { attemptId, dispatchId, executionId, intentId, runtimeSessionId }
+  await observeLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, {
+    ...binding,
+    observedAt: NOW,
+    state: 'completed',
+  })
+  return { binding, channelId, intentId, leadId: lead.id, leadMessageId: posted.message.id }
 }
 
 describe('durable binding, fences and shared read boundary', () => {
@@ -4680,6 +4780,219 @@ describe('durable binding, fences and shared read boundary', () => {
         setSystemTime()
         hold?.release()
         await hold?.holder.catch(() => undefined)
+        await f.local.close()
+      }
+    }
+  )
+  T('a publication on a one-connection pool completes with its own connection, once', async () => {
+    const f = await isolatedFixture()
+    const small = boundedDatabase(1)
+    try {
+      const job = await completedLeadJob(f)
+      const input = {
+        binding: job.binding,
+        bodyText: 'result text',
+        channelId: job.channelId,
+        intentId: job.intentId,
+      }
+      const first = await raced(
+        publishGroupLeadResult(small.db, f.workspace.id, f.owner, input, { now: NOW }),
+        5000
+      )
+      expect(first).not.toBe('blocked')
+      const replay = await raced(
+        publishGroupLeadResult(small.db, f.workspace.id, f.owner, input, { now: NOW }),
+        5000
+      )
+      expect(replay).toBe(first)
+      const rows = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, job.channelId)
+          )
+        )
+      // The lead message plus exactly one result message: no duplicate.
+      expect(rows).toHaveLength(2)
+    } finally {
+      await small.client.end({ timeout: 1 })
+      await f.local.close()
+    }
+  })
+
+  T(
+    'two concurrent publications of one job on a two-connection pool publish exactly one result',
+    async () => {
+      const f = await isolatedFixture()
+      const small = boundedDatabase(2)
+      try {
+        const job = await completedLeadJob(f)
+        const input = {
+          binding: job.binding,
+          bodyText: 'result text',
+          channelId: job.channelId,
+          intentId: job.intentId,
+        }
+        const both = await raced(
+          Promise.all([
+            publishGroupLeadResult(small.db, f.workspace.id, f.owner, input, { now: NOW }),
+            publishGroupLeadResult(small.db, f.workspace.id, f.owner, input, { now: NOW }),
+          ]),
+          8000
+        )
+        expect(both).not.toBe('blocked')
+        const [first, second] = both as [string, string]
+        expect(second).toBe(first)
+        const rows = await f.local.db
+          .select({ id: schema.messages.id })
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, job.channelId)
+            )
+          )
+        expect(rows).toHaveLength(2)
+      } finally {
+        await small.client.end({ timeout: 1 })
+        await f.local.close()
+      }
+    }
+  )
+
+  T('a lapse at the publication check denies on a one-connection pool with zero rows', async () => {
+    const f = await isolatedFixture()
+    const small = boundedDatabase(1)
+    try {
+      // The grant is live at admission and expires at the injected final check.
+      const ownerExpiresAt = new Date(Date.now() + 86_400_000).toISOString()
+      const expiredAt = new Date(Date.now() + 172_800_000).toISOString()
+      const job = await completedLeadJob(f, { ownerExpiresAt })
+      const readings = [NOW, expiredAt]
+      const clock = () => readings.shift() ?? expiredAt
+      const outcome = await raced(
+        publishGroupLeadResult(
+          small.db,
+          f.workspace.id,
+          f.owner,
+          {
+            binding: job.binding,
+            bodyText: 'result text',
+            channelId: job.channelId,
+            intentId: job.intentId,
+          },
+          { clock }
+        ).then(
+          (id) => id,
+          (error: unknown) => error
+        ),
+        5000
+      )
+      expect(outcome).toBeInstanceOf(GroupPublicationHoldError)
+      const rows = await f.local.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.workspaceId, f.workspace.id),
+            eq(schema.messages.channelId, job.channelId)
+          )
+        )
+      // Only the lead message: the denied publication wrote nothing.
+      expect(rows).toHaveLength(1)
+    } finally {
+      await small.client.end({ timeout: 1 })
+      await f.local.close()
+    }
+  })
+
+  T(
+    'a link deleted after the bound check still holds at the in-transaction check, on a one-connection pool',
+    async () => {
+      const f = await isolatedFixture()
+      const small = boundedDatabase(1)
+      try {
+        const linkedJob = async () => {
+          const job = await completedLeadJob(f)
+          const artifact = await createArtifact(f.local.db, f.workspace.id, f.owner, {
+            agentId: job.leadId,
+            availability: 'available',
+            checksumSha256: 'b'.repeat(64),
+            executionRef: `execution:report-${job.intentId}`,
+            filename: 'report.txt',
+            location: {
+              reference: `outputs/${job.intentId}`,
+              runtimeNodeId: 'node-2',
+              type: 'runtime_node',
+            },
+            mediaType: 'text/plain',
+            provenance: { command: 'report' },
+            retentionPolicy: 'standard',
+            sensitivity: 'workspace',
+            sizeBytes: 42,
+            sourceArtifactRef: `runtime-output:${job.intentId}`,
+            sourcePrincipal: { agentId: job.leadId, kind: 'agent' },
+          })
+          await f.local.db.insert(schema.messageArtifactReferences).values({
+            artifactId: artifact.id,
+            messageId: job.leadMessageId,
+            workspaceId: f.workspace.id,
+          })
+          return { artifact, job }
+        }
+        const input = (job: Awaited<ReturnType<typeof completedLeadJob>>) => ({
+          binding: job.binding,
+          bodyText: 'result text',
+          channelId: job.channelId,
+          intentId: job.intentId,
+        })
+        // Linked and readable: publishes once on the bounded pool.
+        const intact = await linkedJob()
+        const published = await raced(
+          publishGroupLeadResult(small.db, f.workspace.id, f.owner, input(intact.job), {
+            now: NOW,
+          }),
+          5000
+        )
+        expect(published).not.toBe('blocked')
+        // The link passes the bound check, is soft-deleted before the service
+        // transaction, and must still hold at the in-transaction check.
+        const lapsed = await linkedJob()
+        const failure = await raced(
+          publishGroupLeadResult(small.db, f.workspace.id, f.owner, input(lapsed.job), {
+            beforeService: async () => {
+              await deleteArtifact(
+                f.local.db,
+                f.workspace.id,
+                lapsed.artifact.id,
+                f.owner,
+                lapsed.artifact.version
+              )
+            },
+            now: NOW,
+          }).then(
+            () => null,
+            (error: unknown) => error
+          ),
+          5000
+        )
+        expect(failure).toBeInstanceOf(Error)
+        expect((failure as Error).message).toBe('Group publication artifact unresolved')
+        const lapsedRows = await f.local.db
+          .select({ id: schema.messages.id })
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.workspaceId, f.workspace.id),
+              eq(schema.messages.channelId, lapsed.job.channelId)
+            )
+          )
+        // Only the lead message: the held publication wrote nothing.
+        expect(lapsedRows).toHaveLength(1)
+      } finally {
+        await small.client.end({ timeout: 1 })
         await f.local.close()
       }
     }

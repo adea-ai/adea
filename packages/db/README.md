@@ -218,10 +218,32 @@ User admission is decided on trusted time read after the channel row lock
   the same effects as a user lapse.
 - A **system** sender keeps its existing validation. No group admission applies
   to it, and that policy is unchanged.
-- Known residual: the Agent's own `lifecycle_state` is read without a row lock.
-  An archive that commits after the post-write read and before the transaction
-  commits is not caught by this check.
+- The Agent's `lifecycle_state` is re-read after the writes, not row-locked, and
+  this is not a write authorization race. A new message appends its
+  `message.created` event, which takes the workspace's
+  `workspace_event_sequences` row before the post-write check. An archive
+  appends `agent.archived` through the same row. So an archive either commits
+  before that check, which denies the write, or waits until the write commits,
+  and is then ordered after it. No Agent row lock is taken, because a lock placed
+  after the sequence row deadlocks against an archive.
+- The one read-only window is an idempotent replay that reopens no task. It
+  appends no event, so its post-write read can precede an archive's commit. The
+  replay then returns the existing message, a read linearized before the
+  archive. It authorizes no new write.
+- A lead's publication holds the lead Agent row `FOR SHARE` for its whole
+  transaction (`lockAuthority`), and a lead cannot be archived at all
+  (`archiveAgent` refuses leads).
+
+Publication checks run on the publication transaction. `publishLeadTurnResult`
+passes that transaction to its `assertCurrentGrant` callback, and
+`publishGroupLeadResult` reads and locks through it, including the linked
+artifacts (held until the publication commits). Its pre-service checks each
+check out and release a connection in turn, and the service transaction holds
+exactly one. A publication never waits for a second connection while holding
+its own, so a bounded pool cannot starve it.
 
 Regressions: `packages/db/tests/integration/group-channels.test.ts` (a grant or
 enlistment lapsing during a waiting generic write, and during a waiting
-idempotent replay, for both a user and an Agent sender).
+idempotent replay, for both a user and an Agent sender; and group publication on
+one- and two-connection pools, covering replay, a lapse at the check, a deleted
+artifact link and concurrent publications).

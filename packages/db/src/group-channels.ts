@@ -1156,15 +1156,16 @@ export async function publishGroupLeadResult(
     principal,
     input.binding,
     input.bodyText,
-    async () => {
-      // Plain reads by design: the service transaction already holds the
-      // admission/grant locks through its own authority check, so
-      // re-locking them here deadlocked this check against the service. A
-      // concurrent revocation still orders outside the service transaction,
-      // and expiry is covered by the fresh trusted instant below.
+    async (transaction) => {
+      // The check reads through the service transaction, so it joins the locks
+      // the service already holds (channel, roster and grants, the lead Agent,
+      // the lead turn row) and checks out no second pool connection. Its
+      // artifact locks last until the publication commits. A revocation
+      // therefore orders wholly before or after this publication, and expiry is
+      // judged at the fresh trusted instant below.
       const freshNow = options.clock?.() ?? options.now ?? liveGroupClock()
-      const gate = await loadChannelGate(database, workspaceId, input.channelId)
-      const roster = await loadGroupRoster(database, workspaceId, input.channelId)
+      const gate = await loadChannelGate(transaction, workspaceId, input.channelId)
+      const roster = await loadGroupRoster(transaction, workspaceId, input.channelId)
       const decision = authorizeGroupChannelPublication(gate, {
         admission: admissionForParticipant(roster, publisher),
         job: bound,
@@ -1172,7 +1173,7 @@ export async function publishGroupLeadResult(
         publisher,
       })
       if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
-      await requireGroupResultArtifacts(database, workspaceId, intent.messageId, {
+      await requireGroupResultArtifacts(transaction, workspaceId, intent.messageId, {
         forUpdate: true,
       })
     }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createRuntimeResultMessage } from './conversations'
 import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
@@ -367,7 +367,9 @@ export function publishLeadTurnResult(
   reader: UserPrincipalRef,
   binding: LeadTurnRuntimeBinding,
   bodyText: string,
-  assertCurrentGrant: () => Promise<void>
+  // Runs on the publication transaction with its canonical locks held, so it can read and
+  // lock through that transaction; it must not check out another pool connection.
+  assertCurrentGrant: (transaction: AgentHqTransaction) => Promise<void>
 ) {
   if (!bodyText.trim() || bodyText.length > 100_000 || typeof assertCurrentGrant !== 'function')
     throw new Error('PUBLICATION_WITHHELD')
@@ -387,7 +389,7 @@ export function publishLeadTurnResult(
         if (!row || row.state !== 'completed') throw new Error('PUBLICATION_WITHHELD')
         assertBinding(row, binding)
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
-        await assertCurrentGrant()
+        await assertCurrentGrant(publicationTx)
         const digest = createHash('sha256')
           .update(JSON.stringify({ ...binding, bodyText }))
           .digest('hex')
