@@ -8,8 +8,8 @@
   border-radius: 0.55rem;
   color: var(--primary-foreground);
   background: var(--primary);
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  font-size: 0.75rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   font-weight: 800;
   letter-spacing: -0.08em;
 }

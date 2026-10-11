@@ -112,6 +112,46 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(pageErrors).toEqual([])
   })
 
+  test('code font changes preserve terminal output, draft, selection and stream identity', async ({ page }) => {
+    const pane = await openHarness(page)
+    const editor = pane.getByLabel('Compose terminal input')
+    await editor.fill('unsent font draft')
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.write('font-selection-marker\r\n'))
+    const marker = pane.locator('.xterm-rows').getByText('font-selection-marker')
+    await expect(marker).toBeVisible()
+    const box = (await marker.boundingBox())!
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2)
+    const copy = pane.locator('.dev-terminal-copy-button').first()
+    await expect(copy).toBeEnabled()
+    const originalTerminal = await pane.elementHandle()
+    const fontResponse = page.waitForResponse((response) =>
+      response.url().includes('jetbrains-mono') && response.url().includes('.woff') && response.ok()
+    )
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.setCodeFont('jetbrains-mono', 16))
+    await fontResponse
+    await expect(pane.locator('.xterm-rows')).toHaveCSS('font-size', '16px')
+    await expect(pane.locator('.xterm-rows')).toHaveCSS('font-family', /JetBrains Mono/)
+    await expect.poll(() => page.evaluate(() =>
+      document.fonts.check('16px "JetBrains Mono"') &&
+      [...document.fonts].some((font) => font.family.includes('JetBrains Mono') && font.status === 'loaded')
+    )).toBe(true)
+    await expect(marker).toBeVisible()
+    await expect(editor).toHaveValue('unsent font draft')
+    await expect(copy).toBeEnabled()
+    expect(await pane.evaluate((current, original) => current === original, originalTerminal)).toBe(true)
+    expect((await report(page)).sockets).toBe(1)
+    await copy.click()
+    expect((await report(page)).copies).toEqual(['font-selection-marker'])
+
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.setCodeFont('system', 12))
+    await expect(pane.locator('.xterm-rows')).toHaveCSS('font-size', '12px')
+    await expect(pane.locator('.xterm-rows')).not.toHaveCSS('font-family', /JetBrains Mono/)
+    await expect(editor).toHaveValue('unsent font draft')
+    expect((await report(page)).sockets).toBe(1)
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
   test('canonical palette changes preserve terminal output, editor draft and stream identity', async ({
     page,
   }) => {

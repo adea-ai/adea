@@ -84,7 +84,7 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import { terminalConnectionErrorMessage } from './connection-errors'
-import { observeTerminalTheme } from './theme-binding'
+import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
 import './terminal-pane.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
@@ -173,7 +173,6 @@ export function TerminalPane(props: TerminalPaneProps) {
   )
 
   const terminal = new Terminal({
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     allowProposedApi: true,
     // OSC 8 hyperlinks open only through the consented seam below.
     linkHandler: {
@@ -400,9 +399,23 @@ export function TerminalPane(props: TerminalPaneProps) {
     const element = surface()
     if (!element) return
     terminal.open(element)
+    const fontBinding = createTerminalFontBinding(element.ownerDocument.fonts, (typography) => {
+      let fontChanged = false
+      if (typography.fontFamily !== terminal.options.fontFamily) {
+        terminal.options.fontFamily = typography.fontFamily
+        fontChanged = true
+      }
+      if (typography.fontSize !== terminal.options.fontSize) {
+        terminal.options.fontSize = typography.fontSize
+        fontChanged = true
+      }
+      if (fontChanged) fit.fit()
+    })
+    onCleanup(() => fontBinding.dispose())
     onCleanup(
-      observeTerminalTheme(element, (theme) => {
+      observeTerminalTheme(element, (theme, styles) => {
         terminal.options.theme = theme
+        fontBinding.update(styles)
         const currentSearch = search()
         if (currentSearch.open && currentSearch.query) {
           const selection = terminal.getSelectionPosition()
