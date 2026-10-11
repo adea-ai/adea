@@ -62,7 +62,7 @@
   "conflicts": [
     {
       "topic": "appearance",
-      "resolution": "Adea #425 amendments require miniature mode previews, separate compact theme rows, and Theme default/Frosted/Opaque glass descriptions. Earlier enum-only wording is superseded. Font/size controls were not adopted there.",
+      "resolution": "Adea #425 amendments require miniature mode previews, separate compact theme rows, and Theme default/Frosted/Opaque glass descriptions. Earlier enum-only wording is superseded. That issue did not adopt font/size controls; the later owner request now requires separate UI, Content, and Code selectors with System defaults at 14/14/12 px, plus six theme-provided accents in two rows of three, starting with the selected theme default. The current shared UI design reference records this later requirement; the old #425 disposition must not exclude it from this migration.",
       "source": "https://github.com/adea-ai/adea/issues/425"
     },
     {
@@ -10935,12 +10935,12 @@
         "validation": [
           "All 32 pull-request checks passed before squash merge.",
           "No primitive-library import exemptions remain.",
-          "Raw-interactive path exemption remains only for the workspace-name datalist options.",
-          "Interactive-wrapper path exemptions remain for mini-preview, fixture-terminal-pane, message-row, task-board, workspace-sidebar."
+          "Native suggestions use the published Input contract; no raw-interactive path exemptions remain.",
+          "All interactive-wrapper path exemptions removed; browser lane selection uses published ListRowControl with native button selection semantics."
         ],
         "remaining": [
-          "Adopt Input.suggestions and remove native datalist exception",
-          "Replace the five remaining local interaction wrappers",
+          "Verify published consumer behavior and packaged acceptance after dependency updates",
+          "Keep zero wrapper exemptions and shared control composition enforced by the consumer lint regression",
           "Remove broad styling-hook allowlist and app-ui styling exemption after shared composition adoption"
         ]
       },
