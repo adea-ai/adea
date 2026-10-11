@@ -11,6 +11,8 @@ function Harness() {
         authenticated
         platform="desktop"
         onOpenAbout={() => setAction('about')}
+        onOpenHelp={() => setAction('help')}
+        onOpenFeedback={() => setAction('feedback')}
         onOpenSettings={() => setAction('settings')}
         onOpenUpdates={() => setAction('updates')}
         onSignIn={() => setAction('sign-in')}

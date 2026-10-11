@@ -61,6 +61,22 @@ function isAcceptableAuthorizationUrl(url: string): boolean {
   }
 }
 
+/** Allow the webview to hand the app's own GitHub resources to the system browser. */
+function isAcceptableExternalUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl)
+    const repoPath = '/adea-ai/adea'
+    return (
+      url.origin === 'https://github.com' &&
+      (url.pathname === repoPath || url.pathname.startsWith(`${repoPath}/`)) &&
+      url.username === '' &&
+      url.password === ''
+    )
+  } catch {
+    return false
+  }
+}
+
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
 
 export function createCommandSurface(
@@ -68,6 +84,7 @@ export function createCommandSurface(
   options?: {
     macPermissions?: MacPermissionService
     onChatPresentation?: (focusedSessionId: string | undefined) => void
+    openExternal?: (url: string) => void | Promise<void>
   }
 ) {
   const stateDir = join(dataDir, 'desktop-state')
@@ -173,6 +190,28 @@ export function createCommandSurface(
       // Open the trusted sign-in page in the system browser; the callback
       // arrives through the URL-scheme handler (release-pipeline registration).
       Bun.spawn(['open', url])
+      return null
+    },
+    desktop_open_external: async (args) => {
+      const url = String(args?.url ?? '')
+      if (!isAcceptableExternalUrl(url)) throw new Error('untrusted external url')
+      if (options?.openExternal) {
+        await options.openExternal(url)
+        return null
+      }
+
+      const command =
+        process.platform === 'darwin'
+          ? 'open'
+          : process.platform === 'win32'
+            ? 'rundll32'
+            : 'xdg-open'
+      const arguments_ = process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url]
+      const browser = Bun.spawn([command, ...arguments_], {
+        stderr: 'ignore',
+        stdout: 'ignore',
+      })
+      if ((await browser.exited) !== 0) throw new Error('could not open the external browser')
       return null
     },
     desktop_auth_take_callback: () => {

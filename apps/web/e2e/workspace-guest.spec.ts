@@ -121,11 +121,26 @@ test('a guest can use a workspace before opening the optional persistence flow',
   expect(
     Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerTop)
   ).toBeLessThanOrEqual(16)
-  await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Get the mobile app' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeEnabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeEnabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
-  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
+  const shortcut = await page.evaluate(() => (/Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl,'))
+  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText(shortcut)
+  await accountMenu.getByRole('menuitem', { name: 'Help Center' }).click()
+  const help = page.getByRole('dialog', { name: 'Help resources' })
+  await expect(help.getByRole('heading', { name: 'Help Center' })).toBeVisible()
+  await expect(help.getByText('Search the current conversation')).toBeVisible()
+  await expect(help.getByText('Open settings').locator('..')).toContainText(shortcut)
+  await expect(help.getByRole('link', { name: 'Send feedback' })).toHaveAttribute(
+    'href',
+    /template=feedback\.yml.*context=Adea\+web/
+  )
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(help).toBeHidden()
+  await expect(userMenu).toBeFocused()
+  await page.keyboard.press('Escape')
+  await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'About' }).click()
   const about = page.getByRole('dialog', { name: 'About Adea' })
   await expect(about).toBeVisible()
@@ -136,9 +151,13 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
   await expect(about.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
+  const appIcon = about.locator('img[aria-hidden="true"]')
+  await expect(appIcon).toBeVisible()
+  await expect
+    .poll(() => appIcon.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBe(256)
   await about.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(userMenu).toBeFocused()
   // Let the dialog (and its inert overlay) fully detach before opening the
   // next one; without the scene's render load this races close animations.
   await expect(about).toBeHidden({ timeout: 20_000 })
@@ -147,7 +166,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await page.keyboard.press('Escape')
 
   await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ',', metaKey: true }))
+    const mac = /Mac/.test(navigator.platform)
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: ',', metaKey: mac, ctrlKey: !mac })
+    )
   })
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()

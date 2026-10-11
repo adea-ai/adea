@@ -68,6 +68,8 @@ function Harness() {
         activeWorkspace={activeWorkspace()}
         views={['virtual', 'chat', 'dev']}
         onOpenAbout={() => {}}
+        onOpenHelp={() => {}}
+        onOpenFeedback={() => {}}
         onOpenPlugins={() => {}}
         onOpenAppLibrary={() => setMode('chat', true)}
         libraryActive={libraryActive()}
