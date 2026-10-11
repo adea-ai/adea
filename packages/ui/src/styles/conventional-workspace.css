@@ -60,7 +60,7 @@
   border-radius: 999px;
   background: var(--card);
   color: var(--muted-foreground);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
   font-weight: 600;
   letter-spacing: 0.04em;
   pointer-events: none;
@@ -246,7 +246,7 @@
   overflow: clip;
   background: var(--cw-bg);
   color: var(--cw-text);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-ui, var(--font-sans));
 }
 
 /* Inside the frame the surface already starts below the top bar, so a full
@@ -328,10 +328,8 @@
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
-  /* The sidebar is app chrome: everywhere else it inherits the shell's
-     --font-sans, but inside this container the conversation's Inter would
-     win the cascade and retypeface the same component per view. */
-  font-family: var(--font-sans);
+  /* Sidebar chrome uses the shared UI role in every workspace view. */
+  font-family: var(--font-ui, var(--font-sans));
 }
 /* The shared ruler is pointer-events-none except for its handle, and cursor
    inherits, so this covers the whole drag affordance without touching the
@@ -373,7 +371,7 @@
   border-radius: 999px;
   background: var(--cw-accent);
   color: var(--cw-accent-contrast);
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * var(--font-ui-scale, 1));
   font-weight: 800;
   line-height: 1.1;
   text-align: center;
@@ -390,7 +388,7 @@
 .conventional-sidebar-empty {
   padding-inline: 0.75rem;
   color: var(--muted-foreground);
-  font-size: 0.875rem;
+  font-size: calc(0.875rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
 .conventional-sidebar__footer-action {
@@ -448,12 +446,12 @@
   flex: none;
 }
 .conventional-session-notice h2 {
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
   font-weight: 700;
 }
 .conventional-session-notice p {
   color: var(--cw-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
 .conventional-session-notice button {
@@ -509,14 +507,14 @@
 .conventional-conversation__identity > span,
 .conventional-surface-header span {
   color: var(--cw-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .conventional-conversation__identity h1 {
   overflow: hidden;
-  font-size: 1.15rem;
+  font-size: calc(1.15rem * var(--font-ui-scale, 1));
   font-weight: 750;
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
@@ -571,7 +569,7 @@
   border-radius: 999px;
   background: var(--cw-accent-soft);
   color: var(--cw-accent-strong);
-  font-size: 0.61rem;
+  font-size: calc(0.61rem * var(--font-ui-scale, 1));
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -633,7 +631,7 @@
 }
 .conventional-private-content span {
   color: var(--cw-muted);
-  font-size: 0.7rem;
+  font-size: calc(0.7rem * var(--font-ui-scale, 1));
 }
 .conventional-composer {
   position: relative;
@@ -644,7 +642,7 @@
   padding: 0.45rem 0.9rem;
   border-bottom: 1px solid var(--cw-border);
   color: var(--cw-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
 }
 .conventional-composer textarea {
   display: block;
@@ -686,7 +684,7 @@
   padding: 0.3rem 0.45rem;
   border-radius: 0.35rem;
   background: var(--cw-accent-soft);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 .conventional-composer__attachments button {
   display: grid;
@@ -757,7 +755,7 @@
 .conventional-composer__status p {
   padding: 0.35rem 0.65rem;
   color: var(--cw-danger);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 .conventional-composer__status p.conventional-composer__status--muted {
   color: var(--cw-muted);
@@ -919,7 +917,7 @@
   margin: 0 auto 1.5rem;
 }
 .conventional-surface-header h1 {
-  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  font-size: calc(clamp(1.5rem, 3vw, 2.1rem) * var(--font-ui-scale, 1));
 }
 .conventional-surface-header p {
   margin-top: 0.3rem;
@@ -944,7 +942,7 @@
 .conventional-dependency-results__empty {
   padding: 0.45rem 0.55rem;
   color: var(--cw-muted);
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--font-ui-scale, 1));
 }
 
 .conventional-inline-form label,
@@ -1059,7 +1057,7 @@
 }
 .conventional-template-options span {
   color: var(--cw-muted);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 /* Search results are cmdk options (divs carrying [cmdk-item]), not buttons;
    they carry the row-card treatment the workspace dialog always had. */
@@ -1093,7 +1091,7 @@
 }
 .conventional-search-results [cmdk-item] small {
   color: var(--cw-muted);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 .conventional-dialog-empty {
   padding: 1rem;
@@ -1108,7 +1106,7 @@
 .conventional-search-hint {
   padding: 0 1rem 0.35rem;
   color: var(--cw-muted);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   text-align: right;
 }
 .conventional-conversation-details {
@@ -1143,7 +1141,7 @@
   border-radius: 0.5rem;
   background: var(--cw-accent);
   color: var(--cw-accent-contrast);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
   font-weight: 600;
   cursor: pointer;
 }
@@ -1157,7 +1155,7 @@
 .conventional-theme-library__status {
   margin: 0;
   color: var(--cw-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
 .conventional-theme-library__list {
@@ -1178,7 +1176,7 @@
 .conventional-theme-library__name {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1186,7 +1184,7 @@
 .conventional-theme-library__meta {
   margin-inline-start: auto;
   color: var(--cw-muted);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * var(--font-ui-scale, 1));
   white-space: nowrap;
 }
 
@@ -1229,7 +1227,7 @@
 .plugins-navigation__hint {
   margin: 0;
   color: var(--cw-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
 }
 .plugins-navigation__list {
   display: flex;
@@ -1253,7 +1251,7 @@
   align-items: center;
   gap: 0.5rem;
   color: var(--cw-text);
-  font-size: 0.85rem;
+  font-size: calc(0.85rem * var(--font-ui-scale, 1));
 }
 .plugins-navigation__name {
   color: var(--cw-text);
@@ -1269,7 +1267,7 @@
   gap: 0.4rem;
   margin-left: 0.5rem;
   color: var(--cw-muted);
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-ui-scale, 1));
 }
 .plugin-logo {
   display: flex;
@@ -1282,7 +1280,7 @@
   border-radius: 0.65rem;
   background: var(--cw-surface-muted);
   color: var(--plugin-brand, var(--cw-text));
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-ui-scale, 1));
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -1328,7 +1326,7 @@
 .conventional-settings-section-header p,
 .conventional-settings-note {
   color: var(--cw-muted);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--font-ui-scale, 1));
   line-height: 1.45;
 }
 .conventional-settings-note {
@@ -1359,7 +1357,7 @@
 .conventional-agent-customization .conventional-inline-form__header p,
 .conventional-agent-delete-note {
   color: var(--cw-muted);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 .conventional-form-grid {
   display: grid;
@@ -1371,7 +1369,7 @@
   display: grid;
   gap: 0.35rem;
   color: var(--cw-muted);
-  font-size: 0.78rem;
+  font-size: calc(0.78rem * var(--font-ui-scale, 1));
   font-weight: 700;
 }
 .conventional-form-grid input,
@@ -1728,7 +1726,7 @@
 }
 .workspace-app-library__heading h1 {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: calc(1.75rem * var(--font-ui-scale, 1));
 }
 .workspace-app-library__heading p {
   margin: 0.25rem 0 0;
@@ -1871,14 +1869,14 @@
   justify-content: center;
   overflow: hidden;
   color: var(--foreground);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .workspace-app-library__tile-caption {
   color: var(--muted-foreground);
-  font-size: 0.6875rem;
+  font-size: calc(0.6875rem * var(--font-ui-scale, 1));
   line-height: 1;
 }
 .workspace-app-library__footer {
@@ -1894,7 +1892,7 @@
 .workspace-app-library__footer p {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 0.75rem;
+  font-size: calc(0.75rem * var(--font-ui-scale, 1));
 }
 @media (max-width: 48rem) {
   .workspace-app-library {
