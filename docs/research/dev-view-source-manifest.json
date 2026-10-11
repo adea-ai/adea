@@ -134,6 +134,14 @@
         "packages/dev-view/src/layout/**",
         "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
         "packages/dev-view/src/sidebar/archive-shelf.tsx",
+        "packages/dev-view/src/utility-context.ts",
+        "packages/dev-view/src/utility-archive-shelf.tsx",
+        "packages/dev-view/src/utility-host.tsx",
+        "packages/dev-view/src/utility-owner.ts",
+        "packages/dev-view/src/utility-layout-storage.ts",
+        "packages/dev-view/src/utility-archive-operations.ts",
+        "packages/dev-view/tests/utility-layout-storage.test.ts",
+        "apps/web/e2e/conventional-workspace.spec.ts",
         "packages/ui/src/styles/dev-view.css",
         "apps/web/src/components/workspace-top-bar.tsx",
         "apps/web/src/lib/workspace-history.ts",
@@ -148,7 +156,7 @@
             "website/src/hooks/panelTabRegistry.ts"
           ],
           "tests": [],
-          "action": "Translate component decomposition, navigation hierarchy, archive shelf, and panel registry interactions to Solid; retain Adea tokens and platform provider."
+          "action": "Translate component decomposition, navigation hierarchy, archive shelf, and panel registry interactions to Solid; retain Adea tokens and platform provider. The cross-view continuation shares one utility owner, archive shelf and right utility host across Dev, Chat and Virtual; it preserves canonical runtime scope/session/generation fences and does not mount a hidden Dev center. Room and Character design keep the global rail while hiding both contextual sidebars and their toggles. This source handoff requires utility-context, utility-archive, scoped storage and pending-journal unit tests and actual cross-view, archive restore, keyboard focus, designer navigation and browser history checks; source composition alone does not establish browser or packaged acceptance."
         },
         {
           "donor": "bb",
