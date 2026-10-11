@@ -36,6 +36,8 @@ const entries = [
     name: 'Catalog-only app',
     category: 'Developer Tools',
     surfaces: ['app'],
+    sourceUrl:
+      'https://example.com/catalog/published/workspace-tools/0123456789abcdef0123456789abcdef',
     installed: true,
     installationStatus: 'installed',
     appSurface: {
