@@ -194,8 +194,9 @@ confirms it (see the lane handoff
 ## Group channel write admission
 
 A grant-gated group channel admits a user's writes only while that user's group
-admission is live. Admission is decided on trusted time read after the channel
-row lock (`decideGroupTurn`, the same rule the fenced group post uses).
+admission is live, and an Agent's writes only while its enlistment is effective.
+User admission is decided on trusted time read after the channel row lock
+(`decideGroupTurn`, the same rule the fenced group post uses).
 
 - The fenced group post (`postGroupChannelMessage`) and `createLeadTurn` decide
   before the write and again after the nested write, in the same transaction. A
@@ -209,9 +210,18 @@ row lock (`decideGroupTurn`, the same rule the fenced group post uses).
   is not re-exported from the package index. It skips only the user re-checks
   above, because those callers already prove admission at their own clock. Their
   clock readings are unchanged.
-- A group **agent** sender keeps its enlistment check before the writes only, and
-  a **system** sender keeps its existing validation. Neither gains the post-write
-  check here.
+- A group **agent** sender (for example the lead's publication through
+  `createRuntimeResultMessage`) re-proves its active standing and effective
+  enlistment after the awaited writes too, including the idempotent-replay
+  branch. The enlistment row is locked for both checks, so a revocation
+  serializes with them. A lapse denies with `Channel unavailable` and rolls back
+  the same effects as a user lapse.
+- A **system** sender keeps its existing validation. No group admission applies
+  to it, and that policy is unchanged.
+- Known residual: the Agent's own `lifecycle_state` is read without a row lock.
+  An archive that commits after the post-write read and before the transaction
+  commits is not caught by this check.
 
-Regressions: `packages/db/tests/integration/group-channels.test.ts` (a grant
-lapsing during a waiting generic write, and during a waiting idempotent replay).
+Regressions: `packages/db/tests/integration/group-channels.test.ts` (a grant or
+enlistment lapsing during a waiting generic write, and during a waiting
+idempotent replay, for both a user and an Agent sender).

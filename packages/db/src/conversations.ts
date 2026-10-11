@@ -138,7 +138,9 @@ async function requireActiveAgent(database: Database, workspaceId: string, agent
  * Agent sender standing for group channels (M15.01 scope reconciliation).
  * The host workspace never vouches for foreign Agents: the sender must be
  * active in its own home workspace AND hold an effective enlistment in this
- * group. Unenlisted or inactive senders fail like a missing channel.
+ * group. Unenlisted or inactive senders fail like a missing channel. The
+ * enlistment row is locked, so a concurrent revocation serializes with this
+ * check the same way a user's admission does (see requireGroupUserAdmission).
  */
 async function requireGroupAgentSender(
   database: Database,
@@ -157,7 +159,7 @@ async function requireGroupAgentSender(
     workspaceId,
     channelId,
     { agentId, kind: 'agent' },
-    {}
+    { forUpdate: true }
   )
   if (
     !admission ||
@@ -1319,12 +1321,16 @@ async function createMessageWithTextPolicy(
       await requireGroupSender(transaction, workspaceId, channelId, input.sender, fenced)
     else await validateSender(transaction, workspaceId, input.sender)
     // The awaited writes below can wait on locks past a grant's expiry, so a
-    // group user re-proves admission after them. A denial throws inside this
-    // transaction and rolls back the message, event, mentions and frontier.
-    // Fenced callers re-check after their own nested write instead.
-    const reproveGroupUser = async () => {
-      if (channel.kind === 'group' && !fenced && input.sender.kind === 'user')
+    // group user or Agent re-proves its standing after them. A denial throws
+    // inside this transaction and rolls back the message, event, mentions and
+    // frontier. Fenced callers re-check after their own nested write instead,
+    // and system senders keep their existing validation.
+    const reproveGroupSender = async () => {
+      if (channel.kind !== 'group' || fenced) return
+      if (input.sender.kind === 'user')
         await requireGroupUserAdmission(transaction, workspaceId, channelId, input.sender.userId)
+      if (input.sender.kind === 'agent')
+        await requireGroupAgentSender(transaction, workspaceId, channelId, input.sender.agentId)
     }
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
@@ -1410,7 +1416,7 @@ async function createMessageWithTextPolicy(
         principal
       )
       const summary = await messageSummary(transaction, existing)
-      await reproveGroupUser()
+      await reproveGroupSender()
       return summary
     }
     if (!created.threadRootMessageId)
@@ -1445,7 +1451,7 @@ async function createMessageWithTextPolicy(
     })
     await reopenTasksForChannelMessage(transaction, workspaceId, channelId, created.id, principal)
     const summary = await messageSummary(transaction, created)
-    await reproveGroupUser()
+    await reproveGroupSender()
     return summary
   })
 }

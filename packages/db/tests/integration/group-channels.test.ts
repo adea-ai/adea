@@ -636,7 +636,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
       channelId,
       stranger,
       {},
-      LATER
+      { now: LATER }
     )
     expect(page.messages).toHaveLength(0)
   })
@@ -947,6 +947,50 @@ async function memberGroup(
     title: 'Member group',
   })
   return channelId
+}
+
+/** An owner-founded group whose single Agent is enlisted from its home workspace until `enlistmentExpiresAt`. */
+async function agentGroup(
+  f: Awaited<ReturnType<typeof isolatedFixture>>,
+  enlistmentExpiresAt: string | null
+) {
+  const agent = await createAgent(f.local.db, f.workspace.id, f.owner, {
+    name: 'Echo',
+    profileId: 'lead',
+    profileVersion: '1',
+  })
+  const channelId = crypto.randomUUID()
+  await createGroupChannelWithGrants(f.local.db, f.workspace.id, f.owner, {
+    candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+      audienceGrants: [
+        {
+          expiresAt: null,
+          grantId: 'gra_owner',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          participant: f.owner,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+      enlistmentGrants: [
+        {
+          agent: { agentId: agent.id, workspaceId: f.workspace.id },
+          expiresAt: enlistmentExpiresAt,
+          grantId: 'gra_echo',
+          groupId: channelId,
+          issuedAt: ISSUED,
+          revision: 1,
+          revokedAt: null,
+        },
+      ],
+    }),
+    channelId,
+    idempotencyKey: crypto.randomUUID(),
+    now: NOW,
+    title: 'Agent group',
+  })
+  return { agent, channelId }
 }
 
 /**
@@ -1510,7 +1554,7 @@ describe('durable binding, fences and shared read boundary', () => {
           channelId,
           f.member,
           {},
-          LATER
+          { now: LATER }
         )
         const sequences = page.messages.map((message) => message.sequence)
         expect(sequences).toContain(racedMessage.sequence)
@@ -4538,6 +4582,99 @@ describe('durable binding, fences and shared read boundary', () => {
         // Control: at a valid time the same replay returns the original message.
         setSystemTime(new Date(NOW))
         const again = await createMessage(f.local.db, f.workspace.id, channelId, f.member, input)
+        expect(again.id).toBe(first.id)
+      } finally {
+        setSystemTime()
+        hold?.release()
+        await hold?.holder.catch(() => undefined)
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'an Agent enlistment lapsing while a generic group write waits rolls back its message, event, mention and frontier',
+    async () => {
+      const f = await isolatedFixture()
+      let hold: ReturnType<typeof holdMessageWrites> | undefined
+      try {
+        setSystemTime(new Date(NOW))
+        const { agent, channelId } = await agentGroup(f, '2026-10-08T12:30:00.000Z')
+        const before = await channelWrites(f.local.db, f.workspace.id, channelId)
+        hold = holdMessageWrites(f.local.db)
+        await hold.locked
+        const write = createMessage(f.local.db, f.workspace.id, channelId, f.owner, {
+          bodyText: 'agent must not land',
+          idempotencyKey: crypto.randomUUID(),
+          mentions: [{ kind: 'user', userId: f.owner.userId }],
+          sender: { agentId: agent.id, kind: 'agent' },
+        }).then(
+          () => null,
+          (error: unknown) => error
+        )
+        // Enlistment passed on trusted NOW; the message insert now waits on the lock.
+        await waitForBlockedWrite(f.local.db, 'messages')
+        // The enlistment lapses while the awaited write waits, then the lock is released.
+        setSystemTime(new Date(LATER))
+        hold.release()
+        await hold.holder
+        const error = await write
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toBe('Channel unavailable')
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toEqual(before)
+        // Control: the same Agent posts once its enlistment is effective again.
+        setSystemTime(new Date(NOW))
+        await createMessage(f.local.db, f.workspace.id, channelId, f.owner, {
+          bodyText: 'agent lands while effective',
+          idempotencyKey: crypto.randomUUID(),
+          sender: { agentId: agent.id, kind: 'agent' },
+        })
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toMatchObject({
+          events: 1,
+          mentions: 0,
+          messages: 1,
+        })
+      } finally {
+        setSystemTime()
+        hold?.release()
+        await hold?.holder.catch(() => undefined)
+        await f.local.close()
+      }
+    }
+  )
+
+  T(
+    'an idempotent Agent replay whose enlistment lapses while it waits is denied and adds nothing',
+    async () => {
+      const f = await isolatedFixture()
+      let hold: ReturnType<typeof holdMessageWrites> | undefined
+      try {
+        setSystemTime(new Date(NOW))
+        const { agent, channelId } = await agentGroup(f, '2026-10-08T12:30:00.000Z')
+        const input = {
+          bodyText: 'agent replayed once',
+          idempotencyKey: crypto.randomUUID(),
+          sender: { agentId: agent.id, kind: 'agent' as const },
+        }
+        const first = await createMessage(f.local.db, f.workspace.id, channelId, f.owner, input)
+        const before = await channelWrites(f.local.db, f.workspace.id, channelId)
+        hold = holdMessageWrites(f.local.db)
+        await hold.locked
+        const replay = createMessage(f.local.db, f.workspace.id, channelId, f.owner, input).then(
+          () => null,
+          (error: unknown) => error
+        )
+        await waitForBlockedWrite(f.local.db, 'messages')
+        setSystemTime(new Date(LATER))
+        hold.release()
+        await hold.holder
+        const error = await replay
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toBe('Channel unavailable')
+        expect(await channelWrites(f.local.db, f.workspace.id, channelId)).toEqual(before)
+        // Control: at a valid time the same replay returns the original message.
+        setSystemTime(new Date(NOW))
+        const again = await createMessage(f.local.db, f.workspace.id, channelId, f.owner, input)
         expect(again.id).toBe(first.id)
       } finally {
         setSystemTime()
