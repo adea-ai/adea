@@ -1,0 +1,23 @@
+{
+  "readState": [
+    {
+      "channelId": "channel-product",
+      "lastReadSequence": 0,
+      "latestTopLevelSequence": 3,
+      "manuallyUnread": false,
+      "threadUnreadCount": 1,
+      "threads": [
+        {
+          "lastReadSequence": 0,
+          "latestSequence": 4,
+          "manuallyUnread": false,
+          "threadRootMessageId": "message-root",
+          "unreadCount": 1
+        }
+      ],
+      "topLevelUnreadCount": 3,
+      "unread": true,
+      "workspaceId": "workspace-e2e"
+    }
+  ]
+}

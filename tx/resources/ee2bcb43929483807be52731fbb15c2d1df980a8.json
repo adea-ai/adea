@@ -1,0 +1,48 @@
+{
+  "messages": [
+    {
+      "artifactIds": [],
+      "bodyText": "Welcome to the Product Room. This is durable workspace history.",
+      "channelId": "channel-product",
+      "createdAt": "2026-08-30T12:00:00.000Z",
+      "deleted": false,
+      "id": "message-root",
+      "mentions": [],
+      "sender": { "kind": "system", "systemId": "agent-hq" },
+      "sequence": 1,
+      "updatedAt": "2026-08-30T12:00:00.000Z",
+      "version": 1,
+      "workspaceId": "workspace-e2e"
+    },
+    {
+      "artifactIds": ["artifact-brief"],
+      "bodyText": "The launch brief is ready for review. @Research Agent",
+      "channelId": "channel-product",
+      "createdAt": "2026-08-30T12:00:00.000Z",
+      "deleted": false,
+      "id": "message-task",
+      "mentions": [{ "kind": "agent", "agentId": "agent-research" }],
+      "sender": { "kind": "user", "userId": "user-e2e" },
+      "sequence": 2,
+      "taskId": "task-launch",
+      "updatedAt": "2026-08-30T12:00:00.000Z",
+      "version": 1,
+      "workspaceId": "workspace-e2e"
+    },
+    {
+      "artifactIds": [],
+      "bodyContentRefId": "content-private",
+      "channelId": "channel-product",
+      "createdAt": "2026-08-30T12:00:00.000Z",
+      "deleted": false,
+      "id": "message-private",
+      "mentions": [],
+      "sender": { "kind": "agent", "agentId": "agent-research" },
+      "sequence": 3,
+      "updatedAt": "2026-08-30T12:00:00.000Z",
+      "version": 1,
+      "workspaceId": "workspace-e2e"
+    }
+  ],
+  "nextAfterSequence": null
+}

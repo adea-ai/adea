@@ -1,0 +1,67 @@
+[
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "channel-product",
+    "isPrimaryRoomChannel": true,
+    "kind": "room",
+    "lifecycleState": "active",
+    "participants": [{ "kind": "user", "userId": "user-e2e" }],
+    "roomId": "room-product",
+    "sortOrder": 0,
+    "title": "Product",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "visibility": "workspace",
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "channel-support",
+    "isPrimaryRoomChannel": true,
+    "kind": "room",
+    "lifecycleState": "active",
+    "participants": [{ "kind": "user", "userId": "user-e2e" }],
+    "roomId": "room-support",
+    "sortOrder": 0,
+    "title": "Support",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "visibility": "workspace",
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "agentId": "agent-research",
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "channel-agent",
+    "isPrimaryRoomChannel": false,
+    "kind": "direct_agent",
+    "lifecycleState": "active",
+    "participants": [
+      { "kind": "user", "userId": "user-e2e" },
+      { "kind": "agent", "agentId": "agent-research" }
+    ],
+    "sortOrder": 2,
+    "title": "Research Agent",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "visibility": "participants",
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "channel-group",
+    "isPrimaryRoomChannel": false,
+    "kind": "group",
+    "lifecycleState": "active",
+    "participants": [
+      { "kind": "user", "userId": "user-e2e" },
+      { "kind": "agent", "agentId": "agent-research" }
+    ],
+    "sortOrder": 3,
+    "title": "Launch group",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "visibility": "participants",
+    "workspaceId": "workspace-e2e"
+  }
+]

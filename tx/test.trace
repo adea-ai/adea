@@ -1,0 +1,106 @@
+{"version":9,"type":"context-options","origin":"testRunner","browserName":"","playwrightVersion":"1.63.0","options":{},"platform":"linux","wallTime":1790881578732,"monotonicTime":96573.629,"sdkLanguage":"javascript","testTimeout":90000,"annotations":[]}
+{"type":"before","callId":"hook@1","stepId":"hook@1","startTime":96574.067,"class":"Test","method":"hook","title":"Before Hooks","params":{},"stack":[]}
+{"type":"before","callId":"fixture@24","stepId":"fixture@24","parentId":"hook@1","startTime":96577.123,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@25","stepId":"pw:api@25","parentId":"fixture@24","startTime":96577.591,"class":"Test","method":"pw:api","title":"Create context","params":{},"stack":[]}
+{"type":"after","callId":"pw:api@25","endTime":96580.064,"annotations":[]}
+{"type":"after","callId":"fixture@24","endTime":96582.277,"annotations":[]}
+{"type":"before","callId":"fixture@26","stepId":"fixture@26","parentId":"hook@1","startTime":96582.548,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@27","stepId":"pw:api@27","parentId":"fixture@26","startTime":96583.16,"class":"Test","method":"pw:api","title":"Create page","params":{},"stack":[]}
+{"type":"after","callId":"pw:api@27","endTime":96619.867,"annotations":[]}
+{"type":"after","callId":"fixture@26","endTime":96619.9,"annotations":[]}
+{"type":"before","callId":"fixture@28","stepId":"fixture@28","parentId":"hook@1","startTime":96619.961,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/helpers/visual.ts","line":44,"column":26}]}
+{"type":"before","callId":"pw:api@29","stepId":"pw:api@29","parentId":"fixture@28","startTime":96620.289,"class":"Test","method":"pw:api","title":"Add init script","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/helpers/visual.ts","line":24,"column":3,"function":"disableTransitions"}],"group":"configuration"}
+{"type":"after","callId":"pw:api@29","endTime":96621.398,"annotations":[]}
+{"type":"after","callId":"fixture@28","endTime":96621.437,"annotations":[]}
+{"type":"after","callId":"hook@1","endTime":96621.461,"annotations":[]}
+{"type":"before","callId":"pw:api@30","stepId":"pw:api@30","startTime":96622.102,"class":"Test","method":"pw:api","title":"Add init script","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":397,"column":3,"function":"mockWorkspace"}],"group":"configuration"}
+{"type":"after","callId":"pw:api@30","endTime":96622.873,"annotations":[]}
+{"type":"before","callId":"pw:api@31","stepId":"pw:api@31","startTime":96623.202,"class":"Test","method":"pw:api","title":"Route requests","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":404,"column":14,"function":"mockWorkspace"}],"group":"route"}
+{"type":"after","callId":"pw:api@31","endTime":96624.393,"annotations":[]}
+{"type":"before","callId":"pw:api@32","stepId":"pw:api@32","startTime":96624.697,"class":"Test","method":"pw:api","title":"Route requests","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":410,"column":14,"function":"mockWorkspace"}],"group":"route"}
+{"type":"after","callId":"pw:api@32","endTime":96624.908,"annotations":[]}
+{"type":"before","callId":"pw:api@33","stepId":"pw:api@33","startTime":96625.324,"class":"Test","method":"pw:api","title":"Navigate","subtitle":"/?view=chat&scene=work","params":{"url":"/?view=chat&scene=work"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1574,"column":14}]}
+{"type":"after","callId":"pw:api@33","endTime":97126.862,"annotations":[]}
+{"type":"before","callId":"expect@34","stepId":"expect@34","startTime":97127.478,"class":"Test","method":"expect","title":"Expect \"toBeEnabled\"","subtitle":"getByRole('button', { name: 'Appearance settings', exact: true })","params":{"locator":"getByRole('button', { name: 'Appearance settings', exact: true })","expected":"Object"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1580,"column":35}]}
+{"type":"before","callId":"pw:api@35","stepId":"pw:api@35","startTime":98081.879,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":405,"column":11}],"group":"route"}
+{"type":"after","callId":"pw:api@35","endTime":98083.721,"annotations":[]}
+{"type":"after","callId":"expect@34","endTime":98105.307,"annotations":[]}
+{"type":"before","callId":"pw:api@36","stepId":"pw:api@36","startTime":98106.043,"class":"Test","method":"pw:api","title":"Click","subtitle":"getByRole('button', { name: 'Appearance settings', exact: true })","params":{"locator":"getByRole('button', { name: 'Appearance settings', exact: true })"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1581,"column":27}]}
+{"type":"before","callId":"pw:api@37","stepId":"pw:api@37","startTime":98113.45,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"before","callId":"pw:api@38","stepId":"pw:api@38","startTime":98115.748,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@37","endTime":98117.587,"annotations":[]}
+{"type":"after","callId":"pw:api@38","endTime":98117.77,"annotations":[]}
+{"type":"before","callId":"pw:api@39","stepId":"pw:api@39","startTime":98168.571,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":472,"column":20}],"group":"route"}
+{"type":"before","callId":"pw:api@40","stepId":"pw:api@40","startTime":98172.637,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":480,"column":20}],"group":"route"}
+{"type":"before","callId":"pw:api@41","stepId":"pw:api@41","startTime":98176.716,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":474,"column":20}],"group":"route"}
+{"type":"before","callId":"pw:api@42","stepId":"pw:api@42","startTime":98177.804,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":476,"column":20}],"group":"route"}
+{"type":"before","callId":"pw:api@43","stepId":"pw:api@43","startTime":98178.861,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":478,"column":20}],"group":"route"}
+{"type":"before","callId":"pw:api@44","stepId":"pw:api@44","startTime":98179.71,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":413,"column":20}],"group":"route"}
+{"type":"after","callId":"pw:api@39","endTime":98182.05,"annotations":[]}
+{"type":"after","callId":"pw:api@40","endTime":98182.439,"annotations":[]}
+{"type":"after","callId":"pw:api@41","endTime":98182.911,"annotations":[]}
+{"type":"after","callId":"pw:api@42","endTime":98184.016,"annotations":[]}
+{"type":"after","callId":"pw:api@43","endTime":98184.343,"annotations":[]}
+{"type":"after","callId":"pw:api@44","endTime":98185.307,"annotations":[]}
+{"type":"before","callId":"pw:api@45","stepId":"pw:api@45","startTime":98222.232,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":499,"column":20}],"group":"route"}
+{"type":"after","callId":"pw:api@45","endTime":98225.878,"annotations":[]}
+{"type":"before","callId":"pw:api@46","stepId":"pw:api@46","startTime":98257.231,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":413,"column":20}],"group":"route"}
+{"type":"after","callId":"pw:api@46","endTime":98259.597,"annotations":[]}
+{"type":"after","callId":"pw:api@36","endTime":98312.553,"annotations":[]}
+{"type":"before","callId":"expect@47","stepId":"expect@47","startTime":98313.246,"class":"Test","method":"expect","title":"Expect \"toPass\"","params":{"expected":"Object"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1596,"column":6}]}
+{"type":"before","callId":"pw:api@48","stepId":"pw:api@48","parentId":"expect@47","startTime":98314.279,"class":"Test","method":"pw:api","title":"Get attribute \"aria-expanded\"","subtitle":"getByRole('button', { name: 'Appearance settings', exact: true })","params":{"locator":"getByRole('button', { name: 'Appearance settings', exact: true })"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1592,"column":34}],"group":"getter"}
+{"type":"after","callId":"pw:api@48","endTime":98337.608,"annotations":[]}
+{"type":"before","callId":"pw:api@49","stepId":"pw:api@49","parentId":"expect@47","startTime":98338.385,"class":"Test","method":"pw:api","title":"Click","subtitle":"getByRole('button', { name: 'Appearance settings', exact: true })","params":{"locator":"getByRole('button', { name: 'Appearance settings', exact: true })"},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1593,"column":31}]}
+{"type":"before","callId":"pw:api@50","stepId":"pw:api@50","startTime":98673.738,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@50","endTime":98675.239,"annotations":[]}
+{"type":"before","callId":"pw:api@51","stepId":"pw:api@51","startTime":100222.243,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@51","endTime":100223.631,"annotations":[]}
+{"type":"before","callId":"pw:api@52","stepId":"pw:api@52","startTime":103356.415,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@52","endTime":103357.868,"annotations":[]}
+{"type":"before","callId":"pw:api@53","stepId":"pw:api@53","startTime":107920.819,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@53","endTime":107922.218,"annotations":[]}
+{"type":"before","callId":"pw:api@54","stepId":"pw:api@54","startTime":117175.186,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@54","endTime":117176.708,"annotations":[]}
+{"type":"before","callId":"pw:api@55","stepId":"pw:api@55","startTime":139538.786,"class":"Test","method":"pw:api","title":"Fulfill request","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":504,"column":18}],"group":"route"}
+{"type":"after","callId":"pw:api@55","endTime":139540.964,"annotations":[]}
+{"type":"after","callId":"expect@47","endTime":158314.761,"annotations":[],"error":{"name":"","message":"Error: Timeout 60000ms exceeded while waiting on the predicate","stack":"Error: Timeout 60000ms exceeded while waiting on the predicate\n    at /__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts:1596:6"}}
+{"type":"error","message":"Error: Timeout 60000ms exceeded while waiting on the predicate","stack":[{"file":"/__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts","line":1596,"column":6}]}
+{"type":"before","callId":"hook@56","stepId":"hook@56","startTime":158315.272,"class":"Test","method":"hook","title":"After Hooks","params":{},"stack":[]}
+{"type":"before","callId":"fixture@57","stepId":"fixture@57","parentId":"hook@56","startTime":158315.437,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[{"file":"/__w/adea/adea/apps/web/e2e/helpers/visual.ts","line":44,"column":26}]}
+{"type":"after","callId":"fixture@57","endTime":158315.597,"annotations":[]}
+{"type":"before","callId":"fixture@58","stepId":"fixture@58","parentId":"hook@56","startTime":158315.842,"class":"Test","method":"fixture","title":"Fixture \"page\"","params":{},"stack":[]}
+{"type":"after","callId":"fixture@58","endTime":158315.879,"annotations":[]}
+{"type":"before","callId":"fixture@59","stepId":"fixture@59","parentId":"hook@56","startTime":158316.109,"class":"Test","method":"fixture","title":"Fixture \"context\"","params":{},"stack":[]}
+{"type":"before","callId":"pw:api@60","stepId":"pw:api@60","parentId":"fixture@59","startTime":158458.49,"class":"Test","method":"pw:api","title":"Close context","params":{},"stack":[]}
+{"type":"after","callId":"pw:api@49","endTime":158462.338,"annotations":[],"error":{"name":"","message":"Error: locator.click: Test ended.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Appearance settings', exact: true })\u001b[22m\n\u001b[2m    - locator resolved to <button tabindex=\"0\" type=\"button\" aria-busy=\"true\" data-expanded=\"\" aria-disabled=\"true\" aria-label=\"Appearance settings\" aria-describedby=\"tooltip-cl-66-content\" class=\"transition-colors ease-out outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-primary-subtle disabled:pointer-events-none disabled:opacity-50 aria-disabled:opacity-50 inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap select-none [&_svg]:pointer-events-none [&_svg]:sh…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is not enabled\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n","stack":"Error: locator.click: Test ended.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Appearance settings', exact: true })\u001b[22m\n\u001b[2m    - locator resolved to <button tabindex=\"0\" type=\"button\" aria-busy=\"true\" data-expanded=\"\" aria-disabled=\"true\" aria-label=\"Appearance settings\" aria-describedby=\"tooltip-cl-66-content\" class=\"transition-colors ease-out outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-primary-subtle disabled:pointer-events-none disabled:opacity-50 aria-disabled:opacity-50 inline-flex shrink-0 items-center justify-center rounded-md font-medium whitespace-nowrap select-none [&_svg]:pointer-events-none [&_svg]:sh…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is not enabled\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n\n    at /__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts:1593:31\n    at /__w/adea/adea/apps/web/e2e/conventional-workspace.spec.ts:1589:3"}}
+{"type":"after","callId":"pw:api@60","endTime":158463.701,"annotations":[]}
+{"type":"after","callId":"fixture@59","endTime":158463.735,"annotations":[]}
+{"type":"before","callId":"fixture@64","stepId":"fixture@64","parentId":"hook@56","startTime":158464.63,"class":"Test","method":"fixture","title":"Fixture \"navigationTimeout\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@64","endTime":158464.645,"annotations":[]}
+{"type":"before","callId":"attach@d5b405f94e2720c67447e533a790ef7d","stepId":"attach@d5b405f94e2720c67447e533a790ef7d","startTime":158472.601,"class":"Test","method":"test.attach","title":"Attach \"error-context\"","params":{},"stack":[]}
+{"type":"after","callId":"attach@d5b405f94e2720c67447e533a790ef7d","endTime":158472.617,"attachments":[{"name":"error-context","contentType":"text/markdown","file":"attachments/974ea0134ca33e74d6d6ccb34d87af6fd36810e0"}]}
+{"type":"before","callId":"fixture@69","stepId":"fixture@69","parentId":"hook@56","startTime":158473.449,"class":"Test","method":"fixture","title":"Fixture \"baseURL\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@69","endTime":158473.468,"annotations":[]}
+{"type":"before","callId":"fixture@70","stepId":"fixture@70","parentId":"hook@56","startTime":158473.481,"class":"Test","method":"fixture","title":"Fixture \"userAgent\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@70","endTime":158473.492,"annotations":[]}
+{"type":"before","callId":"fixture@72","stepId":"fixture@72","parentId":"hook@56","startTime":158473.719,"class":"Test","method":"fixture","title":"Fixture \"viewport\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@72","endTime":158473.73,"annotations":[]}
+{"type":"before","callId":"fixture@80","stepId":"fixture@80","parentId":"hook@56","startTime":158475.139,"class":"Test","method":"fixture","title":"Fixture \"isMobile\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@80","endTime":158475.152,"annotations":[]}
+{"type":"before","callId":"fixture@81","stepId":"fixture@81","parentId":"hook@56","startTime":158475.16,"class":"Test","method":"fixture","title":"Fixture \"ignoreHTTPSErrors\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@81","endTime":158475.169,"annotations":[]}
+{"type":"before","callId":"fixture@84","stepId":"fixture@84","parentId":"hook@56","startTime":158475.602,"class":"Test","method":"fixture","title":"Fixture \"hasTouch\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@84","endTime":158475.614,"annotations":[]}
+{"type":"before","callId":"fixture@87","stepId":"fixture@87","parentId":"hook@56","startTime":158476.008,"class":"Test","method":"fixture","title":"Fixture \"deviceScaleFactor\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@87","endTime":158476.019,"annotations":[]}
+{"type":"after","callId":"hook@56","endTime":158477.943,"annotations":[]}
+{"type":"before","callId":"hook@94","stepId":"hook@94","startTime":158478.175,"class":"Test","method":"hook","title":"Worker Cleanup","params":{},"stack":[]}
+{"type":"before","callId":"fixture@99","stepId":"fixture@99","parentId":"hook@94","startTime":158479.799,"class":"Test","method":"fixture","title":"Fixture \"browser\"","params":{},"stack":[]}
+{"type":"after","callId":"fixture@99","endTime":158512.117,"annotations":[]}
+{"type":"before","callId":"fixture@103","stepId":"fixture@103","parentId":"hook@94","startTime":158512.763,"class":"Test","method":"fixture","title":"Fixture \"defaultBrowserType\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@103","endTime":158512.775,"annotations":[]}
+{"type":"before","callId":"fixture@107","stepId":"fixture@107","parentId":"hook@94","startTime":158513.129,"class":"Test","method":"fixture","title":"Fixture \"launchOptions\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@107","endTime":158513.136,"annotations":[]}
+{"type":"before","callId":"fixture@108","stepId":"fixture@108","parentId":"hook@94","startTime":158513.14,"class":"Test","method":"fixture","title":"Fixture \"headless\"","params":{},"stack":[{"file":"project#","line":1,"column":1}],"group":"configuration"}
+{"type":"after","callId":"fixture@108","endTime":158513.145,"annotations":[]}
+{"type":"after","callId":"hook@94","endTime":158513.288,"annotations":[]}

@@ -1,0 +1,23 @@
+[
+  {
+    "availability": "available",
+    "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "deletionState": "active",
+    "filename": "launch-brief.md",
+    "id": "artifact-brief",
+    "location": { "reference": "artifact://launch-brief", "type": "object_store" },
+    "mediaType": "text/markdown",
+    "owner": { "kind": "user", "userId": "user-e2e" },
+    "provenance": { "source": "e2e" },
+    "retentionPolicy": "standard",
+    "sensitivity": "workspace",
+    "sizeBytes": 2048,
+    "sourceArtifactRef": "artifact://launch-brief",
+    "sourcePrincipal": { "kind": "user", "userId": "user-e2e" },
+    "taskId": "task-launch",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "workspaceId": "workspace-e2e"
+  }
+]

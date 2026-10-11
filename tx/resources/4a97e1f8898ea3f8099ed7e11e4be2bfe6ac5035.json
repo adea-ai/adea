@@ -1,0 +1,17 @@
+{
+  "activeWorkspace": {
+    "id": "workspace-e2e",
+    "name": "Work",
+    "scene": "work",
+    "updatedAt": "2026-08-30T12:00:00.000Z"
+  },
+  "principal": { "temporary": true },
+  "workspaces": [
+    {
+      "id": "workspace-e2e",
+      "name": "Work",
+      "scene": "work",
+      "updatedAt": "2026-08-30T12:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,271 @@
+<!doctype html><!--!$e0000000010000-->
+<html data-hk="0000000010000000" lang="en">
+  <head>
+    <script>
+      window._$HY ||
+        ((e) => {
+          let t = (e) =>
+            e &&
+            e.hasAttribute &&
+            (e.hasAttribute('data-hk') ? e : t(e.host && e.host.nodeType ? e.host : e.parentNode))
+          ;['click', 'input'].forEach((o) =>
+            document.addEventListener(o, (o) => {
+              if (!e.events) return
+              let s = t((o.composedPath && o.composedPath()[0]) || o.target)
+              s && !e.completed.has(s) && e.events.push([s, o])
+            })
+          )
+        })((_$HY = { events: [], completed: new WeakSet(), r: {}, fe() {} }))
+    </script>
+    <!--xs-->
+    <script>
+      ;(function () {
+        try {
+          var prefs = null
+          var raw = null
+          try {
+            raw = localStorage.getItem('appearance')
+          } catch (e) {}
+          if (raw) {
+            try {
+              var parsed = JSON.parse(raw)
+              if (parsed && parsed.version === 2) prefs = parsed
+            } catch (e) {}
+          }
+          var mode = 'system'
+          if (prefs) {
+            if (prefs.mode === 'light' || prefs.mode === 'dark') mode = prefs.mode
+          } else {
+            try {
+              var t = localStorage.getItem('theme')
+              if (t === 'light' || t === 'dark') mode = t
+            } catch (e) {}
+          }
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var registry = [
+            { id: 'adea-light', dark: false },
+            { id: 'adea-dark', dark: true },
+            { id: 'adea-dark-colorblind', dark: true },
+            { id: 'adea-dark-high-contrast', dark: true },
+            { id: 'adea-light-colorblind', dark: false },
+            { id: 'adea-light-high-contrast', dark: false },
+            { id: 'aardvark-blue', dark: true },
+            { id: 'aardvark-ink', dark: true },
+            { id: 'ayu', dark: true },
+            { id: 'ayu-light', dark: false },
+            { id: 'ayu-mirage', dark: true },
+            { id: 'catppuccin-frappe', dark: true },
+            { id: 'catppuccin-latte', dark: false },
+            { id: 'catppuccin-macchiato', dark: true },
+            { id: 'catppuccin-mocha', dark: true },
+            { id: 'dracula', dark: true },
+            { id: 'everforest-dark', dark: true },
+            { id: 'everforest-light', dark: false },
+            { id: 'gruvbox-dark', dark: true },
+            { id: 'gruvbox-light', dark: false },
+            { id: 'kanagawa', dark: true },
+            { id: 'monokai', dark: true },
+            { id: 'nord', dark: true },
+            { id: 'nord-light', dark: false },
+            { id: 'one-dark', dark: true },
+            { id: 'rosepine', dark: true },
+            { id: 'rosepine-dawn', dark: false },
+            { id: 'rosepine-moon', dark: true },
+            { id: 'solarized-dark', dark: true },
+            { id: 'solarized-light', dark: false },
+            { id: 'tokyonight-day', dark: false },
+            { id: 'tokyonight-night', dark: true },
+            { id: 'tokyonight-storm', dark: true },
+            { id: 'vesper', dark: true },
+          ]
+          var wanted = dark
+            ? (prefs && prefs.darkThemeId) || 'adea-dark'
+            : (prefs && prefs.lightThemeId) || 'adea-light'
+          var variant = null
+          var found = false
+          for (var i = 0; i < registry.length; i++) {
+            if (registry[i].id === wanted) {
+              variant = registry[i]
+              found = true
+              break
+            }
+          }
+          if (!found) {
+            try {
+              var lib = JSON.parse(localStorage.getItem('appearance.library') || 'null')
+              if (lib && lib.themes) {
+                for (var k = 0; k < lib.themes.length; k++) {
+                  if (lib.themes[k].id === wanted) {
+                    variant = { id: lib.themes[k].id, tokens: lib.themes[k].flatTokens }
+                    found = true
+                    break
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+          if (!found) {
+            for (var j = 0; j < registry.length; j++) {
+              if (registry[j].dark === dark) {
+                variant = registry[j]
+                break
+              }
+            }
+          }
+          if (!variant) variant = registry[0]
+          var reduce =
+            window.matchMedia('(prefers-reduced-transparency: reduce)').matches ||
+            !!(prefs && prefs.reduceTransparency)
+          /* Pre-hydration the host translucency capability is unknown, so the script
+   resolves every glass request to the conservative frosted tokens; the
+   provider re-resolves with the real capability once mounted. */
+          var surface = reduce
+            ? 'opaque'
+            : (prefs && prefs.surface === 'frosted') || (prefs && prefs.surface === 'translucent')
+              ? 'frosted'
+              : 'opaque'
+          if (surface !== 'opaque' && surface !== 'frosted') surface = 'opaque'
+          var r = document.documentElement,
+            s = r.style
+          r.classList.toggle('dark', dark)
+          s.colorScheme = dark ? 'dark' : 'light'
+          r.dataset.theme = variant.id
+          r.dataset.appearanceMode = mode
+          r.dataset.surface = surface
+          r.dataset.reduceTransparency = reduce ? 'true' : 'false'
+          s.setProperty(
+            '--surface-alpha',
+            { opaque: '1', frosted: '0.92', translucent: '0.8' }[surface] || '1'
+          )
+        } catch (e) {}
+      })()
+    </script>
+    <script>
+      window.__ADEA_INITIAL_HASH__ ??= window.location.hash
+    </script>
+    <title data-sm="00000000100000010">Adea</title>
+    <meta data-sm="00000000100000011" charset="utf-8" nonce="undefined" />
+    <meta
+      data-sm="00000000100000012"
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+      nonce="undefined"
+    />
+    <meta
+      data-sm="00000000100000013"
+      name="description"
+      content="A durable workspace for Rooms, Agents, Tasks, and conversations"
+      nonce="undefined"
+    />
+    <meta
+      data-sm="00000000100000014"
+      name="robots"
+      content="noindex, nofollow, noarchive"
+      nonce="undefined"
+    />
+    <meta
+      data-sm="00000000100000015"
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#11161d"
+      nonce="undefined"
+    />
+    <link
+      data-sm="00000000100000016"
+      rel="modulepreload"
+      href="/@id/virtual:tanstack-start-dev-client-entry"
+      nonce="undefined"
+    />
+    <link
+      data-sm="00000000100000017"
+      rel="icon"
+      type="image/svg+xml"
+      href="/icon.svg"
+      nonce="undefined"
+    />
+    <link
+      data-sm="00000000100000018"
+      rel="stylesheet"
+      href="/@tanstack-start/styles.css?routes=__root__%2C%2F"
+      data-tanstack-router-dev-styles="true"
+      crossorigin="undefined"
+      nonce="undefined"
+    />
+  </head>
+  <body>
+    <!--$--><!--!$e000000001000000200000--><!--!$e000000001000000200000000-->
+    <main
+      data-hk="000000001000000200000000200030000000000000020003000000"
+      class="conventional-workspace conventional-workspace--loading"
+      aria-busy="true"
+    >
+      <p>Opening workspace…</p>
+    </main>
+    <!--!$/e000000001000000200000000--><!--!$/e000000001000000200000--><!--/--><!--$-->
+    <script data-hk="0000000010000003000" class="$tsr" id="$tsr-stream-barrier">
+      ;(self.$R = self.$R || {})['tsr'] = []
+      self.$_TSR = {
+        h() {
+          ;((this.hydrated = !0), this.c())
+        },
+        e() {
+          ;((this.streamEnded = !0), this.c())
+        },
+        c() {
+          this.hydrated && this.streamEnded && (delete self.$_TSR, delete self.$R.tsr)
+        },
+        p(e) {
+          this.initialized ? e() : this.buffer.push(e)
+        },
+        buffer: [],
+      }
+      $_TSR.router = (($R) =>
+        ($R[0] = {
+          manifest: ($R[1] = {
+            routes: ($R[2] = {
+              __root__: ($R[3] = {
+                preloads: ($R[4] = ['/@id/virtual:tanstack-start-dev-client-entry']),
+                scripts: ($R[5] = [
+                  ($R[6] = {
+                    attrs: ($R[7] = {
+                      type: 'module',
+                      async: !0,
+                      src: '/@id/virtual:tanstack-start-dev-client-entry',
+                    }),
+                  }),
+                ]),
+                css: ($R[8] = [
+                  ($R[9] = {
+                    href: '/@tanstack-start/styles.css?routes=__root__%2C%2F',
+                    'data-tanstack-router-dev-styles': !0,
+                  }),
+                ]),
+              }),
+            }),
+          }),
+          matches: ($R[10] = [
+            ($R[11] = { i: '__root__ ', u: 1790881578808, s: 'success', ssr: !0 }),
+            ($R[12] = {
+              i: '  ',
+              u: 1790881578808,
+              s: 'success',
+              l: ($R[13] = { denied: !1 }),
+              ssr: !0,
+            }),
+          ]),
+        }))($R['tsr'])
+      $_TSR.e()
+      document.currentScript.remove()
+    </script>
+    <script
+      data-hk="00000000100000031000"
+      type="module"
+      async
+      src="/@id/virtual:tanstack-start-dev-client-entry"
+    ></script>
+    <!--/-->
+  </body>
+</html>
+<!--!$/e0000000010000-->

@@ -1,0 +1,58 @@
+- generic [active]:
+    - generic [ref=f3e4]:
+        - banner "Workspace toolbar" [ref=f3e5]:
+            - generic [ref=f3e6]:
+                - button "Back" [ref=f3e7] [cursor=pointer]
+                - button "Forward" [disabled] [ref=f3e8] [cursor=pointer]
+                - button "Collapse contextual sidebar" [expanded] [ref=f3e9] [cursor=pointer]
+            - generic [ref=f3e10]: Home
+            - generic [ref=f3e11]:
+                - button "Runtime resources" [ref=f3e16] [cursor=pointer]
+                - button "Appearance settings" [ref=f3e17] [cursor=pointer]
+                - button "Search workspace" [ref=f3e18] [cursor=pointer]
+        - navigation "Global navigation" [ref=f3e24]:
+            - button "Switch workspace, current Home" [ref=f3e26] [cursor=pointer]
+            - generic [ref=f3e33]:
+                - button "Search workspace" [ref=f3e35] [cursor=pointer]
+                - separator [ref=f3e41]
+                - group "Workspace views" [ref=f3e42]:
+                    - button "Virtual view" [ref=f3e44] [cursor=pointer]
+                    - button "Chat view" [pressed] [ref=f3e50] [cursor=pointer]
+                    - button "Dev view" [ref=f3e56] [cursor=pointer]
+                    - button "App Library" [ref=f3e63] [cursor=pointer]
+                    - button "Notifications (coming soon)" [disabled] [ref=f3e71]
+            - generic [ref=f3e77]:
+                - button "Plugins" [ref=f3e79] [cursor=pointer]
+                - button "User settings" [ref=f3e84] [cursor=pointer]
+            - status [ref=f3e85]
+        - main [ref=f3e274]:
+            - link "Skip to workspace content" [ref=f3e275] [cursor=pointer]:
+                - /url: '#workspace-main'
+            - complementary "Workspace navigation" [ref=f3e276]:
+                - separator "Resize workspace navigation" [ref=f3e277] [cursor=pointer]
+                - heading "Home" [level=1] [ref=f3e279]
+                - generic [ref=f3e280]:
+                    - generic [ref=f3e281]:
+                        - button "Tasks" [ref=f3e282] [cursor=pointer]
+                        - button "Agents" [ref=f3e286] [cursor=pointer]
+                    - region "Rooms" [ref=f3e290]:
+                        - generic [ref=f3e291]:
+                            - heading "Rooms" [level=2] [ref=f3e292]
+                            - button "Create Room" [ref=f3e295] [cursor=pointer]
+                        - paragraph [ref=f3e297]: Create a Room to organize the work.
+                    - region "Conversations" [ref=f3e298]:
+                        - generic [ref=f3e299]:
+                            - heading "Conversations" [level=2] [ref=f3e300]
+                            - button "Create group conversation" [ref=f3e303] [cursor=pointer]
+                        - button "Start with an Agent" [ref=f3e305] [cursor=pointer]
+                - generic [ref=f3e308]:
+                    - button "Mark all read" [disabled]:
+                        - text: Mark all read
+                        - generic: ⇧⌘A
+            - region [ref=f3e310]:
+                - generic [ref=f3e311]:
+                    - generic [ref=f3e316]: Choose a Room or conversation
+                    - generic [ref=f3e317]: Rooms keep durable work, Agents, Tasks, and conversation history together.
+            - generic [ref=f3e318]: Workspace online
+    - generic:
+        - generic [aria-hidden]: Chat view

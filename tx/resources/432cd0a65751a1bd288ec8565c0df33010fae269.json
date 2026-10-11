@@ -1,0 +1,22 @@
+[
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "functionKey": "product",
+    "id": "room-product",
+    "lifecycleState": "active",
+    "name": "Product",
+    "sortOrder": 0,
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "functionKey": "support",
+    "id": "room-support",
+    "lifecycleState": "active",
+    "name": "Support",
+    "sortOrder": 1,
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "workspaceId": "workspace-e2e"
+  }
+]

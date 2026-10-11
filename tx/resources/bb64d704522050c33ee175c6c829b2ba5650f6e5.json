@@ -1,0 +1,25 @@
+[
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "agent-research",
+    "lifecycleState": "active",
+    "name": "Research Agent",
+    "presentationMetadata": {},
+    "profile": { "id": "profile-research", "state": "available", "version": "1" },
+    "roleSummary": "Customer and market research",
+    "roomId": "room-product",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "id": "agent-writer",
+    "lifecycleState": "active",
+    "name": "Writer Agent",
+    "presentationMetadata": {},
+    "profile": { "id": "profile-writer", "state": "missing", "version": "1" },
+    "roleSummary": "Product copy",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "workspaceId": "workspace-e2e"
+  }
+]

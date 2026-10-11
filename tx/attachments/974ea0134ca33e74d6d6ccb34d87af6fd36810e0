@@ -1,0 +1,481 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: conventional-workspace.spec.ts >> the live appearance popover previews the visible workspace at wide and narrow widths
+- Location: apps/web/e2e/conventional-workspace.spec.ts:1570:1
+
+# Error details
+
+```
+Error: Timeout 60000ms exceeded while waiting on the predicate
+```
+
+# Page snapshot
+
+```yaml
+- generic:
+  - generic [aria-hidden]:
+    - banner [ref=e1]:
+      - generic [ref=e2]:
+        - button [disabled] [ref=e3] [cursor=pointer]
+        - button [disabled] [ref=e4] [cursor=pointer]
+        - button [expanded] [ref=e5] [cursor=pointer]
+      - generic [ref=e6]: Work
+      - generic [ref=e7]:
+        - button [expanded] [ref=e8] [cursor=pointer]
+        - button [ref=e9] [cursor=pointer]
+    - navigation:
+      - generic:
+        - button:
+          - generic: Switch workspace, current Work
+      - generic:
+        - generic:
+          - button:
+            - generic: Search workspace
+        - separator
+        - group:
+          - generic:
+            - button:
+              - generic: Virtual view
+          - generic:
+            - button [pressed]:
+              - generic: Chat view
+          - generic:
+            - button:
+              - generic: Dev view
+          - button:
+            - generic: App Library
+          - button [disabled]:
+            - generic: Notifications (coming soon)
+      - generic:
+        - generic:
+          - button:
+            - generic: Plugins
+        - button
+    - generic:
+      - main:
+        - link:
+          - /url: "#workspace-main"
+          - text: Skip to workspace content
+        - complementary:
+          - separator [ref=e10] [cursor=pointer]
+          - generic:
+            - heading [level=1]: Work
+          - generic:
+            - generic:
+              - button: Tasks
+              - button: Agents
+            - region:
+              - generic:
+                - heading [level=2]:
+                  - generic: Rooms
+                - generic:
+                  - button
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - generic: Product
+                      - generic: "4"
+                    - generic:
+                      - button
+                - generic:
+                  - generic:
+                    - button:
+                      - generic: Support
+                    - generic:
+                      - button
+            - region:
+              - generic:
+                - heading [level=2]:
+                  - generic: Conversations
+                - generic:
+                  - button
+              - generic:
+                - generic:
+                  - generic:
+                    - button:
+                      - generic: Research Agent
+                    - generic:
+                      - button
+                      - button
+                  - generic:
+                    - button:
+                      - generic: Launch group
+                    - generic:
+                      - button
+                      - button
+          - generic:
+            - button:
+              - text: Mark all read
+              - generic: ⇧⌘A
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - text: Room conversation
+                  - heading [level=1]: Product
+                - generic:
+                  - button
+                  - button
+                  - button
+              - navigation:
+                - list:
+                  - listitem
+                  - listitem
+            - generic:
+              - generic:
+                - generic:
+                  - article:
+                    - generic:
+                      - generic:
+                        - generic: Adea
+                        - generic:
+                          - generic:
+                            - paragraph: Welcome to the Product Room. This is durable workspace history.
+                        - generic:
+                          - time: 12:00 PM
+                      - generic:
+                        - button: Thread
+                  - article:
+                    - generic:
+                      - generic:
+                        - generic: You
+                        - generic:
+                          - generic:
+                            - paragraph: The launch brief is ready for review. @Research Agent
+                        - generic:
+                          - generic:
+                            - button [disabled]:
+                              - generic:
+                                - generic: launch-brief.md
+                                - generic: text/markdown · 2,048 bytes
+                        - generic:
+                          - button: Task · Launch planning
+                        - generic:
+                          - time: 12:00 PM
+                      - generic:
+                        - button: Thread
+                  - article:
+                    - generic:
+                      - generic:
+                        - generic: Research Agent
+                        - generic:
+                          - alert:
+                            - generic:
+                              - strong: Private content unavailable
+                              - generic: Open this conversation on its authorized desktop device.
+                        - generic:
+                          - time: 12:00 PM
+                      - generic:
+                        - button: Thread
+            - region:
+              - generic:
+                - paragraph: Enter to send · Shift+Enter newline · Mod+Shift+M focus
+                - generic:
+                  - textbox:
+                    - /placeholder: Type something...
+                  - generic:
+                    - generic:
+                      - button
+                    - generic:
+                      - button [disabled] [ref=e11] [cursor=pointer]
+                      - button [disabled] [ref=e12] [cursor=pointer]
+        - generic: Workspace online
+  - dialog [ref=e13]:
+    - heading "Appearance" [level=2] [ref=e15]
+    - paragraph [ref=e16]: Changes preview immediately. Save keeps them; Cancel restores the previous appearance.
+    - generic [ref=e17]:
+      - radiogroup "Appearance mode" [ref=e18]:
+        - group [ref=e19]:
+          - radio "System" [active] [ref=e20]
+          - generic [ref=e21] [cursor=pointer]: System
+        - group [ref=e41]:
+          - radio "Light" [checked] [ref=e42]
+          - generic [ref=e43] [cursor=pointer]: Light
+        - group [ref=e57]:
+          - radio "Dark" [ref=e58]
+          - generic [ref=e59] [cursor=pointer]: Dark
+      - generic [ref=e73]:
+        - generic [ref=e74]:
+          - heading "Light theme" [level=3] [ref=e84]
+          - button "Light theme" [ref=e87] [cursor=pointer]:
+            - generic [ref=e88]: Adea Light
+        - generic [ref=e94]:
+          - heading "Dark theme" [level=3] [ref=e104]
+          - button "Dark theme" [ref=e107] [cursor=pointer]:
+            - generic [ref=e108]: Adea Dark
+        - generic [ref=e114]:
+          - generic [ref=e118]:
+            - heading "Accent" [level=3] [ref=e119]
+            - generic [ref=e120]: Theme default · Uses the palette's intended color.
+          - radiogroup "Accent" [ref=e122]:
+            - group [ref=e123]:
+              - radio "Theme default" [checked] [ref=e124]
+              - generic [ref=e125] [cursor=pointer]: Theme default
+            - generic [ref=e126]:
+              - group [ref=e127]:
+                - radio "Violet" [ref=e128]
+                - generic [ref=e129] [cursor=pointer]: Violet
+              - group [ref=e132]:
+                - radio "Blue" [ref=e133]
+                - generic [ref=e134] [cursor=pointer]: Blue
+              - group [ref=e137]:
+                - radio "Green" [ref=e138]
+                - generic [ref=e139] [cursor=pointer]: Green
+              - group [ref=e142]:
+                - radio "Amber" [ref=e143]
+                - generic [ref=e144] [cursor=pointer]: Amber
+              - group [ref=e147]:
+                - radio "Cyan" [ref=e148]
+                - generic [ref=e149] [cursor=pointer]: Cyan
+              - group [ref=e152]:
+                - radio "Pink" [ref=e153]
+                - generic [ref=e154] [cursor=pointer]: Pink
+            - group [ref=e157]:
+              - radio "Custom" [ref=e158]
+              - generic [ref=e159] [cursor=pointer]: Custom
+        - generic [ref=e160]:
+          - generic [ref=e165]:
+            - heading "Glass" [level=3] [ref=e166]
+            - generic [ref=e167]: Solid surfaces for every theme.
+          - radiogroup "Glass" [ref=e169]:
+            - group [ref=e170]:
+              - radio "Theme default" [ref=e171]
+              - generic [ref=e172] [cursor=pointer]: Theme default
+            - group [ref=e173]:
+              - radio "Frosted" [ref=e174]
+              - generic [ref=e175] [cursor=pointer]: Frosted
+            - group [ref=e176]:
+              - radio "Opaque" [checked] [ref=e177]
+              - generic [ref=e178] [cursor=pointer]: Opaque
+        - generic [ref=e179]:
+          - generic [ref=e187]:
+            - heading "Reduce transparency" [level=3] [ref=e188]
+            - generic [ref=e189]: Prefer solid surfaces, including during live preview.
+          - group [ref=e191]:
+            - switch "Reduce transparency" [ref=e192]
+        - generic [ref=e194]:
+          - generic [ref=e203]:
+            - heading "Theme library" [level=3] [ref=e204]
+            - generic [ref=e205]: Manage themes through the application.
+          - button "Manage themes" [ref=e207] [cursor=pointer]
+      - generic [ref=e208]:
+        - button "Reset" [ref=e209] [cursor=pointer]
+        - generic [ref=e210]:
+          - button "Cancel" [ref=e211] [cursor=pointer]
+          - button "Save" [ref=e212] [cursor=pointer]
+```
+
+# Test source
+
+```ts
+  1496 | })
+  1497 | 
+  1498 | test('workspace search keeps duplicate destination labels tied to their domain identity', async ({
+  1499 |   page,
+  1500 | }) => {
+  1501 |   await mockWorkspace(page)
+  1502 |   await page.goto('/')
+  1503 |   // Control+k pressed during the first paint lands before the workspace
+  1504 |   // installs its shortcut listener, so anchor on loaded chrome first.
+  1505 |   await expect(page.getByLabel(/unread in Product/)).toBeVisible({ timeout: 15_000 })
+  1506 |   await page.keyboard.press('Control+k')
+  1507 | 
+  1508 |   const dialog = page.getByRole('dialog', { name: 'Search workspace' })
+  1509 |   const input = dialog.getByRole('combobox', { name: 'Search workspace' })
+  1510 |   const results = dialog.getByRole('listbox', { name: 'Search results' })
+  1511 |   const room = results.getByRole('option', { name: 'Support Room', exact: true })
+  1512 |   const channel = results.getByRole('option', { name: 'Support Room conversation', exact: true })
+  1513 |   await expect(results.getByRole('option')).toHaveCount(13)
+  1514 | 
+  1515 |   const channelPrefetch = page.waitForRequest((request) =>
+  1516 |     request.url().includes('/channels/channel-support/messages')
+  1517 |   )
+  1518 |   await channel.hover()
+  1519 |   await channelPrefetch
+  1520 |   await expect(channel).toHaveAttribute('aria-selected', 'true')
+  1521 |   await expect(room).toHaveAttribute('aria-selected', 'false')
+  1522 |   expect(await input.getAttribute('aria-activedescendant')).toBe(await channel.getAttribute('id'))
+  1523 | })
+  1524 | 
+  1525 | test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
+  1526 |   await mockWorkspace(page)
+  1527 |   await page.goto('/?view=virtual')
+  1528 |   await expect(page.getByRole('button', { name: 'Switch workspace' })).toBeVisible({
+  1529 |     timeout: 20_000,
+  1530 |   })
+  1531 | 
+  1532 |   const searchDialog = page.getByRole('dialog', { name: 'Search workspace' })
+  1533 |   await page.keyboard.press('Control+k')
+  1534 |   await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  1535 |   await expect(page).toHaveURL(/view=chat/)
+  1536 |   await page.keyboard.press('Escape')
+  1537 |   await expect(searchDialog).toBeHidden()
+  1538 | 
+  1539 |   await page.goto('/?view=dev&devE2e=preserved')
+  1540 |   await expect(page.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible({
+  1541 |     timeout: 20_000,
+  1542 |   })
+  1543 |   await page.keyboard.press('Control+k')
+  1544 |   await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  1545 |   await expect(page).toHaveURL(/view=chat/)
+  1546 | })
+  1547 | 
+  1548 | test('retains drafts across navigation and reloads at supported breakpoints', async ({ page }) => {
+  1549 |   await mockWorkspace(page)
+  1550 |   await page.goto('/')
+  1551 |   const draft = 'Evidence to preserve while I check another conversation.'
+  1552 |   await page.getByRole('textbox', { name: 'Message' }).fill(draft)
+  1553 |   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
+  1554 |   await page.getByRole('button', { name: /^Product( |$)/ }).click()
+  1555 |   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
+  1556 |   await page.reload()
+  1557 |   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
+  1558 | 
+  1559 |   for (const width of [320, 768, 1024, 1440]) {
+  1560 |     await page.setViewportSize({ width, height: 800 })
+  1561 |     await expect(page.locator('.conventional-workspace')).toBeVisible()
+  1562 |     const viewport = await page.evaluate(() => ({
+  1563 |       documentWidth: document.documentElement.scrollWidth,
+  1564 |       viewportWidth: window.innerWidth,
+  1565 |     }))
+  1566 |     expect(viewport.documentWidth).toBe(viewport.viewportWidth)
+  1567 |   }
+  1568 | })
+  1569 | 
+  1570 | test('the live appearance popover previews the visible workspace at wide and narrow widths', async ({
+  1571 |   page,
+  1572 | }) => {
+  1573 |   await mockWorkspace(page)
+  1574 |   await page.goto('/?view=chat&scene=work')
+  1575 |   const appearanceControl = page.getByRole('button', { name: 'Appearance settings', exact: true })
+  1576 |   // The control lazy-loads the appearance panel and renders a disabled
+  1577 |   // placeholder until it resolves. Clicking before that lands on a page still
+  1578 |   // navigating, so wait for it to become actionable rather than only extending
+  1579 |   // the dialog budget after a click that went nowhere.
+  1580 |   await expect(appearanceControl).toBeEnabled({ timeout: 60_000 })
+  1581 |   await appearanceControl.click()
+  1582 |   const popup = page.getByRole('dialog', { name: 'Appearance', exact: true })
+  1583 |   // The lazy import discovers dev-server dependencies the warm-up page never
+  1584 |   // touched (the theme adapters the editor pulls in), and vite's re-optimization
+  1585 |   // ends in a full page reload that resets the control before the popover
+  1586 |   // mounts — the documented cold-server reload, one chunk further in. When the
+  1587 |   // reload consumed the click, the control is back and enabled again, so click
+  1588 |   // it once more instead of failing the preview assertions on infra timing.
+  1589 |   await expect(async () => {
+  1590 |     // Gate on the trigger's own state: isVisible lags the portal mount on a
+  1591 |     // loaded machine, and a blind re-click would toggle the popover closed.
+  1592 |     if ((await appearanceControl.getAttribute('aria-expanded')) !== 'true') {
+  1593 |       await appearanceControl.click()
+  1594 |     }
+  1595 |     await expect(popup).toBeVisible()
+> 1596 |   }).toPass({ timeout: 60_000 })
+       |      ^ Error: Timeout 60000ms exceeded while waiting on the predicate
+  1597 |   const modes = popup.getByRole('radiogroup', { name: 'Appearance mode' })
+  1598 |   await modes.getByText('Light', { exact: true }).click()
+  1599 |   await expect(page).toHaveScreenshot('workspace-appearance-popover-light.png', {
+  1600 |     animations: 'disabled',
+  1601 |   })
+  1602 |   await modes.getByText('Dark', { exact: true }).click()
+  1603 |   await expect(page).toHaveScreenshot('workspace-appearance-popover-dark.png', {
+  1604 |     animations: 'disabled',
+  1605 |   })
+  1606 |   await page.setViewportSize({ width: 390, height: 844 })
+  1607 |   await expect(page).toHaveScreenshot('workspace-appearance-popover-narrow.png', {
+  1608 |     animations: 'disabled',
+  1609 |   })
+  1610 | })
+  1611 | 
+  1612 | test('deep-links settings and customizes an Agent without fabricating runtime status', async ({
+  1613 |   page,
+  1614 | }) => {
+  1615 |   await mockWorkspace(page)
+  1616 |   await page.goto('/#settings/privacy-data')
+  1617 |   const settings = page.getByRole('dialog', { name: 'Settings' })
+  1618 |   await expect(settings).toBeVisible()
+  1619 |   await expect(settings.getByRole('heading', { name: 'Privacy & data' })).toBeVisible()
+  1620 |   await expect(settings.getByText('Unavailable in this app or on this device.')).toBeVisible()
+  1621 | 
+  1622 |   await settings.getByRole('tab', { name: 'Input & notifications' }).click()
+  1623 |   await expect(settings.getByRole('button', { name: 'Check microphone' })).toBeDisabled()
+  1624 |   const mentionSwitch = settings.getByRole('switch', { name: 'Mention notifications' })
+  1625 |   const mentionSwitchControl = mentionSwitch.locator('xpath=following-sibling::*[1]')
+  1626 |   await mentionSwitchControl.click()
+  1627 |   await expect(mentionSwitch).not.toBeChecked()
+  1628 |   await mentionSwitch.press('Space')
+  1629 |   await expect(mentionSwitch).toBeChecked()
+  1630 |   await mentionSwitch.press('Space')
+  1631 |   await expect(mentionSwitch).not.toBeChecked()
+  1632 |   await expect
+  1633 |     .poll(() =>
+  1634 |       page.evaluate(() => {
+  1635 |         const raw = localStorage.getItem('adea:workspace-preferences:v1')
+  1636 |         return raw ? JSON.parse(raw).notifyMentions : undefined
+  1637 |       })
+  1638 |     )
+  1639 |     .toBe(false)
+  1640 |   await page.reload()
+  1641 |   const reloadedSettings = page.getByRole('dialog', { name: 'Settings' })
+  1642 |   await expect(reloadedSettings).toBeVisible()
+  1643 |   await expect(
+  1644 |     reloadedSettings.getByRole('switch', { name: 'Mention notifications' })
+  1645 |   ).not.toBeChecked()
+  1646 |   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  1647 |   await expect(page).toHaveScreenshot('workspace-settings-light.png', { animations: 'disabled' })
+  1648 |   await page.evaluate(() => {
+  1649 |     localStorage.setItem('theme', 'dark')
+  1650 |     document.documentElement.classList.remove('light')
+  1651 |     document.documentElement.classList.add('dark')
+  1652 |   })
+  1653 |   await expect(page).toHaveScreenshot('workspace-settings-dark.png', { animations: 'disabled' })
+  1654 |   await page.setViewportSize({ width: 390, height: 844 })
+  1655 |   await expect(page).toHaveScreenshot('workspace-settings-narrow.png', { animations: 'disabled' })
+  1656 |   expect(
+  1657 |     await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)
+  1658 |   ).toBe(true)
+  1659 |   await page.setViewportSize({ width: 1280, height: 720 })
+  1660 |   await page.evaluate(() => {
+  1661 |     localStorage.setItem('theme', 'light')
+  1662 |     document.documentElement.classList.remove('dark')
+  1663 |     document.documentElement.classList.add('light')
+  1664 |   })
+  1665 | 
+  1666 |   await settings.getByRole('tab', { name: 'Agents' }).focus()
+  1667 |   await page.keyboard.press('End')
+  1668 |   // 'permissions' is the newest section, so it owns the End edge now.
+  1669 |   await expect(settings.getByRole('tab', { name: 'Permissions' })).toBeFocused()
+  1670 |   await page.keyboard.press('Home')
+  1671 |   await expect(settings.getByRole('tab', { name: 'Account & app' })).toBeFocused()
+  1672 |   await settings.getByRole('tab', { name: 'Agents' }).click()
+  1673 |   await settings.getByRole('button', { name: 'Customize Agents' }).click()
+  1674 | 
+  1675 |   const configured = page.getByText('Configured', { exact: true }).first()
+  1676 |   await expect(configured).toBeVisible()
+  1677 |   await expect(page.getByText('Runtime unknown', { exact: true }).first()).toBeVisible()
+  1678 |   await expect(page.getByText('Activity unknown', { exact: true }).first()).toBeVisible()
+  1679 |   expect((await page.locator('.conventional-agent-card').allTextContents()).join(' ')).not.toMatch(
+  1680 |     /online|working/i
+  1681 |   )
+  1682 | 
+  1683 |   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
+  1684 |   const form = page.locator('form.conventional-agent-customization')
+  1685 |   await form.getByLabel('Name').fill('Research Lead')
+  1686 |   await form.getByLabel('Role or persona').fill('Market evidence and customer research')
+  1687 |   await form.getByLabel('Room').selectOption('room-support')
+  1688 |   await form.getByLabel('AgentProfile version').fill('2')
+  1689 |   const presentation = page.waitForRequest((request) => request.url().endsWith('/presentation'))
+  1690 |   const room = page.waitForRequest((request) => request.url().endsWith('/room'))
+  1691 |   const profile = page.waitForRequest((request) => request.url().endsWith('/profile'))
+  1692 |   await form.getByRole('button', { name: 'Save changes' }).click()
+  1693 |   expect((await presentation).postDataJSON()).toMatchObject({ name: 'Research Lead' })
+  1694 |   expect((await room).postDataJSON()).toEqual({ roomId: 'room-support' })
+  1695 |   expect((await profile).postDataJSON()).toMatchObject({
+  1696 |     profileId: 'profile-research',
+```

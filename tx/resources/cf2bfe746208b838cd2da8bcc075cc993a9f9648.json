@@ -1,0 +1,34 @@
+[
+  {
+    "agentId": "agent-research",
+    "artifactRefs": ["artifact-brief"],
+    "conversation": { "channelId": "channel-product", "messageId": "message-task" },
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "creator": { "kind": "user", "userId": "user-e2e" },
+    "dependencyIds": [],
+    "id": "task-launch",
+    "lifecycleState": "created",
+    "objective": "Prepare the launch brief and confirm audience.",
+    "priority": "high",
+    "roomId": "room-product",
+    "title": "Launch planning",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 1,
+    "workspaceId": "workspace-e2e"
+  },
+  {
+    "artifactRefs": [],
+    "conversation": {},
+    "createdAt": "2026-08-30T12:00:00.000Z",
+    "creator": { "kind": "user", "userId": "user-e2e" },
+    "dependencyIds": ["task-launch"],
+    "id": "task-review",
+    "lifecycleState": "queued",
+    "objective": "Review the customer-facing plan.",
+    "priority": "normal",
+    "title": "Review launch",
+    "updatedAt": "2026-08-30T12:00:00.000Z",
+    "version": 2,
+    "workspaceId": "workspace-e2e"
+  }
+]
