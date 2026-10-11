@@ -20,9 +20,17 @@ import {
   softDeleteProject,
   updateProject,
   updateWorkspace,
+  withWorkspaceManagementAuthority,
+  type AgentHqDatabase,
+  type AgentHqTransaction,
 } from '@adea-ai/db'
 
-import type { ManagementCurrentAuthority } from '@adea-ai/types/management'
+import type { UserPrincipalRef } from '@adea-ai/types'
+import {
+  managementOperations,
+  type ManagementCurrentAuthority,
+  type ManagementOperationId,
+} from '@adea-ai/types/management'
 
 import { scopedAdminCredential } from './control-plane-client'
 import { controlPlaneScopeResolver } from './control-plane-scope'
@@ -94,18 +102,90 @@ export function applicationManagementOperations(
   return createManagementOperations({
     database: applicationDatabase,
     executors: {
-      archiveProject,
-      createProject,
-      promoteProjectState,
-      removeProjectMember,
-      reopenWorkspace,
-      reorderProjects,
-      setProjectMember,
-      setProjectVisibility,
-      softDeleteProject,
-      updateProject,
-      updateWorkspace,
+      archiveProject: (database, workspaceId, projectId, principal) =>
+        executeAuthorized(database, 'project.archive', workspaceId, principal, (transaction) =>
+          archiveProject(transaction, workspaceId, projectId, principal)
+        ),
+      createProject: (database, workspaceId, principal, input) =>
+        executeAuthorized(database, 'project.create', workspaceId, principal, (transaction) =>
+          createProject(transaction, workspaceId, principal, input)
+        ),
+      promoteProjectState: (database, workspaceId, projectId, principal, input) =>
+        executeAuthorized(database, 'project.promote', workspaceId, principal, (transaction) =>
+          promoteProjectState(transaction, workspaceId, projectId, principal, input)
+        ),
+      removeProjectMember: (database, workspaceId, projectId, principal, userId) =>
+        executeAuthorized(
+          database,
+          'project.member.remove',
+          workspaceId,
+          principal,
+          (transaction) =>
+            removeProjectMember(transaction, workspaceId, projectId, principal, userId)
+        ),
+      reopenWorkspace: (database, workspaceId, principal) =>
+        executeAuthorized(
+          database,
+          'config.workspace.reopen',
+          workspaceId,
+          principal,
+          (transaction) => reopenWorkspace(transaction, workspaceId, principal)
+        ),
+      reorderProjects: (database, workspaceId, principal, projectIds) =>
+        executeAuthorized(database, 'project.reorder', workspaceId, principal, (transaction) =>
+          reorderProjects(transaction, workspaceId, principal, projectIds)
+        ),
+      setProjectMember: (database, workspaceId, projectId, principal, input) =>
+        executeAuthorized(database, 'project.member.set', workspaceId, principal, (transaction) =>
+          setProjectMember(transaction, workspaceId, projectId, principal, input)
+        ),
+      setProjectVisibility: (database, workspaceId, projectId, principal, visibility) =>
+        executeAuthorized(
+          database,
+          'project.visibility.set',
+          workspaceId,
+          principal,
+          (transaction) =>
+            setProjectVisibility(transaction, workspaceId, projectId, principal, visibility)
+        ),
+      softDeleteProject: (database, workspaceId, projectId, principal) =>
+        executeAuthorized(database, 'project.delete', workspaceId, principal, (transaction) =>
+          softDeleteProject(transaction, workspaceId, projectId, principal)
+        ),
+      updateProject: (database, workspaceId, projectId, principal, input) =>
+        executeAuthorized(database, 'project.update', workspaceId, principal, (transaction) =>
+          updateProject(transaction, workspaceId, projectId, principal, input)
+        ),
+      updateWorkspace: (database, workspaceId, principal, input) =>
+        executeAuthorized(
+          database,
+          'config.workspace.update',
+          workspaceId,
+          principal,
+          (transaction) => updateWorkspace(transaction, workspaceId, principal, input)
+        ),
     },
     gateway,
   })
+}
+
+function executeAuthorized<T>(
+  database: AgentHqDatabase,
+  operation: ManagementOperationId,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  execute: (transaction: AgentHqTransaction) => Promise<T>
+): Promise<T> {
+  const permission = managementOperations[operation].permission
+  if (!permission) throw new Error('Workspace unavailable')
+  return withWorkspaceManagementAuthority(
+    database,
+    {
+      ...(operation === 'config.workspace.reopen' ? { includeArchived: true } : {}),
+      permission,
+      principal,
+      workspaceId,
+    },
+    execute
+  )
 }

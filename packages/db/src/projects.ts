@@ -73,7 +73,7 @@ function activeProjectFilter(workspaceId: string, projectId?: string) {
 }
 
 export async function createProject(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
   input: ProjectCreateInput
@@ -190,7 +190,7 @@ export async function getProjectForUser(
 }
 
 export async function updateProject(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,
@@ -227,7 +227,7 @@ export async function updateProject(
 }
 
 export async function archiveProject(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef
@@ -269,7 +269,7 @@ export async function archiveProject(
  * no longer be read, updated, reordered or recreated under the same id.
  */
 export async function softDeleteProject(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef
@@ -313,7 +313,7 @@ export async function softDeleteProject(
 }
 
 export async function reorderProjects(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
   projectIds: readonly string[]

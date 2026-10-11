@@ -379,3 +379,5 @@ export {
 } from './conversations'
 
 export * from './lead-model-selections'
+
+export { withWorkspaceManagementAuthority } from './management-workspace-authority'

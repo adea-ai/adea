@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 /**
  * Production current-authority path proof (#1215). Unlike the composition
@@ -57,7 +57,7 @@ function decodeSegment(segment: string): Record<string, unknown> {
 }
 
 function requestFor(
-  body: { input: unknown; targetId: string; workspaceId: string },
+  body: { input: unknown; targetId: string | null; workspaceId: string },
   operation: string,
   token: string
 ) {
@@ -90,6 +90,7 @@ describe('production current-authority path (#1215)', () => {
   let leadPublicJwk: JsonWebKey
   let leadTrustWorkspaces: string[] = []
   let hops: Hop[] = []
+  let effectBarrier: (() => Promise<void>) | undefined
   const liveControlPlaneWorkspaces = new Set<string>()
   const savedEnvironment: Record<string, string | undefined> = {}
 
@@ -288,6 +289,7 @@ describe('production current-authority path (#1215)', () => {
           return Response.json({ code: 'UNAUTHENTICATED' }, { status: 401 })
         if (cpWorkspaceIds.length !== 1 || !liveControlPlaneWorkspaces.has(cpWorkspaceIds[0]!))
           return Response.json({ code: 'PI_MANAGEMENT_CURRENT_UNAVAILABLE' }, { status: 503 })
+        if (body.parameters?.boundary === 'effect') await effectBarrier?.()
         return Response.json({ asserted: true })
       },
       port: 0,
@@ -487,4 +489,339 @@ describe('production current-authority path (#1215)', () => {
       expect(await projectName(workspaceA, projectA)).toBe(`Config ${key}`)
     }
   })
+
+  const fencedOperations = [
+    'project.create',
+    'project.update',
+    'project.archive',
+    'project.delete',
+    'project.promote',
+    'project.reorder',
+    'project.visibility.set',
+    'project.member.set',
+    'project.member.remove',
+    'config.workspace.update',
+    'config.workspace.reopen',
+  ] as const
+
+  test('the transaction proofs cover every supported cloud lead management operation', () => {
+    expect(
+      Object.entries(typesModule.managementOperations)
+        .filter(
+          ([, definition]) =>
+            definition.surface === 'cloud' && definition.lanes.lead === 'supported'
+        )
+        .map(([operation]) => operation)
+        .toSorted()
+    ).toEqual([...fencedOperations].toSorted())
+  })
+
+  async function effectFixture(operation: (typeof fencedOperations)[number]) {
+    const { workspace } = await dbModule.createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `fenced-${crypto.randomUUID()}`,
+      name: 'Fenced workspace',
+      owner: owner.principal,
+    })
+    const actor = operation === 'config.workspace.reopen' ? owner.principal : otherOwner.principal
+    if (actor !== owner.principal)
+      await dbModule.addWorkspaceMembership(connection.db, workspace.id, actor, 'admin')
+    const [mapping] = await connection.db
+      .select({ id: dbModule.workspaces.controlPlaneWorkspaceId })
+      .from(dbModule.workspaces)
+      .where(eq(dbModule.workspaces.id, workspace.id))
+    liveControlPlaneWorkspaces.add(mapping!.id)
+    leadTrustWorkspaces.push(workspace.id)
+    let project = await dbModule.createProject(connection.db, workspace.id, owner.principal, {
+      iconKey: 'box',
+      name: 'Before fenced operation',
+    })
+    let targetId: string | null = project.id
+    let input: Record<string, unknown> = {}
+    switch (operation) {
+      case 'project.create':
+        targetId = null
+        input = { iconKey: 'box', name: 'Fenced create' }
+        break
+      case 'project.update':
+        input = { name: 'Fenced update' }
+        break
+      case 'project.promote':
+        await dbModule.archiveProject(connection.db, workspace.id, project.id, owner.principal)
+        project = (await dbModule.getProjectForUser(
+          connection.db,
+          workspace.id,
+          project.id,
+          owner.principal,
+          { includeArchived: true }
+        ))!
+        input = { confirmed: true, expectedVersion: project.version }
+        break
+      case 'project.reorder':
+        targetId = null
+        input = { projectIds: [project.id] }
+        break
+      case 'project.visibility.set':
+        input = { visibility: 'members' }
+        break
+      case 'project.member.set':
+        targetId = owner.principal.userId
+        input = { projectId: project.id, role: 'editor' }
+        break
+      case 'project.member.remove':
+        await dbModule.setProjectMember(connection.db, workspace.id, project.id, owner.principal, {
+          userId: owner.principal.userId,
+          role: 'viewer',
+        })
+        targetId = owner.principal.userId
+        input = { projectId: project.id }
+        break
+      case 'config.workspace.update':
+        targetId = workspace.id
+        input = { expectedVersion: workspace.version, name: 'Fenced workspace update' }
+        break
+      case 'config.workspace.reopen':
+        // The production CP scope mapper refuses archived workspaces before
+        // admission. Exercise lead reopen on an active workspace (idempotent);
+        // archived human reopen is covered separately below.
+        targetId = workspace.id
+        break
+      case 'project.archive':
+      case 'project.delete':
+        break
+    }
+    const binding = await typesModule.managementCallBinding({
+      input,
+      operation,
+      targetId,
+      workspaceId: workspace.id,
+    })
+    if (!binding) throw new Error('Fixture binding unavailable')
+    const token = await signedDecision(binding, `decision-${crypto.randomUUID()}`, actor.userId)
+    return { actor, input, operation, targetId, token, workspaceId: workspace.id }
+  }
+
+  async function effectSnapshot(workspaceId: string) {
+    return Promise.all([
+      connection.db
+        .select()
+        .from(dbModule.workspaces)
+        .where(eq(dbModule.workspaces.id, workspaceId)),
+      connection.db
+        .select()
+        .from(dbModule.projects)
+        .where(eq(dbModule.projects.workspaceId, workspaceId)),
+      connection.db
+        .select()
+        .from(dbModule.projectMembers)
+        .where(eq(dbModule.projectMembers.workspaceId, workspaceId)),
+      connection.db
+        .select()
+        .from(dbModule.workspaceEvents)
+        .where(eq(dbModule.workspaceEvents.workspaceId, workspaceId)),
+    ])
+  }
+
+  test('human archived reopen retains its owner-only semantics under the transaction fence', async () => {
+    const f = await effectFixture('config.workspace.reopen')
+    await dbModule.archiveWorkspace(connection.db, f.workspaceId, owner.principal)
+    const before = await effectSnapshot(f.workspaceId)
+    await dbModule.addWorkspaceMembership(
+      connection.db,
+      f.workspaceId,
+      otherOwner.principal,
+      'admin'
+    )
+    const admin = await scopeModule.withRequestScope(() =>
+      composition.applicationManagementOperations().workspaceReopen({
+        principal: otherOwner.principal,
+        workspaceId: f.workspaceId,
+      })
+    )
+    expect(admin.ok).toBe(false)
+    expect(await effectSnapshot(f.workspaceId)).toEqual(before)
+    const reopened = await scopeModule.withRequestScope(() =>
+      composition.applicationManagementOperations().workspaceReopen({
+        principal: owner.principal,
+        workspaceId: f.workspaceId,
+      })
+    )
+    expect(reopened.ok).toBe(true)
+    const after = await effectSnapshot(f.workspaceId)
+    expect(after[0]![0]!.deletedAt).toBeNull()
+    expect(after[3]!.length).toBe(before[3]!.length + 1)
+  })
+
+  for (const operation of fencedOperations) {
+    // Owner membership removal is prohibited by its canonical revocation API;
+    // reopen is owner-only. Its downgrade still exercises the permission fence.
+    const changes =
+      operation === 'config.workspace.reopen'
+        ? (['downgrade'] as const)
+        : (['remove', 'downgrade'] as const)
+    for (const change of changes) {
+      test(`${operation}: ${change} committed during the production CP effect await prevents its mutation/event`, async () => {
+        const entered = Promise.withResolvers<void>()
+        const release = Promise.withResolvers<void>()
+        let pending: Promise<Response> | undefined
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          // A separately bound allowed call proves the fixture can perform the
+          // actual operation, so refusal cannot pass due to malformed/stale input.
+          const allowed = await effectFixture(operation)
+          const beforeAllowed = await effectSnapshot(allowed.workspaceId)
+          const applied = await scopeModule.withRequestScope(() =>
+            handler()(requestFor(allowed, operation, allowed.token))
+          )
+          expect(applied.status).toBe(200)
+          const appliedEvents = (await effectSnapshot(allowed.workspaceId))[3]!.length
+          if (operation === 'config.workspace.reopen')
+            expect(appliedEvents).toBe(beforeAllowed[3]!.length)
+          else expect(appliedEvents).toBeGreaterThan(beforeAllowed[3]!.length)
+          const f = await effectFixture(operation)
+          const before = await effectSnapshot(f.workspaceId)
+          effectBarrier = async () => {
+            entered.resolve()
+            await release.promise
+          }
+          hops = []
+          pending = scopeModule.withRequestScope(() => handler()(requestFor(f, operation, f.token)))
+          await Promise.race([
+            entered.promise,
+            pending.then(() => {
+              throw new Error('Call completed before the CP effect barrier')
+            }),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error('CP effect barrier was not reached')),
+                3_000
+              )
+            }),
+          ])
+          expect(hops.map((hop) => hop.boundary)).toEqual(['admission', 'effect'])
+          if (change === 'remove') {
+            expect(
+              await dbModule.removeWorkspaceMembership(connection.db, f.workspaceId, f.actor)
+            ).toBe(true)
+          } else {
+            await connection.db
+              .update(dbModule.workspaceMemberships)
+              .set({ role: 'member' })
+              .where(
+                and(
+                  eq(dbModule.workspaceMemberships.workspaceId, f.workspaceId),
+                  eq(dbModule.workspaceMemberships.userId, f.actor.userId)
+                )
+              )
+          }
+          expect(
+            (
+              await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor, {
+                includeArchived: true,
+              })
+            )?.role ?? null
+          ).toBe(change === 'remove' ? null : 'member')
+          release.resolve()
+          expect((await pending).status).not.toBe(200)
+          expect(await effectSnapshot(f.workspaceId)).toEqual(before)
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+          effectBarrier = undefined
+          release.resolve()
+          await pending?.catch(() => undefined)
+        }
+      })
+    }
+  }
+
+  for (const change of ['remove', 'downgrade'] as const) {
+    test(`the production executor holds ${change} until its mutation/event commit`, async () => {
+      const release = Promise.withResolvers<void>()
+      const locked = Promise.withResolvers<number>()
+      let blocker: Promise<void> | undefined
+      let pending: Promise<Response> | undefined
+      let revocation: Promise<unknown> | undefined
+      let revoker: import('@adea-ai/db').DatabaseConnection | undefined
+      try {
+        const f = await effectFixture('project.update')
+        const before = await effectSnapshot(f.workspaceId)
+        blocker = connection.db.transaction(async (transaction) => {
+          await transaction
+            .select({ id: dbModule.projects.id })
+            .from(dbModule.projects)
+            .where(eq(dbModule.projects.id, f.targetId!))
+            .for('update')
+          const [row] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+          locked.resolve(Number(row!.pid))
+          await release.promise
+        })
+        void blocker.catch(() => undefined)
+        const blockerPid = await Promise.race([
+          locked.promise,
+          blocker.then(() => {
+            throw new Error('Row blocker ended early')
+          }),
+        ])
+        pending = scopeModule.withRequestScope(() => handler()(requestFor(f, f.operation, f.token)))
+        void pending.catch(() => undefined)
+        async function blockedPid(pattern: string, ownerPid: number, applicationName?: string) {
+          const deadline = Date.now() + 3_000
+          while (Date.now() < deadline) {
+            const rows = await connection.db.execute(sql`
+              select a.pid from pg_stat_activity a where a.datname = current_database()
+                and a.wait_event_type = 'Lock' and a.query ilike ${pattern}
+                and (${applicationName ?? null}::text is null or a.application_name = ${applicationName ?? null})
+                and pg_blocking_pids(a.pid) @> array[${ownerPid}]::int[]
+            `)
+            if (rows[0]) return Number(rows[0].pid)
+            await Bun.sleep(10)
+          }
+          throw new Error(`Expected PostgreSQL lock wait for ${pattern}`)
+        }
+        // The real executor has passed permission acquisition and is now
+        // blocked inside its savepoint, immediately before the project write.
+        const mutationPid = await blockedPid('%update%projects%', blockerPid)
+        const label = `production-revocation-${crypto.randomUUID()}`
+        const url = new URL(connectionUrl!)
+        url.searchParams.set('application_name', label)
+        revoker = dbModule.createDatabase(url.toString())
+        revocation =
+          change === 'remove'
+            ? dbModule.removeWorkspaceMembership(revoker.db, f.workspaceId, f.actor)
+            : revoker.db
+                .update(dbModule.workspaceMemberships)
+                .set({ role: 'member' })
+                .where(
+                  and(
+                    eq(dbModule.workspaceMemberships.workspaceId, f.workspaceId),
+                    eq(dbModule.workspaceMemberships.userId, f.actor.userId)
+                  )
+                )
+        // Drizzle queries are lazy: normalize the update to a running promise.
+        revocation = Promise.resolve(revocation)
+        void revocation.catch(() => undefined)
+        expect(await blockedPid('%workspace_memberships%', mutationPid, label)).toBeGreaterThan(0)
+        expect(
+          (await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor))?.role
+        ).toBe('admin')
+        expect(await effectSnapshot(f.workspaceId)).toEqual(before)
+        release.resolve()
+        await blocker
+        expect((await pending).status).toBe(200)
+        await revocation
+        expect(
+          (await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor))?.role ??
+            null
+        ).toBe(change === 'remove' ? null : 'member')
+        const after = await effectSnapshot(f.workspaceId)
+        expect(after[1]![0]!.name).toBe('Fenced update')
+        expect(after[3]!.length).toBe(before[3]!.length + 1)
+      } finally {
+        release.resolve()
+        await blocker?.catch(() => undefined)
+        await pending?.catch(() => undefined)
+        await revocation?.catch(() => undefined)
+        await revoker?.close()
+      }
+    })
+  }
 })

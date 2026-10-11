@@ -715,7 +715,7 @@ export async function archiveWorkspace(
 }
 
 export async function reopenWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<WorkspaceSummary> {
@@ -764,7 +764,7 @@ export async function reopenWorkspace(
  * stale `expectedVersion` raises `WorkspaceVersionConflictError`.
  */
 export async function updateWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
   input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>

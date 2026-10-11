@@ -297,7 +297,7 @@ export async function restoreProjectChannels(
  * `version` atomically with the CAS, so no later write can reuse the token.
  */
 export async function promoteProjectState(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,

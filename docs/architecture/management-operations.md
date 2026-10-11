@@ -54,6 +54,19 @@ binding at entry, authorizes, audits, then:
 its existing database function. HTTP routes and the lead tool surface both
 construct the same operations object.
 
+The production composition also enforces the catalog permission inside the
+mutation/event transaction. `withWorkspaceManagementAuthority` locks the
+workspace first (including its lifecycle), then reads the actor membership
+with `FOR SHARE`, which conflicts with deletion and non-key role updates.
+A revocation committed before acquisition denies the effect; an effect that
+acquires valid authority first holds revocation until commit or rollback.
+All eleven supported cloud management executors receive that transaction;
+their existing transaction wrappers create savepoints on the same connection.
+The generic query-layer project/editor policies remain unchanged for other
+callers. Reopen retains its owner-only executor policy and is the sole binding
+that permits an archived workspace. This local database ordering does not
+make the remote CP assertion and the Adea effect a distributed atomic action.
+
 ## Exact-call lead authority
 
 `ManagementCallBinding` is
