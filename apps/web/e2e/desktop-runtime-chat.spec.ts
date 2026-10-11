@@ -11,9 +11,27 @@ async function mount(page: import('@playwright/test').Page) {
   )
   await page.goto(path)
   const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/desktop-runtime-chat-harness-app.tsx')
-  await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + entry}'` })
+  await page.evaluate(async (moduleUrl) => {
+    await import(/* @vite-ignore */ moduleUrl)
+  }, '/@fs' + entry)
   await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
 }
+
+test('returning production Chat does not imply that Control Plane selection is wired', async ({
+  page,
+}) => {
+  await mount(page)
+
+  await expect(page.getByLabel('Mode')).toHaveCount(0)
+  await expect(page.getByText('Agent', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Resolve & launch' })).toHaveCount(0)
+  await expect(
+    page.getByText('Customize pins are submitted to the Control Plane and remain authoritative.', {
+      exact: true,
+    })
+  ).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Message runtime' })).toBeVisible()
+})
 
 test('returning desktop Chat mounts canonical sessions and retains draft through Dev remount', async ({
   page,
