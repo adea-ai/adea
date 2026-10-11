@@ -111,8 +111,8 @@ Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
 
-The built-in palettes are the complete published `@adea-ai/themes` 0.8.1
-catalogue, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
+The built-in palettes are the complete published `@adea-ai/themes` catalogue
+pinned in this package’s manifest, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
 4.5:1 editor floor; no palette is waived. Build-time generation consumes the
 published `@adea-ai/ui/lib/themes` framework projection plus the catalogue's
 terminal/editor adapters. The generated stylesheet includes default and named
@@ -132,3 +132,5 @@ catalogue IDs resolve to the default of the same appearance and the original
 stored record is preserved. Run `bun run --cwd packages/ui themes:generate`
 after changing the published source; `bun run --cwd packages/ui themes:check`
 verifies the committed generated files are current.
+
+The appearance adapter opts into published `@adea-ai/ui/fonts.css` so every offered non-System family has a self-hosted face. System remains the default for UI, content, and code; browser evidence must show it downloads no font assets and that selecting a bundled family loads that actual face. The host does not copy font files or declarations.

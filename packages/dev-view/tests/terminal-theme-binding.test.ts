@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { terminalThemeFromStyles } from '../src/terminal/theme-binding'
+import { terminalThemeFromStyles, terminalFontFromStyles } from '../src/terminal/theme-binding'
 
 test('terminal roles map all ANSI slots without retaining an unrelated palette', () => {
   const values: Record<string, string> = {
@@ -29,4 +29,19 @@ test('terminal roles map all ANSI slots without retaining an unrelated palette',
 test('absent canonical tokens do not inject a competing fallback theme', () => {
   const theme = terminalThemeFromStyles({ getPropertyValue: () => ' ' })
   expect(Object.values(theme).every((value) => value === undefined)).toBe(true)
+})
+
+test('terminal typography follows the computed code surface, including text scaling', () => {
+  expect(terminalFontFromStyles({ fontFamily: 'JetBrains Mono, monospace', fontSize: '18px' })).toEqual({
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 18,
+  })
+  expect(terminalFontFromStyles({ fontFamily: 'JetBrains Mono, monospace', fontSize: '36px' })).toEqual({
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 36,
+  })
+  expect(terminalFontFromStyles({ fontFamily: '', fontSize: '' })).toEqual({
+    fontFamily: undefined,
+    fontSize: undefined,
+  })
 })
