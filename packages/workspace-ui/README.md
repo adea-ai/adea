@@ -94,3 +94,7 @@ sequence and vertical keyboard semantics remain the same.
 Microphone permission checks catch host failures and show a retryable message in
 Settings. The check button prevents concurrent requests, and a result from a
 closed or unmounted dialog cannot change its permission presentation.
+
+Icon actions retain their shared ActionButton tooltips in both the inline sidebar and mobile modal navigation. The shared tooltip dismissal contract lets one Escape close navigation and restore the contextual-toggle focus, including after keyboard focus reveals a row action’s explanation.
+
+Workspace containers do not reset descendant controls’ typography, focus outlines, disabled appearance, or SVG dimensions. Those contracts come from the published primitives and their size/variant props, consistently in the inline and virtual sidebars and the rest of the workspace.

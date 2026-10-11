@@ -46,6 +46,7 @@ import {
 } from './responsive-presets'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { ListRowControl } from '@adea-ai/ui/components/composites/list-row'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 
@@ -786,17 +787,15 @@ export function BrowserPane(props: BrowserPaneProps) {
           </Show>
 
           <p class="dev-browser__section-title">Lanes</p>
-          {/* oxlint-disable-next-line adea/no-interactive-wrappers -- lane selection awaits the shared Tabs adoption */}
-          <div role="tablist" aria-label="Browser lanes">
+          <div role="group" aria-label="Browser lanes">
             <For each={lanes()?.items ?? []}>
               {(lane) => (
-                <Button
-                  type="button"
-                  role="tab"
-                  variant={lane.id === activeLane()?.id ? 'secondary' : 'outline'}
-                  size="sm"
-                  aria-selected={lane.id === activeLane()?.id}
-                  class="w-full justify-start"
+                <ListRowControl
+                  as="button"
+                  selected={lane.id === activeLane()?.id}
+                  aria-pressed={lane.id === activeLane()?.id}
+                  description={`${lane.state} · takeover ${lane.automationOwner}`}
+                  class="w-full"
                   onClick={() => {
                     invalidateInspection()
                     clearScreenshotContext()
@@ -805,13 +804,8 @@ export function BrowserPane(props: BrowserPaneProps) {
                     void refetchDiagnostics()
                   }}
                 >
-                  <span class="dev-browser__row-main">
-                    <span>{LANE_KIND_LABEL[lane.kind]}</span>
-                    <span class="dev-browser__row-meta">
-                      {lane.state} · takeover {lane.automationOwner}
-                    </span>
-                  </span>
-                </Button>
+                  {LANE_KIND_LABEL[lane.kind]}
+                </ListRowControl>
               )}
             </For>
             <Show when={(lanes()?.items.length ?? 0) === 0}>

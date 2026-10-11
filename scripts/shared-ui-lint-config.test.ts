@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import ts from 'typescript'
 
 const root = resolve(import.meta.dir, '..')
 const fixtures: string[] = []
@@ -11,7 +12,62 @@ afterEach(() => {
   for (const fixture of fixtures.splice(0)) rmSync(fixture, { recursive: true, force: true })
 })
 
+function hasConsumerSuppression(source: string): boolean {
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, source)
+  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia)
+      continue
+    const comment = scanner.getTokenText()
+    const directive = /(?:oxlint|eslint)-disable(?:-next-line|-line)?\b([\s\S]*)/.exec(comment)
+    if (!directive) continue
+    const rules = directive[1]!.replace(/\*\/\s*$/, '').split('--')[0]!.trim()
+    if (!rules || /(?:^|[,\s])adea\//.test(rules)) return true
+  }
+  return false
+}
+
 describe('shared UI lint configuration', () => {
+  test('consumer enforcement has no path exemptions', () => {
+    const config = JSON.parse(readFileSync(resolve(root, '.oxlintrc.json'), 'utf8')) as {
+      rules: Record<string, unknown>
+      overrides?: { rules?: Record<string, unknown> }[]
+    }
+    for (const name of [
+      'no-raw-interactive-elements',
+      'no-primitive-library-imports',
+      'no-interactive-wrappers',
+      'no-class-list',
+      'no-inline-styles',
+      'require-action-button-tooltip',
+    ]) {
+      const rule = `adea/${name}`
+      expect(config.rules[rule]).toBe('error')
+      for (const override of config.overrides ?? []) expect(override.rules?.[rule]).toBeUndefined()
+    }
+  })
+
+  test('consumer source does not suppress shared UI rules inline', () => {
+    const suppressed: string[] = []
+    for (const file of new Bun.Glob('{apps,packages}/**/src/**/*.{ts,tsx}').scanSync({
+      cwd: root,
+    })) {
+      if (file.includes('/node_modules/') || file.includes('/dist/') || file.endsWith('/routeTree.gen.ts'))
+        continue
+      const source = readFileSync(resolve(root, file), 'utf8')
+      if (hasConsumerSuppression(source)) suppressed.push(file)
+    }
+    expect(suppressed).toEqual([])
+  })
+
+  test('blanket and shared-rule suppression comments cannot bypass the consumer guard', () => {
+    expect(hasConsumerSuppression('/* oxlint-disable */')).toBe(true)
+    expect(hasConsumerSuppression('// eslint-disable-next-line -- broad bypass')).toBe(true)
+    expect(hasConsumerSuppression('/* oxlint-disable\n adea/no-interactive-wrappers */')).toBe(true)
+    expect(hasConsumerSuppression('// eslint-disable-line adea/no-inline-styles')).toBe(true)
+    expect(hasConsumerSuppression('// oxlint-disable-next-line no-control-regex -- protocol parser')).toBe(false)
+    expect(hasConsumerSuppression('const text = "/* oxlint-disable */"')).toBe(false)
+  })
+
   test('Oxlint rejects control, class, inline-style, and icon-tooltip drift', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'adea-shared-ui-lint-'))
     fixtures.push(fixture)
@@ -29,6 +85,8 @@ describe('shared UI lint configuration', () => {
         '    <button type="button" />',
         '    <Dynamic component="input" />',
         '    <div classList={{ active: true }} />',
+        '    <div role="button" onClick={() => {}} />',
+        '    <span tabIndex={0} />',
         '    <KobalteRoot />',
         '    <div style={{ color: "red" }} />',
         '    <div {...{ style: { color: "red" } }} />',
@@ -63,6 +121,8 @@ describe('shared UI lint configuration', () => {
     }
     const rules = report.diagnostics.map(({ code }) => code)
 
+    expect(rules).toContain('adea(no-interactive-wrappers)')
+    expect(rules.filter((rule) => rule === 'adea(no-interactive-wrappers)')).toHaveLength(2)
     expect(rules).toContain('adea(no-class-list)')
     expect(rules).toContain('adea(no-raw-interactive-elements)')
     expect(rules).toContain('adea(no-primitive-library-imports)')
