@@ -23,7 +23,7 @@ import {
   MAX_SPLIT_RATIO,
   MIN_SPLIT_RATIO,
   listLeaves,
-} from './operations'
+} from '@adea-ai/ui/components/layout/split-layout/tree'
 
 export type LayoutDecodeResult =
   | Readonly<{ state: 'ready'; value: DevLayoutPreferencesV1 }>

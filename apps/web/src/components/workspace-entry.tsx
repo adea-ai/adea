@@ -12,11 +12,18 @@ if (typeof window !== 'undefined') {
   void import('./workspace-navigation-entry')
   const view = params.get('view')
   const roomDesigner = params.get('roomDesigner')
+  const characterDesigner = params.get('characterDesigner')
   // The dev view keeps its single dynamic boundary in workspace-navigation
   // (scripts/dev-view-boundary.test.ts), so it is not warmed here.
-  if (view === 'virtual' || (roomDesigner !== null && roomDesigner !== '0')) {
+  if (
+    view === 'virtual' ||
+    (roomDesigner !== null && roomDesigner !== '0') ||
+    (characterDesigner !== null && characterDesigner !== '0')
+  ) {
     void import('./workspace-shell')
     if (roomDesigner !== null && roomDesigner !== '0') void import('./room-designer-entry')
+    if (characterDesigner !== null && characterDesigner !== '0')
+      void import('./character-designer-entry')
   } else if (view !== 'dev') {
     void import('./conventional-workspace-entry')
   }
@@ -37,11 +44,6 @@ const WorkspaceNavigationEntry = lazyComponent(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const CharacterDesignerEntry = lazyComponent(
-  () => import('./character-designer-entry').then(({ CharacterDesignerEntry: Entry }) => Entry),
-  { loading: () => <WorkspaceEntryLoading /> }
-)
-
 function WorkspaceEntryLoading() {
   return (
     <main class="conventional-workspace conventional-workspace--loading" aria-busy="true">
@@ -58,16 +60,14 @@ export function WorkspaceEntry({
 }: Readonly<{
   virtual: boolean
   virtualProps: WorkspaceShellProps
-  /** Cold-mount the character designer URL without loading the normal workspace shell. */
+  /** Mount the character designer inside the global workspace container. */
   characterDesigner?: boolean
   /** Mount the dedicated room designer scene beside global workspace navigation. */
   roomDesigner?: boolean
 }>) {
-  if (characterDesigner) {
-    return <CharacterDesignerEntry initialCharacter={virtualProps.initialCharacter} />
-  }
   return (
     <WorkspaceNavigationEntry
+      characterDesigner={characterDesigner}
       roomDesigner={roomDesigner}
       virtual={virtual}
       virtualProps={virtualProps}
