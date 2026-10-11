@@ -31,6 +31,7 @@ import {
   createGroupChannelWithGrants,
   decideGroupChannelHistoryReadNow,
   decideGroupChannelPublicationNow,
+  decideGroupChannelSummaryReadNow,
   groupCreationCandidatesFromGrants,
   GroupCreationError,
   getGroupMessageForUser,
@@ -537,6 +538,89 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
     )
     expect(relocked.messages).toHaveLength(0)
   })
+
+  T(
+    'a newcomer needs an earlier_summary grant and loses summary access on revocation',
+    async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const founderOnly = grantsFor(channelId, f)
+      founderOnly.audienceGrants = founderOnly.audienceGrants.slice(0, 1)
+      founderOnly.enlistmentGrants = []
+      const created = await createGroupChannelWithGrants(connection.db, f.workspace.id, f.owner, {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, founderOnly),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+      const earlier = await createMessage(connection.db, f.workspace.id, channelId, f.owner, {
+        bodyText: 'before you joined',
+        idempotencyKey: crypto.randomUUID(),
+        sender: f.owner,
+      })
+      await setGroupChannelParticipantsWithGrants(
+        connection.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, grantsFor(channelId, f)),
+          expectedVersion: created.channel.version,
+          now: LATER,
+        }
+      )
+      const summary = () =>
+        decideGroupChannelSummaryReadNow(
+          connection.db,
+          f.workspace.id,
+          channelId,
+          f.member,
+          earlier.sequence,
+          LATER
+        )
+      await expect(summary()).resolves.toMatchObject({
+        action: 'deny',
+        reason: 'summary_before_join_point',
+      })
+      await shareGroupHistory(connection.db, f.workspace.id, channelId, f.owner, {
+        expiresAt: null,
+        grantId: 'gra_summary_member',
+        groupId: channelId,
+        issuedAt: ISSUED,
+        participant: f.member,
+        revision: 1,
+        revokedAt: null,
+        scope: 'earlier_summary',
+      })
+      const shared = await loadGroupSharingGrants(connection.db, f.workspace.id, channelId)
+      expect(shared).toHaveLength(1)
+      expect(shared[0]).toMatchObject({ scope: 'earlier_summary', participant: f.member })
+      await expect(summary()).resolves.toMatchObject({
+        action: 'allow',
+        basis: 'earlier_summary_grant',
+      })
+      const history = await listGroupChannelMessagesForUser(
+        connection.db,
+        f.workspace.id,
+        channelId,
+        f.member,
+        {},
+        { now: LATER }
+      )
+      expect(history.messages).toHaveLength(0)
+      const revoked = await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
+        grantId: 'gra_summary_member',
+        kind: 'sharing',
+        revokedAt: LATER,
+      })
+      expect(revoked).toEqual({ revoked: true })
+      await expect(summary()).resolves.toMatchObject({
+        action: 'deny',
+        reason: 'summary_before_join_point',
+      })
+    }
+  )
 
   T('revocation denies future reads and turns immediately while the job stays owned', async () => {
     const f = await fixture()
