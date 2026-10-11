@@ -67,7 +67,6 @@ function Harness() {
         }}
         activeWorkspace={activeWorkspace()}
         views={['virtual', 'chat', 'dev']}
-        onOpenNotifications={() => {}}
         onOpenAbout={() => {}}
         onOpenPlugins={() => {}}
         onOpenAppLibrary={() => setMode('chat', true)}

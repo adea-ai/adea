@@ -574,7 +574,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <WorkspaceTopBar
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
-        onSearch={openSearch}
+        onOpenNotifications={() => openSettings('input-notifications')}
         actionsMount={setToolbarMount}
       />
       <GlobalWorkspaceRail
@@ -594,7 +594,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             : {}),
           platform: props.platform,
         }}
-        onOpenNotifications={() => openSettings('input-notifications')}
         onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
         onOpenAppLibrary={() => openAppLibrary()}

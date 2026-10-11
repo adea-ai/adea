@@ -949,9 +949,11 @@ test('toggles chat and virtual Room views without losing shared selection or dra
     'aria-keyshortcuts',
     'Meta+K Control+K'
   )
+  // Notifications lives in the top bar now, not on the global rail.
+  await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
   await expect(
     globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
-  ).toBeDisabled()
+  ).toHaveCount(0)
   await expect(
     globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
   ).toBeVisible()

@@ -1,7 +1,7 @@
 import { useRouter } from '@tanstack/solid-router'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
-import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-solid'
+import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { workspaceHistoryPosition } from '../lib/workspace-history'
@@ -13,16 +13,24 @@ const HISTORY_KEY = 'adea:workspace-history-maximum:v1'
 export function WorkspaceTopBar(props: {
   platform: 'desktop' | 'web'
   title: string
-  onSearch(): void
+  onOpenNotifications(): void
   actionsMount(element: HTMLDivElement): void
 }) {
   const router = useRouter()
   const sidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
-  const [macos, setMacos] = createSignal(false)
+  // The workspace mount is browser-only, so navigator is readable at first
+  // render. Deriving the inset eagerly (not in onMount) reserves the traffic
+  // light column on the first paint; deriving it late let the back/forward
+  // controls render under the macOS window buttons for a frame or forever,
+  // depending on hydration.
+  const [macos] = createSignal(
+    props.platform === 'desktop' &&
+      typeof navigator !== 'undefined' &&
+      /Mac/.test(navigator.platform)
+  )
   const [position, setPosition] = createSignal(workspaceHistoryPosition(undefined, 'REPLACE', 0))
 
   onMount(() => {
-    setMacos(props.platform === 'desktop' && /Mac/.test(navigator.platform))
     let restored: number | undefined
     try {
       // Reload keeps this tab's branch. Fresh or external/BFCache arrivals
@@ -118,12 +126,12 @@ export function WorkspaceTopBar(props: {
         <ActionButton
           variant="ghost"
           size="icon-sm"
-          tooltip="Search workspace"
+          tooltip="Notifications"
           class="workspace-topbar__control"
-          aria-label="Search workspace"
-          onClick={props.onSearch}
+          aria-label="Notifications"
+          onClick={props.onOpenNotifications}
         >
-          <Search aria-hidden="true" />
+          <Bell aria-hidden="true" />
         </ActionButton>
       </TopBarSection>
     </TopBar>
