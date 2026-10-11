@@ -29,6 +29,13 @@ import {
   type Oklch,
 } from '@adea-ai/themes/oklch'
 
+import {
+  applyAppearanceFontSettings,
+  fontSettingsBootstrapScript,
+  normalizeAppearanceEditorFontSettings,
+  type AppearanceEditorFontSettings,
+} from '@adea-ai/ui/lib/appearance-font-settings'
+
 import { canonicalThemeRegistry } from './canonical-theme-adapter'
 
 /**
@@ -50,6 +57,8 @@ export type AppearancePreferencesV2 = Readonly<{
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
+  /** Missing in older V2 documents; the shared font defaults recover each text role. */
+  fonts?: AppearanceEditorFontSettings
 }>
 
 export type AppearanceMode = 'system' | 'light' | 'dark'
@@ -746,6 +755,9 @@ export function normalizeAppearancePreferences(raw: unknown): NormalizedPreferen
       accent: normalizeAccent(record.accent),
       surface: normalizeSurface(record.surface),
       reduceTransparency: record.reduceTransparency === true,
+      ...(record.fonts === undefined
+        ? {}
+        : { fonts: normalizeAppearanceEditorFontSettings(record.fonts).settings }),
     },
   }
 }
@@ -854,6 +866,7 @@ export type ResolvedAppearanceState = Readonly<{
   terminalOverride: ThemeTerminalPalette | undefined
   effectiveSurface: EffectiveSurface
   reduceTransparencyActive: boolean
+  fonts?: AppearanceEditorFontSettings
 }>
 
 /** Resolve preferences against the environment into the applied document state. */
@@ -871,6 +884,7 @@ export function resolveAppearanceState(
   return {
     resolvedMode,
     variant,
+    fonts: normalizeAppearanceEditorFontSettings(preferences.fonts).settings,
     accent: deriveAccentRoles(preferences.accent, variant),
     terminalOverride: resolveTerminalOverride(preferences.terminalThemeId, registry),
     effectiveSurface: resolveSurface(preferences.surface, {
@@ -961,6 +975,7 @@ export function applyAppearanceToDocument(
 ): void {
   const root = document.documentElement
   const style = root.style
+  applyAppearanceFontSettings(root, state.fonts)
 
   root.classList.toggle('dark', state.resolvedMode === 'dark')
   style.colorScheme = state.resolvedMode
@@ -1042,8 +1057,10 @@ function allVariantTokenNames(): ReadonlySet<string> {
 /**
  * The no-flash preload script rendered in the document head. It re-resolves
  * the stored (or legacy) preference against the OS before first paint and
- * applies the same document state the provider would, so hydration never shows
- * the wrong palette. Palette values are not embedded: every non-default
+ * applies the same document state the provider would, including System font
+ * defaults on a fresh install, so hydration never shows the wrong palette or
+ * downloads a theme font before the user's font preference is applied.
+ * Palette values are not embedded: every non-default
  * variant's tokens are declared in the generated `styles/canonical-themes.css`
  * under its `data-theme` attribute, including the default pair, so a render-blocking stylesheet plus the resolved
  * attribute paint the right palette. Accent overrides land with the provider:
@@ -1088,6 +1105,7 @@ r.dataset.appearanceMode=mode;
 r.dataset.surface=surface;
 r.dataset.reduceTransparency=reduce?'true':'false';
 s.setProperty('--surface-alpha',${alpha}[surface]||'1');
+${fontSettingsBootstrapScript(APPEARANCE_STORAGE_KEY, 2)}
 }catch(e){}})();`
 }
 

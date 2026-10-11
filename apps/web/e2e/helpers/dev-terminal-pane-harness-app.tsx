@@ -13,7 +13,12 @@
 // generation, exactly as it would against a restarted sidecar.
 import { render } from 'solid-js/web'
 // Production provides canonical terminal roles through this theme stylesheet.
-import '@adea-ai/app-ui/theme.css'
+import '../../src/start/globals.css'
+import {
+  applyAppearanceFontSettings,
+  DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+  type AppearanceEditorFontFamilyId,
+} from '@adea-ai/ui/lib/appearance-font-settings'
 
 import { TerminalPane, type TerminalPaneProps } from '@adea-ai/dev-view/terminal'
 import type { DevStreamFrame, ShellProfile } from '@adea-ai/types/dev-runtime'
@@ -135,6 +140,12 @@ function subscribeToObservations(handler: ObservationHandler): () => void {
 }
 
 const harness = {
+  setCodeFont(family: AppearanceEditorFontFamilyId, size: number) {
+    applyAppearanceFontSettings(document.documentElement, {
+      ...DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
+      code: { family, size },
+    })
+  },
   write: writeOutput,
   restart: restartSidecar,
   setEcho(on: boolean) {

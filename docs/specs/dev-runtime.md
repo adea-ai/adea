@@ -2677,6 +2677,15 @@ all sixteen ANSI slots, from its surface. Palette changes update the existing
 renderer and search decorations without reattaching its stream or replacing
 its output, selection, focus, or editor draft. A bounded ancestor-attribute
 observer batches updates into one animation frame and disconnects on disposal.
+The same surface projects the shared Code font family and computed size into
+xterm. A selected optional web font finishes loading before xterm measures its
+characters and refits the existing pane; if that changes its measured columns
+or rows, the pane sends the new dimensions through the same generation-bound
+`dev.terminal.resize` path used for surface resizes (and only when resize/manage
+is enabled). Failed font loads retain the declared system fallback. Replacing
+a font choice or disposing the pane invalidates pending font completions.
+Typography updates preserve the stream, output, selection, focus, and editor
+draft.
 
 A bottom editor supports multiline input, history search, palette sources, and
 send-to-active-terminal; pasting multiline or control-character text requires
@@ -4116,8 +4125,24 @@ type AppearancePreferencesV2 = {
   accent: 'theme' | string
   surface: 'opaque' | 'frosted' | 'translucent'
   reduceTransparency: boolean
+  // Absent in legacy V2 records; normalized by the published UI font contract.
+  fonts?: {
+    ui: { family: string; size: number }
+    content: { family: string; size: number }
+    code: { family: string; size: number }
+  }
 }
 ```
+
+Font choices are device-local and use the shared UI's supported family IDs and
+normalizer, with System defaults at 14px for UI/content and 12px for code. The
+shared three-row group places System first above a divider in each family menu;
+each row has a size input. Live preview, Save, Cancel, Reset, and dismissal include
+all three font roles. Existing V2 documents recover missing fields without
+discarding the document. Font projection and structural typography remain
+shared UI-owned; terminal/editor adapters consume its code tokens without
+recreating the runtime session or losing output/selection. This owner follow-up
+supersedes #425's earlier exclusion of font controls.
 
 Migrate the old `theme` key without flash or deletion. System mode follows the
 OS; pinned modes do not. Accent affects only semantic accent/interactive roles
