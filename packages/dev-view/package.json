@@ -18,6 +18,12 @@
       "development": "./src/platform.ts",
       "import": "./dist/platform.js"
     },
+    "./utility-host": {
+      "types": "./dist/utility-host.d.ts",
+      "solid": "./src/utility-host.ts",
+      "development": "./src/utility-host.ts",
+      "import": "./dist/utility-host.js"
+    },
     "./appearance": {
       "types": "./dist/appearance/index.d.ts",
       "solid": "./src/appearance/index.ts",

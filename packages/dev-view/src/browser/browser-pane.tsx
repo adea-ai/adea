@@ -23,10 +23,17 @@ import type {
 import '@adea-ai/app-ui/dev-view.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { Camera, Cookie, PictureInPicture2, RotateCw, X } from 'lucide-solid'
-import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js'
 
 import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
+import {
+  createDevUtilityResource,
+  createDevUtilityResourceRequest,
+  createKeyedDevUtilityResource,
+  sameDevUtilityRequest,
+  type DevUtilityResourceRequest,
+} from '../utility/runtime-resource'
 import { resolveAnnotationSubmission } from './annotation-model'
 import { buildDevCommand } from './command'
 import { CookieImportPanel } from './cookie-import-panel'
@@ -98,6 +105,26 @@ type AppliedResponsiveViewport = Readonly<{
   deviceScaleFactor: number
   mobile: boolean
 }>
+type SelectedBrowserLaneRequest = Readonly<{
+  request: DevUtilityResourceRequest
+  lane: BrowserLane
+}>
+
+function sameSelectedBrowserLane(
+  left: SelectedBrowserLaneRequest | undefined,
+  right: SelectedBrowserLaneRequest | undefined
+) {
+  return (
+    left === right ||
+    Boolean(
+      left &&
+      right &&
+      sameDevUtilityRequest(left.request, right.request) &&
+      left.lane.id === right.lane.id &&
+      left.lane.generation === right.lane.generation
+    )
+  )
+}
 
 function browserScopeKey(value: Scope | undefined): string | undefined {
   return value
@@ -140,7 +167,11 @@ function commandError(error: unknown): DevError {
 
 export function BrowserPane(props: BrowserPaneProps) {
   const runtime = () => props.runtime
-  const scope = () => runtime().preferenceScope?.()
+  const request = createDevUtilityResourceRequest(() => ({
+    runtime: runtime(),
+    runtimeSessionId: props.runtimeSessionId,
+  }))
+  const scopeRequest = createDevUtilityResourceRequest(() => ({ runtime: runtime() }), false)
   const [activeLaneId, setActiveLaneId] = createSignal<string | undefined>(undefined)
   const [error, writeError] = createSignal<DevError | undefined>(undefined)
   let errorRevision = 0
@@ -169,41 +200,99 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [screenshotBusy, setScreenshotBusy] = createSignal(false)
   let latestScreenshotRequest = 0
   const latestViewportRequests = new Map<string, number>()
+  let requestGeneration = 0
   let screenshotMounted = true
 
   async function execute<T>(
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
     body: Record<string, unknown>,
-    resource?: { kind: string; id: string; generation: number }
+    resource?: { kind: string; id: string; generation: number },
+    requestKey: DevUtilityResourceRequest | undefined = request()
   ): Promise<T> {
-    const activeScope = scope()
-    if (!activeScope) throw new Error('unauthenticated')
-    const reply = await runtime().execute(
-      buildDevCommand({ operation, scope: activeScope, body, ...(resource ? { resource } : {}) })
+    if (!requestKey?.ready || !requestKey.scope) throw new Error('runtime scope unavailable')
+    const currentRequest = request()
+    const keyWithCurrentSession =
+      requestKey.runtimeSessionId === undefined && currentRequest
+        ? { ...requestKey, runtimeSessionId: currentRequest.runtimeSessionId }
+        : requestKey
+    if (!sameDevUtilityRequest(keyWithCurrentSession, currentRequest))
+      throw new Error('the selected runtime session changed')
+    const reply = await requestKey.runtime.execute(
+      buildDevCommand({
+        operation,
+        scope: requestKey.scope,
+        body,
+        ...(resource ? { resource } : {}),
+      })
     )
     if (!reply.ok) throw reply
     return reply.value as T
   }
 
-  const serviceReady = () => runtime().state().status === 'ready'
-  const [lanes, { refetch: refetchLanes }] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as BrowserLane[] }
-    return execute<LanePage>(
+  const [lanes, { refetch: refetchLanes }] = createDevUtilityResource(request, async (key) => {
+    if (!key.ready || !key.scope || !key.runtimeSessionId) return { items: [] as BrowserLane[] }
+    const page = await execute<LanePage>(
       'dev.browser.lanes',
-      props.runtimeSessionId ? { runtimeSessionId: props.runtimeSessionId } : {}
+      { runtimeSessionId: key.runtimeSessionId },
+      undefined,
+      key
     )
+    return {
+      ...page,
+      items: page.items.filter(
+        (lane) =>
+          lane.runtimeSessionId === key.runtimeSessionId &&
+          browserScopeKey(lane.scope) === browserScopeKey(key.scope)
+      ),
+    }
   })
 
   const activeLane = () => {
-    const items = lanes()?.items ?? []
+    const items = lanes()?.value.items ?? []
     const current = items.find((lane) => lane.id === activeLaneId())
     return current ?? items[0]
   }
 
+  const activeLaneRequest = createMemo<SelectedBrowserLaneRequest | undefined>(
+    () => {
+      const requestKey = request()
+      const lane = activeLane()
+      return requestKey && lane ? { request: requestKey, lane } : undefined
+    },
+    undefined,
+    { equals: sameSelectedBrowserLane }
+  )
+
+  const laneFromCurrentResource = (id: string, generation: number) =>
+    lanes()?.value.items.find((lane) => lane.id === id && lane.generation === generation)
+
+  const actionIdentity = (lane: BrowserLane | undefined) => {
+    const requestKey = request()
+    if (!requestKey) return undefined
+    return {
+      request: requestKey,
+      generation: requestGeneration,
+      ...(lane ? { lane: { id: lane.id, generation: lane.generation } } : {}),
+    }
+  }
+
+  const actionIsCurrent = (
+    identity: ReturnType<typeof actionIdentity>
+  ): identity is NonNullable<ReturnType<typeof actionIdentity>> =>
+    Boolean(
+      identity &&
+        identity.generation === requestGeneration &&
+        sameDevUtilityRequest(identity.request, request()) &&
+        (!identity.lane ||
+          (activeLane()?.id === identity.lane.id &&
+            activeLane()?.generation === identity.lane.generation &&
+            laneFromCurrentResource(identity.lane.id, identity.lane.generation)))
+    )
+
   const activePageTarget = () => {
     const lane = activeLane()
     if (!lane) return undefined
-    return targets()?.items.find(
+    return targets()?.value.items.find(
       (target) =>
         target.type === 'page' &&
         target.browserLaneId === lane.id &&
@@ -225,64 +314,77 @@ export function BrowserPane(props: BrowserPaneProps) {
     setInspectionResult(undefined)
   }
 
-  const [targets, { refetch: refetchTargets }] = createResource(activeLane, async (lane) => {
-    if (!lane) return { items: [] as BrowserTarget[] }
-    // The contract for `dev.browser.targets` is
-    // `{ browserLaneId; cursor?; limit? }` with the generation carried by the
-    // RESOURCE binding. Sending `expectedGeneration` in the body made the
-    // strict decoder reject it as an unknown key, so every Targets fetch was
-    // refused and the browser pane's primary read never worked.
-    return execute<TargetsPage>(
-      'dev.browser.targets',
-      { browserLaneId: lane.id },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
-    )
-  })
+  const [targets, { refetch: refetchTargets }, targetsResource] = createKeyedDevUtilityResource(
+    activeLaneRequest,
+    sameSelectedBrowserLane,
+    async ({ request: requestKey, lane }) => {
+      // The contract for `dev.browser.targets` is
+      // `{ browserLaneId; cursor?; limit? }` with the generation carried by the
+      // RESOURCE binding. Sending `expectedGeneration` in the body made the
+      // strict decoder reject it as an unknown key, so every Targets fetch was
+      // refused and the browser pane's primary read never worked.
+      return execute<TargetsPage>(
+        'dev.browser.targets',
+        { browserLaneId: lane.id },
+        { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        requestKey
+      )
+    }
+  )
 
-  const [ports] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as PortRecord[] }
+  const [ports] = createDevUtilityResource(scopeRequest, async (key) => {
+    if (!key.ready || !key.scope) return { items: [] as PortRecord[] }
     // The Ports menu consumes the read-only port projection; ownership
     // comes from the host's launch records, never from the scan itself.
-    return execute<PortsPage>('dev.resources.ports', {})
+    return execute<PortsPage>('dev.resources.ports', {}, undefined, key)
   })
 
-  const [diagnostics, { refetch: refetchDiagnostics }] = createResource(
-    activeLane,
-    async (lane) => {
-      if (!lane) return { items: [] as DiagnosticsPage['items'] }
+  const [diagnostics] = createKeyedDevUtilityResource(
+    activeLaneRequest,
+    sameSelectedBrowserLane,
+    async ({ request: requestKey, lane }) => {
       return execute<DiagnosticsPage>(
         'dev.browser.diagnostics',
         { browserLaneId: lane.id, expectedGeneration: lane.generation },
-        { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+        { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        requestKey
       )
     }
   )
 
   const portRows = (): readonly PreviewableServer[] =>
     mergeServers({
-      scanner: (ports()?.items ?? []).map((port) => ({
-        host: port.host,
-        port: port.port,
-        url:
-          port.preview?.url ??
-          `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
-        processName: null,
-        owner: port.owner,
-        health: port.state === 'observed' ? 'listening' : 'stale',
-        ...(port.runtimeSessionId ? { runtimeSessionId: port.runtimeSessionId } : {}),
-        ...(port.preview ? { preview: port.preview } : {}),
-      })),
+      scanner: (ports()?.value.items ?? [])
+        .filter(
+          (port) =>
+            !port.runtimeSessionId || port.runtimeSessionId === request()?.runtimeSessionId
+        )
+        .map((port) => ({
+          host: port.host,
+          port: port.port,
+          url:
+            port.preview?.url ??
+            `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
+          processName: null,
+          owner: port.owner,
+          health: port.state === 'observed' ? 'listening' : 'stale',
+          ...(port.runtimeSessionId ? { runtimeSessionId: port.runtimeSessionId } : {}),
+          ...(port.preview ? { preview: port.preview } : {}),
+        })),
       configuredUrls: [],
     })
 
   const portNavigationRequest = (row: PreviewableServer) =>
-    buildPortNavigationRequest(row, lanes()?.items ?? [], activeLane())
+    buildPortNavigationRequest(row, lanes()?.value.items ?? [], activeLane())
 
   function currentUrl(): string {
     return activePageTarget()?.url ?? ''
   }
 
   function dispatchNavigation(request: BrowserNavigationRequest): void {
+    const lane = laneFromCurrentResource(request.lane.id, request.lane.generation)
+    const identity = actionIdentity(lane)
+    if (!lane || !identity) return
     invalidateInspection()
     clearScreenshotContext()
     execute<{
@@ -290,12 +392,15 @@ export function BrowserPane(props: BrowserPaneProps) {
       targetId: string
       finalUrl: string
       status?: number
-    }>(request.operation, request.body, request.resource)
+    }>(request.operation, request.body, request.resource, identity.request)
       .then(() => {
+        if (!actionIsCurrent(identity)) return
         setError(undefined)
         void refetchTargets()
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (actionIsCurrent(identity)) setError(commandError(reply))
+      })
   }
 
   function navigateToUrl(value: string, lane = activeLane()): void {
@@ -321,7 +426,15 @@ export function BrowserPane(props: BrowserPaneProps) {
     const lane = activeLane()
     const target = activePageTarget()
     const selector = inspectionSelector().trim()
-    if (!lane || !target || targets.loading || selector.length === 0 || selector.length > 512)
+    const identity = actionIdentity(lane)
+    if (
+      !identity ||
+      !lane ||
+      !target ||
+      targetsResource.loading ||
+      selector.length === 0 ||
+      selector.length > 512
+    )
       return
 
     const requestId = ++latestInspectionRequest
@@ -336,10 +449,11 @@ export function BrowserPane(props: BrowserPaneProps) {
         targetId: target.id,
         selector,
       },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+      identity.request
     )
       .then((value) => {
-        if (requestId !== latestInspectionRequest) return
+        if (requestId !== latestInspectionRequest || !actionIsCurrent(identity)) return
         const currentLane = activeLane()
         const currentTarget = activePageTarget()
         if (
@@ -357,28 +471,42 @@ export function BrowserPane(props: BrowserPaneProps) {
         })
       })
       .catch((reply) => {
-        if (requestId === latestInspectionRequest) setError(commandError(reply))
+        if (requestId === latestInspectionRequest && actionIsCurrent(identity))
+          setError(commandError(reply))
       })
       .finally(() => {
-        if (requestId === latestInspectionRequest) setInspectionBusy(false)
+        if (requestId === latestInspectionRequest && actionIsCurrent(identity))
+          setInspectionBusy(false)
       })
   }
 
   async function createLane(kind: BrowserLane['kind']): Promise<void> {
     clearScreenshotContext()
-    const session = props.runtimeSessionId
-    if (!session) {
+    const identity = actionIdentity(undefined)
+    const requestKey = identity?.request
+    if (!identity || !requestKey?.runtimeSessionId) {
       setError({ code: 'invalid_state', retryable: false, message: 'no active runtime session' })
       return
     }
+    const session = requestKey.runtimeSessionId
     // `profilePolicyId` is REQUIRED by the contract. Omitting it made the
     // strict decoder refuse every lane creation, so `activeLane()` stayed
     // undefined and Take over / Screenshot / Cookies / mini-preview were
     // permanently disabled.
-    const policies = await execute<{ items: readonly ProfilePolicy[] }>(
-      'dev.browser.profilePolicies',
-      {}
-    )
+    const laneAtStart = activeLane()?.id
+    let policies: { items: readonly ProfilePolicy[] }
+    try {
+      policies = await execute<{ items: readonly ProfilePolicy[] }>(
+        'dev.browser.profilePolicies',
+        {},
+        undefined,
+        requestKey
+      )
+    } catch (reply) {
+      if (actionIsCurrent(identity)) setError(commandError(reply))
+      return
+    }
+    if (!actionIsCurrent(identity) || activeLane()?.id !== laneAtStart) return
     const policy = policies.items[0]
     if (!policy) {
       setError({
@@ -388,22 +516,37 @@ export function BrowserPane(props: BrowserPaneProps) {
       })
       return
     }
-    execute<BrowserLane>('dev.browser.laneCreate', {
-      profilePolicyId: policy.id,
-      runtimeSessionId: session,
-      kind,
-    })
+    execute<BrowserLane>(
+      'dev.browser.laneCreate',
+      {
+        profilePolicyId: policy.id,
+        runtimeSessionId: session,
+        kind,
+      },
+      undefined,
+      requestKey
+    )
       .then((lane) => {
+        if (!actionIsCurrent(identity)) return
+        if (
+          lane.runtimeSessionId !== session ||
+          browserScopeKey(lane.scope) !== browserScopeKey(requestKey.scope)
+        )
+          return
         setError(undefined)
         setActiveLaneId(lane.id)
         void refetchLanes()
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (actionIsCurrent(identity)) setError(commandError(reply))
+      })
   }
 
   function takeoverOrRelease(): void {
     const lane = activeLane()
     if (!lane) return
+    const identity = actionIdentity(lane)
+    if (!identity) return
     invalidateInspection()
     clearScreenshotContext()
     const operation =
@@ -414,21 +557,35 @@ export function BrowserPane(props: BrowserPaneProps) {
         browserLaneId: lane.id,
         expectedGeneration: lane.generation,
       },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+      identity.request
     )
       .then(() => {
+        if (!actionIsCurrent(identity)) return
         setError(undefined)
         void refetchLanes()
       })
-      .catch((reply) => setError(commandError(reply)))
+      .catch((reply) => {
+        if (actionIsCurrent(identity)) setError(commandError(reply))
+      })
   }
 
   function screenshot(): void {
     const context = screenshotContext()
     const lane = activeLane()
     const target = activePageTarget()
-    const currentScope = scope()
-    if (!context.canCapture || !lane || !target || !currentScope || !screenshotMounted) return
+    const currentRequest = request()
+    const currentScope = currentRequest?.scope
+    const identity = actionIdentity(lane)
+    if (
+      !context.canCapture ||
+      !lane ||
+      !target ||
+      !currentScope ||
+      !identity ||
+      !screenshotMounted
+    )
+      return
 
     const requestId = ++latestScreenshotRequest
     setScreenshotBusy(true)
@@ -438,6 +595,7 @@ export function BrowserPane(props: BrowserPaneProps) {
       return (
         screenshotMounted &&
         requestId === latestScreenshotRequest &&
+        actionIsCurrent(identity) &&
         sameScreenshotContext(context, screenshotContext())
       )
     }
@@ -450,7 +608,8 @@ export function BrowserPane(props: BrowserPaneProps) {
         targetId: target.id,
         format: 'png',
       },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+      identity.request
     )
       .then((reference) => {
         if (!stillCurrent()) return
@@ -484,6 +643,8 @@ export function BrowserPane(props: BrowserPaneProps) {
     clearScreenshotContext()
     const lane = activeLane()
     if (!lane) return
+    const identity = actionIdentity(lane)
+    if (!identity) return
     const viewport = resolvePresetViewport(presetById(nextPreset), nextOrientation)
     const width = Math.round(viewport.width * nextZoomScale)
     const height = Math.round(viewport.height * nextZoomScale)
@@ -499,11 +660,13 @@ export function BrowserPane(props: BrowserPaneProps) {
         deviceScaleFactor: viewport.deviceScaleFactor,
         mobile: viewport.mobile,
       },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+      identity.request
     )
       .then(() => {
+        if (!actionIsCurrent(identity)) return
         if (requestId !== latestViewportRequests.get(lane.id)) return
-        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        const currentLane = laneFromCurrentResource(lane.id, lane.generation)
         if (currentLane?.generation !== lane.generation) return
         setAppliedViewports((current) =>
           new Map(current).set(lane.id, {
@@ -521,6 +684,7 @@ export function BrowserPane(props: BrowserPaneProps) {
         if (activeLane()?.id === lane.id) setError(undefined)
       })
       .catch(async (reply) => {
+        if (!actionIsCurrent(identity)) return
         if (requestId !== latestViewportRequests.get(lane.id)) return
         const failure = commandError(reply)
         const revisionBeforeRefresh = errorRevision
@@ -532,8 +696,9 @@ export function BrowserPane(props: BrowserPaneProps) {
           }
         }
         if (requestId !== latestViewportRequests.get(lane.id)) return
+        if (!actionIsCurrent(identity)) return
         if (errorRevision !== revisionBeforeRefresh) return
-        const currentLane = lanes()?.items.find((item) => item.id === lane.id)
+        const currentLane = laneFromCurrentResource(lane.id, lane.generation)
         if (activeLane()?.id !== lane.id) return
         if (currentLane?.generation === lane.generation) {
           setError(failure)
@@ -542,8 +707,9 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   function screenshotContext(): ScreenshotContext {
-    const currentRuntime = runtime()
-    const currentScope = currentRuntime.preferenceScope?.()
+    const requestKey = request()
+    const currentRuntime = requestKey?.runtime ?? runtime()
+    const currentScope = requestKey?.scope
     const lane = activeLane()
     const target = activePageTarget()
     const viewport = viewportForActiveLane()
@@ -555,9 +721,9 @@ export function BrowserPane(props: BrowserPaneProps) {
 
     return {
       runtime: currentRuntime,
-      runtimeStatus: currentRuntime.state().status,
+      runtimeStatus: requestKey?.ready ? 'ready' : currentRuntime.state().status,
       scopeKey: currentScopeKey,
-      requestedSessionId: props.runtimeSessionId,
+      requestedSessionId: requestKey?.runtimeSessionId,
       laneId: lane?.id,
       laneScopeKey,
       laneSessionId: lane?.runtimeSessionId,
@@ -568,8 +734,8 @@ export function BrowserPane(props: BrowserPaneProps) {
       targetType: target?.type,
       viewportKey: JSON.stringify(viewport ?? null),
       canCapture:
-        currentRuntime.state().status === 'ready' &&
-        Boolean(lane && scopeMatches && sessionMatches && target && !targets.loading),
+        Boolean(requestKey?.ready && requestKey.runtimeSessionId) &&
+        Boolean(lane && scopeMatches && sessionMatches && target && !targetsResource.loading),
     }
   }
 
@@ -584,14 +750,27 @@ export function BrowserPane(props: BrowserPaneProps) {
   createEffect(() => {
     const next = screenshotContext()
     if (previousScreenshotContext && !sameScreenshotContext(previousScreenshotContext, next)) {
-      const runtimeContextChanged =
-        previousScreenshotContext.runtime !== next.runtime ||
-        previousScreenshotContext.scopeKey !== next.scopeKey ||
-        previousScreenshotContext.requestedSessionId !== next.requestedSessionId
       clearScreenshotContext()
-      if (runtimeContextChanged) void refetchLanes()
     }
     previousScreenshotContext = next
+  })
+
+  let previousRequest: DevUtilityResourceRequest | undefined
+  createEffect(() => {
+    const next = request()
+    if (previousRequest && !sameDevUtilityRequest(previousRequest, next)) {
+      requestGeneration += 1
+      setActiveLaneId(undefined)
+      setUrlFocused(false)
+      setUrlDraft('')
+      setCookiesOpen(false)
+      setMiniPreviewOpen(false)
+      setAppliedViewports(new Map())
+      invalidateInspection()
+      clearScreenshotContext()
+      setError(undefined)
+    }
+    previousRequest = next
   })
 
   onCleanup(() => {
@@ -788,7 +967,7 @@ export function BrowserPane(props: BrowserPaneProps) {
           <p class="dev-browser__section-title">Lanes</p>
           {/* oxlint-disable-next-line adea/no-interactive-wrappers -- lane selection awaits the shared Tabs adoption */}
           <div role="tablist" aria-label="Browser lanes">
-            <For each={lanes()?.items ?? []}>
+            <For each={lanes()?.value.items ?? []}>
               {(lane) => (
                 <Button
                   type="button"
@@ -801,8 +980,6 @@ export function BrowserPane(props: BrowserPaneProps) {
                     invalidateInspection()
                     clearScreenshotContext()
                     setActiveLaneId(lane.id)
-                    void refetchTargets()
-                    void refetchDiagnostics()
                   }}
                 >
                   <span class="dev-browser__row-main">
@@ -814,7 +991,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                 </Button>
               )}
             </For>
-            <Show when={(lanes()?.items.length ?? 0) === 0}>
+            <Show when={(lanes()?.value.items.length ?? 0) === 0}>
               <div class="dev-browser__row">
                 <span class="dev-terminal-muted">No lanes yet — create one to start.</span>
               </div>
@@ -878,7 +1055,7 @@ export function BrowserPane(props: BrowserPaneProps) {
           </For>
 
           <p class="dev-browser__section-title">Targets</p>
-          <For each={targets()?.items ?? []}>
+          <For each={targets()?.value.items ?? []}>
             {(target) => (
               <div class="dev-browser__row">
                 <span class="dev-browser__row-main">
@@ -915,7 +1092,7 @@ export function BrowserPane(props: BrowserPaneProps) {
               disabled={
                 !activeLane() ||
                 !activePageTarget() ||
-                targets.loading ||
+                targetsResource.loading ||
                 inspectionSelector().trim().length === 0 ||
                 inspectionSelector().trim().length > 512 ||
                 inspectionBusy()
@@ -1051,7 +1228,7 @@ export function BrowserPane(props: BrowserPaneProps) {
 
           <p class="dev-browser__section-title">Diagnostics</p>
           <div class="dev-browser__diagnostics" aria-label="Console and network diagnostics">
-            <For each={diagnostics()?.items ?? []}>
+            <For each={diagnostics()?.value.items ?? []}>
               {(entry) => (
                 <div class="dev-browser__diagnostic" data-level={entry.level}>
                   <span class="dev-browser__row-meta">{entry.category}</span>
@@ -1059,21 +1236,25 @@ export function BrowserPane(props: BrowserPaneProps) {
                 </div>
               )}
             </For>
-            <Show when={(diagnostics()?.items.length ?? 0) === 0}>
+            <Show when={(diagnostics()?.value.items.length ?? 0) === 0}>
               <span class="dev-terminal-muted">No console or network events.</span>
             </Show>
           </div>
         </div>
       </Show>
 
-      <Show when={cookiesOpen() && activeLane()}>
-        <CookieImportPanel
-          laneId={activeLane()!.id}
-          generation={activeLane()!.generation}
-          run={execute}
-          onClose={() => setCookiesOpen(false)}
-        />
-      </Show>
+      <For each={cookiesOpen() && activeLaneRequest() ? [activeLaneRequest()!] : []}>
+        {(selected) => (
+          <CookieImportPanel
+            laneId={selected.lane.id}
+            generation={selected.lane.generation}
+            run={(operation, body, resource) =>
+              execute(operation, body, resource, selected.request)
+            }
+            onClose={() => setCookiesOpen(false)}
+          />
+        )}
+      </For>
 
       <Show when={miniPreviewOpen()}>
         <MiniPreview lane={activeLane()} onClose={() => setMiniPreviewOpen(false)} />

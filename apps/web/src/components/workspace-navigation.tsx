@@ -2,7 +2,8 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
+import { createEffect, createMemo, createSignal, untrack, Show, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -25,6 +26,7 @@ import {
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import {
   enabledWorkspaceApps,
@@ -44,51 +46,53 @@ import { isDesktopRuntime } from '../lib/desktop-bridge'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
+import { PanelRightOpen } from 'lucide-solid'
 
 const AppLibraryPage = lazyComponent(
   () => import('@adea-ai/workspace-ui/app-library-page').then((module) => module.AppLibraryPage),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
+type DevUtilityOwnerModel = import('@adea-ai/dev-view/utility-host').DevUtilityOwnerModel
+
+const DevUtilityShell = lazyComponent(
+  () =>
+    import('@adea-ai/dev-view/utility-host').then(({ DevUtilityHost }) => DevUtilityHost),
+  { loading: () => null }
+)
+
 const DevWorkspace = lazyComponent(
   () =>
-    import('@adea-ai/dev-view').then(
-      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService, devViewFixtureGroups }) => {
-        return (entryProps: {
+    Promise.all([import('@adea-ai/dev-view'), import('@adea-ai/dev-view/utility-host')]).then(
+      ([dev, utility]) =>
+        (entryProps: {
+          owner: DevUtilityOwnerModel
+          runtime: NonNullable<WorkspacePlatformServices['devRuntime']>
           fixture: boolean
-          runtime?: WorkspacePlatformServices['devRuntime']
-          toolbarMount?: HTMLElement
-          sidebarActionMount?: HTMLElement
+          toolbarMount: HTMLElement
           appMode?: 'source-control'
-        }) => {
-          const unavailable =
-            entryProps.runtime ??
-            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-          const runtime = entryProps.fixture
-            ? {
-                ...unavailable,
-                preferenceScope: () => ({
-                  accountId: '00000000-0000-4000-8000-000000000001',
-                  workspaceId: '00000000-0000-4000-8000-000000000002',
-                  runtimeNodeId: '00000000-0000-4000-8000-000000000003',
-                }),
-              }
-            : unavailable
-          return (
-            <DevWorkspaceEntry
-              groups={entryProps.fixture ? devViewFixtureGroups : undefined}
-              storage={typeof window === 'undefined' ? undefined : window.localStorage}
-              runtime={runtime}
+        }) => (
+          <utility.DevUtilityOwnerProvider owner={entryProps.owner}>
+            <dev.DevWorkspaceEntry
+              groups={entryProps.fixture ? dev.devViewFixtureGroups : undefined}
+              runtime={entryProps.runtime}
               toolbarMount={entryProps.toolbarMount}
-              sidebarActionMount={entryProps.sidebarActionMount}
               appMode={entryProps.appMode}
             />
-          )
-        }
-      }
+          </utility.DevUtilityOwnerProvider>
+        )
     ),
   { loading: () => <WorkspaceEntryLoading /> }
 )
+
+function browserLayoutStorage(): Storage | undefined {
+  if (typeof window === 'undefined') return undefined
+  try {
+    return window.localStorage
+  } catch {
+    return undefined
+  }
+}
 
 const ConventionalWorkspace = lazyComponent(
   () =>
@@ -301,7 +305,14 @@ function appLibraryMoveAnnouncementFor(
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
+  const [rightSidebarMount, setRightSidebarMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
+  const [utilityOwner, setUtilityOwner] = createSignal<DevUtilityOwnerModel>()
+  const [utilityRuntime, setUtilityRuntime] = createSignal<WorkspacePlatformServices['devRuntime']>()
+  const [utilityHostStarted, setUtilityHostStarted] = createSignal(false)
+  const [utilityToggleReady, setUtilityToggleReady] = createSignal(false)
+  const [openUtilityOnReady, setOpenUtilityOnReady] = createSignal(false)
+  const [focusUtilityToggleOnReady, setFocusUtilityToggleOnReady] = createSignal(false)
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -361,6 +372,24 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  const devFixtureMode = () =>
+    import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+  createEffect(() => {
+    if (view() === 'dev') setUtilityHostStarted(true)
+  })
+  const focusUtilityToggle = () => {
+    const focus = () => document.getElementById('dev-utility-right-toggle')?.focus()
+    if (typeof requestAnimationFrame === 'undefined') focus()
+    else requestAnimationFrame(focus)
+  }
+  const devFocusModeActive = () =>
+    view() === 'dev' && activeAppId() !== 'source-control'
+  const devWorkspaceReady = createMemo(() => {
+    const mount = toolbarMount()
+    const owner = utilityOwner()
+    const runtime = utilityRuntime()
+    return mount && owner && runtime ? { mount, owner, runtime } : undefined
+  })
   // Dev selection is presentation-only. Chat reports its visible canonical
   // conversation separately; leaving Dev clears only this source.
   bindDesktopChatPresentation('dev', () =>
@@ -674,6 +703,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             Switching workspace…
           </p>
         </Show>
+        <div class="workspace-frame__content">
         <Show
           when={!libraryOpen()}
           fallback={
@@ -701,15 +731,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           <Show
             when={view() !== 'dev'}
             fallback={
-              <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
-                {(mount) => (
+              <Show when={devWorkspaceReady()} fallback={<WorkspaceEntryLoading />}>
+                {(ready) => (
                   <DevWorkspace
-                    fixture={
-                      import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
-                    }
-                    runtime={props.services.devRuntime}
-                    toolbarMount={mount()}
-                    sidebarActionMount={sidebarActionMount()}
+                    fixture={devFixtureMode()}
+                    owner={ready().owner}
+                    runtime={ready().runtime}
+                    toolbarMount={ready().mount}
                     appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
                   />
                 )}
@@ -777,7 +805,54 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             </Show>
           </Show>
         </Show>
+        </div>
+        <div class="workspace-frame__utility-sidebar-mount" ref={setRightSidebarMount} />
       </div>
+      <Show when={!utilityToggleReady() && sidebarActionMount()}>
+        {(mount) => (
+          <Portal mount={mount()}>
+            <ActionButton
+              id="dev-utility-right-toggle"
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              class="workspace-topbar__control"
+              tooltip="Expand utility sidebar"
+              aria-label="Expand utility sidebar"
+              aria-expanded={false}
+              onClick={() => {
+                setOpenUtilityOnReady(true)
+                setFocusUtilityToggleOnReady(true)
+                setUtilityHostStarted(true)
+              }}
+            >
+              <PanelRightOpen aria-hidden="true" />
+            </ActionButton>
+          </Portal>
+        )}
+      </Show>
+      <Show when={utilityHostStarted() && sidebarActionMount() && rightSidebarMount()}>
+        <DevUtilityShell
+          runtime={props.services.devRuntime}
+          fixture={devFixtureMode()}
+          workspaceId={props.activeWorkspace?.id}
+          storage={browserLayoutStorage()}
+          activeDevView={devFocusModeActive}
+          openOnReady={openUtilityOnReady()}
+          onInitialOpenApplied={() => setOpenUtilityOnReady(false)}
+          rightUtilityMount={sidebarActionMount}
+          rightSidebarMount={rightSidebarMount}
+          onOwnerChange={setUtilityOwner}
+          onRuntimeChange={setUtilityRuntime}
+          onToggleReady={() => {
+            setUtilityToggleReady(true)
+            if (focusUtilityToggleOnReady()) {
+              setFocusUtilityToggleOnReady(false)
+              focusUtilityToggle()
+            }
+          }}
+        />
+      </Show>
       <Show when={props.activeWorkspace && settingsOpen()}>
         <WorkspaceSettingsOverlay
           accountAuthenticated={props.account.authenticated}

@@ -4172,17 +4172,37 @@ flow after the contextual controls. The group contains the left utility
 slot collapse/reopen control, split-pane action, and window-local reopen-closed-
 pane action. Files versus Source Control is selected inside the left utility
 slot; its top-bar control only opens or collapses that slot. The workspace-wide
-runtime-resources action remains available by default on every view. Dev's
-right utility toggle — one control for its browser/devices/agents/history
-panes, reopening the pane last shown — remains the trailing top-bar action
-after workspace controls, separated by a vertical divider. Dev keeps this
-collapse control available while a utility pane is full width. Dev pane actions
-mount only while Dev owns the active surface. The shell-owned Browser sidebar
-must also be available from Chat, Dev, and Virtual; that cross-view host is a
-separate pending integration and is not established by the Dev mount described
-here. Expanding is a per-panel concern: the full-width control lives in each
-utility pane's heading, and focus mode stays on its keyboard chord with no
-top-bar control.
+runtime-resources action remains available by default on every view. The shell
+owns one lazy right utility host and one trailing top-bar toggle across Chat,
+Dev, and Virtual. It can open directly from any of those views, reopens the pane
+last shown, and keeps the pane, open state, and width while the active view
+changes. The host reads the canonical selected RuntimeSession, worktree
+binding, capability snapshot, and V2 preferences from the existing Dev runtime
+projection and shared workspace selection. Preferences remain scoped to
+account, workspace, runtime node, project, and RuntimeSession; scope changes
+load the matching record and fence replies from the previous scope. The host
+never invents a RuntimeSession when the provider has none, and unavailable
+runtime, session, or capability state remains explicit in the pane. Only the
+right utility host and toggle persist across views; Dev's project tree, left
+utility slot, center panes, terminal, and editor mount only while Dev owns the
+active surface. Dev keeps the collapse control available while a utility pane
+is full width. Expanding is a per-panel concern: the full-width control lives
+in each utility pane's heading, and focus mode stays on its keyboard chord with
+no top-bar control.
+
+The host is created on the first Dev visit or first use of the cross-view
+toggle, then remains alive across view changes. Runtime-backed pane reads key
+their visible snapshots by runtime, account/workspace/node scope, readiness,
+and selected RuntimeSession when the projection is session-bound. On a key
+change, an older successful snapshot is hidden before the replacement read
+settles; late replies cannot repopulate it. Session-bound controls capture the
+same key and lane generation they rendered against, so a reply from a previous
+selection cannot update the new pane or trigger a refresh under the new
+selection. Workspace-wide reads may remain scope-keyed, but rows associated
+with another selected session are not offered as current-session actions.
+Supplying a workspace gate that does not currently match the runtime scope
+clears the owner's session, worktree, capability, and preference projection
+until the gate and scope match again.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
 The room-designer entry retains that navigation and its common toolbar controls
