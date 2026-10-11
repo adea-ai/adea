@@ -100,6 +100,40 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('opens only Adea GitHub resources in the system-browser handoff', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const opened: string[] = []
+    try {
+      const invoke = createCommandSurface(dataDir, {
+        openExternal: (url) => {
+          opened.push(url)
+        },
+      })
+      const resource =
+        'https://github.com/adea-ai/adea/issues/new?template=feedback.yml&context=Adea+desktop'
+
+      expect(await invoke('desktop_open_external', { url: resource })).toEqual({
+        ok: true,
+        value: null,
+      })
+      for (const url of [
+        'http://github.com/adea-ai/adea',
+        'https://github.com.evil.test/adea-ai/adea',
+        'https://github.com/adea-ai/adea-evil',
+        'https://user@github.com/adea-ai/adea',
+        'https://example.com/',
+      ]) {
+        expect(await invoke('desktop_open_external', { url })).toEqual({
+          ok: false,
+          error: 'untrusted external url',
+        })
+      }
+      expect(opened).toEqual([resource])
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('accepts an ephemeral chat-presentation hint without exposing it as command authority', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     const received: Array<string | undefined> = []

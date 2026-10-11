@@ -11,6 +11,7 @@ import {
   isDesktopRuntime,
 } from '../lib/desktop-update'
 import packageJson from '../../package.json'
+import { desktopAppIcon } from '../lib/desktop-app-icon'
 
 const packageVersion = packageJson.version
 
@@ -29,6 +30,7 @@ export function VersionDialog(props: {
   return (
     <SharedVersionDialog
       adapter={desktopUpdateAdapter}
+      appIcon={desktopAppIcon}
       fallbackVersion={packageVersion}
       onOpenChange={props.onOpenChange}
       open={props.open}

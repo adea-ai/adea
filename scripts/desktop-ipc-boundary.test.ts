@@ -18,7 +18,7 @@ async function registeredCommands(): Promise<Set<string>> {
   expect(start).toBeGreaterThan(-1)
   const body = source.slice(start, source.indexOf('return function invoke', start))
   const registry = new Set(
-    [...body.matchAll(/^\s{4}([a-z][a-z0-9_]*):\s*\(/gm)].map((match) => match[1]!)
+    [...body.matchAll(/^\s{4}([a-z][a-z0-9_]*):\s*(?:async\s*)?\(/gm)].map((match) => match[1]!)
   )
   expect(registry.size).toBeGreaterThan(0)
   return registry

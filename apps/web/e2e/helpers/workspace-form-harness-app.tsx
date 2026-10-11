@@ -2,6 +2,8 @@ import '../../src/start/globals.css'
 import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { WorkspaceAboutDialog } from '../../../../packages/workspace-ui/src/workspace-about-dialog'
+import { desktopAppIcon } from '../../src/lib/desktop-app-icon'
+import { openAdeaExternalUrl } from '../../src/lib/external-links'
 import {
   CreateGroupDialog,
   CreateRoomDialog,
@@ -54,7 +56,14 @@ function Harness() {
         <CreateGroupDialog open busy={false} onClose={close} onCreate={save} />
       </Show>
       <Show when={kind() === 'about'}>
-        <WorkspaceAboutDialog open onClose={close} platform="desktop" version="0.61.7" />
+        <WorkspaceAboutDialog
+          appIcon={desktopAppIcon}
+          open
+          onClose={close}
+          openExternal={openAdeaExternalUrl}
+          platform="desktop"
+          version="0.61.7"
+        />
       </Show>
       <Button id="allow-success" onClick={() => setFail(false)}>
         Allow success

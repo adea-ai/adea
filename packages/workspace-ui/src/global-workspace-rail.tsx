@@ -33,6 +33,7 @@ import {
 import { createEffect, createSignal, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
+import { platformModifierKey } from './keyboard-shortcuts'
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceView } from './workspace-view-toggle'
 import type { WorkspaceAppId } from './workspace-apps'
@@ -108,18 +109,20 @@ export function GlobalWorkspaceRail(props: {
   activeWorkspace?: WorkspaceSummary
   /** The visible view entries, already ordered and filtered by rail preferences. */
   views: readonly WorkspaceAppId[]
-  onOpenAbout: () => void
+  onOpenAbout: (opener: HTMLButtonElement | undefined) => void
+  onOpenFeedback: (opener: HTMLButtonElement | undefined) => void
+  onOpenHelp: (opener: HTMLButtonElement | undefined) => void
   onOpenPlugins: () => void
   onOpenAppLibrary: () => void
   libraryActive?: boolean
   onOpenSearch: () => void
-  onOpenSettings: () => void
+  onOpenSettings: (opener: HTMLButtonElement | undefined) => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onViewChange: (view: WorkspaceAppId) => void
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
   onViewIntent?: (view: WorkspaceView) => void
   /** Fires on hover/focus of a panel's entry point — prefetch its dialog chunk. */
-  onPanelIntent?: (panel: 'about' | 'plugins' | 'settings') => void
+  onPanelIntent?: (panel: 'about' | 'help' | 'plugins' | 'settings') => void
   /** Present when the host persists rail order changes: drag and Alt+Arrow reorder. */
   reorder?: RailReorderHandlers
   view: WorkspaceAppId
@@ -167,7 +170,7 @@ export function GlobalWorkspaceRail(props: {
         (target instanceof HTMLElement && target.isContentEditable)
       if (isEditable) return
       event.preventDefault()
-      props.onOpenSettings()
+      props.onOpenSettings(undefined)
     }
 
     window.addEventListener('keydown', openSearchWithShortcut, { capture: true })
@@ -227,13 +230,13 @@ export function GlobalWorkspaceRail(props: {
               type="button"
               label="Search workspace"
               aria-label="Search workspace"
-              shortcut="⌘K"
+              shortcut={`${platformModifierKey()}K`}
               keyshortcuts="Meta+K Control+K"
               onClick={props.onOpenSearch}
             >
               <Search aria-hidden="true" />
             </SideRailItem>
-            <ShortcutKeys keys="⌘K" class="global-rail__search-keys" />
+            <ShortcutKeys keys={`${platformModifierKey()}K`} class="global-rail__search-keys" />
           </div>
         </SideRailSection>
 
@@ -358,13 +361,16 @@ export function GlobalWorkspaceRail(props: {
           authenticated={props.account.authenticated}
           busy={props.account.busy}
           onIntent={() => {
-            // The menu is the path to settings and about: warm both dialogs
-            // when the user reaches for it.
+            // The account menu is the path to its panels: warm the panels when
+            // the user reaches for the menu.
             props.onPanelIntent?.('settings')
             props.onPanelIntent?.('about')
+            props.onPanelIntent?.('help')
           }}
           onOpenUpdates={props.account.onOpenUpdates}
           onOpenAbout={props.onOpenAbout}
+          onOpenFeedback={props.onOpenFeedback}
+          onOpenHelp={props.onOpenHelp}
           onOpenSettings={props.onOpenSettings}
           onSignIn={props.account.onSignIn}
           onSignOut={props.account.onSignOut}
