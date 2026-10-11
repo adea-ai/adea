@@ -6,20 +6,28 @@
  * rows come only from the harness substrate's run records, and a session
  * without a live generation offers no cancel control.
  */
-import type { DevError, HarnessRun, RuntimeSession } from '@adea-ai/types/dev-runtime'
+import type { DevError, HarnessRun } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 import { Square } from 'lucide-solid'
-import { For, Show, createResource, createSignal } from 'solid-js'
+import { For, Show, createEffect, createResource, createSignal, onCleanup } from 'solid-js'
 import { cn } from '@adea-ai/ui/lib/utils'
 
-import type { DevRuntimeService } from '../platform'
 import { buildDevCommand } from '../browser/command'
+import {
+  createDevUtilityFenceSource,
+  devUtilityContextKey,
+  hasDevUtilitySession,
+  isDevUtilityContextChanged,
+  sameDevUtilityScope,
+  type DevUtilityContextReader,
+  type DevUtilityFence,
+} from '../utility-context'
+import { executeDevUtilityCommand } from '../utility-command'
 import { ACTIVITY_STATE_LABELS, activityRows, formatElapsed } from './activity-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 export type ActivityPaneProps = {
-  runtime: DevRuntimeService
-  runtimeSessionId?: string
+  context: DevUtilityContextReader
 }
 
 function commandError(error: unknown): DevError {
@@ -33,49 +41,84 @@ function commandError(error: unknown): DevError {
 }
 
 export function ActivityPane(props: ActivityPaneProps) {
-  const runtime = () => props.runtime
-  const scope = () => runtime().preferenceScope?.()
-  const serviceReady = () => runtime().state().status === 'ready'
+  const context = () => props.context()
+  const runtime = () => context().runtime
+  const fences = createDevUtilityFenceSource(context)
+  onCleanup(() => fences.dispose())
+  const contextKey = () => {
+    const current = context()
+    return current.runtime.state().status === 'ready' && hasDevUtilitySession(current)
+      ? devUtilityContextKey(current)
+      : undefined
+  }
 
-  async function execute<T>(
+  function execute<T>(
+    fence: DevUtilityFence | undefined,
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
     body: Record<string, unknown>,
     resource?: { kind: string; id: string; generation: number }
   ): Promise<T> {
-    const activeScope = scope()
-    if (!activeScope) throw new Error('unauthenticated')
-    const reply = await runtime().execute(
-      buildDevCommand({ operation, scope: activeScope, body, ...(resource ? { resource } : {}) })
-    )
-    if (!reply.ok) throw reply
-    return reply.value as T
+    return executeDevUtilityCommand<T>(fence, operation, body, resource)
   }
 
-  const [runs, { refetch: refetchRuns }] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as readonly HarnessRun[] }
-    return execute<{ items: readonly HarnessRun[] }>(
+  async function executeResource<T>(
+    fence: DevUtilityFence,
+    operation: Parameters<typeof buildDevCommand>[0]['operation'],
+    body: Record<string, unknown>,
+    resource?: { kind: string; id: string; generation: number }
+  ): Promise<T | undefined> {
+    try {
+      return await execute<T>(fence, operation, body, resource)
+    } catch (requestError) {
+      if (isDevUtilityContextChanged(requestError)) return undefined
+      throw requestError
+    }
+  }
+
+  const [runs, { refetch: refetchRuns }] = createResource(contextKey, async (key) => {
+    const fence = fences.capture('session')
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key)
+      return { items: [] as readonly HarnessRun[] }
+    const page = await executeResource<{ items: readonly HarnessRun[] }>(
+      fence,
       'dev.harness.runs',
-      props.runtimeSessionId ? { runtimeSessionId: props.runtimeSessionId } : {}
+      { runtimeSessionId: fence.context.runtimeSessionId! }
     )
-  })
-  const [sessions] = createResource(serviceReady, async (ready) => {
-    if (!ready) return { items: [] as readonly RuntimeSession[] }
-    return execute<{ items: readonly RuntimeSession[] }>('dev.session.list', {})
+    return {
+      contextKey: key,
+      items: (page?.items ?? []).filter(
+        (run) =>
+          run.runtimeSessionId === fence.context.runtimeSessionId &&
+          sameDevUtilityScope(run.scope, fence.context.scope)
+      ),
+    }
   })
 
   const generationFor = (runtimeSessionId: string): number | undefined =>
-    sessions()?.items.find((session) => session.id === runtimeSessionId)?.generation
+    runtimeSessionId === context().runtimeSessionId ? context().sessionGeneration : undefined
 
   const [actionError, setActionError] = createSignal<DevError | undefined>(undefined)
   const [busy, setBusy] = createSignal(false)
+  createEffect(() => {
+    void contextKey()
+    setActionError(undefined)
+    setBusy(false)
+  })
 
   async function cancelRun(row: { runtimeSessionId: string; id: string }): Promise<void> {
-    const generation = generationFor(row.runtimeSessionId)
-    if (generation === undefined) return
+    const fence = fences.capture('session')
+    if (
+      !fence ||
+      row.runtimeSessionId !== fence.context.runtimeSessionId ||
+      fence.context.sessionGeneration === undefined
+    )
+      return
+    const generation = fence.context.sessionGeneration
     setBusy(true)
     setActionError(undefined)
     try {
       await execute<HarnessRun>(
+        fence,
         'dev.session.cancelHarness',
         {
           runtimeSessionId: row.runtimeSessionId,
@@ -84,20 +127,40 @@ export function ActivityPane(props: ActivityPaneProps) {
         },
         { kind: 'runtime_session', id: row.runtimeSessionId, generation }
       )
+      if (!fence.isCurrent()) return
       await refetchRuns()
     } catch (error) {
-      setActionError(commandError(error))
+      if (fence.isCurrent() && !isDevUtilityContextChanged(error))
+        setActionError(commandError(error))
     } finally {
-      setBusy(false)
+      if (fence.isCurrent()) setBusy(false)
     }
   }
 
-  const rows = () => activityRows(runs()?.items ?? [], Date.now())
+  const rows = () => {
+    const current = context()
+    return activityRows(
+      (runs()?.contextKey === contextKey() ? runs()?.items : undefined)?.filter(
+        (run) =>
+          run.runtimeSessionId === current.runtimeSessionId &&
+          sameDevUtilityScope(run.scope, current.scope)
+      ) ?? [],
+      Date.now()
+    )
+  }
 
   return (
     <div class="dev-activity" role="region" aria-label="Activity">
       <Show
-        when={serviceReady()}
+        when={hasDevUtilitySession(context())}
+        fallback={
+          <p class="dev-resources__unavailable" role="status">
+            Activity is unavailable until this view is bound to a canonical runtime session.
+          </p>
+        }
+      >
+      <Show
+        when={runtime().state().status === 'ready'}
         fallback={<p class="dev-resources__unavailable">Runtime unavailable</p>}
       >
         <Show
@@ -154,6 +217,7 @@ export function ActivityPane(props: ActivityPaneProps) {
             {actionError()!.code}: {actionError()!.message}
           </p>
         </Show>
+      </Show>
       </Show>
     </div>
   )

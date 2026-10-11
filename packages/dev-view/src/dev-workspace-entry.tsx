@@ -13,7 +13,6 @@
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type {
   DevCapability,
-  DevLayoutPreferencesV2,
   DevUtilityPane,
   DevUtilityPreference,
   DevReply,
@@ -24,26 +23,17 @@ import type {
 import {
   devOperationMetadataFor_dev_group_reorder,
   devOperationMetadataFor_dev_project_reorder,
-  devOperationMetadataFor_dev_session_get,
-  devOperationMetadataFor_dev_session_list,
-  devOperationMetadataFor_dev_session_unarchive,
 } from '@adea-ai/types/dev-runtime-operation-metadata'
 import '@adea-ai/app-ui/dev-view.css'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
-  Files,
   FolderTree,
-  GitBranch,
-  History,
-  Laptop,
   Maximize2,
-  MonitorSmartphone,
   PanelRightClose,
   PanelRightOpen,
   SquareX,
   Undo2,
-  Users,
   X,
 } from 'lucide-solid'
 import {
@@ -77,23 +67,19 @@ import {
   movePane,
   type DevLayoutState,
 } from './layout/operations'
-import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
+import type { LayoutStorage } from './layout/storage'
 import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
+import type { CanonicalRuntimeBinding, DevUtilityContextReader } from './utility-context'
+import { createSharedDevUtilityOwner, type SharedDevUtilityOwner } from './utility-owner'
+import {
+  defaultLeftUtilitySize,
+  defaultRightUtilitySize,
+  utilityItemByPane,
+} from './utility-model'
+import { UtilityResizeHandle } from './utility-resize-handle'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
-import {
-  archiveShelfError,
-  archiveShelfReady,
-  archiveShelfUnavailable,
-  beginArchiveShelfLoad,
-  cancelPendingDelete,
-  confirmPendingDelete,
-  requestDelete,
-  restoreCompleted,
-  SESSION_DELETE_OPERATION,
-  type ArchiveShelfState,
-} from './sidebar/archive-shelf-model'
 import { AddProjectPanel } from './sidebar/add-project-panel'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
@@ -108,11 +94,6 @@ import {
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '@adea-ai/ui/components/ui/resizable'
 import {
   SideRail,
   SideRailContent,
@@ -171,6 +152,8 @@ export type DevGroupFixture = Readonly<{
 
 export type DevWorkspaceEntryProps = Readonly<{
   runtime: DevRuntimeService
+  /** Optional shell-owned utility identity shared with Chat/Virtual surfaces. */
+  utilityOwner?: SharedDevUtilityOwner
   /** E2E/development fixtures only; production consumes the runtime projection. */
   groups?: readonly DevGroupFixture[]
   storage?: LayoutStorage
@@ -179,7 +162,7 @@ export type DevWorkspaceEntryProps = Readonly<{
    * Mount for the bundled utility sidebar's top-bar toggle, placed after the
    * host's own actions so the control is the top bar's trailing icon. Absent
    * hosts render it inside the Dev toolbar instead.
-   */
+  */
   sidebarActionMount?: HTMLElement
   appMode?: 'source-control'
 }>
@@ -246,33 +229,6 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
   },
 ]
 
-const utilityItems = [
-  { pane: 'files', side: 'left', label: 'Files', title: 'Files', icon: Files },
-  {
-    pane: 'source_control',
-    side: 'left',
-    label: 'Source control',
-    title: 'Source Control',
-    icon: GitBranch,
-  },
-  { pane: 'browser', side: 'right', label: 'Browser', title: 'Browser', icon: Laptop },
-  {
-    pane: 'devices',
-    side: 'right',
-    label: 'Devices',
-    title: 'Devices',
-    icon: MonitorSmartphone,
-  },
-  { pane: 'agents', side: 'right', label: 'Agents', title: 'Agents', icon: Users },
-  { pane: 'history', side: 'right', label: 'History', title: 'History', icon: History },
-] as const satisfies readonly Readonly<{
-  pane: DevUtilityPane
-  side: 'left' | 'right'
-  label: string
-  title: string
-  icon: typeof Files
-}>[]
-
 /** The read capability each utility pane depends on for its provider state. */
 const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
   files: 'dev.files.read',
@@ -283,27 +239,7 @@ const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
   history: 'dev.session.read',
 }
 
-const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
-const utilitySizeSteps = {
-  left: [240, 288, 336, 384],
-  right: [240, 288, 336, 384, 448],
-} as const
 /** Every pane opens at one shared width — no custom width per tab type. */
-/** Left panes (files/source control) retain their existing default step. */
-const defaultLeftUtilitySize = 336
-/** Right panes (browser/devices/agents/history) get the wider step. */
-const defaultRightUtilitySize = 448
-
-const defaultUtilityPreferences = (): DevUtilityPreference[] =>
-  utilityItems.map((item, order) => ({
-    pane: item.pane,
-    side: item.side,
-    order,
-    visible: item.pane === 'files',
-    size: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
-    lastNonzeroSize: item.side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize,
-    fullWidth: false,
-  }))
 
 const initialLayout = () =>
   createLayoutState<PaneLeaf>({
@@ -311,18 +247,6 @@ const initialLayout = () =>
     id: 'dev-terminal',
     pane: 'terminal',
   })
-
-const utilitySizeStepsFor = (side: 'left' | 'right') => utilitySizeSteps[side]
-
-const snapUtilitySize = (size: number, side: 'left' | 'right') => {
-  const steps = utilitySizeStepsFor(side)
-  if (!Number.isFinite(size))
-    return side === 'left' ? defaultLeftUtilitySize : defaultRightUtilitySize
-  return steps.reduce(
-    (best, step) => (Math.abs(step - size) < Math.abs(best - size) ? step : best),
-    steps[0]
-  )
-}
 
 /** How long a projection observation stays fresh for selection rendering. */
 const PROJECTION_FRESHNESS_MS = 60_000
@@ -485,11 +409,14 @@ function createFixtureTerminalObservations() {
 }
 
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
+  const utilityOwner =
+    props.utilityOwner ?? createSharedDevUtilityOwner(props.runtime, props.storage)
+  utilityOwner.setView('dev')
+  if (!props.utilityOwner) onCleanup(() => utilityOwner.dispose())
   let nextPaneId = 0
   const fixtureTerminalObservations = import.meta.env.DEV
     ? createFixtureTerminalObservations()
     : undefined
-  let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   // #399: the file the central editor leaf shows. Open files are session-local
   // leaves in the split model — selecting a file focuses (or creates) the
   // editor leaf beside the active terminal; it never builds a tab forest.
@@ -522,9 +449,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
   const compactSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
-  const [utilityPreferences, setUtilityPreferences] = createSignal<readonly DevUtilityPreference[]>(
-    defaultUtilityPreferences()
-  )
+  const utilityPreferences = utilityOwner.utilityPreferences
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
   const firstUnboundTerminalLeafId = createMemo(
     () =>
@@ -539,17 +464,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const [capabilitySnapshotStatus, setCapabilitySnapshotStatus] = createSignal<
     'loading' | 'ready' | 'unavailable'
   >('loading')
-  const [archiveShelf, setArchiveShelf] = createSignal<ArchiveShelfState>(beginArchiveShelfLoad())
   /**
    * A latched recovery notice: set the first time a requested selection needs
    * recovery, kept visible across the URL/store convergence, and cleared only
    * when the user makes an explicit selection.
-   */
+  */
   const [recoveryNotice, setRecoveryNotice] = createSignal('')
-  const [archiveHandoff, setArchiveHandoff] = createSignal<string | undefined>()
   // The right utility slot's panes share one bundled sidebar, so its single
   // top-bar toggle reopens the pane that was visible before the collapse.
-  const [lastRightPane, setLastRightPane] = createSignal<DevUtilityPane>('browser')
   const [runtimeBindingReady, setRuntimeBindingReady] = createSignal(false)
   const runtimeState = createMemo(() => props.runtime.state())
   const fixtureMode = () => props.groups !== undefined
@@ -560,37 +482,31 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const loadProjection = async () => {
     if (props.groups !== undefined) return
     const scope = activeScope()
-    if (!scope || !props.runtime.projection) {
-      setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
-      return
-    }
+    if (!scope || !props.runtime.projection) return
     try {
       const next = await props.runtime.projection(scope)
       setProjection(next)
       setProjectedGroups(toDevGroups(next))
-      void loadArchivedSessions()
     } catch {
       setProjectedGroups([])
-      setArchiveShelf(archiveShelfUnavailable('unavailable'))
     }
   }
 
   onMount(() => {
     if (props.groups !== undefined) {
       setFixtureGroups(props.groups)
-      setArchiveShelf(
-        archiveShelfReady(
-          props.groups.flatMap((group) =>
-            group.projects.flatMap((project) =>
-              project.sessions
-                .filter((session) => session.state === 'archived')
-                .map((session) => ({
-                  id: session.id,
-                  projectId: project.id,
-                  title: session.title,
-                  archivedAt: 'fixture',
-                }))
-            )
+      utilityOwner.setArchiveShelfFixture(
+        props.groups.flatMap((group) =>
+          group.projects.flatMap((project) =>
+            project.sessions
+              .filter((session) => session.state === 'archived')
+              .map((session) => ({
+                id: session.id,
+                projectId: project.id,
+                title: session.title,
+                archivedAt: 'fixture',
+                ...(typeof session.generation === 'number' ? { generation: session.generation } : {}),
+              }))
           )
         )
       )
@@ -600,10 +516,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (ready) {
       void ready.then(() => {
         setRuntimeBindingReady(true)
+        void utilityOwner.refreshArchiveShelf()
         return loadProjection()
       })
     } else {
       setRuntimeBindingReady(true)
+      void utilityOwner.refreshArchiveShelf()
       void loadProjection()
     }
   })
@@ -706,6 +624,32 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       for (const project of group.projects) if (project.id === projectId) return project.name
     return undefined
   })
+  const selectedCanonicalBinding = (): CanonicalRuntimeBinding | undefined => {
+    const current = selection()
+    const scope = activeScope()
+    const session = selectedSessionRecord()
+    const projectId = current.status === 'empty' ? undefined : current.projectId
+    const generation = session?.generation
+    if (
+      !scope ||
+      !projectId ||
+      !session ||
+      !Number.isSafeInteger(generation) ||
+      generation! < 1
+    )
+      return undefined
+    return {
+      scope,
+      projectId,
+      runtimeSessionId: session.id,
+      sessionGeneration: generation!,
+      worktreeId: session.worktreeId,
+    }
+  }
+  const utilityContext = utilityOwner.context
+  createEffect(() => {
+    utilityOwner.selectDevSession(selectedCanonicalBinding())
+  })
   const recoveryMessage = () => recoveryNotice()
 
   createEffect(() => {
@@ -738,31 +682,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       .filter((item) => item.side === side)
       .toSorted((first, second) => first.order - second.order)
 
-  const toUtilityTuple = (
-    items: readonly DevUtilityPreference[]
-  ): DevLayoutPreferencesV2['utility'] => {
-    if (items.length !== utilityItems.length)
-      throw new TypeError('corrupt_state: utility preferences require all six panes')
-    return items as DevLayoutPreferencesV2['utility']
-  }
-
-  const persistedPreferences = (state: DevLayoutState): DevLayoutPreferencesV2 | undefined => {
-    const scope = props.runtime.preferenceScope?.()
-    if (!scope || !selectedProject() || !selectedSession()) return undefined
-    return {
-      schemaVersion: 2,
-      scope,
-      projectId: selectedProject(),
-      runtimeSessionId: selectedSession(),
+  const schedulePreferences = (state = layout()) => {
+    const expected = selectedCanonicalBinding()
+    utilityOwner.updateLayoutPreferences({
       center: state.center,
-      utility: toUtilityTuple(utilityPreferences()),
       focusMode: focusMode(),
       focusTargetId: state.focusedLeafId,
-    }
-  }
-  const schedulePreferences = (state = layout()) => {
-    const preferences = persistedPreferences(state)
-    if (preferences) storageController?.schedule(preferences)
+    }, expected ?? null)
   }
   const updateLayout = (update: (state: DevLayoutState) => DevLayoutState) => {
     const next = update(layout())
@@ -771,12 +697,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     return next
   }
   const showPane = (pane: DevUtilityPane) => {
-    const side = utilityItemByPane.get(pane)!.side
-    if (side === 'right') setLastRightPane(pane)
-    setUtilityPreferences((items) =>
-      items.map((item) => (item.side === side ? { ...item, visible: item.pane === pane } : item))
-    )
-    schedulePreferences()
+    utilityOwner.showUtilityPane(pane, selectedCanonicalBinding() ?? null)
   }
   /** #399: selecting a file opens an editor beside the focused pane. Keep
    *  one editor leaf; later file selections replace its content. */
@@ -813,10 +734,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     focusPaneElement(`dev-editor-${suffix}`)
   }
   const collapseSide = (side: 'left' | 'right', options: { focusCenter?: boolean } = {}) => {
-    setUtilityPreferences((items) =>
-      items.map((item) => (item.side === side ? { ...item, visible: false } : item))
-    )
-    schedulePreferences()
+    const expected = selectedCanonicalBinding() ?? null
+    if (side === 'right') utilityOwner.collapseRightUtility(expected)
+    else
+      utilityOwner.updateUtilityPreferences(
+        (items) => items.map((item) => (item.side === side ? { ...item, visible: false } : item)),
+        expected
+      )
     setAnnouncement(`${side === 'left' ? 'Left' : 'Right'} utility slot collapsed`)
     if (options.focusCenter !== false) {
       requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
@@ -843,37 +767,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
    * shown or collapses the slot — no per-group toolbar buttons.
    */
   const toggleRightUtilitySlot = () => {
-    const current = visiblePaneOf('right')
-    if (current) {
-      setLastRightPane(current.pane)
-      collapseSide('right', { focusCenter: false })
-      return
-    }
-    showPane(lastRightPane())
+    utilityOwner.toggleRightUtility(selectedCanonicalBinding() ?? null)
     setAnnouncement('Right utility slot opened')
   }
   const setPaneFullWidth = (pane: DevUtilityPane, fullWidth: boolean) => {
-    setUtilityPreferences((items) =>
-      items.map((item) => {
-        if (item.pane === pane) return { ...item, fullWidth }
-        // Full width is exclusive: expanding one side clears the other.
-        if (fullWidth && item.fullWidth) return { ...item, fullWidth: false }
-        return item
-      })
-    )
-    schedulePreferences()
+    utilityOwner.setUtilityPaneFullWidth(pane, fullWidth, selectedCanonicalBinding() ?? null)
   }
   const setPaneSize = (pane: DevUtilityPane, size: number) => {
-    // Panes share one width per side: resizing any tab resizes them all, so
-    // switching tabs never changes the edge's width.
-    const side = utilityItemByPane.get(pane)!.side
-    const snapped = snapUtilitySize(size, side)
-    setUtilityPreferences((items) =>
-      items.map((item) =>
-        item.side === side ? { ...item, size: snapped, lastNonzeroSize: snapped } : item
-      )
-    )
-    schedulePreferences()
+    utilityOwner.setUtilityPaneSize(pane, size, selectedCanonicalBinding() ?? null)
   }
 
   /*
@@ -1008,156 +909,36 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     })
   }
 
-  /*
-   * Provider-backed archive shelf. Restore rides `dev.session.unarchive`;
-   * the destructive delete commit reports the missing `dev.session.delete`
-   * host contract instead of pretending to succeed.
-   */
-  const loadArchivedSessions = async () => {
-    const scope = activeScope()
-    if (!scope) {
-      setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
-      return
-    }
-    setArchiveShelf((current) => (current.status === 'ready' ? current : beginArchiveShelfLoad()))
-    const reply = await props.runtime.execute(
-      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_list, {
-        scope,
-        body: { archived: true },
-      })
-    )
-    if (!reply.ok) {
-      setArchiveShelf((current) =>
-        archiveShelfError(
-          reply.error.code,
-          current.status === 'ready' ? current : beginArchiveShelfLoad()
-        )
-      )
-      return
-    }
-    const sessions = (reply.value as { items: readonly Record<string, unknown>[] }).items
-    setArchiveShelf(
-      archiveShelfReady(
-        sessions.map((raw) => ({
-          id: String(raw.id),
-          projectId: String(raw.projectId ?? ''),
-          title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
-          archivedAt: 'recently',
-          ...(typeof raw.generation === 'number' ? { generation: raw.generation } : {}),
-        }))
-      )
-    )
-  }
-
   const restoreFromArchive = async (runtimeSessionId: string) => {
-    setArchiveHandoff(undefined)
-    if (props.groups !== undefined) {
-      setArchiveShelf((current) => restoreCompleted(current, runtimeSessionId))
-      setAnnouncement('Archived session restored (fixtures)')
-      return
-    }
-    const scope = activeScope()
-    if (!scope) return
-    // The authoritative generation is carried by the archive list record; the
-    // register binds archive transitions to it. Never send a wildcard/zero
-    // generation because the host rejects stale resource bindings.
-    const archived = archiveShelf().items.find((item) => item.id === runtimeSessionId)
-    if (archived?.generation === undefined) {
-      setArchiveHandoff(
-        'Restore failed: the session generation is unavailable; refresh Archived sessions.'
-      )
-      return
-    }
-    const reply = await props.runtime.execute(
-      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_get, {
-        scope,
-        body: { runtimeSessionId },
-        resource: {
-          kind: 'runtime_session',
-          id: runtimeSessionId,
-          generation: archived.generation,
-        },
-      })
-    )
-    if (!reply.ok) {
-      setArchiveHandoff(`Restore failed: ${reply.error.message}`)
-      return
-    }
-    const record = reply.value as { generation?: number }
-    const unarchive = await props.runtime.execute(
-      buildDevCommandFromMetadata(devOperationMetadataFor_dev_session_unarchive, {
-        scope,
-        body: { runtimeSessionId, expectedGeneration: record.generation ?? 1 },
-        resource: {
-          kind: 'runtime_session',
-          id: runtimeSessionId,
-          generation: record.generation ?? 1,
-        },
-      })
-    )
-    if (!unarchive.ok) {
-      setArchiveHandoff(`Restore failed: ${unarchive.error.message}`)
-      return
-    }
-    setArchiveShelf((current) => restoreCompleted(current, runtimeSessionId))
-    setAnnouncement('Archived session restored')
+    if (!(await utilityOwner.restoreArchivedSession(runtimeSessionId))) return
+    setAnnouncement(fixtureMode() ? 'Archived session restored (fixtures)' : 'Archived session restored')
     await loadProjection()
   }
 
-  const requestArchiveDelete = (runtimeSessionId: string) => {
-    setArchiveShelf((current) => requestDelete(current, runtimeSessionId))
-  }
-  const cancelArchiveDelete = () => {
-    setArchiveShelf((current) => cancelPendingDelete(current))
-  }
-  const confirmArchiveDelete = () => {
-    const commit = confirmPendingDelete(archiveShelf())
-    setArchiveShelf(commit.state)
-    if (!commit.commitId) return
-    // The destructive delete commit is an explicit handoff: the M12 registry
-    // has no dev.session.delete operation, so nothing is invented here.
-    setArchiveHandoff(
-      `Deleting sessions needs the ${SESSION_DELETE_OPERATION} host contract, which this build does not provide. The session stays archived and recoverable.`
-    )
-  }
-
+  let restoredPreferenceRevision = 0
   createEffect(() => {
-    const scope = props.runtime.preferenceScope?.()
-    const projectId = selectedProject()
-    const runtimeSessionId = selectedSession()
-    storageController?.dispose()
-    storageController = undefined
-    if (!scope || !props.storage || !projectId || !runtimeSessionId) return
-    const controller = createLayoutStorageController({
-      storage: props.storage,
-      scope,
-      projectId,
-      runtimeSessionId,
+    const revision = utilityOwner.layoutLoadRevision()
+    if (revision === 0 || revision === restoredPreferenceRevision) return
+    const saved = utilityOwner.preferences()
+    if (!saved) return
+    const scope = activeScope()
+    if (
+      !scope ||
+      !sameRuntimeScope(saved.scope, scope) ||
+      saved.projectId !== selectedProject() ||
+      saved.runtimeSessionId !== selectedSession()
+    )
+      return
+    restoredPreferenceRevision = revision
+    const loadState = utilityOwner.layoutLoadState()
+    if (loadState === 'corrupt' || loadState === 'unsupported')
+      setAnnouncement('Stored Dev layout was unreadable and is kept for recovery.')
+    const restored = normalizeLayout(createLayoutState<PaneLeaf>(saved.center))
+    setLayout({
+      ...restored,
+      focusedLeafId: saved.focusTargetId ?? restored.focusedLeafId,
     })
-    storageController = controller
-    const loaded = controller.load()
-    if (loaded.state === 'ready') {
-      const restored = normalizeLayout(createLayoutState<PaneLeaf>(loaded.value.center))
-      setLayout({
-        ...restored,
-        focusedLeafId: loaded.value.focusTargetId ?? restored.focusedLeafId,
-      })
-      setUtilityPreferences(loaded.value.utility)
-      workspaceStore.getState().setDevFocusMode(loaded.value.focusMode)
-    } else {
-      if (loaded.state !== 'empty')
-        setAnnouncement('Stored Dev layout was unreadable and is kept for recovery.')
-      setLayout(initialLayout())
-      setUtilityPreferences(defaultUtilityPreferences())
-      workspaceStore.getState().setDevFocusMode(false)
-    }
-    const visibilityChanged = () => controller.visibilityChanged(document.hidden)
-    document.addEventListener('visibilitychange', visibilityChanged)
-    onCleanup(() => {
-      document.removeEventListener('visibilitychange', visibilityChanged)
-      controller.dispose()
-      if (storageController === controller) storageController = undefined
-    })
+    workspaceStore.getState().setDevFocusMode(saved.focusMode)
   })
 
   onMount(() => {
@@ -1370,8 +1151,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onDropGroup: dropGroupHandler,
             onDropProject: dropProjectHandler,
           }}
-          archiveShelf={archiveShelf()}
-          archiveHandoffMessage={archiveHandoff()}
+          archiveShelf={utilityOwner.archiveShelf()}
+          archiveHandoffMessage={utilityOwner.archiveHandoffMessage()}
           addProject={
             !fixtureMode() && activeScope() ? (
               <AddProjectPanel
@@ -1397,9 +1178,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             ) : undefined
           }
           onArchiveRestore={(id) => void restoreFromArchive(id)}
-          onArchiveRequestDelete={requestArchiveDelete}
-          onArchiveCancelDelete={cancelArchiveDelete}
-          onArchiveConfirmDelete={confirmArchiveDelete}
+          onArchiveRequestDelete={utilityOwner.requestArchiveDelete}
+          onArchiveCancelDelete={utilityOwner.cancelArchiveDelete}
+          onArchiveConfirmDelete={utilityOwner.confirmArchiveDelete}
           onProjectSelect={(id) => {
             setRecoveryNotice('')
             workspaceStore.getState().setSelectedDevProjectId(id)
@@ -1425,6 +1206,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             }
             visiblePane={visiblePaneOf('left')}
             runtime={props.runtime}
+            utilityContext={utilityContext}
             runtimeSessionId={selectedSession() || undefined}
             sessionWorktreeId={selectedSessionWorktreeId()}
             capabilityOf={capabilityOf}
@@ -1563,6 +1345,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             }
             visiblePane={visiblePaneOf('right')}
             runtime={props.runtime}
+            utilityContext={utilityContext}
             runtimeSessionId={selectedSession() || undefined}
             sessionWorktreeId={selectedSessionWorktreeId()}
             capabilityOf={capabilityOf}
@@ -1578,56 +1361,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         {announcement()}
       </p>
     </main>
-  )
-}
-
-function UtilityResizeHandle(props: {
-  side: 'left' | 'right'
-  size: number
-  onResize(size: number): void
-}) {
-  const steps = utilitySizeStepsFor(props.side)
-  const max = steps[steps.length - 1]
-  const sizeRatio = () => props.size / max
-  const rulerSizes = () =>
-    props.side === 'left' ? [sizeRatio(), 1 - sizeRatio()] : [1 - sizeRatio(), sizeRatio()]
-  const resizedSize = (sizes: readonly number[]) =>
-    Math.round((props.side === 'left' ? (sizes[0] ?? 0) : 1 - (sizes[0] ?? 1)) * max)
-
-  return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      sizes={rulerSizes()}
-      keyboardDelta="48px"
-      class={cn('dev-utility-splitter', {
-        'dev-utility-splitter--left': props.side === 'left',
-        'dev-utility-splitter--right': props.side === 'right',
-      })}
-      onSizesChange={(sizes) => {
-        const nextSize = snapUtilitySize(resizedSize(sizes), props.side)
-        if (nextSize !== props.size) props.onResize(nextSize)
-      }}
-    >
-      <ResizablePanel
-        minSize={props.side === 'left' ? steps[0] / max : 0}
-        maxSize={props.side === 'left' ? 1 : (max - steps[0]) / max}
-        aria-hidden="true"
-      />
-      <ResizableHandle
-        withHandle
-        label={`Resize ${props.side} utility pane`}
-        aria-controls={`dev-utility-panel-${props.side}`}
-        aria-valuemin={steps[0]}
-        aria-valuemax={max}
-        aria-valuenow={props.size}
-        class="dev-utility-splitter__handle"
-      />
-      <ResizablePanel
-        minSize={props.side === 'left' ? 0 : steps[0] / max}
-        maxSize={1}
-        aria-hidden="true"
-      />
-    </ResizablePanelGroup>
   )
 }
 
@@ -1669,6 +1402,7 @@ function UtilitySlot(props: {
   panes: readonly DevUtilityPreference[]
   visiblePane: DevUtilityPreference | undefined
   runtime: DevRuntimeService
+  utilityContext: DevUtilityContextReader
   runtimeSessionId: string | undefined
   /**
    * The selected session's own worktree, so the Files and Source Control
@@ -1711,7 +1445,7 @@ function UtilitySlot(props: {
   const paneBody = (pane: DevUtilityPane) => {
     if (pane === 'browser') {
       return runtimeReady() ? (
-        <BrowserPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+        <BrowserPane context={props.utilityContext} />
       ) : (
         <PaneProviderState
           title="Browser"
@@ -1722,7 +1456,7 @@ function UtilitySlot(props: {
     }
     if (pane === 'devices') {
       return runtimeReady() ? (
-        <DevicesPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+        <DevicesPane context={props.utilityContext} />
       ) : (
         <PaneProviderState
           title="Devices"
@@ -1747,8 +1481,8 @@ function UtilitySlot(props: {
             />
           }
         >
-          <HarnessStatusSection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
-          <ActivityPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+          <HarnessStatusSection context={props.utilityContext} />
+          <ActivityPane context={props.utilityContext} />
         </Suspense>
       ) : (
         <PaneProviderState
@@ -1769,7 +1503,7 @@ function UtilitySlot(props: {
             />
           }
         >
-          <RunHistorySection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+          <RunHistorySection context={props.utilityContext} />
         </Suspense>
       ) : (
         <PaneProviderState
