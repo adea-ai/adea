@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 import { startConnectedFixtureChild } from './helpers/lead-role-choices-connected-client.mjs'
+import { closeFactoryResources } from './helpers/lead-role-choices-connected-process.mjs'
 
 const safeCode = (value: unknown) =>
   typeof value === 'string' && /^[A-Z][A-Z0-9_]{1,31}$/u.test(value) ? value : undefined
@@ -59,9 +60,11 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await server?.close()
-  await fixture?.close()
-  rmSync(cacheDir, { recursive: true, force: true })
+  await closeFactoryResources([
+    () => server?.close(),
+    () => fixture?.close(),
+    () => rmSync(cacheDir, { recursive: true, force: true }),
+  ])
 })
 
 test('mounted lead choice is disclosed before inference and matches the real admitted and dispatched selection', async ({
