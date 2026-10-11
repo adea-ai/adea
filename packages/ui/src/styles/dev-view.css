@@ -225,11 +225,9 @@
 .dev-terminal-placeholder {
   padding: 0.9rem;
   overflow: auto;
-  font:
-    0.78rem/1.65 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
+  line-height: 1.65;
 }
 
 .dev-terminal-muted,

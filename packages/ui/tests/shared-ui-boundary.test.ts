@@ -21,6 +21,7 @@ describe('private application UI boundary', () => {
       "@import 'tailwindcss';",
       "@import '@adea-ai/ui/base.css';",
       "@import '@adea-ai/ui/theme.css';",
+      "@import '@adea-ai/ui/fonts.css';",
       "@import './base.css';",
       "@import './theme.css';",
     ].map((statement) => globals.indexOf(statement))

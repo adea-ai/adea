@@ -132,7 +132,7 @@
   border-radius: 0.25rem;
   background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--foreground);
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-code, var(--font-mono));
   font-size: 0.65rem;
 }
 
@@ -232,8 +232,8 @@
   padding: 0.25rem 0.5rem;
   border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
   background: color-mix(in srgb, var(--muted) 38%, transparent);
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.7rem;
+  font-family: var(--font-code, var(--font-mono));
+  font-size: var(--text-code);
   white-space: pre;
 }
 
@@ -313,7 +313,11 @@
 
 .dev-editor__surface .cm-editor {
   height: 100%;
-  font-size: 0.8rem;
+  font-size: var(--text-code);
+}
+
+.dev-editor__surface .cm-scroller {
+  font-family: var(--font-code, var(--font-mono));
 }
 
 .dev-editor__surface .cm-editor.cm-focused {

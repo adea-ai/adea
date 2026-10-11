@@ -22,17 +22,28 @@ export function terminalThemeFromStyles(
   return theme
 }
 
+/** xterm consumes the shared code typography without defining a competing stack. */
+export function terminalFontFromStyles(styles: Pick<CSSStyleDeclaration, 'fontFamily' | 'fontSize'>): {
+  fontFamily?: string
+  fontSize?: number
+} {
+  const fontFamily = styles.fontFamily.trim() || undefined
+  const size = Number.parseFloat(styles.fontSize)
+  return { fontFamily, fontSize: Number.isFinite(size) && size > 0 ? size : undefined }
+}
+
 /** Observe only the surface's bounded ancestor chain, never application content. */
 export function observeTerminalTheme(
   surface: HTMLElement,
-  apply: (theme: ITheme) => void
+  apply: (theme: ITheme, styles: CSSStyleDeclaration) => void
 ): () => void {
   const view = surface.ownerDocument.defaultView
   if (!view) return () => undefined
   let frame: number | undefined
   const update = () => {
     frame = undefined
-    apply(terminalThemeFromStyles(view.getComputedStyle(surface)))
+    const styles = view.getComputedStyle(surface)
+    apply(terminalThemeFromStyles(styles), styles)
   }
   const observer = new view.MutationObserver(() => {
     if (frame === undefined) frame = view.requestAnimationFrame(update)
@@ -40,7 +51,16 @@ export function observeTerminalTheme(
   for (let ancestor: HTMLElement | null = surface; ancestor; ancestor = ancestor.parentElement)
     observer.observe(ancestor, {
       attributes: true,
-      attributeFilter: ['class', 'style', 'data-theme', 'data-appearance', 'data-font'],
+      attributeFilter: [
+        'class',
+        'style',
+        'data-theme',
+        'data-appearance',
+        'data-font',
+        'data-ui-font',
+        'data-content-font',
+        'data-code-font',
+      ],
     })
   update()
   return () => {

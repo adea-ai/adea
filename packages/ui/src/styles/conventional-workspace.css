@@ -246,7 +246,7 @@
   overflow: clip;
   background: var(--cw-bg);
   color: var(--cw-text);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-ui, var(--font-sans));
 }
 
 /* Inside the frame the surface already starts below the top bar, so a full
@@ -328,10 +328,8 @@
   grid-row: 1;
   min-width: 0;
   overflow: hidden;
-  /* The sidebar is app chrome: everywhere else it inherits the shell's
-     --font-sans, but inside this container the conversation's Inter would
-     win the cascade and retypeface the same component per view. */
-  font-family: var(--font-sans);
+  /* Sidebar chrome uses the shared UI role in every workspace view. */
+  font-family: var(--font-ui, var(--font-sans));
 }
 /* The shared ruler is pointer-events-none except for its handle, and cursor
    inherits, so this covers the whole drag affordance without touching the
