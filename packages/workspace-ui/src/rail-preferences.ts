@@ -180,6 +180,43 @@ export function reorderRailItems(
   return { version: 1, order: Object.freeze(order), hidden: preferences.hidden }
 }
 
+/**
+ * The next order after a rail drop: `id` is placed directly before or after
+ * `targetId`. Dropping an item on itself, or on an unknown target, is a no-op.
+ * Disabled and unknown entries keep their recorded slots.
+ */
+export function reorderRailItemsRelativeTo(
+  preferences: RailPreferencesV1,
+  id: string,
+  targetId: string,
+  position: 'after' | 'before' = 'before'
+): RailPreferencesV1 {
+  if (id === targetId) return preferences
+  const without = preferences.order.filter((candidate) => candidate !== id)
+  if (without.length === preferences.order.length) return preferences
+  const index = without.indexOf(targetId)
+  if (index === -1) return preferences
+  const order = [...without]
+  order.splice(position === 'before' ? index : index + 1, 0, id)
+  return { version: 1, order: Object.freeze(order), hidden: preferences.hidden }
+}
+
+/**
+ * The live-region announcement for one completed rail move. `position` is the
+ * 1-based position after the move attempt; a no-op (boundary or unknown id)
+ * says the view is already there instead of staying silent.
+ */
+export function railMoveAnnouncement(
+  label: string,
+  position: number,
+  total: number,
+  moved: boolean
+): string {
+  return moved
+    ? `${label} moved to position ${position} of ${total}`
+    : `${label} is already at position ${position} of ${total}`
+}
+
 export function setRailItemHidden(
   preferences: RailPreferencesV1,
   id: string,

@@ -4,8 +4,10 @@ import {
   defaultRailPreferences,
   normalizeRailPreferences,
   railItemsForViews,
+  railMoveAnnouncement,
   readRailPreferences,
   reorderRailItems,
+  reorderRailItemsRelativeTo,
   resolveRailItems,
   setRailItemHidden,
   writeRailPreferences,
@@ -98,6 +100,46 @@ describe('rail preferences', () => {
     expect(reorderRailItems(preferences, 'chat', 'up', enabledIds)).toBe(preferences)
     expect(reorderRailItems(moved, 'dev', 'down', ['dev', 'virtual']).order).toEqual(
       preferences.order
+    )
+  })
+
+  test('a drop places the view directly before or after its target', () => {
+    const preferences = {
+      version: 1 as const,
+      order: ['virtual', 'chat', 'dev'],
+      hidden: [] as readonly string[],
+    }
+    expect(reorderRailItemsRelativeTo(preferences, 'dev', 'virtual').order).toEqual([
+      'dev',
+      'virtual',
+      'chat',
+    ])
+    expect(reorderRailItemsRelativeTo(preferences, 'virtual', 'dev', 'after').order).toEqual([
+      'chat',
+      'dev',
+      'virtual',
+    ])
+    // A drop on itself, an unknown target, or an unrecorded id changes nothing.
+    expect(reorderRailItemsRelativeTo(preferences, 'chat', 'chat')).toBe(preferences)
+    expect(reorderRailItemsRelativeTo(preferences, 'chat', 'missing')).toBe(preferences)
+    expect(reorderRailItemsRelativeTo(preferences, 'missing', 'chat')).toBe(preferences)
+  })
+
+  test('a drop preserves hidden and unknown entries around the moved slot', () => {
+    const preferences = {
+      version: 1 as const,
+      order: ['virtual', 'chat', 'app:future', 'dev'],
+      hidden: ['chat'] as readonly string[],
+    }
+    const moved = reorderRailItemsRelativeTo(preferences, 'dev', 'virtual', 'after')
+    expect(moved.order).toEqual(['virtual', 'dev', 'chat', 'app:future'])
+    expect(moved.hidden).toBe(preferences.hidden)
+  })
+
+  test('rail move announcements describe the landing position or the no-op', () => {
+    expect(railMoveAnnouncement('Chat view', 2, 3, true)).toBe('Chat view moved to position 2 of 3')
+    expect(railMoveAnnouncement('Chat view', 1, 3, false)).toBe(
+      'Chat view is already at position 1 of 3'
     )
   })
 
