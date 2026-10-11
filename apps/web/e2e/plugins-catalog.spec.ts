@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url)
 
 test('packed Plugins catalog keeps touch, failure, focus, and activation states clear', async ({
   page,
-}) => {
+}, testInfo) => {
   const path = '/__plugins-catalog'
   await page.route('**' + path, (route) =>
     route.fulfill({
@@ -81,16 +81,21 @@ test('packed Plugins catalog keeps touch, failure, focus, and activation states 
   await app.click()
   await expect(dialog.getByRole('heading', { name: 'Catalog-only app', exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Installed', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
   await expect(
     dialog.getByText(/Activation unavailable: this catalog entry has no bundled first-party/)
   ).toBeVisible()
   // The narrow dialog stacks the detail fields: no side-by-side columns, and
-  // no leftover card or divider chrome from the wide layout.
+  // the shared padded card remains visible without internal vertical dividers.
   const stacked = await page.evaluate(() => {
-    const sections = [...document.querySelectorAll('.plugins-detail-columns > section')]
+    const sections = [...document.querySelectorAll('[data-catalog-detail-sections] > section')]
     const rects = sections.map((section) => section.getBoundingClientRect())
     return {
       count: sections.length,
+      cardPadded: Number.parseFloat(getComputedStyle(sections[0]!.parentElement!).paddingTop) > 0,
+      cardOutlined:
+        Number.parseFloat(getComputedStyle(sections[0]!.parentElement!).borderTopWidth) > 0,
+      noOverflow: sections.every((section) => section.scrollWidth <= section.clientWidth + 1),
       stackedVertically: rects.every(
         (rect, index) => index === 0 || rect.top > rects[index - 1]!.top
       ),
@@ -99,7 +104,48 @@ test('packed Plugins catalog keeps touch, failure, focus, and activation states 
     }
   })
   expect(stacked.count).toBeGreaterThanOrEqual(4)
-  expect(stacked).toMatchObject({ stackedVertically: true, sharedLeft: true, noDividers: true })
+  expect(stacked).toMatchObject({
+    stackedVertically: true,
+    sharedLeft: true,
+    noDividers: true,
+    cardPadded: true,
+    cardOutlined: true,
+    noOverflow: true,
+  })
+
+  await page.setViewportSize({ width: 320, height: 844 })
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+    .toBe(true)
+  expect(
+    await dialog
+      .locator('[data-catalog-detail-sections] > section')
+      .evaluateAll((sections) =>
+        sections.every((section) => section.scrollWidth <= section.clientWidth + 1)
+      )
+  ).toBe(true)
+  const summaryLayout = await dialog.locator('[data-catalog-detail-header]').evaluate((header) => {
+    const identity = header.querySelector('[data-catalog-detail-identity]')!
+    const actions = header.querySelector('[data-catalog-detail-actions]')!
+    const title = identity.querySelector('h2')!.getBoundingClientRect()
+    const description = identity.querySelector('p')!.getBoundingClientRect()
+    return {
+      titleBottom: title.bottom,
+      descriptionTop: description.top,
+      identityBottom: identity.getBoundingClientRect().bottom,
+      actionsTop: actions.getBoundingClientRect().top,
+      overflow: [header, identity, actions].some(
+        (element) => element.scrollWidth > element.clientWidth + 1
+      ),
+    }
+  })
+  expect(summaryLayout.overflow).toBe(false)
+  expect(summaryLayout.titleBottom).toBeLessThanOrEqual(summaryLayout.descriptionTop)
+  expect(summaryLayout.actionsTop).toBeGreaterThanOrEqual(summaryLayout.identityBottom)
+  await page.screenshot({
+    path: testInfo.outputPath('plugin-detail-320.png'),
+    animations: 'disabled',
+  })
 
   const axe = await page.evaluate(async () => {
     const pluginDialogElement = document.querySelector('[role="dialog"]')
@@ -121,9 +167,9 @@ test('packed Plugins catalog keeps touch, failure, focus, and activation states 
 test.describe('desktop detail layout', () => {
   test.use({ hasTouch: false, isMobile: false, viewport: { width: 1440, height: 900 } })
 
-  test('plugin detail fields share one row of columns split by vertical dividers', async ({
+  test('plugin detail fields use the shared padded card and column dividers', async ({
     page,
-  }) => {
+  }, testInfo) => {
     const path = '/__plugins-catalog'
     await page.route('**' + path, (route) =>
       route.fulfill({
@@ -145,8 +191,12 @@ test.describe('desktop detail layout', () => {
       dialog.getByRole('heading', { name: 'Catalog-only app', exact: true })
     ).toBeVisible()
 
+    await page.screenshot({
+      path: testInfo.outputPath('plugin-detail-wide.png'),
+      animations: 'disabled',
+    })
     const layout = await page.evaluate(() => {
-      const columns = document.querySelector('.plugins-detail-columns')
+      const columns = document.querySelector('[data-catalog-detail-sections]')
       if (!columns) return null
       const sections = [...columns.querySelectorAll<HTMLElement>(':scope > section')]
       const rects = sections.map((section) => section.getBoundingClientRect())
@@ -165,7 +215,16 @@ test.describe('desktop detail layout', () => {
         noCardRadius: sections.every(
           (section) => getComputedStyle(section).borderTopLeftRadius === '0px'
         ),
-        columnsFillRow: Math.abs(rects.at(-1)!.right - columns!.getBoundingClientRect().right) < 2,
+        cardPadded: Number.parseFloat(getComputedStyle(columns).paddingTop) > 0,
+        cardOutlined: Number.parseFloat(getComputedStyle(columns).borderTopWidth) > 0,
+        noOverflow: sections.every((section) => section.scrollWidth <= section.clientWidth + 1),
+        columnsFillRow:
+          Math.abs(
+            rects.at(-1)!.right -
+              (columns.getBoundingClientRect().right -
+                Number.parseFloat(getComputedStyle(columns).paddingRight) -
+                Number.parseFloat(getComputedStyle(columns).borderRightWidth))
+          ) < 2,
       }
     })
     expect(layout).not.toBeNull()
@@ -175,6 +234,9 @@ test.describe('desktop detail layout', () => {
     expect(layout!.leftsIncrease).toBe(true)
     expect(layout!.dividersBetween).toBe(true)
     expect(layout!.noCardRadius).toBe(true)
+    expect(layout!.cardPadded).toBe(true)
+    expect(layout!.cardOutlined).toBe(true)
+    expect(layout!.noOverflow).toBe(true)
     expect(layout!.columnsFillRow).toBe(true)
   })
 })
