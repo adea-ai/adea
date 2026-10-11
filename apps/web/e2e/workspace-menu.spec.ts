@@ -20,7 +20,7 @@ test('account menu dispatches published menu actions and restores keyboard focus
   await trigger.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('menu')).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: 'Get Adea mobile' })).toHaveAttribute(
+  await expect(page.getByRole('menuitem', { name: 'Get the mobile app' })).toHaveAttribute(
     'data-disabled',
     ''
   )
@@ -33,6 +33,40 @@ test('account menu dispatches published menu actions and restores keyboard focus
   await expect(page.getByRole('status', { name: 'Selected action' })).toHaveText('sign-out')
   await trigger.click()
   await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
+test('account menu enables Help Center and feedback actions after the menu closes', async ({
+  page,
+}) => {
+  const path = '/__workspace-menu'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-menu-harness-app.tsx')
+  await page.evaluate(async (url) => {
+    await import(url)
+  }, '/@fs' + entry)
+
+  const trigger = page.getByRole('button', { name: 'User settings' })
+  await trigger.click()
+  const help = page.getByRole('menuitem', { name: 'Help Center', exact: true })
+  const feedback = page.getByRole('menuitem', { name: 'Send Feedback', exact: true })
+  await expect(help).toBeEnabled()
+  await expect(feedback).toBeEnabled()
+  await help.click()
+  await expect(page.getByRole('status', { name: 'Selected action' })).toHaveText('help')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+
+  await trigger.click()
+  await page.getByRole('menuitem', { name: 'Send Feedback', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Selected action' })).toHaveText('feedback')
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(trigger).toBeFocused()
 })

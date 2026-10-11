@@ -8,6 +8,8 @@ export type { SharedDesktopUpdate, VersionDialogAdapter } from '../internal/vers
 
 export function VersionDialog(props: {
   adapter: VersionDialogAdapter
+  appIcon?: string
+  changelog?: string
   restoreFocusRef?: Accessor<HTMLElement | undefined>
   fallbackVersion?: string
   onOpenChange?: (open: boolean) => void
@@ -19,6 +21,8 @@ export function VersionDialog(props: {
     <UpdateDialog
       adapter={adapter}
       appName="Adea"
+      appIcon={props.appIcon}
+      changelog={props.changelog}
       fallbackVersion={props.fallbackVersion}
       onOpenChange={props.onOpenChange}
       open={props.open}

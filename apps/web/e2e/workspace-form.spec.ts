@@ -178,9 +178,7 @@ test('edit, rename and group forms retain initial values and native label associ
   )
 })
 
-test('about dialog preserves its accessible name and product identity with a shared hidden header', async ({
-  page,
-}) => {
+test('about dialog preserves its accessible name and product identity', async ({ page }) => {
   await page.getByRole('button', { name: 'Open about', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'About Adea', exact: true })
   await expect(dialog).toBeVisible()
@@ -190,10 +188,11 @@ test('about dialog preserves its accessible name and product identity with a sha
     'href',
     'https://github.com/adea-ai/adea'
   )
-  const header = dialog.locator('[data-slot="dialog-header"]')
-  await expect(header).toHaveCSS('position', 'absolute')
-  await expect(header).toHaveCSS('width', '1px')
-  await expect(header).toHaveCSS('height', '1px')
+  const appIcon = dialog.locator('img[aria-hidden="true"]')
+  await expect(appIcon).toBeVisible()
+  await expect
+    .poll(() => appIcon.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBe(256)
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('inert', '')

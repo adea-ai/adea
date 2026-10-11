@@ -7,6 +7,73 @@ const workspace = {
   updatedAt: '2026-08-25T00:00:00.000Z',
 }
 
+test('account menu aligns to the visible trigger on fresh and resized narrow viewports', async ({
+  page,
+}) => {
+  const viewport = { width: 390, height: 844 }
+  await page.setViewportSize(viewport)
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace],
+      },
+    })
+  })
+
+  await page.goto('/?view=virtual')
+  const userMenu = page.getByRole('button', { name: 'User settings' })
+  await expect(userMenu).toBeVisible({ timeout: 20_000 })
+  const accountMenu = page.getByRole('menu', { name: 'User settings' })
+  const assertPlacement = async (label: string) => {
+    await userMenu.click()
+    await expect(accountMenu).toBeVisible()
+    await accountMenu.evaluate((menu) =>
+      Promise.allSettled(
+        menu.getAnimations({ subtree: true }).map((animation) => animation.finished)
+      )
+    )
+    const triggerBox = await userMenu.boundingBox()
+    const menuBox = await accountMenu.boundingBox()
+    const triggerId = await userMenu.getAttribute('id')
+    expect(triggerBox).not.toBeNull()
+    expect(menuBox).not.toBeNull()
+    expect(await accountMenu.getAttribute('aria-labelledby')).toBe(
+      await userMenu.getAttribute('id')
+    )
+    expect(
+      await page.locator(`[id="${triggerId}"]`).count(),
+      `${label}: account trigger ID should be unique`
+    ).toBe(1)
+    if (!triggerBox || !menuBox) throw new Error('Visible account menu geometry is unavailable')
+    expect(
+      Math.abs(menuBox.x - triggerBox.x - triggerBox.width - 4),
+      `${label}: trigger=${JSON.stringify(triggerBox)} menu=${JSON.stringify(menuBox)}`
+    ).toBeLessThanOrEqual(1)
+    expect(
+      Math.abs(menuBox.y + menuBox.height - triggerBox.y - triggerBox.height)
+    ).toBeLessThanOrEqual(1)
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width)
+    await page.keyboard.press('Escape')
+    await expect(userMenu).toBeFocused()
+  }
+  await assertPlacement('fresh narrow load')
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  )
+  await page.setViewportSize(viewport)
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  )
+  await assertPlacement('narrow after resize cycle')
+})
+
 test('a guest can use a workspace before opening the optional persistence flow', async ({
   page,
 }) => {
@@ -70,6 +137,12 @@ test('a guest can use a workspace before opening the optional persistence flow',
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport)
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    )
     const layout = await page.evaluate(() => {
       const rail = document.querySelector<HTMLElement>('.global-rail')!
       const surface = document.querySelector<HTMLElement>('.workspace-frame__surface')!
@@ -84,42 +157,63 @@ test('a guest can use a workspace before opening the optional persistence flow',
     // 0.95.0; the grid column and the surface inset both track the token, so
     // the rail and the surface offset move together.
     expect(layout).toEqual({ railWidth: 56, surfaceOffset: 56 })
+
+    await userMenu.click()
+    const accountMenu = page.getByRole('menu', { name: 'User settings' })
+    await expect(accountMenu).toBeVisible()
+    await accountMenu.evaluate((menu) =>
+      Promise.allSettled(
+        menu.getAnimations({ subtree: true }).map((animation) => animation.finished)
+      )
+    )
+    const triggerBox = await userMenu.boundingBox()
+    const menuBox = await accountMenu.boundingBox()
+    expect(triggerBox).not.toBeNull()
+    expect(menuBox).not.toBeNull()
+    const triggerId = await userMenu.getAttribute('id')
+    const labelledBy = await accountMenu.getAttribute('aria-labelledby')
+    expect(labelledBy).toBe(triggerId)
+    if (!triggerBox || !menuBox) throw new Error('Visible account menu geometry is unavailable')
+    // Keep the #915 right-end geometry: a 4px horizontal gutter and aligned
+    // lower edges at desktop and mobile widths.
+    expect(
+      Math.abs(menuBox.x - triggerBox.x - triggerBox.width - 4),
+      JSON.stringify({ viewport, triggerId, labelledBy, triggerBox, menuBox })
+    ).toBeLessThanOrEqual(1)
+    expect(
+      Math.abs(menuBox.y + menuBox.height - triggerBox.y - triggerBox.height)
+    ).toBeLessThanOrEqual(1)
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width)
+    await page.keyboard.press('Escape')
+    await expect(accountMenu).toBeHidden()
+    await expect(userMenu).toBeFocused()
   }
 
   await userMenu.click()
   const accountMenu = page.getByRole('menu', { name: 'User settings' })
-  // The menu enters with a zoom/fade animation that transforms its box; wait
-  // for it to settle before measuring the final position.
-  await accountMenu.evaluate((menu) =>
-    Promise.allSettled(menu.getAnimations({ subtree: true }).map((a) => a.finished))
-  )
-  const accountMenuPosition = await accountMenu.evaluate((menu) => {
-    const menuBox = menu.getBoundingClientRect()
-    const triggerBox = document
-      .querySelector<HTMLElement>('.global-rail__account-trigger')!
-      .getBoundingClientRect()
-    return {
-      menuLeft: menuBox.left,
-      menuBottom: menuBox.bottom,
-      triggerRight: triggerBox.right,
-      triggerBottom: triggerBox.bottom,
-    }
-  })
-  // The AccountMenu composite opens right-end with a 4px gutter: the menu
-  // sits beside the rail icon and the two boxes share a bottom edge, so its
-  // bottom-left corner lands at the button's bottom-right. Allow sub-pixel
-  // differences between renderers while checking the intended placement.
-  expect(
-    Math.abs(accountMenuPosition.menuLeft - accountMenuPosition.triggerRight - 4)
-  ).toBeLessThanOrEqual(1)
-  expect(
-    Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerBottom)
-  ).toBeLessThanOrEqual(1)
-  await expect(accountMenu.getByRole('menuitem', { name: 'Get Adea mobile' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
-  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Get the mobile app' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeEnabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeEnabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
-  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
+  const shortcut = await page.evaluate(() => (/Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl,'))
+  await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText(shortcut)
+  await accountMenu.getByRole('menuitem', { name: 'Help Center' }).click()
+  const help = page.getByRole('dialog', { name: 'Help Center' })
+  await expect(help.getByRole('heading', { name: 'Help Center', exact: true })).toHaveCount(1)
+  await expect(
+    help.getByText('Keyboard shortcuts and project resources for Adea.', { exact: true })
+  ).toHaveCount(1)
+  await expect(help.getByText('Search the current conversation')).toBeVisible()
+  await expect(help.getByText('Open settings').locator('..')).toContainText(shortcut)
+  await expect(help.getByRole('link', { name: 'Send feedback' })).toHaveAttribute(
+    'href',
+    /template=feedback\.yml.*context=Adea\+web/
+  )
+  await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(help).toBeHidden()
+  await expect(userMenu).toBeFocused()
+  await page.keyboard.press('Escape')
+  await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'About' }).click()
   const about = page.getByRole('dialog', { name: 'About Adea' })
   await expect(about).toBeVisible()
@@ -130,9 +224,13 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
   await expect(about.getByRole('button', { name: 'Close', exact: true })).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
-  await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
+  const appIcon = about.locator('img[aria-hidden="true"]')
+  await expect(appIcon).toBeVisible()
+  await expect
+    .poll(() => appIcon.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBe(256)
   await about.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(userMenu).toBeFocused()
   // Let the dialog (and its inert overlay) fully detach before opening the
   // next one; without the scene's render load this races close animations.
   await expect(about).toBeHidden({ timeout: 20_000 })
@@ -141,7 +239,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await page.keyboard.press('Escape')
 
   await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ',', metaKey: true }))
+    const mac = /Mac/.test(navigator.platform)
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: ',', metaKey: mac, ctrlKey: !mac })
+    )
   })
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()
