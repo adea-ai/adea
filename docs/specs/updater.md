@@ -204,6 +204,17 @@ remain unchanged, and updates are strictly newer within the selected channel.
 
 ## User-visible policy
 
+The native version-dialog host is gated by the shared desktop-components build
+flag. It remains available in local development and packaged desktop, while
+production web output excludes that host and its updater UI. The rendered
+client-module gate checks this boundary; shared UI remains available to web
+consumers for other uses.
+
+On desktop, the shared visual dialog loads on its first open and stays mounted
+across close/reopen. The existing desktop-entry status probe seeds the update
+badges before that visual module loads; there is no additional closed-dialog
+probe. Opening the dialog still reads status and performs its existing check.
+
 - The version dialog reports the running version, phase, release notes, and
   the release page, and auto-checks when it opens.
 - The update-pending badge (the rail account dot and the Updates menu dot) is

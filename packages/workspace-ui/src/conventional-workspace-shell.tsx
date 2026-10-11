@@ -1,6 +1,6 @@
 import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
-import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense } from 'solid-js'
+import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense, type JSX } from 'solid-js'
 import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -15,7 +15,7 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -57,6 +57,8 @@ export type WorkspaceDeepLink = Readonly<{
 export function ConventionalWorkspaceShell(props: {
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
+  /** Shared archived-session affordance at the end of the common sidebar. */
+  archiveAction?: JSX.Element
   restoreFocusRef?: () => HTMLElement | undefined
   /** Render only the task board, full width with no workspace sidebar: the Kanban app. */
   taskBoardOnly?: boolean
@@ -362,6 +364,7 @@ export function ConventionalWorkspaceShell(props: {
             </a>
             <Show when={!props.taskBoardOnly}>
               <WorkspaceSidebar
+                archiveAction={props.archiveAction}
                 agents={controller.agents}
                 restoreFocusRef={props.restoreFocusRef}
                 channelBusy={controller.channelBusy}
@@ -388,6 +391,7 @@ export function ConventionalWorkspaceShell(props: {
                 workspaceName={controller.activeWorkspace!.name}
               />
             </Show>
+
             <section id="workspace-main" class="conventional-main" tabIndex={-1}>
               <Show when={sessionRotated() && !sessionNoticeDismissed()}>
                 <section class="conventional-session-notice" role="alert">
@@ -400,13 +404,16 @@ export function ConventionalWorkspaceShell(props: {
                       previous workspace if it&apos;s still available.
                     </p>
                   </div>
-                  <Button
+                  <ActionButton
                     type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    tooltip="Dismiss this session notice"
                     aria-label="Dismiss session notice"
                     onClick={() => setSessionNoticeDismissed(true)}
                   >
                     <X aria-hidden="true" />
-                  </Button>
+                  </ActionButton>
                 </section>
               </Show>
               <Show

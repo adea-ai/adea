@@ -2,13 +2,17 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { cn } from '@adea-ai/app-ui/lib/utils'
+import { PanelRightClose, PanelRightOpen } from 'lucide-solid'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
   WorkspacePlatformServices,
@@ -25,6 +29,11 @@ import {
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
+import { createUnavailableDevRuntimeService } from '@adea-ai/dev-view/platform'
+import {
+  createSharedDevUtilityOwner,
+  type SharedDevUtilityOwner,
+} from '@adea-ai/dev-view/utility-owner'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import {
@@ -43,9 +52,15 @@ import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { isDesktopRuntime, openExternalUrl } from '../lib/desktop-bridge'
 import { adeaFeedbackUrl } from '../lib/feedback'
-import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
+
+// The native updater is available in local development and packaged desktop,
+// and excluded by the existing lane flag in the production web build.
+declare const __ADEA_DESKTOP_COMPONENTS__: boolean
+const VersionDialog = __ADEA_DESKTOP_COMPONENTS__
+  ? lazyComponent(() => import('./version-dialog').then((module) => module.VersionDialog))
+  : () => null
 
 const AppLibraryPage = lazyComponent(
   () => import('@adea-ai/workspace-ui/app-library-page').then((module) => module.AppLibraryPage),
@@ -55,18 +70,25 @@ const AppLibraryPage = lazyComponent(
 const DevWorkspace = lazyComponent(
   () =>
     import('@adea-ai/dev-view').then(
-      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService, devViewFixtureGroups }) => {
+      ({
+        DevWorkspaceEntry,
+        createUnavailableDevRuntimeService: createUnavailableDevRuntimeServiceFromView,
+        devViewFixtureGroups,
+      }) => {
         return (entryProps: {
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
           sidebarActionMount?: HTMLElement
+          sidebarOpener?: () => HTMLElement | undefined
+          utilityOwner?: SharedDevUtilityOwner
+          utilityHostOwnedByShell?: boolean
           deepLinkSelection?: () => { projectId?: string; sessionId?: string } | undefined
           onSelectionChange?: (selection: { projectId: string; sessionId: string | null }) => void
         }) => {
           const unavailable =
             entryProps.runtime ??
-            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+            createUnavailableDevRuntimeServiceFromView({ reason: 'channel_unauthenticated' })
           const runtime = entryProps.fixture
             ? {
                 ...unavailable,
@@ -84,6 +106,9 @@ const DevWorkspace = lazyComponent(
               runtime={runtime}
               toolbarMount={entryProps.toolbarMount}
               sidebarActionMount={entryProps.sidebarActionMount}
+              sidebarOpener={entryProps.sidebarOpener}
+              utilityOwner={entryProps.utilityOwner}
+              utilityHostOwnedByShell={entryProps.utilityHostOwnedByShell}
               deepLinkSelection={entryProps.deepLinkSelection}
               onSelectionChange={entryProps.onSelectionChange}
             />
@@ -99,23 +124,40 @@ const SourceControlView = lazyComponent(
     Promise.all([
       import('@adea-ai/dev-view/source-control-app'),
       import('@adea-ai/dev-view/platform'),
-    ]).then(([{ SourceControlApp }, { createUnavailableDevRuntimeService }]) => {
-      return (entryProps: {
-        runtime?: WorkspacePlatformServices['devRuntime']
-        toolbarMount?: HTMLElement
-        onOpenDev(): void
-      }) => (
-        <SourceControlApp
-          runtime={
-            entryProps.runtime ??
-            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-          }
-          toolbarMount={entryProps.toolbarMount}
-          onOpenDev={entryProps.onOpenDev}
-        />
-      )
-    }),
+    ]).then(
+      ([
+        { SourceControlApp },
+        { createUnavailableDevRuntimeService: createSourceControlRuntime },
+      ]) => {
+        return (entryProps: {
+          runtime?: WorkspacePlatformServices['devRuntime']
+          toolbarMount?: HTMLElement
+          onOpenDev(): void
+        }) => (
+          <SourceControlApp
+            runtime={
+              entryProps.runtime ??
+              createSourceControlRuntime({ reason: 'channel_unauthenticated' })
+            }
+            toolbarMount={entryProps.toolbarMount}
+            onOpenDev={entryProps.onOpenDev}
+          />
+        )
+      }
+    ),
   { loading: () => <WorkspaceEntryLoading /> }
+)
+const SharedDevUtilityHost = lazyComponent(
+  () => import('@adea-ai/dev-view/utility-host').then(({ SharedDevUtilityHost: Host }) => Host),
+  { loading: () => null }
+)
+
+const SharedUtilityArchiveShelf = lazyComponent(
+  () =>
+    import('@adea-ai/dev-view/utility-archive-shelf').then(
+      ({ SharedUtilityArchiveShelf: Shelf }) => Shelf
+    ),
+  { loading: () => null }
 )
 
 const ConventionalWorkspace = lazyComponent(
@@ -144,6 +186,10 @@ const ChatVisualFixture = lazyComponent(
 const SpatialWorkspace = lazyComponent(
   () => import('./workspace-shell').then(({ WorkspaceShell }) => WorkspaceShell),
   { loading: () => <WorkspaceEntryLoading /> }
+)
+
+const CharacterDesignerWorkspace = lazyComponent(() =>
+  import('./character-designer-entry').then(({ CharacterDesignerEntry }) => CharacterDesignerEntry)
 )
 
 const RoomDesignerWorkspace = lazyComponent(
@@ -284,16 +330,22 @@ export type WorkspaceNavigationAccount = Readonly<{
 export type WorkspaceNavigationProps = Readonly<{
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
-  chatEntry?: (fallback: JSX.Element) => JSX.Element
+  chatEntry?: (
+    fallback: JSX.Element,
+    archiveAction: JSX.Element,
+    sidebarOpener: () => HTMLElement | undefined
+  ) => JSX.Element
   client: AgentHqApiClient
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
   platform: 'desktop' | 'web'
+  characterDesigner?: boolean
   roomDesigner?: boolean
   services: WorkspacePlatformServices
   updates?: Readonly<{ open: boolean; onOpenChange(open: boolean): void }>
   virtual: boolean
   virtualProps: WorkspaceShellProps
+  utilityOwner?: SharedDevUtilityOwner
   workspaces: readonly WorkspaceSummary[]
 }>
 
@@ -335,6 +387,30 @@ function appLibraryMoveAnnouncementFor(
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const unavailableRuntime = createUnavailableDevRuntimeService({
+    reason: 'channel_unauthenticated',
+  })
+  const utilityRuntime = props.services.devRuntime ?? {
+    ...unavailableRuntime,
+    preferenceScope: () =>
+      import.meta.env.DEV &&
+      typeof window !== 'undefined' &&
+      new URL(window.location.href).searchParams.get('devE2e') === 'preserved'
+        ? {
+            accountId: '00000000-0000-4000-8000-000000000001',
+            workspaceId: '00000000-0000-4000-8000-000000000002',
+            runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+          }
+        : undefined,
+  }
+  const utilityOwner =
+    props.utilityOwner ??
+    createSharedDevUtilityOwner(
+      utilityRuntime,
+      typeof window === 'undefined' ? undefined : window.localStorage
+    )
+  if (!props.utilityOwner) onCleanup(() => utilityOwner.dispose())
+  const archiveAction = <SharedUtilityArchiveShelf owner={utilityOwner} />
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [feedbackError, setFeedbackError] = createSignal('')
   // Send Feedback opens GitHub's prefilled issue form. The browser gives no
@@ -365,6 +441,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
+  const [utilityOpener, setUtilityOpener] = createSignal<HTMLButtonElement>()
+  const [characterDesignerEnabled, setCharacterDesignerEnabled] = createSignal(
+    props.characterDesigner ?? false
+  )
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -374,6 +454,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // `applyDevSelection`, so nothing here mirrors the store into the URL. The
   // session accessor feeds the desktop chat presentation hint only.
   const devSelectedSessionId = useWorkspaceState((state) => state.selectedRuntimeSessionId)
+  const devFocusMode = useWorkspaceState((state) => state.devFocusMode)
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
   // the unread value.
@@ -412,11 +493,25 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const navigate = useNavigate()
 
   const requestedAppId = () =>
-    currentSearch().app ?? currentSearch().view ?? (props.virtual ? 'virtual' : 'chat')
+    currentSearch().app ??
+    (roomDesignerEnabled() || characterDesignerEnabled() ? 'virtual' : currentSearch().view) ??
+    (props.virtual ? 'virtual' : 'chat')
   const activeApp = () => resolveWorkspaceApp(railPreferences(), requestedAppId())
   const activeAppId = (): WorkspaceAppId => activeApp()?.id ?? 'chat'
   const libraryOpen = () => currentSearch().app === 'library' || !activeApp()
   const view = (): WorkspaceView => activeApp()?.view ?? 'chat'
+  const designerActive = () =>
+    view() === 'virtual' && (roomDesignerEnabled() || characterDesignerEnabled())
+  const contextualUtilitiesAvailable = () =>
+    ['dev', 'chat', 'virtual'].includes(activeAppId()) && !libraryOpen() && !designerActive()
+  const contextualUtilitiesVisible = () =>
+    contextualUtilitiesAvailable() &&
+    (view() !== 'dev' ||
+      (!devFocusMode() &&
+        !utilityOwner
+          .utilityPreferences()
+          .some((item) => item.side === 'left' && item.visible && item.fullWidth)))
+  createEffect(() => utilityOwner.setView(contextualUtilitiesAvailable() ? view() : 'workspace'))
   const orderedViews = () => enabledWorkspaceApps(railPreferences()).map((app) => app.id)
   // The selected Dev session is a presentation hint only. Chat reports its
   // visible canonical conversation from DesktopFirstRunChat; the conventional
@@ -426,6 +521,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  createEffect(() => {
+    const query = currentSearch()
+    setRoomDesignerEnabled(query.roomDesigner !== undefined && query.roomDesigner !== '0')
+    setCharacterDesignerEnabled(
+      query.characterDesigner !== undefined && query.characterDesigner !== '0'
+    )
+  })
   // Dev selection is presentation-only. Chat reports its visible canonical
   // conversation separately; leaving Dev clears only this source.
   bindDesktopChatPresentation('dev', () =>
@@ -600,11 +702,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     if (!destination || destination.id !== id) return
     setLibrarySearchRequestHandled(librarySearchRequest())
     workspaceStore.getState().setGlobalPanel(null)
-    if (requestedAppId() === id && currentSearch().app !== 'library') return
+    if (requestedAppId() === id && currentSearch().app !== 'library' && !designerActive()) return
+    setRoomDesignerEnabled(false)
+    setCharacterDesignerEnabled(false)
     void navigate({
       search: {
         ...currentSearch(),
         view: destination.view,
+        roomDesigner: undefined,
+        characterDesigner: undefined,
         app: id === 'kanban' || id === 'source-control' ? id : undefined,
       } as never,
       hash: '',
@@ -624,7 +730,18 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const openAppLibrary = (replace = false) => {
     workspaceStore.getState().setGlobalPanel(null)
     if (currentSearch().app === 'library') return
-    void navigate({ search: { ...currentSearch(), app: 'library' } as never, hash: '', replace })
+    setRoomDesignerEnabled(false)
+    setCharacterDesignerEnabled(false)
+    void navigate({
+      search: {
+        ...currentSearch(),
+        app: 'library',
+        roomDesigner: undefined,
+        characterDesigner: undefined,
+      } as never,
+      hash: '',
+      replace,
+    })
   }
 
   const setRoomDesignerRoute = (enabled: boolean) => {
@@ -671,10 +788,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   return (
     <div
       class={`workspace-frame workspace-frame--${view()}`}
-      data-designer-mode={roomDesignerEnabled() ? 'true' : undefined}
+      data-designer-mode={designerActive() ? 'true' : undefined}
     >
       <WorkspaceTopBar
-        hideSidebarToggle={roomDesignerEnabled()}
+        hideSidebarToggle={designerActive()}
         platform={props.platform}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         onOpenNotifications={() => openSettings('input-notifications')}
@@ -684,6 +801,38 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         sidebarMount={setSidebarActionMount}
         sidebarToggleRef={setSidebarOpener}
       />
+      <Show when={contextualUtilitiesAvailable() && sidebarActionMount()}>
+        {(mount) => (
+          <Portal mount={mount()}>
+            <ActionButton
+              ref={setUtilityOpener}
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              class="workspace-topbar__control"
+              tooltip={
+                utilityOwner.rightUtilityOpen()
+                  ? 'Collapse utility sidebar'
+                  : 'Expand utility sidebar'
+              }
+              aria-label={
+                utilityOwner.rightUtilityOpen()
+                  ? 'Collapse utility sidebar'
+                  : 'Expand utility sidebar'
+              }
+              aria-expanded={utilityOwner.rightUtilityOpen()}
+              onClick={() => utilityOwner.toggleRightUtility()}
+            >
+              <Show
+                when={utilityOwner.rightUtilityOpen()}
+                fallback={<PanelRightOpen aria-hidden="true" />}
+              >
+                <PanelRightClose aria-hidden="true" />
+              </Show>
+            </ActionButton>
+          </Portal>
+        )}
+      </Show>
       <GlobalWorkspaceRail
         account={{
           authenticated: props.account.authenticated,
@@ -750,126 +899,163 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             Switching workspace…
           </p>
         </Show>
-        <Show
-          when={!libraryOpen()}
-          fallback={
-            <AppLibraryPage
-              focusSearchRequest={librarySearchRequest()}
-              focusSearchRequestHandled={librarySearchRequestHandled()}
-              onFocusSearchRequestHandled={(request) =>
-                setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
-              }
-              preferences={railPreferences()}
-              onReorder={(id, targetId, position) => {
-                const previous = railPreferences()
-                const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
-                if (next !== previous) persistRailPreferences(next)
-                return appLibraryMoveAnnouncementFor(id, previous, next)
-              }}
-              onSetEnabled={(id, enabled) =>
-                persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
-              }
-              onOpen={(id) => changeApp(id)}
-              onReset={() => persistRailPreferences(defaultRailPreferences)}
-            />
-          }
+        <div
+          class={cn('workspace-contextual-utility-frame', {
+            'workspace-contextual-utility-frame--utility-full':
+              contextualUtilitiesVisible() &&
+              Boolean(
+                utilityOwner
+                  .utilityPreferences()
+                  .some((item) => item.side === 'right' && item.visible && item.fullWidth)
+              ),
+          })}
         >
-          <Show
-            when={view() !== 'dev'}
-            fallback={
-              <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
-                {(mount) => (
-                  <Show
-                    when={activeAppId() === 'source-control'}
-                    fallback={
-                      <DevWorkspace
-                        fixture={
-                          import.meta.env.DEV &&
-                          Reflect.get(currentSearch(), 'devE2e') === 'preserved'
-                        }
-                        runtime={props.services.devRuntime}
-                        toolbarMount={mount()}
-                        sidebarActionMount={sidebarActionMount()}
-                        deepLinkSelection={devDeepLinkSelection}
-                        onSelectionChange={applyDevSelection}
-                      />
-                    }
-                  >
-                    <SourceControlView
-                      runtime={props.services.devRuntime}
-                      toolbarMount={mount()}
-                      onOpenDev={() => changeApp('dev')}
-                    />
-                  </Show>
-                )}
-              </Show>
-            }
-          >
+          <div class="workspace-contextual-utility-frame__view">
             <Show
-              when={view() === 'virtual'}
+              when={!libraryOpen()}
               fallback={
-                <Show
-                  when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
-                  fallback={
-                    props.chatEntry && activeAppId() !== 'kanban' ? (
-                      props.chatEntry(
-                        <ConventionalWorkspace
-                          restoreFocusRef={sidebarOpener}
-                          client={props.client}
-                          deepLink={deepLink}
-                          manageSettings={false}
-                          onConsumeDeepLink={consumeDeepLink}
-                          onOpenTaskBoard={openTaskBoard()}
-                          onViewChange={changeView}
-                          services={props.services}
-                        />
-                      )
-                    ) : (
-                      <ConventionalWorkspace
-                        restoreFocusRef={sidebarOpener}
-                        taskBoardOnly={activeAppId() === 'kanban'}
-                        client={props.client}
-                        deepLink={deepLink}
-                        manageSettings={false}
-                        onConsumeDeepLink={consumeDeepLink}
-                        onOpenTaskBoard={activeAppId() === 'kanban' ? undefined : openTaskBoard()}
-                        onViewChange={changeView}
-                        services={props.services}
-                      />
-                    )
+                <AppLibraryPage
+                  focusSearchRequest={librarySearchRequest()}
+                  focusSearchRequestHandled={librarySearchRequestHandled()}
+                  onFocusSearchRequestHandled={(request) =>
+                    setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
                   }
-                >
-                  <ChatVisualFixture state={chatVisualState()} />
-                </Show>
+                  preferences={railPreferences()}
+                  onReorder={(id, targetId, position) => {
+                    const previous = railPreferences()
+                    const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
+                    if (next !== previous) persistRailPreferences(next)
+                    return appLibraryMoveAnnouncementFor(id, previous, next)
+                  }}
+                  onSetEnabled={(id, enabled) =>
+                    persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
+                  }
+                  onOpen={(id) => changeApp(id)}
+                  onReset={() => persistRailPreferences(defaultRailPreferences)}
+                />
               }
             >
               <Show
-                when={roomDesignerEnabled()}
+                when={view() !== 'dev'}
                 fallback={
-                  <SpatialWorkspace
-                    {...props.virtualProps}
-                    restoreFocusRef={sidebarOpener}
-                    apiClient={props.client}
-                    initialScene={scene()}
-                    onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-                    onWorkspaceViewChange={changeView}
-                    services={props.services}
-                    workspaceView={view()}
-                  />
+                  <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
+                    {(mount) => (
+                      <Show
+                        when={activeAppId() === 'source-control'}
+                        fallback={
+                          <DevWorkspace
+                            fixture={
+                              import.meta.env.DEV &&
+                              Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+                            }
+                            runtime={utilityRuntime}
+                            toolbarMount={mount()}
+                            sidebarActionMount={sidebarActionMount()}
+                            sidebarOpener={sidebarOpener}
+                            utilityOwner={utilityOwner}
+                            utilityHostOwnedByShell
+                            deepLinkSelection={devDeepLinkSelection}
+                            onSelectionChange={applyDevSelection}
+                          />
+                        }
+                      >
+                        <SourceControlView
+                          runtime={utilityRuntime}
+                          toolbarMount={mount()}
+                          onOpenDev={() => changeApp('dev')}
+                        />
+                      </Show>
+                    )}
+                  </Show>
                 }
               >
-                <RoomDesignerWorkspace
-                  client={props.client}
-                  restoreFocusRef={sidebarOpener}
-                  onOpenChat={() => changeView('chat')}
-                  initialCharacter={props.virtualProps.initialCharacter}
-                  initialScene={scene()}
-                  onClose={() => setRoomDesignerRoute(false)}
-                />
+                <Show
+                  when={view() === 'virtual'}
+                  fallback={
+                    <Show
+                      when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
+                      fallback={
+                        props.chatEntry && activeAppId() !== 'kanban' ? (
+                          props.chatEntry(
+                            <ConventionalWorkspace
+                              archiveAction={archiveAction}
+                              restoreFocusRef={sidebarOpener}
+                              client={props.client}
+                              deepLink={deepLink}
+                              manageSettings={false}
+                              onConsumeDeepLink={consumeDeepLink}
+                              onOpenTaskBoard={openTaskBoard()}
+                              onViewChange={changeView}
+                              services={props.services}
+                            />,
+                            archiveAction,
+                            sidebarOpener
+                          )
+                        ) : (
+                          <ConventionalWorkspace
+                            archiveAction={archiveAction}
+                            restoreFocusRef={sidebarOpener}
+                            taskBoardOnly={activeAppId() === 'kanban'}
+                            client={props.client}
+                            deepLink={deepLink}
+                            manageSettings={false}
+                            onConsumeDeepLink={consumeDeepLink}
+                            onOpenTaskBoard={
+                              activeAppId() === 'kanban' ? undefined : openTaskBoard()
+                            }
+                            onViewChange={changeView}
+                            services={props.services}
+                          />
+                        )
+                      }
+                    >
+                      <ChatVisualFixture state={chatVisualState()} />
+                    </Show>
+                  }
+                >
+                  <Show
+                    when={designerActive()}
+                    fallback={
+                      <SpatialWorkspace
+                        {...props.virtualProps}
+                        archiveAction={archiveAction}
+                        restoreFocusRef={sidebarOpener}
+                        apiClient={props.client}
+                        initialScene={scene()}
+                        onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                        onWorkspaceViewChange={changeView}
+                        services={props.services}
+                        workspaceView={view()}
+                      />
+                    }
+                  >
+                    <Show
+                      when={characterDesignerEnabled()}
+                      fallback={
+                        <RoomDesignerWorkspace
+                          client={props.client}
+                          restoreFocusRef={sidebarOpener}
+                          onOpenChat={() => changeView('chat')}
+                          initialCharacter={props.virtualProps.initialCharacter}
+                          initialScene={scene()}
+                          onClose={() => setRoomDesignerRoute(false)}
+                        />
+                      }
+                    >
+                      <CharacterDesignerWorkspace
+                        initialCharacter={props.virtualProps.initialCharacter}
+                        onClose={() => changeApp('virtual')}
+                      />
+                    </Show>
+                  </Show>
+                </Show>
               </Show>
             </Show>
+          </div>
+          <Show when={contextualUtilitiesVisible() && utilityOwner.rightUtilityOpen()}>
+            <SharedDevUtilityHost owner={utilityOwner} restoreFocusRef={utilityOpener} />
           </Show>
-        </Show>
+        </div>
       </div>
       <Show when={props.activeWorkspace && settingsOpen()}>
         <WorkspaceSettingsOverlay

@@ -7,12 +7,16 @@ import {
 } from '@adea-ai/dev-view/chat'
 import type { ChatConversation, ChatConversationModel, FirstRunFacts } from '@adea-ai/dev-view/chat'
 import type { DevRuntimeService, DevWorkspaceProjection } from '@adea-ai/dev-view/platform'
+import type {
+  CanonicalRuntimeBinding,
+  SharedDevUtilityOwner,
+} from '@adea-ai/dev-view/utility-owner'
 import { buildDevCommand } from '@adea-ai/dev-view/browser'
 import type { Scope } from '@adea-ai/types/dev-runtime'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 
-import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import { useWorkspaceState, workspaceStore, wideViewportAtLoad } from '@adea-ai/state'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import '@adea-ai/app-ui/dev-view.css'
 
@@ -28,12 +32,17 @@ import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/des
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
 
 export type DesktopFirstRunChatProps = Readonly<{
+  sidebarOpener?: () => HTMLElement | undefined
+  archiveAction?: JSX.Element
   client: AgentHqApiClient
   fallback: JSX.Element
   onOpenDev(): void
   onSignIn(): void | Promise<void>
   runtime: DevRuntimeService
   modelHost: DesktopChatModelHost
+  utilityOwner?: SharedDevUtilityOwner
+  /** Explicit runtime authority handoff for the shared utility host. */
+  onCanonicalConversation?(binding: CanonicalRuntimeBinding | undefined): void
   temporary: boolean
   workspaceId: string
 }>
@@ -101,9 +110,27 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     const selected = selection()
     void retry()
     if (!state || state.kind !== 'returning' || !selected) return
+    if (selected.status !== 'empty' && selected.runtimeSessionId) {
+      const active = conversation()
+      const canonical = state.projection.groups
+        .flatMap((group) => group.projects)
+        .find((project) => project.id === selected.projectId)
+        ?.sessions.find((session) => session.id === selected.runtimeSessionId)
+      if (
+        active &&
+        canonical &&
+        canonical.state !== 'archived' &&
+        active.runtimeSessionId === selected.runtimeSessionId &&
+        active.projectId === selected.projectId &&
+        (canonical.generation === undefined || active.generation === canonical.generation) &&
+        sameScope(active.scope, state.scope)
+      )
+        return
+    }
     const token = ++attachment
     const request = lifecycle.current()
     setConversation(undefined)
+    props.onCanonicalConversation?.(undefined)
     setAttachmentError('')
     onCleanup(() => {
       attachment += 1
@@ -118,13 +145,83 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
       .attach(selected.runtimeSessionId)
       .then((next) => {
         if (token !== attachment || !lifecycle.isCurrent(request) || ready() !== state) return
+        const canonical = state.projection.groups
+          .flatMap((group) => group.projects)
+          .find((project) => project.id === selected.projectId)
+          ?.sessions.find((session) => session.id === selected.runtimeSessionId)
+        if (
+          !canonical ||
+          canonical.state === 'archived' ||
+          next.runtimeSessionId !== selected.runtimeSessionId ||
+          next.projectId !== selected.projectId ||
+          (canonical.generation !== undefined && next.generation !== canonical.generation) ||
+          !sameScope(next.scope, state.scope)
+        ) {
+          setAttachmentError('This conversation is unavailable. Retry or select another session.')
+          return
+        }
         state.model.switchTo(next.runtimeSessionId)
         setConversation(next)
+        if (Number.isSafeInteger(next.generation) && next.generation > 0)
+          props.onCanonicalConversation?.({
+            scope: next.scope,
+            projectId: next.projectId,
+            runtimeSessionId: next.runtimeSessionId,
+            sessionGeneration: next.generation,
+            worktreeId: canonical.worktreeId,
+          })
       })
       .catch(() => {
         if (token !== attachment || !lifecycle.isCurrent(request) || ready() !== state) return
         setAttachmentError('This conversation is unavailable. Retry or select another session.')
       })
+  })
+
+  let seenArchiveRestoreRevision = props.utilityOwner?.archiveRestoreRevision() ?? 0
+  createEffect(() => {
+    const revision = props.utilityOwner?.archiveRestoreRevision()
+    if (revision === undefined || revision === seenArchiveRestoreRevision) return
+    seenArchiveRestoreRevision = revision
+    const current = ready()
+    if (current?.kind === 'returning' && props.runtime.projection) {
+      const context = props.utilityOwner?.context()
+      const scope = props.runtime.preferenceScope?.()
+      const runtimeStatus = props.runtime.state().status
+      if (
+        !scope ||
+        !sameScope(scope, current.scope) ||
+        runtimeStatus !== 'ready' ||
+        (context &&
+          (context.view !== 'chat' || !context.scope || !sameScope(context.scope, current.scope)))
+      )
+        return
+      const request = lifecycle.current()
+      void props.runtime.projection(current.scope).then(
+        (projection) => {
+          const latestScope = props.runtime.preferenceScope?.()
+          const latestContext = props.utilityOwner?.context()
+          if (
+            !lifecycle.isCurrent(request) ||
+            ready() !== current ||
+            !latestScope ||
+            !sameScope(latestScope, current.scope) ||
+            props.runtime.state().status !== runtimeStatus ||
+            (context && latestContext?.revision !== context.revision)
+          )
+            return
+          setReady({ ...current, projection })
+        },
+        () => undefined
+      )
+      return
+    }
+    const request = lifecycle.begin()
+    setReady(undefined)
+    setConversation(undefined)
+    props.onCanonicalConversation?.(undefined)
+    void load(request).then((next) => {
+      if (lifecycle.isCurrent(request) && next) setReady(next)
+    })
   })
 
   // Only a mounted canonical Chat conversation is reported. Conventional
@@ -142,11 +239,15 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     void props.workspaceId
     setReady(undefined)
     setConversation(undefined)
+    props.onCanonicalConversation?.(undefined)
     const request = lifecycle.begin()
     void load(request).then((next) => {
       if (lifecycle.isCurrent(request) && next) setReady(next)
     })
-    onCleanup(lifecycle.invalidate)
+    onCleanup(() => {
+      lifecycle.invalidate()
+      props.onCanonicalConversation?.(undefined)
+    })
   })
 
   async function load(request: number): Promise<ReadyState | undefined> {
@@ -216,6 +317,9 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 collapsedGroups={new Set(collapsedGroups())}
                 collapsedProjects={new Set(collapsedProjects())}
                 compactOpen={sidebarOpen()}
+                onOpenChange={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
+                wideViewportAtLoad={wideViewportAtLoad}
+                restoreFocusRef={props.sidebarOpener}
                 navigationLabel="Chat projects"
                 onProjectSelect={(id) => workspaceStore.getState().setSelectedDevProjectId(id)}
                 onSessionSelect={(projectId, sessionId) => {
@@ -226,7 +330,9 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                 }}
                 onToggleGroup={(id) => workspaceStore.getState().toggleDevGroupCollapsed(id)}
                 onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
-              />
+              >
+                {props.archiveAction}
+              </DevSidebarNavigation>
               <div class="workspace-runtime-chat">
                 <Show
                   when={conversation()}
@@ -345,4 +451,12 @@ async function readWorktrees(runtime: DevRuntimeService, scope: Scope): Promise<
   )
   if (!reply.ok) throw new Error(reply.error.message)
   return reply.value as WorktreePage
+}
+
+function sameScope(left: Scope, right: Scope): boolean {
+  return (
+    left.accountId === right.accountId &&
+    left.workspaceId === right.workspaceId &&
+    left.runtimeNodeId === right.runtimeNodeId
+  )
 }

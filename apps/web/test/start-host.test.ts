@@ -10,6 +10,7 @@ import { failure, finalizeDynamicResponse, rootDocumentPolicy } from '../src/sta
 import { parseWorkspaceSearch, stringifyWorkspaceSearch } from '../src/start/search-codec.mjs'
 import { workspaceSelection } from '../src/start/workspace-selection.mjs'
 import {
+  desktopOnlyClientModule,
   forbiddenClientModule,
   PUBLIC_ENV_NAMES,
   PRIVATE_ENV_NAMES,
@@ -18,6 +19,24 @@ import { writeLocalWorkerConfig } from '../start/local-worker-config.mjs'
 
 const origin = 'https://adea-start.test'
 const request = (path = '/', options: RequestInit = {}) => new Request(`${origin}${path}`, options)
+
+it('rejects native updater hosts in web output while allowing shared UI and workspace navigation', () => {
+  for (const name of ['desktop-workspace-entry', 'desktop-first-run-chat', 'version-dialog']) {
+    const path = `<repository>/apps/web/src/components/${name}.tsx`
+    assert.equal(desktopOnlyClientModule(path), true)
+    assert.equal(desktopOnlyClientModule(path.replaceAll('/', '\\')), true)
+  }
+  assert.equal(
+    desktopOnlyClientModule('<repository>/apps/web/src/components/workspace-navigation.tsx'),
+    false
+  )
+  assert.equal(
+    desktopOnlyClientModule(
+      '<dependencies>/@adea-ai/ui/src/components/composites/update-dialog/update-dialog.tsx'
+    ),
+    false
+  )
+})
 
 function noStore(response: Response) {
   assert.equal(response.headers.get('cache-control'), 'private, no-store')
@@ -168,7 +187,7 @@ describe('workspace query semantics', () => {
     const result = workspaceSelection(input)
     assert.equal(result.roomDesigner, false)
     assert.equal(result.characterDesigner, true)
-    assert.equal(result.virtual, false)
+    assert.equal(result.virtual, true)
   })
   it('round-trips unfamiliar parameters and encoded special characters', () => {
     const query = '?scene=home&x=a%26b&x=c%2Bd&empty=&unicode=%F0%9F%92%9C'
@@ -190,6 +209,8 @@ describe('workspace query semantics', () => {
     }
     assert.equal(workspaceSelection({ roomDesigner: ['0', '1'] }).virtual, false)
     assert.equal(workspaceSelection({ view: 'virtual' }).virtual, true)
+    assert.equal(workspaceSelection({ characterDesigner: '1' }).virtual, true)
+    assert.equal(workspaceSelection({ characterDesigner: '0' }).virtual, false)
     assert.equal(workspaceSelection({ view: 'dev' }).dev, true)
     assert.equal(workspaceSelection({ view: ['chat', 'dev'] }).dev, false)
   })

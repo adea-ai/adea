@@ -125,3 +125,80 @@ test('returning Chat reports only its mounted session and clears hints on pendin
   await page.evaluate(() => window.desktopRuntimeChatHarness.remount())
   await expect.poll(currentHint).toBe(firstId)
 })
+
+test('Chat hands utility authority off only after the selected canonical conversation attaches', async ({
+  page,
+}) => {
+  await mount(page)
+  const report = () => page.evaluate(() => window.desktopRuntimeChatHarness.report())
+  await expect
+    .poll(async () => (await report()).utilityHandoffs.at(-1))
+    .toEqual({
+      scope: {
+        accountId: '00000000-0000-4000-8000-000000000001',
+        workspaceId: '00000000-0000-4000-8000-000000000002',
+        runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+      },
+      projectId: '00000000-0000-4000-8000-000000000004',
+      runtimeSessionId: '00000000-0000-4000-8000-000000000005',
+      sessionGeneration: 3,
+      worktreeId: '00000000-0000-4000-8000-000000000008',
+    })
+
+  await page.evaluate(() => {
+    window.desktopRuntimeChatHarness.delayNextAttach()
+    window.desktopRuntimeChatHarness.selectSecond()
+  })
+  await expect(page.getByText('Opening conversation…')).toBeVisible()
+  await expect.poll(async () => (await report()).utilityHandoffs.at(-1)).toBe(null)
+
+  await page.evaluate(() => window.desktopRuntimeChatHarness.selectFirst())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  await expect
+    .poll(async () => (await report()).utilityHandoffs.at(-1)?.runtimeSessionId)
+    .toBe('00000000-0000-4000-8000-000000000005')
+  await page.evaluate(() => window.desktopRuntimeChatHarness.resolveAttach())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  expect((await report()).utilityHandoffs.at(-1)?.runtimeSessionId).toBe(
+    '00000000-0000-4000-8000-000000000005'
+  )
+})
+
+test('DesktopFirstRunChat direct project sidebar includes the shared archive footer', async ({
+  page,
+}) => {
+  await mount(page)
+  const sidebar = page.getByRole('complementary', { name: 'Projects and sessions' })
+  const archiveAction = sidebar.getByRole('button', { name: /Archived sessions/ })
+  await expect(archiveAction).toBeVisible()
+  await archiveAction.click()
+  const row = sidebar
+    .getByRole('list', { name: 'Archived sessions', exact: true })
+    .getByRole('listitem')
+    .filter({ hasText: 'Archived desktop conversation' })
+  await expect(row).toBeVisible()
+
+  await row.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(row).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  const report = await page.evaluate(() => window.desktopRuntimeChatHarness.report())
+  const unarchiveCommand = report.archiveCommands.find(
+    (command) => command.operation === 'dev.session.unarchive'
+  )
+  expect(unarchiveCommand).toMatchObject({
+    scope: {
+      accountId: '00000000-0000-4000-8000-000000000001',
+      workspaceId: '00000000-0000-4000-8000-000000000002',
+      runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+    },
+    body: {
+      runtimeSessionId: '00000000-0000-4000-8000-000000000009',
+      expectedGeneration: 9,
+    },
+    resource: {
+      kind: 'runtime_session',
+      id: '00000000-0000-4000-8000-000000000009',
+      generation: 9,
+    },
+  })
+})

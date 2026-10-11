@@ -130,13 +130,6 @@
   background: var(--dev-panel);
 }
 
-/* The same resize affordance the chat navigation has; the stored width is
-   shared, so one drag sets both views. Pointer parity is a product gate. */
-.dev-sidebar__resize {
-  z-index: 6;
-  cursor: pointer;
-}
-
 /* The shared SidebarNav ships a 16rem w-sidebar default; the chat navigation
    overrides it through unlayered host CSS, so the Dev sidebar does too — the
    shared contextual width must win over the published default. */
@@ -310,6 +303,11 @@
   inset-inline-start: 0;
 }
 
+.dev-utility > .dev-utility-splitter--right {
+  /* Match the right ruler's 448px maximum so its handle tracks the pane edge. */
+  width: 28rem;
+}
+
 .dev-utility-splitter--right {
   inset-inline-start: auto;
   inset-inline-end: 0;
@@ -318,21 +316,6 @@
 .dev-utility-splitter__handle {
   z-index: var(--z-docked);
   pointer-events: auto;
-}
-
-/* The shared grip rung is 1rem tall; the utility pane's resize affordance
-   triples it so the drag target is findable without pixel hunting, while a
-   narrow translucent chip keeps it quiet next to the pane content (the grip
-   glyph it replaces read as a wide solid button). */
-.dev-utility-splitter__handle > div {
-  height: 3rem;
-  width: 0.375rem;
-  border-color: transparent;
-  background: color-mix(in srgb, var(--dev-border) 55%, transparent);
-}
-
-.dev-utility-splitter__handle > div > svg {
-  display: none;
 }
 
 .dev-row-badge {
@@ -491,35 +474,12 @@
 
 @media (max-width: 48rem) {
   .dev-sidebar {
-    position: absolute;
-    z-index: var(--z-drawer);
-    inset-block: 0;
-    inset-inline-start: 0;
-    /* The drawer is anchored to the workspace body, which starts at the rail
-       edge, so it must also end there: without the rail term the shelf row
-       lands at rail-width + row-width and overflows a narrow viewport (seen
-       as 399.8 > 320 at 320px with a 200% root font). */
-    width: var(
-      --dev-context-sidebar-width,
-      min(17rem, 84vw, calc(100vw - var(--workspace-rail-width, 0px)))
-    );
-    visibility: hidden;
-    transform: translateX(-105%);
-    transition:
-      transform 160ms ease,
-      visibility 0s linear 160ms;
+    /* The shared Sheet is portaled; its source wrapper owns no mobile track. */
+    display: contents;
   }
-
-  /* The drawer drags the whole viewport contract; resizing stays a desktop
-     affordance like the sheet's in the shared sidebar. */
-  .dev-sidebar__resize {
-    display: none;
-  }
-
-  .dev-sidebar--open {
-    visibility: visible;
-    transform: translateX(0);
-    transition-delay: 0s;
+  .dev-sidebar__sheet {
+    width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
+    max-width: min(19rem, max(9rem, calc(100vw - var(--workspace-rail-width, 4rem))));
   }
 }
 

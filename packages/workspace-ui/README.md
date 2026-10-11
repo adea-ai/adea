@@ -27,6 +27,12 @@ Reading position is cached by channel as both a scroll offset and follow intent;
 the shared scroller owns follow behavior while the workspace owns that identity
 and restoration snapshot.
 
+The global app container retains its rail in every view. Contextual sidebars use
+one shared layout with view-owned content: Dev, Chat, and Virtual provide their
+usual navigation and utility content, while Room and Character design hide both
+sidebars and their toolbar toggles. New app views can replace the content without
+rebuilding the rail, toolbar, resizing, or collapse behavior.
+
 ## Global rail
 
 The `GlobalWorkspaceRail` stays mounted across workspace views. Ctrl/Cmd+K
