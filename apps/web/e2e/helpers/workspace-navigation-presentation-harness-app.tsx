@@ -1,6 +1,7 @@
 import '../../src/start/globals.css'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
+import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import { workspaceStore } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import {
@@ -17,6 +18,7 @@ import { WorkspaceNavigation } from '../../src/components/workspace-navigation'
 import type { WorkspaceShellProps } from '../../src/components/workspace-shell'
 
 const calls: Array<{ command: string; sessionId: string | null }> = []
+const runtimeCalls: string[] = []
 window.__adeaDesktop = {
   invoke: async (command, args) => {
     calls.push({
@@ -34,7 +36,7 @@ const scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
 const runtime = {
-  state: () => ({ status: 'unavailable' as const, reason: 'channel_unauthenticated' as const }),
+  state: () => ({ status: 'ready' as const }),
   preferenceScope: () => scope,
   capabilitySnapshot: async () => ({
     scope,
@@ -43,19 +45,41 @@ const runtime = {
     channelGeneration: 0,
     observedAt: new Date().toISOString(),
   }),
-  execute: async (command: Parameters<DevRuntimeService['execute']>[0]) => ({
-    schemaVersion: 1 as const,
-    operation: command.operation,
-    requestId: command.requestId,
-    ok: false as const,
-    error: {
-      code: 'channel_unauthenticated' as const,
-      retryable: false,
-      message: 'Harness runtime is unavailable.',
-      observedAt: new Date().toISOString(),
-    },
-  }),
+  execute: async (command: Parameters<DevRuntimeService['execute']>[0]) => {
+    runtimeCalls.push(command.operation)
+    return {
+      schemaVersion: 1 as const,
+      operation: command.operation,
+      requestId: command.requestId,
+      ok: true as const,
+      value:
+        command.operation === 'dev.device.list'
+          ? {
+              items: [
+                {
+                  id: 'scope-device',
+                  kind: 'ios_simulator',
+                  name: 'Scope-only simulator',
+                  platform: 'ios',
+                  state: 'available',
+                  generation: 1,
+                  observedAt: new Date().toISOString(),
+                },
+              ],
+            }
+          : command.operation === 'dev.device.capabilities'
+            ? {
+                items: [
+                  { platform: 'ios', state: 'available', observedAt: new Date().toISOString() },
+                  { platform: 'android', state: 'unavailable', observedAt: new Date().toISOString() },
+                ],
+                observedAt: new Date().toISOString(),
+              }
+            : {},
+    } as never
+  },
 } satisfies Partial<DevRuntimeService> as DevRuntimeService
+const utilityOwner = createSharedDevUtilityOwner(runtime)
 
 const client = {
   eventStreamHeaders: () => ({}),
@@ -83,6 +107,7 @@ const appRoute = createRoute({
           services={{ devRuntime: runtime } as WorkspacePlatformServices}
           virtual={false}
           virtualProps={{} as WorkspaceShellProps}
+          utilityOwner={utilityOwner}
           workspaces={[]}
         />
       </AgentHqQueryProvider>
@@ -107,15 +132,42 @@ if (!root) throw new Error('workspace navigation harness root missing')
 render(() => <RouterProvider router={router} />, root)
 
 window.workspaceNavigationPresentationHarness = {
-  report: () => [...calls],
+  report: () => {
+    const context = utilityOwner.context()
+    return {
+      calls: [...calls],
+      runtimeCalls: [...runtimeCalls],
+      utility: {
+        view: context.view,
+        scope: context.scope,
+        projectId: context.projectId,
+        runtimeSessionId: context.runtimeSessionId,
+        sessionGeneration: context.sessionGeneration,
+        revision: context.revision,
+      },
+    }
+  },
   showChat: () => router.navigate({ search: { view: 'chat' } as never, replace: true }),
+  showVirtual: () => router.navigate({ search: { view: 'virtual' } as never, replace: true }),
 }
 
 declare global {
   interface Window {
     workspaceNavigationPresentationHarness: {
-      report(): Array<{ command: string; sessionId: string | null }>
+      report(): {
+      calls: Array<{ command: string; sessionId: string | null }>
+      runtimeCalls: string[]
+        utility: {
+          view: string
+          scope?: { accountId: string; workspaceId: string; runtimeNodeId: string }
+          projectId?: string
+          runtimeSessionId?: string
+          sessionGeneration?: number
+          revision: number
+        }
+      }
       showChat(): Promise<void>
+      showVirtual(): Promise<void>
     }
   }
 }

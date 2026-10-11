@@ -18,6 +18,18 @@
       "development": "./src/platform.ts",
       "import": "./dist/platform.js"
     },
+    "./utility-owner": {
+      "types": "./dist/utility-owner.d.ts",
+      "solid": "./src/utility-owner.ts",
+      "development": "./src/utility-owner.ts",
+      "import": "./dist/utility-owner.js"
+    },
+    "./utility-host": {
+      "types": "./dist/utility-host.d.ts",
+      "solid": "./src/utility-host.tsx",
+      "development": "./src/utility-host.tsx",
+      "import": "./dist/utility-host.js"
+    },
     "./appearance": {
       "types": "./dist/appearance/index.d.ts",
       "solid": "./src/appearance/index.ts",

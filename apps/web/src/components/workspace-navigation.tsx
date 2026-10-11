@@ -2,13 +2,17 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, untrack, Show, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { cn } from '@adea-ai/app-ui/lib/utils'
+import { PanelRightClose, PanelRightOpen } from 'lucide-solid'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
   WorkspacePlatformServices,
@@ -25,6 +29,10 @@ import {
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
+import {
+  createSharedDevUtilityOwner,
+  type SharedDevUtilityOwner,
+} from '@adea-ai/dev-view/utility-owner'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import {
@@ -46,6 +54,7 @@ import { adeaFeedbackUrl } from '../lib/feedback'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
+import './workspace-contextual-utilities.css'
 
 const AppLibraryPage = lazyComponent(
   () => import('@adea-ai/workspace-ui/app-library-page').then((module) => module.AppLibraryPage),
@@ -61,6 +70,7 @@ const DevWorkspace = lazyComponent(
           runtime?: WorkspacePlatformServices['devRuntime']
           toolbarMount?: HTMLElement
           sidebarActionMount?: HTMLElement
+          utilityOwner?: SharedDevUtilityOwner
           appMode?: 'source-control'
         }) => {
           const unavailable =
@@ -84,12 +94,19 @@ const DevWorkspace = lazyComponent(
               toolbarMount={entryProps.toolbarMount}
               sidebarActionMount={entryProps.sidebarActionMount}
               appMode={entryProps.appMode}
+              utilityOwner={entryProps.utilityOwner}
             />
           )
         }
       }
     ),
   { loading: () => <WorkspaceEntryLoading /> }
+)
+
+const SharedDevUtilityHost = lazyComponent(
+  () =>
+    import('@adea-ai/dev-view/utility-host').then(({ SharedDevUtilityHost: Host }) => Host),
+  { loading: () => null }
 )
 
 const ConventionalWorkspace = lazyComponent(
@@ -268,6 +285,7 @@ export type WorkspaceNavigationProps = Readonly<{
   updates?: Readonly<{ open: boolean; onOpenChange(open: boolean): void }>
   virtual: boolean
   virtualProps: WorkspaceShellProps
+  utilityOwner?: SharedDevUtilityOwner
   workspaces: readonly WorkspaceSummary[]
 }>
 
@@ -309,6 +327,13 @@ function appLibraryMoveAnnouncementFor(
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const utilityOwner =
+    props.utilityOwner ??
+    createSharedDevUtilityOwner(
+      props.services.devRuntime,
+      typeof window === 'undefined' ? undefined : window.localStorage
+    )
+  if (!props.utilityOwner) onCleanup(() => utilityOwner.dispose())
   const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [feedbackError, setFeedbackError] = createSignal('')
   // Send Feedback opens GitHub's prefilled issue form. The browser gives no
@@ -339,6 +364,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [sidebarActionMount, setSidebarActionMount] = createSignal<HTMLDivElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [sidebarOpener, setSidebarOpener] = createSignal<HTMLButtonElement>()
+  const [utilityOpener, setUtilityOpener] = createSignal<HTMLButtonElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -389,6 +415,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const activeAppId = (): WorkspaceAppId => activeApp()?.id ?? 'chat'
   const libraryOpen = () => currentSearch().app === 'library' || !activeApp()
   const view = (): WorkspaceView => activeApp()?.view ?? 'chat'
+  createEffect(() => utilityOwner.setView(view()))
   const orderedViews = () => enabledWorkspaceApps(railPreferences()).map((app) => app.id)
   // The selected Dev session is a presentation hint only. Chat reports its
   // visible canonical conversation from DesktopFirstRunChat; the conventional
@@ -664,6 +691,34 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         sidebarMount={setSidebarActionMount}
         sidebarToggleRef={setSidebarOpener}
       />
+      <Show
+        when={
+          utilityOwner &&
+          sidebarActionMount() &&
+          view() !== 'dev' &&
+          !roomDesignerEnabled()
+        }
+      >
+        {(mount) => (
+          <Portal mount={mount()}>
+            <ActionButton
+              ref={setUtilityOpener}
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              class="workspace-topbar__control"
+              tooltip={utilityOwner.rightUtilityOpen() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+              aria-label={utilityOwner.rightUtilityOpen() ? 'Collapse utility sidebar' : 'Expand utility sidebar'}
+              aria-expanded={utilityOwner.rightUtilityOpen()}
+              onClick={() => utilityOwner.toggleRightUtility()}
+            >
+              <Show when={utilityOwner.rightUtilityOpen()} fallback={<PanelRightOpen aria-hidden="true" />}>
+                <PanelRightClose aria-hidden="true" />
+              </Show>
+            </ActionButton>
+          </Portal>
+        )}
+      </Show>
       <GlobalWorkspaceRail
         account={{
           authenticated: props.account.authenticated,
@@ -730,30 +785,42 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             Switching workspace…
           </p>
         </Show>
-        <Show
-          when={!libraryOpen()}
-          fallback={
-            <AppLibraryPage
-              focusSearchRequest={librarySearchRequest()}
-              focusSearchRequestHandled={librarySearchRequestHandled()}
-              onFocusSearchRequestHandled={(request) =>
-                setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
-              }
-              preferences={railPreferences()}
-              onReorder={(id, targetId, position) => {
-                const previous = railPreferences()
-                const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
-                if (next !== previous) persistRailPreferences(next)
-                return appLibraryMoveAnnouncementFor(id, previous, next)
-              }}
-              onSetEnabled={(id, enabled) =>
-                persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
-              }
-              onOpen={(id) => changeApp(id)}
-              onReset={() => persistRailPreferences(defaultRailPreferences)}
-            />
-          }
+        <div
+          class={cn('workspace-contextual-utility-frame', {
+            'workspace-contextual-utility-frame--utility-full':
+              view() !== 'dev' &&
+              Boolean(
+                utilityOwner
+                  ?.utilityPreferences()
+                  .some((item) => item.side === 'right' && item.visible && item.fullWidth)
+              ),
+          })}
         >
+          <div class="workspace-contextual-utility-frame__view">
+            <Show
+              when={!libraryOpen()}
+              fallback={
+                <AppLibraryPage
+                  focusSearchRequest={librarySearchRequest()}
+                  focusSearchRequestHandled={librarySearchRequestHandled()}
+                  onFocusSearchRequestHandled={(request) =>
+                    setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
+                  }
+                  preferences={railPreferences()}
+                  onReorder={(id, targetId, position) => {
+                    const previous = railPreferences()
+                    const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
+                    if (next !== previous) persistRailPreferences(next)
+                    return appLibraryMoveAnnouncementFor(id, previous, next)
+                  }}
+                  onSetEnabled={(id, enabled) =>
+                    persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
+                  }
+                  onOpen={(id) => changeApp(id)}
+                  onReset={() => persistRailPreferences(defaultRailPreferences)}
+                />
+              }
+            >
           <Show
             when={view() !== 'dev'}
             fallback={
@@ -767,6 +834,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     toolbarMount={mount()}
                     sidebarActionMount={sidebarActionMount()}
                     appMode={activeAppId() === 'source-control' ? 'source-control' : undefined}
+                    utilityOwner={utilityOwner}
                   />
                 )}
               </Show>
@@ -836,7 +904,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
               </Show>
             </Show>
           </Show>
-        </Show>
+            </Show>
+          </div>
+          <Show
+            when={
+              !libraryOpen() &&
+              view() !== 'dev' &&
+              utilityOwner.rightUtilityOpen()
+            }
+          >
+            <SharedDevUtilityHost
+              owner={utilityOwner}
+              restoreFocusRef={utilityOpener}
+            />
+          </Show>
+        </div>
       </div>
       <Show when={props.activeWorkspace && settingsOpen()}>
         <WorkspaceSettingsOverlay

@@ -18,6 +18,16 @@ const firstId = '00000000-0000-4000-8000-000000000005'
 const secondId = '00000000-0000-4000-8000-000000000006'
 const calls: string[] = []
 const presentations: (string | null)[] = []
+const utilityHandoffs: Array<
+  | {
+      scope: Scope
+      projectId: string
+      runtimeSessionId: string
+      sessionGeneration: number
+      worktreeId?: string
+    }
+  | null
+> = []
 window.__adeaDesktop = {
   invoke: async (command, args) => {
     if (command !== 'desktop_chat_presentation')
@@ -151,6 +161,7 @@ render(
         temporary={false}
         onSignIn={() => undefined}
         onOpenDev={() => setMounted(false)}
+        onCanonicalConversation={(binding) => utilityHandoffs.push(binding ?? null)}
       />
     </Show>
   ),
@@ -188,6 +199,7 @@ window.desktopRuntimeChatHarness = {
   report: () => ({
     calls: [...calls],
     presentations: [...presentations],
+    utilityHandoffs: [...utilityHandoffs],
     closes,
     selected: workspaceStore.getState().selectedRuntimeSessionId,
     draft: host
@@ -209,7 +221,17 @@ declare global {
       saveDraft(draft: string): unknown
       report(): {
         calls: string[]
-        presentations: (string | null)[]
+      presentations: (string | null)[]
+      utilityHandoffs: Array<
+        | {
+            scope: Scope
+            projectId: string
+            runtimeSessionId: string
+            sessionGeneration: number
+            worktreeId?: string
+          }
+        | null
+      >
         closes: number
         selected: string | null
         draft?: string
