@@ -1,0 +1,25 @@
+name: Product feedback
+description: Share feedback about using Adea or Cortana
+title: '[feedback] '
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: App context
+      description: Include the app, web or desktop runtime, and version. Add your OS when relevant.
+      value: Adea or Cortana
+      placeholder: App name, web or desktop runtime, version, and OS
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: What were you trying to do, and what would make the experience better?
+    validations:
+      required: true
+  - type: textarea
+    id: report_details
+    attributes:
+      label: Optional details
+      description: Add steps, screenshots, or other context. Remove secrets and private information.

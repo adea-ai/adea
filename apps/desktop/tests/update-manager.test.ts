@@ -5,6 +5,7 @@
 // contract: every check settles, a stalled state recovers, and concurrent
 // checks share one flight.
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import installedChangelog from '../../../CHANGELOG.md' with { type: 'text' }
 
 import { createUpdateManager } from '../shell/src/updates'
 
@@ -140,5 +141,37 @@ describe('update manager', () => {
     const status = await manager.check()
     expect(status.phase).toBe('current')
     expect(status.available_version).toBeNull()
+    expect(status.changelog).toBe(installedChangelog)
+  })
+
+  test('keeps the complete installed history while exposing current release notes separately', async () => {
+    installFetchMock()
+    const releaseNotes = [
+      '# Adea 0.67.1',
+      ...Array.from({ length: 80 }, (_, index) => `- Change ${index + 1}`),
+      'The final release-note entry must remain visible.',
+    ].join('\n')
+    fetchHandler = async () =>
+      Response.json({
+        version: '0.67.1',
+        platform: process.platform,
+        arch: process.arch,
+        url: `https://github.com/adea-ai/adea/releases/download/v0.67.1/Adea-v0.67.1-${process.platform}-${process.arch}.app.tar.zst`,
+        sha256: 'a'.repeat(64),
+        signature: 'sig',
+        notes: releaseNotes,
+      })
+    const manager = createUpdateManager({
+      appVersion: '0.65.2',
+      dataDir: '/tmp/adea-update-manager-test',
+      checkTimeoutMs: 1_000,
+    })
+
+    const status = await manager.check()
+
+    expect(status.changelog).toBe(installedChangelog)
+    expect((status.changelog.match(/^## \[/gm) ?? []).length).toBeGreaterThan(1)
+    expect(status.changelog).toContain('## [0.2.0]')
+    expect(status.release_notes).toBe(releaseNotes)
   })
 })

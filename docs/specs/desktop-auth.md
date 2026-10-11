@@ -26,6 +26,9 @@ the contract to read before touching the desktop flows in
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
+For shared desktop menus and support dialogs, see
+[Desktop support surfaces](../desktop-support-surfaces.md).
+
 ## One cloud origin
 
 `apps/desktop/scripts/cloud-config.mjs` owns the origin: `DEFAULT_CLOUD_ORIGIN`
@@ -136,7 +139,10 @@ are refused unless they present the exact channel identity the stream was
 attached under. `desktop_auth_start` additionally refuses
 to open any URL that is not a credential-free authorize URL on the canonical
 cloud origin — the client still owns the full `validate_authorization_url`
-check. The registered command set and the commands the client actually
+check. `desktop_open_external` is the separate handoff for Help and About links;
+the shell accepts only HTTPS URLs on `github.com/adea-ai/adea` and opens them in
+the system browser. Arbitrary hosts, non-HTTPS URLs, and URL credentials are
+refused. The registered command set and the commands the client actually
 invokes must match exactly: `scripts/desktop-ipc-boundary.test.ts` fails the
 build otherwise, and `apps/desktop/tests/shell-commands.test.ts` exercises
 the family round-trips over the guarded path, with the channel boundary

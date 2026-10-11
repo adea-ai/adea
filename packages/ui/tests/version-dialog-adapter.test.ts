@@ -46,11 +46,13 @@ describe('VersionDialog update adapter', () => {
         }
       },
       isDesktopRuntime: () => true,
+      pollIntervalMs: 500,
     }
 
     const adapter = createUpdateDialogAdapter(() => nativeAdapter)
 
     expect(adapter.isDesktopRuntime()).toBe(true)
+    expect(adapter.pollIntervalMs).toBe(500)
     expect(await adapter.getStatus()).toEqual({
       availableVersion: '0.62.0',
       changelog: '## Current release',
@@ -79,5 +81,42 @@ describe('VersionDialog update adapter', () => {
       totalBytes: 8192,
     })
     expect(calls).toEqual(['status', 'check', 'install:0.62.0'])
+  })
+
+  test('forwards native release links and their failures', async () => {
+    const opened: string[] = []
+    const nativeAdapter: VersionDialogAdapter = {
+      check: async () => availableUpdate,
+      getStatus: async () => availableUpdate,
+      install: async () => availableUpdate,
+      isDesktopRuntime: () => true,
+      openExternal: async (url) => {
+        opened.push(url)
+      },
+    }
+    const adapter = createUpdateDialogAdapter(() => nativeAdapter)
+
+    await adapter.openExternal?.(availableUpdate.github_url)
+    expect(opened).toEqual([availableUpdate.github_url])
+
+    const failure = new Error('native browser unavailable')
+    const failingAdapter = createUpdateDialogAdapter(() => ({
+      ...nativeAdapter,
+      openExternal: async () => {
+        throw failure
+      },
+    }))
+    await expect(failingAdapter.openExternal?.(availableUpdate.github_url)).rejects.toBe(failure)
+  })
+
+  test('leaves external opening optional for legacy adapters', () => {
+    const nativeAdapter: VersionDialogAdapter = {
+      check: async () => availableUpdate,
+      getStatus: async () => availableUpdate,
+      install: async () => availableUpdate,
+      isDesktopRuntime: () => false,
+    }
+
+    expect(createUpdateDialogAdapter(() => nativeAdapter).openExternal).toBeUndefined()
   })
 })

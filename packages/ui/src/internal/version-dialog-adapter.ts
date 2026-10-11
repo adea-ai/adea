@@ -27,6 +27,10 @@ export type VersionDialogAdapter = Readonly<{
   check(): Promise<SharedDesktopUpdate>
   getStatus(): Promise<SharedDesktopUpdate>
   install(expectedVersion: string): Promise<SharedDesktopUpdate>
+  /** Route release links through the native system browser when available. */
+  openExternal?: (url: string) => Promise<void>
+  /** Enable periodic snapshots while the shell performs a native install. */
+  pollIntervalMs?: number
   isDesktopRuntime(): boolean
 }>
 
@@ -50,11 +54,21 @@ function toUpdateState(update: SharedDesktopUpdate): UpdateState {
 export function createUpdateDialogAdapter(
   getNativeAdapter: () => VersionDialogAdapter
 ): UpdateAdapter {
+  const nativeAdapter = getNativeAdapter()
   return {
     check: async () => toUpdateState(await getNativeAdapter().check()),
     getStatus: async () => toUpdateState(await getNativeAdapter().getStatus()),
     install: async (expectedVersion) =>
       toUpdateState(await getNativeAdapter().install(expectedVersion)),
     isDesktopRuntime: () => getNativeAdapter().isDesktopRuntime(),
+    ...(nativeAdapter.openExternal
+      ? {
+          openExternal: (url: string) =>
+            getNativeAdapter().openExternal?.(url) ?? Promise.resolve(),
+        }
+      : {}),
+    ...(nativeAdapter.pollIntervalMs !== undefined
+      ? { pollIntervalMs: nativeAdapter.pollIntervalMs }
+      : {}),
   }
 }
