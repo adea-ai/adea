@@ -1,5 +1,5 @@
-import 'server-only'
-
+// No `server-only` marker: Bun-run unit tests import this module directly (same pattern as
+// marketplace-installation-request); the client-boundary guard keeps `src/server` out of browsers.
 import type { ConversationParticipantRef } from '@adea-ai/types'
 
 import type { WorkspacePrincipalResolution } from './workspace-principal'
@@ -32,6 +32,10 @@ export function conversationErrorResponse(
   request: Request
 ) {
   const message = error instanceof Error ? error.message : ''
+  if (message === 'Lead turn model selection conflict')
+    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
+      status: 409,
+    })
   if (message.endsWith('version conflict') || message.endsWith('idempotency conflict'))
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,

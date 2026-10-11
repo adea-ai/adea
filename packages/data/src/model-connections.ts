@@ -22,11 +22,32 @@ export const modelConnectionsQueryKeys = {
       binding?.selectionRef ?? '',
       binding?.selectionRevision ?? 0,
     ] as const,
+  listForClient: (workspaceId: string, clientIdentity: number) =>
+    [...modelConnectionsQueryKeys.list(workspaceId), 'client', clientIdentity] as const,
+}
+
+// A signed client can be replaced while the workspace remains selected (for
+// example after reconnecting). Inventory responses are authority-scoped to
+// that client, so sharing the workspace-only cache entry would expose the
+// previous client's model list to the replacement client.
+const modelClientIdentities = new WeakMap<object, number>()
+let nextModelClientIdentity = 0
+
+function modelClientIdentity(client: AgentHqModelConnectionsClient): number {
+  let identity = modelClientIdentities.get(client)
+  if (identity === undefined) {
+    identity = ++nextModelClientIdentity
+    modelClientIdentities.set(client, identity)
+  }
+  return identity
 }
 
 export const modelConnectionsQueryOptions = {
   list: (client: AgentHqModelConnectionsClient, workspaceId?: string, enabled = true) => ({
-    queryKey: modelConnectionsQueryKeys.list(workspaceId ?? ''),
+    queryKey: modelConnectionsQueryKeys.listForClient(
+      workspaceId ?? '',
+      modelClientIdentity(client)
+    ),
     queryFn: () => client.listModelConnections(workspaceId!),
     enabled: Boolean(workspaceId) && enabled,
     retry: false,
