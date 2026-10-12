@@ -262,6 +262,9 @@ export type LegacyAudienceReconciliation = Readonly<{
   quarantineDigest: string
   /** Digest of every admission row, by id. */
   admissionsDigest: string
+  /** Digests of every audience and enlistment grant row, including ownership and lifecycle fields. */
+  audienceGrantsDigest: string
+  enlistmentGrantsDigest: string
   invariants: Readonly<{
     admissionsEqualAdmissible: boolean
     admissionsPlusQuarantinedEqualSource: boolean
@@ -308,7 +311,11 @@ export async function reconcileLegacyAudience(
           '\n' order by q.workspace_id::text, q.channel_id::text, q.principal_kind::text, q.principal_id::text), 'UTF8')), 'hex')
         from app.legacy_audience_quarantine q), '') as quarantine_digest,
       coalesce((select encode(sha256(convert_to(string_agg(a.id::text || ':' || to_jsonb(a)::text, '\n' order by a.id::text), 'UTF8')), 'hex')
-        from app.group_admissions a), '') as admissions_digest
+        from app.group_admissions a), '') as admissions_digest,
+      coalesce((select encode(sha256(convert_to(string_agg(g.id::text || ':' || to_jsonb(g)::text, '\n' order by g.id::text), 'UTF8')), 'hex')
+        from app.group_audience_grants g), '') as audience_grants_digest,
+      coalesce((select encode(sha256(convert_to(string_agg(g.id::text || ':' || to_jsonb(g)::text, '\n' order by g.id::text), 'UTF8')), 'hex')
+        from app.group_enlistment_grants g), '') as enlistment_grants_digest
   `)
   const c = counts[0] ?? {}
   const d = digests[0] ?? {}
@@ -332,6 +339,8 @@ export async function reconcileLegacyAudience(
     sourceDigest: d.source_digest ?? '',
     quarantineDigest: d.quarantine_digest ?? '',
     admissionsDigest: d.admissions_digest ?? '',
+    audienceGrantsDigest: d.audience_grants_digest ?? '',
+    enlistmentGrantsDigest: d.enlistment_grants_digest ?? '',
     invariants: {
       admissionsEqualAdmissible: admissions === admissibleRows,
       admissionsPlusQuarantinedEqualSource: admissions + quarantined === sourceRows,

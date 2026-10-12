@@ -107,6 +107,36 @@ export function timestampOrderViolations(entries: { tag: string; when: number }[
   return violations
 }
 
+/** A live copy of a pinned tag must remain byte-for-byte and journal-for-journal identical. */
+export function assertCanonicalOverlayMatchesLive(
+  liveEntries: JournalEntry[],
+  canonicalEntries: JournalEntry[],
+  liveDirectory = DRIZZLE_DIR,
+  canonicalDirectory = CANONICAL_DIR
+): void {
+  const canonicalByTag = new Map(canonicalEntries.map((entry) => [entry.tag, entry]))
+  for (const liveEntry of liveEntries) {
+    const canonicalEntry = canonicalByTag.get(liveEntry.tag)
+    if (!canonicalEntry) continue
+    const journalFields = ['idx', 'version', 'when', 'tag', 'breakpoints'] as const
+    if (journalFields.some((field) => liveEntry[field] !== canonicalEntry[field])) {
+      throw new Error(`live journal entry ${liveEntry.tag} differs from its pinned canonical entry`)
+    }
+    let liveSql: Buffer
+    try {
+      liveSql = readFileSync(`${liveDirectory}/${liveEntry.tag}.sql`)
+    } catch {
+      throw new Error(`live journal entry ${liveEntry.tag} has no matching migration file`)
+    }
+    const canonicalSql = readFileSync(`${canonicalDirectory}/${liveEntry.tag}.sql`)
+    if (!liveSql.equals(canonicalSql)) {
+      throw new Error(
+        `live migration ${liveEntry.tag}.sql differs from its pinned canonical source`
+      )
+    }
+  }
+}
+
 export type CanonicalChainFolders = {
   /** Main plus #1229 and #1230: the state a database holds before #1232 lands. */
   stageOne: string
@@ -131,6 +161,7 @@ export function canonicalChainFolders(): CanonicalChainFolders {
     version: string
     entries: JournalEntry[]
   }
+  assertCanonicalOverlayMatchesLive(working.entries, canonical)
   // Once #1232 is forward-merged into this branch, the working tree's journal already carries its
   // canonical entries. The base is everything up to the pinned main tag. Anything after it must be a
   // pinned canonical entry; any other entry means main advanced and the chain must be re-pinned.

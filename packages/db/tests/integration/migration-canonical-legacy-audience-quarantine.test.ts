@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import { canonicalChainFolders } from '../fixtures/canonical-chain'
+import { disposeRehearsal } from '../fixtures/cutover-rehearsal'
 import {
   installLegacyAudienceQuarantine,
   legacyBackfillProfile,
@@ -125,9 +125,13 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
   }, 300_000)
 
   afterAll(async () => {
-    if (connection) await connection.close()
-    if (scratch) await adminExecute(`drop database if exists "${scratch}" with (force)`)
-    if (chainRoot) rmSync(chainRoot, { recursive: true, force: true })
+    await disposeRehearsal(
+      { connection, scratch: scratch || undefined, preFolder: chainRoot },
+      async (database) => {
+        if (!database.startsWith(SCRATCH_PREFIX)) throw new Error(`refusing to drop ${database}`)
+        await adminExecute(`drop database if exists "${database}" with (force)`)
+      }
+    )
   })
 
   test('before quarantine the canonical backfill admits every active-group participant, unresolvable ones included', () => {
@@ -231,6 +235,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     expect(afterReplay.enlistmentGrants).toBe(afterQuarantine.enlistmentGrants)
     expect(afterReplay.quarantined).toBe(afterQuarantine.quarantined)
     expect(afterReplay.admissionsDigest).toBe(afterQuarantine.admissionsDigest)
+    expect(afterReplay.audienceGrantsDigest).toBe(afterQuarantine.audienceGrantsDigest)
+    expect(afterReplay.enlistmentGrantsDigest).toBe(afterQuarantine.enlistmentGrantsDigest)
     expect(afterReplay.quarantineDigest).toBe(afterQuarantine.quarantineDigest)
   })
 
@@ -288,6 +294,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     const again = await reconcileLegacyAudience(connection.db)
     expect(again.quarantineDigest).toBe(afterQuarantine.quarantineDigest)
     expect(again.admissionsDigest).toBe(afterQuarantine.admissionsDigest)
+    expect(again.audienceGrantsDigest).toBe(afterQuarantine.audienceGrantsDigest)
+    expect(again.enlistmentGrantsDigest).toBe(afterQuarantine.enlistmentGrantsDigest)
     expect(again.quarantined).toBe(4)
   })
 
