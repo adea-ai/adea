@@ -39,6 +39,7 @@ const excluded: Readonly<Record<string, string>> = {
   event_inbox: 'derived_and_personal_state',
   lead_turn_intents: 'runtime_execution_state',
   lead_turn_runtime: 'runtime_execution_state',
+  management_authority_consumptions: 'job_effect_approval_evidence',
   message_artifact_references: 'artifact_bytes_and_locations',
   runtime_node_challenges: 'credentials',
   runtime_node_delivery_requests: 'runtime_execution_state',
@@ -79,5 +80,9 @@ describe('portable export coverage of the app schema', () => {
   test('uses only classes the version-1 ledger declares', () => {
     const declared = new Set(PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS.map((entry) => entry.class))
     for (const className of Object.values(excluded)) expect(declared.has(className)).toBe(true)
+  })
+
+  test('withholds durable management effect claims with other effect evidence', () => {
+    expect(excluded.management_authority_consumptions).toBe('job_effect_approval_evidence')
   })
 })

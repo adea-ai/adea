@@ -261,7 +261,7 @@ claimed here.
 ## Withheld and excluded
 
 The ledger `PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS` travels in every document. It names classes,
-not counts. The table-level classification of all 41 app tables is enforced by
+not counts. The table-level classification of every app-schema table is enforced by
 `packages/db/tests/unit/portable-export-classification.test.ts`: every table is carried by the
 export or named in the ledger, so a new table cannot reach an export by default.
 
@@ -273,8 +273,10 @@ export or named in the ledger, so a new table cannot reach an export by default.
   deferred until Agent HQ object storage promotion is operational.
 - Native runtime state: runtime node bindings, execution references, native sessions and
   checkpoints. Only cloud-location attempts are recorded.
-- Derived and personal state: events, delivery, read state, audit records, lead turn state, job
-  and approval evidence (retention owned by #1221).
+- Derived and personal state: events, delivery, read state, audit records and lead turn state.
+- Job/effect/approval evidence: job effects, digest-only management decision claims (including
+  `management_authority_consumptions`) and approval evidence are retained under #1221 and not
+  restored.
 - Archived channels and archived projects (#1221): not served by the canonical readers.
 - Soft-deleted records pending retention (#1221).
 - Authority: memberships and roles. The importer becomes the owner of a restored workspace;
