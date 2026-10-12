@@ -54,6 +54,7 @@ const LEAD_TOOL_METHODS = {
   projectUpdate: 'project.update',
   projectVisibilitySet: 'project.visibility.set',
   workspaceReopen: 'config.workspace.reopen',
+  workspaceArchive: 'config.workspace.archive',
   workspaceUpdate: 'config.workspace.update',
 } as const
 
@@ -207,6 +208,8 @@ function leadToolBindingInput(
       return { input: { visibility: call.visibility }, targetId: call.projectId }
     case 'config.workspace.reopen':
       return { input: {}, targetId: call.workspaceId }
+    case 'config.workspace.archive':
+      return { input: { confirmed: call.confirmed }, targetId: call.workspaceId }
     case 'config.workspace.update':
       return {
         input: { expectedVersion: call.expectedVersion, ...call.update },
@@ -267,6 +270,8 @@ function invoke(
       return operations.projectVisibilitySet({ ...inputOf(call), principal }, binding)
     case 'config.workspace.reopen':
       return operations.workspaceReopen({ ...inputOf(call), principal }, binding)
+    case 'config.workspace.archive':
+      return operations.workspaceArchive({ ...inputOf(call), principal }, binding)
     case 'config.workspace.update':
       return operations.workspaceUpdate({ ...inputOf(call), principal }, binding)
   }

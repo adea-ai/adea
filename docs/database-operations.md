@@ -167,8 +167,9 @@ Order of operations:
 
 1. Announce the window. Nothing durable is lost, but room/project requests fail
    while the window is open.
-2. Run the production migration workflow (or `db:migrate` with
-   `DATABASE_MIGRATION_URL`) and confirm it finished and `db:verify` passed.
+2. Run the production migration workflow through the guarded `db:verify`
+   entrypoint and confirm it finished. The developer `db:migrate` package
+   command routes through the same guarded runner.
 3. Deploy the Worker built from the same commit immediately afterwards.
 4. Smoke-check the hosted host: list projects, create one, open its primary
    channel, and confirm the workspace event stream delivers `project.created`.

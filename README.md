@@ -127,6 +127,9 @@ bun run lint
 bun run typecheck
 bun run test
 bun run test:integration
+# Opt-in #1230 joined proof against an explicit control-plane checkout (pinned in
+# apps/web/test/control-plane-joined/control-plane-source.json; never skips):
+ADEA_CONTROL_PLANE_SOURCE=/path/to/control-plane-checkout bun run test:integration:control-plane-joined
 bun run build
 bun run test:packaged
 bun run test:browser:desktop-client

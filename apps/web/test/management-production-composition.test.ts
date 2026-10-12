@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { eq } from 'drizzle-orm'
 
 /**
  * Production-composed host proof (#1215). Uses the real
@@ -35,6 +36,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   let routeModule: typeof import('../src/server/lead-management-route')
   let scopeModule: typeof import('../src/server/request-scope')
   let typesModule: typeof import('@adea-ai/types/management')
+  let authorizationModule: typeof import('../src/server/workspace-authorization')
   let connection: import('@adea-ai/db').DatabaseConnection
   let cpServer: ReturnType<typeof Bun.serve>
 
@@ -49,10 +51,14 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
   const servicePrincipalId = 'svc_pi-lead-management'
   const now = Date.parse('2026-10-09T12:00:00.000Z')
 
-  async function signedDecision(binding: { [key: string]: unknown }, decisionId: string) {
+  async function signedDecision(
+    binding: { [key: string]: unknown },
+    decisionId: string,
+    actorUserId: string = principal.userId
+  ) {
     const claims = {
       actionDigest: binding.actionDigest,
-      actorUserId: principal.userId,
+      actorUserId,
       approvalAudienceRef: 'audience:fixture',
       approvalExpiresAt: new Date(now + 120_000).toISOString(),
       approvalInteractionId: `interaction-${decisionId}`,
@@ -91,7 +97,11 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     return `${header}.${payload}.${base64url(new Uint8Array(signature))}`
   }
 
-  function requestFor(input: { name: string }, binding: { [key: string]: unknown }, token: string) {
+  function requestFor(
+    input: Record<string, unknown>,
+    binding: { [key: string]: unknown },
+    token: string
+  ) {
     return new Request('https://adea-fixture.invalid/api/internal/pi-durable/management', {
       body: JSON.stringify({
         canonicalRequest: CANONICAL_REQUEST,
@@ -116,11 +126,9 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
           request: parameters.request,
         })
         if (cpMode === 'revoked') return new Response('{"code":"NOPE"}', { status: 503 })
-        return Response.json({
-          correlation: body.correlation,
-          data: { asserted: true },
-          requestId: body.requestId,
-        })
+        // The reviewed CP1043 route answers a successful assertion with
+        // exactly this document; the loopback mirror must not invent fields.
+        return Response.json({ asserted: true })
       },
       port: 0,
     })
@@ -131,6 +139,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     routeModule = await import('../src/server/lead-management-route')
     scopeModule = await import('../src/server/request-scope')
     typesModule = await import('@adea-ai/types/management')
+    authorizationModule = await import('../src/server/workspace-authorization')
 
     connection = dbModule.createDatabase(connectionUrl!)
     const temporary = await dbModule.createTemporaryUserSession(connection.db, {
@@ -236,6 +245,7 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       handler()(requestFor({ name: 'Composed rename' }, binding, token))
     )
     expect(response.status).toBe(200)
+    const body = (await response.json()) as { value: unknown }
     const project = await dbModule.getProjectForUser(
       connection.db,
       workspaceId,
@@ -247,6 +257,21 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
       { boundary: 'admission', request: CANONICAL_REQUEST },
       { boundary: 'effect', request: CANONICAL_REQUEST },
     ])
+    // Result authorization: the durable claim retains the digest of exactly
+    // the value the authorized caller received.
+    const retained = await dbModule.claimManagementAuthorityDecision(connection.db, {
+      actionDigest: binding.actionDigest,
+      authorityRef: `credential-${decisionId}`,
+      authorityRevision: 7,
+      decisionId,
+      inputDigest: binding.inputDigest,
+      operation: binding.operation,
+      targetDigest: binding.targetDigest,
+      targetId: binding.targetId,
+      workspaceId,
+    })
+    expect(retained.state).toBe('replayed')
+    expect(retained.resultDigest).toBe(await typesModule.managementInputDigest(body.value))
   })
 
   test('a replayed decision is refused by the durable claim with no second effect', async () => {
@@ -305,5 +330,316 @@ describe.skipIf(!connectionUrl)('production-composed lead management route (#121
     })
     expect(probe).toEqual({ state: 'claimed' })
     cpMode = 'ok'
+  })
+
+  test('an interrupted durable claim refuses with recovery_required and zero effects', async () => {
+    const binding = await bindingFor('Composed recovery')
+    const decisionId = `decision-${crypto.randomUUID()}`
+    const token = await signedDecision(binding, decisionId)
+    // A crashed worker leaves the exact-call claim `claimed`; the next
+    // delivery must refuse and never execute a second effect.
+    await dbModule.claimManagementAuthorityDecision(connection.db, {
+      actionDigest: binding.actionDigest,
+      authorityRef: `credential-${decisionId}`,
+      authorityRevision: 7,
+      decisionId,
+      inputDigest: binding.inputDigest,
+      operation: binding.operation,
+      targetDigest: binding.targetDigest,
+      targetId: binding.targetId,
+      workspaceId,
+    })
+    const before = cpSeen.length
+    cpMode = 'ok'
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor({ name: 'Composed recovery' }, binding, token))
+    )
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ reason: 'authority_recovery_required' })
+    expect(cpSeen.slice(before)).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
+    const project = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      projectId,
+      principal
+    )
+    expect(project?.name).toBe('Composed rename')
+  })
+
+  test('a signed exact-call promotion reaches the real promotion executor', async () => {
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Composed promotion',
+    })
+    await dbModule.archiveProject(connection.db, workspaceId, created.id, principal)
+    const archived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    if (!archived) throw new Error('unreachable')
+    const exact = { confirmed: true, expectedVersion: archived.version }
+    const binding = await typesModule.managementCallBinding({
+      input: exact,
+      operation: 'project.promote',
+      targetId: created.id,
+      workspaceId,
+    })
+    if (!binding) throw new Error('unreachable')
+    cpSeen.length = 0
+    cpMode = 'ok'
+
+    // Signed but non-executing shapes: missing/false confirmation, invalid
+    // revision, extra fields and a decision bound to another revision. None
+    // may reach the executor or change the archived project.
+    const refused = [
+      {
+        body: { expectedVersion: archived.version },
+        signed: { expectedVersion: archived.version },
+        status: 404,
+      },
+      {
+        body: { confirmed: false, expectedVersion: archived.version },
+        signed: { confirmed: false, expectedVersion: archived.version },
+        status: 404,
+      },
+      {
+        body: { confirmed: true, expectedVersion: 0 },
+        signed: { confirmed: true, expectedVersion: 0 },
+        status: 404,
+      },
+      {
+        body: { confirmed: true, expectedVersion: archived.version, extra: true },
+        signed: { confirmed: true, expectedVersion: archived.version, extra: true },
+        status: 404,
+      },
+      {
+        body: exact,
+        signed: { confirmed: true, expectedVersion: archived.version + 1 },
+        status: 403,
+      },
+    ] as const
+    for (const entry of refused) {
+      const signedBinding = await typesModule.managementCallBinding({
+        input: entry.signed,
+        operation: 'project.promote',
+        targetId: created.id,
+        workspaceId,
+      })
+      if (!signedBinding) throw new Error('unreachable')
+      const token = await signedDecision(signedBinding, `decision-${crypto.randomUUID()}`)
+      const response = await scopeModule.withRequestScope(() =>
+        handler()(requestFor(entry.body, signedBinding, token))
+      )
+      expect(response.status).toBe(entry.status)
+      const unchanged = await dbModule.getProjectForUser(
+        connection.db,
+        workspaceId,
+        created.id,
+        principal,
+        { includeArchived: true }
+      )
+      expect(unchanged?.lifecycleState).toBe('archived')
+    }
+    expect(cpSeen).toEqual([])
+
+    const token = await signedDecision(binding, `decision-${crypto.randomUUID()}`)
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, binding, token))
+    )
+    expect(response.status).toBe(200)
+    const promoted = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(promoted?.lifecycleState).toBe('active')
+    expect(cpSeen).toEqual([
+      { boundary: 'admission', request: CANONICAL_REQUEST },
+      { boundary: 'effect', request: CANONICAL_REQUEST },
+    ])
+  })
+
+  test('authority revocation and a stale revision cannot promote through the real handler', async () => {
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Composed promote denial',
+    })
+    await dbModule.archiveProject(connection.db, workspaceId, created.id, principal)
+    const archived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    if (!archived) throw new Error('unreachable')
+    const exact = { confirmed: true, expectedVersion: archived.version }
+    const promotionBindingFor = async (input: Record<string, unknown>) => {
+      const binding = await typesModule.managementCallBinding({
+        input,
+        operation: 'project.promote',
+        targetId: created.id,
+        workspaceId,
+      })
+      if (!binding) throw new Error('unreachable')
+      return binding
+    }
+
+    // Revoked current authority: the signed promotion is refused at admission
+    // and the project stays archived.
+    cpMode = 'revoked'
+    cpSeen.length = 0
+    const revokedBinding = await promotionBindingFor(exact)
+    const revokedToken = await signedDecision(revokedBinding, `decision-${crypto.randomUUID()}`)
+    const revoked = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, revokedBinding, revokedToken))
+    )
+    expect(revoked.status).toBe(403)
+    expect(await revoked.json()).toMatchObject({ reason: 'authority_unavailable' })
+    expect(cpSeen).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
+    const stillArchived = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    expect(stillArchived?.lifecycleState).toBe('archived')
+    cpMode = 'ok'
+
+    // Stale expectedVersion: the signed binding and current authority are
+    // exact, but the real executor refuses and nothing is promoted.
+    const stale = { confirmed: true, expectedVersion: archived.version - 1 }
+    const staleBinding = await promotionBindingFor(stale)
+    const staleToken = await signedDecision(staleBinding, `decision-${crypto.randomUUID()}`)
+    const staleResponse = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(stale, staleBinding, staleToken))
+    )
+    expect(staleResponse.status).toBe(409)
+    const afterStale = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal,
+      { includeArchived: true }
+    )
+    expect(afterStale?.lifecycleState).toBe('archived')
+
+    // The exact revision still promotes afterwards.
+    const exactBinding = await promotionBindingFor(exact)
+    const exactToken = await signedDecision(exactBinding, `decision-${crypto.randomUUID()}`)
+    const promoted = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(exact, exactBinding, exactToken))
+    )
+    expect(promoted.status).toBe(200)
+    const active = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(active?.lifecycleState).toBe('active')
+  })
+
+  test('a revoked principal leaves zero effects and no allowed audit row', async () => {
+    const member = await dbModule.createTemporaryUserSession(connection.db, {
+      credentialDigest: `digest-${crypto.randomUUID()}`,
+      expiresAt: new Date(now + 3_600_000),
+    })
+    await dbModule.addWorkspaceMembership(connection.db, workspaceId, member.principal, 'admin')
+    const created = await dbModule.createProject(connection.db, workspaceId, principal, {
+      iconKey: 'box',
+      name: 'Before revocation',
+    })
+    const input = { name: 'Denied rename' }
+    const binding = await typesModule.managementCallBinding({
+      input,
+      operation: 'project.update',
+      targetId: created.id,
+      workspaceId,
+    })
+    if (!binding) throw new Error('unreachable')
+    // The shared authorization API allows the admin member before revocation
+    // and denies the same principal afterwards; both decisions are audited.
+    expect(
+      (
+        await authorizationModule.authorizeWorkspace(
+          member.principal,
+          'workspace.update',
+          workspaceId
+        )
+      ).allowed
+    ).toBe(true)
+    await dbModule.removeWorkspaceMembership(connection.db, workspaceId, member.principal)
+    expect(
+      (
+        await authorizationModule.authorizeWorkspace(
+          member.principal,
+          'workspace.update',
+          workspaceId
+        )
+      ).allowed
+    ).toBe(false)
+    const auditBefore = await connection.db
+      .select()
+      .from(dbModule.authorizationAuditRecords)
+      .where(eq(dbModule.authorizationAuditRecords.workspaceId, workspaceId))
+
+    const decisionId = `decision-${crypto.randomUUID()}`
+    const token = await signedDecision(binding, decisionId, member.principal.userId)
+    cpSeen.length = 0
+    cpMode = 'ok'
+    const response = await scopeModule.withRequestScope(() =>
+      handler()(requestFor(input, binding, token))
+    )
+    expect(response.status).toBe(403)
+    // Zero effects: the project is untouched and the refused decision was
+    // never claimed.
+    const unchanged = await dbModule.getProjectForUser(
+      connection.db,
+      workspaceId,
+      created.id,
+      principal
+    )
+    expect(unchanged?.name).toBe('Before revocation')
+    // The refused delivery consumed the decision as failed — never a success
+    // and never reusable — so a retry cannot execute it.
+    expect(
+      await dbModule.claimManagementAuthorityDecision(connection.db, {
+        actionDigest: binding.actionDigest,
+        authorityRef: `credential-${decisionId}`,
+        authorityRevision: 7,
+        decisionId,
+        inputDigest: binding.inputDigest,
+        operation: binding.operation,
+        targetDigest: binding.targetDigest,
+        targetId: binding.targetId,
+        workspaceId,
+      })
+    ).toEqual({ priorState: 'failed', state: 'recovery_required' })
+    // Zero audit success rows for the refused delivery; the denial is
+    // attributed to the revoked principal.
+    const auditAfter = await connection.db
+      .select()
+      .from(dbModule.authorizationAuditRecords)
+      .where(eq(dbModule.authorizationAuditRecords.workspaceId, workspaceId))
+    expect(auditAfter.filter((row) => row.decision === 'allowed').length).toBe(
+      auditBefore.filter((row) => row.decision === 'allowed').length
+    )
+    expect(
+      auditAfter.filter(
+        (row) => row.decision === 'denied' && row.principalId === member.principal.userId
+      ).length
+    ).toBeGreaterThan(
+      auditBefore.filter(
+        (row) => row.decision === 'denied' && row.principalId === member.principal.userId
+      ).length
+    )
+    // The CP admission assertion is reached; the effect boundary is not.
+    expect(cpSeen).toEqual([{ boundary: 'admission', request: CANONICAL_REQUEST }])
   })
 })

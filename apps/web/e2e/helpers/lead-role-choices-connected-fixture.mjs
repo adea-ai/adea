@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import {
+  closeFactoryResources,
   safeTransportFailureDiagnostic,
   startFactoryChild,
 } from './lead-role-choices-connected-process.mjs'
@@ -229,6 +230,14 @@ export async function startLeadRoleChoicesConnectedFixture() {
       else process.env[key] = value
     }
   }
+  const closeResources = () =>
+    closeFactoryResources([
+      () => api?.stop(true),
+      () => host?.closeOwned(),
+      () => reader?.stop(true),
+      () => connection?.close(),
+      restoreEnvironment,
+    ])
 
   try {
     phase = 'runtime-configuration'
@@ -1030,23 +1039,13 @@ export async function startLeadRoleChoicesConnectedFixture() {
       dispatchProjection: () => dispatchProjection,
       fundingBindings: () => [...fundingBindings],
       async close() {
-        api?.stop(true)
-        await host?.closeOwned()
-        reader?.stop(true)
-        await connection?.close()
-        restoreEnvironment()
+        await closeResources()
       },
     }
   } catch (error) {
-    api?.stop(true)
     try {
-      await host?.closeOwned()
+      await closeResources()
     } catch {}
-    reader?.stop(true)
-    try {
-      await connection?.close()
-    } catch {}
-    restoreEnvironment()
     const safeError = new Error(
       `CONNECTED_FIXTURE_START_FAILED:${phase}:${safeStartupReason(error)}`
     )

@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.90.0](https://github.com/adea-ai/adea/compare/v0.89.0...v0.90.0) (2026-10-12)
+
+
+### Features
+
+* **management:** route human and lead controls through shared audited APIs ([#1215](https://github.com/adea-ai/adea/issues/1215)) ([#1230](https://github.com/adea-ai/adea/issues/1230)) ([14b10b7](https://github.com/adea-ai/adea/commit/14b10b7af67ee9849145906d67064c479627b09e))
+
+
+### Bug Fixes
+
+* **db:** preflight canonical migration history ([#1281](https://github.com/adea-ai/adea/issues/1281)) ([155ed32](https://github.com/adea-ai/adea/commit/155ed327a55de01fcc890c20a9d006116cf9db39))
+* **deps:** update dependency @adea-ai/contracts to v1.21.0 ([#1284](https://github.com/adea-ai/adea/issues/1284)) ([a14778e](https://github.com/adea-ai/adea/commit/a14778eeab0265f299a2913d2fbd8395acf621a0))
+* **deps:** update dependency @adea-ai/ui to v0.123.1 ([#1279](https://github.com/adea-ai/adea/issues/1279)) ([bc3fd1b](https://github.com/adea-ai/adea/commit/bc3fd1b07befaea2dc01f424423a4d0af7bcbd34))
+
+
+### Performance
+
+* **ci:** overlap E2E runner preparation ([#1283](https://github.com/adea-ai/adea/issues/1283)) ([bb08429](https://github.com/adea-ai/adea/commit/bb0842990a0fff536dfe6fe531f3f8a63b358f75))
+
+
+### Tests
+
+* **db:** rehearse canonical backfill quarantine ([#1222](https://github.com/adea-ai/adea/issues/1222)) ([#1282](https://github.com/adea-ai/adea/issues/1282)) ([5e114cb](https://github.com/adea-ai/adea/commit/5e114cb58bd930550d08a4b438f7cce24a7b3787))
+* **desktop:** cover retained session transfer and fallback ([#1223](https://github.com/adea-ai/adea/issues/1223)) ([#1285](https://github.com/adea-ai/adea/issues/1285)) ([864745a](https://github.com/adea-ai/adea/commit/864745ae87c252e8b291c9cff7408bf0deb4ee59))
+
+
+### CI
+
+* bound Neon proof and shard E2E validation ([#1280](https://github.com/adea-ai/adea/issues/1280)) ([386706b](https://github.com/adea-ai/adea/commit/386706bc0bad2d753071aae8a92944718f84800d))
+* use npm trusted publishing for audio and spatial ([#1287](https://github.com/adea-ai/adea/issues/1287)) ([2e2134a](https://github.com/adea-ai/adea/commit/2e2134aadad10265820c13c7361b6b92b723df69))
+
+## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
+
+
+### Features
+
+* retain explicit lead and child model-role choices ([#1229](https://github.com/adea-ai/adea/issues/1229)) ([c255008](https://github.com/adea-ai/adea/commit/c255008527b16a82bb1031ce8357fdbf5f47af2b))
+* **workspace:** archive and reopen optional workspaces from settings ([#1175](https://github.com/adea-ai/adea/issues/1175)) ([#1266](https://github.com/adea-ai/adea/issues/1266)) ([5fed288](https://github.com/adea-ai/adea/commit/5fed2884e564a5ed5605546267d7e11c06909795))
+
+
+### Bug Fixes
+
+* **deps:** update control-plane packages; retain compatible themes ([#1276](https://github.com/adea-ai/adea/issues/1276)) ([d9fee85](https://github.com/adea-ai/adea/commit/d9fee85ba56dc9a9a0ba1e120484578774062383))
+* **deps:** update dependency @adea-ai/themes to v0.10.3 ([#1275](https://github.com/adea-ai/adea/issues/1275)) ([7417f31](https://github.com/adea-ai/adea/commit/7417f31c4d1bfc336c56c7330e39b17b89921909))
+* **deps:** update dependency @adea-ai/themes to v0.10.4 ([#1277](https://github.com/adea-ai/adea/issues/1277)) ([0d53b47](https://github.com/adea-ai/adea/commit/0d53b477b0b3a8b3f6172bfe23cc4e903c243ea5))
+
 ## [0.88.0](https://github.com/adea-ai/adea/compare/v0.87.0...v0.88.0) (2026-10-10)
 
 

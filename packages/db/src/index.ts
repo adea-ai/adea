@@ -143,6 +143,7 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'
@@ -431,3 +432,5 @@ export {
 } from './conversations'
 
 export * from './lead-model-selections'
+
+export { withWorkspaceManagementAuthority } from './management-workspace-authority'

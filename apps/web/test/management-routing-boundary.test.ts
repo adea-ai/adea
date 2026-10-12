@@ -79,6 +79,15 @@ describe('management routing boundary (#1215)', () => {
     expect(source).toContain("from './management-gateway'")
   })
 
+  test('workspace archive routes through the same shared operation as lead tools', async () => {
+    const source = await readFile(
+      join(import.meta.dir, '../src/server/workspace-archive-handler.ts'),
+      'utf8'
+    )
+    expect(importedDbFunctions(source)).toEqual([])
+    expect(source).toContain('operations().workspaceArchive')
+  })
+
   test('the shared operations stay database-type-only so unit tests can inject fakes', async () => {
     const source = await readFile(
       join(import.meta.dir, '../src/server/management-operations.ts'),
@@ -94,6 +103,7 @@ describe('management routing boundary (#1215)', () => {
       'utf8'
     )
     for (const fn of [
+      'archiveWorkspace',
       'archiveProject',
       'createProject',
       'promoteProjectState',

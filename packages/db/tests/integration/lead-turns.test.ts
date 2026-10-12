@@ -8,6 +8,7 @@ import {
 } from '../../src/connection'
 import { createDirectAgentTopic, createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
+import { resolveLeadTurnAuthority } from '../../src/lead-turn-runtime'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import {
   agents,
@@ -143,6 +144,40 @@ describe.skipIf(!connectionUrl)('canonical lead-turn intent', () => {
       .from(leadTurnIntents)
       .where(eq(leadTurnIntents.id, first.leadTurn.intentId))
     expect(stored?.requestedModelSelections).toEqual(valid)
+  })
+
+  test('runtime authority exposes only the exact requested lead reference', async () => {
+    const f = await fixture()
+    const lead = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 3 }
+    const child = { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 }
+    const withLead = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      {
+        ...f.input,
+        idempotencyKey: crypto.randomUUID(),
+        requestedModelSelections: { lead, child },
+      }
+    )
+    const withChildOnly = await createLeadTurn(
+      connection.db,
+      f.workspace.id,
+      f.topic.id,
+      f.owner.principal,
+      {
+        ...f.input,
+        idempotencyKey: crypto.randomUUID(),
+        requestedModelSelections: { child },
+      }
+    )
+    const defaults = await f.admit()
+    const authorityFor = (intentId: string) =>
+      resolveLeadTurnAuthority(connection.db, f.workspace.id, intentId, f.owner.principal)
+    expect((await authorityFor(withLead.leadTurn.intentId)).requestedLeadSelection).toEqual(lead)
+    expect((await authorityFor(withChildOnly.leadTurn.intentId)).requestedLeadSelection).toBeNull()
+    expect((await authorityFor(defaults.leadTurn.intentId)).requestedLeadSelection).toBeNull()
   })
 
   test('concurrent retry commits one canonical message, one blocked intent and one event', async () => {

@@ -1,5 +1,3 @@
-import 'server-only'
-
 import { GroupCreationError } from '@adea-ai/db'
 import type {
   ConversationParticipantRef,
@@ -7,8 +5,9 @@ import type {
   GroupAudienceGrant,
 } from '@adea-ai/types'
 
+import { conversationErrorResponse as sharedConversationErrorResponse } from './conversation-response'
 import type { WorkspacePrincipalResolution } from './workspace-principal'
-import { workspaceJsonResponse, workspaceUnavailableResponse } from './workspace-response'
+import { workspaceJsonResponse } from './workspace-response'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -118,11 +117,6 @@ export function conversationErrorResponse(
   resolution: WorkspacePrincipalResolution,
   request: Request
 ) {
-  const message = error instanceof Error ? error.message : ''
-  if (message === 'Lead turn model selection conflict')
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
   if (error instanceof GroupCreationError)
     return workspaceJsonResponse(
       { code: 'group_grant_rejected', message: error.message, rejections: error.rejections },
@@ -130,31 +124,5 @@ export function conversationErrorResponse(
       request,
       { status: 400 }
     )
-  if (message.endsWith('version conflict') || message.endsWith('idempotency conflict'))
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
-  if (
-    message === 'Primary Project Channel required' ||
-    message.endsWith('thread conflict') ||
-    message.endsWith('reply conflict')
-  )
-    return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
-      status: 409,
-    })
-  // A viewer of a members-only project reads but cannot write there.
-  if (message === 'Project read-only')
-    return workspaceJsonResponse({ code: 'project_read_only', message }, resolution, request, {
-      status: 403,
-    })
-  if (message.endsWith('unavailable')) return workspaceUnavailableResponse(request)
-  // Log the underlying failure: the client only receives a generic message, so
-  // the server terminal is the only place the real cause is visible.
-  console.error('[conversation] unmapped error response', message || error)
-  return workspaceJsonResponse(
-    { code: 'invalid_request', message: 'Invalid request' },
-    resolution,
-    request,
-    { status: 400 }
-  )
+  return sharedConversationErrorResponse(error, resolution, request)
 }

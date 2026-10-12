@@ -98,15 +98,12 @@ describe('management operation inventory (#1215)', () => {
     expect(managementOperationLanes('project.update')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationLanes('project.promote')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationLanes('config.workspace.update')).toEqual(['web', 'desktop', 'lead'])
+    expect(managementOperationLanes('config.workspace.archive')).toEqual(['web', 'desktop', 'lead'])
     expect(managementOperationSupport('project.delete', 'lead')).toEqual({ state: 'supported' })
   })
 
-  test('classifies the per-user workspace order and unused dedicated flows as typed gaps', () => {
+  test('classifies per-user order and device-only deletion as typed lane gaps', () => {
     expect(managementOperationSupport('config.workspace.reorder', 'lead')).toEqual({
-      reason: 'not_implemented',
-      state: 'unsupported',
-    })
-    expect(managementOperationSupport('config.workspace.archive', 'web')).toEqual({
       reason: 'not_implemented',
       state: 'unsupported',
     })

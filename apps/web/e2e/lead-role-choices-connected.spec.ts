@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 import { startConnectedFixtureChild } from './helpers/lead-role-choices-connected-client.mjs'
+import { closeFactoryResources } from './helpers/lead-role-choices-connected-process.mjs'
 
 const safeCode = (value: unknown) =>
   typeof value === 'string' && /^[A-Z][A-Z0-9_]{1,31}$/u.test(value) ? value : undefined
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let fixture: Awaited<ReturnType<typeof startConnectedFixtureChild>> | undefined
 let url = ''
 
@@ -22,9 +26,13 @@ test.beforeAll(async () => {
   fixture = await startConnectedFixtureChild({ bun, cwd: cpRoot, env: process.env })
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-choices-connected-harness-app.tsx')
+  // A private optimizer cache, for the same reason as the other lead fixtures: the managed dev
+  // server owns node_modules/.vite.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-lead-connected-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     publicDir: false,
     optimizeDeps: { noDiscovery: true, include: [] },
     logLevel: 'error',
@@ -52,8 +60,11 @@ test.beforeAll(async () => {
 })
 
 test.afterAll(async () => {
-  await server?.close()
-  await fixture?.close()
+  await closeFactoryResources([
+    () => server?.close(),
+    () => fixture?.close(),
+    () => rmSync(cacheDir, { recursive: true, force: true }),
+  ])
 })
 
 test('mounted lead choice is disclosed before inference and matches the real admitted and dispatched selection', async ({
@@ -343,4 +354,83 @@ test('mounted lead choice is disclosed before inference and matches the real adm
   expect(dispatch?.selectionRevision).toBe(requested.lead.selectionRevision)
   expect(dispatch?.dispatchId).toMatch(/^dispatch_[a-f0-9]{32}$/u)
   expect(dispatch?.runtimeSessionId).toMatch(/^ses_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  expect(dispatch?.executionId).toMatch(/^exe_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  expect(dispatch?.attemptId).toMatch(/^att_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  // The dispatch projection is the response captured when the dispatch was accepted, so it must still
+  // be non-terminal. The final status and runtime projections are read after completion and must name
+  // the same dispatch, execution, attempt and runtime session as that acceptance.
+  expect(['starting', 'running']).toContain(dispatch?.state)
+  for (const projection of [finalSnapshot.statusProjection, finalSnapshot.runtimeRow]) {
+    expect(projection?.dispatchId).toBe(dispatch?.dispatchId)
+    expect(projection?.executionId).toBe(dispatch?.executionId)
+    expect(projection?.attemptId).toBe(dispatch?.attemptId)
+    expect(projection?.runtimeSessionId).toBe(dispatch?.runtimeSessionId)
+  }
+  // Receipt of the adapter values asserted above. Output only: no assertion or fixture behaviour changes.
+  console.log(
+    `CONNECTED_PROOF_EVIDENCE:${JSON.stringify({
+      intentId,
+      selections: {
+        lead: {
+          selectionRef: requested.lead.selectionRef,
+          selectionRevision: requested.lead.selectionRevision,
+        },
+        child: {
+          selectionRef: requested.child.selectionRef,
+          selectionRevision: requested.child.selectionRevision,
+        },
+      },
+      beforeInference: {
+        physicalSends: beforeInference.physicalSends,
+        providerModels: beforeInference.providerModels,
+      },
+      afterInference: {
+        physicalSends: afterInference.physicalSends,
+        providerModels: afterInference.providerModels,
+        canonical: afterInference.canonical,
+        productReads: afterInference.productReads,
+      },
+      finalSnapshot: {
+        drainFailure: finalSnapshot.drainFailure,
+        statusState: finalSnapshot.statusProjection?.state ?? null,
+        runtimeState: finalSnapshot.runtimeRow?.state ?? null,
+        readerRequests: finalSnapshot.readerRequests,
+        publicationGate: {
+          calls: finalSnapshot.publicationGate.calls,
+          successes: finalSnapshot.publicationGate.successes,
+          failures: finalSnapshot.publicationGate.failures.length,
+          responses: finalSnapshot.publicationGate.responses.length,
+        },
+        publicationWireCalls: publicationWire.length,
+      },
+      preparation: {
+        selectionRef: preparation?.selectionRef ?? null,
+        selectionRevision: preparation?.selectionRevision ?? null,
+      },
+      dispatch: {
+        state: dispatch?.state ?? null,
+        dispatchId: dispatch?.dispatchId ?? null,
+        executionId: dispatch?.executionId ?? null,
+        attemptId: dispatch?.attemptId ?? null,
+        runtimeSessionId: dispatch?.runtimeSessionId ?? null,
+        selectionRef: dispatch?.selectionRef ?? null,
+        selectionRevision: dispatch?.selectionRevision ?? null,
+      },
+      statusIdentity: {
+        state: finalSnapshot.statusProjection?.state ?? null,
+        dispatchId: finalSnapshot.statusProjection?.dispatchId ?? null,
+        executionId: finalSnapshot.statusProjection?.executionId ?? null,
+        attemptId: finalSnapshot.statusProjection?.attemptId ?? null,
+        runtimeSessionId: finalSnapshot.statusProjection?.runtimeSessionId ?? null,
+      },
+      runtimeRowIdentity: {
+        state: finalSnapshot.runtimeRow?.state ?? null,
+        dispatchId: finalSnapshot.runtimeRow?.dispatchId ?? null,
+        executionId: finalSnapshot.runtimeRow?.executionId ?? null,
+        attemptId: finalSnapshot.runtimeRow?.attemptId ?? null,
+        runtimeSessionId: finalSnapshot.runtimeRow?.runtimeSessionId ?? null,
+        publishedMessageId: finalSnapshot.runtimeRow?.publishedMessageId ?? null,
+      },
+    })}`
+  )
 })
