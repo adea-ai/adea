@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
@@ -12,7 +12,7 @@ import type { GroupAdmission } from '@adea-ai/types'
 import { admitAddressedLeadTurn } from './lead-turns'
 import { requestLeadTurnCancellation } from './lead-turn-runtime'
 import { addressedAgentTurns, type AddressedAgentTurn } from './schema/addressed-agent-turns'
-import { agents, channels, messages, workspaceMemberships } from './schema'
+import { agents, channels, leadTurnRuntime, messages, workspaceMemberships } from './schema'
 
 export type { AddressedAgentTurn } from './schema/addressed-agent-turns'
 
@@ -75,7 +75,7 @@ function asStore(database: AgentHqDatabase | AgentHqTransaction): AddressedTurnS
 function isAgentHqDatabase(
   database: AgentHqDatabase | AgentHqTransaction
 ): database is AgentHqDatabase {
-  return typeof (database as AgentHqDatabase).transaction === 'function'
+  return '$client' in database && typeof (database as AgentHqDatabase).transaction === 'function'
 }
 
 type AddresserProof = Readonly<{
@@ -700,8 +700,9 @@ async function tryRequestRuntimeCancel(
  * `dispatching` rows flip (stale work is stale, whoever addressed it);
  * responses already recorded are history and stay untouched. For
  * `dispatching` rows with a bound intent addressed by this same principal,
- * intent cancellation is requested through the existing boundary
- * (best-effort: nothing dispatched to an executor reports back cleanly).
+ * intent cancellation is requested after the claim transaction commits,
+ * through the existing boundary. A later post by the original addresser
+ * retries any cancellation interrupted by a process failure.
  * Rows addressed by others flip without reaching into their runtime
  * bindings — explicit `cancelAddressedTurn` by the addresser covers that.
  */
@@ -710,6 +711,21 @@ export async function supersedeAddressedTurns(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef
+): Promise<number> {
+  if (isAgentHqDatabase(database)) {
+    const flipped = await database.transaction((transaction) =>
+      supersedeAddressedTurnsInTransaction(transaction, workspaceId, channelId)
+    )
+    await requestPendingSupersededTurnCancellations(database, workspaceId, channelId, principal)
+    return flipped
+  }
+  return supersedeAddressedTurnsInTransaction(database, workspaceId, channelId)
+}
+
+async function supersedeAddressedTurnsInTransaction(
+  database: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string
 ): Promise<number> {
   const store = asStore(database)
   // Canonical lock order: CHANNEL before claims — the same order the
@@ -753,16 +769,53 @@ export async function supersedeAddressedTurns(
       .returning({ id: addressedAgentTurns.id })
     if (!updated[0]) continue
     flipped += 1
-    if (turn.intentId && turn.addresserUserId === principal.userId) {
-      try {
-        if (isAgentHqDatabase(database))
-          await requestLeadTurnCancellation(database, workspaceId, turn.intentId, principal)
-      } catch {
-        // Best-effort: the claim flip above stands regardless.
-      }
-    }
   }
   return flipped
+}
+
+/**
+ * Retry actor-authorized cancellations only after the superseding transaction
+ * has committed. A later human post by the original addresser repairs the
+ * small crash window between committing `superseded` and requesting runtime
+ * cancellation. The runtime boundary remains the only writer of its request.
+ */
+export async function requestPendingSupersededTurnCancellations(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+): Promise<void> {
+  try {
+    const pending = await database
+      .select({
+        addresserUserId: addressedAgentTurns.addresserUserId,
+        intentId: addressedAgentTurns.intentId,
+      })
+      .from(addressedAgentTurns)
+      .innerJoin(leadTurnRuntime, eq(leadTurnRuntime.intentId, addressedAgentTurns.intentId))
+      .where(
+        and(
+          eq(addressedAgentTurns.workspaceId, workspaceId),
+          eq(addressedAgentTurns.channelId, channelId),
+          eq(addressedAgentTurns.state, 'superseded'),
+          eq(addressedAgentTurns.addresserUserId, principal.userId),
+          isNotNull(addressedAgentTurns.intentId),
+          isNotNull(leadTurnRuntime.dispatchId),
+          isNull(leadTurnRuntime.cancelRequestedAt)
+        )
+      )
+    for (const turn of pending)
+      await tryRequestRuntimeCancel(
+        database,
+        workspaceId,
+        turn.intentId,
+        turn.addresserUserId,
+        principal
+      )
+  } catch {
+    // The human message and claim flip are already committed. A later post
+    // by the addresser retries this best-effort runtime request.
+  }
 }
 
 /**
