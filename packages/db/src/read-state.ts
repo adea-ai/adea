@@ -789,7 +789,7 @@ export async function markAllChannelsRead(
         transaction
           .select({
             channelId: messages.channelId,
-            latest: sql<number>`max(${messages.sequence})`,
+            latest: sql<number>`max(${messages.sequence})`.mapWith(Number),
           })
           .from(messages)
           .innerJoin(channels, eq(channels.id, messages.channelId))
@@ -805,7 +805,7 @@ export async function markAllChannelsRead(
           .select({
             channelId: messages.channelId,
             threadRootMessageId: messages.threadRootMessageId,
-            latest: sql<number>`max(${messages.sequence})`,
+            latest: sql<number>`max(${messages.sequence})`.mapWith(Number),
           })
           .from(messages)
           .innerJoin(channels, eq(channels.id, messages.channelId))
@@ -853,7 +853,14 @@ export async function markAllChannelsRead(
       // The current visible window is the cap, even if a stale persisted
       // frontier was written before the participant's history narrowed.
       const lastReadSequence = latest
-      if (existing?.lastReadSequence === lastReadSequence && existing.manuallyUnread === false)
+      const isGroup = historyAccess.has(channelId)
+      if (
+        existing &&
+        existing.manuallyUnread === false &&
+        (isGroup
+          ? existing.lastReadSequence === lastReadSequence
+          : existing.lastReadSequence >= lastReadSequence)
+      )
         continue
       channelWrites.push({
         channelId,
@@ -870,7 +877,14 @@ export async function markAllChannelsRead(
       const existing = existingThreadByRoot.get(row.threadRootMessageId)
       // Hidden roots have no visible thread frontier to advance or retain.
       const targetThreadSequence = row.latest ?? 0
-      if (existing?.lastReadSequence === targetThreadSequence && existing.manuallyUnread === false)
+      const isGroup = historyAccess.has(row.channelId)
+      if (
+        existing &&
+        existing.manuallyUnread === false &&
+        (isGroup
+          ? existing.lastReadSequence === targetThreadSequence
+          : existing.lastReadSequence >= targetThreadSequence)
+      )
         continue
       threadWrites.push({
         channelId: row.channelId,

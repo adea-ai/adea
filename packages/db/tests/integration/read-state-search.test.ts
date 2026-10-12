@@ -5,7 +5,7 @@ import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
 import { createContentRef } from '../../src/content-refs'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createGroupChannel, createMessage } from '../../src/conversations'
+import { createDirectAgentTopic, createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   listReadStateForUser,
@@ -307,6 +307,141 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
         .delete(temporaryUserSessions)
         .where(eq(temporaryUserSessions.userId, principal.userId))
       await connection.db.delete(users).where(eq(users.id, principal.userId))
+    }
+  })
+
+  test('mark-all preserves non-group frontiers above visible history without changing their versions or timestamps', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `read-frontier-owner-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `read-frontier-${crypto.randomUUID()}`,
+      name: 'Read frontier HQ',
+      owner: owner.principal,
+    })
+    try {
+      const agent = await createAgent(connection.db, workspace.id, owner.principal, {
+        name: 'Read frontier agent',
+        profileId: 'frontier',
+        profileVersion: '1',
+      })
+      const channel = await createDirectAgentTopic(
+        connection.db,
+        workspace.id,
+        agent.id,
+        owner.principal,
+        { idempotencyKey: crypto.randomUUID(), title: 'Read frontier topic' }
+      )
+      const root = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+        bodyText: 'frontier root',
+        idempotencyKey: crypto.randomUUID(),
+        sender: owner.principal,
+      })
+      const reply = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+        bodyText: 'frontier reply',
+        idempotencyKey: crypto.randomUUID(),
+        replyToMessageId: root.id,
+        sender: owner.principal,
+        threadRootMessageId: root.id,
+      })
+      await markChannelReadState(connection.db, workspace.id, channel.id, owner.principal, 'read')
+      await markThreadReadState(
+        connection.db,
+        workspace.id,
+        channel.id,
+        root.id,
+        owner.principal,
+        'read'
+      )
+
+      const beyondVisibleHistory = reply.sequence + 100
+      const seededAt = new Date('2026-10-01T12:00:00.000Z')
+      await connection.db
+        .update(channelReadStates)
+        .set({
+          lastReadSequence: beyondVisibleHistory,
+          manuallyUnread: false,
+          readAt: seededAt,
+          updatedAt: seededAt,
+          version: 41,
+        })
+        .where(eq(channelReadStates.channelId, channel.id))
+      await connection.db
+        .update(threadReadStates)
+        .set({
+          lastReadSequence: beyondVisibleHistory,
+          manuallyUnread: false,
+          readAt: seededAt,
+          updatedAt: seededAt,
+          version: 43,
+        })
+        .where(eq(threadReadStates.threadRootMessageId, root.id))
+
+      const readMarkers = async () => {
+        const [channelMarker] = await connection.db
+          .select({
+            lastReadSequence: channelReadStates.lastReadSequence,
+            manuallyUnread: channelReadStates.manuallyUnread,
+            readAt: channelReadStates.readAt,
+            updatedAt: channelReadStates.updatedAt,
+            version: channelReadStates.version,
+          })
+          .from(channelReadStates)
+          .where(eq(channelReadStates.channelId, channel.id))
+        const [threadMarker] = await connection.db
+          .select({
+            lastReadSequence: threadReadStates.lastReadSequence,
+            manuallyUnread: threadReadStates.manuallyUnread,
+            readAt: threadReadStates.readAt,
+            updatedAt: threadReadStates.updatedAt,
+            version: threadReadStates.version,
+          })
+          .from(threadReadStates)
+          .where(eq(threadReadStates.threadRootMessageId, root.id))
+        return { channelMarker, threadMarker }
+      }
+
+      const seededMarkers = await readMarkers()
+      expect(seededMarkers.channelMarker?.lastReadSequence).toBeGreaterThan(root.sequence)
+      expect(seededMarkers.threadMarker?.lastReadSequence).toBeGreaterThan(reply.sequence)
+      const eventCount = (
+        await connection.db
+          .select()
+          .from(workspaceEvents)
+          .where(eq(workspaceEvents.workspaceId, workspace.id))
+      ).length
+
+      const first = await markAllChannelsRead(connection.db, workspace.id, owner.principal)
+      expect(await readMarkers()).toEqual(seededMarkers)
+      const firstEventCount = (
+        await connection.db
+          .select()
+          .from(workspaceEvents)
+          .where(eq(workspaceEvents.workspaceId, workspace.id))
+      ).length
+      expect(firstEventCount).toBe(eventCount)
+
+      const second = await markAllChannelsRead(connection.db, workspace.id, owner.principal)
+      expect(await readMarkers()).toEqual(seededMarkers)
+      expect(second).toEqual(first)
+      expect(
+        (
+          await connection.db
+            .select()
+            .from(workspaceEvents)
+            .where(eq(workspaceEvents.workspaceId, workspace.id))
+        ).length
+      ).toBe(eventCount)
+    } finally {
+      await connection.db
+        .delete(workspaceMemberships)
+        .where(eq(workspaceMemberships.workspaceId, workspace.id))
+      await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+      await connection.db
+        .delete(temporaryUserSessions)
+        .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+      await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
     }
   })
   // The batched mark-all-read path writes many channels and many threads in a
