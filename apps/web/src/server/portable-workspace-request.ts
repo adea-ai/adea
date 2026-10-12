@@ -134,7 +134,9 @@ export async function portableWorkspaceExportResponse(
  * POST a portable bundle to restore it as a new workspace owned by the caller.
  * The caller must be allowed to create workspaces (the same check workspace
  * creation applies). The bundle grants nothing: the caller becomes the owner,
- * and every referenced user must already exist in this destination.
+ * every referenced user must already exist in this destination, and global
+ * user display names remain unchanged. The returned digest is verified against
+ * export-time display-name snapshots, not a later raw destination reread.
  */
 export async function portableImportResponse(
   request: Request,

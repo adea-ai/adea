@@ -82,7 +82,7 @@ function accountExportLowerBound(budget: ExportReadBudget, value: unknown): void
 /**
  * Test seam. `beforeMessagePage` and `beforeTaskPage` run before each page is read, so a test can
  * pause an export between pages and change authority before the next page. `beforeStep` runs
- * before the tasks are read, before the content references are checked, and before the final
+ * before projects, tasks and content references are read, and before the final
  * access check, so a test can pause an export between those reads and before its last check.
  * Production callers pass no hooks.
  */
@@ -91,7 +91,9 @@ export type PortableExportHooks = Readonly<{
     page: Readonly<{ afterSequence: number | undefined; channelId: string }>
   ) => void | Promise<void>
   beforeTaskPage?: (page: Readonly<{ afterId: string | undefined }>) => void | Promise<void>
-  beforeStep?: (step: Readonly<{ name: 'contentRefs' | 'final' | 'tasks' }>) => void | Promise<void>
+  beforeStep?: (
+    step: Readonly<{ name: 'contentRefs' | 'final' | 'projects' | 'tasks' }>
+  ) => void | Promise<void>
 }>
 
 /** The requester's access to the workspace: role, workspace row and the projects they can read. */
@@ -246,6 +248,11 @@ async function readRequesterInputs(
 ): Promise<ReadInputs> {
   const { scope, workspace } = start
   const workspaceId = workspace.id
+  await hooks?.beforeStep?.({ name: 'projects' })
+  const baselineProjectIds = [...start.projectIds]
+  const baselineProjectCondition = baselineProjectIds.length
+    ? inArray(projects.id, baselineProjectIds)
+    : sql`false`
   const projectRows = bounded(
     await transaction
       .select()
@@ -255,6 +262,7 @@ async function readRequesterInputs(
           eq(projects.workspaceId, workspaceId),
           eq(projects.lifecycleState, 'active'),
           isNull(projects.deletedAt),
+          baselineProjectCondition,
           visibleProjectCondition(projects.id, scope)
         )
       )
@@ -266,7 +274,8 @@ async function readRequesterInputs(
   const readBudget: ExportReadBudget = { bytes: 0 }
 
   const channels = (await listChannelsForUser(transaction, workspaceId, principal)).filter(
-    (channel) => !channel.projectId || projectIds.has(channel.projectId)
+    (channel) =>
+      start.channelIds.has(channel.id) && (!channel.projectId || projectIds.has(channel.projectId))
   )
   bounded(channels, 'channels')
   const messages = await readVisibleMessages(
@@ -383,8 +392,9 @@ async function readRequesterInputs(
 
 /**
  * The complete view of a workspace, read without a principal. It exists only so
- * an import can prove that the restored workspace reproduces the bundle; no
- * request path reaches it.
+ * an import can verify restored workspace content and referenced user ids; the
+ * importer normalizes destination display names to bundle snapshots for digest
+ * verification. No request path reaches it.
  */
 async function readCompleteInputs(
   transaction: AgentHqTransaction,

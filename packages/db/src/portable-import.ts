@@ -3,9 +3,10 @@
 // The importer treats the bundle as untrusted data. It validates the document
 // against the version-1 contract, recomputes the content digest, and only then
 // writes. The write is one transaction, and the restored workspace is read back
-// with the complete (unfiltered) reader and must hash to the bundle's digest
-// before the transaction commits. A bundle that does not restore exactly is
-// rolled back, never partially applied.
+// with the complete (unfiltered) reader. Workspace-owned fields and referenced
+// user IDs must match; destination-global display names are normalized to their
+// bundle snapshots for digest verification because import never rewrites global
+// identity records. Any other mismatch rolls the transaction back.
 //
 // Authority does not travel in the bundle:
 // - the importer becomes the owner of the restored workspace; bundle roles are
@@ -27,6 +28,7 @@ import {
   canonicalPortableJson,
   type PortableExportExclusion,
   PORTABLE_EXTERNAL_DOMAIN_CLASSES,
+  type PortableWorkspaceExportContent,
   type PortableWorkspaceExport,
   type UserPrincipalRef,
 } from '@adea-ai/types'
@@ -81,6 +83,7 @@ function externalDomainsOf(
 }
 
 export type PortableImportResult = Readonly<{
+  /** Validated bundle digest; later exports can differ if destination display names differ. */
   contentDigest: string
   externalDomains: readonly PortableExternalDomain[]
   counts: Readonly<{
@@ -115,6 +118,36 @@ async function insertBatched<T>(
 
 const messageHash = (value: unknown) =>
   createHash('sha256').update(canonicalPortableJson(value)).digest('hex')
+
+/**
+ * User display names are descriptive snapshots, not destination identity state. Require the
+ * complete referenced-ID set to match, then use the bundle snapshots only for digest verification.
+ */
+function normalizeUserSnapshots(
+  restored: PortableWorkspaceExportContent | null,
+  expectedUsers: PortableWorkspaceExportContent['users']
+): PortableWorkspaceExportContent | null {
+  if (!restored || restored.users.length !== expectedUsers.length) return null
+  const snapshots = new Map<string, string | null>(
+    expectedUsers.map(({ displayName, userId }) => [userId, displayName])
+  )
+  if (snapshots.size !== expectedUsers.length) return null
+  const restoredIds = new Set(restored.users.map(({ userId }) => userId))
+  if (
+    restoredIds.size !== restored.users.length ||
+    restoredIds.size !== snapshots.size ||
+    [...restoredIds].some((userId) => !snapshots.has(userId))
+  )
+    return null
+
+  return {
+    ...restored,
+    users: restored.users.map(({ userId }) => ({
+      displayName: snapshots.get(userId)!,
+      userId,
+    })),
+  }
+}
 
 /**
  * Restore one validated, digest-checked bundle into a destination that does
@@ -438,13 +471,15 @@ export async function importPortableWorkspace(
       })
       .where(eq(channels.workspaceId, workspaceId))
 
-    // Read the restored workspace back with the complete reader and require the
-    // same digest. Any gap, reordering or altered field rolls the import back.
+    // Read the restored workspace back with the complete reader. Normalize only
+    // destination-global display names to their export-time snapshots; any gap,
+    // reordering or other altered field rolls the import back.
     const restored = await readCompletePortableContent(transaction, workspaceId)
-    if (!restored || portableContentDigest(restored) !== document.contentDigest.value)
+    const verified = normalizeUserSnapshots(restored, content.users)
+    if (!verified || portableContentDigest(verified) !== document.contentDigest.value)
       throw new PortableImportError(
         'verification_failed',
-        'the restored workspace does not reproduce the bundle digest'
+        'the restored workspace does not match the bundle after identity snapshot normalization'
       )
 
     return Object.freeze({

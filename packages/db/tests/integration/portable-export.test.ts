@@ -56,7 +56,7 @@ const connectionUrl = process.env.DATABASE_URL
 
 // Canaries are unique per run. Each names one class the export must never carry
 // (credentials, ciphertext, locators, deleted or private-audience text), or a
-// visible value a restored workspace must reproduce.
+// visible workspace value that must survive a restore.
 const run = randomBytes(6).toString('hex')
 const canary = {
   artifactLocator: `ARTIFACT-LOCATOR-CANARY-${run}`,
@@ -553,6 +553,127 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(serialized).not.toContain(fixture.projectB.id)
   })
 
+  test('a member export excludes a members-only project created after its access snapshot', async () => {
+    const fixture = await seed('project-race')
+    const markers = {
+      agent: `LATE-AGENT-CANARY-${run}`,
+      project: `LATE-PROJECT-CANARY-${run}`,
+      task: `LATE-TASK-CANARY-${run}`,
+      user: 'Outsider Person',
+    }
+    const lateIds: { agent?: string; project?: string; task?: string; user?: string } = {}
+    let insertedDuringExport = false
+    const document = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+      hooks: {
+        beforeStep: async ({ name }) => {
+          if (name !== 'projects') return
+          expect(insertedDuringExport).toBe(false)
+          insertedDuringExport = true
+
+          const project = await createProject(db, fixture.workspaceId, fixture.owner.principal, {
+            iconKey: 'lock',
+            name: markers.project,
+          })
+          lateIds.project = project.id
+          await db
+            .update(projects)
+            .set({ visibility: 'members' })
+            .where(eq(projects.id, project.id))
+          const [agent] = await db
+            .insert(agents)
+            .values({
+              name: markers.agent,
+              profileId: 'profile.late',
+              profileVersion: '1.0.0',
+              workspaceId: fixture.workspaceId,
+            })
+            .returning()
+          lateIds.agent = agent!.id
+          lateIds.user = fixture.outsider.principal.userId
+          const task = await createTask(
+            db,
+            fixture.workspaceId,
+            fixture.owner.principal,
+            {
+              agentId: agent!.id,
+              objective: 'Created after the member access snapshot.',
+              projectId: project.id,
+              title: markers.task,
+            },
+            { idempotencyKey: `late-task-${run}`, requestId: randomUUID() }
+          )
+          lateIds.task = task.id
+          await db
+            .update(tasks)
+            .set({ creatorUserId: fixture.outsider.principal.userId })
+            .where(eq(tasks.id, task.id))
+        },
+      },
+    })
+
+    expect(insertedDuringExport).toBe(true)
+    expect(Object.values(lateIds)).toHaveLength(4)
+    expect(validatePortableWorkspaceExport(document).ok).toBe(true)
+    expect(document.content.projects.map((project) => project.projectId)).toEqual([
+      fixture.projectA.id,
+    ])
+    expect(document.content.tasks.map((task) => task.taskId).toSorted()).toEqual(
+      [fixture.tA.id, fixture.tC.id].toSorted()
+    )
+    const serialized = JSON.stringify(document)
+    for (const marker of Object.values(markers)) expect(serialized).not.toContain(marker)
+    for (const id of Object.values(lateIds)) expect(serialized).not.toContain(id)
+  })
+
+  test('a channel granted after the access snapshot stays out of an export after its grant is revoked', async () => {
+    const fixture = await seed('channel-race')
+    let grantedAfterSnapshot = false
+    let revokedBeforeFinalCheck = false
+    const document = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+      hooks: {
+        beforeStep: async ({ name }) => {
+          if (name === 'projects') {
+            await db.insert(channelParticipants).values({
+              channelId: fixture.channels.privateGroup.id,
+              principalKind: 'user',
+              userId: fixture.member.principal.userId,
+              workspaceId: fixture.workspaceId,
+            })
+            grantedAfterSnapshot = true
+          }
+          if (name === 'final') {
+            await db
+              .delete(channelParticipants)
+              .where(
+                and(
+                  eq(channelParticipants.channelId, fixture.channels.privateGroup.id),
+                  eq(channelParticipants.userId, fixture.member.principal.userId)
+                )
+              )
+            revokedBeforeFinalCheck = true
+          }
+        },
+      },
+    })
+
+    expect(grantedAfterSnapshot).toBe(true)
+    expect(revokedBeforeFinalCheck).toBe(true)
+    expect(validatePortableWorkspaceExport(document).ok).toBe(true)
+    expect(document.content.channels.map((channel) => channel.channelId)).toContain(
+      fixture.channels.general.id
+    )
+    expect(document.content.channels.map((channel) => channel.channelId)).not.toContain(
+      fixture.channels.privateGroup.id
+    )
+    const serialized = JSON.stringify(document)
+    expect(serialized).not.toContain(fixture.channels.privateGroup.id)
+    expect(serialized).not.toContain(canary.privateText)
+  })
+
   test('denies an outsider, and a removed member loses access until re-added', async () => {
     const fixture = await seed('revoked')
 
@@ -698,12 +819,19 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(restored.counts.tasks).toBe(3)
     expect(restored.deferred).toEqual(PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS)
 
-    // The restored workspace reproduces every record of the bundle, read with the
-    // complete reader that the import itself verified against.
+    // Import verifies the complete read after normalizing display names to their
+    // export-time snapshots. This fixture's existing identities also retain those names.
     const target = await db.transaction((transaction) =>
       readCompletePortableContent(transaction, fixture.workspaceId)
     )
-    expect(portableContentDigest(target!)).toBe(bundle.contentDigest.value)
+    const normalizedTarget = {
+      ...target!,
+      users: target!.users.map((user) => ({
+        ...user,
+        displayName: bundle.content.users.find(({ userId }) => userId === user.userId)!.displayName,
+      })),
+    }
+    expect(portableContentDigest(normalizedTarget)).toBe(bundle.contentDigest.value)
 
     const memberships = await db
       .select()
@@ -757,6 +885,56 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(sessions).toHaveLength(1)
   })
 
+  test('restore verifies display-name snapshots without overwriting destination identities', async () => {
+    const fixture = await seed('renamed-destination')
+    const bundle = await exportPortableWorkspace(db, {
+      principal: fixture.owner.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    expect(bundle.content.users.length).toBeGreaterThan(0)
+    const changedUser = bundle.content.users[0]!
+    const destinationName = `Destination Name ${run}`
+
+    await deleteWorkspace(fixture.workspaceId)
+    await db
+      .update(users)
+      .set({ displayName: destinationName })
+      .where(eq(users.id, changedUser.userId))
+
+    const restored = await importPortableWorkspace(db, {
+      bundle,
+      importer: fixture.outsider.principal,
+    })
+    created.push(restored.workspaceId)
+    expect(restored.contentDigest).toBe(bundle.contentDigest.value)
+
+    const [destinationUser] = await db
+      .select({ displayName: users.displayName, id: users.id })
+      .from(users)
+      .where(eq(users.id, changedUser.userId))
+    expect(destinationUser).toEqual({ displayName: destinationName, id: changedUser.userId })
+
+    const actual = await db.transaction((transaction) =>
+      readCompletePortableContent(transaction, fixture.workspaceId)
+    )
+    expect(actual).not.toBeNull()
+    expect(actual!.users.map(({ userId }) => userId).toSorted()).toEqual(
+      bundle.content.users.map(({ userId }) => userId).toSorted()
+    )
+    expect(portableContentDigest(actual!)).not.toBe(bundle.contentDigest.value)
+    expect(actual!.users.find(({ userId }) => userId === changedUser.userId)?.displayName).toBe(
+      destinationName
+    )
+    const normalized = {
+      ...actual!,
+      users: actual!.users.map((user) => ({
+        ...user,
+        displayName: bundle.content.users.find(({ userId }) => userId === user.userId)!.displayName,
+      })),
+    }
+    expect(portableContentDigest(normalized)).toBe(bundle.contentDigest.value)
+  })
+
   test('the import refuses every defective bundle before the destination changes', async () => {
     const fixture = await seed('refuse')
     const bundle = await exportPortableWorkspace(db, {
@@ -770,6 +948,12 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(textMessage).toBeDefined()
     ;(textMessage!.body as { text: string }).text = 'Edited after export'
     expect(await importOutcome(importPortableWorkspace(db, { bundle: tampered, importer }))).toBe(
+      'digest_mismatch'
+    )
+
+    const renamed = structuredClone(bundle) as PortableWorkspaceExport
+    ;(renamed.content.users[0] as { displayName: string | null }).displayName = 'Edited identity'
+    expect(await importOutcome(importPortableWorkspace(db, { bundle: renamed, importer }))).toBe(
       'digest_mismatch'
     )
 

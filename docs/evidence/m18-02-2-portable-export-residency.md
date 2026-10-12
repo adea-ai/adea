@@ -24,7 +24,9 @@ which are not claimed.
   Malformed JSON gets 400. A bundle that fails the contract or its digest gets 422 with issue
   paths (never values). A bundle naming a user the destination does not hold gets 422
   `unresolved_users`. A disabled importer gets 403. A workspace id that already exists, or was
-  deleted, gets 409. Success gets 201 with the workspace id and content digest.
+  deleted, gets 409. Success gets 201 with the workspace id and validated bundle digest. Import
+  verifies using the bundle's display-name snapshots without overwriting destination profiles;
+  later exports may hash differently if those names differ.
 
 Route-flow tests are in `apps/web/test/integration/portable-workspace-routes.test.ts`, and the
 API clean-restore flow is in `apps/web/test/integration/portable-workspace-clean-restore.test.ts`.
@@ -92,11 +94,12 @@ role change, or a deleted or being-deleted workspace) denies the whole export wi
 as no access. No partial document is returned.
 
 The families are read statement by statement, so records can be seen at slightly different
-moments. The digest covers exactly what was read and restores verbatim. A revocation undone
-before the last check is not observed, and the bundle then holds a partial view, never records
-the requester could not read when they were read. A revocation committed after the last check
-is not observed either. A content ref has no grant of its own: its visibility follows the
-project of its task or message channel, so revoking that project or channel revokes the ref.
+moments. Project and channel IDs are restricted to the authorization sets captured when the
+export starts; IDs that become visible later are not added. The digest covers the resulting
+document snapshot. A revocation undone before the last check is not observed for the starting
+access set. A revocation committed after the last check is not observed either. A content ref
+has no grant of its own: its visibility follows the project of its task or message channel, so
+revoking that project or channel revokes the ref.
 
 Rules the export applies on its own, all conservative:
 
@@ -302,13 +305,16 @@ export or named in the ledger, so a new table cannot reach an export by default.
 
 `importPortableWorkspace` validates the bundle against the contract, recomputes the digest, and
 writes in one transaction into a destination that holds no such workspace (no row and no
-deletion receipt). Every referenced user must already exist, and the importer must exist and be
-enabled. Message bodies are restored as product-database plaintext, as stored in the source.
-Content refs come back with availability `missing` (or `deleted`) and their storage and
-synchronization policies unchanged; `local_only` never becomes an E2E or cloud policy. No
-replica, artifact, invitation or session is written. Before commit the restored workspace is
-read back with the unfiltered reader, `readCompletePortableContent`, and must reproduce the
-bundle digest. A mismatch rolls the whole import back.
+deletion receipt). Every referenced user ID must already exist, and the importer must exist and
+be enabled. `PortableUser.displayName` is an export-time snapshot: import never overwrites a
+destination user's global profile. Before commit, the unfiltered reader verifies workspace-owned
+content and the exact referenced-user ID set; destination display names are normalized to the
+bundle snapshots for this digest check. A normal read or later export can therefore have a
+different raw digest if destination names differ. Any other mismatch rolls the transaction back.
+Message bodies are restored as product-database plaintext, as stored in the source. Content refs
+come back with availability `missing` (or `deleted`) and their storage and synchronization
+policies unchanged; `local_only` never becomes an E2E or cloud policy. No replica, artifact,
+invitation or session is written.
 
 ## Clean destination
 
@@ -317,8 +323,9 @@ The same clean-destination proof runs at the database layer in
 database on the lane's throwaway provisioning instance (`MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`),
 migrates it from the repository's migrations, provisions the users the bundle names (a restore
 never creates identities), restores the bundle exported from the source database, checks the
-digest and residency, refuses a second restore, and drops the database. The database name is
-guarded to a fixed prefix and a random suffix. The test is skipped when that variable is absent.
+normalized readback digest and residency, refuses a second restore, and drops the database. The
+database name is guarded to a fixed prefix and a random suffix. The test is skipped when that
+variable is absent.
 
 ## Residency
 

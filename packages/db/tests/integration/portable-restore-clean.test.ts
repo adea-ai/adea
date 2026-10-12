@@ -220,7 +220,7 @@ describe.skipIf(!sourceUrl || !provisioningUrl)('clean destination restore', () 
     }
   }, 300_000)
 
-  test('a bundle restores into an empty database and reproduces its digest exactly', async () => {
+  test('a bundle restores into an empty database and verifies with display-name snapshots', async () => {
     const restored = await importPortableWorkspace(destination.db, {
       bundle,
       importer: owner.principal,
@@ -232,7 +232,14 @@ describe.skipIf(!sourceUrl || !provisioningUrl)('clean destination restore', () 
     const reproduced = await destination.db.transaction((transaction) =>
       readCompletePortableContent(transaction, sourceWorkspaceId)
     )
-    expect(portableContentDigest(reproduced!)).toBe(bundle.contentDigest.value)
+    const normalized = {
+      ...reproduced!,
+      users: reproduced!.users.map((user) => ({
+        ...user,
+        displayName: bundle.content.users.find(({ userId }) => userId === user.userId)!.displayName,
+      })),
+    }
+    expect(portableContentDigest(normalized)).toBe(bundle.contentDigest.value)
   }, 120_000)
 
   test('the clean destination gains no credential, replica, artifact or invitation, and keeps residency', async () => {

@@ -235,10 +235,17 @@ describe('restore keeps conversation order and thread links', () => {
     expect(destinationMessagesBeforeImport).toBe(0)
   }, 120_000)
 
-  test('the restored workspace reproduces the bundle digest', async () => {
+  test('the restored workspace verifies against the export-time display-name snapshots', async () => {
     const reproduced = await destination.db.transaction((transaction) =>
       readCompletePortableContent(transaction, workspaceId)
     )
-    expect(portableContentDigest(reproduced!)).toBe(bundle.contentDigest.value)
+    const normalized = {
+      ...reproduced!,
+      users: reproduced!.users.map((user) => ({
+        ...user,
+        displayName: bundle.content.users.find(({ userId }) => userId === user.userId)!.displayName,
+      })),
+    }
+    expect(portableContentDigest(normalized)).toBe(bundle.contentDigest.value)
   }, 120_000)
 })

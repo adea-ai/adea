@@ -250,7 +250,11 @@ export type PortableWorkspace = Readonly<{
   workspaceId: string
 }>
 
-/** A user referenced by an exported record. Identity is the ID; no contact or auth fields travel. */
+/**
+ * A referenced user's display name is an export-time snapshot for rendering and digest verification.
+ * Identity is the ID; import requires that ID to exist and never rewrites the destination profile.
+ * Later exports use the destination's then-current display name.
+ */
 export type PortableUser = Readonly<{ displayName: string | null; userId: string }>
 
 export type PortableProjectMember = Readonly<{ role: 'editor' | 'viewer'; userId: string }>
