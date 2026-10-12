@@ -12,6 +12,8 @@ import { groupChannelIdsInForce, userChannelVisibility } from '../../src/group-p
 import {
   archiveChannel,
   createMessage,
+  deleteMessage,
+  editMessage,
   getChannelForUser,
   getMessageForUser,
   listChannelsForUser,
@@ -25,14 +27,22 @@ import {
   revokeGroupGrant,
 } from '../../src/group-channels'
 import { createTemporaryUserSession } from '../../src/identity'
-import { listReadStateForUser, markChannelReadState } from '../../src/read-state'
+import {
+  listReadStateForUser,
+  markAllChannelsRead,
+  markChannelReadState,
+  markThreadReadState,
+} from '../../src/read-state'
 import { searchWorkspaceForUser } from '../../src/search'
 import { inReadSnapshot } from '../../src/transactions'
 import {
   channels,
+  channelReadStates,
   groupAdmissions,
   groupAudienceGrants,
+  groupSharingGrants,
   messages,
+  threadReadStates,
   workspaceMemberships,
 } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -139,6 +149,275 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
   async function versionOf(f: Awaited<ReturnType<typeof fixture>>, channelId: string) {
     return (await getChannelForUser(db(), f.workspace.id, channelId, f.owner)).version
   }
+
+  test('earlier-summary access exposes aggregates without history or hidden thread roots', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Summary-only history window')
+    const hiddenRoot = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'hidden historical root',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'hidden historical reply',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenRoot.id,
+      sender: f.owner,
+      threadRootMessageId: hiddenRoot.id,
+    })
+    const visible = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'visible after join',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: visible.sequence })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    await db().insert(groupSharingGrants).values({
+      channelId: group.channelId,
+      expiresAt: null,
+      grantId: 'gra_summary_only_member',
+      issuedAt: new Date().toISOString(),
+      principalKind: 'user',
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_summary',
+      userId: f.member.userId,
+      workspaceId: f.workspace.id,
+    })
+
+    expect(
+      await db()
+        .select({ scope: groupSharingGrants.scope })
+        .from(groupSharingGrants)
+        .where(
+          and(
+            eq(groupSharingGrants.channelId, group.channelId),
+            eq(groupSharingGrants.userId, f.member.userId)
+          )
+        )
+    ).toEqual([{ scope: 'earlier_summary' }])
+    const visibleMessages = await listMessagesForUser(
+      db(),
+      f.workspace.id,
+      group.channelId,
+      f.member
+    )
+    expect(visibleMessages.messages.map((message) => message.id)).toEqual([visible.id])
+
+    const summary = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(summary).toMatchObject({
+      latestTopLevelSequence: visible.sequence,
+      topLevelUnreadCount: 3,
+      threadUnreadCount: 0,
+      threads: [],
+    })
+    await expect(
+      markThreadReadState(db(), f.workspace.id, group.channelId, hiddenRoot.id, f.member, 'read')
+    ).rejects.toThrow('Read state unavailable')
+
+    await markChannelReadState(
+      db(),
+      f.workspace.id,
+      group.channelId,
+      f.member,
+      'read',
+      visible.sequence + 99
+    )
+    const saved = await db()
+      .select({ lastReadSequence: channelReadStates.lastReadSequence })
+      .from(channelReadStates)
+      .where(
+        and(
+          eq(channelReadStates.workspaceId, f.workspace.id),
+          eq(channelReadStates.channelId, group.channelId),
+          eq(channelReadStates.userId, f.member.userId)
+        )
+      )
+    expect(saved).toEqual([{ lastReadSequence: visible.sequence }])
+  })
+
+  test('earlier-history access exposes messages without granting earlier summary counts', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'History-only summary boundary')
+    const hiddenRoot = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'historical root',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const hiddenReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'historical reply',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenRoot.id,
+      sender: f.owner,
+      threadRootMessageId: hiddenRoot.id,
+    })
+    const visible = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'visible after join',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: visible.sequence })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    await db().insert(groupSharingGrants).values({
+      channelId: group.channelId,
+      expiresAt: null,
+      grantId: 'gra_history_only_member',
+      issuedAt: new Date().toISOString(),
+      principalKind: 'user',
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_history',
+      userId: f.member.userId,
+      workspaceId: f.workspace.id,
+    })
+
+    expect(
+      await db()
+        .select({ scope: groupSharingGrants.scope })
+        .from(groupSharingGrants)
+        .where(
+          and(
+            eq(groupSharingGrants.channelId, group.channelId),
+            eq(groupSharingGrants.userId, f.member.userId)
+          )
+        )
+    ).toEqual([{ scope: 'earlier_history' }])
+    const history = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(history.messages.map((message) => message.id)).toContain(hiddenRoot.id)
+    expect(history.messages.map((message) => message.id)).toContain(hiddenReply.id)
+    expect(history.messages.map((message) => message.id)).toContain(visible.id)
+
+    const summary = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(summary).toMatchObject({
+      latestTopLevelSequence: visible.sequence,
+      topLevelUnreadCount: 1,
+      threadUnreadCount: 0,
+      threads: [],
+    })
+  })
+
+  test('mutations hide pre-join targets before checking their versions', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Mutation history window')
+    const hiddenReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'hidden reply before rejoin',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: group.messageId,
+      sender: f.owner,
+      threadRootMessageId: group.messageId,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: hiddenReply.sequence + 1 })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.owner.userId)
+        )
+      )
+    await db().insert(groupSharingGrants).values({
+      channelId: group.channelId,
+      expiresAt: null,
+      grantId: 'gra_summary_only_owner',
+      issuedAt: new Date().toISOString(),
+      principalKind: 'user',
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_summary',
+      userId: f.owner.userId,
+      workspaceId: f.workspace.id,
+    })
+
+    await expect(
+      editMessage(db(), f.workspace.id, group.messageId, f.owner, { bodyText: 'rewritten' }, 99)
+    ).rejects.toThrow('Message unavailable')
+    await expect(deleteMessage(db(), f.workspace.id, hiddenReply.id, f.owner, 99)).rejects.toThrow(
+      'Message unavailable'
+    )
+    await expect(getMessageForUser(db(), f.workspace.id, group.messageId, f.owner)).rejects.toThrow(
+      'Message unavailable'
+    )
+  })
+
+  test('read-state frontiers clamp to visible history and hidden roots are unavailable', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Read-state history window')
+    const hiddenReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'reply behind hidden root',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: group.messageId,
+      sender: f.owner,
+      threadRootMessageId: group.messageId,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: hiddenReply.sequence + 1 })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+
+    await markChannelReadState(db(), f.workspace.id, group.channelId, f.member, 'read', 99)
+    const savedChannel = await db()
+      .select({ lastReadSequence: channelReadStates.lastReadSequence })
+      .from(channelReadStates)
+      .where(
+        and(
+          eq(channelReadStates.workspaceId, f.workspace.id),
+          eq(channelReadStates.channelId, group.channelId),
+          eq(channelReadStates.userId, f.member.userId)
+        )
+      )
+    expect(savedChannel).toEqual([{ lastReadSequence: 0 }])
+    await markAllChannelsRead(db(), f.workspace.id, f.member)
+    const savedAfterMarkAll = await db()
+      .select({ lastReadSequence: channelReadStates.lastReadSequence })
+      .from(channelReadStates)
+      .where(
+        and(
+          eq(channelReadStates.workspaceId, f.workspace.id),
+          eq(channelReadStates.channelId, group.channelId),
+          eq(channelReadStates.userId, f.member.userId)
+        )
+      )
+    expect(savedAfterMarkAll).toEqual([{ lastReadSequence: 0 }])
+
+    await expect(
+      markThreadReadState(db(), f.workspace.id, group.channelId, group.messageId, f.member, 'read')
+    ).rejects.toThrow('Read state unavailable')
+    expect(
+      await db()
+        .select({ id: threadReadStates.id })
+        .from(threadReadStates)
+        .where(
+          and(
+            eq(threadReadStates.workspaceId, f.workspace.id),
+            eq(threadReadStates.threadRootMessageId, group.messageId),
+            eq(threadReadStates.userId, f.member.userId)
+          )
+        )
+    ).toEqual([])
+  })
 
   /** The member's retained admission now names a grant that is no longer in force. */
   const DEFECTS: Record<

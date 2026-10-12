@@ -3,7 +3,7 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
@@ -11,7 +11,12 @@ import {
   admissionFromRow,
   admissionInForce,
   audienceGrantFromRow,
+  type GroupHistoryAccess,
   groupChannelIdsInForce,
+  groupHistoryAccessByUser,
+  groupHistoryMessageAndThreadVisibleCondition,
+  groupSummaryMessageAndThreadVisibleCondition,
+  groupSummaryMessageVisibleCondition,
   resolveAdmissionWindow,
   userChannelVisibility,
 } from './group-participation-store'
@@ -26,6 +31,7 @@ import {
   channels,
   groupAdmissions,
   groupAudienceGrants,
+  groupSharingGrants,
   messages,
   threadReadStates,
 } from './schema'
@@ -171,6 +177,18 @@ async function lockCurrentGroupChannelIdsForReadStateWrite(
         .orderBy(asc(groupAudienceGrants.channelId), asc(groupAudienceGrants.grantId))
         .for('update')
     : []
+  if (activeGroupIds.length)
+    await transaction
+      .select({ id: groupSharingGrants.id })
+      .from(groupSharingGrants)
+      .where(
+        and(
+          eq(groupSharingGrants.workspaceId, workspaceId),
+          inArray(groupSharingGrants.channelId, activeGroupIds)
+        )
+      )
+      .orderBy(asc(groupSharingGrants.channelId), asc(groupSharingGrants.grantId))
+      .for('update')
   const grantByBinding = new Map(
     grants.map((grant) => [JSON.stringify([grant.channelId, grant.grantId]), grant])
   )
@@ -218,6 +236,7 @@ async function requireChannel(
   )
   if (locked.groupIds.has(channelId) && !locked.inForceGroupIds.has(channelId))
     throw new Error('Read state unavailable')
+  return locked.groupIds.has(channelId)
 }
 
 /**
@@ -261,35 +280,73 @@ async function listReadStateForUserInSnapshot(
     principal,
     'Read state unavailable'
   )
-  const inForce = [
-    ...(await groupChannelIdsInForce(
-      database,
-      principal.userId,
-      new Date().toISOString(),
-      workspaceId
-    )),
-  ]
+  const historyAccess = await groupHistoryAccessByUser(
+    database,
+    principal.userId,
+    new Date().toISOString(),
+    workspaceId
+  )
+  const inForce = [...historyAccess.keys()]
   const channelReadFrontier = sql`coalesce(${channelReadStates.lastReadSequence}, 0)`
   const threadReadFrontier = sql`coalesce(${threadReadStates.lastReadSequence}, 0)`
+  const groupChannelIds = [...historyAccess.keys()]
+  const visibleSummaryMessage = groupSummaryMessageVisibleCondition({
+    channelId: sql`${messages.channelId}`,
+    sequence: sql`${messages.sequence}`,
+    access: historyAccess,
+  })
+  const visibleGroupThreadAggregate = groupChannelIds.length
+    ? sql`(
+        ${messages.channelId} not in (${sql.join(
+          groupChannelIds.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})
+        or (
+          ${groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access: historyAccess,
+          })}
+          and ${groupSummaryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access: historyAccess,
+          })}
+        )
+      )`
+    : sql`true`
+  const latestVisibleTopLevel = sql<number>`coalesce((
+    select max(${messages.sequence}) from ${messages}
+    where ${messages.workspaceId} = ${workspaceId}
+      and ${messages.channelId} = ${channels.id}
+      and ${messages.threadRootMessageId} is null
+      and ${messages.deletedAt} is null
+      and (${channels.kind} <> 'group' or ${visibleSummaryMessage})
+  ), 0)`.mapWith(Number)
   const [channelRows, threadRows] = await Promise.all([
     database
       .select({
         channelId: channels.id,
         lastReadSequence: channelReadStates.lastReadSequence,
-        latestTopLevelSequence: channels.latestMessageSequence,
+        latestTopLevelSequence: latestVisibleTopLevel,
         manuallyUnread: channelReadStates.manuallyUnread,
         readAt: channelReadStates.readAt,
         // Scalar subqueries in a CASE branch run only when the branch is
         // taken: a channel whose frontier is not past its read mark is 0
         // without touching messages.
         topLevelUnreadCount:
-          sql<number>`case when ${channels.latestMessageSequence} > ${channelReadFrontier} then (
+          sql<number>`case when ${latestVisibleTopLevel} > ${channelReadFrontier} then (
           select count(*) from ${messages}
           where ${messages.workspaceId} = ${workspaceId}
             and ${messages.channelId} = ${channels.id}
             and ${messages.threadRootMessageId} is null
             and ${messages.deletedAt} is null
             and ${messages.sequence} > ${channelReadFrontier}
+            and (${channels.kind} <> 'group' or ${visibleSummaryMessage})
         ) else 0 end`.mapWith(Number),
         updatedAt: channelReadStates.updatedAt,
       })
@@ -335,7 +392,8 @@ async function listReadStateForUserInSnapshot(
             accessibleChannelIds(database, workspaceId, principal, scope, inForce)
           ),
           isNotNull(messages.threadRootMessageId),
-          isNull(messages.deletedAt)
+          isNull(messages.deletedAt),
+          visibleGroupThreadAggregate
         )
       )
       // At most one thread read state row exists per (workspace, user, root),
@@ -354,7 +412,7 @@ async function listReadStateForUserInSnapshot(
   const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
   for (const row of threadRows) {
     const thread: ThreadReadStateSummary = Object.freeze({
-      lastReadSequence: row.lastReadSequence ?? 0,
+      lastReadSequence: Math.min(row.lastReadSequence ?? 0, row.latestSequence),
       latestSequence: row.latestSequence,
       manuallyUnread: row.manuallyUnread ?? false,
       ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
@@ -381,7 +439,7 @@ async function listReadStateForUserInSnapshot(
       const manuallyUnread = row.manuallyUnread ?? false
       return Object.freeze({
         channelId: row.channelId,
-        lastReadSequence: row.lastReadSequence ?? 0,
+        lastReadSequence: Math.min(row.lastReadSequence ?? 0, row.latestTopLevelSequence),
         latestTopLevelSequence: row.latestTopLevelSequence,
         manuallyUnread,
         ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
@@ -400,8 +458,28 @@ async function latestSequence(
   database: Database,
   workspaceId: string,
   channelId: string,
-  threadRootMessageId?: string
+  threadRootMessageId?: string,
+  options: Readonly<{
+    group?: boolean
+    historyAccess?: ReadonlyMap<string, GroupHistoryAccess>
+    historyScope?: 'history' | 'summary'
+  }> = {}
 ) {
+  const visibleGroupMessage = options.group
+    ? options.historyScope === 'history'
+      ? groupHistoryMessageAndThreadVisibleCondition({
+          channelId: sql`${messages.channelId}`,
+          sequence: sql`${messages.sequence}`,
+          threadRootMessageId: sql`${messages.threadRootMessageId}`,
+          replyToMessageId: sql`${messages.replyToMessageId}`,
+          access: options.historyAccess ?? new Map(),
+        })
+      : groupSummaryMessageVisibleCondition({
+          channelId: sql`${messages.channelId}`,
+          sequence: sql`${messages.sequence}`,
+          access: options.historyAccess ?? new Map(),
+        })
+    : null
   const rows = await database
     .select({ sequence: messages.sequence })
     .from(messages)
@@ -410,13 +488,15 @@ async function latestSequence(
         eq(messages.workspaceId, workspaceId),
         eq(messages.channelId, channelId),
         isNull(messages.deletedAt),
+        ...(visibleGroupMessage ? [visibleGroupMessage] : []),
         threadRootMessageId
           ? eq(messages.threadRootMessageId, threadRootMessageId)
           : isNull(messages.threadRootMessageId)
       )
     )
-    .orderBy(asc(messages.sequence))
-  return rows.at(-1)?.sequence ?? 0
+    .orderBy(desc(messages.sequence))
+    .limit(1)
+  return rows[0]?.sequence ?? 0
 }
 
 async function writeChannelState(
@@ -424,7 +504,9 @@ async function writeChannelState(
   workspaceId: string,
   channelId: string,
   userId: string,
-  target: Readonly<{ lastReadSequence: number; manuallyUnread: boolean }>
+  target: Readonly<{ lastReadSequence: number; manuallyUnread: boolean }>,
+  maxVisibleSequence: number,
+  isGroup: boolean
 ) {
   const [existing] = await transaction
     .select()
@@ -441,7 +523,10 @@ async function writeChannelState(
   // from a partially loaded message window) must never rewind the frontier and
   // resurrect notifications. Explicit unread is tracked with the manuallyUnread
   // flag instead.
-  const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, target.lastReadSequence)
+  const monotonicSequence = Math.max(existing?.lastReadSequence ?? 0, target.lastReadSequence)
+  const lastReadSequence = isGroup
+    ? Math.min(monotonicSequence, maxVisibleSequence)
+    : monotonicSequence
   if (
     existing?.lastReadSequence === lastReadSequence &&
     existing.manuallyUnread === target.manuallyUnread
@@ -465,16 +550,13 @@ async function writeChannelState(
         channelReadStates.channelId,
       ],
       set: {
-        // GREATEST, not the JS `max` above. That value is computed from a read
-        // taken earlier in this transaction, so a concurrent writer that
-        // advanced the frontier in between could still be overwritten
-        // downwards. The in-memory max covers the sequential case, which is why
-        // the existing tests pass either way — the race window is real but
-        // narrow, and I could NOT reproduce it locally (20 trials across two
-        // independent connections, plus repeated concurrent test runs, all
-        // held the frontier). This moves the invariant into the database, where
-        // it does not depend on statement ordering at all.
-        lastReadSequence: sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
+        // The in-memory max uses a frontier read earlier in this transaction.
+        // A normal channel has no row lock to serialize concurrent writers, so
+        // PostgreSQL must merge with the current row. Group writes retain their
+        // visible-sequence cap; their admission locks serialize that frontier.
+        lastReadSequence: isGroup
+          ? sql`LEAST(GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence), ${maxVisibleSequence})`
+          : sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
         manuallyUnread: target.manuallyUnread,
         readAt: target.manuallyUnread ? existing?.readAt : now,
         updatedAt: now,
@@ -493,17 +575,37 @@ export async function markChannelReadState(
   requestedSequence?: number
 ) {
   await database.transaction(async (transaction) => {
-    await requireChannel(transaction, workspaceId, channelId, principal)
-    const latest = await latestSequence(transaction, workspaceId, channelId)
+    const isGroup = await requireChannel(transaction, workspaceId, channelId, principal)
+    const historyAccess = isGroup
+      ? await groupHistoryAccessByUser(
+          transaction,
+          principal.userId,
+          new Date().toISOString(),
+          workspaceId
+        )
+      : new Map()
+    const latest = await latestSequence(transaction, workspaceId, channelId, undefined, {
+      group: isGroup,
+      historyAccess,
+    })
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
     )
       throw new Error('Read state invalid')
-    const changed = await writeChannelState(transaction, workspaceId, channelId, principal.userId, {
-      lastReadSequence: action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest,
-      manuallyUnread: action === 'unread',
-    })
+    const changed = await writeChannelState(
+      transaction,
+      workspaceId,
+      channelId,
+      principal.userId,
+      {
+        lastReadSequence:
+          action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest,
+        manuallyUnread: action === 'unread',
+      },
+      latest,
+      isGroup
+    )
     if (changed)
       await appendWorkspaceEvent(transaction, {
         eventType: `channel.${action}`,
@@ -524,7 +626,24 @@ export async function markThreadReadState(
   requestedSequence?: number
 ) {
   await database.transaction(async (transaction) => {
-    await requireChannel(transaction, workspaceId, channelId, principal)
+    const isGroup = await requireChannel(transaction, workspaceId, channelId, principal)
+    const historyAccess = isGroup
+      ? await groupHistoryAccessByUser(
+          transaction,
+          principal.userId,
+          new Date().toISOString(),
+          workspaceId
+        )
+      : new Map()
+    const rootVisible = isGroup
+      ? groupHistoryMessageAndThreadVisibleCondition({
+          channelId: sql`${messages.channelId}`,
+          sequence: sql`${messages.sequence}`,
+          threadRootMessageId: sql`${messages.threadRootMessageId}`,
+          replyToMessageId: sql`${messages.replyToMessageId}`,
+          access: historyAccess,
+        })
+      : null
     const [root] = await transaction
       .select({ id: messages.id })
       .from(messages)
@@ -533,12 +652,17 @@ export async function markThreadReadState(
           eq(messages.id, threadRootMessageId),
           eq(messages.workspaceId, workspaceId),
           eq(messages.channelId, channelId),
-          isNull(messages.threadRootMessageId)
+          isNull(messages.threadRootMessageId),
+          ...(rootVisible ? [rootVisible] : [])
         )
       )
       .limit(1)
     if (!root) throw new Error('Read state unavailable')
-    const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId)
+    const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId, {
+      group: isGroup,
+      historyAccess,
+      historyScope: 'history',
+    })
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
@@ -557,10 +681,11 @@ export async function markThreadReadState(
       .limit(1)
     // Thread frontiers are monotonic for the same reason as channel frontiers:
     // stale client sequences must not rewind them.
-    const lastReadSequence = Math.max(
+    const monotonicSequence = Math.max(
       existing?.lastReadSequence ?? 0,
       action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest
     )
+    const lastReadSequence = isGroup ? Math.min(monotonicSequence, latest) : monotonicSequence
     const target = {
       lastReadSequence,
       manuallyUnread: action === 'unread',
@@ -589,10 +714,12 @@ export async function markThreadReadState(
           threadReadStates.threadRootMessageId,
         ],
         set: {
-          // Same reasoning as the channel frontier above: the in-memory max
-          // predates this write, so the database enforces monotonicity instead
-          // of the application relying on statement ordering.
-          lastReadSequence: sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
+          // The in-memory max predates this write, so PostgreSQL merges with the
+          // current row for normal channels. Group writes keep the visible
+          // frontier cap while their admission locks serialize the update.
+          lastReadSequence: isGroup
+            ? sql`LEAST(GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence), ${latest})`
+            : sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
           manuallyUnread: target.manuallyUnread,
           readAt: target.manuallyUnread ? existing?.readAt : now,
           updatedAt: now,
@@ -628,6 +755,25 @@ export async function markAllChannelsRead(
       return listReadStateForUser(database, workspaceId, principal)
     }
 
+    const historyAccess = await groupHistoryAccessByUser(
+      transaction,
+      principal.userId,
+      new Date().toISOString(),
+      workspaceId
+    )
+    const visibleGroupTopLevel = groupSummaryMessageVisibleCondition({
+      channelId: sql`${messages.channelId}`,
+      sequence: sql`${messages.sequence}`,
+      access: historyAccess,
+    })
+    const visibleGroupThread = groupHistoryMessageAndThreadVisibleCondition({
+      channelId: sql`${messages.channelId}`,
+      sequence: sql`${messages.sequence}`,
+      threadRootMessageId: sql`${messages.threadRootMessageId}`,
+      replyToMessageId: sql`${messages.replyToMessageId}`,
+      access: historyAccess,
+    })
+
     // Batched by construction. This used to issue four round trips per channel
     // and three per thread inside one transaction, so a workspace with 30
     // channels and 300 threads cost roughly a thousand sequential queries —
@@ -646,7 +792,14 @@ export async function markAllChannelsRead(
             latest: sql<number>`max(${messages.sequence})`,
           })
           .from(messages)
-          .where(and(messageScope, isNull(messages.threadRootMessageId)))
+          .innerJoin(channels, eq(channels.id, messages.channelId))
+          .where(
+            and(
+              messageScope,
+              isNull(messages.threadRootMessageId),
+              sql`(${channels.kind} <> 'group' or ${visibleGroupTopLevel})`
+            )
+          )
           .groupBy(messages.channelId),
         transaction
           .select({
@@ -655,7 +808,14 @@ export async function markAllChannelsRead(
             latest: sql<number>`max(${messages.sequence})`,
           })
           .from(messages)
-          .where(and(messageScope, isNotNull(messages.threadRootMessageId)))
+          .innerJoin(channels, eq(channels.id, messages.channelId))
+          .where(
+            and(
+              messageScope,
+              isNotNull(messages.threadRootMessageId),
+              sql`(${channels.kind} <> 'group' or ${visibleGroupThread})`
+            )
+          )
           .groupBy(messages.channelId, messages.threadRootMessageId),
         transaction
           .select()
@@ -690,9 +850,9 @@ export async function markAllChannelsRead(
     for (const channelId of channelIds) {
       const latest = channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0
       const existing = existingChannelById.get(channelId)
-      // Watermarks are monotonic: a previously rewound frontier is repaired
-      // forward, never backward.
-      const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, latest)
+      // The current visible window is the cap, even if a stale persisted
+      // frontier was written before the participant's history narrowed.
+      const lastReadSequence = latest
       if (existing?.lastReadSequence === lastReadSequence && existing.manuallyUnread === false)
         continue
       channelWrites.push({
@@ -708,9 +868,8 @@ export async function markAllChannelsRead(
     for (const row of threadFrontiers) {
       if (!row.threadRootMessageId) continue
       const existing = existingThreadByRoot.get(row.threadRootMessageId)
-      // Mark-all-read must also respect monotonicity when repairing a
-      // previously rewound frontier.
-      const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, row.latest ?? 0)
+      // Hidden roots have no visible thread frontier to advance or retain.
+      const targetThreadSequence = row.latest ?? 0
       if (existing?.lastReadSequence === targetThreadSequence && existing.manuallyUnread === false)
         continue
       threadWrites.push({
@@ -724,6 +883,50 @@ export async function markAllChannelsRead(
       })
     }
 
+    const groupChannelCaps = channelIds
+      .filter((channelId) => historyAccess.has(channelId))
+      .map((channelId) => ({
+        channelId,
+        latest: channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0,
+      }))
+    const groupThreadCaps = threadFrontiers.filter((row) => historyAccess.has(row.channelId))
+    const channelFrontierWrite = groupChannelCaps.length
+      ? sql`case
+          when excluded.channel_id in (${sql.join(
+            groupChannelCaps.map(({ channelId }) => sql`${channelId}::uuid`),
+            sql`, `
+          )}) then least(
+            greatest(${channelReadStates.lastReadSequence}, excluded.last_read_sequence),
+            case ${sql.join(
+              groupChannelCaps.map(
+                ({ channelId, latest }) =>
+                  sql`when excluded.channel_id = ${channelId}::uuid then ${latest}`
+              ),
+              sql` `
+            )} else 0 end
+          )
+          else greatest(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)
+        end`
+      : sql`greatest(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`
+    const threadFrontierWrite = groupThreadCaps.length
+      ? sql`case
+          when excluded.thread_root_message_id in (${sql.join(
+            groupThreadCaps.map(({ threadRootMessageId }) => sql`${threadRootMessageId}::uuid`),
+            sql`, `
+          )}) then least(
+            greatest(${threadReadStates.lastReadSequence}, excluded.last_read_sequence),
+            case ${sql.join(
+              groupThreadCaps.map(
+                ({ threadRootMessageId, latest }) =>
+                  sql`when excluded.thread_root_message_id = ${threadRootMessageId}::uuid then ${latest ?? 0}`
+              ),
+              sql` `
+            )} else 0 end
+          )
+          else greatest(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)
+        end`
+      : sql`greatest(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`
+
     if (channelWrites.length > 0) {
       await transaction
         .insert(channelReadStates)
@@ -735,11 +938,7 @@ export async function markAllChannelsRead(
             channelReadStates.channelId,
           ],
           set: {
-            // GREATEST keeps the watermark monotonic inside the statement. The
-            // in-memory max is computed from a read taken before this upsert,
-            // so a concurrent writer could otherwise rewind the frontier
-            // between the two — exactly what the watermark is there to prevent.
-            lastReadSequence: sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
+            lastReadSequence: channelFrontierWrite,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,
@@ -758,7 +957,7 @@ export async function markAllChannelsRead(
             threadReadStates.threadRootMessageId,
           ],
           set: {
-            lastReadSequence: sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
+            lastReadSequence: threadFrontierWrite,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,

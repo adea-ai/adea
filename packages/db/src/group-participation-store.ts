@@ -36,7 +36,7 @@ import type {
   GroupTurnDecision,
 } from '@adea-ai/types'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
-import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
@@ -53,6 +53,7 @@ import {
   groupAudienceGrants,
   groupEnlistmentGrants,
   groupSharingGrants,
+  messages,
   workspaceMemberships,
   workspaces,
 } from './schema'
@@ -61,6 +62,13 @@ import {
 export type GroupStoreDatabase = {
   select: AgentHqTransaction['select']
 }
+
+/** Effective history window for one admitted user in one group channel. */
+export type GroupHistoryAccess = Readonly<{
+  joinedSequence: number
+  includesEarlierHistory: boolean
+  includesEarlierSummary: boolean
+}>
 
 /** Fail-closed window for an unprovable grant: behaves as absent everywhere. */
 export const ABSENT_GRANT_WINDOW: GroupGrantWindow = {
@@ -376,6 +384,213 @@ export async function groupChannelIdsInForce(
     return admissionInForce(admissionFromRow(channelId, row, window), channelId, now)
   })
   return new Set(inForce.map(({ admission }) => admission.channelId))
+}
+
+/**
+ * Resolve the same join-point history policy used by message reads for every
+ * effective group admission held by a user. Product queries use this compact
+ * map to filter messages in SQL before pagination and aggregation.
+ */
+export async function groupHistoryAccessByUser(
+  database: GroupStoreDatabase,
+  userId: string,
+  now: string,
+  workspaceId?: string
+): Promise<ReadonlyMap<string, GroupHistoryAccess>> {
+  const rows = await database
+    .select({ admission: groupAdmissions, grant: groupAudienceGrants })
+    .from(groupAdmissions)
+    .leftJoin(
+      groupAudienceGrants,
+      and(
+        eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
+        eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .where(
+      and(
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, userId),
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
+      )
+    )
+
+  const effective: Array<{ channelId: string; admission: GroupAdmission }> = []
+  for (const { admission: row, grant } of rows) {
+    const channelId = row.channelId
+    const window = resolveAdmissionWindow(
+      {
+        authorization: {
+          groupId: row.authGroupId,
+          grantId: row.authGrantId,
+          revision: row.authRevision,
+        },
+        participant: { kind: 'user', userId },
+      },
+      { audience: grant ? [audienceGrantFromRow(channelId, grant)] : [], enlistment: [] },
+      channelId
+    )
+    const admission = admissionFromRow(channelId, row, window)
+    if (admissionInForce(admission, channelId, now)) effective.push({ channelId, admission })
+  }
+  if (!effective.length) return new Map()
+
+  const channelIds = [...new Set(effective.map(({ channelId }) => channelId))]
+  const sharingRows = await database
+    .select()
+    .from(groupSharingGrants)
+    .where(
+      and(
+        eq(groupSharingGrants.principalKind, 'user'),
+        eq(groupSharingGrants.userId, userId),
+        inArray(groupSharingGrants.channelId, channelIds)
+      )
+    )
+  const sharingByChannel = new Map<string, GroupSharingGrant[]>()
+  for (const row of sharingRows) {
+    const grants = sharingByChannel.get(row.channelId) ?? []
+    grants.push(sharingGrantFromRow(row.channelId, row))
+    sharingByChannel.set(row.channelId, grants)
+  }
+
+  const access = new Map<string, GroupHistoryAccess>()
+  for (const { channelId, admission } of effective) {
+    const joinedSequence = admission.joinPoint.joinedSequence
+    const includesEarlierHistory =
+      joinedSequence > 0 &&
+      decideGroupHistoryRead({
+        admission,
+        entry: { occurredAt: now, sequence: joinedSequence - 1 },
+        groupId: channelId,
+        now,
+        sharingGrants: sharingByChannel.get(channelId) ?? [],
+      }).action === 'allow'
+    const includesEarlierSummary =
+      joinedSequence > 0 &&
+      decideGroupSummaryRead({
+        admission,
+        fromSequence: joinedSequence - 1,
+        groupId: channelId,
+        now,
+        sharingGrants: sharingByChannel.get(channelId) ?? [],
+      }).action === 'allow'
+    const previous = access.get(channelId)
+    access.set(channelId, {
+      joinedSequence: previous ? Math.min(previous.joinedSequence, joinedSequence) : joinedSequence,
+      includesEarlierHistory: Boolean(previous?.includesEarlierHistory || includesEarlierHistory),
+      includesEarlierSummary: Boolean(previous?.includesEarlierSummary || includesEarlierSummary),
+    })
+  }
+  return access
+}
+
+function groupMessageVisibleCondition(
+  input: {
+    channelId: SQL
+    sequence: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  },
+  includesEarlier: (history: GroupHistoryAccess) => boolean
+): SQL {
+  const conditions = [...input.access].map(([channelId, history]) =>
+    includesEarlier(history)
+      ? sql`${input.channelId} = ${channelId}::uuid`
+      : sql`(${input.channelId} = ${channelId}::uuid and ${input.sequence} >= ${history.joinedSequence})`
+  )
+  return conditions.length ? (or(...conditions) ?? sql`false`) : sql`false`
+}
+
+/** SQL predicate for messages a user may see under effective group history. */
+export function groupHistoryMessageVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageVisibleCondition(input, (history) => history.includesEarlierHistory)
+}
+
+/** Aggregate summaries need their own grant; earlier-history access is not enough. */
+export function groupSummaryMessageVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageVisibleCondition(input, (history) => history.includesEarlierSummary)
+}
+
+function groupMessageAndThreadVisibleCondition(
+  input: {
+    channelId: SQL
+    sequence: SQL
+    threadRootMessageId: SQL
+    replyToMessageId?: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  },
+  messageVisibility: (input: {
+    channelId: SQL
+    sequence: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  }) => SQL
+): SQL {
+  const visibleRoot = messageVisibility({
+    channelId: sql.raw('history_root.channel_id'),
+    sequence: sql.raw('history_root.sequence'),
+    access: input.access,
+  })
+  const visibleReply = input.replyToMessageId
+    ? sql`(
+        ${input.replyToMessageId} is null
+        or exists (
+          select 1 from ${messages} as history_reply_parent
+          where history_reply_parent.id = ${input.replyToMessageId}
+            and history_reply_parent.channel_id = ${input.channelId}
+            and ${messageVisibility({
+              channelId: sql.raw('history_reply_parent.channel_id'),
+              sequence: sql.raw('history_reply_parent.sequence'),
+              access: input.access,
+            })}
+        )
+      )`
+    : sql`true`
+  return sql`(
+    ${messageVisibility({
+      channelId: input.channelId,
+      sequence: input.sequence,
+      access: input.access,
+    })}
+    and (
+      ${input.threadRootMessageId} is null
+      or exists (
+        select 1 from ${messages} as history_root
+        where history_root.id = ${input.threadRootMessageId}
+          and history_root.channel_id = ${input.channelId}
+          and ${visibleRoot}
+      )
+    )
+    and ${visibleReply}
+  )`
+}
+
+/** A visible reply cannot reveal a thread root the reader cannot see. */
+export function groupHistoryMessageAndThreadVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  threadRootMessageId: SQL
+  replyToMessageId?: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageAndThreadVisibleCondition(input, groupHistoryMessageVisibleCondition)
+}
+
+export function groupSummaryMessageAndThreadVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  threadRootMessageId: SQL
+  replyToMessageId?: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageAndThreadVisibleCondition(input, groupSummaryMessageVisibleCondition)
 }
 
 /** SQL predicate shared by product queries that expose channels to a user. */

@@ -1707,6 +1707,40 @@ async function requireGroupTurn(
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
 }
 
+/** Check target and thread-parent history before a mutation can reveal version state. */
+async function requireGroupMessageHistory(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  message: MessageRow,
+  principal: UserPrincipalRef
+) {
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(transaction, workspaceId, channelId, { forUpdate: true }),
+    loadGroupSharingGrants(transaction, workspaceId, channelId, { forUpdate: true }),
+  ])
+  const admission = admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
+  const now = new Date().toISOString()
+  const relatedIds = new Set([
+    message.id,
+    ...(message.threadRootMessageId ? [message.threadRootMessageId] : []),
+    ...(message.replyToMessageId ? [message.replyToMessageId] : []),
+  ])
+  for (const relatedId of relatedIds) {
+    const related =
+      relatedId === message.id ? message : await requireMessage(transaction, workspaceId, relatedId)
+    if (related.channelId !== channelId) throw new Error('Message unavailable')
+    const decision = decideGroupHistoryRead({
+      admission,
+      entry: { occurredAt: related.createdAt.toISOString(), sequence: related.sequence },
+      groupId: channelId,
+      now,
+      sharingGrants,
+    })
+    if (decision.action !== 'allow') throw new Error('Message unavailable')
+  }
+}
+
 export async function editMessage(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -1725,7 +1759,10 @@ export async function editMessage(
       principal,
       'write'
     )
-    await requireGroupTurn(transaction, workspaceId, channel, principal)
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
+      await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
+    }
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1777,7 +1814,10 @@ export async function deleteMessage(
       principal,
       'write'
     )
-    await requireGroupTurn(transaction, workspaceId, channel, principal)
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
+      await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
+    }
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()
