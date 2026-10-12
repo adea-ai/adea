@@ -100,6 +100,9 @@ export type PortableExportHooks = Readonly<{
       participantRowsMaterialized: number
     }>
   ) => void | Promise<void>
+  afterAgentPage?: (
+    page: Readonly<{ nameJsonBytes: number; roleSummaryJsonBytes: number }>
+  ) => void | Promise<void>
   beforeChannelPage?: (
     page: Readonly<{ afterChannelId: string | undefined }>
   ) => void | Promise<void>
@@ -442,15 +445,20 @@ async function readRequesterInputs(
     : []
   bounded(contentRefRows, 'content refs')
 
-  return finishInputs(transaction, workspace, {
-    channels,
-    contentRefRows,
-    messages,
-    projectRows,
-    taskRows,
-    readBudget,
-    visibleContentRefIds,
-  })
+  return finishInputs(
+    transaction,
+    workspace,
+    {
+      channels,
+      contentRefRows,
+      messages,
+      projectRows,
+      taskRows,
+      readBudget,
+      visibleContentRefIds,
+    },
+    hooks
+  )
 }
 
 /**
@@ -639,7 +647,8 @@ async function finishInputs(
     ReadInputs,
     'channels' | 'contentRefRows' | 'messages' | 'projectRows' | 'taskRows' | 'visibleContentRefIds'
   > &
-    Readonly<{ readBudget: ExportReadBudget }>
+    Readonly<{ readBudget: ExportReadBudget }>,
+  hooks?: PortableExportHooks
 ): Promise<ReadInputs> {
   const workspaceId = workspace.id
   const taskIds = partial.taskRows.map((row) => row.id)
@@ -685,21 +694,38 @@ async function finishInputs(
   const agentRows: AgentRow[] = []
   const referencedAgentIds = [...agentIds]
   for (let offset = 0; offset < referencedAgentIds.length; offset += REFERENCE_PAGE) {
+    const remainingBytes = Math.max(
+      0,
+      PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - partial.readBudget.bytes
+    )
+    // Names and role summaries are plain text and have no column-level size
+    // limit. Bound their cumulative raw UTF-8 size in SQL before transferring
+    // those values to the Worker. The exact JSON size is still accounted below.
+    const cumulativeTextBytes = sql`
+      sum(
+        octet_length(${agents.name}) + coalesce(octet_length(${agents.roleSummary}), 0)
+      ) over (order by ${agents.id} rows between unbounded preceding and current row)
+    `
     const page = await transaction
       .select({
         createdAt: agents.createdAt,
         id: agents.id,
         isWorkspaceLead: agents.isWorkspaceLead,
         lifecycleState: agents.lifecycleState,
-        name: agents.name,
+        name: sql<
+          string | null
+        >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.name} else null end`,
         profileId: agents.profileId,
         profileRevision: agents.profileRevision,
         profileState: agents.profileState,
         profileVersion: agents.profileVersion,
         projectId: agents.projectId,
         revision: agents.revision,
-        roleSummary: agents.roleSummary,
+        roleSummary: sql<
+          string | null
+        >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.roleSummary} else null end`,
         updatedAt: agents.updatedAt,
+        withinByteBound: sql<boolean>`${cumulativeTextBytes} <= ${remainingBytes}`,
       })
       .from(agents)
       .where(
@@ -708,15 +734,32 @@ async function finishInputs(
           inArray(agents.id, referencedAgentIds.slice(offset, offset + REFERENCE_PAGE))
         )
       )
+      .orderBy(asc(agents.id))
       .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
-    for (const row of page) {
-      // The two potentially large agent strings are always exported. Check their
-      // encoded lower bound before retaining another batch in memory.
-      accountExportLowerBound(partial.readBudget, {
-        name: row.name,
-        roleSummary: row.roleSummary,
+
+    if (hooks?.afterAgentPage)
+      await hooks.afterAgentPage({
+        nameJsonBytes: page.reduce(
+          (total, row) => total + portableJsonUtf8ByteLength(row.name ?? ''),
+          0
+        ),
+        roleSummaryJsonBytes: page.reduce(
+          (total, row) => total + portableJsonUtf8ByteLength(row.roleSummary ?? ''),
+          0
+        ),
       })
-      agentRows.push(row)
+
+    for (const row of page) {
+      // Keep each agent row complete: if SQL withheld either text field because
+      // the remaining byte budget was exceeded, refuse the export before retaining it.
+      const { withinByteBound, ...agent } = row
+      if (!withinByteBound || agent.name === null)
+        throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+      accountExportLowerBound(partial.readBudget, {
+        name: agent.name,
+        roleSummary: agent.roleSummary,
+      })
+      agentRows.push({ ...agent, name: agent.name })
       bounded(agentRows, 'agents')
     }
   }

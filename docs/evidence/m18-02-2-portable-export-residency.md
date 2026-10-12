@@ -77,12 +77,14 @@ check. The requester's access is checked at these points:
   read 25 at a time, and select only fields the export carries. The UTF-8 JSON lower bound from
   each task's objective and title is checked before retaining that row. Agent and user references
   are read in 100-ID batches and projected to exported fields. Agent names and role summaries
-  join the same byte budget; user-name byte lengths are checked in SQL before name values are
-  transferred to the Worker.
+  join the same byte budget; SQL withholds both agent text columns once their cumulative
+  lower bound exceeds the remaining budget. User-name byte lengths are also checked in SQL before
+  name values are transferred to the Worker.
 - These byte checks bound retained accumulation and stop later reads once the lower bound exceeds
-  the document limit; they are not an 8 MiB process-heap ceiling. Each SQL page is materialized
-  before row-by-row accounting, so a single oversized task, message or agent value can transiently
-  exceed the limit before refusal.
+  the document limit; they are not an 8 MiB process-heap ceiling. Task and message pages are
+  materialized before row-by-row accounting, so a single oversized task or message value can
+  transiently exceed the limit before refusal. Agent names and role summaries are now projected
+  conditionally in SQL before transfer to the Worker.
 - Before the task pages begin, before the content references are checked, and before the final
   check: each is a test seam (`beforeStep`) so that revocations can be placed there.
 - After the last read and before the document is built: the start checks again, plus every
@@ -152,9 +154,12 @@ in `portable-import.ts`; both are covered by the integration lane.
 - `apps/web/test/integration/portable-workspace-routes.test.ts` also revokes a membership between
   task pages and proves the next page is denied, and tests early refusal plus a valid task-heavy
   export near the 8 MiB bound. Its oversized identity-provider display-name regression asserts a
-  413 response. Source inspection shows the SQL cumulative `octet_length` guard withholds names
-  whose lower-bound total exceeds the remaining budget; the response assertion alone does not
-  instrument or prove that no name bytes crossed the database boundary.
+  413 response. `packages/db/tests/integration/portable-export-channel-bounds.test.ts` now covers
+  the SQL-side byte projection directly: it proves a database-valid agent name that crosses the
+  remaining budget is withheld after a near-cap role summary, and a role summary above the full
+  cap is withheld. Its test seam records only encoded byte counts for the projected columns; each
+  case also asserts `too_large`. The name is kept within the database index limit, while the
+  paired role summary makes the row cross the remaining budget.
 
 Mutation checks on the matrix (the same filtered run, against the module with one change):
 
@@ -372,3 +377,30 @@ Residual limits, recorded rather than claimed:
 - The clean-destination restore and the revocation matrix need the lane's database. The restore
   test is skipped when `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL` is absent, which happens when
   Docker is unavailable.
+
+## Local verification checkpoint (2026-10-12)
+
+The incremental repair based on published head `248f8f0ae3c72e17d394f69f511ab2079941581d`
+changes only agent-name and role-summary residency during export. SQL computes their cumulative
+UTF-8 byte bound and returns `NULL` for both text columns on the first row that crosses the
+remaining budget and for later rows. The integration hook measures encoded byte counts only; it
+does not expose the text values. It proves both the over-budget name case and an over-cap role
+summary case are refused before those values reach the Worker.
+
+Fresh validation in the saved executor:
+
+- `bun run test:integration` passed: 337 tests across 53 auth/database integration files, then
+  148 tests across 10 API route files (485 tests total). The required
+  `portable-restore-order.test.ts` ran with the capture-provisioning database; all five assertions
+  passed, including the clean destination and its distinct-database check.
+- `bun run --cwd packages/db typecheck`, `bun run --cwd packages/db lint`, `oxfmt --check` on
+  both changed TypeScript files, and `git diff --check` passed.
+- This executor has no host `psql`; the canonical health check used a temporary adapter that
+  invokes `psql` inside the already-running local PostgreSQL container. The repository runner
+  provisioned and removed its disposable capture database. No credential or role settings were
+  changed.
+
+This closes only the pre-transfer bound for agent names and role summaries. Issue #1226 remains
+partial: the pre-join audience proof and withheld job-publication proof still depend on #1232 and
+#1237, respectively, and this change does not cover artifact storage, replicas, or native runtime
+state.

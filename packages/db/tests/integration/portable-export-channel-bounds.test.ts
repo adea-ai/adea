@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { randomBytes, randomUUID } from 'node:crypto'
 
-import { PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS, type ChannelSummary } from '@adea-ai/types'
+import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
+  PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+  type ChannelSummary,
+} from '@adea-ai/types'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
@@ -254,6 +258,73 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     ).toBe(false)
     expect(trace.totalStatements).toBeLessThan(100)
   })
+
+  test('an agent name beyond the remaining read budget is withheld before transfer', async () => {
+    const agentId = agentIds[0]!
+    try {
+      // Agent names have an index and cannot themselves exceed the database's
+      // index tuple limit. Let the role summary consume nearly all of the
+      // export budget, then make the name cross the remaining budget.
+      await db
+        .update(agents)
+        .set({
+          name: 'n'.repeat(4_096),
+          roleSummary: 'r'.repeat(PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - 1_024),
+        })
+        .where(eq(agents.id, agentId))
+      const materialized: { nameJsonBytes: number; roleSummaryJsonBytes: number }[] = []
+      const outcome = await exportPortableWorkspace(db, {
+        hooks: { afterAgentPage: (page) => materialized.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      }).then(
+        () => 'exported',
+        (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+      )
+
+      expect(outcome).toBe('too_large')
+      expect(materialized).toHaveLength(1)
+      expect(materialized[0]!.nameJsonBytes).toBeLessThan(4_096)
+      expect(materialized[0]!.roleSummaryJsonBytes).toBeLessThan(4_096)
+    } finally {
+      await db
+        .update(agents)
+        .set({ name: 'Channel participant 0', roleSummary: null })
+        .where(eq(agents.id, agentId))
+    }
+  }, 180_000)
+
+  test('an oversized agent role summary is refused before its value is transferred to the Worker', async () => {
+    const agentId = agentIds[0]!
+    try {
+      await db
+        .update(agents)
+        .set({
+          name: 'Channel participant 0',
+          roleSummary: 'r'.repeat(PORTABLE_WORKSPACE_EXPORT_MAX_BYTES + 1),
+        })
+        .where(eq(agents.id, agentId))
+      const materialized: { nameJsonBytes: number; roleSummaryJsonBytes: number }[] = []
+      const outcome = await exportPortableWorkspace(db, {
+        hooks: { afterAgentPage: (page) => materialized.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      }).then(
+        () => 'exported',
+        (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+      )
+
+      expect(outcome).toBe('too_large')
+      expect(materialized).toHaveLength(1)
+      expect(materialized[0]!.nameJsonBytes).toBeLessThan(4_096)
+      expect(materialized[0]!.roleSummaryJsonBytes).toBeLessThan(4_096)
+    } finally {
+      await db
+        .update(agents)
+        .set({ name: 'Channel participant 0', roleSummary: null })
+        .where(eq(agents.id, agentId))
+    }
+  }, 180_000)
 
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {
