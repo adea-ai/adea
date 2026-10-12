@@ -13,7 +13,19 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
+import {
+  groupHistoryAccessByUser,
+  groupHistoryMessageAndThreadVisibleCondition,
+  groupSummaryMessageAndThreadVisibleCondition,
+  userChannelVisibility,
+} from './group-participation-store'
+import type { GroupHistoryAccess } from './group-participation-store'
+import {
+  readHiddenThreadUnreadCounts,
+  readHiddenUnreadMentionCounts,
+  readHiddenUnreadCounts,
+  readVisibleTopLevelFrontiers,
+} from './job-outbound-frontier'
 import {
   channelReadStates,
   channels,
@@ -28,6 +40,90 @@ import {
 import { inReadSnapshot } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
+
+/**
+ * Applies the principal's current publication authority to inbox rows. A hidden unread
+ * publication is not an unread message, and the exposed frontier is the newest message the
+ * principal can see. Only the rows' own channels are read, so a page costs its channels.
+ */
+async function withPublicationAuthority(
+  database: Database,
+  principal: UserPrincipalRef,
+  rows: readonly InboxRow[],
+  groupHistory: ReadonlyMap<string, GroupHistoryAccess>
+): Promise<InboxRow[]> {
+  if (!rows.length) return []
+  const workspaceIds = [...new Set(rows.map((row) => row.workspaceId))]
+  // The frontier message is joined in the row, so this reads only the publications, and only
+  // for rows that have an unread one.
+  const frontiers = await readVisibleTopLevelFrontiers(
+    database,
+    principal,
+    rows.map((row) => {
+      const latestSequence = Number(row.latestTopLevelSequence)
+      return {
+        channelId: row.id,
+        latestSequence,
+        top:
+          latestSequence > 0
+            ? row.topId
+              ? {
+                  executionRef: row.topExecutionRef,
+                  id: row.topId,
+                  replyToMessageId: row.topReplyToMessageId,
+                  sequence: latestSequence,
+                  senderKind: row.topSenderKind ?? 'user',
+                  senderSystemId: row.topSenderSystemId,
+                  threadRootMessageId: null,
+                }
+              : null
+            : undefined,
+        workspaceId: row.workspaceId,
+      }
+    }),
+    groupHistory
+  )
+  const flagged = rows.filter((row) => row.hasUnreadPublication).map((row) => row.id)
+  const hiddenByChannel = flagged.length
+    ? await readHiddenUnreadCounts(database, principal, {
+        channelIds: flagged,
+        groupHistory,
+        workspaceIds,
+      })
+    : new Map<string, number>()
+  const hiddenMentionsByChannel = flagged.length
+    ? await readHiddenUnreadMentionCounts(database, principal, {
+        channelIds: flagged,
+        groupHistory,
+        workspaceIds,
+      })
+    : new Map<string, number>()
+  // Threads whose root the reader cannot see are not counted. A page with no unread thread
+  // needs no thread read at all.
+  const hiddenThreadsByChannel = rows.some((row) => Number(row.threadUnreadCount) > 0)
+    ? await readHiddenThreadUnreadCounts(database, principal, {
+        channelIds: rows.map((row) => row.id),
+        groupHistory,
+        workspaceIds,
+      })
+    : new Map<string, number>()
+  return rows.map((row) => ({
+    ...row,
+    latestTopLevelSequence: frontiers.get(row.id) ?? 0,
+    threadUnreadCount: Math.max(
+      0,
+      Number(row.threadUnreadCount) - (hiddenThreadsByChannel.get(row.id) ?? 0)
+    ),
+    topLevelUnreadCount: Math.max(
+      0,
+      Number(row.topLevelUnreadCount) - (hiddenByChannel.get(row.id) ?? 0)
+    ),
+    unreadMentions: Math.max(
+      0,
+      Number(row.unreadMentions) - (hiddenMentionsByChannel.get(row.id) ?? 0)
+    ),
+  }))
+}
 
 type InboxRow = {
   id: string
@@ -51,6 +147,13 @@ type InboxRow = {
   topLevelUnreadCount: string | number
   threadUnreadCount: string | number
   unreadMentions: string | number
+  /** The stored frontier message, joined so the frontier costs no extra read (#1217). */
+  topId: string | null
+  topExecutionRef: string | null
+  topReplyToMessageId: string | null
+  topSenderKind: string | null
+  topSenderSystemId: string | null
+  hasUnreadPublication: boolean
 }
 
 // The account-wide inbox lists conversations from every workspace the
@@ -71,13 +174,45 @@ type InboxRow = {
 // Unread state reuses the counts-only account summary's contract (ADR 0011):
 // the denormalized `channels.latest_message_sequence` frontier gates the
 // top-level count, so a read conversation costs no message access; the
-// mention lateral runs only for channels unread by sequence. Thread unread
+// mention lateral runs only for channels unread by sequence. A job publication
+// is counted and exposed only while the principal is authorized for it (#1217),
+// applied to the page's own rows. Thread unread
 // follows the canonical workspace read-state semantics exactly — the sum of
 // live replies past each thread's frontier, plus one per manually-unread
 // thread — so an inbox row and the workspace read state can never disagree.
 // Nothing here names another person.
 
-const inboxSelection = sql`
+function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHistoryAccess>) {
+  if (!access.size) return sql`true`
+  const channelId = sql.raw(`${alias}.channel_id`)
+  const sequence = sql.raw(`${alias}.sequence`)
+  const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
+  const replyToMessageId = sql.raw(`${alias}.reply_to_message_id`)
+  return sql`(
+    ${channelId} not in (${sql.join(
+      [...access.keys()].map((id) => sql`${id}::uuid`),
+      sql`, `
+    )})
+    or (
+      ${groupHistoryMessageAndThreadVisibleCondition({
+        channelId,
+        sequence,
+        threadRootMessageId,
+        replyToMessageId,
+        access,
+      })}
+      and ${groupSummaryMessageAndThreadVisibleCondition({
+        channelId,
+        sequence,
+        threadRootMessageId,
+        replyToMessageId,
+        access,
+      })}
+    )
+  )`
+}
+
+const inboxSelection = (groupHistory: ReadonlyMap<string, GroupHistoryAccess>) => sql`
     channel.id as "id",
     channel.workspace_id as "workspaceId",
     channel.kind as "kind",
@@ -99,6 +234,27 @@ const inboxSelection = sql`
     to_char(channel.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
       as "updatedAtText",
     channel.latest_message_sequence as "latestTopLevelSequence",
+    top_message.id as "topId",
+    top_message.execution_ref as "topExecutionRef",
+    top_message.reply_to_message_id as "topReplyToMessageId",
+    top_message.sender_kind as "topSenderKind",
+    top_message.sender_system_id as "topSenderSystemId",
+    exists (
+      select 1 from ${messages} as publication
+      where publication.channel_id = channel.id
+        and publication.workspace_id = channel.workspace_id
+        and publication.thread_root_message_id is null
+        and publication.deleted_at is null
+        and (
+          publication.reply_to_message_id is not null
+          or (
+            publication.sender_kind = 'system'
+            and publication.sender_system_id like 'job-outbound:v1:%'
+          )
+        )
+        and publication.sequence > coalesce(read_state.last_read_sequence, 0)
+        and ${groupHistoryVisible('publication', groupHistory)}
+    ) as "hasUnreadPublication",
     coalesce(read_state.manually_unread, false) as "manuallyUnread",
     (
       case when channel.latest_message_sequence > coalesce(read_state.last_read_sequence, 0) then (
@@ -108,6 +264,7 @@ const inboxSelection = sql`
           and message.thread_root_message_id is null
           and message.deleted_at is null
           and message.sequence > coalesce(read_state.last_read_sequence, 0)
+          and ${groupHistoryVisible('message', groupHistory)}
       )
       else 0
       end
@@ -136,6 +293,7 @@ const inboxSelection = sql`
         where message.channel_id = channel.id
           and message.thread_root_message_id is not null
           and message.deleted_at is null
+          and ${groupHistoryVisible('message', groupHistory)}
         group by
           message.thread_root_message_id,
           thread_state.last_read_sequence,
@@ -145,7 +303,11 @@ const inboxSelection = sql`
     coalesce(mention.count, 0) as "unreadMentions"
   `
 
-const inboxAuthorization = (userId: string, inForceGroupIds: readonly string[]) => sql`
+const inboxAuthorization = (
+  userId: string,
+  inForceGroupIds: readonly string[],
+  groupHistory: ReadonlyMap<string, GroupHistoryAccess>
+) => sql`
     from ${workspaceMemberships} as membership
     inner join ${workspaces} as workspace
       on workspace.id = membership.workspace_id and workspace.deleted_at is null
@@ -176,6 +338,12 @@ const inboxAuthorization = (userId: string, inForceGroupIds: readonly string[]) 
       on read_state.workspace_id = channel.workspace_id
       and read_state.user_id = ${userId}
       and read_state.channel_id = channel.id
+    left join ${messages} as top_message
+      on top_message.channel_id = channel.id
+      and top_message.workspace_id = channel.workspace_id
+      and top_message.sequence = channel.latest_message_sequence
+      and top_message.thread_root_message_id is null
+      and top_message.deleted_at is null
     left join lateral (
       select count(*) as count
       from ${messageMentions} as mentioned
@@ -187,6 +355,7 @@ const inboxAuthorization = (userId: string, inForceGroupIds: readonly string[]) 
         and message.thread_root_message_id is null
         and message.deleted_at is null
         and message.sequence > coalesce(read_state.last_read_sequence, 0)
+        and ${groupHistoryVisible('message', groupHistory)}
     ) as mention on true
     where membership.user_id = ${userId}
   `
@@ -261,9 +430,9 @@ async function accountConversationInboxInSnapshot(
   options: Readonly<AccountDirectoryPageInput>
 ): Promise<AccountConversationInboxPage> {
   const limit = accountDirectoryPageLimit(options.limit)
-  const inForce = [
-    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
-  ]
+  const now = new Date().toISOString()
+  const groupHistory = await groupHistoryAccessByUser(database, principal.userId, now)
+  const inForce = [...groupHistory.keys()]
   const after = options.after ? decodeAccountInboxCursor(options.after) : null
   const lifecycle = options.includeArchived ? sql`true` : sql`channel.lifecycle_state = 'active'`
   // The search predicate sits INSIDE the authorization statement: it filters
@@ -278,19 +447,24 @@ async function accountConversationInboxInSnapshot(
     ? sql`and (channel.updated_at, channel.id) < (${after.updatedAt}::timestamptz, ${after.id}::uuid)`
     : sql``
   const rows = await database.execute<InboxRow>(sql`
-    select ${inboxSelection}
-    ${inboxAuthorization(principal.userId, inForce)}
+    select ${inboxSelection(groupHistory)}
+    ${inboxAuthorization(principal.userId, inForce, groupHistory)}
     and ${lifecycle}
     ${search}
     ${cursor}
     order by channel.updated_at desc, channel.id desc
     limit ${limit + 1}
   `)
-  const page = [...rows].slice(0, limit)
-  const last = page.at(-1)
+  const pageRows = await withPublicationAuthority(
+    database,
+    principal,
+    [...rows].slice(0, limit),
+    groupHistory
+  )
+  const last = pageRows.at(-1)
   return Object.freeze({
-    conversations: Object.freeze(page.map(inboxEntry)),
-    ...(page.length < rows.length && last
+    conversations: Object.freeze(pageRows.map(inboxEntry)),
+    ...(pageRows.length < rows.length && last
       ? {
           // The exact timestamp text, not a Date-normalized one: PostgreSQL
           // compares microseconds while `Date` holds only milliseconds.
@@ -329,17 +503,19 @@ async function findAccountConversationInSnapshot(
   conversationId: string,
   options: Readonly<{ includeArchived?: boolean }>
 ): Promise<AccountConversationInboxEntry | null> {
-  const inForce = [
-    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
-  ]
+  const now = new Date().toISOString()
+  const groupHistory = await groupHistoryAccessByUser(database, principal.userId, now)
+  const inForce = [...groupHistory.keys()]
   const lifecycle =
     options.includeArchived === false ? sql`channel.lifecycle_state = 'active'` : sql`true`
   const [row] = await database.execute<InboxRow>(sql`
-    select ${inboxSelection}
-    ${inboxAuthorization(principal.userId, inForce)}
+    select ${inboxSelection(groupHistory)}
+    ${inboxAuthorization(principal.userId, inForce, groupHistory)}
     and ${lifecycle}
     and channel.id = ${conversationId}::uuid
     limit 1
   `)
-  return row ? inboxEntry(row) : null
+  if (!row) return null
+  const [current] = await withPublicationAuthority(database, principal, [row], groupHistory)
+  return current ? inboxEntry(current) : null
 }

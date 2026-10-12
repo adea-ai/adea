@@ -11,6 +11,7 @@ import {
 import { createMessage, createMessageInGroupFence } from './conversations'
 import { evaluateGroupGrantWindow } from './group-participation-policy'
 import { loadGroupAdmission, resolveGroupLeadAgentId } from './group-participation-store'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import {
   agents,
   channelParticipants,
@@ -347,6 +348,9 @@ export async function getLeadTurnForUser(
         )
       )
     if (!message) throw new Error('Lead turn unavailable')
+    // A turn on a message the reader cannot see is unavailable, as the message is.
+    if ((await filterVisibleMessageRows(tx, [message], principal.userId)).length === 0)
+      throw new Error('Lead turn unavailable')
     const authority = await lockAuthority(tx, workspaceId, message.channelId, principal, false)
     const [liveMessage] = await tx
       .select({ id: messages.id })
@@ -405,6 +409,8 @@ export async function withAuthorizedLeadTurn<T>(
       .from(workspaces)
       .where(eq(workspaces.id, workspaceId))
     if (!message || message.senderUserId !== intent.actorUserId || !workspace)
+      throw new Error('Lead turn unavailable')
+    if ((await filterVisibleMessageRows(tx, [message], principal.userId)).length === 0)
       throw new Error('Lead turn unavailable')
     return operation(tx, intent, message, workspace.id)
   })

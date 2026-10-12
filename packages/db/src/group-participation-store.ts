@@ -398,7 +398,11 @@ export async function groupHistoryAccessByUser(
   workspaceId?: string
 ): Promise<ReadonlyMap<string, GroupHistoryAccess>> {
   const rows = await database
-    .select({ admission: groupAdmissions, grant: groupAudienceGrants })
+    .select({
+      admission: groupAdmissions,
+      grant: groupAudienceGrants,
+      sharing: groupSharingGrants,
+    })
     .from(groupAdmissions)
     .leftJoin(
       groupAudienceGrants,
@@ -406,6 +410,15 @@ export async function groupHistoryAccessByUser(
         eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
         eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
         eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .leftJoin(
+      groupSharingGrants,
+      and(
+        eq(groupSharingGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupSharingGrants.channelId, groupAdmissions.channelId),
+        eq(groupSharingGrants.principalKind, 'user'),
+        eq(groupSharingGrants.userId, userId)
       )
     )
     .where(
@@ -416,9 +429,26 @@ export async function groupHistoryAccessByUser(
       )
     )
 
-  const effective: Array<{ channelId: string; admission: GroupAdmission }> = []
-  for (const { admission: row, grant } of rows) {
+  const admissions = new Map<
+    string,
+    {
+      channelId: string
+      row: typeof groupAdmissions.$inferSelect
+      grant: typeof groupAudienceGrants.$inferSelect | null
+    }
+  >()
+  const sharingByChannel = new Map<string, Map<string, GroupSharingGrant>>()
+  for (const { admission: row, grant, sharing } of rows) {
     const channelId = row.channelId
+    admissions.set(row.id, { channelId, row, grant })
+    if (sharing?.id) {
+      const grants = sharingByChannel.get(channelId) ?? new Map<string, GroupSharingGrant>()
+      grants.set(sharing.id, sharingGrantFromRow(channelId, sharing))
+      sharingByChannel.set(channelId, grants)
+    }
+  }
+  const effective: Array<{ channelId: string; admission: GroupAdmission }> = []
+  for (const { channelId, row, grant } of admissions.values()) {
     const window = resolveAdmissionWindow(
       {
         authorization: {
@@ -436,24 +466,6 @@ export async function groupHistoryAccessByUser(
   }
   if (!effective.length) return new Map()
 
-  const channelIds = [...new Set(effective.map(({ channelId }) => channelId))]
-  const sharingRows = await database
-    .select()
-    .from(groupSharingGrants)
-    .where(
-      and(
-        eq(groupSharingGrants.principalKind, 'user'),
-        eq(groupSharingGrants.userId, userId),
-        inArray(groupSharingGrants.channelId, channelIds)
-      )
-    )
-  const sharingByChannel = new Map<string, GroupSharingGrant[]>()
-  for (const row of sharingRows) {
-    const grants = sharingByChannel.get(row.channelId) ?? []
-    grants.push(sharingGrantFromRow(row.channelId, row))
-    sharingByChannel.set(row.channelId, grants)
-  }
-
   const access = new Map<string, GroupHistoryAccess>()
   for (const { channelId, admission } of effective) {
     const joinedSequence = admission.joinPoint.joinedSequence
@@ -464,7 +476,7 @@ export async function groupHistoryAccessByUser(
         entry: { occurredAt: now, sequence: joinedSequence - 1 },
         groupId: channelId,
         now,
-        sharingGrants: sharingByChannel.get(channelId) ?? [],
+        sharingGrants: [...(sharingByChannel.get(channelId)?.values() ?? [])],
       }).action === 'allow'
     const includesEarlierSummary =
       joinedSequence > 0 &&
@@ -473,7 +485,7 @@ export async function groupHistoryAccessByUser(
         fromSequence: joinedSequence - 1,
         groupId: channelId,
         now,
-        sharingGrants: sharingByChannel.get(channelId) ?? [],
+        sharingGrants: [...(sharingByChannel.get(channelId)?.values() ?? [])],
       }).action === 'allow'
     const previous = access.get(channelId)
     access.set(channelId, {

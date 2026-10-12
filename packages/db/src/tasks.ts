@@ -536,7 +536,7 @@ export async function getTaskForUser(
 }
 
 async function mutateExisting(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
@@ -715,12 +715,14 @@ export async function moveTaskToProject(
 }
 
 async function transitionTask(
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   target: TaskLifecycleState,
-  command: TaskCommand
+  command: TaskCommand,
+  // Extra request facts the idempotency hash must cover, e.g. a completion's outbound request.
+  extra: Readonly<Record<string, unknown>> = {}
 ) {
   return mutateExisting(
     database,
@@ -729,7 +731,7 @@ async function transitionTask(
     principal,
     `task.${target}`,
     `task.${target}`,
-    { target },
+    { ...extra, target },
     command,
     async (transaction, row) => {
       const valid: Record<TaskLifecycleState, readonly TaskLifecycleState[]> = {
@@ -780,13 +782,20 @@ export const startTask = (
   principal: UserPrincipalRef,
   command: TaskCommand
 ) => transitionTask(database, workspaceId, taskId, principal, 'in_progress', command)
+/**
+ * Completes a Task. Pass a transaction to run the completion inside a larger one:
+ * the mutation then nests as a savepoint and commits or rolls back with it. `extra`
+ * facts are hashed into the idempotency payload, so a retried key cannot replay a
+ * completion with different facts.
+ */
 export const completeTask = (
-  database: AgentHqDatabase,
+  database: Database,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
-  command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'completed', command)
+  command: TaskCommand,
+  extra: Readonly<Record<string, unknown>> = {}
+) => transitionTask(database, workspaceId, taskId, principal, 'completed', command, extra)
 export const reviewTask = (
   database: AgentHqDatabase,
   workspaceId: string,
