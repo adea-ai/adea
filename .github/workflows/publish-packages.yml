@@ -2,8 +2,8 @@ name: Publish shared packages
 
 # Publishes the moat-free shared packages (@adea-ai/audio, @adea-ai/spatial) to the
 # public npm registry on every main push that touches
-# them (plus manual dispatch). The private agent-sim repo consumes these by version, so no
-# registry auth is needed anywhere — not locally, not in CI.
+# them (plus manual dispatch). The packages are public for consumers; publishing
+# authenticates through npm trusted publishing with GitHub Actions OIDC.
 #
 # `@adea-ai/ui` used to be on this list. It is not any more: that name now belongs to the
 # `adea-ai/ui` design system, which publishes it from its own repository, and the npm trusted
@@ -15,11 +15,9 @@ name: Publish shared packages
 # one leaves the workflow running for nothing; dropping only the other leaves it able to
 # republish the name.
 #
-# Prerequisites (one-time, dashboard):
-#   1. Create the `adea` org on npmjs.com.
-#   2. Set NPM_TOKEN to an automation token with publish rights on @adea-ai/*.
-# Provenance attestation is deferred until hosted runners return (the local
-# runner predates OIDC support and fails job setup when id-token is requested).
+# Both package settings must trust adea-ai/adea and this workflow filename,
+# `publish-packages.yml`, with direct publishing enabled. GitHub-hosted runners
+# are required; npm generates provenance automatically for successful OIDC publishes.
 
 on:
   push:
@@ -31,9 +29,6 @@ on:
       - '.github/workflows/publish-packages.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 concurrency:
   group: adea-publish-packages
   cancel-in-progress: false
@@ -43,6 +38,9 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,7 +57,11 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+
+      - name: Install npm with trusted publishing support
+        run: |
+          npm install --global npm@12.2.0
+          test "$(npm --version)" = "12.2.0"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -75,6 +77,4 @@ jobs:
         run: bunx turbo run build --filter=@adea-ai/audio --filter=@adea-ai/spatial
 
       - name: Publish changed packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bun scripts/publish-packages.mjs

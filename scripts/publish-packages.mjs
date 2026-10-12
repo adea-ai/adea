@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 // Publishes the moat-free shared packages (@adea-ai/audio, @adea-ai/spatial)
 // to the public npm registry so the
 // private agent-sim repo — and, later, the public adea repo — consume them
-// without any registry auth. These packages have zero @adea-ai/* transitive
+// without install credentials. These packages have zero @adea-ai/* transitive
 // deps beyond each other and contain no engine, simulation, or binary-asset
 // code; that is what makes public publishing safe. Never add an engine
 // package to PUBLISH_PACKAGES.
@@ -31,10 +31,11 @@ import { fileURLToPath } from 'node:url'
 // repository, so this workflow could no longer publish the package by OIDC even
 // if the list above still named it.
 //
-// The npm `adea` org must exist and NPM_TOKEN must be an automation token
-// with publish rights on it. Versions come from each package.json
-// (release-please lockstep); already-published versions are skipped, so the
-// script is safe to re-run and runs on every main push touching these paths.
+// Publishing uses the GitHub Actions OIDC trusted publishers configured for
+// both packages; this script does not use npm tokens. Versions come from each
+// package.json (release-please lockstep); already-published versions are
+// skipped, so the script is safe to re-run and runs on every main push touching
+// these paths.
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 

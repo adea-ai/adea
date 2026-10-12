@@ -65,3 +65,19 @@ describe('publish package lists agree', () => {
     expect(workflowBuildFilters()).toEqual(published)
   })
 })
+
+describe('npm trusted publishing configuration', () => {
+  const workflow = read('.github/workflows/publish-packages.yml')
+
+  test('grants OIDC only to the publish job while retaining checkout read access', () => {
+    const publishJob = /jobs:\n  publish:[\s\S]*?\n    permissions:\n((?:      [^\n]+\n)+)/.exec(workflow)
+    expect(publishJob, 'publish job is missing job-scoped permissions').not.toBeNull()
+    expect(publishJob![1]).toMatch(/id-token:\s*write/)
+    expect(publishJob![1]).toMatch(/contents:\s*read/)
+  })
+
+  test('pins a trusted-publishing-capable npm CLI and configures no token fallback', () => {
+    expect(workflow).toMatch(/npm install --global npm@12\.2\.0/)
+    expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|registry-url/)
+  })
+})
