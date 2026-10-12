@@ -100,8 +100,8 @@ jobs:
       rust-max-parallel: 1
       # The sync renderer rewrites both values from the e2e_shards config key;
       # the defaults keep repositories without that key on one unsharded job.
-      e2e-shard-list: 1,2
-      e2e-total-shards: 2
+      e2e-shard-list: 1,2,3,4,5,6,7,8
+      e2e-total-shards: 8
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
