@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { LeadHandoffPort, LeadHandoffResolution } from '../src/lib/lead-handoff-supply'
 import {
+  applyLeadTurnCancelReceipt,
   buildHandoffRequestBody,
   createOrderedScope,
   requestLeadHandoff,
@@ -50,6 +51,49 @@ function observedTurn(overrides: Record<string, unknown> = {}) {
 }
 
 const calls = { lead: 0, channels: 0, turn: 0, cancel: 0 }
+
+describe('applyLeadTurnCancelReceipt', () => {
+  test('retains the exact target from the canonical cancellation receipt', () => {
+    const previous = {
+      intentId: 'intent-before-cancel',
+      agentId: LEAD.id,
+      dispatchId: 'dispatch_11111111111111111111111111111111',
+      state: 'running' as const,
+      canCancel: true,
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
+    }
+    const next = {
+      schemaVersion: 'adea-lead-turn/v1' as const,
+      messageId: 'message-1',
+      intentId: 'intent-before-cancel',
+      state: 'cancelled' as const,
+      availability: 'available' as const,
+      dispatchId: previous.dispatchId,
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
+    }
+
+    expect(applyLeadTurnCancelReceipt(previous, next)).toEqual({
+      intentId: 'intent-before-cancel',
+      agentId: LEAD.id,
+      dispatchId: previous.dispatchId,
+      state: 'cancelled',
+      canCancel: false,
+      handoffTarget: {
+        runtimeSessionId: 'session-1',
+        taskId: TASK,
+        observedGeneration: 3,
+      },
+    })
+  })
+})
 
 function port(overrides: Partial<LeadHandoffPort> = {}): LeadHandoffPort {
   return {

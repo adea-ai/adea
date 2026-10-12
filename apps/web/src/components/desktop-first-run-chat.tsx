@@ -18,6 +18,7 @@ import type {
   HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
 import {
+  applyLeadTurnCancelReceipt,
   createOrderedScope,
   leadTurnCanCancel,
   requestLeadHandoff,
@@ -434,13 +435,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     const next = response.leadTurn
     setLeadSupply((previous) => ({
       ...previous,
-      turn: {
-        intentId: next.intentId,
-        agentId: turn.agentId,
-        ...(next.dispatchId !== undefined ? { dispatchId: next.dispatchId } : {}),
-        state: next.state as HandoffLeadTurn['state'],
-        canCancel: false,
-      },
+      turn: applyLeadTurnCancelReceipt(turn, next),
     }))
   }
 

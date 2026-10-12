@@ -57,6 +57,21 @@ export function leadTurnCanCancel(state: string): boolean {
   return CANCELLABLE_TURN_STATES.includes(state)
 }
 
+/** Apply the canonical cancellation receipt without dropping the intent's target binding. */
+export function applyLeadTurnCancelReceipt(
+  previous: HandoffLeadTurn,
+  next: Awaited<ReturnType<AgentHqApiClient['cancelLeadTurn']>>['leadTurn']
+): HandoffLeadTurn {
+  return {
+    intentId: next.intentId,
+    agentId: previous.agentId,
+    ...(next.dispatchId !== undefined ? { dispatchId: next.dispatchId } : {}),
+    state: next.state as HandoffLeadTurn['state'],
+    canCancel: false,
+    ...(next.handoffTarget === undefined ? {} : { handoffTarget: { ...next.handoffTarget } }),
+  }
+}
+
 function toLeadAgent(input: {
   id: string
   isWorkspaceLead?: boolean
