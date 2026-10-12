@@ -113,6 +113,8 @@ export type DevCleanupPlan = Readonly<{
   steps: readonly string[]
   /** Why the plan cannot run yet; a blocked plan is never committed. */
   blockers: readonly string[]
+  /** What the plan would remove; read-only preview, never authority. */
+  consequences: readonly Readonly<{ blocking: boolean; detail: string; kind: string }>[]
 }>
 
 /** Plan deleting a worktree (`dev.worktree.cleanupPlan`); nothing changes yet. */
@@ -141,6 +143,7 @@ export async function planWorktreeCleanup(
     return { ok: false, message: 'The runtime returned an unreadable cleanup plan.' }
   const steps = Array.isArray(plan.steps) ? plan.steps : []
   const blockers = Array.isArray(plan.blockers) ? plan.blockers : []
+  const consequences = Array.isArray(plan.consequences) ? plan.consequences : []
   return {
     ok: true,
     value: {
@@ -153,6 +156,14 @@ export async function planWorktreeCleanup(
       blockers: blockers.map((blocker) => {
         const message = (blocker as { message?: unknown })?.message
         return typeof message === 'string' ? message : 'Blocked'
+      }),
+      consequences: consequences.flatMap((entry) => {
+        const candidate = entry as { blocking?: unknown; detail?: unknown; kind?: unknown }
+        return typeof candidate.kind === 'string' &&
+          typeof candidate.detail === 'string' &&
+          typeof candidate.blocking === 'boolean'
+          ? [{ blocking: candidate.blocking, detail: candidate.detail, kind: candidate.kind }]
+          : []
       }),
     },
   }

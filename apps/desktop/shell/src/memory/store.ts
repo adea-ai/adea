@@ -29,6 +29,7 @@ import {
   type WorkspaceMemorySnapshot,
 } from '../../../../../packages/types/src/index'
 import { compileMemoryPreamble, type MemoryPreamble } from './preamble'
+import { decideMemoryPromotion, memoryProvenanceRecord } from './provenance'
 
 export const MEMORY_CONTENT_TYPE = 'memory_entry'
 const SCHEMA_VERSION = 1
@@ -402,16 +403,34 @@ export function createMemoryStore(options: {
     accept(workspaceId, input) {
       const id = assertMemoryWorkspaceId(workspaceId)
       const record = requireRecord(id, input.entryId)
-      requireRevision(record, input.expectedRevision)
-      if (record.status !== 'pending') throw new MemoryStoreError('memory_invalid_state')
+      // The canonical provenance/audience guard: promotion carries the
+      // record's own provenance and audience through unchanged and pins the
+      // revision that becomes active, so a concurrent edit refuses instead
+      // of being overwritten.
+      const decision = decideMemoryPromotion({
+        entry: memoryProvenanceRecord(record),
+        authorizedWorkspaceId: id,
+        expectedRevision: revisionOf(input.expectedRevision),
+      })
+      if (!decision.allowed) {
+        // A foreign audience is indistinguishable from an absent entry; a
+        // presented provenance change is invalid input.
+        if (decision.reason === 'memory_audience_mismatch')
+          throw new MemoryStoreError('memory_not_found')
+        if (decision.reason === 'memory_provenance_mismatch')
+          throw new MemoryStoreError('memory_invalid_input')
+        if (decision.reason === 'memory_stale_revision')
+          throw new MemoryStoreError('memory_stale_revision')
+        throw new MemoryStoreError('memory_invalid_state')
+      }
       // The text must still authenticate under this workspace before the
       // proposal becomes memory; a tampered record never gets promoted.
       const text = open(record, id)
       const next: StoredRecord = {
         ...record,
-        status: 'active',
+        status: decision.plan.to,
         updatedAt: iso(),
-        revision: record.revision + 1,
+        revision: decision.plan.nextRevision,
       }
       writeAtomic(recordFile(record.id), next)
       return toEntry(next, text)

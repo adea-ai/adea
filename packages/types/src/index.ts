@@ -1,5 +1,7 @@
 import type { TaskExecutionLocation } from './task-execution'
 
+// Management authority runtime helpers stay on the dedicated /management
+// subpath so browser consumers of this shared barrel do not ship that contract.
 export * from './artifact-reference'
 export * from './desktop-permissions'
 export * from './execution-location'
@@ -190,6 +192,12 @@ export type ProjectSummary = Readonly<{
   sortOrder: number
   sourceKind: ProjectSourceKind
   updatedAt: string
+  /**
+   * Monotonic optimistic revision; every write to the project row increments
+   * it, so an observed value is stale after any later write — including two
+   * writes in the same millisecond. Timestamps remain display-only.
+   */
+  version: number
   visibility: ProjectVisibility
   workspaceId: string
 }>

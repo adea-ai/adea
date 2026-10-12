@@ -1053,3 +1053,261 @@ describe('observed run status through the gate (#400)', () => {
     }
   }, 60_000)
 })
+
+// Harness default and session override independence (#1211). The stored
+// default (installation + its explicit model), an explicit session override
+// (`launchHarness`) and a model-only launch are separate inputs: none may
+// rewrite another's stored record, and no model may cross to a different
+// installation. Every launch uses a fresh session so generation and live-run
+// state cannot couple the cases.
+describe('harness default and session override independence (#1211)', () => {
+  async function sessionOnly(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+    const reply = await channel.execute(
+      commandFor('dev.session.create', SCOPE_A, {
+        projectId: '00000000-0000-4000-8000-0000000000aa',
+        repoId: '00000000-0000-4000-8000-0000000000ab',
+        worktreeId: randomUUID(),
+      })
+    )
+    if (!reply.ok) throw new Error(`session create failed: ${JSON.stringify(reply.error)}`)
+    return reply.value as { id: string; generation: number; version: number; projectId: string }
+  }
+
+  async function preferenceRecords(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+    return okValue(await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {})))
+      .items as Array<Record<string, unknown>>
+  }
+
+  test('a traditional-session default launches its own installation and model without managed Pi', async () => {
+    const traditional = randomUUID()
+    const shell = await boot({
+      archiveResolver: () => Promise.resolve(null),
+      seedAcpInstallation: { id: traditional },
+    })
+    try {
+      const channel = await shell.openChannel()
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: traditional,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true, modelId: 'traditional-model-a' },
+          })
+        )
+      )
+      const session = await createSession(shell.host(), channel)
+      const launched = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(launched).toMatchObject({
+        installationId: traditional,
+        modelId: 'traditional-model-a',
+      })
+      // Managed Pi was never installed and never became the launch target.
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('an explicit session override and a model-only launch never rewrite the stored default or its model', async () => {
+    const traditional = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: traditional },
+    })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const managed = shell.managedPiStatus().installationId as string
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: traditional,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true, modelId: 'traditional-model-a' },
+          })
+        )
+      )
+      const before = await preferenceRecords(channel)
+
+      // Explicit session override: a different installation with its own model.
+      const overrideSession = await createSession(shell.host(), channel)
+      const override = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchHarness',
+            SCOPE_A,
+            {
+              runtimeSessionId: overrideSession.id,
+              expectedGeneration: overrideSession.generation,
+              harnessInstallationId: managed,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+              modelId: 'pi-override-model',
+            },
+            { resource: sessionResource(overrideSession) }
+          )
+        )
+      )
+      expect(override).toMatchObject({ installationId: managed, modelId: 'pi-override-model' })
+      expect(await preferenceRecords(channel)).toEqual(before)
+
+      // Model-only launch: the default harness with an explicit model. The
+      // default's installation is kept; the explicit model wins for this run only.
+      const modelOnlySession = await sessionOnly(channel)
+      const modelOnly = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: modelOnlySession.id,
+              expectedGeneration: modelOnlySession.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+              modelId: 'explicit-model-b',
+            },
+            { resource: sessionResource(modelOnlySession) }
+          )
+        )
+      )
+      expect(modelOnly).toMatchObject({ installationId: traditional, modelId: 'explicit-model-b' })
+      expect(await preferenceRecords(channel)).toEqual(before)
+
+      // The stored default still launches its own stored model afterwards.
+      const storedSession = await sessionOnly(channel)
+      const stored = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: storedSession.id,
+              expectedGeneration: storedSession.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(storedSession) }
+          )
+        )
+      )
+      expect(stored).toMatchObject({ installationId: traditional, modelId: 'traditional-model-a' })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('switching the default keeps each harness model; a disabled default never lends its model to the root default', async () => {
+    const traditional = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: traditional },
+    })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const managed = shell.managedPiStatus().installationId as string
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: traditional,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true, modelId: 'traditional-model-a' },
+          })
+        )
+      )
+      // The managed harness gets its own explicit model without becoming the default.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: managed,
+            expectedVersion: 0,
+            patch: { enabled: true, modelId: 'pi-model-m' },
+          })
+        )
+      )
+      // Making managed the default clears the other default flag only.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: managed,
+            expectedVersion: 1,
+            patch: { default: true },
+          })
+        )
+      )
+      const afterSwitch = await preferenceRecords(channel)
+      const byInstallation = (id: string) =>
+        afterSwitch.find((record) => record.harnessInstallationId === id)
+      expect(byInstallation(traditional)).toMatchObject({
+        default: false,
+        modelId: 'traditional-model-a',
+      })
+      expect(byInstallation(managed)).toMatchObject({ default: true, modelId: 'pi-model-m' })
+
+      // The new default launches with its own model, never the old one.
+      const newDefault = await createSession(shell.host(), channel)
+      const launchedNew = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: newDefault.id,
+              expectedGeneration: newDefault.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(newDefault) }
+          )
+        )
+      )
+      expect(launchedNew).toMatchObject({ installationId: managed, modelId: 'pi-model-m' })
+
+      // Disabling the explicit default falls back to the managed root default,
+      // which has no model of its own: neither stored model crosses over.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: managed,
+            expectedVersion: 2,
+            patch: { enabled: false },
+          })
+        )
+      )
+      const fallbackSession = await sessionOnly(channel)
+      const fallback = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: fallbackSession.id,
+              expectedGeneration: fallbackSession.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(fallbackSession) }
+          )
+        )
+      )
+      expect(fallback.installationId).toBe(managed)
+      expect(fallback).not.toHaveProperty('modelId')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})

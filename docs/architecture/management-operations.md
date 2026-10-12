@@ -1,0 +1,294 @@
+# Management operation routing
+
+- Status: Implemented (2026-10-09), M14.03.1 (adea-ai/adea#1215), pending the
+  canonical CP932 host mapping and migration ordering.
+- Scope: how human HTTP controls and workspace lead tools share one authorized
+  management surface for configuration, memory, projects, worktrees and
+  sessions, how a lead decision is bound to the exact call, and how authority,
+  currentness, replay and parked awaits are enforced before any effect.
+  #1215 edits no shared tool SDK and no production composition; the R2/#935 and
+  J1/#1018 owned files are out of scope by construction.
+
+## Why
+
+The parent slice (adea-ai/adea#1176) requires that a lead tool cannot take a
+second, unaudited path to a change a human could also make. The first slice
+routed both paths through one gateway. Later repairs made the exact-call
+binding, moved replay to a durable database claim, and added current-authority
+assertions at admission and immediately before the effect.
+
+## The inventory
+
+`packages/types/src/management.ts` is the closed catalog: domain, surface, the
+exact existing API binding, permission or Dev Runtime capability, revision
+anchor, confirmation style, audit surface, recovery contract and per-lane
+callable state, with typed unsupported reasons.
+`packages/types/src/management.ts` is the closed catalog. Each operation names:
+
+- its **domain** (`config`, `memory`, `project`, `worktree`, `session`) and
+  **surface** (`cloud` or `device`);
+- the exact **existing API** it executes through (`web` handler, desktop bridge
+  method, or a `dev.*` Dev Runtime registry operation);
+- its **workspace permission** (cloud) or Dev Runtime **capability** (device);
+- its **revision** anchor (`workspace_version`, `workspace_order`,
+  `memory_revision`, `project_order`, `project_revision` — the integer
+  `ProjectSummary.version`, `worktree_generation`, `session_generation`,
+  `plan_digest`), **confirmation** style (`none`, `explicit`, `plan_commit`),
+  **audit** surface and **recovery** contract;
+- the callable state per **lane** (`web`, `desktop`, `lead`), where every
+  unsupported lane carries one of the typed reasons below.
+
+## The gateway
+
+`apps/web/src/server/management-gateway.ts` is the single enforcement point.
+For a lead caller it validates the immutable CP decision and its exact-call
+binding at entry, authorizes, audits, then:
+
+1. re-runs the authorization check **after** the awaited authorize/audit (a
+   membership revocation during those waits stops the effect);
+2. calls the current-authority seam at the canonical `effect` boundary;
+3. re-runs the decision time/binding validation **synchronously, immediately
+   before the executor**.
+
+`apps/web/src/server/management-operations.ts` binds each callable operation to
+its existing database function. HTTP routes and the lead tool surface both
+construct the same operations object.
+
+The production composition also enforces the catalog permission inside the
+mutation/event transaction. `withWorkspaceManagementAuthority` locks the
+workspace first (including its lifecycle), then reads the actor membership
+with `FOR SHARE`, which conflicts with deletion and non-key role updates.
+A revocation committed before acquisition denies the effect; an effect that
+acquires valid authority first holds revocation until commit or rollback.
+All eleven supported cloud management executors receive that transaction;
+their existing transaction wrappers create savepoints on the same connection.
+The generic query-layer project/editor policies remain unchanged for other
+callers. Reopen retains its owner-only executor policy and is the sole binding
+that permits an archived workspace. This local database ordering does not
+make the remote CP assertion and the Adea effect a distributed atomic action.
+
+## Exact-call lead authority
+
+`ManagementCallBinding` is
+`{actionDigest, inputDigest, targetDigest, operation, targetId, workspaceId}`
+where each digest is `sha256:` over canonical JSON of `{operation}`, the
+operation input and `{targetId}`. Adea recomputes all three from the exact call
+and refuses any mismatch.
+
+`ManagementAuthorityDecision` (`adea-management-authority/v1`) carries the
+exact binding, the original user principal, the accepted-plan pin, authority
+revision and current audience, the durable approval identity, and bounded
+expiry. The strict parser and validator check shape, identity, binding,
+allowed/denied and time; `assertManagementAuthorityCurrent` is the server-only
+void-or-typed-throw equivalent used locally.
+
+## Canonical current-authority integration
+
+The canonical Pi Durable owner is **control-plane PR #1038, commit
+`ed942840df125385e329f1af4d16c4699ec57fd5`**:
+`apps/control-api/src/pi-durable/current-tool-authority.ts` exports
+`createPiDurableCurrentToolAuthority(...).assertCurrent(request, boundary)`
+with boundaries `'admission' | 'approval' | 'effect' | 'publication'`. It is a
+server-only, **repeatable** currentness check: it resolves `void` or throws
+`PI_TOOL_AUTHORITY_REJECTED`, re-reads the accepted plan, actor, audience,
+grant, call and approval, and never returns a truthy authorization value. The
+Pi effect gate owns the durable request digest/replay fence.
+
+Adea does not invent a wire protocol for it. The Adea seam
+(`ManagementCurrentAuthority`) mirrors the canonical signature and boundary
+names:
+
+- the route asserts at `admission` before creating the durable claim;
+- the gateway asserts at `effect` immediately before the executor;
+- both calls are repeatable and consume nothing;
+- the durable Adea claim below is the single single-use owner.
+
+### Canonical host mapping and real route (implemented; remaining binding)
+
+Control-plane `origin/main` (`f735d7ea`) merged PR #1038 (`398a9020`)
+so `apps/control-api/src/pi-durable/current-tool-authority.ts` is canonical and
+`publicationNow` is present in the production composition. The narrow
+authenticated Control API route is implemented on branch
+`feat/issue-932-management-current-authority` (head
+`40225963219a0bf56ed109067e13104bebe1f726`):
+
+- `POST /v1/pi-durable/management-current/assert`
+  (`apps/control-api/src/pi-durable/management-current.controller.ts`),
+  service-authenticated with `execution:read`; body is the versioned read
+  envelope with operation `pi-durable.management-current.assert` and
+  `parameters { request: <canonical tool-call request>, boundary }`; response is
+  `{ data: { asserted: true } }`. It is a repeatable pass-through to
+  `createPiDurableCurrentToolAuthority().assertCurrent(request, boundary)` that
+  never consumes an approval and never returns a truthy grant.
+- `apps/control-api/src/models/production-model-composition.ts` now accepts an
+  optional top-level `managementAuthority` (governed `service` + `interactions`),
+  constructs the canonical authority when present (independent of `children`),
+  exposes it as `piDurableCurrentToolAuthority`, and fails closed before
+  allocation on a malformed binding. `publicationNow` is preserved.
+- `apps/control-api/src/app.module.ts` registers the controller with an
+  `UnavailablePiDurableCurrentToolAuthority` default, so a host without the
+  authority fails closed.
+
+Adea side (`apps/web/src/server/management-authority-current.ts`) implements the
+real client for that route and `applicationManagementCurrentAuthority()` wires
+it through the same seam; it refuses when `CONTROL_PLANE_ORIGIN`/signing is
+unconfigured, when the credential is unmapped, or when the request carries no
+`canonicalRequest`.
+
+## Canonical project revision (#1218 coordination)
+
+The 1218 owner published the canonical revision contract (branch checkpoint
+`c96c6d479`, core commit `769dfc90a`): additive integer `projects.version`
+`DEFAULT 1 NOT NULL CHECK (version > 0)`, `ProjectSummary.version: number` on
+every read, an atomic `version = version + 1` on every project-row mutation
+including reorder, and promotion/restore requiring a positive safe-integer
+`expectedVersion` plus `confirmed: boolean`. Timestamps remain display data and
+are never the CAS token.
+
+The combined local #1230 review candidate includes the #1218 project-promotion
+work. `packages/types/src/management.ts` declares `project_revision` as the
+integer version (not `updatedAt`), and lists `project.promote` with
+`promoteProjectState`, explicit confirmation, `version_conflict` recovery and
+`workspace.update` permission. Its catalog classifies the web, desktop and
+lead lanes as supported. The shared gateway, executor, restore route and lead
+tool are present in the candidate. `packages/db/src/projects.ts` now increments
+the project version for row mutations, while `project-state-policy.ts` owns
+the canonical project/channel lock and compare-and-swap transitions.
+
+This is code and test scope for a local review candidate, not live production
+qualification. The Control Plane deployment launcher and governed
+tool-to-Adea effect caller remain incomplete below.
+
+Control Plane issuer/transport implementation and fixture evidence
+(control-plane `feat/issue-932-management-current-authority`, commits
+`ec46d2fb` and `b841bb10`; code-level evidence only, not live qualification):
+
+- `apps/control-api/src/pi-durable/management-decision-issuer.ts` is the
+  canonical `adea-management-authority/v1` issuer. It emits exactly the claim
+  grammar this verifier requires, signs `canonicalRequestDigest` over the same
+  canonical JSON Adea forwards, uses an existing host signer and fails closed
+  before signing on malformed, unhashable, oversized, stale or unbounded
+  requests.
+- `apps/control-api/src/models/production-management-http.ts` is the governed
+  CP-to-Adea transport. It validates the exact HTTPS origin/path, sends the
+  exact `adea-management-call/v1` body with the opaque canonical request and
+  the decision bearer, bounds timeout/response size, and parses the strict
+  `adea-management-result/v1`/refusal shapes. It creates no credentials.
+- `createProductionPiLeadComposition` now forwards the launcher-supplied
+  `managementAuthority` and the real production factory fixture composes the
+  canonical helper from real execution authority, intents, executions and
+  plans (`tests/pi-production-management-authority.test.mjs`); non-canonical
+  requests fail closed with zero provider/product/journal/service activity.
+
+Remaining CP-host mapping (reported to root; awaiting a design/ownership
+decision before editing shared files):
+
+1. The deployment launcher must still pass the top-level `managementAuthority`
+   (the same governed `PolicyControlledToolExecutionService` and interaction
+   repository); the hosted graph lane shows the construction pattern in
+   `apps/hosted-control-plane/src/hosted-graph-tool-operations.ts`.
+2. The governed tool-to-Adea caller that executes a management tool effect is
+   not yet wired. The canonical CP authority (control-plane PR #1038) validates
+   a full `DurableToolCallRequest` (`toolCallId`, `requestedAt`,
+   `idempotencyKey`, `policySnapshotRef`, `approval`, `grant`, `audit`), but
+   `ToolExecutor.execute(request: ToolExecutionRequest, version, signal)` only
+   receives the gateway projection (no `toolCallId`/`approval`/`requestedAt`),
+   so a registered executor cannot supply the exact canonical request the
+   decision binds and Adea forwards. Choices to decide:
+   (a) extend the governed execution path so the full durable request reaches
+   the transport (for example an optional execution context on `ToolExecutor`,
+   or a per-call effect transport in `PiDurableEffectGate`), or
+   (b) add a management tool port to the Pi engine/adapter analogous to
+   `governedDelegateChild`, building the durable request in the adapter and
+   calling the issuer/transport there.
+   Both touch `packages/pi-durable-adapter` and/or `packages/tool-execution`
+   and `packages/tool-sdk`, which other open lanes also edit
+   (`production-model-composition.ts`, `node-composition.ts`); coordinate the
+   owner and merge window before implementing.
+
+`packages/pi-durable-adapter/src/composition.ts` (`tools.assertAuthority`) and
+`packages/pi-durable-adapter/src/effect-gate.ts` consume the authority at the
+canonical boundaries; `node-composition.ts` forwards `options.tools`. The
+single durable effect claim remains Adea's `management_authority_consumptions`
+owner; CP keeps repeatable admission/approval/effect/publication checks.
+
+## Durable effect claim
+
+`claimManagementAuthorityDecision` in
+`packages/db/src/management-authority-consumption.ts` (table
+`management_authority_consumptions`, candidate migration
+`0048_graceful_prima`) inserts
+`{decisionId, binding digests, state: 'claimed'}` before the effect;
+`completeManagementAuthorityDecision` marks `succeeded`/`failed` after it. The
+unique `decision_id` makes the database the replay owner across workers, cold
+restarts and eviction. A retained `succeeded` row is `authority_replay`; an
+interrupted `claimed` row is `authority_recovery_required` and is **never**
+retried automatically — a duplicate effect is impossible and a fresh authorized
+decision (or operator reconciliation) owns the retry. Only digests and
+identifiers are persisted.
+
+## Typed refusals
+
+Unsupported lanes: `device_required`, `upstream_authority_unavailable`,
+`not_implemented`. Authority: `authority_unavailable`, `authority_malformed`,
+`authority_binding_mismatch`, `authority_denied`, `authority_expired`,
+`authority_not_yet_valid`, `authority_approval_expired`,
+`authority_recovery_required`, `authority_replay`.
+
+## Regression coverage
+
+- `packages/types/tests/management.test.ts` — catalog and generated registry
+  bindings/lane classification, digests, strict parser, validator, approval
+  expiry, server-only assertion.
+- `apps/web/test/management-gateway.test.ts` — human/lead parity, binding
+  mismatch, denied/expired/future decisions, late-authority denial, parked-await
+  expiry, canonical `effect` boundary assertion, current-authority throw,
+  device refusal, denial attribution, missing owner, bounded error projection.
+- `apps/web/test/management-operations.test.ts` — executor wiring, conflict
+  and version/order contracts, dedicated confirmation operations, zero-executor
+  refusal without a lead binding, digest-only lead audit with a canary secret.
+- `apps/web/test/lead-management-tools.test.ts` — lead-callable slice, exact
+  binding handed to the resolver, malformed/expired decisions, and execution
+  through the shared operations.
+- `apps/web/test/lead-management-service-auth.test.ts` — signed claim grammar,
+  trust/revocation, forgery, lifetimes and approval expiry.
+- `apps/web/test/lead-management-route.test.ts` — strict call parsing,
+  body-tamper refusal, durable replay and recovery refusals, revoked admission,
+  per-delivery ordering (`admission` before claim), completion failure.
+- `apps/web/test/management-production-composition.test.ts` — **production
+  composition** (real operations, real verifier, real DB, real claim), run with
+  an isolated `DATABASE_URL` and `--conditions=react-server`: authorized update
+  succeeds with `admission`/`effect` boundaries, replay is refused with no
+  second effect, revocation refuses with zero effect and no burned claim.
+- `packages/db/tests/integration/management-authority-consumption.test.ts` —
+  real PostgreSQL, two connections + restart: one claim/effect, concurrent
+  claim recovery, replay, mismatched binding, interrupted-claim reconciliation.
+- `apps/web/test/management-routing-boundary.test.ts` — no API route imports a
+  management database function directly.
+- `apps/web/test/project-promotion-management.test.ts` pins the explicit
+  `project.promote` path: `workspace.update` authorization, exact revision,
+  typed stale-revision projection, unconfirmed refusal and lead-lane audit
+  parity.
+
+## Migration ordering gate
+
+Fresh base `main` at `bc3fd1b07befaea2dc01f424423a4d0af7bcbd34` ends at
+`0047_requested_role_model_selections` (journal index 47). The combined local
+#1230 candidate adds `0048_graceful_prima` (journal index 48), whose SQL and
+snapshot include the `channel_archive_source` enum and `channels.archive_source`,
+`projects.version` with its positive check, and the
+`management_authority_consumptions` state/table, constraints, foreign key and
+workspace index. This replaces the older branch-local provisional 0045/0046
+numbering; no migration renumbering is proposed for `main`.
+
+The migration and application changes have local database verification, but
+0048 has not landed on `main` and this candidate is not a live deployment
+qualification. Verify the target's migration history/catalog before any
+deployment.
+
+## Remaining boundary
+
+The canonical CP host/deployment mapping above remains an integration gate;
+the local `0048_graceful_prima` journal state does not qualify a production
+deployment. Device-local operations still await the remote runtime-node
+channel.

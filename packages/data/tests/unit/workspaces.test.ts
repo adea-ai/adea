@@ -126,14 +126,16 @@ describe('workspace archive contract', () => {
       workspace,
     })
     const api = client({
-      archiveWorkspace: async (workspaceId: string) => {
+      archiveWorkspace: async (workspaceId: string, input: { confirmed: true }) => {
+        expect(input).toEqual({ confirmed: true })
         archived.push(workspaceId)
         return { archived: true as const, workspaceId }
       },
     })
     const options = workspaceMutationOptions.archive(api, queryClient)
 
-    await options.onSuccess(await options.mutationFn(workspace.id), workspace.id)
+    const input = { confirmed: true as const, workspaceId: workspace.id }
+    await options.onSuccess(await options.mutationFn(input), input)
 
     expect(archived).toEqual([workspace.id])
     expect(queryClient.getQueryData(workspaceQueryKeys.detail(workspace.id))).toBeUndefined()

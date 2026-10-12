@@ -178,6 +178,14 @@ describe('Dev sidebar runtime mutations', () => {
             digest: 'a'.repeat(64),
             steps: [{ kind: 'quarantine_worktree' }, { kind: 'delete_branch' }],
             blockers: [],
+            consequences: [
+              {
+                blocking: false,
+                detail: 'the worktree folder is moved to quarantine and then removed',
+                kind: 'worktree_removal',
+              },
+              { blocking: true, detail: 'uncommitted changes', kind: 'uncommitted_changes' },
+            ],
           }
         : { cleanupJobId: 'plan-1', state: 'completed' }
     )
@@ -187,6 +195,15 @@ describe('Dev sidebar runtime mutations', () => {
     expect(plan.value.steps).toEqual([
       'Move the worktree folder to quarantine',
       'Delete the worktree branch',
+    ])
+    // The read-only preview is carried through for the confirmation surface.
+    expect(plan.value.consequences).toEqual([
+      {
+        blocking: false,
+        detail: 'the worktree folder is moved to quarantine and then removed',
+        kind: 'worktree_removal',
+      },
+      { blocking: true, detail: 'uncommitted changes', kind: 'uncommitted_changes' },
     ])
     expect((service.commands[0]!.body as { allowedSteps: string[] }).allowedSteps).toContain(
       'delete_branch'

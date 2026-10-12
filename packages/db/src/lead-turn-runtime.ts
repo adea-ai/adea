@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase } from './connection'
 import { createRuntimeResultMessage } from './conversations'
+import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 
@@ -83,6 +84,10 @@ export function resolveLeadTurnAuthority(
       workspaceId,
       controlPlaneWorkspaceId,
       originalActorRef: `user:${intent.actorUserId}` as const,
+      // Absent means the workspace lead default; a present reference is the exact immutable choice.
+      requestedLeadSelection:
+        parseRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined)?.lead ??
+        null,
     })
   )
 }
