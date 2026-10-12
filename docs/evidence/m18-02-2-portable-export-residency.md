@@ -77,6 +77,10 @@ check. The requester's access is checked at these points:
   are read in 100-ID batches and projected to exported fields. Agent names and role summaries
   join the same byte budget; user-name byte lengths are checked in SQL before name values are
   transferred to the Worker.
+- These byte checks bound retained accumulation and stop later reads once the lower bound exceeds
+  the document limit; they are not an 8 MiB process-heap ceiling. Each SQL page is materialized
+  before row-by-row accounting, so a single oversized task, message or agent value can transiently
+  exceed the limit before refusal.
 - Before the task pages begin, before the content references are checked, and before the final
   check: each is a test seam (`beforeStep`) so that revocations can be placed there.
 - After the last read and before the document is built: the start checks again, plus every
@@ -144,8 +148,10 @@ in `portable-import.ts`; both are covered by the integration lane.
     those records or references.
 - `apps/web/test/integration/portable-workspace-routes.test.ts` also revokes a membership between
   task pages and proves the next page is denied, and tests early refusal plus a valid task-heavy
-  export near the 8 MiB bound. It also uses an oversized identity-provider display name to prove
-  that SQL rejects it before transferring the value to the Worker.
+  export near the 8 MiB bound. Its oversized identity-provider display-name regression asserts a
+  413 response. Source inspection shows the SQL cumulative `octet_length` guard withholds names
+  whose lower-bound total exceeds the remaining budget; the response assertion alone does not
+  instrument or prove that no name bytes crossed the database boundary.
 
 Mutation checks on the matrix (the same filtered run, against the module with one change):
 

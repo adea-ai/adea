@@ -348,7 +348,7 @@ describe('portable workspace routes', () => {
     expect(validatePortableWorkspaceExport(JSON.parse(body)).ok).toBe(true)
   }, 180_000)
 
-  test('an oversized identity-provider display name is refused before export reads it', async () => {
+  test('an oversized identity-provider display name causes a 413 export refusal', async () => {
     const fixture = await seed('oversized-display-name')
     const userId = fixture.owner.principal.userId
     await connection.db
