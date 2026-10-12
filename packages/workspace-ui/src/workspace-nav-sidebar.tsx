@@ -117,6 +117,11 @@ export type WorkspaceNavHost = Readonly<{
   onOpenWorkspaceSettings?: () => void
   /** The desktop cross-workspace Dev summary, when the host has one (ADR 0011). */
   devSummary?: readonly DevWorkspaceSummary[]
+  /** Account-wide results mounted inside the existing Agents and Conversations surfaces. */
+  globalNav?: Readonly<{
+    agents?: () => JSX.Element
+    conversations?: () => JSX.Element
+  }>
   /**
    * Hand the top bar this sidebar's Workspace › Project › Leaf path while it is
    * mounted. Returns the unregister call; a later registration wins, so a
@@ -268,6 +273,7 @@ export function ConversationsSection(props: {
   createDisabled?: boolean
   directChannels: readonly ChannelSummary[]
   groupChannels: readonly ChannelSummary[]
+  accountInbox?: JSX.Element
   readState: readonly ChannelReadStateSummary[]
   selectedChannelId: string | null
   onArchive: (channel: ChannelSummary) => void
@@ -359,8 +365,11 @@ export function ConversationsSection(props: {
         <For each={groupChannelRows()}>
           {(entry) => row(entry.item(), <Users aria-hidden="true" />, () => entry.item().title)}
         </For>
+        {props.accountInbox}
       </div>
-      <Show when={!props.directChannels.length && !props.groupChannels.length}>
+      <Show
+        when={!props.directChannels.length && !props.groupChannels.length && !props.accountInbox}
+      >
         <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
           <MessageCircle aria-hidden="true" />
           Start with an Agent
@@ -731,6 +740,7 @@ export function WorkspaceNavSidebar(props: Props) {
         conversations={
           <ConversationsSection
             agents={props.agents}
+            accountInbox={props.host.globalNav?.conversations?.()}
             createDisabled={props.workspaceReady === false}
             directChannels={props.navigation.directAgentChannels}
             groupChannels={props.navigation.groupChannels}

@@ -18,9 +18,6 @@ import { QueryClient, createQueries, useQueryClient } from '@tanstack/solid-quer
 import { createEffect, createMemo, createSignal, on, onCleanup, type Accessor } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
 
-/** The two account-wide sections the directory surface can show. */
-export type AccountDirectorySection = 'agents' | 'inbox'
-
 /** Page size requested for every account-wide page. The server clamps 1..100. */
 export const ACCOUNT_DIRECTORY_PAGE_SIZE = 25
 
@@ -38,18 +35,6 @@ export const ACCOUNT_INBOX_REFETCH_INTERVAL_MS = 60_000
 const DIRECTORY_KEY_PREFIX = ['account', 'directory'] as const
 const INBOX_KEY_PREFIX = ['account', 'inbox'] as const
 
-/** Parses the `?directory=` search value; anything else is not a section. */
-export function parseDirectorySection(
-  value: string | undefined
-): AccountDirectorySection | undefined {
-  return value === 'agents' || value === 'inbox' ? value : undefined
-}
-
-/** The surface heading for one section. */
-export function directoryTitle(section: AccountDirectorySection): string {
-  return section === 'agents' ? 'Agents directory' : 'Conversations inbox'
-}
-
 /**
  * The workspace label shown on a directory or inbox row. Only names of
  * workspaces the account can still see resolve; a revoked or unknown id keeps
@@ -62,12 +47,20 @@ export function accountWorkspaceLabel(
   return workspaces.find(({ id }) => id === workspaceId)?.name ?? 'Unavailable workspace'
 }
 
+/** Keep the current workspace's established rows in place and surface only the other workspaces here. */
+export function rowsOutsideWorkspace<Row extends Readonly<{ workspaceId: string }>>(
+  rows: readonly Row[],
+  activeWorkspaceId?: string
+): readonly Row[] {
+  return activeWorkspaceId ? rows.filter((row) => row.workspaceId !== activeWorkspaceId) : rows
+}
+
 /**
- * The search patch that opens one inbox conversation: the directory closes,
- * the conversation's own workspace becomes active, and the existing channel
- * deep link (`?workspace=…&channel=…`) selects it once that switch lands and
- * the workspace's conversation lists load. Stale single-surface params are
- * cleared so exactly the linked conversation is selected.
+ * The search patch that opens one account inbox conversation: the conversation's
+ * own workspace becomes active, and the existing channel deep link
+ * (`?workspace=…&channel=…`) selects it once that switch lands and the
+ * workspace's conversation lists load. Stale single-surface params are cleared
+ * so exactly the linked conversation is selected.
  */
 export function conversationOpenPatch(entry: AccountConversationInboxEntry) {
   return {

@@ -14,7 +14,7 @@ import {
 import { useWorkspaceState } from '@adea-ai/state'
 import type { ChannelSummary } from '@adea-ai/types'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
-import { createMemo, createSignal, lazy, Show, Suspense } from 'solid-js'
+import { createMemo, createSignal, lazy, Show, Suspense, type JSX } from 'solid-js'
 
 import {
   ConversationsSection,
@@ -46,6 +46,8 @@ export type WorkspaceGlobalNavProps = Readonly<{
   selectedChannelId?: string | null
   onOpenAgents: () => void
   onOpenConversation: (channelId: string) => void
+  /** Account-wide conversations rendered inside this existing section. */
+  accountInbox?: JSX.Element
   portalMount?: HTMLElement
   tooltips?: boolean
 }>
@@ -122,6 +124,7 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
         createDisabled={!workspaceId()}
         directChannels={navigation().directAgentChannels}
         groupChannels={navigation().groupChannels}
+        accountInbox={props.accountInbox}
         readState={settledData(readState)?.readState ?? []}
         selectedChannelId={props.selectedChannelId ?? null}
         onArchive={(channel) => {

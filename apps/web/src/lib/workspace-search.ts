@@ -19,6 +19,34 @@ export const WORKSPACE_DEEP_LINK_KEYS = [
 
 export type WorkspaceDeepLinkKey = (typeof WORKSPACE_DEEP_LINK_KEYS)[number]
 
+/** A section retained by links to the removed standalone account directory. */
+export type LegacyDirectorySection = 'agents' | 'inbox'
+
+/**
+ * Turn an old standalone-directory URL into the canonical Chat surface. A
+ * stale one-shot selection must not open an unrelated conversation or task
+ * when a legacy directory link is loaded.
+ */
+export function normalizeLegacyDirectorySearch<T extends object>(
+  search: T
+): {
+  section?: LegacyDirectorySection
+  search: T
+} {
+  const next = { ...(search as Record<string, unknown>) }
+  const value = next.directory
+  delete next.directory
+  if (value === 'agents' || value === 'inbox') {
+    for (const key of ['channel', 'task', 'thread', 'message']) delete next[key]
+    next.view = 'chat'
+    delete next.app
+    delete next.roomDesigner
+    delete next.characterDesigner
+    return { section: value, search: next as T }
+  }
+  return { search: next as T }
+}
+
 /**
  * Removes only the one-shot deep-link keys, preserving every other search
  * parameter (app switches, view, directory, scene, …). Use this as a

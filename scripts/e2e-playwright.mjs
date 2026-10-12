@@ -49,9 +49,9 @@ const specs = [
   // routes: real HTTP against the app server and the real database, no route
   // mocks. See the spec header for the coverage-class split it complements.
   'apps/web/e2e/account-directory-auth.spec.ts',
-  // The UI-operating sibling: search, the archive scope, the linked-job round
-  // trip and reconnect convergence, driven through the real directory and
-  // inbox surfaces instead of fetching their APIs from the page.
+  // The UI-operating sibling: account results embedded in existing sidebar
+  // surfaces, the linked-job round trip and reconnect convergence, driven
+  // through the real workspace-navigation host.
   'apps/web/e2e/account-directory-ui.spec.ts',
   // Cross-product session journeys (#1223): chat continuity and
   // workspace/project placement over real app routes with isolated

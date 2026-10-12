@@ -34,6 +34,8 @@ export type AgentCustomizationInput = Readonly<{
 }>
 
 type Props = Readonly<{
+  /** Account-wide durable identities mounted in this existing Agents view. */
+  accountDirectory?: JSX.Element
   /** Lead setup status, placed inside the directory's padding under the header. */
   leadStatus?: JSX.Element
   agents: readonly AgentSummary[]
@@ -85,6 +87,7 @@ export function AgentRoster(props: Props) {
       <Show when={props.leadStatus}>
         {(status) => <div class="conventional-surface-status">{status()}</div>}
       </Show>
+      {props.accountDirectory}
       <Show when={creating()}>
         <AgentCreateForm
           busy={props.busy}

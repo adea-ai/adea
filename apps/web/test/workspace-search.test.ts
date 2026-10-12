@@ -1,6 +1,10 @@
 import { expect, test } from 'bun:test'
 
-import { stripWorkspaceDeepLinkSearch, WORKSPACE_DEEP_LINK_KEYS } from '../src/lib/workspace-search'
+import {
+  normalizeLegacyDirectorySearch,
+  stripWorkspaceDeepLinkSearch,
+  WORKSPACE_DEEP_LINK_KEYS,
+} from '../src/lib/workspace-search'
 
 /**
  * Regression for the stale deep-link completion (Adea #1207/#1234 task-board
@@ -39,4 +43,25 @@ test('the strip removes only the one-shot deep-link keys', () => {
 
   expect(stripped).toEqual({ app: 'kanban', directory: 'inbox', view: 'chat' })
   for (const key of WORKSPACE_DEEP_LINK_KEYS) expect(stripped).not.toHaveProperty(key)
+})
+
+test('legacy directory links normalize to the existing Chat surface and drop stale selections', () => {
+  expect(
+    normalizeLegacyDirectorySearch({
+      app: 'kanban',
+      channel: 'stale-channel',
+      directory: 'inbox',
+      message: 'stale-message',
+      task: 'stale-task',
+      thread: 'stale-thread',
+      view: 'virtual',
+      workspace: 'workspace-2',
+    })
+  ).toEqual({
+    section: 'inbox',
+    search: { view: 'chat', workspace: 'workspace-2' },
+  })
+  expect(normalizeLegacyDirectorySearch({ directory: 'unknown', view: 'dev' })).toEqual({
+    search: { view: 'dev' },
+  })
 })

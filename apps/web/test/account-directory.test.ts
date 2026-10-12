@@ -24,11 +24,10 @@ import {
   conversationOpenPatch,
   directoryAgentStatus,
   directoryErrorCopy,
-  directoryTitle,
   inboxEntryLabel,
   inboxKindLabel,
   inboxUnreadModel,
-  parseDirectorySection,
+  rowsOutsideWorkspace,
   unreadBadgeText,
   watchAccountIdentity,
 } from '../src/lib/account-directory'
@@ -95,18 +94,19 @@ if (isServer) {
     expect(output).toContain('0 fail')
   }, 25_000)
 } else {
-  describe('directory sections and titles', () => {
-    test('parses only the two real sections', () => {
-      expect(parseDirectorySection('agents')).toBe('agents')
-      expect(parseDirectorySection('inbox')).toBe('inbox')
-      expect(parseDirectorySection('library')).toBeUndefined()
-      expect(parseDirectorySection('')).toBeUndefined()
-      expect(parseDirectorySection(undefined)).toBeUndefined()
-    })
-
-    test('titles name the section', () => {
-      expect(directoryTitle('agents')).toBe('Agents directory')
-      expect(directoryTitle('inbox')).toBe('Conversations inbox')
+  describe('account results', () => {
+    test('global rows retain canonical ids while the active workspace filter changes', () => {
+      const rows = [
+        agent({ id: 'agent-home', workspaceId: 'workspace-home' }),
+        agent({ id: 'agent-team', workspaceId: 'workspace-team' }),
+      ]
+      expect(rowsOutsideWorkspace(rows, 'workspace-home').map(({ id }) => id)).toEqual([
+        'agent-team',
+      ])
+      expect(rowsOutsideWorkspace(rows, 'workspace-team').map(({ id }) => id)).toEqual([
+        'agent-home',
+      ])
+      expect(rows.map(({ id }) => id)).toEqual(['agent-home', 'agent-team'])
     })
   })
 
