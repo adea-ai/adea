@@ -36,6 +36,7 @@ import {
 import {
   DRIZZLE_DIR,
   type RehearsalResources,
+  disposeRehearsal,
   settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
@@ -469,8 +470,12 @@ describe.skipIf(!provisioningUrl && !inCi)(
         for (const mode of ['fresh', 'upgrade-from-main'] as const) {
           const scratch = `${SCRATCH_PREFIX}${mode.replaceAll('-', '_')}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
           await adminExecute(`create database "${scratch}"`)
-          const connection = createDatabase(urlForDatabase(scratch))
+          const scratchResources: RehearsalResources = { scratch }
           try {
+            // Record the database before constructing the connection so a constructor failure
+            // still reaches the scratch database cleanup below.
+            const connection = createDatabase(urlForDatabase(scratch))
+            scratchResources.connection = connection
             if (mode === 'upgrade-from-main')
               await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
             await migrate(connection.db, { migrationsFolder: chain.full })
@@ -486,8 +491,11 @@ describe.skipIf(!provisioningUrl && !inCi)(
             })
             expect(result.recordedCount).toBe(result.expectedCount)
           } finally {
-            await connection.close()
-            await adminExecute(`drop database if exists "${scratch}" with (force)`)
+            await disposeRehearsal(scratchResources, async (database) => {
+              if (!database.startsWith(SCRATCH_PREFIX))
+                throw new Error(`refusing to drop ${database}`)
+              await adminExecute(`drop database if exists "${database}" with (force)`)
+            })
           }
         }
       } finally {
