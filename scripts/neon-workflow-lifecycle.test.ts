@@ -74,6 +74,21 @@ describe('Neon branch lifecycle workflow', () => {
     expect(verify.run).toContain('node scripts/database-health.mjs')
     expect(verify.run).toContain('bun run --cwd packages/db db:check')
     expect(verify.run).toContain('bun run --cwd packages/db db:verify')
+    expect(verify.run).toContain('test -n "$DATABASE_URL"')
+    expect(verify.run).toContain(
+      'bun --conditions=react-server test packages/db/tests/integration/migrations.test.ts'
+    )
+    const databaseHealthIndex = verify.run!.indexOf('node scripts/database-health.mjs')
+    const migrationCheckIndex = verify.run!.indexOf('bun run --cwd packages/db db:check')
+    const migrationVerifyIndex = verify.run!.indexOf('bun run --cwd packages/db db:verify')
+    const requiredDatabaseUrlIndex = verify.run!.indexOf('test -n "$DATABASE_URL"')
+    const integrationTestIndex = verify.run!.indexOf(
+      'bun --conditions=react-server test packages/db/tests/integration/migrations.test.ts'
+    )
+    expect(databaseHealthIndex).toBeLessThan(migrationCheckIndex)
+    expect(migrationCheckIndex).toBeLessThan(migrationVerifyIndex)
+    expect(migrationVerifyIndex).toBeLessThan(requiredDatabaseUrlIndex)
+    expect(requiredDatabaseUrlIndex).toBeLessThan(integrationTestIndex)
     expect(verify.run).not.toContain('bun run test:integration')
     expect(verify.env?.ADEA_INTEGRATION_SHARD).toBeUndefined()
   })

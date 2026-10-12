@@ -149,6 +149,8 @@ jobs:
           node scripts/database-health.mjs
           bun run --cwd packages/db db:check
           bun run --cwd packages/db db:verify
+          test -n "$DATABASE_URL"
+          bun --conditions=react-server test packages/db/tests/integration/migrations.test.ts
 
   migrate_gate:
     # Keep the stable required check. It passes only when setup and the Neon proof succeed;
