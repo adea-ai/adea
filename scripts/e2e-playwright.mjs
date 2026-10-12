@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
 
-// Runs the Playwright half of the E2E lane after scripts/e2e-setup.mjs has
-// prepared the database. When the Code Foundry E2E lane fans out into shards
-// (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned with Playwright's
-// native --shard so each runner executes a slice of the suite against its own
-// runner-local database. Without shard variables the invocation is unchanged.
+// Runs the Playwright half of the E2E lane after scripts/e2e-run.mjs has
+// prepared the database, browser, and web build. When the Code Foundry E2E lane
+// fans out into shards (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned
+// with Playwright's native --shard so each runner executes a slice of the suite
+// against its own runner-local database. Without shard variables the invocation
+// is unchanged.
 const specs = [
   'apps/web/e2e/workspace-guest.spec.ts',
   // The new-workspace creation draft: owner wording in the chat and Dev sidebars (#1264).
@@ -96,8 +97,6 @@ function run(command, args) {
   }
 }
 
-run('bunx', ['playwright', 'install', '--with-deps', 'chromium'])
-run('bunx', ['turbo', 'run', 'build', '--filter=@adea-ai/web^...'])
 run('playwright', ['test', '--config=playwright.config.ts', ...shardArgs, ...specs])
 
 // The event-listener regression probe is a single test. Running it once (on

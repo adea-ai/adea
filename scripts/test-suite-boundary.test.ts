@@ -57,7 +57,14 @@ describe('test suite boundaries', () => {
     expect(integrationRunner).toContain("from './integration-inventory.mjs'")
     expect(integrationInventory).toContain("'tests', 'integration'")
     expect(integrationInventory).toContain("'apps', 'web', 'test', 'integration'")
-    expect(packageJson.scripts['test:e2e']).toContain('playwright')
+    expect(packageJson.scripts['test:e2e']).toBe('bun scripts/e2e-run.mjs')
+    expect(packageJson.scripts['test:e2e:dev-view-terminal']).toContain(
+      'bun scripts/e2e-setup.mjs &&'
+    )
+    const e2eRunner = readFileSync(resolve(root, 'scripts/e2e-run.mjs'), 'utf8')
+    expect(e2eRunner.indexOf('await runE2ePreparation()')).toBeLessThan(
+      e2eRunner.indexOf("spawnSync('bun'")
+    )
     // The Dev View chunk budget is a documented-raise ratchet, not a silent
     // dial: the check script carries the raise rationale, and this pin makes
     // any further raise a deliberate test edit.
