@@ -743,6 +743,41 @@ describe('complete-and-clean', () => {
     }
   })
 
+  test('a narrowed non-destructive plan commits under blockers without deleting the worktree', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await cleanWorktree(f)
+      // Dirty state blocks every destructive step but not the narrowed plan.
+      writeFileSync(join(worktree.canonicalRoot, 'dirty.txt'), 'dirty\n')
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: ['prune_retained_data'],
+      })
+      expect(plan.blockers.map((blocker) => blocker.code)).toContain('dirty')
+      expect(plan.selectedSteps).toEqual(['prune_retained_data'])
+      const result = await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+      expect(result.state).toBe('completed')
+      expect(result.stepResults).toEqual([
+        {
+          step: 'prune_retained_data',
+          state: 'completed',
+          detail: 'dependency templates are cleared through the template cache',
+        },
+      ])
+      // The canonical gate permitted the narrowed plan; nothing was deleted
+      // or quarantined.
+      expect(existsSync(worktree.canonicalRoot)).toBe(true)
+      expect(existsSync(join(worktree.canonicalRoot, 'dirty.txt'))).toBe(true)
+      expect(
+        git(f.repoPath, ['worktree', 'list', '--porcelain']).stdout.includes(worktree.canonicalRoot)
+      ).toBe(true)
+    } finally {
+      f.cleanup()
+    }
+  })
+
   test('complete-and-clean executes proven steps, retires the name, and cleans', async () => {
     const f = fixture()
     try {

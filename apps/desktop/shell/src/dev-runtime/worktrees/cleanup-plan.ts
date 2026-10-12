@@ -164,6 +164,31 @@ export const DESTRUCTIVE_CLEANUP_STEPS: ReadonlyArray<CleanupStepKind> = [
   'delete_branch',
 ]
 
+/**
+ * The one destructive-selection gate: a plan whose destructive steps meet a
+ * blocker may not run, while a narrower plan (non-destructive steps only)
+ * stays allowed. The executor and the preview both call this, so the
+ * confirmation surface and the write path can never disagree about whether a
+ * narrowed plan is permitted.
+ */
+export function cleanupHasDestructiveStep(selectedSteps: readonly CleanupStepKind[]): boolean {
+  return selectedSteps.some((step) => DESTRUCTIVE_CLEANUP_STEPS.includes(step))
+}
+
+/**
+ * The one destructive-selection gate: a plan whose destructive steps meet a
+ * blocker may not run, while a narrower plan (non-destructive steps only)
+ * stays allowed. The executor and the preview both call this, so the
+ * confirmation surface and the write path can never disagree about whether a
+ * narrowed plan is permitted.
+ */
+export function cleanupSelectionBlocked(
+  blockers: readonly Readonly<{ code: string }>[],
+  selectedSteps: readonly CleanupStepKind[]
+): boolean {
+  return blockers.length > 0 && cleanupHasDestructiveStep(selectedSteps)
+}
+
 export function buildCleanupPlan(input: {
   planId: string
   facts: CleanupFacts
