@@ -85,12 +85,18 @@ export type JobOutboundRelease<TTransaction> = (
 
 /**
  * The publication write. It runs inside the scope, after the publish decision,
- * and returns the id of the canonical message it wrote in that transaction.
+ * and returns the canonical message id or a receipt for a replay conflict.
  */
 export type JobOutboundPublicationWrite<TTransaction> = (
   context: Readonly<{ transaction: TTransaction }>,
   decision: Extract<JobOutboundPublicationDecision, { action: 'publish' }>
-) => Promise<string>
+) => Promise<string | JobOutboundPublicationWriteReceipt>
+
+/** A write may return a current decision that reflects the canonical stored message. */
+export type JobOutboundPublicationWriteReceipt = Readonly<{
+  decision: JobOutboundPublicationDecision
+  messageId: string | null
+}>
 
 /** The unlocked first step of delivery: the grant identity the publication was bound to, and its claim. */
 export type JobOutboundDeliveryResolution = Readonly<{
@@ -260,8 +266,10 @@ export function createJobOutboundResultService<TTransaction>(
         const decision = await judge()
         if (decision.action !== 'publish') return { decision, messageId: null, prepared }
         // The write runs in the same transaction as the decision: it commits or rolls back with it.
-        const messageId = await write({ transaction }, decision)
-        return { decision, messageId, prepared }
+        const written = await write({ transaction }, decision)
+        return typeof written === 'string'
+          ? { decision, messageId: written, prepared }
+          : { ...written, prepared }
       })
     },
 

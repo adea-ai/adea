@@ -1812,6 +1812,142 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
   })
 
+  test('a replay after restoring a grant cannot report an artifact absent from the stored summary-only publication', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, {
+      artifact: artifactRef(reg),
+      artifactPolicy: 'omit_unauthorized',
+    })
+
+    const initial = await completeJob(f, key, request)
+    expect(initial.publication).toMatchObject({
+      decision: { action: 'publish', artifactOmitted: 'grant_revoked' },
+    })
+    const messageId = initial.publication.messageId
+    if (!messageId) throw new Error('expected the summary-only publication')
+    expect(
+      await connection.db
+        .select({ artifactId: messageArtifactReferences.artifactId })
+        .from(messageArtifactReferences)
+        .where(eq(messageArtifactReferences.messageId, messageId))
+    ).toEqual([])
+
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+
+    const replayed = await completeJob(f, key, request)
+    expect(replayed.publication).toMatchObject({
+      decision: {
+        action: 'hold',
+        gate: 'publication',
+        reason: 'publication_replay_conflict',
+      },
+      messageId: null,
+    })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+    expect(
+      await connection.db
+        .select({ artifactId: messageArtifactReferences.artifactId })
+        .from(messageArtifactReferences)
+        .where(eq(messageArtifactReferences.messageId, messageId))
+    ).toEqual([])
+
+    const concurrent = await Promise.all([
+      completeJob(f, key, request),
+      completeJob(f, key, request),
+      completeJob(f, key, request),
+    ])
+    for (const outcome of concurrent) {
+      expect(outcome.publication).toMatchObject({
+        decision: {
+          action: 'hold',
+          gate: 'publication',
+          reason: 'publication_replay_conflict',
+        },
+        messageId: null,
+      })
+    }
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+    expect(
+      await connection.db
+        .select({ artifactId: messageArtifactReferences.artifactId })
+        .from(messageArtifactReferences)
+        .where(eq(messageArtifactReferences.messageId, messageId))
+    ).toEqual([])
+  })
+
+  test('a replay after grant revocation cannot reuse an artifact-bound publication as summary-only', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, {
+      artifact: artifactRef(reg),
+      artifactPolicy: 'omit_unauthorized',
+    })
+
+    const initial = await completeJob(f, key, request)
+    expect(initial.publication).toMatchObject({
+      decision: { action: 'publish', artifactOmitted: null },
+    })
+    const messageId = initial.publication.messageId
+    if (!messageId) throw new Error('expected the artifact publication')
+    expect(
+      await connection.db
+        .select({ artifactId: messageArtifactReferences.artifactId })
+        .from(messageArtifactReferences)
+        .where(eq(messageArtifactReferences.messageId, messageId))
+    ).toEqual([{ artifactId: reg.artifact.id }])
+
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+
+    const replayed = await completeJob(f, key, request)
+    expect(replayed.publication).toMatchObject({
+      decision: {
+        action: 'hold',
+        gate: 'publication',
+        reason: 'publication_replay_conflict',
+      },
+      messageId: null,
+    })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+    expect(
+      await connection.db
+        .select({ artifactId: messageArtifactReferences.artifactId })
+        .from(messageArtifactReferences)
+        .where(eq(messageArtifactReferences.messageId, messageId))
+    ).toEqual([{ artifactId: reg.artifact.id }])
+    expect(await deliver(f, messageId)).toEqual({
+      action: 'deny',
+      gate: 'artifact',
+      reason: 'grant_revoked',
+    })
+  })
+
   test('concurrent retries under one completion key publish exactly once and agree on the message', async () => {
     const f = await fixture({ complete: false })
     const key = crypto.randomUUID()

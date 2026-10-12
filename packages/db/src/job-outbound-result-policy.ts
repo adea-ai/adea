@@ -155,6 +155,7 @@ export type JobOutboundPublicationHoldGate =
   | 'artifact'
   | 'destination'
   | 'job'
+  | 'publication'
   | 'result'
   | 'source'
 
@@ -168,6 +169,7 @@ export type JobOutboundPublicationHoldReason =
   | 'job_not_completed'
   | 'job_source_mismatch'
   | 'job_unavailable'
+  | 'publication_replay_conflict'
   | 'recipient_not_destination_member'
   | 'source_access_lost'
 

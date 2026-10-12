@@ -14,7 +14,12 @@ import {
 } from './artifact-reference-grants'
 import { createMessage, requireChannelAccess } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { encodeJobOutboundBinding, jobOutboundMessageKey } from './job-outbound-binding'
+import {
+  decodeJobOutboundBinding,
+  encodeJobOutboundBinding,
+  jobOutboundMessageKey,
+  type JobOutboundBinding,
+} from './job-outbound-binding'
 import {
   sourceAccessCurrent,
   type JobOutboundArtifactPolicy,
@@ -27,6 +32,7 @@ import {
   type JobOutboundPrepare,
   type JobOutboundPublishInput,
   type JobOutboundPublishResult,
+  type JobOutboundPublicationWriteReceipt,
   type JobOutboundResultService,
 } from './job-outbound-result-service'
 import {
@@ -35,7 +41,13 @@ import {
   resolveJobOutboundDelivery,
 } from './job-outbound-read'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { artifactReferenceGrants, artifacts, channels, messageArtifactReferences } from './schema'
+import {
+  artifactReferenceGrants,
+  artifacts,
+  channels,
+  messageArtifactReferences,
+  messages,
+} from './schema'
 import { completeTask, type TaskCommand } from './tasks'
 
 export {
@@ -95,20 +107,74 @@ export function createJobOutboundAuthorizer(
  * Writes the canonical publication inside the authorization transaction. The
  * artifact row is locked first, so the link cannot point at a row that changes or
  * disappears before commit. The message and its link commit with the decision. A job
- * has one publication per destination: when one is already written, it is returned
- * and nothing is written, so a retry cannot add a second message.
+ * has one publication per destination: an exact replay returns the stored message, while
+ * a replay whose artifact binding differs is held rather than reported as a new attachment.
  */
 export async function writeJobOutboundPublication(
   transaction: AgentHqTransaction,
   decision: Extract<JobOutboundPublicationDecision, { action: 'publish' }>
-): Promise<string> {
+): Promise<JobOutboundPublicationWriteReceipt> {
   const { binding, destination, jobId, result } = decision
   const existing = await readJobOutboundPublicationMessageId(transaction, {
     channelId: destination.channelId,
     jobId,
     workspaceId: destination.workspaceId,
   })
-  if (existing) return existing
+  if (existing) {
+    const [stored] = await transaction
+      .select({
+        bodyText: messages.bodyText,
+        channelId: messages.channelId,
+        deletedAt: messages.deletedAt,
+        editedAt: messages.editedAt,
+        executionRef: messages.executionRef,
+        idempotencyKey: messages.idempotencyKey,
+        senderSystemId: messages.senderSystemId,
+        version: messages.version,
+        workspaceId: messages.workspaceId,
+      })
+      .from(messages)
+      .where(eq(messages.id, existing))
+      .limit(1)
+    const storedBinding = decodeJobOutboundBinding(stored?.senderSystemId ?? null)
+    const links = await transaction
+      .select({
+        artifactId: messageArtifactReferences.artifactId,
+        workspaceId: messageArtifactReferences.workspaceId,
+      })
+      .from(messageArtifactReferences)
+      .where(eq(messageArtifactReferences.messageId, existing))
+    const canonicalReplay =
+      stored !== undefined &&
+      storedBinding !== null &&
+      stored.bodyText === result.summary &&
+      stored.channelId === destination.channelId &&
+      stored.executionRef === jobId &&
+      stored.workspaceId === destination.workspaceId &&
+      stored.deletedAt === null &&
+      stored.editedAt === null &&
+      stored.version === 1 &&
+      stored.idempotencyKey === jobOutboundMessageKey(storedBinding) &&
+      storedBinding.actorUserId === binding.actorUserId &&
+      storedBinding.channelId === binding.channelId &&
+      storedBinding.jobId === binding.jobId &&
+      storedBinding.summarySha256 === binding.summarySha256 &&
+      storedBinding.workspaceId === binding.workspaceId &&
+      sameArtifactAttachment(storedBinding, binding, links, destination.workspaceId)
+    if (!canonicalReplay) {
+      return {
+        decision: {
+          action: 'hold',
+          gate: 'publication',
+          jobId,
+          producerEffect: 'unaffected',
+          reason: 'publication_replay_conflict',
+        },
+        messageId: null,
+      }
+    }
+    return { decision, messageId: existing }
+  }
   const artifact = binding.artifact
   if (artifact) {
     const [locked] = await transaction
@@ -146,7 +212,38 @@ export async function writeJobOutboundPublication(
       })
       .onConflictDoNothing()
   }
-  return message.id
+  return { decision, messageId: message.id }
+}
+
+function sameArtifactAttachment(
+  stored: JobOutboundBinding,
+  current: JobOutboundBinding,
+  links: readonly Readonly<{ artifactId: string; workspaceId: string }>[],
+  destinationWorkspaceId: string
+): boolean {
+  if (stored.artifact === null || current.artifact === null) {
+    return (
+      stored.artifact === null &&
+      current.artifact === null &&
+      stored.grant === null &&
+      current.grant === null &&
+      links.length === 0
+    )
+  }
+  if (stored.grant === null || current.grant === null || links.length !== 1) return false
+  const storedArtifact = stored.artifact
+  const currentArtifact = current.artifact
+  const link = links[0]
+  return (
+    storedArtifact.artifactId === currentArtifact.artifactId &&
+    storedArtifact.checksumSha256 === currentArtifact.checksumSha256 &&
+    storedArtifact.sourceWorkspaceId === currentArtifact.sourceWorkspaceId &&
+    storedArtifact.version === currentArtifact.version &&
+    stored.grant.grantId === current.grant.grantId &&
+    stored.grant.revision === current.grant.revision &&
+    link?.artifactId === storedArtifact.artifactId &&
+    link.workspaceId === destinationWorkspaceId
+  )
 }
 
 /** The service bound to the database: authorization scope, trusted clock, and delivery resolution. */
