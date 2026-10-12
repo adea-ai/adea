@@ -983,6 +983,14 @@ describe.skipIf(!connectionUrl)('grant-gated group channels', () => {
         revokedAt: LATER,
       })
       expect(revoked).toEqual({ revoked: true })
+      const revokedShares = await loadGroupSharingGrants(connection.db, f.workspace.id, channelId)
+      expect(revokedShares).toHaveLength(1)
+      expect(revokedShares[0]).toMatchObject({
+        grantId: 'gra_summary_member',
+        participant: f.member,
+        revokedAt: LATER,
+        scope: 'earlier_summary',
+      })
       await expect(summary()).resolves.toMatchObject({
         action: 'deny',
         reason: 'summary_before_join_point',

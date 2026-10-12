@@ -25,6 +25,7 @@ import {
   channels,
   createAgent,
   createDatabase,
+  createMessage,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
   findWorkspaceMembership,
@@ -136,6 +137,8 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
   let connection: DatabaseConnection
   let channelsRoute: RouteModule
   let messagesRoute: RouteModule
+  let participantsRoute: RouteModule
+  let messageByIdRoute: RouteModule
 
   beforeAll(async () => {
     connection = createDatabase(connectionUrl!)
@@ -143,6 +146,12 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
       .Route as unknown as RouteModule
     messagesRoute = (
       await import('../../src/start/routes/api/v1/workspaces/$workspaceId/channels/$channelId/messages')
+    ).Route as unknown as RouteModule
+    participantsRoute = (
+      await import('../../src/start/routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants')
+    ).Route as unknown as RouteModule
+    messageByIdRoute = (
+      await import('../../src/start/routes/api/v1/workspaces/$workspaceId/messages/$messageId')
     ).Route as unknown as RouteModule
   })
 
@@ -160,6 +169,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
   async function fixture() {
     const owner = await user('owner')
     const member = await user('member')
+    const outsider = await user('outsider')
     const { workspace } = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: randomUUID(),
       name: 'Group routes',
@@ -168,7 +178,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     await addWorkspaceMembership(connection.db, workspace.id, member, 'admin')
     const plain = await user('plain')
     await addWorkspaceMembership(connection.db, workspace.id, plain, 'member')
-    return { member, owner, plain, workspace }
+    return { member, outsider, owner, plain, workspace }
   }
 
   function call(
@@ -473,6 +483,150 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     return rows.filter((row) => row.bodyText === bodyText).length
   }
 
+  function joinMember(
+    f: Awaited<ReturnType<typeof fixture>>,
+    channelId: string,
+    version: number,
+    member: UserPrincipalRef,
+    grantId: string
+  ) {
+    return call(
+      participantsRoute,
+      'POST',
+      `/api/v1/workspaces/${f.workspace.id}/channels/${channelId}/participants`,
+      { workspaceId: f.workspace.id, channelId },
+      {
+        as: f.owner,
+        ifMatch: version,
+        body: {
+          participants: [f.owner, member].map((principal) => ({
+            kind: 'user',
+            userId: principal.userId,
+          })),
+          audienceGrants: [
+            audienceGrant(channelId, f.owner, `founder-${f.owner.userId}`),
+            audienceGrant(channelId, member, `${grantId}_${channelId}`),
+          ],
+          enlistmentGrants: [],
+        },
+      }
+    )
+  }
+
+  test('a grant whose group does not match the channel is refused with zero writes', async () => {
+    const f = await fixture()
+    const channelId = randomUUID()
+    const response = await call(
+      channelsRoute,
+      'POST',
+      `/api/v1/workspaces/${f.workspace.id}/channels`,
+      { workspaceId: f.workspace.id },
+      {
+        as: f.owner,
+        idempotencyKey: randomUUID(),
+        body: {
+          kind: 'group',
+          title: 'Mismatched',
+          channelId,
+          audienceGrants: [audienceGrant(randomUUID(), f.member, 'gra_wrong_group')],
+          enlistmentGrants: [],
+        },
+      }
+    )
+    expect(response.status).toBe(400)
+    expect(
+      await connection.db.select().from(channels).where(eq(channels.id, channelId))
+    ).toHaveLength(0)
+  })
+
+  test('join point over routes: a newcomer reads nothing before joining and everything after', async () => {
+    const f = await fixture()
+    const { channelId, response } = await createGroup(f)
+    const created = (await response.json()) as { channel: { version: number } }
+    expect((await postText(f, channelId, f.owner, 'before the newcomer')).status).toBe(201)
+    expect(
+      (await joinMember(f, channelId, created.channel.version, f.member, 'gra_join')).status
+    ).toBe(200)
+    expect(await readTexts(f, channelId, f.member)).not.toContain('before the newcomer')
+    expect((await postText(f, channelId, f.owner, 'after the newcomer')).status).toBe(201)
+    expect(await readTexts(f, channelId, f.member)).toContain('after the newcomer')
+  })
+
+  test('a revoked member reads nothing and a refused write persists nothing', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.member] })
+    expect((await postText(f, channelId, f.owner, 'visible before revocation')).status).toBe(201)
+    expect(await readTexts(f, channelId, f.member)).toContain('visible before revocation')
+    expect(
+      await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
+        grantId: `gra_aud_0_${channelId}`,
+        kind: 'audience',
+        revokedAt: new Date().toISOString(),
+      })
+    ).toEqual({ revoked: true })
+    const read = await call(
+      messagesRoute,
+      'GET',
+      messagesUrl(f, channelId),
+      { workspaceId: f.workspace.id, channelId },
+      { as: f.member }
+    )
+    expect(read.status).toBe(404)
+    const write = await postText(f, channelId, f.member, 'revoked route write')
+    expect(write.status).toBe(404)
+    expect(await countMessages(channelId, 'revoked route write')).toBe(0)
+  })
+
+  test('a foreign principal is refused on read and write with zero writes', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.member] })
+    expect((await postText(f, channelId, f.owner, 'members only')).status).toBe(201)
+    const read = await call(
+      messagesRoute,
+      'GET',
+      messagesUrl(f, channelId),
+      { workspaceId: f.workspace.id, channelId },
+      { as: f.outsider }
+    )
+    expect(read.status).toBe(404)
+    expect(await read.json()).toMatchObject({ code: 'workspace_unavailable' })
+    const write = await postText(f, channelId, f.outsider, 'intruder write')
+    expect(write.status).toBe(404)
+    expect(await countMessages(channelId, 'intruder write')).toBe(0)
+  })
+
+  test('group message by id: a held pre-join message is refused, a granted one is served', async () => {
+    const f = await fixture()
+    const { channelId, response } = await createGroup(f)
+    const created = (await response.json()) as { channel: { version: number } }
+    const held = await createMessage(connection.db, f.workspace.id, channelId, f.owner, {
+      bodyText: 'held pre-join',
+      idempotencyKey: randomUUID(),
+      sender: f.owner,
+    })
+    expect(
+      (await joinMember(f, channelId, created.channel.version, f.member, 'gra_byid')).status
+    ).toBe(200)
+    const denied = await call(
+      messageByIdRoute,
+      'GET',
+      `/api/v1/workspaces/${f.workspace.id}/messages/${held.id}`,
+      { workspaceId: f.workspace.id, messageId: held.id },
+      { as: f.member }
+    )
+    expect(denied.status).toBe(404)
+    const posted = await postText(f, channelId, f.owner, 'granted after join')
+    const postedBody = (await posted.json()) as { message: { id: string } }
+    const granted = await call(
+      messageByIdRoute,
+      'GET',
+      `/api/v1/workspaces/${f.workspace.id}/messages/${postedBody.message.id}`,
+      { workspaceId: f.workspace.id, messageId: postedBody.message.id },
+      { as: f.member }
+    )
+    expect(granted.status).toBe(200)
+  })
+
   test('a granted plain workspace member writes to the group and reads it back', async () => {
     // Plain `member` role: no workspace.update, no project editorship. The live
     // canonical audience grant is the write authority for this group channel.
@@ -481,6 +635,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     const write = await postText(f, channelId, f.plain, 'plain member write')
     expect(write.status).toBe(201)
     expect(await countMessages(channelId, 'plain member write')).toBe(1)
+    expect(await readTexts(f, channelId, f.plain)).toContain('plain member write')
     expect(await readTexts(f, channelId, f.owner)).toContain('plain member write')
   })
 
