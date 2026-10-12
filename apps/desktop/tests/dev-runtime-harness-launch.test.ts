@@ -1080,8 +1080,12 @@ describe('harness default and session override independence (#1211)', () => {
 
   test('a traditional-session default launches its own installation and model without managed Pi', async () => {
     const traditional = randomUUID()
+    let bootstrapCalls = 0
     const shell = await boot({
-      archiveResolver: () => Promise.resolve(null),
+      archiveResolver: async () => {
+        bootstrapCalls += 1
+        return DEFAULT_ARCHIVE()
+      },
       seedAcpInstallation: { id: traditional },
     })
     try {
@@ -1117,6 +1121,7 @@ describe('harness default and session override independence (#1211)', () => {
       })
       // Managed Pi was never installed and never became the launch target.
       expect(shell.managedPiStatus().installationId).toBeUndefined()
+      expect(bootstrapCalls).toBe(0)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
