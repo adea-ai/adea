@@ -108,7 +108,8 @@ describe('shared management gateway (#1215)', () => {
         const outcome = await gateway.run(
           'project.update',
           { binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-          async () => {
+          async (assertEffectCurrent) => {
+            await assertEffectCurrent()
             harness.countExecution()
             return { projectId: MANAGEMENT_PROJECT, updated: true }
           }
@@ -408,7 +409,10 @@ describe('shared management gateway (#1215)', () => {
     await gateway.run(
       'config.workspace.reopen',
       { includeArchived: true, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-      async () => 'reopened'
+      async (assertEffectCurrent) => {
+        await assertEffectCurrent()
+        return 'reopened'
+      }
     )
     expect(harness.authorized).toEqual([
       {
@@ -444,7 +448,8 @@ describe('shared management gateway (#1215)', () => {
     const outcome = await gateway.run(
       'project.update',
       { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-      async () => {
+      async (assertEffectCurrent) => {
+        await assertEffectCurrent()
         harness.countExecution()
         return 'executed'
       }
@@ -490,7 +495,10 @@ describe('shared management gateway (#1215)', () => {
     await gateway.run(
       'project.update',
       { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-      async () => 'executed'
+      async (assertEffectCurrent) => {
+        await assertEffectCurrent()
+        return 'executed'
+      }
     )
     expect(harness.assertCurrentCalls).toHaveLength(1)
     expect(harness.assertCurrentCalls[0]?.boundary).toBe('effect')
@@ -525,7 +533,10 @@ describe('shared management gateway (#1215)', () => {
     await gateway.run(
       'project.update',
       { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-      async () => 'executed'
+      async (assertEffectCurrent) => {
+        await assertEffectCurrent()
+        return 'executed'
+      }
     )
     expect(harness.assertCurrentCalls[0]?.request).toMatchObject({ canonicalRequest })
   })
@@ -541,7 +552,8 @@ describe('shared management gateway (#1215)', () => {
     const outcome = await gateway.run(
       'project.update',
       { binding: decision.binding, principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
-      async () => {
+      async (assertEffectCurrent) => {
+        await assertEffectCurrent()
         harness.countExecution()
         return 'executed'
       }

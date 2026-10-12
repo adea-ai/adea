@@ -144,6 +144,7 @@ export {
   appendWorkspaceEvent,
   inTransaction,
   ReadSnapshotIsolationError,
+  lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'
@@ -429,3 +430,5 @@ export {
 } from './conversations'
 
 export * from './lead-model-selections'
+
+export { withWorkspaceManagementAuthority } from './management-workspace-authority'

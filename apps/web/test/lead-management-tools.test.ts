@@ -79,6 +79,10 @@ function harness(options: { resolved?: unknown; resolver?: Resolver; operationsT
     projectUpdate: respond('projectUpdate', { ...project, name: 'Lead rename' }),
     projectVisibilitySet: respond('projectVisibilitySet', project),
     workspaceReopen: respond('workspaceReopen', project),
+    workspaceArchive: async (args, binding) => {
+      calls.push({ args, binding, method: 'workspaceArchive' })
+      return { ok: true, operation: 'config.workspace.archive', value: null }
+    },
     workspaceUpdate: respond('workspaceUpdate', project),
   }
   const dependencies: LeadManagementToolsDependencies = {
@@ -103,6 +107,12 @@ const updateCall = {
   name: 'Lead rename',
   operation: 'project.update',
   projectId: MANAGEMENT_PROJECT,
+  workspaceId: MANAGEMENT_WORKSPACE,
+} satisfies LeadManagementToolCall
+const archiveWorkspaceCall = {
+  authority: AUTHORITY,
+  confirmed: true,
+  operation: 'config.workspace.archive',
   workspaceId: MANAGEMENT_WORKSPACE,
 } satisfies LeadManagementToolCall
 
@@ -149,6 +159,41 @@ describe('lead management tools (#1215)', () => {
         method: 'projectUpdate',
       },
     ])
+  })
+
+  test('workspace archive binds explicit confirmation before invoking the shared operation', async () => {
+    const decision = await managementAuthorityDecision({
+      input: { confirmed: true },
+      operation: 'config.workspace.archive',
+      targetId: MANAGEMENT_WORKSPACE,
+    })
+    const run = harness({ resolved: decision })
+    const outcome = await executeLeadManagementTool(run.dependencies, archiveWorkspaceCall)
+    expect(outcome).toEqual({
+      ok: true,
+      operation: 'config.workspace.archive',
+      value: null,
+    })
+    expect(run.calls).toEqual([
+      {
+        args: {
+          confirmed: true,
+          principal: MANAGEMENT_PRINCIPAL,
+          workspaceId: MANAGEMENT_WORKSPACE,
+        },
+        binding: decision.binding,
+        method: 'workspaceArchive',
+      },
+    ])
+
+    const unconfirmed = await executeLeadManagementTool(run.dependencies, {
+      ...archiveWorkspaceCall,
+      confirmed: false,
+    })
+    expect(unconfirmed.ok).toBe(false)
+    if (unconfirmed.ok) throw new Error('unreachable')
+    expect(unconfirmed.failure.reason).toBe('authority_binding_mismatch')
+    expect(run.calls).toHaveLength(1)
   })
 
   test('forwards the canonical request to the operation caller', async () => {

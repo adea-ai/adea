@@ -1,17 +1,24 @@
 import { expect, test } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let url = ''
 test.beforeAll(async () => {
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-choices-harness-app.tsx')
   const swapHarness = '/@fs' + resolve(root, 'e2e/helpers/lead-role-client-swap-harness-app.tsx')
+  // A private optimizer cache. The managed dev server owns node_modules/.vite; this instance must
+  // not rewrite the dependency hashes that a running app has already requested.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-lead-roles-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     // This module-only fixture serves no public assets. Preserve unrelated sync copies.
     publicDir: false,
     // Serve this ESM fixture graph directly; do not scan unrelated application HTML/assets.
@@ -46,6 +53,7 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   await server?.close()
+  rmSync(cacheDir, { recursive: true, force: true })
 })
 
 // Scripted HTTP tests real chooser/composer/client transport, independently of CP execution.

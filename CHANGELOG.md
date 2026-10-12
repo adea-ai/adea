@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
+
+
+### Features
+
+* retain explicit lead and child model-role choices ([#1229](https://github.com/adea-ai/adea/issues/1229)) ([c255008](https://github.com/adea-ai/adea/commit/c255008527b16a82bb1031ce8357fdbf5f47af2b))
+* **workspace:** archive and reopen optional workspaces from settings ([#1175](https://github.com/adea-ai/adea/issues/1175)) ([#1266](https://github.com/adea-ai/adea/issues/1266)) ([5fed288](https://github.com/adea-ai/adea/commit/5fed2884e564a5ed5605546267d7e11c06909795))
+
+
+### Bug Fixes
+
+* **deps:** update control-plane packages; retain compatible themes ([#1276](https://github.com/adea-ai/adea/issues/1276)) ([d9fee85](https://github.com/adea-ai/adea/commit/d9fee85ba56dc9a9a0ba1e120484578774062383))
+* **deps:** update dependency @adea-ai/themes to v0.10.3 ([#1275](https://github.com/adea-ai/adea/issues/1275)) ([7417f31](https://github.com/adea-ai/adea/commit/7417f31c4d1bfc336c56c7330e39b17b89921909))
+* **deps:** update dependency @adea-ai/themes to v0.10.4 ([#1277](https://github.com/adea-ai/adea/issues/1277)) ([0d53b47](https://github.com/adea-ai/adea/commit/0d53b477b0b3a8b3f6172bfe23cc4e903c243ea5))
+
 ## [0.88.0](https://github.com/adea-ai/adea/compare/v0.87.0...v0.88.0) (2026-10-10)
 
 

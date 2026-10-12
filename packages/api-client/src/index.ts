@@ -316,6 +316,7 @@ export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
 export type ApiWorkspaceArchiveResponse = Readonly<{ archived: true; workspaceId: string }>
+export type ApiWorkspaceArchiveInput = Readonly<{ confirmed: true }>
 export type ApiArchivedWorkspacesResponse = Readonly<{ workspaces: readonly WorkspaceSummary[] }>
 export type ApiWorkspaceDeleteResponse = Readonly<{
   deleted: true
@@ -648,10 +649,17 @@ export class AgentHqApiClient {
     return this.request<ApiArchivedWorkspacesResponse>('/workspaces/archived')
   }
 
-  async archiveWorkspace(workspaceId: string): Promise<ApiWorkspaceArchiveResponse> {
+  async archiveWorkspace(
+    workspaceId: string,
+    input: ApiWorkspaceArchiveInput
+  ): Promise<ApiWorkspaceArchiveResponse> {
     return this.request<ApiWorkspaceArchiveResponse>(
       `/workspaces/${encodeURIComponent(workspaceId)}/archive`,
-      { method: 'POST' }
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
     )
   }
 
@@ -1080,13 +1088,9 @@ export class AgentHqApiClient {
     projectId: string,
     input: ApiProjectRestoreInput
   ): Promise<ApiProjectResponse> {
-    return this.request<ApiProjectResponse>(
+    return this.postJson<ApiProjectResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/restore`,
-      {
-        body: JSON.stringify(input),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      }
+      input
     )
   }
 

@@ -1,6 +1,21 @@
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
+/** Attempt every owned-resource cleanup and retain the first failure. */
+export async function closeFactoryResources(actions) {
+  let failed = false
+  let failure
+  for (const action of actions) {
+    try {
+      await action()
+    } catch (error) {
+      if (!failed) failure = error
+      failed = true
+    }
+  }
+  if (failed) throw failure
+}
+
 const phases = new Set([
   'preflight',
   'setup',

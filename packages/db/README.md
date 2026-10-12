@@ -41,8 +41,24 @@ user IDs or workspace foreign keys.
 2. Run `bun run --cwd packages/db db:generate -- --name=<short-name>`.
 3. Review the generated SQL and snapshot. Never edit a migration after it has been applied.
 4. Run `bun run --cwd packages/db db:check`.
-5. Against an isolated database, run `bun run --cwd packages/db db:verify` and
-   `bun run --cwd packages/db test:integration`.
+5. Against an isolated database, run `bun run --cwd packages/db db:verify`.
+6. From the repository root, run the canonical `bun run test:integration` lane.
+
+`db:verify` is the repository's guarded migration runner: before invoking
+Drizzle, it compares the existing migration ledger with the journal's SQL
+hashes and timestamps. It refuses ambiguous or moved applied migrations,
+non-increasing journal timestamps, and pending entries at or below the ledger's
+applied timestamp high-water mark. The `db:migrate` package command is a
+compatibility alias for the same guarded runner. Direct calls to Drizzle's
+migrator bypass the preflight and should remain limited to disposable test
+fixtures.
+
+The migration history preflight integration proof runs in the root
+`bun run test:integration` lane. That runner provisions a dedicated disposable
+PostgreSQL instance and exports `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
+running the proof without this provisioning fails explicitly. The package
+`test:integration` script does not provision that database itself, so direct
+package runs need an explicitly supplied dedicated disposable provisioning URL.
 
 The root and package integration runners build the public `remote-content`
 and `types/runtime-node-delivery` entries before running the database producer tests, so a fresh checkout needs no
@@ -192,10 +208,9 @@ never revived. `archiveProject`, `softDeleteProject` and
 `promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
 which lock the project row first and the project's channels in id order, then
 compare-and-swap each channel `version`, so a concurrent write rolls the whole
-transaction back instead of losing an update. The migration that adds the enum
-and column is expand-only; its number is provisional until the `main` journal
-confirms it (see the lane handoff
-`docs/plans/m14-03-management-action-contract.md`).
+transaction back instead of losing an update.
+
+Migration `0048_graceful_prima` follows `0047_requested_role_model_selections` in the current `main` journal. It is expand-only and adds the `channel_archive_source` enum, `channels.archive_source`, positive `projects.version`, and `management_authority_consumptions` with its checks, workspace foreign key and index. The group-participation migrations follow it at 0049 and 0050. `db:verify` validates the journal and SQL against an isolated target; local verification does not establish production migration history or live Control Plane qualification. See [`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).
 
 ## Group channel write admission
 

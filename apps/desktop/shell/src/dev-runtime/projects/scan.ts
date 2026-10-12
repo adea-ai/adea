@@ -562,6 +562,9 @@ function listDir(
     state.diagnostics.add(`unreadable_dir:${relativeDir === '' ? '.' : relativeDir}`)
     return { subdirs: new Map(), files: new Set(), ignoreRules: [...parentRules] }
   }
+  // `readdirSync` does not promise an order. Keep traversal, result ordering,
+  // and budget cutoffs deterministic across filesystems.
+  dirents.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
   const subdirs = new Map<string, string>()
   const files = new Set<string>()
   // The directory's own .gitignore applies to its own entries, so it is

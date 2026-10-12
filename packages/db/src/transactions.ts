@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
@@ -56,6 +56,24 @@ async function reuseReadSnapshot<T>(
   if (isolationLevel !== 'repeatable read' && isolationLevel !== 'serializable')
     throw new ReadSnapshotIsolationError(isolationLevel)
   return operation(transaction)
+}
+
+export async function lockWorkspaceEventSequence(
+  transaction: AgentHqTransaction,
+  workspaceId: string
+): Promise<void> {
+  await transaction
+    .insert(workspaceEventSequences)
+    .values({ workspaceId, lastSequence: 0 })
+    .onConflictDoNothing({ target: workspaceEventSequences.workspaceId })
+
+  const [sequence] = await transaction
+    .select({ workspaceId: workspaceEventSequences.workspaceId })
+    .from(workspaceEventSequences)
+    .where(eq(workspaceEventSequences.workspaceId, workspaceId))
+    .for('update')
+
+  if (!sequence) throw new Error('Workspace event sequence lock failed')
 }
 
 /** What a domain mutation hands to the durable event log. */

@@ -23,6 +23,7 @@ import { isTrustedLoopbackRequest } from '../shell/src/dev-runtime/channel/loopb
 import { createChannelGateway, type BridgeResult } from '../shell/src/dev-runtime/channel/server'
 import { createStreamInbound, encodeStreamFrame } from '../shell/src/dev-runtime/channel/wire'
 import { createCommandSurface } from '../shell/src/commands'
+import { createCleanupPolicyAuthority } from '../shell/src/dev-runtime/resources/policy'
 
 const SHELL_HOST = '127.0.0.1'
 const SHELL_ORIGIN = `http://${SHELL_HOST}:4789`
@@ -297,6 +298,99 @@ describe('channel authority', () => {
       { trusted: true }
     )
     expect(unavailable).toMatchObject({ ok: false, error: { code: 'capability_unavailable' } })
+  })
+
+  test('routes createDraft through the channel with the dedicated policyExpiresAt field', async () => {
+    const authority = createChannelAuthority({ shellHost: SHELL_HOST, shellOrigin: SHELL_ORIGIN })
+    const reply = authority.handshake(handshakePayload(authority.issueLaunchBootstrap()), {
+      trusted: true,
+    })
+    if (!reply.ok) throw new Error('handshake failed')
+    const secret = Buffer.from(reply.clientSecret, 'base64url')
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-policy-route-'))
+    createCleanupPolicyAuthority({
+      authority,
+      dataDir,
+      now: () => Date.parse('2026-10-09T00:00:00.000Z'),
+      randomId: () => randomUUID(),
+      scope: SCOPE,
+    })
+    const frame = (command: DevCommand) => ({
+      channelId: reply.channelId,
+      clientCredentialId: reply.clientCredentialId,
+      command,
+      proof: createHmac('sha256', secret)
+        .update(
+          devCommandProofMessage({
+            channelId: reply.channelId,
+            clientCredentialId: reply.clientCredentialId,
+            command,
+          })
+        )
+        .digest('base64url'),
+    })
+    const draft = (body: Record<string, unknown>) =>
+      frame({
+        schemaVersion: 1,
+        operation: 'dev.cleanupPolicy.createDraft',
+        requestId: randomUUID(),
+        nonce: Buffer.from(randomUUID()).toString('base64url'),
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        scope: SCOPE,
+        capabilities: ['dev.cleanup.approve'],
+        body: {
+          projectId: 'proj-1',
+          name: 'auto-clean merged',
+          predicates: [{ kind: 'clean' }],
+          allowedSteps: ['prune_retained_data'],
+          ...body,
+        },
+      } as DevCommand)
+    try {
+      const created = await authority.execute(
+        draft({ policyExpiresAt: '2026-10-10T00:00:00.000Z' }),
+        { trusted: true }
+      )
+      expect(created.ok).toBe(true)
+      if (created.ok)
+        expect(created.value).toMatchObject({
+          expiresAt: '2026-10-10T00:00:00.000Z',
+          state: 'draft',
+        })
+      // The request decoder refuses a malformed dedicated lifetime before the
+      // provider: the channel surfaces its typed public refusal, never a crash.
+      const malformed = await authority.execute(draft({ policyExpiresAt: 'not-a-date' }), {
+        trusted: true,
+      })
+      expect(malformed).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_state', message: 'command frame was malformed' },
+      })
+      // A well-formed but non-future lifetime reaches the provider and refuses
+      // with the exact typed contract message.
+      const past = await authority.execute(draft({ policyExpiresAt: '2026-10-08T00:00:00.000Z' }), {
+        trusted: true,
+      })
+      expect(past).toMatchObject({
+        ok: false,
+        error: {
+          code: 'invalid_state',
+          message: 'the policy expiry must be a valid future timestamp',
+        },
+      })
+      // The transport authority field stays forbidden in the body: a forged
+      // expiresAt is refused by the shared decoder, never injected as authority.
+      const forged = await authority.execute(draft({ expiresAt: '2026-10-10T00:00:00.000Z' }), {
+        trusted: true,
+      })
+      expect(forged).toMatchObject({
+        ok: false,
+        error: { code: 'invalid_state', message: 'command frame was malformed' },
+      })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 
   test('stream grants attach exactly once through the registered provider', () => {
