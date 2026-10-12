@@ -7,7 +7,7 @@
  * module does not import the message write path, which keeps the history readers in
  * `conversations` free of an import cycle.
  */
-import { and, desc, eq, isNull, like } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, like } from 'drizzle-orm'
 
 import { readArtifactReferenceEvidence } from './artifact-reference-policy'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
@@ -22,7 +22,6 @@ import type { JobOutboundDeliveryResolution, JobOutboundReads } from './job-outb
 import {
   deliveryClaimFor,
   isJobPublicationRow,
-  readerVisibleThreadRootIds,
   readerVisiblePublicationIds,
 } from './job-outbound-visibility'
 import {
@@ -46,6 +45,31 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 /** Identifier shape checks only; they decide whether a read can name a row, never authority. */
 function isUuid(value: string): boolean {
   return UUID.test(value)
+}
+
+function unique<T>(values: readonly T[]): T[] {
+  return [...new Set(values)]
+}
+
+const MAX_MESSAGE_REFERENCE_DEPTH = 64
+
+type MessageReferenceRow = Readonly<{
+  channelId?: string
+  executionRef: string | null
+  id: string
+  replyToMessageId?: string | null
+  senderKind: string
+  senderSystemId: string | null
+  threadRootMessageId?: string | null
+  workspaceId?: string
+}>
+
+function messageReferenceIds(row: MessageReferenceRow): string[] {
+  return unique(
+    [row.replyToMessageId, row.threadRootMessageId].filter((messageId): messageId is string =>
+      Boolean(messageId)
+    )
+  )
 }
 
 /** The source-workspace job for one Task id, or null when the Task or its original actor is not provable. */
@@ -371,29 +395,128 @@ export async function filterVisibleJobOutboundRows<
 }
 
 /**
- * Keeps the messages a reader may see: `filterVisibleJobOutboundRows` for publications, then the
- * thread rule. A reply is shown only while its thread root is visible, so a hidden job publication
- * hides its thread and every reply in it. The replies stay stored; this only decides what the reader
- * is shown. Roots are decided together, one batch per page.
+ * Keeps messages visible only when their complete thread and reply-reference ancestry can be
+ * proven visible. A hidden job publication hides every descendant, including bare replies and
+ * threads rooted at bare replies. Missing, cyclic, or excessively deep reference chains fail
+ * closed. The rows stay stored; this only decides what the reader is shown.
  */
-export async function filterVisibleMessageRows<
-  T extends {
-    executionRef: string | null
-    id: string
-    senderKind: string
-    senderSystemId: string | null
-    threadRootMessageId?: string | null
-  },
->(database: Database, rows: readonly T[], readerUserId: string): Promise<T[]> {
-  const visible = await filterVisibleJobOutboundRows(database, rows, readerUserId)
-  const roots = [
-    ...new Set(
-      visible.flatMap((row) => (row.threadRootMessageId ? [row.threadRootMessageId] : []))
-    ),
-  ]
-  if (!roots.length) return visible
-  const visibleRoots = await readerVisibleThreadRootIds(database, roots, readerUserId)
-  return visible.filter(
-    (row) => !row.threadRootMessageId || visibleRoots.has(row.threadRootMessageId)
+export async function filterVisibleMessageRows<T extends MessageReferenceRow>(
+  database: Database,
+  rows: readonly T[],
+  readerUserId: string
+): Promise<T[]> {
+  if (!rows.length) return []
+
+  // Resolve the complete reference and publication shape from storage. Callers such as search
+  // and event delivery use narrow projections which may omit replyToMessageId; those shapes
+  // must not decide whether the stored message is visible.
+  const canonicalCandidates = await database
+    .select({
+      channelId: messages.channelId,
+      executionRef: messages.executionRef,
+      id: messages.id,
+      replyToMessageId: messages.replyToMessageId,
+      senderKind: messages.senderKind,
+      senderSystemId: messages.senderSystemId,
+      threadRootMessageId: messages.threadRootMessageId,
+      workspaceId: messages.workspaceId,
+    })
+    .from(messages)
+    .where(inArray(messages.id, unique(rows.map((row) => row.id))))
+    .for('share')
+  const scopedCandidates = await filterVisibleJobOutboundRows(
+    database,
+    canonicalCandidates,
+    readerUserId
   )
+  if (!scopedCandidates.length) return []
+
+  const byId = new Map<string, MessageReferenceRow>(scopedCandidates.map((row) => [row.id, row]))
+  const candidateIds = new Set(scopedCandidates.map((row) => row.id))
+  let frontier = unique(scopedCandidates.flatMap(messageReferenceIds))
+  const missingIds = new Set<string>()
+  let depth = 0
+  while (frontier.length) {
+    const unresolved = unique(
+      frontier.filter((messageId) => !byId.has(messageId) && !missingIds.has(messageId))
+    )
+    if (!unresolved.length) break
+    if (depth >= MAX_MESSAGE_REFERENCE_DEPTH) {
+      for (const messageId of unresolved) missingIds.add(messageId)
+      break
+    }
+
+    const references = await database
+      .select({
+        channelId: messages.channelId,
+        executionRef: messages.executionRef,
+        id: messages.id,
+        replyToMessageId: messages.replyToMessageId,
+        senderKind: messages.senderKind,
+        senderSystemId: messages.senderSystemId,
+        threadRootMessageId: messages.threadRootMessageId,
+        workspaceId: messages.workspaceId,
+      })
+      .from(messages)
+      .where(inArray(messages.id, unresolved))
+      .for('share')
+    const found = new Set(references.map((row) => row.id))
+    for (const messageId of unresolved) if (!found.has(messageId)) missingIds.add(messageId)
+    for (const row of references) byId.set(row.id, row)
+    frontier = unique(references.flatMap(messageReferenceIds))
+    depth += 1
+  }
+
+  const ancestors = [...byId.values()].filter((row) => !candidateIds.has(row.id))
+  const visibleAncestors = await filterVisibleJobOutboundRows(database, ancestors, readerUserId)
+  const authorizedIds = new Set([
+    ...scopedCandidates.map((row) => row.id),
+    ...visibleAncestors.map((row) => row.id),
+  ])
+  const closureDepths = new Map<string, number | null>()
+  const referenceClosureDepth = (
+    messageId: string,
+    path: Set<string>,
+    expectedScope: Readonly<{ channelId: string; workspaceId: string }>
+  ): number | null => {
+    const row = byId.get(messageId)
+    if (!row || missingIds.has(messageId) || !authorizedIds.has(messageId) || path.has(messageId))
+      return null
+    if (row.channelId !== expectedScope.channelId || row.workspaceId !== expectedScope.workspaceId)
+      return null
+    const cached = closureDepths.get(messageId)
+    if (cached !== undefined) return cached
+
+    path.add(messageId)
+    let height = 0
+    for (const referenceId of messageReferenceIds(row)) {
+      const referenceHeight = referenceClosureDepth(referenceId, path, expectedScope)
+      if (referenceHeight === null) {
+        height = MAX_MESSAGE_REFERENCE_DEPTH + 1
+        break
+      }
+      height = Math.max(height, referenceHeight + 1)
+    }
+    if (row.threadRootMessageId) {
+      const root = byId.get(row.threadRootMessageId)
+      if (!root || root.threadRootMessageId) height = MAX_MESSAGE_REFERENCE_DEPTH + 1
+    }
+    path.delete(messageId)
+    const result = height > MAX_MESSAGE_REFERENCE_DEPTH ? null : height
+    closureDepths.set(messageId, result)
+    return result
+  }
+
+  const visibleIds = new Set(
+    scopedCandidates
+      .filter(
+        (row) =>
+          referenceClosureDepth(row.id, new Set(), {
+            channelId: row.channelId!,
+            workspaceId: row.workspaceId!,
+          }) !== null
+      )
+      .map((row) => row.id)
+  )
+  return rows.filter((row) => visibleIds.has(row.id))
 }

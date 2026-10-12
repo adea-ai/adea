@@ -3,7 +3,9 @@ import { and, eq, inArray, isNull, notInArray, or, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import {
+  channelParticipants,
   channels,
   contentRefs,
   messages,
@@ -230,15 +232,79 @@ export async function isContentRefVisible(
 ): Promise<boolean> {
   const scope = await resolveProjectAccessScope(database, workspaceId, userId)
   if (!scope) return false
-  if (!scope.hiddenProjectIds.length) return true
-  const [row] = await database
-    .select({ channelProjectId: channels.projectId, taskProjectId: tasks.projectId })
+  const [contentRef] = await database
+    .select({ messageId: contentRefs.messageId, taskId: contentRefs.taskId })
     .from(contentRefs)
-    .leftJoin(tasks, eq(tasks.id, contentRefs.taskId))
-    .leftJoin(messages, eq(messages.id, contentRefs.messageId))
-    .leftJoin(channels, eq(channels.id, messages.channelId))
     .where(and(eq(contentRefs.id, contentRefId), eq(contentRefs.workspaceId, workspaceId)))
     .limit(1)
-  if (!row) return true
-  return canReadProject(scope, row.taskProjectId) && canReadProject(scope, row.channelProjectId)
+    .for('share')
+  if (!contentRef) return false
+
+  let taskProjectId: string | null = null
+  if (contentRef.taskId) {
+    const [task] = await database
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.id, contentRef.taskId), eq(tasks.workspaceId, workspaceId)))
+      .limit(1)
+      .for('share')
+    if (!task) return false
+    taskProjectId = task.projectId
+  }
+  if (!canReadProject(scope, taskProjectId)) return false
+  if (!contentRef.messageId) return true
+
+  const [message] = await database
+    .select({
+      channelId: messages.channelId,
+      executionRef: messages.executionRef,
+      id: messages.id,
+      replyToMessageId: messages.replyToMessageId,
+      senderKind: messages.senderKind,
+      senderSystemId: messages.senderSystemId,
+      threadRootMessageId: messages.threadRootMessageId,
+    })
+    .from(messages)
+    .where(and(eq(messages.id, contentRef.messageId), eq(messages.workspaceId, workspaceId)))
+    .limit(1)
+    .for('share')
+  if (!message) return false
+
+  const [channel] = await database
+    .select({
+      id: channels.id,
+      lifecycleState: channels.lifecycleState,
+      projectId: channels.projectId,
+      visibility: channels.visibility,
+    })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.id, message.channelId),
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.lifecycleState, 'active')
+      )
+    )
+    .limit(1)
+    .for('share')
+  if (!channel || !canReadProject(scope, channel.projectId)) return false
+  if (channel.visibility === 'participants') {
+    const [participant] = await database
+      .select({ id: channelParticipants.id })
+      .from(channelParticipants)
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channel.id),
+          eq(channelParticipants.principalKind, 'user'),
+          eq(channelParticipants.userId, userId)
+        )
+      )
+      .limit(1)
+      .for('share')
+    if (!participant) return false
+  }
+
+  const visibleMessages = await filterVisibleMessageRows(database, [message], userId)
+  return visibleMessages.length === 1
 }

@@ -131,6 +131,7 @@ export async function classifyWorkspaceEventsForUser(
             id: messages.id,
             executionRef: messages.executionRef,
             projectId: channels.projectId,
+            replyToMessageId: messages.replyToMessageId,
             senderKind: messages.senderKind,
             senderSystemId: messages.senderSystemId,
             threadRootMessageId: messages.threadRootMessageId,
@@ -162,9 +163,15 @@ export async function classifyWorkspaceEventsForUser(
       ? database
           .select({
             channelProjectId: channels.projectId,
+            contentRefMessageId: contentRefs.messageId,
+            executionRef: messages.executionRef,
             id: contentRefs.id,
             taskProjectId: tasks.projectId,
-            messageId: contentRefs.messageId,
+            messageId: messages.id,
+            replyToMessageId: messages.replyToMessageId,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
           })
           .from(contentRefs)
@@ -205,8 +212,37 @@ export async function classifyWorkspaceEventsForUser(
   const readableMessages = new Map(
     messageRows.map((row) => [row.id, row.canReadChannel && visibleMessages.has(row.id)])
   )
+  const visibleContentMessageIds = new Set(
+    (
+      await filterVisibleMessageRows(
+        database,
+        contentRows.flatMap((row) =>
+          row.contentRefMessageId && row.messageId && row.senderKind
+            ? [
+                {
+                  executionRef: row.executionRef,
+                  id: row.messageId,
+                  replyToMessageId: row.replyToMessageId,
+                  senderKind: row.senderKind,
+                  senderSystemId: row.senderSystemId,
+                  threadRootMessageId: row.threadRootMessageId,
+                },
+              ]
+            : []
+        ),
+        userId
+      )
+    ).map((row) => row.id)
+  )
   const readableContent = new Map(
-    contentRows.map((row) => [row.id, !row.messageId || row.canReadChannel])
+    contentRows.map((row) => [
+      row.id,
+      !row.contentRefMessageId ||
+        (Boolean(row.messageId) &&
+          Boolean(row.senderKind) &&
+          row.canReadChannel &&
+          visibleContentMessageIds.has(row.messageId!)),
+    ])
   )
 
   return events.map((event, index): WorkspaceEventDelivery => {

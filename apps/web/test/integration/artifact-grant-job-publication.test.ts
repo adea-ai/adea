@@ -23,9 +23,11 @@ mock.module('@tanstack/solid-start/server', () => ({
 import {
   createAgent,
   createArtifact,
+  createContentRef,
   createDatabase,
   createGroupChannel,
   createJobOutboundStoreService,
+  createMessage,
   createProject,
   createRuntimeNodeChallenge,
   createTask,
@@ -35,6 +37,7 @@ import {
   messages,
   registerRuntimeNode,
   setChannelParticipants,
+  upsertContentReplica,
   type DatabaseConnection,
   type TaskSubmissionInput,
   workspaceMemberships,
@@ -61,6 +64,8 @@ if (!url)
 const ROUTES = '../../src/start/routes/api/v1'
 const WORKSPACE = `${ROUTES}/workspaces/$workspaceId`
 const GRANTS = `${WORKSPACE}/artifact-grants`
+const CONTENT_REF = `${WORKSPACE}/content-refs/$contentId`
+const CONTENT_REPLICAS = `${CONTENT_REF}/replicas`
 const CHECKSUM = 'c'.repeat(64)
 const profile = { id: `prf_${'0'.repeat(25)}1`, version: `pfv_${'0'.repeat(25)}1`, revision: 0 }
 
@@ -423,11 +428,94 @@ describe.skipIf(!url)(
       const beforeReleases = await deliverReplay(f, early, earlyMessageId)
       expect(beforeReleases).toMatchObject({ decision: { action: 'deliver' }, released: 1 })
 
+      // A known ContentRef id follows the current visibility of its publication and reply.
+      const rootContentRefId = crypto.randomUUID()
+      await createContentRef(connection.db, f.audience.id, f.owner.principal, {
+        availability: 'available',
+        contentType: 'message_body',
+        digestSha256: 'd'.repeat(64),
+        id: rootContentRefId,
+        keyVersion: 1,
+        messageId: earlyMessageId,
+        schemaVersion: 1,
+        sensitivity: 'restricted',
+        storagePolicy: 'local_authority',
+        synchronizationPolicy: 'agent_hq_e2ee_sync',
+      })
+      const replyContentRefId = crypto.randomUUID()
+      await createContentRef(connection.db, f.audience.id, f.owner.principal, {
+        availability: 'available',
+        contentType: 'message_body',
+        digestSha256: 'e'.repeat(64),
+        id: replyContentRefId,
+        keyVersion: 1,
+        schemaVersion: 1,
+        sensitivity: 'restricted',
+        storagePolicy: 'local_authority',
+        synchronizationPolicy: 'agent_hq_e2ee_sync',
+      })
+      await createMessage(connection.db, f.audience.id, f.channel.id, f.owner.principal, {
+        bodyContentRefId: replyContentRefId,
+        idempotencyKey: crypto.randomUUID(),
+        replyToMessageId: earlyMessageId,
+        sender: { kind: 'user', userId: f.owner.principal.userId },
+        threadRootMessageId: earlyMessageId,
+      })
+      await upsertContentReplica(
+        connection.db,
+        f.audience.id,
+        replyContentRefId,
+        f.recipient.principal,
+        {
+          availability: 'available',
+          ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA',
+          digestSha256: 'e'.repeat(64),
+          keyEpochId: crypto.randomUUID(),
+          nonce: 'AAAAAAAAAAAAAAAA',
+          replicaKind: 'agent_hq_e2ee_sync',
+          revision: 1,
+          schemaVersion: 1,
+        }
+      )
+      const rootRefBefore = await get(CONTENT_REF, {
+        credential: f.recipient.credential,
+        params: { contentId: rootContentRefId, workspaceId: f.audience.id },
+      })
+      const replyRefBefore = await get(CONTENT_REF, {
+        credential: f.recipient.credential,
+        params: { contentId: replyContentRefId, workspaceId: f.audience.id },
+      })
+      const replicaBefore = await get(CONTENT_REPLICAS, {
+        credential: f.recipient.credential,
+        params: { contentId: replyContentRefId, workspaceId: f.audience.id },
+      })
+      expect(rootRefBefore.status).toBe(200)
+      expect(replyRefBefore.status).toBe(200)
+      expect(replicaBefore.status).toBe(200)
+      expect(await replicaBefore.json()).toMatchObject({
+        contentReplicas: [{ contentRefId: replyContentRefId }],
+      })
+
       // The granting owner revokes through the route. The published result leaves the audience.
       expect(await revokeThroughRoute(f, grantId)).toMatchObject({
         grant: { grantId, revision: 1, revoked: true, sourceWorkspaceId: f.source.id },
       })
       expect(await audienceChannelText(f)).not.toContain('API_PUBLISHED_SUMMARY')
+      const rootRefAfter = await get(CONTENT_REF, {
+        credential: f.recipient.credential,
+        params: { contentId: rootContentRefId, workspaceId: f.audience.id },
+      })
+      const replyRefAfter = await get(CONTENT_REF, {
+        credential: f.recipient.credential,
+        params: { contentId: replyContentRefId, workspaceId: f.audience.id },
+      })
+      const replicaAfter = await get(CONTENT_REPLICAS, {
+        credential: f.recipient.credential,
+        params: { contentId: replyContentRefId, workspaceId: f.audience.id },
+      })
+      expect(rootRefAfter.status).toBe(404)
+      expect(replyRefAfter.status).toBe(404)
+      expect(replicaAfter.status).toBe(404)
 
       // A later job's result is held at completion: nothing is published, nothing reaches the audience.
       const later = await createJob(f, 'Completed after revocation')

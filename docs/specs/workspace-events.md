@@ -213,6 +213,10 @@ A thread reply also requires its thread root to be visible to the subscriber und
 reply whose root is a job publication the subscriber is no longer authorized for is withheld, live and on
 replay, exactly as the publication itself is. The replies stay stored; they are delivered again when
 current authorization permits, and their watermark is never reset.
+A `replyToMessageId` is independently checked even when no thread root is present. A message that
+references a publication or thread the reader can no longer see is withheld. Direct ContentRef reads
+and encrypted replica reads apply the same current message visibility, so knowing the ContentRef id
+does not preserve access after the publication grant is revoked.
 A job publication message also requires current publication authorization for the subscriber: the
 same gates history and delivery apply (the artifact grant, the original actor's source authority, the
 subscriber's destination membership, and the channel roster at the bound revision). A publication the
@@ -220,6 +224,9 @@ subscriber is not currently authorized for is withheld, live and on replay, and 
 Workspace owners and admins retain their project privileges but cannot bypass a participant-only
 channel's audience. Removing a participant therefore withholds that channel's replay events as well
 as future events; archived conversation history follows the same current audience check.
+Roster replacement locks the channel before changing participant rows. Message-bound ContentRef
+visibility reads hold shared locks on the channel and participant row, so they take the same
+channel-before-roster order.
 
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
 current state through the query layer, which applies the same project and channel access. Cursors carry no

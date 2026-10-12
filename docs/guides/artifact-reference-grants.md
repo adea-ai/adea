@@ -64,6 +64,14 @@ no other write path.
   describes the write, not current visibility. Visibility and release are decided at
   each read and release against the current grant, so a replay after revocation
   writes nothing new and releases nothing.
+- Message history, direct ContentRef reads, and encrypted replica access apply the
+  same current publication and thread visibility. A historical completion response
+  does not restore access to its ContentRefs or replicas.
+
+Message-bound ContentRef reads, replica listing, and replica writes hold shared locks
+on the current channel and participant row through their visibility decision. Roster
+replacement takes the channel lock before deleting or inserting participant rows,
+keeping these operations in channel-then-roster order.
 
 Client caches are not invalidated by a revocation. Cross-workspace invalidation is a
 separate feature, and no UI change is part of this slice.
