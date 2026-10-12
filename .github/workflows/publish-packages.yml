@@ -18,6 +18,8 @@ name: Publish shared packages
 # Both package settings must trust adea-ai/adea and this workflow filename,
 # `publish-packages.yml`, with direct publishing enabled. GitHub-hosted runners
 # are required; npm generates provenance automatically for successful OIDC publishes.
+# The job is main-only because npm's GitHub publisher trust matches the workflow,
+# not a branch name.
 
 on:
   push:
@@ -38,6 +40,7 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
       id-token: write
