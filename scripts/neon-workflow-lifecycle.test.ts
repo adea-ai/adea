@@ -36,7 +36,7 @@ const stepNamed = (job: Job, name: string) => {
 }
 
 describe('Neon branch lifecycle workflow', () => {
-  test('keeps the required check name on one fail-closed gate over setup and both legs', () => {
+  test('keeps the required check name on one fail-closed gate over setup and the provider proof', () => {
     const named = Object.entries(jobs).filter(([, job]) => job.name === 'Migrate Neon Branch')
     expect(named.map(([id]) => id)).toEqual(['migrate_gate'])
     expect(Object.values(jobs).some((job) => job.name?.startsWith('Migrate Neon Branch ('))).toBe(
@@ -44,31 +44,38 @@ describe('Neon branch lifecycle workflow', () => {
     )
 
     const gate = jobs.migrate_gate!
-    expect([...(gate.needs as string[])].toSorted()).toEqual(['create_neon_branch', 'setup'])
+    expect([...(gate.needs as string[])].toSorted()).toEqual(['neon_proof', 'setup'])
     expect(gate.if).toContain('always()')
     expect(gate.if).toContain('github.event.pull_request.draft == false')
     expect(gate.if).toContain("github.event.action == 'ready_for_review'")
-    const check = stepNamed(gate, 'Require setup and both shards to succeed').run ?? ''
+    const check = stepNamed(gate, 'Require setup and provider proof to succeed').run ?? ''
     expect(check).toContain('test "$SETUP_RESULT" = success')
-    expect(check).toContain('test "$SHARDS_RESULT" = success')
+    expect(check).toContain('test "$PROOF_RESULT" = success')
   })
 
-  test('runs two static legs under the unchanged 35-minute cap', () => {
-    const shards = jobs.create_neon_branch!
-    expect(shards.strategy).toEqual({ 'fail-fast': false, matrix: { shard: [1, 2] } })
-    expect(shards['timeout-minutes']).toBe(35)
-    expect(shards.name).toBe('Migrate Neon Shard (${{ matrix.shard }}/2)')
+  test('runs one bounded Neon proof', () => {
+    const proof = jobs.neon_proof!
+    expect(proof.strategy).toBeUndefined()
+    expect(proof['timeout-minutes']).toBe(5)
+    expect(proof.name).toBe('Neon Preview Proof')
     expect(jobs.migrate_gate!['timeout-minutes']).toBe(5)
   })
 
-  test('gives each leg its own preview branch and its own shard of the inventory', () => {
-    const create = stepNamed(jobs.create_neon_branch!, 'Create Neon branch')
+  test('keeps provider-specific proof on Neon without the remote full suite', () => {
+    const create = stepNamed(jobs.neon_proof!, 'Create Neon branch')
     expect(create.with?.branch_name).toBe(
-      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s${{ matrix.shard }}'
+      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-proof'
     )
-    const verify = stepNamed(jobs.create_neon_branch!, 'Verify migrations and transactions')
-    expect(verify.env?.ADEA_INTEGRATION_SHARD).toBe('${{ matrix.shard }}/2')
-    expect(verify.run).toContain('bun run test:integration')
+    const urlStep = stepNamed(jobs.neon_proof!, 'Build restricted database URLs')
+    expect(urlStep.run).toContain('connect_timeout", "10"')
+    const auth = stepNamed(jobs.neon_proof!, 'Verify isolated Neon Auth endpoint')
+    expect(auth.run).toContain('AbortSignal.timeout(15_000)')
+    const verify = stepNamed(jobs.neon_proof!, 'Verify Neon connections and migrations')
+    expect(verify.run).toContain('node scripts/database-health.mjs')
+    expect(verify.run).toContain('bun run --cwd packages/db db:check')
+    expect(verify.run).toContain('bun run --cwd packages/db db:verify')
+    expect(verify.run).not.toContain('bun run test:integration')
+    expect(verify.env?.ADEA_INTEGRATION_SHARD).toBeUndefined()
   })
 
   test('keeps the restricted application and migration roles and the secret set unchanged', () => {
@@ -92,7 +99,7 @@ describe('Neon branch lifecycle workflow', () => {
     )
   })
 
-  test('cleans up both shard branches and the legacy branch, skipping names that do not exist', () => {
+  test('cleans up the proof branch plus previous shard and legacy branches', () => {
     const cleanup = jobs.delete_neon_branch!
     expect(cleanup['timeout-minutes']).toBe(10)
     const lookup = stepNamed(cleanup, "Resolve this pull request's Neon branches")
@@ -105,9 +112,13 @@ describe('Neon branch lifecycle workflow', () => {
     expect(lookup.env?.SHARD_2_BRANCH).toBe(
       'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s2'
     )
+    expect(lookup.env?.PROOF_BRANCH).toBe(
+      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-proof'
+    )
     expect(lookup.run).toContain('`legacy=${idFor(LEGACY_BRANCH)}')
     expect(lookup.run).toContain('shard_1=${idFor(SHARD_1_BRANCH)}')
     expect(lookup.run).toContain('shard_2=${idFor(SHARD_2_BRANCH)}')
+    expect(lookup.run).toContain('proof=${idFor(PROOF_BRANCH)}')
 
     const deletes = cleanup.steps.filter((step) =>
       step.uses?.startsWith('neondatabase/delete-branch')
@@ -116,6 +127,7 @@ describe('Neon branch lifecycle workflow', () => {
       '${{ steps.resolve.outputs.legacy }}',
       '${{ steps.resolve.outputs.shard_1 }}',
       '${{ steps.resolve.outputs.shard_2 }}',
+      '${{ steps.resolve.outputs.proof }}',
     ])
     for (const step of deletes) {
       expect(step.with?.branch).toBeUndefined()
@@ -139,7 +151,7 @@ function evaluate(source: string, event: Event) {
 
 // Mirrors the runner for job-level conditions: a job starts when its condition holds and every
 // job it needs succeeded. Only always() lets a skipped dependency leave a job running.
-const jobOrder = ['setup', 'create_neon_branch', 'migrate_gate', 'delete_neon_branch']
+const jobOrder = ['setup', 'neon_proof', 'migrate_gate', 'delete_neon_branch']
 function jobsThatRun(event: Event) {
   const ran = new Map<string, boolean>()
   for (const id of jobOrder) {
@@ -177,13 +189,13 @@ describe('Neon branch lifecycle triggers', () => {
     }
   })
 
-  test('a ready pull request runs both shards and the gate on ready_for_review and each push', () => {
+  test('a ready pull request runs the provider proof and gate on ready_for_review and each push', () => {
     for (const action of ['ready_for_review', 'synchronize']) {
       expect(lifecycle({ action, draft: false })).toEqual({
         started: true,
         jobs: {
           setup: true,
-          create_neon_branch: true,
+          neon_proof: true,
           migrate_gate: true,
           delete_neon_branch: true,
         },
@@ -196,7 +208,7 @@ describe('Neon branch lifecycle triggers', () => {
       started: true,
       jobs: {
         setup: false,
-        create_neon_branch: false,
+        neon_proof: false,
         migrate_gate: false,
         delete_neon_branch: false,
       },
@@ -209,7 +221,7 @@ describe('Neon branch lifecycle triggers', () => {
         started: true,
         jobs: {
           setup: true,
-          create_neon_branch: false,
+          neon_proof: false,
           migrate_gate: false,
           delete_neon_branch: true,
         },
