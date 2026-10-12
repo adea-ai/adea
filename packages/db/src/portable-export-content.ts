@@ -14,7 +14,9 @@ import {
   PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
   PORTABLE_WORKSPACE_EXPORT_FORMAT,
   PORTABLE_WORKSPACE_EXPORT_FORMAT_VERSION,
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+  portableJsonUtf8ByteLength,
   type ChannelSummary,
   type ConversationParticipantRef,
   type MessageSummary,
@@ -58,6 +60,77 @@ export class PortableExportError extends Error {
     this.name = 'PortableExportError'
     this.code = code
   }
+}
+
+type PortableExportEnvelope = Readonly<{
+  exportedAt: Date
+  exportedBy: PortableWorkspaceExport['exportedBy']
+}>
+
+/**
+ * Start with the exact document envelope and empty content arrays, then account
+ * each mapped record as its family is built. The digest placeholder has the
+ * same UTF-8 width as the eventual SHA-256 hex digest.
+ */
+class PortableExportSizeBudget {
+  private bytes: number
+
+  constructor(workspace: PortableWorkspace, envelope: PortableExportEnvelope) {
+    this.bytes = portableJsonUtf8ByteLength({
+      content: {
+        agents: [],
+        channels: [],
+        contentRefs: [],
+        executionAttempts: [],
+        messages: [],
+        projects: [],
+        taskDependencies: [],
+        tasks: [],
+        users: [],
+        workspace,
+      },
+      contentDigest: { algorithm: 'sha256', value: '0'.repeat(64) },
+      exclusions: PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
+      exportedAt: iso(envelope.exportedAt),
+      exportedBy: envelope.exportedBy,
+      format: PORTABLE_WORKSPACE_EXPORT_FORMAT,
+      formatVersion: PORTABLE_WORKSPACE_EXPORT_FORMAT_VERSION,
+    })
+    this.assertWithinLimit()
+  }
+
+  addRecord(record: unknown, index: number) {
+    this.bytes += portableJsonUtf8ByteLength(record) + (index === 0 ? 0 : 1)
+    this.assertWithinLimit()
+  }
+
+  private assertWithinLimit() {
+    if (this.bytes > PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
+      throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+  }
+}
+
+function mapWithBudget<T, U>(
+  rows: readonly T[],
+  map: (row: T) => U,
+  sizeBudget: PortableExportSizeBudget | undefined
+): U[] {
+  const mapped: U[] = []
+  for (const row of rows) {
+    const record = map(row)
+    sizeBudget?.addRecord(record, mapped.length)
+    mapped.push(record)
+  }
+  return mapped
+}
+
+function mapByKeyWithBudget<T, U>(
+  rows: readonly T[],
+  map: (row: T) => U,
+  key: (row: U) => string,
+  sizeBudget: PortableExportSizeBudget | undefined
+): U[] {
+  return byKey(mapWithBudget(rows, map, sizeBudget), key)
 }
 
 /** SHA-256 of the canonical JSON of the content: the digest a document carries and an import verifies. */
@@ -129,11 +202,29 @@ export type ReadInputs = Readonly<{
   workspace: WorkspaceRow
 }>
 
-export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportContent {
+export function mapPortableContent(
+  input: ReadInputs,
+  sizeEnvelope?: PortableExportEnvelope
+): PortableWorkspaceExportContent {
   const projectIds = new Set(input.projectRows.map((row) => row.id))
   const taskIds = new Set(input.taskRows.map((row) => row.id))
   const channelIds = new Set(input.channels.map((channel) => channel.id))
   const agentIds = new Set(input.agentRows.map((row) => row.id))
+
+  const portableWorkspace: PortableWorkspace = {
+    accent: input.workspace.accent as PortableWorkspace['accent'],
+    createdAt: iso(input.workspace.createdAt),
+    logoKind: input.workspace.logoKind as PortableWorkspace['logoKind'],
+    logoValue: input.workspace.logoValue,
+    name: input.workspace.name,
+    scene: input.workspace.scene as PortableWorkspace['scene'],
+    updatedAt: iso(input.workspace.updatedAt),
+    version: input.workspace.version,
+    workspaceId: input.workspace.id,
+  }
+  const sizeBudget = sizeEnvelope
+    ? new PortableExportSizeBudget(portableWorkspace, sizeEnvelope)
+    : undefined
 
   // A message whose body is a content ref the reader may not see is withheld
   // whole. Its links go with it, so nothing names a body that is not exported.
@@ -148,54 +239,64 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
   const messageChannel = new Map(messageRows.map((message) => [message.id, message.channelId]))
 
   const exportedProjects: PortableProject[] = byKey(
-    input.projectRows.map((row) => ({
-      createdAt: iso(row.createdAt),
-      iconKey: row.iconKey,
-      lifecycleState: row.lifecycleState,
-      members: byKey(
-        input.memberRows
-          .filter((member) => member.projectId === row.id)
-          .map((member) => ({ role: member.role, userId: member.userId })),
-        (member) => member.userId
-      ),
-      name: row.name,
-      projectId: row.id,
-      sortOrder: row.sortOrder,
-      sourceKind: row.sourceKind,
-      updatedAt: iso(row.updatedAt),
-      visibility: row.visibility,
-    })),
+    mapWithBudget(
+      input.projectRows,
+      (row) => ({
+        createdAt: iso(row.createdAt),
+        iconKey: row.iconKey,
+        lifecycleState: row.lifecycleState,
+        members: byKey(
+          input.memberRows
+            .filter((member) => member.projectId === row.id)
+            .map((member) => ({ role: member.role, userId: member.userId })),
+          (member) => member.userId
+        ),
+        name: row.name,
+        projectId: row.id,
+        sortOrder: row.sortOrder,
+        sourceKind: row.sourceKind,
+        updatedAt: iso(row.updatedAt),
+        visibility: row.visibility,
+      }),
+      sizeBudget
+    ),
     (row) => `${String(row.sortOrder).padStart(12, '0')}:${row.projectId}`
   )
 
   const exportedAgents: PortableAgent[] = byKey(
-    input.agentRows.map((row) => ({
-      agentId: row.id,
-      createdAt: iso(row.createdAt),
-      isWorkspaceLead: row.isWorkspaceLead,
-      lifecycleState: row.lifecycleState,
-      name: row.name,
-      profileId: row.profileId,
-      profileRevision: row.profileRevision,
-      profileState: row.profileState,
-      profileVersion: row.profileVersion,
-      projectId: row.projectId && projectIds.has(row.projectId) ? row.projectId : null,
-      revision: row.revision,
-      roleSummary: row.roleSummary,
-      updatedAt: iso(row.updatedAt),
-    })),
+    mapWithBudget(
+      input.agentRows,
+      (row) => ({
+        agentId: row.id,
+        createdAt: iso(row.createdAt),
+        isWorkspaceLead: row.isWorkspaceLead,
+        lifecycleState: row.lifecycleState,
+        name: row.name,
+        profileId: row.profileId,
+        profileRevision: row.profileRevision,
+        profileState: row.profileState,
+        profileVersion: row.profileVersion,
+        projectId: row.projectId && projectIds.has(row.projectId) ? row.projectId : null,
+        revision: row.revision,
+        roleSummary: row.roleSummary,
+        updatedAt: iso(row.updatedAt),
+      }),
+      sizeBudget
+    ),
     (row) => row.agentId
   )
 
-  const exportedUsers: PortableUser[] = byKey(
-    input.userRows.map((row) => ({ displayName: row.displayName, userId: row.id })),
-    (row) => row.userId
+  const exportedUsers: PortableUser[] = mapByKeyWithBudget(
+    input.userRows,
+    (row) => ({ displayName: row.displayName, userId: row.id }),
+    (row) => row.userId,
+    sizeBudget
   )
 
   const exportedChannels: PortableChannel[] = byKey(
-    input.channels
-      .filter((channel) => !channel.projectId || projectIds.has(channel.projectId))
-      .map((channel) => ({
+    mapWithBudget(
+      input.channels.filter((channel) => !channel.projectId || projectIds.has(channel.projectId)),
+      (channel) => ({
         agentId: channel.agentId && agentIds.has(channel.agentId) ? channel.agentId : null,
         channelId: channel.id,
         createdAt: channel.createdAt,
@@ -210,7 +311,9 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
         updatedAt: channel.updatedAt,
         version: channel.version,
         visibility: channel.visibility,
-      })),
+      }),
+      sizeBudget
+    ),
     (row) => `${String(row.sortOrder).padStart(12, '0')}:${row.channelId}`
   )
 
@@ -224,66 +327,71 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
   )
   let channelOrder = 0
   let channelOf: string | undefined
-  const exportedMessages: PortableMessage[] = orderedMessages.map((message): PortableMessage => {
-    channelOrder = message.channelId === channelOf ? channelOrder + 1 : 1
-    channelOf = message.channelId
-    const body: PortableMessageBody = message.deleted
-      ? { kind: 'deleted' }
-      : message.bodyContentRefId
-        ? { contentRefId: message.bodyContentRefId, kind: 'content_ref' }
-        : { kind: 'text', text: message.bodyText ?? '' }
-    const sender: PortableMessage['sender'] =
-      message.sender.kind === 'user'
-        ? { kind: 'user', userId: message.sender.userId }
-        : message.sender.kind === 'agent'
-          ? { agentId: message.sender.agentId, kind: 'agent' }
-          : { kind: 'system', systemId: PORTABLE_SYSTEM_SENDER_ID }
-    const link = (target: string | undefined) =>
-      target && messageIds.has(target) && messageChannel.get(target) === message.channelId
-        ? target
-        : null
-    return {
-      body,
-      channelId: message.channelId,
-      channelOrder,
-      createdAt: message.createdAt,
-      deletedAt: message.deletedAt ?? null,
-      editedAt: message.editedAt ?? null,
-      mentions: byKey(message.mentions.map(toPortableParticipant), participantKey),
-      messageId: message.id,
-      replyToMessageId: link(message.replyToMessageId),
-      sender,
-      taskId: message.taskId && taskIds.has(message.taskId) ? message.taskId : null,
-      threadRootMessageId: link(message.threadRootMessageId),
-      updatedAt: message.updatedAt,
-      version: message.version,
-    }
-  })
-
-  const exportedContentRefs: PortableContentRef[] = byKey(
-    input.contentRefRows
-      .filter((row) => input.visibleContentRefIds.has(row.id))
-      .map((row) => ({
-        bodyState: row.availability === 'deleted' ? 'deleted' : 'local_authority',
-        contentRefId: row.id,
-        contentType: row.contentType,
-        createdAt: iso(row.createdAt),
-        digestSha256: row.digestSha256,
-        keyVersion: row.keyVersion,
-        messageId: row.messageId && messageIds.has(row.messageId) ? row.messageId : null,
-        revision: row.revision,
-        schemaVersion: row.schemaVersion,
-        sensitivity: row.sensitivity,
-        storagePolicy: row.storagePolicy,
-        synchronizationPolicy: row.synchronizationPolicy,
-        taskId: row.taskId && taskIds.has(row.taskId) ? row.taskId : null,
-        updatedAt: iso(row.updatedAt),
-      })),
-    (row) => row.contentRefId
+  const exportedMessages: PortableMessage[] = mapWithBudget(
+    orderedMessages,
+    (message): PortableMessage => {
+      channelOrder = message.channelId === channelOf ? channelOrder + 1 : 1
+      channelOf = message.channelId
+      const body: PortableMessageBody = message.deleted
+        ? { kind: 'deleted' }
+        : message.bodyContentRefId
+          ? { contentRefId: message.bodyContentRefId, kind: 'content_ref' }
+          : { kind: 'text', text: message.bodyText ?? '' }
+      const sender: PortableMessage['sender'] =
+        message.sender.kind === 'user'
+          ? { kind: 'user', userId: message.sender.userId }
+          : message.sender.kind === 'agent'
+            ? { agentId: message.sender.agentId, kind: 'agent' }
+            : { kind: 'system', systemId: PORTABLE_SYSTEM_SENDER_ID }
+      const link = (target: string | undefined) =>
+        target && messageIds.has(target) && messageChannel.get(target) === message.channelId
+          ? target
+          : null
+      return {
+        body,
+        channelId: message.channelId,
+        channelOrder,
+        createdAt: message.createdAt,
+        deletedAt: message.deletedAt ?? null,
+        editedAt: message.editedAt ?? null,
+        mentions: byKey(message.mentions.map(toPortableParticipant), participantKey),
+        messageId: message.id,
+        replyToMessageId: link(message.replyToMessageId),
+        sender,
+        taskId: message.taskId && taskIds.has(message.taskId) ? message.taskId : null,
+        threadRootMessageId: link(message.threadRootMessageId),
+        updatedAt: message.updatedAt,
+        version: message.version,
+      }
+    },
+    sizeBudget
   )
 
-  const exportedTasks: PortableTask[] = byKey(
-    input.taskRows.map((row) => ({
+  const exportedContentRefs: PortableContentRef[] = mapByKeyWithBudget(
+    input.contentRefRows.filter((row) => input.visibleContentRefIds.has(row.id)),
+    (row) => ({
+      bodyState: row.availability === 'deleted' ? 'deleted' : 'local_authority',
+      contentRefId: row.id,
+      contentType: row.contentType,
+      createdAt: iso(row.createdAt),
+      digestSha256: row.digestSha256,
+      keyVersion: row.keyVersion,
+      messageId: row.messageId && messageIds.has(row.messageId) ? row.messageId : null,
+      revision: row.revision,
+      schemaVersion: row.schemaVersion,
+      sensitivity: row.sensitivity,
+      storagePolicy: row.storagePolicy,
+      synchronizationPolicy: row.synchronizationPolicy,
+      taskId: row.taskId && taskIds.has(row.taskId) ? row.taskId : null,
+      updatedAt: iso(row.updatedAt),
+    }),
+    (row) => row.contentRefId,
+    sizeBudget
+  )
+
+  const exportedTasks: PortableTask[] = mapByKeyWithBudget(
+    input.taskRows,
+    (row) => ({
       agentId: row.agentId && agentIds.has(row.agentId) ? row.agentId : null,
       channelId: row.channelId && channelIds.has(row.channelId) ? row.channelId : null,
       createdAt: iso(row.createdAt),
@@ -303,43 +411,36 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
       title: row.title,
       updatedAt: iso(row.updatedAt),
       version: row.version,
-    })),
-    (row) => `${row.createdAt}:${row.taskId}`
+    }),
+    (row) => `${row.createdAt}:${row.taskId}`,
+    sizeBudget
   )
 
-  const exportedDependencies = byKey(
-    input.dependencyRows
-      .filter((row) => taskIds.has(row.taskId) && taskIds.has(row.dependsOnTaskId))
-      .map((row) => ({ dependsOnTaskId: row.dependsOnTaskId, taskId: row.taskId })),
-    (row) => `${row.taskId}>${row.dependsOnTaskId}`
+  const exportedDependencies = mapByKeyWithBudget(
+    input.dependencyRows.filter(
+      (row) => taskIds.has(row.taskId) && taskIds.has(row.dependsOnTaskId)
+    ),
+    (row) => ({ dependsOnTaskId: row.dependsOnTaskId, taskId: row.taskId }),
+    (row) => `${row.taskId}>${row.dependsOnTaskId}`,
+    sizeBudget
   )
 
   // Cloud-location attempts only. Runtime-location attempts carry node bindings
   // and are excluded by the ledger.
-  const exportedAttempts: PortableExecutionAttempt[] = byKey(
-    input.attemptRows
-      .filter((row) => taskIds.has(row.taskId) && row.locationKind === 'agent_hq_cloud')
-      .map((row) => ({
-        attempt: row.attempt,
-        change: row.change,
-        createdAt: iso(row.createdAt),
-        locationKind: 'agent_hq_cloud',
-        taskId: row.taskId,
-      })),
-    (row) => `${row.taskId}#${String(row.attempt).padStart(12, '0')}`
+  const exportedAttempts: PortableExecutionAttempt[] = mapByKeyWithBudget(
+    input.attemptRows.filter(
+      (row) => taskIds.has(row.taskId) && row.locationKind === 'agent_hq_cloud'
+    ),
+    (row) => ({
+      attempt: row.attempt,
+      change: row.change,
+      createdAt: iso(row.createdAt),
+      locationKind: 'agent_hq_cloud',
+      taskId: row.taskId,
+    }),
+    (row) => `${row.taskId}#${String(row.attempt).padStart(12, '0')}`,
+    sizeBudget
   )
-
-  const portableWorkspace: PortableWorkspace = {
-    accent: input.workspace.accent as PortableWorkspace['accent'],
-    createdAt: iso(input.workspace.createdAt),
-    logoKind: input.workspace.logoKind as PortableWorkspace['logoKind'],
-    logoValue: input.workspace.logoValue,
-    name: input.workspace.name,
-    scene: input.workspace.scene as PortableWorkspace['scene'],
-    updatedAt: iso(input.workspace.updatedAt),
-    version: input.workspace.version,
-    workspaceId: input.workspace.id,
-  }
 
   return {
     agents: exportedAgents,
@@ -358,13 +459,26 @@ export function mapPortableContent(input: ReadInputs): PortableWorkspaceExportCo
 /** Assemble and self-check a version-1 document. A failed self-check is a builder bug, never a partial export. */
 export function buildPortableWorkspaceExport(
   content: PortableWorkspaceExportContent,
-  envelope: Readonly<{ exportedAt: Date; exportedBy: PortableWorkspaceExport['exportedBy'] }>
+  envelope: PortableExportEnvelope
 ): PortableWorkspaceExport {
+  const exportedAt = iso(envelope.exportedAt)
+  const size = portableJsonUtf8ByteLength({
+    content,
+    contentDigest: { algorithm: 'sha256', value: '0'.repeat(64) },
+    exclusions: PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
+    exportedAt,
+    exportedBy: envelope.exportedBy,
+    format: PORTABLE_WORKSPACE_EXPORT_FORMAT,
+    formatVersion: PORTABLE_WORKSPACE_EXPORT_FORMAT_VERSION,
+  })
+  if (size > PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
+    throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+
   const document: PortableWorkspaceExport = {
     content,
     contentDigest: { algorithm: 'sha256', value: portableContentDigest(content) },
     exclusions: PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
-    exportedAt: iso(envelope.exportedAt),
+    exportedAt,
     exportedBy: envelope.exportedBy,
     format: PORTABLE_WORKSPACE_EXPORT_FORMAT,
     formatVersion: PORTABLE_WORKSPACE_EXPORT_FORMAT_VERSION,

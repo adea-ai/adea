@@ -14,7 +14,8 @@ type Context = { params: { workspaceId: string } | Promise<{ workspaceId: string
 
 /**
  * The requester's portable export of one workspace (M18.02.2, #1226). Authority
- * is the current membership, read inside the export's own snapshot.
+ * is the current membership, checked at export start and rechecked under READ
+ * COMMITTED before message pages and after the final read.
  */
 async function get(request: Request, { params }: Context) {
   const rejected = guardDesktopWorkspaceRequest(request)

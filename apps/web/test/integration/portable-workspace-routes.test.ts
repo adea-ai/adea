@@ -200,8 +200,9 @@ describe('portable workspace routes', () => {
 
   test('the export refuses to emit a bundle above the API bound instead of truncating it', async () => {
     const fixture = await seed('bound')
-    const text = 'x'.repeat(100_000)
-    const count = Math.ceil(PORTABLE_API_MAX_BYTES / text.length) + 1
+    const text = 'x'.repeat(45_000)
+    let pagesRead = 0
+    const count = 200
     for (let index = 0; index < count; index += 1)
       await createMessage(
         connection.db,
@@ -218,11 +219,90 @@ describe('portable workspace routes', () => {
       new Request('http://localhost/api/v1/workspaces/x/portable-export'),
       connection.db,
       resolutionFor(fixture.owner.principal),
-      fixture.workspaceId
+      fixture.workspaceId,
+      {
+        hooks: {
+          beforeMessagePage: () => {
+            pagesRead += 1
+          },
+        },
+      }
     )
     expect(response.status).toBe(413)
     expect(await response.json()).toEqual({ error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
+    expect(pagesRead).toBe(2)
   }, 180_000)
+
+  test('the export emits a valid bundle just below the byte bound', async () => {
+    const fixture = await seed('near-bound')
+    const text = 'x'.repeat(100_000)
+    for (let index = 0; index < 82; index += 1)
+      await createMessage(
+        connection.db,
+        fixture.workspaceId,
+        fixture.channel.id,
+        fixture.owner.principal,
+        {
+          bodyText: text,
+          idempotencyKey: `near-bound-${run}-${index}`,
+          sender: fixture.owner.principal,
+        }
+      )
+
+    const response = await portableWorkspaceExportResponse(
+      new Request('http://localhost/api/v1/workspaces/x/portable-export'),
+      connection.db,
+      resolutionFor(fixture.owner.principal),
+      fixture.workspaceId
+    )
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    const bytes = new TextEncoder().encode(body).byteLength
+    expect(bytes).toBeLessThanOrEqual(PORTABLE_API_MAX_BYTES)
+    expect(bytes).toBeGreaterThan(PORTABLE_API_MAX_BYTES - 300_000)
+    expect(validatePortableWorkspaceExport(JSON.parse(body)).ok).toBe(true)
+  }, 180_000)
+
+  test('portable error responses preserve no-store headers and trusted desktop CORS', async () => {
+    const fixture = await seed('error-cors')
+    const url = 'http://localhost/api/v1/portable-imports'
+    const trusted = await portableImportResponse(
+      jsonRequest(
+        url,
+        { format: 'invalid' },
+        {
+          origin: 'http://127.0.0.1:4789',
+          'x-adea-client': 'desktop',
+        }
+      ),
+      connection.db,
+      resolutionFor(fixture.owner.principal),
+      allowAll
+    )
+    expect(trusted.status).toBe(422)
+    expect(trusted.headers.get('access-control-allow-origin')).toBe('http://127.0.0.1:4789')
+    expect(trusted.headers.get('vary')).toContain('Origin')
+    expect(trusted.headers.get('cache-control')).toBe('private, no-store')
+    expect(trusted.headers.get('x-content-type-options')).toBe('nosniff')
+
+    const untrusted = await portableImportResponse(
+      jsonRequest(
+        url,
+        { format: 'invalid' },
+        {
+          origin: 'https://untrusted.example',
+          'x-adea-client': 'desktop',
+        }
+      ),
+      connection.db,
+      resolutionFor(fixture.owner.principal),
+      allowAll
+    )
+    expect(untrusted.status).toBe(422)
+    expect(untrusted.headers.get('access-control-allow-origin')).toBeNull()
+    expect(untrusted.headers.get('cache-control')).toBe('private, no-store')
+    expect(untrusted.headers.get('x-content-type-options')).toBe('nosniff')
+  })
 
   test('import is refused before any read when the caller may not create workspaces', async () => {
     const fixture = await seed('denied-create')

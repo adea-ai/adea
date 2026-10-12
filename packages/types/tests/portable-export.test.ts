@@ -5,6 +5,7 @@ import {
   PORTABLE_EXTERNAL_DOMAIN_CLASSES,
   PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS,
   PORTABLE_WORKSPACE_EXPORT_FORMAT,
+  portableJsonUtf8ByteLength,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   type PortableWorkspaceExport,
   type PortableWorkspaceExportIssue,
@@ -428,5 +429,23 @@ describe('canonical portable JSON', () => {
     const original = fixture()
     expect(JSON.stringify(reverseKeys(original))).not.toBe(JSON.stringify(original))
     expect(canonicalPortableJson(reverseKeys(original))).toBe(canonicalPortableJson(original))
+  })
+})
+
+describe('portable JSON UTF-8 byte length', () => {
+  test('matches compact JSON bytes for escapes, Unicode and nested values', () => {
+    const value = {
+      'quote"key': ['line\nbreak', 'é', '😀', '\ud800', '\u2028', null, true, -12.5],
+      nested: { escaped: '\t\\' },
+    }
+    expect(portableJsonUtf8ByteLength(value)).toBe(
+      new TextEncoder().encode(JSON.stringify(value)).byteLength
+    )
+  })
+
+  test('counts non-finite numbers as JSON null', () => {
+    expect(portableJsonUtf8ByteLength({ values: [Number.NaN, Number.POSITIVE_INFINITY] })).toBe(
+      new TextEncoder().encode(JSON.stringify({ values: [null, null] })).byteLength
+    )
   })
 })

@@ -1,7 +1,7 @@
 // Authorized portable workspace export: the readers (M18.02.2, #1226).
 //
 // The export is the requester's own view of one workspace, read inside a READ COMMITTED,
-// READ ONLY transaction. The requester's access is checked when the export starts, before
+// READ WRITE transaction. The requester's access is checked when the export starts, before
 // every message page, and after the last read (`assertAccess` and `assertStanding`), so a
 // revocation committed mid-export denies it. A principal with no current membership, a
 // removed membership, or a deleted or being-deleted workspace all fail with the same
@@ -16,7 +16,9 @@
 // `portable-export-content.ts`.
 
 import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+  portableJsonUtf8ByteLength,
   type ChannelSummary,
   type ConversationParticipantRef,
   type MessageSummary,
@@ -57,6 +59,7 @@ import {
   iso,
   mapPortableContent,
   PortableExportError,
+  toPortableParticipant,
   type ReadInputs,
   type WorkspaceRow,
 } from './portable-export-content'
@@ -180,6 +183,7 @@ async function readVisibleMessages(
   hooks: PortableExportHooks | undefined
 ): Promise<MessageSummary[]> {
   const messages: MessageSummary[] = []
+  let messageLowerBoundBytes = 0
   for (const channel of channels) {
     let afterSequence: number | undefined
     for (;;) {
@@ -192,6 +196,22 @@ async function readVisibleMessages(
         await assertStanding(transaction, workspaceId, principal, start)
         throw error
       })
+      for (const message of page.messages) {
+        // Text bodies and mentions are guaranteed to remain in every exported
+        // text/deleted message. Their encoded JSON is a lower bound for the final
+        // document, so crossing the cap proves it cannot fit and lets us refuse
+        // before reading another page. Content-ref messages may be withheld, so
+        // they are counted later after their visibility is known.
+        if (message.deleted || !message.bodyContentRefId) {
+          if (!message.deleted)
+            messageLowerBoundBytes += portableJsonUtf8ByteLength(message.bodyText ?? '')
+          messageLowerBoundBytes += portableJsonUtf8ByteLength(
+            message.mentions.map(toPortableParticipant)
+          )
+        }
+        if (messageLowerBoundBytes > PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
+          throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+      }
       messages.push(...page.messages)
       bounded(messages, 'messages')
       if (page.nextAfterSequence === undefined) break
@@ -631,9 +651,10 @@ export async function exportPortableWorkspace(
     // them. Checking once more after the last read denies the export before anything is built.
     await input.hooks?.beforeStep?.({ name: 'final' })
     await assertStanding(transaction, input.workspaceId, input.principal, start)
-    return buildPortableWorkspaceExport(mapPortableContent(inputs), {
+    const envelope = {
       exportedAt: input.exportedAt ?? new Date(),
       exportedBy: { role: start.scope.role, userId: start.scope.userId },
-    })
+    }
+    return buildPortableWorkspaceExport(mapPortableContent(inputs, envelope), envelope)
   }, PORTABLE_EXPORT_TRANSACTION_CONFIG)
 }

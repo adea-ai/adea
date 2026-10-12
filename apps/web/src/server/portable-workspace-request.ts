@@ -8,9 +8,14 @@ import {
   PortableExportError,
   PortableImportError,
 } from '@adea-ai/db'
-import type { UserPrincipalRef } from '@adea-ai/types'
+import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
+  portableJsonUtf8ByteLength,
+  type UserPrincipalRef,
+} from '@adea-ai/types'
 
 import { isConversationUuid } from './conversation-request'
+import { withDesktopWorkspaceCors } from './desktop-workspace'
 import type { WorkspacePrincipalResolution } from './workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -23,7 +28,7 @@ import {
  * is refused, never truncated, so every exported workspace can also be imported
  * through the same API.
  */
-export const PORTABLE_API_MAX_BYTES = 8 * 1024 * 1024
+export const PORTABLE_API_MAX_BYTES = PORTABLE_WORKSPACE_EXPORT_MAX_BYTES
 
 /** Issues are capped so one malformed bundle cannot produce an unbounded error body. */
 const MAX_REPORTED_ISSUES = 50
@@ -33,11 +38,14 @@ const NO_STORE_HEADERS = {
   'x-content-type-options': 'nosniff',
 } as const
 
-function portableErrorResponse(status: number, body: Record<string, unknown>) {
-  return new Response(JSON.stringify(body), {
-    headers: { ...NO_STORE_HEADERS, 'content-type': 'application/json; charset=utf-8' },
-    status,
-  })
+function portableErrorResponse(request: Request, status: number, body: Record<string, unknown>) {
+  return withDesktopWorkspaceCors(
+    new Response(JSON.stringify(body), {
+      headers: { ...NO_STORE_HEADERS, 'content-type': 'application/json; charset=utf-8' },
+      status,
+    }),
+    request
+  )
 }
 
 /**
@@ -98,9 +106,12 @@ export async function portableWorkspaceExportResponse(
       principal: resolution.principal,
       workspaceId,
     })
-    const size = new TextEncoder().encode(JSON.stringify(document)).byteLength
+    const size = portableJsonUtf8ByteLength(document)
     if (size > PORTABLE_API_MAX_BYTES)
-      return portableErrorResponse(413, { error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
+      return portableErrorResponse(request, 413, {
+        error: 'too_large',
+        maxBytes: PORTABLE_API_MAX_BYTES,
+      })
     return workspaceJsonResponse(document, resolution, request, {
       headers: {
         ...NO_STORE_HEADERS,
@@ -111,7 +122,10 @@ export async function portableWorkspaceExportResponse(
     if (error instanceof PortableExportError && error.code === 'denied')
       return workspaceUnavailableResponse(request)
     if (error instanceof PortableExportError && error.code === 'too_large')
-      return portableErrorResponse(413, { error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
+      return portableErrorResponse(request, 413, {
+        error: 'too_large',
+        maxBytes: PORTABLE_API_MAX_BYTES,
+      })
     throw error
   }
 }
@@ -133,7 +147,10 @@ export async function portableImportResponse(
   const read = await readBoundedJson(request, PORTABLE_API_MAX_BYTES)
   if (!read.ok)
     return read.status === 413
-      ? portableErrorResponse(413, { error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
+      ? portableErrorResponse(request, 413, {
+          error: 'too_large',
+          maxBytes: PORTABLE_API_MAX_BYTES,
+        })
       : workspaceInvalidRequestResponse(request)
   try {
     const result = await importPortableWorkspace(database, {
@@ -150,15 +167,15 @@ export async function portableImportResponse(
     switch (error.code) {
       case 'invalid_document':
       case 'digest_mismatch':
-        return portableErrorResponse(422, { error: error.code, issues })
+        return portableErrorResponse(request, 422, { error: error.code, issues })
       case 'unresolved_users':
-        return portableErrorResponse(422, { error: error.code, message: error.message })
+        return portableErrorResponse(request, 422, { error: error.code, message: error.message })
       case 'importer_unavailable':
-        return portableErrorResponse(403, { error: error.code })
+        return portableErrorResponse(request, 403, { error: error.code })
       case 'target_exists':
-        return portableErrorResponse(409, { error: error.code })
+        return portableErrorResponse(request, 409, { error: error.code })
       case 'verification_failed':
-        return portableErrorResponse(500, { error: error.code })
+        return portableErrorResponse(request, 500, { error: error.code })
     }
   }
 }

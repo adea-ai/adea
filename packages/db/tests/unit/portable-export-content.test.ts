@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   validatePortableWorkspaceExport,
 } from '@adea-ai/types'
@@ -379,6 +380,40 @@ describe('portable export mapping', () => {
     })
     expect(validatePortableWorkspaceExport(document).ok).toBe(true)
     expect(document.contentDigest.value).toBe(portableContentDigest(content))
+  })
+
+  test('keeps a valid near-boundary export and refuses the next oversized accumulation', () => {
+    const sourceMessage = inputs().messages[0]!
+    const bodyText = 'x'.repeat(100_000)
+    const messages = Array.from({ length: 83 }, (_, index) => ({
+      ...sourceMessage,
+      bodyText,
+      id: `00000000-0000-4000-8000-${(2000 + index).toString(16).padStart(12, '0')}`,
+      sequence: index + 1,
+    }))
+    const envelope = { exportedAt: at, exportedBy: { role: 'member' as const, userId: ids.user } }
+    const content = mapPortableContent(inputs({ messages }), envelope)
+    const document = buildPortableWorkspaceExport(content, envelope)
+    const bytes = new TextEncoder().encode(JSON.stringify(document)).byteLength
+    expect(bytes).toBeLessThanOrEqual(PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
+    expect(bytes).toBeGreaterThan(PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - 100_000)
+
+    expect(() =>
+      mapPortableContent(
+        inputs({
+          messages: [
+            ...messages,
+            {
+              ...sourceMessage,
+              bodyText,
+              id: '00000000-0000-4000-8000-000000000999',
+              sequence: messages.length + 1,
+            },
+          ],
+        }),
+        envelope
+      )
+    ).toThrow(PortableExportError)
   })
 
   test('a document that fails its own contract is refused as an invalid build, not emitted', () => {

@@ -52,6 +52,59 @@ export const PORTABLE_EXTERNAL_DOMAIN_CLASSES = [
 
 export const PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS = 10_000
 export const PORTABLE_WORKSPACE_EXPORT_MAX_MESSAGE_TEXT_LENGTH = 100_000
+/** The API reads and emits portable bundles through the same exact byte bound. */
+export const PORTABLE_WORKSPACE_EXPORT_MAX_BYTES = 8 * 1024 * 1024
+
+const portableJsonTextEncoder = new TextEncoder()
+
+function jsonStringUtf8ByteLength(value: string): number {
+  // Count the encoded JSON string so quotes, escapes, surrogate pairs and UTF-8
+  // multibyte characters match JSON.stringify without serializing the document.
+  return portableJsonTextEncoder.encode(JSON.stringify(value)).byteLength
+}
+
+/**
+ * Count the compact JSON UTF-8 bytes for portable JSON values without creating
+ * one serialized string for the full value. This mirrors JSON.stringify for
+ * the plain JSON data used by the portable export contract.
+ */
+export function portableJsonUtf8ByteLength(value: unknown): number {
+  if (value === null) return 4
+
+  switch (typeof value) {
+    case 'string':
+      return jsonStringUtf8ByteLength(value)
+    case 'boolean':
+      return value ? 4 : 5
+    case 'number':
+      return Number.isFinite(value)
+        ? portableJsonTextEncoder.encode(JSON.stringify(value)).byteLength
+        : 4 // JSON.stringify serializes non-finite numbers as null.
+    case 'object': {
+      if (Array.isArray(value)) {
+        let bytes = 2 // []
+        for (let index = 0; index < value.length; index += 1) {
+          if (index > 0) bytes += 1
+          bytes += portableJsonUtf8ByteLength(value[index])
+        }
+        return bytes
+      }
+
+      const entries = Object.entries(value as Record<string, unknown>).filter(
+        ([, item]) => item !== undefined
+      )
+      let bytes = 2 // {}
+      for (let index = 0; index < entries.length; index += 1) {
+        if (index > 0) bytes += 1
+        const [key, item] = entries[index]!
+        bytes += jsonStringUtf8ByteLength(key) + 1 + portableJsonUtf8ByteLength(item)
+      }
+      return bytes
+    }
+    default:
+      throw new TypeError('Portable JSON byte length requires a JSON value')
+  }
+}
 
 export const portableExportTreatments = [
   'deferred',
