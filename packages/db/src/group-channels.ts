@@ -64,7 +64,10 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
-import { supersedeAddressedTurns } from './group-turn-coordinator'
+import {
+  requestPendingSupersededTurnCancellations,
+  supersedeAddressedTurns,
+} from './group-turn-coordinator'
 import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
@@ -530,7 +533,10 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
     : MessageSummary
 }
 
-/** Fenced group post: gate and write share one transaction (see above). */
+/**
+ * Fenced group post: gate and write share one transaction (see above). The
+ * post-commit wrapper also requests any eligible runtime cancellations.
+ */
 export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -542,7 +548,7 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
 ): Promise<
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
-  return database.transaction((transaction) =>
+  const posted = await database.transaction((transaction) =>
     postGroupChannelMessageInTransaction(
       transaction,
       workspaceId,
@@ -553,6 +559,13 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
       options
     )
   )
+  // The claim flips with the message, but a runtime cancellation takes its
+  // own lead-intent transaction and must wait until that commit releases the
+  // channel lock. Retrying all pending superseded claims also repairs a
+  // process failure in the gap after commit.
+  if (sender.kind === 'user')
+    await requestPendingSupersededTurnCancellations(database, workspaceId, channelId, principal)
+  return posted
 }
 
 /**

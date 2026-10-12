@@ -13,6 +13,7 @@ import {
   createGroupChannelWithGrants,
   groupCreationCandidatesFromGrants,
   postGroupChannelMessage,
+  postGroupChannelMessageInTransaction,
 } from '../../src/group-channels'
 import { ensureWorkspaceLead } from '../../src/agents'
 import {
@@ -27,19 +28,17 @@ import { createWorkspaceWithOwner } from '../../src/workspaces'
 const connectionUrl = process.env.DATABASE_URL
 const ISSUED = '2026-10-01T00:00:00.000Z'
 const NOW = '2026-10-08T12:00:00.000Z'
+const TEST_TIMEOUT_MS = 30_000
+const TEST_CLEANUP_MARGIN_MS = 1_000
+const CLEANUP_OPERATION_TIMEOUT_MS = 3_000
 
 /**
- * APPLICATION-LEVEL CYCLE REPRODUCTION (root-directed, adea-ai/adea#1247).
- * TESTS ONLY — no production file is touched.
- *
- * Corrected model (a prior report wrongly claimed the flip commits before
- * the nested call): cancelAddressedTurn awaits requestLeadTurnCancellation
- * INSIDE its database.transaction callback, so the outer transaction keeps
- * holding the claim row lock while the nested transaction (separate
- * backend) waits on the channel row. The outer→nested edge is pure
- * JavaScript — idle-in-transaction, invisible to PostgreSQL — so the
- * deadlock detector can NEVER fire here and its absence proves nothing:
- * without outside intervention both sides park forever, with no 40P01.
+ * APPLICATION-LEVEL CYCLE AND POST-COMMIT REPRODUCTIONS (adea-ai/adea#1247).
+ * These tests exercise production transaction boundaries against a disposable
+ * database and prove the claim flip commits before the runtime cancellation
+ * boundary opens its separate transaction. A cancellation may wait on the
+ * channel lock, but it no longer holds the claim lock while waiting, so the
+ * application cannot form the former claim/channel cycle.
  *
  * Every wait below is proven through pg_blocking_pids / backend state —
  * never through sleeps — and every racy call asserts an exact typed
@@ -47,13 +46,18 @@ const NOW = '2026-10-08T12:00:00.000Z'
  * releases, pool closes, 30s ceilings) keep every test finite.
  */
 function T(name: string, fn: () => Promise<void>) {
-  test(name, fn, 30_000)
+  test(name, fn, TEST_TIMEOUT_MS)
 }
 
 type OwnedObservation<T> =
   | { status: 'fulfilled'; value: T }
   | { status: 'rejected'; error: unknown }
   | { status: 'timeout'; label: string }
+
+type CleanupBodyScope = Readonly<{
+  assertActive: () => void
+  run: <T>(label: string, operation: () => Promise<T> | T) => Promise<T>
+}>
 
 type HolderFailureDisposition =
   | { kind: 'cleanup'; error: unknown }
@@ -100,11 +104,8 @@ async function observeOwned<T>(
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  const outcome = await observeOwned(promise, ms, label)
-  if (outcome.status === 'timeout') throw new Error(`timed out waiting for ${label}`)
-  if (outcome.status === 'rejected') throw outcome.error
-  return outcome.value
+function remainingTimeoutMs(deadline: number, maxMs: number, now = Date.now()): number {
+  return Math.max(0, Math.min(maxMs, deadline - now))
 }
 
 type OwnedCloseOutcome =
@@ -121,20 +122,37 @@ async function closeOwned(
   ms: number,
   label: string
 ): Promise<OwnedCloseOutcome> {
+  return closeOwnedUntil(pool, Date.now() + ms, label, ms)
+}
+
+/** Keep close and its probe within both the test-wide deadline and one per-pool bound. */
+async function closeOwnedUntil(
+  pool: DatabaseConnection | null,
+  cleanupDeadline: number,
+  label: string,
+  maxMs = CLEANUP_OPERATION_TIMEOUT_MS
+): Promise<OwnedCloseOutcome> {
   if (!pool) return 'absent'
-  const deadline = Date.now() + ms
+  const deadline = Math.min(cleanupDeadline, Date.now() + maxMs)
+  const remaining = remainingTimeoutMs(deadline, maxMs)
+  if (remaining <= 0) return 'close-timeout'
+  // postgres.js interprets `end({ timeout })` in seconds. Leave a small
+  // window for the follow-up probe, and pass the same bound into the real
+  // client shutdown instead of calling DatabaseConnection.close()'s fixed
+  // five-second timeout.
+  const endTimeoutSeconds = Math.max(0, remaining - 100) / 1000
   const close = await observeOwned(
-    Promise.resolve().then(() => pool.close()),
-    ms,
+    Promise.resolve().then(() => pool.client.end({ timeout: endTimeoutSeconds })),
+    remainingTimeoutMs(deadline, maxMs),
     `close:${label}`
   )
   if (close.status === 'timeout') return 'close-timeout'
 
-  const remaining = deadline - Date.now()
-  if (remaining <= 0) return 'probe-timeout'
+  const probeRemaining = remainingTimeoutMs(deadline, maxMs)
+  if (probeRemaining <= 0) return 'probe-timeout'
   const probe = await observeOwned(
     Promise.resolve().then(() => pool.db.execute(sql`SELECT 1 AS one`)),
-    remaining,
+    probeRemaining,
     `probe:${label}`
   )
   if (probe.status === 'timeout') return 'probe-timeout'
@@ -144,23 +162,71 @@ async function closeOwned(
 
 /** Keep the body failure primary while retaining any cleanup failure on it. */
 async function preservingCleanup<T>(
-  body: () => Promise<T>,
-  cleanup: () => Promise<void>
+  body: (scope: CleanupBodyScope) => Promise<T>,
+  cleanup: (cleanupDeadline: number) => Promise<void>,
+  cleanupDeadline = Date.now() + TEST_TIMEOUT_MS,
+  bodyDeadline = cleanupDeadline - CLEANUP_OPERATION_TIMEOUT_MS
 ): Promise<T> {
+  let active = true
+  const assertActive = () => {
+    if (!active) throw new Error('cleanup body has expired')
+    if (Date.now() >= bodyDeadline) throw new Error('cleanup body deadline exceeded')
+  }
+  const scope: CleanupBodyScope = {
+    assertActive,
+    run: async <R>(label: string, operation: () => Promise<R> | R): Promise<R> => {
+      assertActive()
+      const pending = Promise.resolve().then(() => {
+        assertActive()
+        return operation()
+      })
+      const outcome = await observeOwned(
+        pending,
+        remainingTimeoutMs(bodyDeadline, Number.MAX_SAFE_INTEGER),
+        label
+      )
+      if (outcome.status === 'timeout') {
+        active = false
+        throw new Error(`timed out waiting for ${label}`)
+      }
+      if (outcome.status === 'rejected') throw outcome.error
+      assertActive()
+      return outcome.value
+    },
+  }
   let bodyFailed = false
   let bodyError: unknown
   let value!: T
+  const bodyTask = Promise.resolve().then(() => {
+    scope.assertActive()
+    return body(scope)
+  })
   try {
-    value = await body()
+    const outcome = await observeOwned(
+      bodyTask,
+      remainingTimeoutMs(bodyDeadline, Number.MAX_SAFE_INTEGER),
+      'test body'
+    )
+    if (outcome.status === 'timeout') {
+      bodyFailed = true
+      bodyError = new Error('timed out waiting for test body')
+    } else if (outcome.status === 'rejected') {
+      bodyFailed = true
+      bodyError = outcome.error
+    } else {
+      value = outcome.value
+    }
   } catch (error) {
     bodyFailed = true
     bodyError = error
+  } finally {
+    active = false
   }
 
   let cleanupFailed = false
   let cleanupError: unknown
   try {
-    await cleanup()
+    await cleanup(cleanupDeadline)
   } catch (error) {
     cleanupFailed = true
     cleanupError = error
@@ -206,12 +272,88 @@ test('bounded observation handles a late rejection after timeout', async () => {
   await new Promise((resolve) => setTimeout(resolve, 0))
 })
 
+test('cleanup steps use only the time left on their shared deadline', () => {
+  expect(remainingTimeoutMs(120, 80, 50)).toBe(70)
+  expect(remainingTimeoutMs(120, 80, 100)).toBe(20)
+  expect(remainingTimeoutMs(120, 80, 121)).toBe(0)
+})
+
+test('a stalled body times out, runs cleanup, and cannot continue after release', async () => {
+  let releaseStalled!: () => void
+  let continuedAfterTimeout = false
+  let cleanupRan = false
+  const bodyDeadline = Date.now() + 20
+  const cleanupDeadline = bodyDeadline + 500
+
+  const thrown = await preservingCleanup(
+    async (scope) => {
+      await scope.run(
+        'stalled body step',
+        () =>
+          new Promise<void>((resolve) => {
+            releaseStalled = resolve
+          })
+      )
+      scope.assertActive()
+      continuedAfterTimeout = true
+    },
+    async () => {
+      cleanupRan = true
+      releaseStalled()
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(continuedAfterTimeout).toBe(false)
+    },
+    cleanupDeadline,
+    bodyDeadline
+  ).then(
+    () => null,
+    (error: unknown) => error
+  )
+
+  expect(thrown).toMatchObject({ message: 'timed out waiting for test body' })
+  expect(cleanupRan).toBe(true)
+  expect(continuedAfterTimeout).toBe(false)
+})
+
+test('preserving cleanup passes one deadline to its cleanup callback', async () => {
+  let receivedDeadline = 0
+  const cleanupDeadline = Date.now() + 1000
+  await preservingCleanup(
+    async () => 'body result',
+    async (deadline) => {
+      receivedDeadline = deadline
+    },
+    cleanupDeadline,
+    Date.now() + 500
+  )
+  expect(receivedDeadline).toBe(cleanupDeadline)
+})
+
 test('bounded close also bounds its follow-up probe', async () => {
   const pool = {
-    close: async () => undefined,
+    client: { end: async () => undefined },
     db: { execute: () => new Promise<never>(() => {}) },
   } as unknown as DatabaseConnection
   expect(await closeOwned(pool, 20, 'deterministic stuck probe')).toBe('probe-timeout')
+})
+
+test('owned shutdown passes only the shared-deadline time to the Postgres client', async () => {
+  const timeouts: number[] = []
+  const cleanupDeadline = Date.now() + 500
+  const pool = {
+    client: {
+      end: async ({ timeout }: { timeout?: number }) => {
+        timeouts.push(timeout ?? -1)
+      },
+    },
+    db: { execute: async () => Promise.reject(new Error('pool ended')) },
+  } as unknown as DatabaseConnection
+
+  expect(await closeOwnedUntil(pool, cleanupDeadline, 'bounded client end')).toBe('closed')
+  expect(timeouts).toHaveLength(1)
+  expect(timeouts[0]).toBeGreaterThan(0)
+  expect(timeouts[0]).toBeLessThanOrEqual(0.4)
 })
 
 test('cleanup failure does not replace the original body error', async () => {
@@ -305,12 +447,27 @@ async function lockWaits(observer: DatabaseConnection): Promise<readonly LockWai
   }))
 }
 
-async function waitFor(check: () => Promise<boolean>, label: string): Promise<void> {
-  const start = Date.now()
+async function waitFor(
+  check: () => Promise<boolean>,
+  label: string,
+  deadline = Date.now() + 8000
+): Promise<void> {
   for (;;) {
-    if (await check()) return
-    if (Date.now() - start > 8000) throw new Error(`timed out waiting for ${label}`)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`)
+    const checked = await observeOwned(
+      Promise.resolve().then(() => {
+        if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`)
+        return check()
+      }),
+      remainingTimeoutMs(deadline, Number.MAX_SAFE_INTEGER),
+      `check:${label}`
+    )
+    if (checked.status === 'timeout') throw new Error(`timed out waiting for ${label}`)
+    if (checked.status === 'rejected') throw checked.error
+    if (checked.value) return
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw new Error(`timed out waiting for ${label}`)
+    await new Promise((resolve) => setTimeout(resolve, Math.min(50, remaining)))
   }
 }
 
@@ -321,74 +478,87 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
   })
   afterAll(async () => connection.close())
 
-  async function user(label: string): Promise<UserPrincipalRef> {
+  async function user(label: string, db = connection.db): Promise<UserPrincipalRef> {
     return (
-      await createTemporaryUserSession(connection.db, {
+      await createTemporaryUserSession(db, {
         credentialDigest: `cycle-repro-${label}-${crypto.randomUUID()}`,
         expiresAt: new Date(Date.now() + 60_000),
       })
     ).principal
   }
 
-  async function leadGroup() {
-    const owner = await user('owner')
-    const { workspace } = await createWorkspaceWithOwner(connection.db, {
-      idempotencyKey: crypto.randomUUID(),
-      name: 'Cycle repro',
-      owner,
-    })
-    const lead = await ensureWorkspaceLead(connection.db, workspace.id, owner)
+  async function leadGroup(db = connection.db, run?: CleanupBodyScope['run']) {
+    const step = <T>(label: string, operation: () => Promise<T> | T) =>
+      run ? run(label, operation) : Promise.resolve().then(operation)
+    const owner = await step('create cycle-repro user', () => user('owner', db))
+    const { workspace } = await step('create cycle-repro workspace', () =>
+      createWorkspaceWithOwner(db, {
+        idempotencyKey: crypto.randomUUID(),
+        name: 'Cycle repro',
+        owner,
+      })
+    )
+    const lead = await step('ensure workspace lead', () =>
+      ensureWorkspaceLead(db, workspace.id, owner)
+    )
     const channelId = crypto.randomUUID()
-    await createGroupChannelWithGrants(connection.db, workspace.id, owner, {
-      candidates: groupCreationCandidatesFromGrants(workspace.id, {
-        audienceGrants: [
-          {
-            expiresAt: null,
-            grantId: 'gra_owner',
-            groupId: channelId,
-            issuedAt: ISSUED,
-            participant: owner,
-            revision: 1,
-            revokedAt: null,
-          },
-        ],
-        enlistmentGrants: [
-          {
-            agent: { agentId: lead.id, workspaceId: workspace.id },
-            expiresAt: null,
-            grantId: 'gra_lead',
-            groupId: channelId,
-            issuedAt: ISSUED,
-            revision: 1,
-            revokedAt: null,
-          },
-        ],
-      }),
-      channelId,
-      idempotencyKey: crypto.randomUUID(),
-      now: NOW,
-      title: 'Group',
-    })
-    const trigger = await postGroupChannelMessage(
-      connection.db,
-      workspace.id,
-      channelId,
-      owner,
-      owner,
-      {
-        message: { bodyText: 'please answer', idempotencyKey: crypto.randomUUID() },
-        mode: 'direct',
-      },
-      { now: NOW }
+    await step('create cycle-repro group channel', () =>
+      createGroupChannelWithGrants(db, workspace.id, owner, {
+        candidates: groupCreationCandidatesFromGrants(workspace.id, {
+          audienceGrants: [
+            {
+              expiresAt: null,
+              grantId: 'gra_owner',
+              groupId: channelId,
+              issuedAt: ISSUED,
+              participant: owner,
+              revision: 1,
+              revokedAt: null,
+            },
+          ],
+          enlistmentGrants: [
+            {
+              agent: { agentId: lead.id, workspaceId: workspace.id },
+              expiresAt: null,
+              grantId: 'gra_lead',
+              groupId: channelId,
+              issuedAt: ISSUED,
+              revision: 1,
+              revokedAt: null,
+            },
+          ],
+        }),
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        now: NOW,
+        title: 'Group',
+      })
+    )
+    const trigger = await step('post cycle-repro trigger message', () =>
+      postGroupChannelMessage(
+        db,
+        workspace.id,
+        channelId,
+        owner,
+        owner,
+        {
+          message: { bodyText: 'please answer', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { now: NOW }
+      )
     )
     return { channelId, lead, owner, triggerMessageId: trigger.id, workspace }
   }
 
   T('cancel flip commits before intent-cancel: no mutual wait can form', async () => {
+    const cleanupDeadline = Date.now() + TEST_TIMEOUT_MS - TEST_CLEANUP_MARGIN_MS
+    const bodyDeadline = cleanupDeadline - CLEANUP_OPERATION_TIMEOUT_MS * 3
     // The cleanup path mirrors the donor's owned-task discipline, adapted
     // to the fixed ordering: release the holder first, then bound every
     // owned task. If a regression leaves the holder waiting on the claim,
     // cut only the PID captured from that holder's own transaction.
+    let primary: DatabaseConnection | null = null
     let holder: DatabaseConnection | null = null
     let canceller: DatabaseConnection | null = null
     let observer: DatabaseConnection | null = null
@@ -398,25 +568,23 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let holding: Promise<void> | null = null
     let cancelling: Promise<Awaited<ReturnType<typeof cancelAddressedTurn>>> | null = null
     await preservingCleanup(
-      async () => {
+      async (scope) => {
         // Fixed-structure proof (the nesting it replaces is gone): the flip
         // commits first and is immediately visible, while the follow-up
         // intent-cancel transaction waits on a held channel row. A holder
         // that then requests the claim row proceeds — nothing holds
         // claim-while-wanting-channel anymore, so no application cycle exists
         // to cut and no intervention is needed for settlement.
-        const f = await leadGroup()
+        primary = createDatabase(connectionUrl!)
+        const f = await leadGroup(primary.db, scope.run)
+        scope.assertActive()
         const input = claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner)
-        const pre = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
-          now: NOW,
-        })
+        const pre = await scope.run('initial addressed-turn claim', () =>
+          claimAddressedTurn(primary!.db, f.workspace.id, f.owner, input, { now: NOW })
+        )
         expect(pre.status).toBe('claimed')
-        const dispatched = await dispatchAddressedTurn(
-          connection.db,
-          f.workspace.id,
-          f.owner,
-          input,
-          { now: NOW }
+        const dispatched = await scope.run('dispatch addressed turn', () =>
+          dispatchAddressedTurn(primary!.db, f.workspace.id, f.owner, input, { now: NOW })
         )
         expect(dispatched.claim.status).toBe('duplicate')
 
@@ -461,7 +629,7 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         // Swallow only for unhandled-rejection hygiene; the outcome is
         // asserted explicitly below.
         void holding!.catch(() => {})
-        await withTimeout(holderParkedPromise, 8000, 'holderParked')
+        await scope.run('holderParked', () => holderParkedPromise)
 
         // CANCELLER: real production cancel. The flip commits first; only
         // then does the follow-up intent-cancel transaction run — and it
@@ -476,22 +644,30 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         // PROOF 1: a backend waits on the channel row, blocked by the
         // holder — the intent-cancel transaction running after the flip
         // committed (not nested inside an open outer transaction).
-        await waitFor(async () => {
-          const waits = await lockWaits(observer!)
-          const nested = waits.find(
-            (wait) => wait.query.includes('"channels"') && wait.blockedBy.includes(holderPid)
+        await scope.run('nested channel wait', () =>
+          waitFor(
+            async () => {
+              const waits = await lockWaits(observer!)
+              const nested = waits.find(
+                (wait) => wait.query.includes('"channels"') && wait.blockedBy.includes(holderPid)
+              )
+              if (nested) nestedPid = nested.pid
+              return nested !== undefined
+            },
+            'nested channel wait',
+            bodyDeadline
           )
-          if (nested) nestedPid = nested.pid
-          return nested !== undefined
-        }, 'nested channel wait')
+        )
         // PROOF 2: the flip is ALREADY visible to a separate connection
         // while the intent-cancel still waits — the structural inversion of
         // the old nesting (uncommitted `dispatching`).
-        const [visible] = await observer!.db
-          .select({ state: schema.addressedAgentTurns.state })
-          .from(schema.addressedAgentTurns)
-          .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
-          .limit(1)
+        const [visible] = await scope.run('read visible cancelled state', () =>
+          observer!.db
+            .select({ state: schema.addressedAgentTurns.state })
+            .from(schema.addressedAgentTurns)
+            .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
+            .limit(1)
+        )
         expect(visible?.state).toBe('cancelled')
         // Release: the holder's claim request proceeds (nothing holds the
         // claim lock anymore), the nested call fails fast typed, and cancel
@@ -499,72 +675,122 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         // nested backend leaving the lock wait (a single snapshot could be
         // stale), then assert the typed outcome.
         releaseHolder?.()
-        await withTimeout(holding!, 5000, 'holder completion')
-        await waitFor(async () => {
-          const waits = await lockWaits(observer!)
-          return !waits.some((wait) => wait.pid === nestedPid)
-        }, 'nested drain')
-        await expect(cancelling!).resolves.toEqual({
-          runtimeCancelRequested: false,
-          state: 'cancelled',
-        })
-        const [final] = await connection.db
-          .select({ state: schema.addressedAgentTurns.state })
-          .from(schema.addressedAgentTurns)
-          .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
-          .limit(1)
+        await scope.run('holder completion', () => holding!)
+        await scope.run('nested drain', () =>
+          waitFor(
+            async () => {
+              const waits = await lockWaits(observer!)
+              return !waits.some((wait) => wait.pid === nestedPid)
+            },
+            'nested drain',
+            bodyDeadline
+          )
+        )
+        await scope.run('cancel operation completion', () =>
+          expect(cancelling!).resolves.toEqual({
+            runtimeCancelRequested: false,
+            state: 'cancelled',
+          })
+        )
+        const [final] = await scope.run('read final cancelled state', () =>
+          primary!.db
+            .select({ state: schema.addressedAgentTurns.state })
+            .from(schema.addressedAgentTurns)
+            .where(eq(schema.addressedAgentTurns.id, dispatched.claim.turn.id))
+            .limit(1)
+        )
         expect(final?.state).toBe('cancelled')
       },
-      async () => {
+      async (deadline) => {
         releaseHolder?.()
-        let holdingOutcome = holding
-          ? await observeOwned(holding, 3000, 'holding before owned-backend cut')
-          : null
-        let cancellingOutcome = cancelling
-          ? await observeOwned(cancelling, 3000, 'cancelling before owned-backend cut')
-          : null
+        const [holdingBeforeCut, cancellingBeforeCut] = await Promise.all([
+          holding
+            ? observeOwned(
+                holding,
+                remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                'holding before owned-backend cut'
+              )
+            : Promise.resolve(null),
+          cancelling
+            ? observeOwned(
+                cancelling,
+                remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                'cancelling before owned-backend cut'
+              )
+            : Promise.resolve(null),
+        ])
+        let holdingOutcome = holdingBeforeCut
+        let cancellingOutcome = cancellingBeforeCut
         let holderCut = false
         let nestedCut = false
-
-        if (holdingOutcome?.status === 'timeout' && holderPid !== 0 && observer) {
-          const cut = await observeOwned(
-            Promise.resolve().then(() =>
-              observer!.db.execute(sql`SELECT pg_cancel_backend(${holderPid}) AS cancelled`)
-            ),
-            3000,
-            'cut owned holder backend'
-          )
+        const holderNeedsCut =
+          holdingOutcome?.status === 'timeout' && holderPid !== 0 && observer !== null
+        const nestedNeedsCut =
+          cancellingOutcome?.status === 'timeout' && nestedPid !== 0 && observer !== null
+        const [holderCutOutcome, holdingAfterCut, nestedCutOutcome, cancellingAfterCut] =
+          await Promise.all([
+            holderNeedsCut
+              ? observeOwned(
+                  Promise.resolve().then(() =>
+                    observer!.db.execute(sql`SELECT pg_cancel_backend(${holderPid}) AS cancelled`)
+                  ),
+                  remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                  'cut owned holder backend'
+                )
+              : Promise.resolve(null),
+            holderNeedsCut
+              ? observeOwned(
+                  holding!,
+                  remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                  'holding after owned-backend cut'
+                )
+              : Promise.resolve(null),
+            nestedNeedsCut
+              ? observeOwned(
+                  Promise.resolve().then(() =>
+                    observer!.db.execute(sql`SELECT pg_cancel_backend(${nestedPid}) AS cancelled`)
+                  ),
+                  remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                  'cut owned nested backend'
+                )
+              : Promise.resolve(null),
+            nestedNeedsCut
+              ? observeOwned(
+                  cancelling!,
+                  remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+                  'cancelling after owned-backend cut'
+                )
+              : Promise.resolve(null),
+          ])
+        if (holderCutOutcome !== null) {
           holderCut =
-            cut.status === 'fulfilled' &&
-            Boolean((cut.value as { cancelled?: unknown }[] | undefined)?.[0]?.cancelled)
-          holdingOutcome = await observeOwned(holding!, 3000, 'holding after owned-backend cut')
+            holderCutOutcome.status === 'fulfilled' &&
+            Boolean(
+              (holderCutOutcome.value as { cancelled?: unknown }[] | undefined)?.[0]?.cancelled
+            )
+          holdingOutcome = holdingAfterCut
         }
-        if (cancellingOutcome?.status === 'timeout' && nestedPid !== 0 && observer) {
-          const cut = await observeOwned(
-            Promise.resolve().then(() =>
-              observer!.db.execute(sql`SELECT pg_cancel_backend(${nestedPid}) AS cancelled`)
-            ),
-            3000,
-            'cut owned nested backend'
-          )
+        if (nestedCutOutcome !== null) {
           nestedCut =
-            cut.status === 'fulfilled' &&
-            Boolean((cut.value as { cancelled?: unknown }[] | undefined)?.[0]?.cancelled)
-          cancellingOutcome = await observeOwned(
-            cancelling!,
-            3000,
-            'cancelling after owned-backend cut'
-          )
+            nestedCutOutcome.status === 'fulfilled' &&
+            Boolean(
+              (nestedCutOutcome.value as { cancelled?: unknown }[] | undefined)?.[0]?.cancelled
+            )
+          cancellingOutcome = cancellingAfterCut
         }
 
-        const closeHolder = holder ? await closeOwned(holder, 3000, 'holder') : 'absent'
-        const closeCanceller = canceller ? await closeOwned(canceller, 3000, 'canceller') : 'absent'
-        const closeObserver = observer ? await closeOwned(observer, 3000, 'observer') : 'absent'
+        const [closePrimary, closeHolder, closeCanceller, closeObserver] = await Promise.all([
+          closeOwnedUntil(primary, deadline, 'primary'),
+          closeOwnedUntil(holder, deadline, 'holder'),
+          closeOwnedUntil(canceller, deadline, 'canceller'),
+          closeOwnedUntil(observer, deadline, 'observer'),
+        ])
         const cleanup = {
           cancelling: cancellingOutcome?.status ?? 'absent',
           closeCanceller,
           closeHolder,
           closeObserver,
+          closePrimary,
           holderCut: String(holderCut),
           holding: holdingOutcome?.status ?? 'absent',
           nestedCut: String(nestedCut),
@@ -573,10 +799,13 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
         expect(cleanup.closeCanceller).toBe('closed')
         expect(cleanup.closeHolder).toBe('closed')
         expect(cleanup.closeObserver).toBe('closed')
+        expect(cleanup.closePrimary).toBe('closed')
         expect(cleanup.holding).not.toBe('timeout')
         expect(cleanup.holderCut).toBe('false')
         expect(cleanup.nestedCut).toBe('false')
-      }
+      },
+      cleanupDeadline,
+      bodyDeadline
     )
   })
 
@@ -934,7 +1163,141 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     expect(runtime?.cancelRequestedAt).not.toBeNull()
   })
 
+  T('human-post cancellation waits for commit and retries a missed follow-up', async () => {
+    const f = await leadGroup()
+
+    const dispatchAndBind = async (triggerMessageId: string) => {
+      const input = claimInput(f.channelId, triggerMessageId, f.lead.id, f.owner)
+      const claimed = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input, {
+        now: NOW,
+      })
+      expect(claimed.status).toBe('claimed')
+      await dispatchAddressedTurn(connection.db, f.workspace.id, f.owner, input, { now: NOW })
+      const [turn] = await connection.db
+        .select()
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.id, claimed.turn.id))
+        .limit(1)
+      expect(turn?.intentId).not.toBeNull()
+      const [workspace] = await connection.db
+        .select()
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, f.workspace.id))
+      const execution = crypto
+        .randomUUID()
+        .replaceAll('-', '')
+        .slice(0, 26)
+        .toUpperCase()
+        .replace(/[ILOU]/g, '0')
+      const pin = {
+        attemptId: `att_${execution}`,
+        executionId: `exe_${execution}`,
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        intentId: turn!.intentId!,
+        preparationRef: `prep_${crypto.randomUUID().replaceAll('-', '')}`,
+        selectionRef: `msel_${crypto.randomUUID().replaceAll('-', '')}`,
+        selectionRevision: 1,
+        workspaceId: workspace!.controlPlaneWorkspaceId,
+      }
+      await prepareLeadTurnRuntime(connection.db, f.workspace.id, turn!.intentId!, f.owner, pin)
+      await markLeadTurnDispatchPending(
+        connection.db,
+        f.workspace.id,
+        turn!.intentId!,
+        f.owner,
+        pin
+      )
+      await observeLeadTurnRuntime(connection.db, f.workspace.id, turn!.intentId!, f.owner, {
+        ...pin,
+        dispatchId: `dispatch_${crypto.randomUUID().replaceAll('-', '')}`,
+        observedAt: new Date().toISOString(),
+        runtimeSessionId: `ses_${execution}`,
+        state: 'running',
+      })
+      return { intentId: turn!.intentId!, turnId: turn!.id }
+    }
+
+    const missedFollowUp = await dispatchAndBind(f.triggerMessageId)
+    const firstPost = await connection.db.transaction((transaction) =>
+      postGroupChannelMessageInTransaction(
+        transaction,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        f.owner,
+        {
+          message: { bodyText: 'first human update', idempotencyKey: crypto.randomUUID() },
+          mode: 'direct',
+        },
+        { now: NOW }
+      )
+    )
+    const [missedRuntime] = await connection.db
+      .select({ cancelRequestedAt: schema.leadTurnRuntime.cancelRequestedAt })
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, missedFollowUp.intentId))
+    const [superseded] = await connection.db
+      .select({ state: schema.addressedAgentTurns.state })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, missedFollowUp.turnId))
+    expect(superseded?.state).toBe('superseded')
+    expect(missedRuntime?.cancelRequestedAt).toBeNull()
+
+    const recovered = await dispatchAndBind(firstPost.id)
+    const secondPost = await postGroupChannelMessage(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      f.owner,
+      {
+        message: { bodyText: 'second human update', idempotencyKey: crypto.randomUUID() },
+        mode: 'direct',
+      },
+      { now: NOW }
+    )
+    for (const intentId of [missedFollowUp.intentId, recovered.intentId]) {
+      const [runtime] = await connection.db
+        .select({ cancelRequestedAt: schema.leadTurnRuntime.cancelRequestedAt })
+        .from(schema.leadTurnRuntime)
+        .where(eq(schema.leadTurnRuntime.intentId, intentId))
+      expect(runtime?.cancelRequestedAt).not.toBeNull()
+    }
+
+    const rollback = await dispatchAndBind(secondPost.id)
+    await expect(
+      connection.db.transaction(async (transaction) => {
+        await postGroupChannelMessageInTransaction(
+          transaction,
+          f.workspace.id,
+          f.channelId,
+          f.owner,
+          f.owner,
+          {
+            message: { bodyText: 'rolled back update', idempotencyKey: crypto.randomUUID() },
+            mode: 'direct',
+          },
+          { now: NOW }
+        )
+        throw new Error('rollback human post')
+      })
+    ).rejects.toThrow('rollback human post')
+    const [rolledBackTurn] = await connection.db
+      .select({ state: schema.addressedAgentTurns.state })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, rollback.turnId))
+    const [rolledBackRuntime] = await connection.db
+      .select({ cancelRequestedAt: schema.leadTurnRuntime.cancelRequestedAt })
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, rollback.intentId))
+    expect(rolledBackTurn?.state).toBe('dispatching')
+    expect(rolledBackRuntime?.cancelRequestedAt).toBeNull()
+  })
+
   T('observer failure still releases parks and closes pools boundedly', async () => {
+    const cleanupDeadline = Date.now() + TEST_TIMEOUT_MS - TEST_CLEANUP_MARGIN_MS
+    const bodyDeadline = cleanupDeadline - CLEANUP_OPERATION_TIMEOUT_MS * 5
+    let primary: DatabaseConnection | null = null
     let holder: DatabaseConnection | null = null
     let observer: DatabaseConnection | null = null
     let releaseHolder: (() => void) | null = null
@@ -948,8 +1311,10 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
     let observerClosed = false
     let cleanup: Record<string, string> | null = null
     await preservingCleanup(
-      async () => {
-        const f = await leadGroup()
+      async (scope) => {
+        primary = createDatabase(connectionUrl!)
+        const f = await leadGroup(primary.db, scope.run)
+        scope.assertActive()
         holder = createDatabase(connectionUrl!)
         observer = createDatabase(connectionUrl!)
         let holderParked!: () => void
@@ -989,28 +1354,49 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
             holderDone = true
           }
         })()
-        await withTimeout(holderParkedPromise, 8000, 'holderParked')
-        expect(await closeOwned(observer, 3000, 'observer-injected')).toBe('closed')
+        await scope.run('holderParked', () => holderParkedPromise)
+        expect(
+          await scope.run('close injected observer', () =>
+            closeOwnedUntil(observer, bodyDeadline, 'observer-injected')
+          )
+        ).toBe('closed')
         observerClosed = true
-        const observed = await observeOwned(lockWaits(observer), 3000, 'observer query after close')
+        const observed = await scope.run('observer query after close', () =>
+          observeOwned(
+            lockWaits(observer!),
+            remainingTimeoutMs(bodyDeadline, CLEANUP_OPERATION_TIMEOUT_MS),
+            'observer query after close'
+          )
+        )
         expect(observed.status).toBe('rejected')
       },
-      async () => {
+      async (deadline) => {
         releaseHolder?.()
         let holdingOutcome: OwnedObservation<void> | null = null
-        if (holding) holdingOutcome = await observeOwned(holding, 3000, 'holding before close')
+        if (holding)
+          holdingOutcome = await observeOwned(
+            holding,
+            remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+            'holding before close'
+          )
         if (holdingOutcome?.status === 'timeout') holderCloseRequested = true
 
-        const closeHolder = holder ? await closeOwned(holder, 3000, 'holder') : 'absent'
+        const [closePrimary, closeHolder, closeObserver] = await Promise.all([
+          closeOwnedUntil(primary, deadline, 'primary'),
+          closeOwnedUntil(holder, deadline, 'holder'),
+          observerClosed
+            ? Promise.resolve('closed' as const)
+            : closeOwnedUntil(observer, deadline, 'observer-cleanup'),
+        ])
         if (holdingOutcome?.status === 'timeout' && holding) {
-          holdingOutcome = await observeOwned(holding, 3000, 'holding after close')
+          holdingOutcome = await observeOwned(
+            holding,
+            remainingTimeoutMs(deadline, CLEANUP_OPERATION_TIMEOUT_MS),
+            'holding after close'
+          )
         }
-        const closeObserver = observerClosed
-          ? 'closed'
-          : observer
-            ? await closeOwned(observer, 3000, 'observer-cleanup')
-            : 'absent'
         cleanup = {
+          closePrimary,
           closeHolder,
           closeObserver,
           holding: holdingOutcome?.status ?? 'absent',
@@ -1027,27 +1413,34 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
           })
         }
         expect(cleanup).toEqual({
+          closePrimary: 'closed',
           closeHolder: 'closed',
           closeObserver: 'closed',
           holding: 'fulfilled',
         })
         expect(holderDone).toBe(true)
-      }
+      },
+      cleanupDeadline,
+      bodyDeadline
     )
 
     const fresh = createDatabase(connectionUrl!)
+    const freshBodyDeadline = Math.min(
+      cleanupDeadline - CLEANUP_OPERATION_TIMEOUT_MS,
+      Date.now() + CLEANUP_OPERATION_TIMEOUT_MS
+    )
     await preservingCleanup(
-      async () => {
-        const [one] = await withTimeout(
-          fresh.db.execute(sql`SELECT 1 AS one`),
-          3000,
-          'fresh-pool query'
+      async (scope) => {
+        const [one] = await scope.run('fresh-pool query', () =>
+          fresh.db.execute(sql`SELECT 1 AS one`)
         )
         expect((one as { one: number }).one).toBe(1)
       },
-      async () => {
-        expect(await closeOwned(fresh, 3000, 'fresh')).toBe('closed')
-      }
+      async (deadline) => {
+        expect(await closeOwnedUntil(fresh, deadline, 'fresh')).toBe('closed')
+      },
+      cleanupDeadline,
+      freshBodyDeadline
     )
   })
 })
