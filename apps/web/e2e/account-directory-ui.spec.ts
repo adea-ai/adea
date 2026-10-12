@@ -1,12 +1,17 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
-import { createAgent } from '../../../packages/db/src/agents'
+import {
+  changeAgentProfile,
+  createAgent,
+  updateAgentPresentation,
+} from '../../../packages/db/src/agents'
 import {
   archiveChannel,
   createGroupChannel,
   createMessage,
   setChannelParticipants,
+  updateChannel,
 } from '../../../packages/db/src/conversations'
 import { createDatabase, type DatabaseConnection } from '../../../packages/db/src/connection'
 import { createTemporaryUserSession } from '../../../packages/db/src/identity'
@@ -251,15 +256,26 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await seedAgent(teamWorkspaceId, owner, 'Browser UI Studio Alpha')
     await seedAgent(teamWorkspaceId, owner, 'Browser UI Studio Beta')
     await seedAgent(teamWorkspaceId, owner, 'Browser UI Garden Helper')
+    await seedAgent(homeWorkspaceId, owner, 'Browser UI Studio Home Agent')
+    await seedAgent(homeWorkspaceId, owner, 'Browser UI Home Garden Agent')
     const studioLane = await seedConversation(teamWorkspaceId, owner, 'Browser UI Studio Sync')
     const gardenLane = await seedConversation(teamWorkspaceId, owner, 'Browser UI Garden Club')
     const retiredLane = await seedConversation(teamWorkspaceId, owner, 'Browser UI Retired Lane')
+    const homeStudioLane = await seedConversation(homeWorkspaceId, owner, 'Browser UI Studio Home')
+    const homeRetiredLane = await seedConversation(
+      homeWorkspaceId,
+      owner,
+      'Browser UI Home Retired Lane'
+    )
     const localLane = await seedConversation(homeWorkspaceId, owner, 'Browser UI Local Filter Lane')
     await seedMessage(teamWorkspaceId, studioLane.id, owner)
     await seedMessage(teamWorkspaceId, gardenLane.id, owner)
     await seedMessage(teamWorkspaceId, retiredLane.id, owner)
+    await seedMessage(homeWorkspaceId, homeStudioLane.id, owner)
+    await seedMessage(homeWorkspaceId, homeRetiredLane.id, owner)
     await seedMessage(homeWorkspaceId, localLane.id, owner)
     await archiveConversation(teamWorkspaceId, retiredLane.id, owner)
+    await archiveConversation(homeWorkspaceId, homeRetiredLane.id, owner)
 
     await openSignedInApp(page)
 
@@ -278,8 +294,8 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await page.getByRole('button', { name: 'Agents', exact: true }).first().click()
     await expect(page.getByRole('heading', { level: 1, name: 'Agents' })).toBeVisible()
 
-    // Account results are server searched and live inside the existing durable
-    // identity view; the workspace-local roster remains intact above them.
+    // One server-searched list includes current and other workspaces. Current
+    // active identities keep their existing editable Agent cards.
     const agentSearch = page.getByRole('searchbox', { name: 'Search Agents across workspaces' })
     const studioAnswers = page.waitForResponse(
       (response) =>
@@ -295,20 +311,46 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await expect(
       page.getByRole('button', { name: /Open Browser UI Studio Beta in Browser UI Team Workspace/ })
     ).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Browser UI Studio Home Agent' })
+    ).toBeVisible()
     await expect(page.getByRole('button', { name: /Open Browser UI Garden Helper/ })).toHaveCount(0)
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Browser UI Home Garden Agent' })
+    ).toHaveCount(0)
 
     // Clearing the box restores the full walk; a term nothing matches lands
     // on the search empty state, not on a stale list.
     await agentSearch.fill('')
     await expect(page.getByRole('button', { name: /Open Browser UI Garden Helper/ })).toBeVisible()
+    const emptyAgentAnswers = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/account/agents') &&
+        response.url().includes('q=no-such-agent-zzz')
+    )
     await agentSearch.fill('no-such-agent-zzz')
+    await emptyAgentAnswers
+    await expect(agentSearch).toHaveValue('no-such-agent-zzz')
     await expect(page.getByText('No authorized Agent name matches this search.')).toBeVisible()
     await agentSearch.fill('')
 
-    // The embedded inbox keeps its own authorized title search and archive scope.
+    // The same account query drives current and other workspace rows.
     const studioRow = page.getByRole('button', { name: /Browser UI Studio Sync/ })
     await expect(studioRow).toBeVisible()
+    await expect(
+      conversationsSection.getByRole('button', {
+        name: 'Browser UI Studio Home',
+        exact: true,
+      })
+    ).toBeVisible()
+    await expect(
+      conversationsSection.getByRole('button', {
+        name: 'Browser UI Local Filter Lane',
+        exact: true,
+      })
+    ).toBeVisible()
     await expect(page.getByRole('button', { name: /Browser UI Retired Lane/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Browser UI Home Retired Lane/ })).toHaveCount(0)
 
     const archivedAnswers = page.waitForResponse(
       (response) =>
@@ -326,6 +368,9 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await expect(retiredRow).toBeVisible()
     await expect(retiredRow).toHaveAccessibleName(/archived/)
     await expect(retiredRow.getByText('Archived')).toBeVisible()
+    const homeRetiredRow = page.getByRole('button', { name: /Browser UI Home Retired Lane/ })
+    await expect(homeRetiredRow).toBeVisible()
+    await expect(homeRetiredRow).toHaveAccessibleName(/archived/)
 
     // Searching while the archive scope is on still goes to the server.
     const inboxSearch = conversationsSection.getByRole('searchbox', {
@@ -339,6 +384,18 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await inboxSearch.fill('studio')
     await titleAnswers
     await expect(studioRow).toBeVisible()
+    await expect(
+      conversationsSection.getByRole('button', {
+        name: 'Browser UI Studio Home',
+        exact: true,
+      })
+    ).toBeVisible()
+    await expect(
+      conversationsSection.getByRole('button', {
+        name: 'Browser UI Local Filter Lane',
+        exact: true,
+      })
+    ).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Browser UI Garden Club/ })).toHaveCount(0)
     await inboxSearch.fill('')
     await expect(page.getByRole('button', { name: /Browser UI Garden Club/ })).toBeVisible()
@@ -349,6 +406,165 @@ test.describe('the account directory and inbox driven through their UI', () => {
     await page.goto('/?directory=agents')
     await expect(page).not.toHaveURL(/directory=/)
     await expect(page.getByRole('heading', { level: 1, name: 'Agents' })).toBeVisible()
+  })
+
+  test('account lists preserve loaded pages, focus, and same-ID local updates', async ({
+    page,
+    context,
+  }) => {
+    test.slow()
+    const { homeWorkspaceId, principal: owner } = await signIn(context)
+    const agentFixtures = []
+    const conversationFixtures = []
+    for (let index = 0; index < 26; index += 1) {
+      const suffix = String(index).padStart(2, '0')
+      agentFixtures.push(
+        await seedAgent(homeWorkspaceId, owner, `Browser UI Reactivity Agent ${suffix}`)
+      )
+      conversationFixtures.push(
+        await seedConversation(homeWorkspaceId, owner, `Browser UI Reactivity Group ${suffix}`)
+      )
+    }
+
+    await openSignedInApp(page)
+
+    const conversationsSection = page.getByRole('region', { name: 'Conversations' })
+    await expect(conversationsSection.getByText('Across your workspaces')).toBeVisible()
+    const inboxSearch = conversationsSection.getByRole('searchbox', {
+      name: 'Search conversations across workspaces',
+    })
+    const loadMoreConversations = conversationsSection.getByRole('button', {
+      name: 'Load more conversations',
+    })
+    await expect(loadMoreConversations).toBeVisible()
+    const inboxPageTwoResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/v1/account/conversations' && url.searchParams.has('after')
+    })
+    await loadMoreConversations.click()
+    const inboxPageTwo = (await (await inboxPageTwoResponse).json()) as {
+      conversations: { id: string; title: string }[]
+    }
+    expect(inboxPageTwo.conversations).toHaveLength(1)
+    const pageTwoConversation = inboxPageTwo.conversations[0]!
+    await expect(
+      conversationsSection.getByRole('button', { name: pageTwoConversation.title, exact: true })
+    ).toBeVisible()
+
+    await inboxSearch.focus()
+    const channelToUpdate = conversationFixtures.at(-1)!
+    const updatedChannel = await updateChannel(
+      connection.db,
+      homeWorkspaceId,
+      channelToUpdate.id,
+      owner,
+      { title: 'Browser UI Reactivity Group Updated' },
+      channelToUpdate.version
+    )
+    await expect(
+      conversationsSection.getByRole('button', { name: updatedChannel.title, exact: true })
+    ).toBeVisible()
+    await expect(inboxSearch).toBeFocused()
+    await expect(
+      conversationsSection.getByRole('button', { name: pageTwoConversation.title, exact: true })
+    ).toBeVisible()
+
+    await page.getByRole('button', { name: 'Agents', exact: true }).first().click()
+    const agentSearch = page.getByRole('searchbox', { name: 'Search Agents across workspaces' })
+    const loadMoreAgents = page.getByRole('button', { name: 'Load more Agents' })
+    await expect(loadMoreAgents).toBeVisible()
+    const agentPageTwoResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/v1/account/agents' && url.searchParams.has('after')
+    })
+    await loadMoreAgents.click()
+    const initialAgentPageTwoResponse = await agentPageTwoResponse
+    const initialAgentPageTwoUrl = new URL(initialAgentPageTwoResponse.url())
+    const initialAgentPageTwo = (await initialAgentPageTwoResponse.json()) as {
+      agents: { id: string; name: string }[]
+    }
+    const initialPageTwoCursor = initialAgentPageTwoUrl.searchParams.get('after')
+    const pageTwoAgent = initialAgentPageTwo.agents.find(
+      ({ name }) => name === agentFixtures.at(-1)!.name
+    )!
+    expect(pageTwoAgent).toBeDefined()
+    await expect(page.getByRole('heading', { level: 2, name: pageTwoAgent.name })).toBeVisible()
+
+    await agentSearch.focus()
+    const agentToUpdate = agentFixtures[0]!
+    const profileId = `prf_${'0'.repeat(25)}2`
+    const profileVersion = `pfv_${'0'.repeat(25)}2`
+    await changeAgentProfile(connection.db, homeWorkspaceId, agentToUpdate.id, owner, {
+      expectedRevision: agentToUpdate.profile.revision,
+      profileId,
+      profileVersion,
+    })
+    const updatedAgent = await updateAgentPresentation(
+      connection.db,
+      homeWorkspaceId,
+      agentToUpdate.id,
+      owner,
+      {
+        expectedRevision: agentToUpdate.revision,
+        roleSummary: 'Local same-ID update reached the mounted roster.',
+      }
+    )
+    await expect(page.getByText('Local same-ID update reached the mounted roster.')).toBeVisible()
+    await expect(page.getByText(`${profileId} · ${profileVersion}`, { exact: true })).toBeVisible()
+    await expect(agentSearch).toBeFocused()
+    await expect(page.getByRole('heading', { level: 2, name: pageTwoAgent.name })).toBeVisible()
+
+    const updatedAgentCard = page
+      .locator('article')
+      .filter({
+        has: page.getByRole('heading', { level: 2, name: agentToUpdate.name, exact: true }),
+      })
+      .first()
+    await updatedAgentCard.getByRole('button', { name: 'Customize', exact: true }).click()
+    const customization = page.locator('form.conventional-agent-customization')
+    await expect(customization.getByLabel('Profile version ID')).toHaveValue(profileVersion)
+    await customization
+      .getByLabel('Role or persona')
+      .fill('Customize submits the refreshed Agent revision.')
+    const presentationUpdate = page.waitForRequest(
+      (request) => request.method() === 'PATCH' && request.url().endsWith('/presentation')
+    )
+    await customization.getByRole('button', { name: 'Save changes' }).click()
+    expect((await presentationUpdate).postDataJSON()).toMatchObject({
+      expectedRevision: updatedAgent.revision,
+      roleSummary: 'Customize submits the refreshed Agent revision.',
+    })
+
+    // Renaming the last Agent on page one of the next 25 into the first 25
+    // shifts the keyset boundary. The refreshed page two must be requested
+    // after its predecessor's new cursor, retaining the focused search control.
+    const boundaryAgent = agentFixtures.at(-1)!
+    const boundaryName = 'Browser UI Reactivity Agent 00 boundary'
+    await agentSearch.focus()
+    const rebasedPageTwoResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return (
+        url.pathname === '/api/v1/account/agents' &&
+        url.searchParams.has('after') &&
+        url.searchParams.get('after') !== initialPageTwoCursor
+      )
+    })
+    await updateAgentPresentation(connection.db, homeWorkspaceId, boundaryAgent.id, owner, {
+      expectedRevision: boundaryAgent.revision,
+      name: boundaryName,
+    })
+    const rebasedPageTwo = (await (await rebasedPageTwoResponse).json()) as {
+      agents: { id: string; name: string }[]
+    }
+    expect(rebasedPageTwo.agents.map(({ name }) => name)).toEqual([
+      'Browser UI Reactivity Agent 24',
+      'Workspace lead',
+    ])
+    await expect(page.getByRole('heading', { level: 2, name: boundaryName })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Browser UI Reactivity Agent 24', exact: true })
+    ).toBeVisible()
+    await expect(agentSearch).toBeFocused()
   })
 
   test('a linked job opens the board and returns to the same conversation with its draft', async ({
@@ -371,9 +587,22 @@ test.describe('the account directory and inbox driven through their UI', () => {
 
     await openSignedInApp(page)
 
-    // The canonical sidebar row switches to its owner workspace and opens the
-    // same durable conversation id.
-    const row = page.getByRole('button', { name: /Browser UI Journey Lane/ })
+    // The account search stays in force while its result switches to the owner
+    // workspace and opens the same durable conversation id.
+    const conversationsSection = page.getByRole('region', { name: 'Conversations' })
+    const inboxSearch = conversationsSection.getByRole('searchbox', {
+      name: 'Search conversations across workspaces',
+    })
+    const journeyAnswers = page.waitForResponse(
+      (response) =>
+        response.url().includes('/api/v1/account/conversations') &&
+        response.url().includes('q=journey')
+    )
+    await inboxSearch.fill('journey')
+    await journeyAnswers
+    const row = conversationsSection.getByRole('button', {
+      name: /Browser UI Journey Lane.*in Browser UI Journey Workspace/,
+    })
     await expect(row).toBeVisible()
     await row.click()
     const composer = page.getByRole('textbox', { name: 'Message' }).first()
@@ -386,7 +615,7 @@ test.describe('the account directory and inbox driven through their UI', () => {
       page.getByRole('heading', { level: 1, name: 'Browser UI Journey Lane' })
     ).toBeVisible()
     await expect(page.getByText('The linked job anchor message.')).toBeVisible()
-    const conversationsSection = page.getByRole('region', { name: 'Conversations' })
+    await expect(inboxSearch).toHaveValue('journey')
     await expect(
       conversationsSection.getByRole('button', {
         name: 'Browser UI Journey Lane',
@@ -400,7 +629,7 @@ test.describe('the account directory and inbox driven through their UI', () => {
     const globalConversationRow = page
       .getByRole('region', { name: 'Conversations' })
       .getByRole('button', {
-        name: 'Browser UI Journey Lane, in Browser UI Journey Workspace',
+        name: /Browser UI Journey Lane/,
         exact: true,
       })
     await expect(globalConversationRow).toBeVisible()

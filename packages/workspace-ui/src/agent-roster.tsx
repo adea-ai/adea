@@ -1,6 +1,6 @@
 import type { AgentSummary, ProjectSummary } from '@adea-ai/types'
 import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
-import { createMemo, createSignal, For, Show, type JSX } from 'solid-js'
+import { createMemo, createSignal, For, Show, untrack, type Accessor, type JSX } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
 import { agentProfileActionNotice } from './agent-profile-notice'
@@ -35,7 +35,10 @@ export type AgentCustomizationInput = Readonly<{
 
 type Props = Readonly<{
   /** Account-wide durable identities mounted in this existing Agents view. */
-  accountDirectory?: JSX.Element
+  accountDirectory?: (context: {
+    agents: Accessor<readonly AgentSummary[]>
+    renderAgent: (agent: Accessor<AgentSummary>) => JSX.Element
+  }) => JSX.Element
   /** Lead setup status, placed inside the directory's padding under the header. */
   leadStatus?: JSX.Element
   agents: readonly AgentSummary[]
@@ -54,6 +57,64 @@ type Props = Readonly<{
   projects: readonly ProjectSummary[]
 }>
 
+function AgentRosterCard(props: {
+  agent: Accessor<AgentSummary>
+  projectById: Accessor<ReadonlyMap<string, ProjectSummary>>
+  onMessage: (agent: AgentSummary) => void
+  onCustomize: (agent: AgentSummary) => void
+}) {
+  const agent = () => props.agent()
+  return (
+    <article>
+      <Card>
+        <CardHeader>
+          <Avatar size="lg" aria-hidden="true">
+            <AvatarFallback name={agent().name} />
+          </Avatar>
+          <CardTitle role="heading" aria-level="2">
+            {agent().name}
+          </CardTitle>
+          <AgentStatus agent={agent()} compact />
+        </CardHeader>
+        <CardContent>
+          <div class="grid gap-3">
+            <p>{agent().roleSummary ?? 'No role summary yet.'}</p>
+            <PropertyList>
+              <PropertyTerm>Profile</PropertyTerm>
+              <PropertyValue>
+                {agent().profile.id} · {agent().profile.version}
+              </PropertyValue>
+              <PropertyTerm>Project</PropertyTerm>
+              <PropertyValue>
+                {agent().projectId
+                  ? (props.projectById().get(agent().projectId!)?.name ?? 'Unavailable Project')
+                  : 'Unassigned'}
+              </PropertyValue>
+              <PropertyTerm>Profile state</PropertyTerm>
+              <PropertyValue>{agent().profile.state}</PropertyValue>
+            </PropertyList>
+            <Show when={agent().profile.state !== 'available'}>
+              <p>{agentProfileStateNotice(agent().profile)}</p>
+            </Show>
+          </div>
+        </CardContent>
+        <CardFooter>
+          <div class="flex w-full flex-col items-stretch gap-2">
+            <Button type="button" variant="outline" onClick={() => props.onMessage(agent())}>
+              <MessageCircle aria-hidden="true" />
+              Open conversation
+            </Button>
+            <Button type="button" variant="outline" onClick={() => props.onCustomize(agent())}>
+              <Pencil aria-hidden="true" />
+              Customize
+            </Button>
+          </div>
+        </CardFooter>
+      </Card>
+    </article>
+  )
+}
+
 export function AgentRoster(props: Props) {
   const [creating, setCreating] = createSignal(false)
   // Keep the opening revision through refetches; a concurrent edit must conflict.
@@ -69,6 +130,25 @@ export function AgentRoster(props: Props) {
     (agent) => agent.id,
     (previous, next) => previous.updatedAt === next.updatedAt
   )
+  const renderAgent = (agent: Accessor<AgentSummary>) => (
+    <AgentRosterCard
+      agent={agent}
+      projectById={projectById}
+      onMessage={(current) => void props.onMessage(current.id)}
+      onCustomize={setEditingAgent}
+    />
+  )
+  // Mount the account directory once for this roster lifetime. Its local data
+  // and row renderers arrive as accessors, so refetches update the mounted
+  // directory without replacing its query observers or focused controls.
+  const accountDirectoryContent = props.accountDirectory
+    ? untrack(() =>
+        props.accountDirectory!({
+          agents: () => props.agents,
+          renderAgent,
+        })
+      )
+    : undefined
 
   return (
     <section class="conventional-directory" aria-labelledby="agent-roster-title">
@@ -87,7 +167,13 @@ export function AgentRoster(props: Props) {
       <Show when={props.leadStatus}>
         {(status) => <div class="conventional-surface-status">{status()}</div>}
       </Show>
-      {props.accountDirectory}
+      {accountDirectoryContent ? (
+        accountDirectoryContent
+      ) : (
+        <div class="conventional-agent-grid">
+          <For each={agentRows()}>{(entry) => renderAgent(entry.item)}</For>
+        </div>
+      )}
       <Show when={creating()}>
         <AgentCreateForm
           busy={props.busy}
@@ -133,69 +219,7 @@ export function AgentRoster(props: Props) {
           />
         )}
       </Show>
-      <div class="conventional-agent-grid">
-        <For each={agentRows()}>
-          {(entry) => (
-            <article>
-              <Card>
-                <CardHeader>
-                  <Avatar size="lg" aria-hidden="true">
-                    <AvatarFallback name={entry.item().name} />
-                  </Avatar>
-                  <CardTitle role="heading" aria-level="2">
-                    {entry.item().name}
-                  </CardTitle>
-                  <AgentStatus agent={entry.item()} compact />
-                </CardHeader>
-                <CardContent>
-                  <div class="grid gap-3">
-                    <p>{entry.item().roleSummary ?? 'No role summary yet.'}</p>
-                    <PropertyList>
-                      <PropertyTerm>Profile</PropertyTerm>
-                      <PropertyValue>
-                        {entry.item().profile.id} · {entry.item().profile.version}
-                      </PropertyValue>
-                      <PropertyTerm>Project</PropertyTerm>
-                      <PropertyValue>
-                        {entry.item().projectId
-                          ? (projectById().get(entry.item().projectId!)?.name ??
-                            'Unavailable Project')
-                          : 'Unassigned'}
-                      </PropertyValue>
-                      <PropertyTerm>Profile state</PropertyTerm>
-                      <PropertyValue>{entry.item().profile.state}</PropertyValue>
-                    </PropertyList>
-                    <Show when={entry.item().profile.state !== 'available'}>
-                      <p>{agentProfileStateNotice(entry.item().profile)}</p>
-                    </Show>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <div class="flex w-full flex-col items-stretch gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void props.onMessage(entry.item().id)}
-                    >
-                      <MessageCircle aria-hidden="true" />
-                      Open conversation
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setEditingAgent(entry.item())}
-                    >
-                      <Pencil aria-hidden="true" />
-                      Customize
-                    </Button>
-                  </div>
-                </CardFooter>
-              </Card>
-            </article>
-          )}
-        </For>
-      </div>
-      <Show when={!props.agents.length}>
+      <Show when={!props.agents.length && !props.accountDirectory}>
         <WorkspaceEmpty
           title="No Agents yet"
           detail="Create a durable Agent identity, then start a direct conversation."

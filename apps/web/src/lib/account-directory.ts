@@ -32,8 +32,8 @@ export const ACCOUNT_INBOX_REFETCH_INTERVAL_MS = 60_000
  * prefix-based, and the shared key builder folds the page input in as a third
  * element, so the prefix is the first two elements of that key.
  */
-const DIRECTORY_KEY_PREFIX = ['account', 'directory'] as const
-const INBOX_KEY_PREFIX = ['account', 'inbox'] as const
+const DIRECTORY_KEY_PREFIX = accountQueryKeys.directoryAll
+const INBOX_KEY_PREFIX = accountQueryKeys.inboxAll
 
 /**
  * The workspace label shown on a directory or inbox row. Only names of
@@ -45,14 +45,6 @@ export function accountWorkspaceLabel(
   workspaceId: string
 ): string {
   return workspaces.find(({ id }) => id === workspaceId)?.name ?? 'Unavailable workspace'
-}
-
-/** Keep the current workspace's established rows in place and surface only the other workspaces here. */
-export function rowsOutsideWorkspace<Row extends Readonly<{ workspaceId: string }>>(
-  rows: readonly Row[],
-  activeWorkspaceId?: string
-): readonly Row[] {
-  return activeWorkspaceId ? rows.filter((row) => row.workspaceId !== activeWorkspaceId) : rows
 }
 
 /**
@@ -194,7 +186,7 @@ export type AccountListPages<Row> = Readonly<{
   isFetchingNextPage: Accessor<boolean>
   /** Appends the next cursor-bounded page. One page per cursor, ever. */
   loadMore: () => void
-  /** Refetches every loaded page. */
+  /** Refreshes loaded pages and rebuilds successor cursors from predecessors. */
   refresh: () => void
 }>
 
@@ -203,10 +195,10 @@ export type AccountListPages<Row> = Readonly<{
  *
  * Each "load more" appends ONE page input whose key carries the cursor, so
  * every loaded page is a normal cache entry under the `['account', …]` prefix:
- * invalidation refetches exactly the pages the surface holds, a workspace
- * switch never touches them, and no code path can fetch without bound — a page
- * is only ever requested on an explicit load-more of the cursor the previous
- * page returned.
+ * invalidation refreshes the loaded walk and re-keys successor pages if an
+ * earlier boundary changes, a workspace switch never touches them, and no
+ * code path can fetch without bound — additional depth only comes from an
+ * explicit load-more of the last settled page's cursor.
  *
  * `baseInput` is the walk's constant part — the authoritative search term and
  * the archive scope. Because it participates in every page's key, cached pages
@@ -263,6 +255,51 @@ function createAccountPages<
     }),
     () => queryClient
   )
+  // A keyset cursor belongs to the last row of its predecessor. Prefix
+  // invalidation refetches all currently loaded keys independently, but if an
+  // insertion or rename changes an earlier page boundary, the old successor
+  // cursor can skip rows that moved across that boundary. Re-key each loaded
+  // successor as its predecessor settles. Keep the existing page count while
+  // a replacement page is loading, then continue the walk from its refreshed
+  // cursor. If a refreshed predecessor has no next cursor, the walk is truly
+  // exhausted and its now-unreachable suffix is removed.
+  createEffect(() => {
+    const inputs = pageInputs()
+    if (inputs.length < 2 || JSON.stringify(inputs[0]) !== JSON.stringify(baseInput())) return
+
+    const nextInputs: AccountDirectoryPageInput[] = [inputs[0]!]
+    for (let pageIndex = 0; pageIndex < inputs.length - 1; pageIndex += 1) {
+      const predecessor = queries[pageIndex]
+      // A pending, refetching, or failed page has no authoritative refreshed
+      // boundary yet. Refetching queries can still expose cached success data,
+      // including an old exhausted cursor, so retain loaded depth until the
+      // fresh response settles and rebuild from that result.
+      if (!predecessor || predecessor.isFetching || !predecessor.isSuccess || !predecessor.data) {
+        nextInputs.push(...inputs.slice(pageIndex + 1))
+        break
+      }
+
+      const cursor = predecessor.data.nextCursor
+      if (!cursor) break
+
+      const successor = { ...baseInput(), after: cursor }
+      nextInputs.push(successor)
+      if (JSON.stringify(successor) !== JSON.stringify(inputs[pageIndex + 1])) {
+        // This page is now keyed to the refreshed boundary. Keep the later
+        // inputs mounted at their current depth; each will be rebuilt after its
+        // newly keyed predecessor returns.
+        nextInputs.push(...inputs.slice(pageIndex + 2))
+        break
+      }
+    }
+
+    if (
+      nextInputs.length !== inputs.length ||
+      nextInputs.some((input, index) => JSON.stringify(input) !== JSON.stringify(inputs[index]))
+    ) {
+      setPageInputs(nextInputs)
+    }
+  })
   const rows = createMemo<readonly Row[]>(() => {
     const seen = new Set<string>()
     const collected: Row[] = []

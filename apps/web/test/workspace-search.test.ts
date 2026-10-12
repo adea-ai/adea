@@ -1,8 +1,11 @@
 import { expect, test } from 'bun:test'
 
 import {
+  legacyDirectoryIntentRouteKey,
   normalizeLegacyDirectorySearch,
+  resolveLegacyDirectoryIntent,
   stripWorkspaceDeepLinkSearch,
+  workspaceSearchKey,
   WORKSPACE_DEEP_LINK_KEYS,
 } from '../src/lib/workspace-search'
 
@@ -64,4 +67,69 @@ test('legacy directory links normalize to the existing Chat surface and drop sta
   expect(normalizeLegacyDirectorySearch({ directory: 'unknown', view: 'dev' })).toEqual({
     search: { view: 'dev' },
   })
+})
+
+test('legacy Agents intent waits for a delayed switch to its explicit workspace', async () => {
+  const sourceSearch = {
+    channel: 'stale-channel',
+    directory: 'agents',
+    task: 'stale-task',
+    view: 'virtual',
+    workspace: 'workspace-team',
+  }
+  const normalized = normalizeLegacyDirectorySearch(sourceSearch)
+  expect(normalized.section).toBe('agents')
+
+  const intent = {
+    accountPrincipalId: 'account-alice',
+    routeKey: legacyDirectoryIntentRouteKey(normalized.search),
+    section: 'agents' as const,
+    sourceSearchKey: workspaceSearchKey(sourceSearch),
+    workspaceId: 'workspace-team',
+  }
+  let activeWorkspaceId = 'workspace-home'
+  let activeSurface: 'conversation' | 'agents' = 'conversation'
+  let finishAuthorization!: () => void
+  const authorization = new Promise<void>((resolve) => (finishAuthorization = resolve))
+  const switchPromise = authorization.then(() => {
+    // The workspace store resets the surface as the authorized switch lands.
+    activeWorkspaceId = 'workspace-team'
+    activeSurface = 'conversation'
+  })
+  const applyIfSettled = (search: object, principalId = 'account-alice') => {
+    const result = resolveLegacyDirectoryIntent(intent, {
+      accountPrincipalId: principalId,
+      activeWorkspaceId,
+      search,
+    })
+    if (result.status === 'settled') activeSurface = result.section
+    return result
+  }
+
+  expect(applyIfSettled(sourceSearch)).toEqual({ status: 'pending' })
+  expect(activeSurface).toBe('conversation')
+  expect(applyIfSettled(normalized.search)).toEqual({ status: 'pending' })
+
+  finishAuthorization()
+  await switchPromise
+  expect(applyIfSettled({ ...normalized.search, workspace: undefined, scene: 'work' })).toEqual({
+    status: 'settled',
+    section: 'agents',
+  })
+  expect(activeSurface).toBe('agents')
+
+  expect(
+    resolveLegacyDirectoryIntent(intent, {
+      accountPrincipalId: 'account-bob',
+      activeWorkspaceId,
+      search: normalized.search,
+    })
+  ).toEqual({ status: 'superseded' })
+  expect(
+    resolveLegacyDirectoryIntent(intent, {
+      accountPrincipalId: 'account-alice',
+      activeWorkspaceId,
+      search: { ...normalized.search, view: 'virtual' },
+    })
+  ).toEqual({ status: 'superseded' })
 })

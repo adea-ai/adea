@@ -21,6 +21,8 @@ function directoryClient(calls: string[]) {
 
 test('directory and inbox keys sit outside the per-workspace prefix', () => {
   expect(accountQueryKeys.all).toEqual(['account'])
+  expect(accountQueryKeys.directoryAll).toEqual(['account', 'directory'])
+  expect(accountQueryKeys.inboxAll).toEqual(['account', 'inbox'])
   expect(accountQueryKeys.directory()).toEqual(['account', 'directory', {}])
   expect(accountQueryKeys.directory({ limit: 25 })).toEqual(['account', 'directory', { limit: 25 }])
   expect(accountQueryKeys.inbox({ after: 'cursor' })).toEqual([

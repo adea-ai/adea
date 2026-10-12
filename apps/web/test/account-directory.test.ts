@@ -27,7 +27,6 @@ import {
   inboxEntryLabel,
   inboxKindLabel,
   inboxUnreadModel,
-  rowsOutsideWorkspace,
   unreadBadgeText,
   watchAccountIdentity,
 } from '../src/lib/account-directory'
@@ -94,22 +93,6 @@ if (isServer) {
     expect(output).toContain('0 fail')
   }, 25_000)
 } else {
-  describe('account results', () => {
-    test('global rows retain canonical ids while the active workspace filter changes', () => {
-      const rows = [
-        agent({ id: 'agent-home', workspaceId: 'workspace-home' }),
-        agent({ id: 'agent-team', workspaceId: 'workspace-team' }),
-      ]
-      expect(rowsOutsideWorkspace(rows, 'workspace-home').map(({ id }) => id)).toEqual([
-        'agent-team',
-      ])
-      expect(rowsOutsideWorkspace(rows, 'workspace-team').map(({ id }) => id)).toEqual([
-        'agent-home',
-      ])
-      expect(rows.map(({ id }) => id)).toEqual(['agent-home', 'agent-team'])
-    })
-  })
-
   describe('row models', () => {
     test('workspace labels stay neutral for unknown or revoked ids', () => {
       const workspaces = [{ id: 'workspace-1', name: 'Studio' }] as readonly WorkspaceSummary[]

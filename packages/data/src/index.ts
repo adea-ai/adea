@@ -78,7 +78,9 @@ export const artifactQueryKeys = {
 export const accountQueryKeys = {
   all: ['account'] as const,
   summary: ['account', 'summary'] as const,
+  directoryAll: ['account', 'directory'] as const,
   directory: (input: AccountDirectoryPageInput = {}) => ['account', 'directory', input] as const,
+  inboxAll: ['account', 'inbox'] as const,
   inbox: (input: AccountDirectoryPageInput = {}) => ['account', 'inbox', input] as const,
 }
 
@@ -145,15 +147,18 @@ function currentConversationMutation(workspaceId: string, context?: Conversation
 }
 
 function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string) {
-  return (
+  return async (
     result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>,
     _variables?: unknown,
     context?: ConversationMutationContext
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
-    // The account summary counts this workspace's unread channels too.
-    void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
+    // Both the account summary and inbox project this workspace's unread state.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary }),
+      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
+    ])
   }
 }
 
@@ -291,7 +296,10 @@ function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
-    await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) }),
+      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
+    ])
   }
 }
 export const channelMutationOptions = {
@@ -363,9 +371,12 @@ function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, c
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
     const targetChannelId = channelId ?? result.message.channelId
-    await queryClient.invalidateQueries({
-      queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
-    })
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
+      }),
+      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
+    ])
   }
 }
 export const messageMutationOptions = {
@@ -712,7 +723,7 @@ export const agentMutationOptions = {
       }),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToProject']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -720,14 +731,14 @@ export const agentMutationOptions = {
       client.createAgent(workspaceId, input),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['createAgent']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (agentId: string) => client.archiveAgent(workspaceId, agentId),
     onSuccess: async (_result: unknown, agentId: string) => {
       queryClient.removeQueries({ queryKey: agentQueryKeys.detail(workspaceId, agentId) })
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   profile: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -739,7 +750,7 @@ export const agentMutationOptions = {
     ) => client.changeAgentProfile(workspaceId, input.agentId, input.profile),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['changeAgentProfile']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   presentation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -751,9 +762,17 @@ export const agentMutationOptions = {
     ) => client.updateAgentPresentation(workspaceId, input.agentId, input.presentation),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['updateAgentPresentation']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
+}
+
+/** Agent writes change both their workspace roster and the account search. */
+async function invalidateAgentDirectory(queryClient: QueryClient, workspaceId: string) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) }),
+    queryClient.invalidateQueries({ queryKey: accountQueryKeys.directoryAll }),
+  ])
 }
 
 export const projectQueryOptions = {

@@ -20,6 +20,7 @@ import {
   ConversationsSection,
   GlobalQuickActions,
   readStateHasUnread,
+  type AccountConversationInboxContext,
 } from './workspace-nav-sidebar'
 import { createClientRequestId } from './request-id'
 import { projectWorkspaceNavigation } from './workspace-model'
@@ -47,7 +48,7 @@ export type WorkspaceGlobalNavProps = Readonly<{
   onOpenAgents: () => void
   onOpenConversation: (channelId: string) => void
   /** Account-wide conversations rendered inside this existing section. */
-  accountInbox?: JSX.Element
+  accountInbox?: (context: AccountConversationInboxContext) => JSX.Element
   portalMount?: HTMLElement
   tooltips?: boolean
 }>

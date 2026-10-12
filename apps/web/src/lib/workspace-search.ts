@@ -22,6 +22,67 @@ export type WorkspaceDeepLinkKey = (typeof WORKSPACE_DEEP_LINK_KEYS)[number]
 /** A section retained by links to the removed standalone account directory. */
 export type LegacyDirectorySection = 'agents' | 'inbox'
 
+export type LegacyDirectoryIntent = Readonly<{
+  accountPrincipalId: string | null
+  routeKey: string
+  section: LegacyDirectorySection
+  sourceSearchKey: string
+  workspaceId: string
+}>
+
+export type LegacyDirectoryIntentResolution =
+  | Readonly<{ status: 'pending' }>
+  | Readonly<{ status: 'superseded' }>
+  | Readonly<{ section: LegacyDirectorySection; status: 'settled' }>
+
+function stableSearchKey(search: object): string {
+  return JSON.stringify(
+    Object.entries(search)
+      .filter(([, value]) => value !== undefined)
+      .toSorted(([left], [right]) => left.localeCompare(right))
+  )
+}
+
+/** Stable key for navigation intent, ignoring workspace/scene settle writes. */
+export function legacyDirectoryIntentRouteKey(search: object): string {
+  const stable = { ...(search as Record<string, unknown>) }
+  delete stable.workspace
+  delete stable.scene
+  return stableSearchKey(stable)
+}
+
+/** Stable key for a whole search value, used to guard a pending normalization. */
+export function workspaceSearchKey(search: object): string {
+  return stableSearchKey(search)
+}
+
+/**
+ * Keep a legacy section selection pending across an authorized workspace switch.
+ * A route or account change supersedes the old intent before it can apply.
+ */
+export function resolveLegacyDirectoryIntent(
+  intent: LegacyDirectoryIntent,
+  current: Readonly<{
+    accountPrincipalId: string | null
+    activeWorkspaceId: string | undefined
+    search: object
+  }>
+): LegacyDirectoryIntentResolution {
+  const search = current.search as Record<string, unknown>
+  if (current.accountPrincipalId !== intent.accountPrincipalId) return { status: 'superseded' }
+  if (search.directory !== undefined)
+    return workspaceSearchKey(current.search) === intent.sourceSearchKey
+      ? { status: 'pending' }
+      : { status: 'superseded' }
+  if (
+    legacyDirectoryIntentRouteKey(current.search) !== intent.routeKey ||
+    (search.workspace !== undefined && search.workspace !== intent.workspaceId)
+  )
+    return { status: 'superseded' }
+  if (current.activeWorkspaceId !== intent.workspaceId) return { status: 'pending' }
+  return { status: 'settled', section: intent.section }
+}
+
 /**
  * Turn an old standalone-directory URL into the canonical Chat surface. A
  * stale one-shot selection must not open an unrelated conversation or task

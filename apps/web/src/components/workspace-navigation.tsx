@@ -87,8 +87,12 @@ import { WorkspaceTopBar } from './workspace-top-bar'
 import { conversationOpenPatch, watchAccountIdentity } from '../lib/account-directory'
 import { createDeepLinkAttempts } from '../lib/workspace-deep-link'
 import {
+  legacyDirectoryIntentRouteKey,
   normalizeLegacyDirectorySearch,
+  resolveLegacyDirectoryIntent,
   stripWorkspaceDeepLinkSearch,
+  workspaceSearchKey,
+  type LegacyDirectoryIntent,
 } from '../lib/workspace-search'
 import {
   createDevWorkspaceNavHost,
@@ -97,7 +101,11 @@ import {
   type DevWorkspaceNavHost,
 } from '../lib/dev-workspace-nav-host'
 import { RuntimeResourcesControl } from './runtime-resources-control'
-import { AccountConversationInbox, AccountDirectoryAgents } from './account-directory-sidebar'
+import {
+  AccountConversationInbox,
+  AccountDirectoryAgents,
+  type AccountDirectorySearchState,
+} from './account-directory-sidebar'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -819,7 +827,29 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // helper so the surface can show the in-flight affordance and an effect
   // re-run can't fire a second authorize for a switch already in progress.
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = createSignal<string>()
-  const switchToWorkspace = (workspace: WorkspaceSummary) => {
+  const [legacyDirectoryIntent, setLegacyDirectoryIntent] = createSignal<LegacyDirectoryIntent>()
+  const [agentDirectoryTerm, setAgentDirectoryTerm] = createSignal('')
+  const [agentDirectoryIncludesArchived, setAgentDirectoryIncludesArchived] = createSignal(false)
+  const agentDirectorySearchState: AccountDirectorySearchState = {
+    term: agentDirectoryTerm,
+    setTerm: setAgentDirectoryTerm,
+    includeArchived: agentDirectoryIncludesArchived,
+    setIncludeArchived: setAgentDirectoryIncludesArchived,
+  }
+  const [conversationInboxTerm, setConversationInboxTerm] = createSignal('')
+  const [conversationInboxIncludesArchived, setConversationInboxIncludesArchived] =
+    createSignal(false)
+  const conversationInboxSearchState: AccountDirectorySearchState = {
+    term: conversationInboxTerm,
+    setTerm: setConversationInboxTerm,
+    includeArchived: conversationInboxIncludesArchived,
+    setIncludeArchived: setConversationInboxIncludesArchived,
+  }
+  const switchToWorkspace = (
+    workspace: WorkspaceSummary,
+    options: Readonly<{ fromDeepLink?: boolean }> = {}
+  ) => {
+    if (!options.fromDeepLink) setLegacyDirectoryIntent(undefined)
     if (workspace.id === props.activeWorkspace?.id) return Promise.resolve(false)
     if (switchingWorkspaceId()) return Promise.resolve(false)
     setSwitchingWorkspaceId(workspace.id)
@@ -861,7 +891,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     },
     switchTo: (workspaceId) => {
       const workspace = orderedWorkspaces().find(({ id }) => id === workspaceId)
-      return workspace ? switchToWorkspace(workspace) : Promise.resolve(false)
+      return workspace
+        ? switchToWorkspace(workspace, { fromDeepLink: true })
+        : Promise.resolve(false)
     },
   })
   createEffect(() => {
@@ -916,21 +948,26 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return props.devSummary?.()
     },
     globalNav: {
-      agents: () => (
+      agents: ({ agents, renderAgent }) => (
         <AccountDirectoryAgents
           client={accountDirectoryClient()}
-          activeWorkspaceId={props.activeWorkspace?.id ?? ''}
           workspaces={orderedWorkspaces()}
+          searchState={agentDirectorySearchState}
+          localAgents={agents}
+          renderLocalAgent={renderAgent}
           onOpenAgent={openDirectoryAgent}
         />
       ),
-      conversations: () => (
+      conversations: ({ channels, renderChannel }) => (
         <AccountConversationInbox
           client={accountDirectoryClient()}
-          activeWorkspaceId={props.activeWorkspace?.id}
+          activeWorkspaceId={() => props.activeWorkspace?.id}
+          searchState={conversationInboxSearchState}
           workspaces={orderedWorkspaces()}
+          localChannels={channels}
+          renderLocalChannel={renderChannel}
           onOpenConversation={openAccountConversation}
-          selectedChannelId={selectedChannelId()}
+          selectedChannelId={selectedChannelId}
         />
       ),
     },
@@ -984,16 +1021,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         client={props.client}
         workspaceId={props.activeWorkspace?.id}
         accountInbox={
-          section === 'conversations' ? (
-            <AccountConversationInbox
-              client={accountDirectoryClient()}
-              activeWorkspaceId={props.activeWorkspace?.id}
-              workspaces={orderedWorkspaces()}
-              onOpenConversation={openAccountConversation}
-              selectedChannelId={selectedChannelId()}
-              onCloseSheet={context.closeSheet}
-            />
-          ) : undefined
+          section === 'conversations'
+            ? (inboxContext) => (
+                <AccountConversationInbox
+                  client={accountDirectoryClient()}
+                  activeWorkspaceId={() => props.activeWorkspace?.id}
+                  searchState={conversationInboxSearchState}
+                  workspaces={orderedWorkspaces()}
+                  localChannels={inboxContext.channels}
+                  renderLocalChannel={inboxContext.renderChannel}
+                  onOpenConversation={openAccountConversation}
+                  selectedChannelId={selectedChannelId}
+                  onCloseSheet={context.closeSheet}
+                />
+              )
+            : undefined
         }
         selectedChannelId={
           teamChatActive() && view() === 'chat' && activeSurface() === 'conversation'
@@ -1251,27 +1293,76 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // page. Consume them into the canonical Chat surfaces and remove the legacy
   // key so a reload can never recreate a duplicate page. Unknown values are
   // discarded without changing the user's current surface.
-  createEffect(() => {
-    const value = currentSearch().directory
-    if (value === undefined) return
-    const { section } = normalizeLegacyDirectorySearch(currentSearch())
-    if (!section) {
-      applySearch({ directory: undefined })
-      return
-    }
+  const applyLegacyDirectorySection = (section: 'agents' | 'inbox') => {
     workspaceStore.getState().setActiveSurface(section === 'agents' ? 'agents' : 'conversation')
     setTeamChatActive(true)
+  }
+  createEffect(() => {
+    const sourceSearch = currentSearch()
+    const value = sourceSearch.directory
+    if (value === undefined) return
+    const { section, search: normalized } = normalizeLegacyDirectorySearch(sourceSearch)
+    const sourceKey = workspaceSearchKey(sourceSearch)
+    if (!section) {
+      void navigate({
+        search: ((previous: WorkspaceSearch) => {
+          if (workspaceSearchKey(previous) !== sourceKey) return previous
+          const next = { ...previous }
+          delete next.directory
+          return next
+        }) as never,
+        hash: window.location.hash.replace(/^#/, ''),
+        replace: true,
+      })
+      return
+    }
     const chat = resolveWorkspaceApp(railPreferences(), 'chat')
+    const nextSearch = {
+      ...normalized,
+      ...(chat?.id !== 'chat' ? { app: 'library' } : {}),
+    }
+    const targetWorkspaceId =
+      typeof nextSearch.workspace === 'string' ? nextSearch.workspace : undefined
+    if (targetWorkspaceId && targetWorkspaceId !== props.activeWorkspace?.id) {
+      setLegacyDirectoryIntent({
+        accountPrincipalId: props.accountPrincipalId?.() ?? null,
+        routeKey: legacyDirectoryIntentRouteKey(nextSearch),
+        section,
+        sourceSearchKey: sourceKey,
+        workspaceId: targetWorkspaceId,
+      })
+    } else {
+      setLegacyDirectoryIntent(undefined)
+      applyLegacyDirectorySection(section)
+    }
     void navigate({
       search: ((previous: WorkspaceSearch) => {
-        const { search: normalized } = normalizeLegacyDirectorySearch(previous)
-        const next = { ...normalized }
+        if (workspaceSearchKey(previous) !== sourceKey) return previous
+        const { search: normalizedPrevious } = normalizeLegacyDirectorySearch(previous)
+        const next = { ...normalizedPrevious }
         if (chat?.id !== 'chat') next.app = 'library'
         return next
       }) as never,
       hash: '',
       replace: true,
     })
+  })
+  createEffect(() => {
+    const intent = legacyDirectoryIntent()
+    if (!intent) return
+    const resolution = resolveLegacyDirectoryIntent(intent, {
+      accountPrincipalId: props.accountPrincipalId?.() ?? null,
+      activeWorkspaceId: props.activeWorkspace?.id,
+      search: currentSearch(),
+    })
+    if (resolution.status === 'superseded') {
+      setLegacyDirectoryIntent(undefined)
+      return
+    }
+    if (resolution.status === 'settled') {
+      setLegacyDirectoryIntent(undefined)
+      applyLegacyDirectorySection(resolution.section)
+    }
   })
 
   const setRoomDesignerRoute = (enabled: boolean) => {
