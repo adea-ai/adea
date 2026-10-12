@@ -461,7 +461,7 @@ describe.skipIf(!url)(
       })
       expect(await audienceChannelText(f)).not.toContain('API_PUBLISHED_SUMMARY')
 
-      // A completion replayed with the original key is not a second publication, and the audience still does not see it.
+      // Replaying the revision-1 publication under the regranted revision is held as a binding conflict.
       const replayed = await completeJob(
         f,
         early,
@@ -470,12 +470,15 @@ describe.skipIf(!url)(
         'API_PUBLISHED_SUMMARY',
         earlyKey
       )
-      // The replay converges on the publication already written: the same message id, and no second message.
       expect(replayed.status).toBe(200)
-      expect(
-        ((await replayed.json()) as { outboundPublication: { messageId: string } })
-          .outboundPublication.messageId
-      ).toBe(earlyMessageId)
+      expect(await replayed.json()).toMatchObject({
+        outboundPublication: {
+          action: 'hold',
+          gate: 'publication',
+          messageId: null,
+          reason: 'publication_replay_conflict',
+        },
+      })
       expect(await jobMessages(f, early.id)).toHaveLength(1)
       expect(await audienceChannelText(f)).not.toContain('API_PUBLISHED_SUMMARY')
 
