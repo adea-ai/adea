@@ -63,6 +63,10 @@ function harness(
   const calls: Recorded[] = []
   const callers: ManagementCaller[] = []
   const operations: ManagementOperations = {
+    workspaceArchive: async (_input, binding) => {
+      calls.push({ binding, method: 'workspaceArchive' })
+      return (options.operationOutcome ?? success(null)) as never
+    },
     projectArchive: async (_input, binding) => {
       calls.push({ binding, method: 'projectArchive' })
       return (options.operationOutcome ?? success(null)) as never
@@ -163,6 +167,15 @@ const updateCall = {
   workspaceId: MANAGEMENT_WORKSPACE,
 }
 
+const archiveCall = {
+  canonicalRequest: CANONICAL_REQUEST,
+  input: { confirmed: true },
+  operation: 'config.workspace.archive',
+  schemaVersion: 'adea-management-call/v1',
+  targetId: MANAGEMENT_WORKSPACE,
+  workspaceId: MANAGEMENT_WORKSPACE,
+}
+
 const promoteCall = {
   canonicalRequest: CANONICAL_REQUEST,
   input: { confirmed: true, expectedVersion: 3 },
@@ -179,6 +192,16 @@ async function updateDecision(overrides: { input?: unknown; workspaceId?: string
     principal: ACTOR,
     targetId: MANAGEMENT_PROJECT,
     workspaceId: overrides.workspaceId ?? MANAGEMENT_WORKSPACE,
+  })
+}
+
+async function archiveDecision(overrides: { expiresAt?: string } = {}) {
+  return managementAuthorityDecision({
+    expiresAt: overrides.expiresAt,
+    input: { confirmed: true },
+    operation: 'config.workspace.archive',
+    principal: ACTOR,
+    targetId: MANAGEMENT_WORKSPACE,
   })
 }
 
@@ -292,6 +315,82 @@ describe('lead management host endpoint (#1215)', () => {
       reason: 'authority_replay',
     })
     expect(run.calls.length).toBe(1)
+  })
+
+  test('an expired workspace archive approval is refused before claim or operation', async () => {
+    const decision = await archiveDecision({
+      expiresAt: new Date(MANAGEMENT_NOW - 1).toISOString(),
+    })
+    let claims = 0
+    const run = harness({
+      claim: async () => {
+        claims += 1
+        return { state: 'claimed' }
+      },
+      decision,
+    })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(archiveCall))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_expired',
+    })
+    expect(run.assertCurrentCalls).toEqual([])
+    expect(claims).toBe(0)
+    expect(run.calls).toEqual([])
+  })
+
+  test('a replayed workspace archive approval cannot execute twice', async () => {
+    const decision = await archiveDecision()
+    const claims: ManagementAuthorityClaim[] = [
+      { state: 'claimed' },
+      { state: 'replayed', resultDigest: null },
+    ]
+    const run = harness({
+      claim: async () => claims.shift() ?? { state: 'replayed', resultDigest: null },
+      decision,
+      operationOutcome: { ok: true, operation: 'config.workspace.archive', value: null },
+    })
+    const handler = createLeadManagementHandler(run.dependencies)
+
+    expect((await handler(callRequest(archiveCall))).status).toBe(200)
+    const replay = await handler(callRequest(archiveCall))
+    expect(replay.status).toBe(403)
+    expect(await replay.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_replay',
+    })
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'workspaceArchive' }])
+  })
+
+  test('a revoked workspace archive approval cannot be retried for a second effect', async () => {
+    const decision = await archiveDecision()
+    let revoked = false
+    let claims = 0
+    const run = harness({
+      assertCurrent: async () => {
+        if (revoked) throw new Error('approval revoked')
+      },
+      claim: async () => {
+        claims += 1
+        return { state: 'claimed' }
+      },
+      decision,
+      operationOutcome: { ok: true, operation: 'config.workspace.archive', value: null },
+    })
+    const handler = createLeadManagementHandler(run.dependencies)
+
+    expect((await handler(callRequest(archiveCall))).status).toBe(200)
+    revoked = true
+    const denied = await handler(callRequest(archiveCall))
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_unavailable',
+    })
+    expect(claims).toBe(1)
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'workspaceArchive' }])
   })
 
   test('an interrupted durable claim returns recovery_required with zero effects', async () => {
@@ -506,6 +605,24 @@ describe('lead management call parsing (#1215)', () => {
       workspaceId: MANAGEMENT_WORKSPACE,
     })
 
+    const archive = parseLeadManagementCall(
+      {
+        canonicalRequest: CANONICAL_REQUEST,
+        input: { confirmed: true },
+        operation: 'config.workspace.archive',
+        schemaVersion: 'adea-management-call/v1',
+        targetId: MANAGEMENT_WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      },
+      AUTHORITY
+    )
+    expect(archive).toMatchObject({
+      authority: AUTHORITY,
+      confirmed: true,
+      operation: 'config.workspace.archive',
+      workspaceId: MANAGEMENT_WORKSPACE,
+    })
+
     const member = parseLeadManagementCall(
       {
         canonicalRequest: CANONICAL_REQUEST,
@@ -569,6 +686,14 @@ describe('lead management call parsing (#1215)', () => {
       },
       {
         canonicalRequest: CANONICAL_REQUEST,
+        input: { confirmed: false },
+        operation: 'config.workspace.archive',
+        schemaVersion: 'adea-management-call/v1',
+        targetId: MANAGEMENT_WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      },
+      {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { iconKey: 'box', id: MANAGEMENT_PROJECT, name: 'X' },
         operation: 'project.create',
         schemaVersion: 'adea-management-call/v1',
@@ -606,6 +731,12 @@ describe('advertised lead operation contract (#1215)', () => {
       input: {},
       method: 'workspaceReopen',
       operation: 'config.workspace.reopen',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: { confirmed: true },
+      method: 'workspaceArchive',
+      operation: 'config.workspace.archive',
       targetId: MANAGEMENT_WORKSPACE,
     },
     {

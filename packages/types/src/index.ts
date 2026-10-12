@@ -1,10 +1,11 @@
 import type { TaskExecutionLocation } from './task-execution'
 
+// Management authority runtime helpers stay on the dedicated /management
+// subpath so browser consumers of this shared barrel do not ship that contract.
 export * from './artifact-reference'
 export * from './desktop-permissions'
 export * from './execution-location'
 export * from './group-participation'
-export * from './management'
 export * from './migration-snapshot'
 export * from './task-submission'
 

@@ -186,7 +186,15 @@ never revived. `archiveProject`, `softDeleteProject` and
 `promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
 which lock the project row first and the project's channels in id order, then
 compare-and-swap each channel `version`, so a concurrent write rolls the whole
-transaction back instead of losing an update. The migration that adds the enum
-and column is expand-only; its number is provisional until the `main` journal
-confirms it (see the lane handoff
-`docs/plans/m14-03-management-action-contract.md`).
+transaction back instead of losing an update.
+
+The combined local #1230 review candidate adds migration
+`0048_graceful_prima` after `0047_requested_role_model_selections`. This
+expand-only migration adds the `channel_archive_source` enum and
+`channels.archive_source`, positive `projects.version`, and the durable
+`management_authority_consumptions` table with its checks, workspace foreign
+key and index. Its SQL and snapshot are in the candidate journal at index 48;
+it has not landed on `main`. Local migration and database verification do not
+establish production migration history or live Control Plane qualification;
+verify the deployment target before any rollout. See
+[`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).

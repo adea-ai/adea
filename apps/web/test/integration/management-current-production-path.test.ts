@@ -39,7 +39,7 @@ const SIGNING_KEY_ID = 'adea-web-production-path-synthetic'
 const LEAD_ISSUER = 'https://cp-fixture.invalid'
 const LEAD_KEY_ID = 'synthetic-production-path-lead-key'
 const LEAD_PRINCIPAL_ID = 'svc_pi-lead-management'
-const now = Date.parse('2026-10-09T12:00:00.000Z')
+let now = Date.parse('2026-10-09T12:00:00.000Z')
 
 type Hop = Readonly<{
   boundary: string
@@ -502,6 +502,7 @@ describe('production current-authority path (#1215)', () => {
     'project.member.remove',
     'config.workspace.update',
     'config.workspace.reopen',
+    'config.workspace.archive',
   ] as const
 
   test('the transaction proofs cover every supported cloud lead management operation', () => {
@@ -516,13 +517,27 @@ describe('production current-authority path (#1215)', () => {
     ).toEqual([...fencedOperations].toSorted())
   })
 
+  async function createTwoProjectChannels(workspaceId: string, projectId: string) {
+    await Promise.all(
+      [0, 1].map((index) =>
+        dbModule.createProjectChannel(connection.db, workspaceId, projectId, owner.principal, {
+          idempotencyKey: `sequence-fence-${crypto.randomUUID()}-${index}`,
+          title: `Sequence fence ${index}`,
+        })
+      )
+    )
+  }
+
   async function effectFixture(operation: (typeof fencedOperations)[number]) {
     const { workspace } = await dbModule.createWorkspaceWithOwner(connection.db, {
       idempotencyKey: `fenced-${crypto.randomUUID()}`,
       name: 'Fenced workspace',
       owner: owner.principal,
     })
-    const actor = operation === 'config.workspace.reopen' ? owner.principal : otherOwner.principal
+    const actor =
+      operation === 'config.workspace.reopen' || operation === 'config.workspace.archive'
+        ? owner.principal
+        : otherOwner.principal
     if (actor !== owner.principal)
       await dbModule.addWorkspaceMembership(connection.db, workspace.id, actor, 'admin')
     const [mapping] = await connection.db
@@ -546,6 +561,7 @@ describe('production current-authority path (#1215)', () => {
         input = { name: 'Fenced update' }
         break
       case 'project.promote':
+        await createTwoProjectChannels(workspace.id, project.id)
         await dbModule.archiveProject(connection.db, workspace.id, project.id, owner.principal)
         project = (await dbModule.getProjectForUser(
           connection.db,
@@ -585,6 +601,10 @@ describe('production current-authority path (#1215)', () => {
         // archived human reopen is covered separately below.
         targetId = workspace.id
         break
+      case 'config.workspace.archive':
+        targetId = workspace.id
+        input = { confirmed: true }
+        break
       case 'project.archive':
       case 'project.delete':
         break
@@ -618,7 +638,254 @@ describe('production current-authority path (#1215)', () => {
         .select()
         .from(dbModule.workspaceEvents)
         .where(eq(dbModule.workspaceEvents.workspaceId, workspaceId)),
+      connection.db
+        .select()
+        .from(dbModule.channels)
+        .where(eq(dbModule.channels.workspaceId, workspaceId)),
     ])
+  }
+
+  async function waitForBlockedProjectQuery(blockerPid: number) {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(sql`
+        select a.pid from pg_stat_activity a where a.datname = current_database()
+          and a.wait_event_type = 'Lock' and a.query ilike '%projects%'
+          and pg_blocking_pids(a.pid) @> array[${blockerPid}]::int[]
+      `)
+      if (rows[0]) return Number(rows[0].pid)
+      await Bun.sleep(10)
+    }
+    throw new Error('Expected a management query to wait for the project row lock')
+  }
+
+  async function waitForBlockedWorkspaceSequenceQuery(blockerPid: number) {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(sql`
+        select a.pid, a.wait_event, a.query, pg_blocking_pids(a.pid) as blocker_pids
+        from pg_stat_activity a where a.datname = current_database()
+          and a.wait_event_type = 'Lock' and a.query ilike '%workspace_event_sequences%'
+          and pg_blocking_pids(a.pid) @> array[${blockerPid}]::int[]
+      `)
+      if (rows[0])
+        return {
+          blockerPids: rows[0].blocker_pids,
+          pid: Number(rows[0].pid),
+          query: String(rows[0].query),
+          waitEvent: String(rows[0].wait_event),
+        }
+      await Bun.sleep(10)
+    }
+    throw new Error('Expected a management query to wait for the workspace event sequence row')
+  }
+
+  async function waitForBlockedMembershipQuery(applicationName: string) {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(sql`
+        select a.pid, a.wait_event, a.query, pg_blocking_pids(a.pid) as blocker_pids,
+          blocker.pid as effect_backend_pid, blocker.state as effect_backend_state
+        from pg_stat_activity a
+          cross join lateral unnest(pg_blocking_pids(a.pid)) as blocked_by(pid)
+          join pg_stat_activity blocker on blocker.pid = blocked_by.pid
+        where a.datname = current_database()
+          and a.application_name = ${applicationName}
+          and a.wait_event_type = 'Lock'
+          and a.query ilike '%workspace_memberships%'
+          and blocker.state = 'idle in transaction'
+      `)
+      if (rows[0])
+        return {
+          blockerPids: rows[0].blocker_pids,
+          effectBackendPid: Number(rows[0].effect_backend_pid),
+          effectBackendState: String(rows[0].effect_backend_state),
+          pid: Number(rows[0].pid),
+          query: String(rows[0].query),
+          waitEvent: String(rows[0].wait_event),
+        }
+      await Bun.sleep(10)
+    }
+    throw new Error('Expected the membership revocation to wait for the management transaction')
+  }
+
+  for (const staleAuthority of ['control-plane-revocation', 'decision-expiry'] as const) {
+    test(`the effect-time authority check follows a project lock wait (${staleAuthority})`, async () => {
+      const release = Promise.withResolvers<void>()
+      const locked = Promise.withResolvers<number>()
+      const baselineNow = now
+      let blocker: Promise<void> | undefined
+      let pending: Promise<Response> | undefined
+      let controlPlaneWorkspaceId: string | undefined
+      let effectChecksBeforeRelease = -1
+      try {
+        const f = await effectFixture('project.update')
+        const before = await effectSnapshot(f.workspaceId)
+        const [workspace] = await connection.db
+          .select({ controlPlaneWorkspaceId: dbModule.workspaces.controlPlaneWorkspaceId })
+          .from(dbModule.workspaces)
+          .where(eq(dbModule.workspaces.id, f.workspaceId))
+        controlPlaneWorkspaceId = workspace!.controlPlaneWorkspaceId
+        blocker = connection.db.transaction(async (transaction) => {
+          await transaction
+            .select({ id: dbModule.projects.id })
+            .from(dbModule.projects)
+            .where(eq(dbModule.projects.id, f.targetId!))
+            .for('update')
+          const [row] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+          locked.resolve(Number(row!.pid))
+          await release.promise
+        })
+        void blocker.catch(() => undefined)
+        const blockerPid = await Promise.race([
+          locked.promise,
+          blocker.then(() => {
+            throw new Error('Project row blocker ended early')
+          }),
+        ])
+        hops = []
+        pending = scopeModule.withRequestScope(() => handler()(requestFor(f, f.operation, f.token)))
+        void pending.catch(() => undefined)
+        expect(await waitForBlockedProjectQuery(blockerPid)).toBeGreaterThan(0)
+
+        // Capture whether the gateway's CP effect assertion ran before the
+        // project lock wait completed, then make current authority stale.
+        effectChecksBeforeRelease = hops.filter((hop) => hop.boundary === 'effect').length
+        if (staleAuthority === 'control-plane-revocation') {
+          liveControlPlaneWorkspaces.delete(controlPlaneWorkspaceId)
+        } else {
+          now = baselineNow + 60_001
+        }
+        release.resolve()
+        await blocker
+        const response = await pending
+        const after = await effectSnapshot(f.workspaceId)
+        const outcome = response.status === 200 ? undefined : await response.json()
+        expect({
+          status: response.status,
+          reason: (outcome as { reason?: string } | undefined)?.reason,
+          unchanged: JSON.stringify(after) === JSON.stringify(before),
+          effectChecksBeforeRelease,
+          boundaries: hops.map((hop) => hop.boundary),
+        }).toEqual({
+          status: 403,
+          reason:
+            staleAuthority === 'control-plane-revocation'
+              ? 'authority_unavailable'
+              : 'authority_expired',
+          unchanged: true,
+          effectChecksBeforeRelease: 0,
+          boundaries: ['admission', 'effect'],
+        })
+      } finally {
+        now = baselineNow
+        if (controlPlaneWorkspaceId) liveControlPlaneWorkspaces.add(controlPlaneWorkspaceId)
+        release.resolve()
+        await blocker?.catch(() => undefined)
+        await pending?.catch(() => undefined)
+      }
+    })
+  }
+
+  for (const operation of ['project.archive', 'project.promote'] as const) {
+    for (const staleAuthority of ['control-plane-revocation', 'decision-expiry'] as const) {
+      test(`${operation} rechecks current authority after its sequence-row wait (${staleAuthority})`, async () => {
+        const release = Promise.withResolvers<void>()
+        const locked = Promise.withResolvers<number>()
+        const baselineNow = now
+        let blocker: Promise<void> | undefined
+        let pending: Promise<Response> | undefined
+        let controlPlaneWorkspaceId: string | undefined
+        let effectChecksBeforeRelease = -1
+        try {
+          const f = await effectFixture(operation)
+          if (operation === 'project.archive')
+            await createTwoProjectChannels(f.workspaceId, f.targetId!)
+          const before = await effectSnapshot(f.workspaceId)
+          const [workspace] = await connection.db
+            .select({ controlPlaneWorkspaceId: dbModule.workspaces.controlPlaneWorkspaceId })
+            .from(dbModule.workspaces)
+            .where(eq(dbModule.workspaces.id, f.workspaceId))
+          controlPlaneWorkspaceId = workspace!.controlPlaneWorkspaceId
+          blocker = connection.db.transaction(async (transaction) => {
+            await transaction
+              .select({ lastSequence: dbModule.workspaceEventSequences.lastSequence })
+              .from(dbModule.workspaceEventSequences)
+              .where(eq(dbModule.workspaceEventSequences.workspaceId, f.workspaceId))
+              .for('update')
+            const [row] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+            locked.resolve(Number(row!.pid))
+            await release.promise
+          })
+          void blocker.catch(() => undefined)
+          const blockerPid = await Promise.race([
+            locked.promise,
+            blocker.then(() => {
+              throw new Error('Sequence-row blocker ended early')
+            }),
+          ])
+          hops = []
+          pending = scopeModule.withRequestScope(() => handler()(requestFor(f, operation, f.token)))
+          void pending.catch(() => undefined)
+          const sequenceWait = await waitForBlockedWorkspaceSequenceQuery(blockerPid)
+          expect(Number.isInteger(sequenceWait.pid)).toBe(true)
+          expect(
+            Array.isArray(sequenceWait.blockerPids) &&
+              sequenceWait.blockerPids.map(Number).includes(blockerPid)
+          ).toBe(true)
+          expect(sequenceWait.waitEvent.length).toBeGreaterThan(0)
+          expect(sequenceWait.query).toContain('workspace_event_sequences')
+          console.info(
+            'verified workspace event sequence lock wait',
+            JSON.stringify({
+              blockerPid,
+              blockerPids: sequenceWait.blockerPids,
+              operation,
+              pid: sequenceWait.pid,
+              query: sequenceWait.query,
+              staleAuthority,
+              waitEvent: sequenceWait.waitEvent,
+            })
+          )
+
+          // A cascade appends one event per channel, so the sequence allocator
+          // can block after the old effect-time authority assertion has passed.
+          effectChecksBeforeRelease = hops.filter((hop) => hop.boundary === 'effect').length
+          if (staleAuthority === 'control-plane-revocation') {
+            liveControlPlaneWorkspaces.delete(controlPlaneWorkspaceId)
+          } else {
+            now = baselineNow + 60_001
+          }
+          release.resolve()
+          await blocker
+          const response = await pending
+          const after = await effectSnapshot(f.workspaceId)
+          const outcome = response.status === 200 ? undefined : await response.json()
+          expect({
+            status: response.status,
+            reason: (outcome as { reason?: string } | undefined)?.reason,
+            unchanged: JSON.stringify(after) === JSON.stringify(before),
+            effectChecksBeforeRelease,
+            boundaries: hops.map((hop) => hop.boundary),
+          }).toEqual({
+            status: 403,
+            reason:
+              staleAuthority === 'control-plane-revocation'
+                ? 'authority_unavailable'
+                : 'authority_expired',
+            unchanged: true,
+            effectChecksBeforeRelease: 0,
+            boundaries: ['admission', 'effect'],
+          })
+        } finally {
+          now = baselineNow
+          if (controlPlaneWorkspaceId) liveControlPlaneWorkspaces.add(controlPlaneWorkspaceId)
+          release.resolve()
+          await blocker?.catch(() => undefined)
+          await pending?.catch(() => undefined)
+        }
+      })
+    }
   }
 
   test('human archived reopen retains its owner-only semantics under the transaction fence', async () => {
@@ -655,36 +922,71 @@ describe('production current-authority path (#1215)', () => {
     // Owner membership removal is prohibited by its canonical revocation API;
     // reopen is owner-only. Its downgrade still exercises the permission fence.
     const changes =
-      operation === 'config.workspace.reopen'
+      operation === 'config.workspace.reopen' || operation === 'config.workspace.archive'
         ? (['downgrade'] as const)
         : (['remove', 'downgrade'] as const)
     for (const change of changes) {
-      test(`${operation}: ${change} committed during the production CP effect await prevents its mutation/event`, async () => {
+      test(`${operation}: ${change} before permission acquisition refuses without effects`, async () => {
+        const f = await effectFixture(operation)
+        const before = await effectSnapshot(f.workspaceId)
+        if (change === 'remove') {
+          expect(
+            await dbModule.removeWorkspaceMembership(connection.db, f.workspaceId, f.actor)
+          ).toBe(true)
+        } else {
+          const [updated] = await connection.db
+            .update(dbModule.workspaceMemberships)
+            .set({ role: 'member' })
+            .where(
+              and(
+                eq(dbModule.workspaceMemberships.workspaceId, f.workspaceId),
+                eq(dbModule.workspaceMemberships.userId, f.actor.userId)
+              )
+            )
+            .returning({ role: dbModule.workspaceMemberships.role })
+          expect(updated?.role).toBe('member')
+        }
+        expect(
+          (
+            await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor, {
+              includeArchived: true,
+            })
+          )?.role ?? null
+        ).toBe(change === 'remove' ? null : 'member')
+
+        hops = []
+        const refused = await scopeModule.withRequestScope(() =>
+          handler()(requestFor(f, operation, f.token))
+        )
+        expect(refused.status).toBe(403)
+        expect(hops.map((hop) => hop.boundary)).toEqual(['admission'])
+        expect(await effectSnapshot(f.workspaceId)).toEqual(before)
+      })
+
+      test(`${operation}: ${change} waits for the production effect commit`, async () => {
         const entered = Promise.withResolvers<void>()
         const release = Promise.withResolvers<void>()
         let pending: Promise<Response> | undefined
         let timer: ReturnType<typeof setTimeout> | undefined
+        let revocation: Promise<unknown> | undefined
+        let revoker: import('@adea-ai/db').DatabaseConnection | undefined
         try {
-          // A separately bound allowed call proves the fixture can perform the
-          // actual operation, so refusal cannot pass due to malformed/stale input.
-          const allowed = await effectFixture(operation)
-          const beforeAllowed = await effectSnapshot(allowed.workspaceId)
-          const applied = await scopeModule.withRequestScope(() =>
-            handler()(requestFor(allowed, operation, allowed.token))
-          )
-          expect(applied.status).toBe(200)
-          const appliedEvents = (await effectSnapshot(allowed.workspaceId))[3]!.length
-          if (operation === 'config.workspace.reopen')
-            expect(appliedEvents).toBe(beforeAllowed[3]!.length)
-          else expect(appliedEvents).toBeGreaterThan(beforeAllowed[3]!.length)
           const f = await effectFixture(operation)
           const before = await effectSnapshot(f.workspaceId)
+          const membershipBefore = await dbModule.findWorkspaceMembership(
+            connection.db,
+            f.workspaceId,
+            f.actor,
+            { includeArchived: true }
+          )
+          expect(membershipBefore).not.toBeNull()
           effectBarrier = async () => {
             entered.resolve()
             await release.promise
           }
           hops = []
           pending = scopeModule.withRequestScope(() => handler()(requestFor(f, operation, f.token)))
+          void pending.catch(() => undefined)
           await Promise.race([
             entered.promise,
             pending.then(() => {
@@ -698,21 +1000,69 @@ describe('production current-authority path (#1215)', () => {
             }),
           ])
           expect(hops.map((hop) => hop.boundary)).toEqual(['admission', 'effect'])
-          if (change === 'remove') {
-            expect(
-              await dbModule.removeWorkspaceMembership(connection.db, f.workspaceId, f.actor)
-            ).toBe(true)
+
+          const label = `effect-revocation-${crypto.randomUUID()}`
+          const url = new URL(connectionUrl!)
+          url.searchParams.set('application_name', label)
+          revoker = dbModule.createDatabase(url.toString())
+          revocation =
+            change === 'remove'
+              ? dbModule.removeWorkspaceMembership(revoker.db, f.workspaceId, f.actor)
+              : revoker.db
+                  .update(dbModule.workspaceMemberships)
+                  .set({ role: 'member' })
+                  .where(
+                    and(
+                      eq(dbModule.workspaceMemberships.workspaceId, f.workspaceId),
+                      eq(dbModule.workspaceMemberships.userId, f.actor.userId)
+                    )
+                  )
+                  .returning({ role: dbModule.workspaceMemberships.role })
+          // Drizzle updates are lazy; assimilate the thenable to start the query.
+          revocation = Promise.resolve(revocation)
+          void revocation.catch(() => undefined)
+          const membershipWait = await waitForBlockedMembershipQuery(label)
+          expect(membershipWait.pid).toBeGreaterThan(0)
+          expect(membershipWait.effectBackendPid).toBeGreaterThan(0)
+          expect(membershipWait.effectBackendState).toBe('idle in transaction')
+          expect(
+            Array.isArray(membershipWait.blockerPids) &&
+              membershipWait.blockerPids.map(Number).includes(membershipWait.effectBackendPid)
+          ).toBe(true)
+          expect(membershipWait.waitEvent.length).toBeGreaterThan(0)
+          expect(membershipWait.query).toContain('workspace_memberships')
+          console.info(
+            'verified parked effect transaction blocks membership revocation',
+            JSON.stringify({
+              change,
+              effectBackendPid: membershipWait.effectBackendPid,
+              operation,
+              revocationPid: membershipWait.pid,
+              waitEvent: membershipWait.waitEvent,
+            })
+          )
+          expect(
+            (
+              await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor, {
+                includeArchived: true,
+              })
+            )?.role
+          ).toBe(membershipBefore?.role)
+          expect(await effectSnapshot(f.workspaceId)).toEqual(before)
+
+          release.resolve()
+          expect((await pending).status).toBe(200)
+          expect(hops.map((hop) => hop.boundary)).toEqual(['admission', 'effect'])
+          const afterEffect = await effectSnapshot(f.workspaceId)
+          if (operation === 'config.workspace.reopen') {
+            expect(afterEffect[0]![0]!.deletedAt).toBeNull()
+            expect(afterEffect[3]!.length).toBe(before[3]!.length)
           } else {
-            await connection.db
-              .update(dbModule.workspaceMemberships)
-              .set({ role: 'member' })
-              .where(
-                and(
-                  eq(dbModule.workspaceMemberships.workspaceId, f.workspaceId),
-                  eq(dbModule.workspaceMemberships.userId, f.actor.userId)
-                )
-              )
+            expect(afterEffect[3]!.length).toBeGreaterThan(before[3]!.length)
+            expect(afterEffect).not.toEqual(before)
           }
+
+          await revocation
           expect(
             (
               await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor, {
@@ -720,14 +1070,13 @@ describe('production current-authority path (#1215)', () => {
               })
             )?.role ?? null
           ).toBe(change === 'remove' ? null : 'member')
-          release.resolve()
-          expect((await pending).status).not.toBe(200)
-          expect(await effectSnapshot(f.workspaceId)).toEqual(before)
         } finally {
           if (timer !== undefined) clearTimeout(timer)
-          effectBarrier = undefined
           release.resolve()
+          effectBarrier = undefined
           await pending?.catch(() => undefined)
+          await revocation?.catch(() => undefined)
+          await revoker?.close()
         }
       })
     }
@@ -777,9 +1126,9 @@ describe('production current-authority path (#1215)', () => {
           }
           throw new Error(`Expected PostgreSQL lock wait for ${pattern}`)
         }
-        // The real executor has passed permission acquisition and is now
-        // blocked inside its savepoint, immediately before the project write.
-        const mutationPid = await blockedPid('%update%projects%', blockerPid)
+        // The real executor has passed permission acquisition and now waits
+        // for its pre-effect project-row lock before making any CP effect hop.
+        const projectLockPid = await blockedPid('%projects%', blockerPid)
         const label = `production-revocation-${crypto.randomUUID()}`
         const url = new URL(connectionUrl!)
         url.searchParams.set('application_name', label)
@@ -799,7 +1148,9 @@ describe('production current-authority path (#1215)', () => {
         // Drizzle queries are lazy: normalize the update to a running promise.
         revocation = Promise.resolve(revocation)
         void revocation.catch(() => undefined)
-        expect(await blockedPid('%workspace_memberships%', mutationPid, label)).toBeGreaterThan(0)
+        expect(await blockedPid('%workspace_memberships%', projectLockPid, label)).toBeGreaterThan(
+          0
+        )
         expect(
           (await dbModule.findWorkspaceMembership(connection.db, f.workspaceId, f.actor))?.role
         ).toBe('admin')

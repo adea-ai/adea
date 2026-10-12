@@ -52,17 +52,25 @@ function harness(caller: ManagementCaller) {
   const audited: ManagementAuditDecision[] = []
   const authorized: Readonly<{ permission: string; workspaceId: string }>[] = []
   const overrides: Partial<ManagementExecutors> = {}
+  async function record(name: string, args: unknown[]) {
+    const assertEffectCurrent = args.at(-1)
+    if (typeof assertEffectCurrent === 'function') await assertEffectCurrent()
+    calls.push({ args: args.slice(0, -1), name })
+  }
   function recorded(name: string, result: unknown) {
     return async (...args: unknown[]) => {
-      calls.push({ args, name })
+      await record(name, args)
       return result
     }
   }
   const executor = <Key extends keyof ManagementExecutors>(key: Key, result: unknown) =>
     (overrides[key] ?? recorded(key, result)) as ManagementExecutors[Key]
   const executors: ManagementExecutors = {
+    archiveWorkspace: async (...args: unknown[]) => {
+      await record('archiveWorkspace', args)
+    },
     archiveProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'archiveProject' })
+      await record('archiveProject', args)
     },
     createProject: executor('createProject', project),
     removeProjectMember: executor('removeProjectMember', true),
@@ -79,7 +87,7 @@ function harness(caller: ManagementCaller) {
     }),
     setProjectVisibility: executor('setProjectVisibility', project),
     softDeleteProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'softDeleteProject' })
+      await record('softDeleteProject', args)
     },
     updateProject: executor('updateProject', project),
     updateWorkspace: executor('updateWorkspace', { ...project, version: 2 }),
@@ -301,6 +309,39 @@ describe('shared management operations (#1215)', () => {
     })
   })
 
+  test('workspace archive requires confirmation and executes through the shared gateway', async () => {
+    const run = harness({ kind: 'human' })
+    const unconfirmed = await run.operations.workspaceArchive({
+      confirmed: false,
+      principal: PRINCIPAL,
+      workspaceId: WORKSPACE,
+    })
+    expect(unconfirmed).toEqual({
+      ok: false,
+      failure: {
+        code: 'conflict',
+        message: 'Management target requires explicit confirmation',
+        operation: 'config.workspace.archive',
+      },
+    })
+    expect(run.authorized).toEqual([])
+    expect(run.calls).toEqual([])
+
+    const archived = await run.operations.workspaceArchive({
+      confirmed: true,
+      principal: PRINCIPAL,
+      workspaceId: WORKSPACE,
+    })
+    expect(archived).toEqual({ ok: true, operation: 'config.workspace.archive', value: null })
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.archive', workspaceId: WORKSPACE },
+      { permission: 'workspace.archive', workspaceId: WORKSPACE },
+    ])
+    expect(run.calls).toEqual([
+      { args: [DATABASE, WORKSPACE, PRINCIPAL], name: 'archiveWorkspace' },
+    ])
+  })
+
   test('every advertised lead operation takes the identical authorization and executor path', async () => {
     const USER = '0f3a2e1c-0000-4000-8000-0000000000cc'
     const cases: ReadonlyArray<{
@@ -333,6 +374,16 @@ describe('shared management operations (#1215)', () => {
         input: {},
         invoke: (operations, binding) =>
           operations.workspaceReopen({ principal: PRINCIPAL, workspaceId: WORKSPACE }, binding),
+      },
+      {
+        operation: 'config.workspace.archive',
+        targetId: WORKSPACE,
+        input: { confirmed: true },
+        invoke: (operations, binding) =>
+          operations.workspaceArchive(
+            { confirmed: true, principal: PRINCIPAL, workspaceId: WORKSPACE },
+            binding
+          ),
       },
       {
         operation: 'project.create',

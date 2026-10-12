@@ -705,7 +705,7 @@ export async function deleteWorkspace(
 }
 
 export async function archiveWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<void> {

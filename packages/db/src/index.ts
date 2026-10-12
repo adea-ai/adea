@@ -143,6 +143,7 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'

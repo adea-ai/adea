@@ -322,6 +322,10 @@ export function parseLeadManagementCall(
     case 'config.workspace.reopen':
       if (targetId !== workspaceId || !exactKeys(input, [])) return null
       return { authority, operation, workspaceId }
+    case 'config.workspace.archive':
+      if (targetId !== workspaceId || !exactKeys(input, ['confirmed'])) return null
+      if (input.confirmed !== true) return null
+      return { authority, confirmed: true, operation, workspaceId }
     default:
       return null
   }

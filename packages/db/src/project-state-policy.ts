@@ -28,10 +28,9 @@
 //   step back, so a retry after a crash re-reads and either promotes once or
 //   reports the conflict; it never half-restores.
 //
-// The project revision token is the row's `updatedAt` because the projects
-// table has no version column yet; the row lock plus the compare-and-swap is
-// exact for this flow. `docs/plans/m14-03-management-action-contract.md`
-// records the proposed `projects.version` hardening.
+// The project revision token is its monotonic `projects.version`. Promotion
+// reads that version under the project-row lock and compares it in the same
+// transaction as the channel cascade and event writes.
 import type {
   ProjectLifecycleState,
   ProjectSummary,

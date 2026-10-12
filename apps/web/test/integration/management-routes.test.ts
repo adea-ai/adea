@@ -89,6 +89,7 @@ describe('management human and lead routes (#1215)', () => {
   let typesModule: typeof import('@adea-ai/types/management')
   let desktopAuthModule: typeof import('../../src/server/desktop-auth')
   let projectRequestModule: typeof import('../../src/server/project-management-request')
+  let projectRestoreRequestModule: typeof import('../../src/server/project-restore-request')
   let cpServer: ReturnType<typeof Bun.serve>
 
   const workspaceIds: string[] = []
@@ -127,6 +128,7 @@ describe('management human and lead routes (#1215)', () => {
     // the handler is the genuine wrapper (guard, desktop principal resolution,
     // body parsing, shared management composition).
     projectRequestModule = await import('../../src/server/project-management-request')
+    projectRestoreRequestModule = await import('../../src/server/project-restore-request')
 
     connection = createDatabase(connectionUrl)
     // Desktop session resolution requires a non-temporary user.
@@ -472,6 +474,89 @@ describe('management human and lead routes (#1215)', () => {
       const after = await getProjectForUser(connection.db, workspaceA, project.id, owner)
       expect(after?.name, JSON.stringify(body)).toBe('Invalid body before')
       expect(after?.version, JSON.stringify(body)).toBe(project.version)
+    }
+  })
+
+  test('project restore rejects non-object JSON with 400 and zero mutation', async () => {
+    const project = await createProject(connection.db, workspaceA, owner, {
+      iconKey: 'box',
+      name: 'Restore invalid body',
+    })
+    const archived = await scopeModule.withRequestScope(() =>
+      composition.applicationManagementOperations().projectArchive({
+        principal: owner,
+        projectId: project.id,
+        workspaceId: workspaceA,
+      })
+    )
+    expect(archived.ok).toBe(true)
+    const beforeProject = await getProjectForUser(connection.db, workspaceA, project.id, owner, {
+      includeArchived: true,
+    })
+    const beforeEvents = await connection.db
+      .select()
+      .from(workspaceEvents)
+      .where(eq(workspaceEvents.workspaceId, workspaceA))
+    const beforeChannels = await connection.db
+      .select({
+        id: channels.id,
+        lifecycleState: channels.lifecycleState,
+        version: channels.version,
+      })
+      .from(channels)
+      .where(eq(channels.projectId, project.id))
+    expect(beforeProject?.lifecycleState).toBe('archived')
+
+    const session = await scopeModule.withRequestScope(() =>
+      desktopAuthModule.desktopSessionService().issue({
+        email: 'owner@example.test',
+        providerExpiresAt: Date.now() + 3_600_000,
+        providerSessionId: 'provider-session-invalid-restore-body',
+        userId: owner.userId,
+      })
+    )
+    const params = { projectId: project.id, workspaceId: workspaceA }
+    for (const body of [null, [], 'text', 3, true]) {
+      const request = new Request(
+        `https://adea-fixture.invalid/api/v1/workspaces/${workspaceA}/projects/${project.id}/restore`,
+        {
+          body: JSON.stringify(body),
+          headers: {
+            authorization: `Desktop ${session.credential}`,
+            'content-type': 'application/json',
+            origin: 'http://127.0.0.1:1420',
+            'x-adea-client': 'desktop',
+            'x-adea-desktop-session': session.sessionId,
+          },
+          method: 'POST',
+        }
+      )
+      const response = await scopeModule.withRequestScope(() =>
+        projectRestoreRequestModule.restoreProjectRequest(request, { params })
+      )
+      expect(response.status, JSON.stringify(body)).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'invalid_request' })
+      expect(
+        await getProjectForUser(connection.db, workspaceA, project.id, owner, {
+          includeArchived: true,
+        })
+      ).toEqual(beforeProject)
+      expect(
+        await connection.db
+          .select()
+          .from(workspaceEvents)
+          .where(eq(workspaceEvents.workspaceId, workspaceA))
+      ).toEqual(beforeEvents)
+      expect(
+        await connection.db
+          .select({
+            id: channels.id,
+            lifecycleState: channels.lifecycleState,
+            version: channels.version,
+          })
+          .from(channels)
+          .where(eq(channels.projectId, project.id))
+      ).toEqual(beforeChannels)
     }
   })
 
