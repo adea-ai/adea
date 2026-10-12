@@ -30,7 +30,14 @@ import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from './portable-export-transaction'
-import { listChannelsForUser, listMessagesForUser } from './conversations'
+import {
+  CHANNEL_SUMMARY_PAGE_SIZE,
+  ChannelParticipantOverflowError,
+  listChannelIdsForUser,
+  listChannelsForUserPage,
+  listMessagesForUser,
+  type ChannelPageCursor,
+} from './conversations'
 import {
   isContentRefVisible,
   type ProjectAccessScope,
@@ -81,12 +88,21 @@ function accountExportLowerBound(budget: ExportReadBudget, value: unknown): void
 
 /**
  * Test seam. `beforeMessagePage` and `beforeTaskPage` run before each page is read, so a test can
- * pause an export between pages and change authority before the next page. `beforeStep` runs
- * before projects, tasks and content references are read, and before the final
+ * pause an export between channel/message/task pages and change authority before the next page.
+ * `beforeStep` runs before projects, tasks and content references are read, and before the final
  * access check, so a test can pause an export between those reads and before its last check.
  * Production callers pass no hooks.
  */
 export type PortableExportHooks = Readonly<{
+  afterChannelPage?: (
+    page: Readonly<{
+      channelIds: readonly string[]
+      participantRowsMaterialized: number
+    }>
+  ) => void | Promise<void>
+  beforeChannelPage?: (
+    page: Readonly<{ afterChannelId: string | undefined }>
+  ) => void | Promise<void>
   beforeMessagePage?: (
     page: Readonly<{ afterSequence: number | undefined; channelId: string }>
   ) => void | Promise<void>
@@ -145,8 +161,15 @@ async function channelIdsNow(
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<Set<string>> {
-  const channelRows = await listChannelsForUser(transaction, workspaceId, principal)
-  return new Set(channelRows.map((channel) => channel.id))
+  try {
+    return new Set(
+      bounded(await listChannelIdsForUser(transaction, workspaceId, principal), 'channels')
+    )
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Channel unavailable')
+      throw new PortableExportError('denied', 'Workspace unavailable')
+    throw error
+  }
 }
 
 function containsAll(current: ReadonlySet<string>, required: ReadonlySet<string>): boolean {
@@ -273,11 +296,51 @@ async function readRequesterInputs(
   const projectIds = new Set(projectRows.map((row) => row.id))
   const readBudget: ExportReadBudget = { bytes: 0 }
 
-  const channels = (await listChannelsForUser(transaction, workspaceId, principal)).filter(
-    (channel) =>
-      start.channelIds.has(channel.id) && (!channel.projectId || projectIds.has(channel.projectId))
-  )
-  bounded(channels, 'channels')
+  const channels: ChannelSummary[] = []
+  const capturedChannelIds = [...start.channelIds].toSorted()
+  let afterChannel: ChannelPageCursor | undefined
+  for (let offset = 0; offset < capturedChannelIds.length;) {
+    const candidateChannelIds = capturedChannelIds.slice(offset, offset + CHANNEL_SUMMARY_PAGE_SIZE)
+    for (;;) {
+      await hooks?.beforeChannelPage?.({ afterChannelId: afterChannel?.id })
+      await assertAccess(transaction, workspaceId, principal, start)
+      const page = await listChannelsForUserPage(transaction, workspaceId, principal, {
+        after: afterChannel,
+        channelIds: candidateChannelIds,
+        limit: candidateChannelIds.length,
+      }).catch(async (error: unknown) => {
+        await assertStanding(transaction, workspaceId, principal, start)
+        if (error instanceof ChannelParticipantOverflowError)
+          throw new PortableExportError(
+            'too_large',
+            'channel participants exceed the portable bound'
+          )
+        throw error
+      })
+      await hooks?.afterChannelPage?.({
+        channelIds: page.channels.map(({ id }) => id),
+        participantRowsMaterialized: page.participantRowsMaterialized,
+      })
+      for (const channel of page.channels) {
+        if (channel.projectId && !projectIds.has(channel.projectId)) continue
+        // Channel id, title, timestamps and all participants are guaranteed in the output.
+        // Check this lower bound before retaining another page of summaries.
+        accountExportLowerBound(readBudget, {
+          channelId: channel.id,
+          createdAt: channel.createdAt,
+          participants: channel.participants,
+          title: channel.title,
+          updatedAt: channel.updatedAt,
+        })
+        channels.push(channel)
+        bounded(channels, 'channels')
+      }
+      if (!page.nextAfter) break
+      afterChannel = page.nextAfter
+    }
+    afterChannel = { id: candidateChannelIds.at(-1)! }
+    offset += candidateChannelIds.length
+  }
   const messages = await readVisibleMessages(
     transaction,
     workspaceId,

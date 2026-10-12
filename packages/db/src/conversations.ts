@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import { PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS } from '@adea-ai/types'
 import type {
   ChannelSummary,
   ConversationParticipantRef,
@@ -7,7 +8,7 @@ import type {
   MessageSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
+import { and, asc, eq, exists, gt, inArray, isNull, max, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
@@ -144,16 +145,10 @@ async function validateParticipant(
   else await requireActiveAgent(database, workspaceId, participant.agentId)
 }
 
-async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
-  const participantRows = await database
-    .select()
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.workspaceId, row.workspaceId),
-        eq(channelParticipants.channelId, row.id)
-      )
-    )
+function channelSummaryFromParticipants(
+  row: ChannelRow,
+  participantRows: readonly (typeof channelParticipants.$inferSelect)[]
+): ChannelSummary {
   const participants = participantRows
     .map((participant): ConversationParticipantRef =>
       participant.principalKind === 'user'
@@ -178,6 +173,19 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
     visibility: row.visibility,
     workspaceId: row.workspaceId,
   })
+}
+
+async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
+  const participantRows = await database
+    .select()
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, row.workspaceId),
+        eq(channelParticipants.channelId, row.id)
+      )
+    )
+  return channelSummaryFromParticipants(row, participantRows)
 }
 
 async function requireChannel(
@@ -586,12 +594,77 @@ export const createGroupChannel = (
     visibility: 'participants',
   })
 
-export async function listChannelsForUser(
+export type ChannelPageCursor = Readonly<{ id: string }>
+
+export type ChannelPage = Readonly<{
+  channels: readonly ChannelSummary[]
+  nextAfter: ChannelPageCursor | undefined
+  participantRowsMaterialized: number
+}>
+
+export const CHANNEL_SUMMARY_PAGE_SIZE = 256
+const CHANNEL_ID_SNAPSHOT_LIMIT = PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1
+const CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT = PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS
+
+export class ChannelParticipantOverflowError extends Error {
+  constructor() {
+    super('Channel participants exceed the portable export bound')
+    this.name = 'ChannelParticipantOverflowError'
+  }
+}
+
+function readableChannelConditions(
   database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{ includeArchived?: boolean }> = {}
+  scope: Awaited<ReturnType<typeof requireProjectAccessScope>>,
+  includeArchived: boolean,
+  after?: ChannelPageCursor,
+  channelIds?: readonly string[]
 ) {
+  const userParticipant = database
+    .select({ id: channelParticipants.id })
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channels.id),
+        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.userId, principal.userId)
+      )
+    )
+    .limit(1)
+  return and(
+    eq(channels.workspaceId, workspaceId),
+    visibleProjectCondition(channels.projectId, scope),
+    ...(includeArchived ? [] : [eq(channels.lifecycleState, 'active')]),
+    or(eq(channels.visibility, 'workspace'), exists(userParticipant)),
+    ...(after ? [gt(channels.id, after.id)] : []),
+    ...(channelIds ? [channelIds.length ? inArray(channels.id, [...channelIds]) : sql`false`] : [])
+  )
+}
+
+/**
+ * A bounded page from the canonical channel reader. Channel visibility and project scope are
+ * evaluated in SQL; summaries include the complete participant list, fetched in one query for
+ * the page instead of one query per channel.
+ */
+export async function listChannelsForUserPage(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{
+    after?: ChannelPageCursor
+    channelIds?: readonly string[]
+    includeArchived?: boolean
+    limit?: number
+  }> = {}
+): Promise<ChannelPage> {
+  const limit = options.limit ?? CHANNEL_SUMMARY_PAGE_SIZE
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > CHANNEL_SUMMARY_PAGE_SIZE)
+    throw new RangeError(`channel page limit must be between 1 and ${CHANNEL_SUMMARY_PAGE_SIZE}`)
+  if (options.channelIds && options.channelIds.length > CHANNEL_SUMMARY_PAGE_SIZE)
+    throw new RangeError(`channel id page may contain at most ${CHANNEL_SUMMARY_PAGE_SIZE} ids`)
   const scope = await requireProjectAccessScope(
     database,
     workspaceId,
@@ -602,21 +675,145 @@ export async function listChannelsForUser(
     .select()
     .from(channels)
     .where(
-      and(
-        eq(channels.workspaceId, workspaceId),
-        visibleProjectCondition(channels.projectId, scope),
-        ...(options.includeArchived ? [] : [eq(channels.lifecycleState, 'active')])
+      readableChannelConditions(
+        database,
+        workspaceId,
+        principal,
+        scope,
+        options.includeArchived ?? false,
+        options.after,
+        options.channelIds
       )
     )
-    .orderBy(asc(channels.sortOrder), asc(channels.id))
-  const summaries = await Promise.all(rows.map((row) => channelSummary(database, row)))
-  return summaries.filter(
-    (channel) =>
-      channel.visibility === 'workspace' ||
-      channel.participants.some(
-        (participant) => participant.kind === 'user' && participant.userId === principal.userId
-      )
+    .orderBy(asc(channels.id))
+    .limit(limit + 1)
+  const hasMore = rows.length > limit
+  const pageRows = rows.slice(0, limit)
+  const participantCounts = pageRows.length
+    ? await database
+        .select({
+          channelId: sql<string>`participant_candidates.channel_id`,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(
+          database
+            .select({ channelId: channelParticipants.channelId })
+            .from(channelParticipants)
+            .where(
+              and(
+                eq(channelParticipants.workspaceId, workspaceId),
+                inArray(
+                  channelParticipants.channelId,
+                  pageRows.map((row) => row.id)
+                )
+              )
+            )
+            .orderBy(asc(channelParticipants.channelId), asc(channelParticipants.id))
+            .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+            .as('participant_candidates')
+        )
+        .groupBy(sql`participant_candidates.channel_id`)
+        .orderBy(sql`participant_candidates.channel_id`)
+    : []
+  const countsByChannel = new Map(
+    participantCounts.map(({ channelId, count }) => [channelId, count])
   )
+  const participantCountRows = participantCounts.reduce((sum, row) => sum + row.count, 0)
+  const countWindowFilled = participantCountRows > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT
+  const lastCountedChannelId = participantCounts.at(-1)?.channelId
+  const completeCountEnd =
+    countWindowFilled && lastCountedChannelId
+      ? pageRows.findIndex((row) => row.id === lastCountedChannelId) - 1
+      : pageRows.length - 1
+
+  const summaryRows: ChannelRow[] = []
+  let participantCountInBatch = 0
+  for (let index = 0; index < pageRows.length && index <= completeCountEnd; index += 1) {
+    const row = pageRows[index]!
+    const count = countsByChannel.get(row.id) ?? 0
+    if (count > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT) throw new ChannelParticipantOverflowError()
+    if (participantCountInBatch + count > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT) break
+    summaryRows.push(row)
+    participantCountInBatch += count
+  }
+  if (!summaryRows.length && pageRows.length) throw new ChannelParticipantOverflowError()
+
+  const participantRows = summaryRows.length
+    ? await database
+        .select()
+        .from(channelParticipants)
+        .where(
+          and(
+            eq(channelParticipants.workspaceId, workspaceId),
+            inArray(
+              channelParticipants.channelId,
+              summaryRows.map((row) => row.id)
+            )
+          )
+        )
+        .orderBy(asc(channelParticipants.channelId), asc(channelParticipants.id))
+        .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+    : []
+  if (participantRows.length > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT)
+    throw new ChannelParticipantOverflowError()
+  const participantsByChannel = new Map<string, (typeof participantRows)[number][]>()
+  for (const participant of participantRows) {
+    const channelParticipantsForRow = participantsByChannel.get(participant.channelId)
+    if (channelParticipantsForRow) channelParticipantsForRow.push(participant)
+    else participantsByChannel.set(participant.channelId, [participant])
+  }
+  const last = summaryRows.at(-1)
+  const summaryPageHasMore = summaryRows.length < pageRows.length || hasMore
+  return {
+    channels: summaryRows.map((row) =>
+      channelSummaryFromParticipants(row, participantsByChannel.get(row.id) ?? [])
+    ),
+    nextAfter: summaryPageHasMore && last ? { id: last.id } : undefined,
+    participantRowsMaterialized: participantRows.length,
+  }
+}
+
+/** The export's bounded, single-statement snapshot for channel standing checks. */
+export async function listChannelIdsForUser(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<string[]> {
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Channel unavailable'
+  )
+  const rows = await database
+    .select({ id: channels.id })
+    .from(channels)
+    .where(readableChannelConditions(database, workspaceId, principal, scope, false))
+    .limit(CHANNEL_ID_SNAPSHOT_LIMIT)
+  return rows.map(({ id }) => id)
+}
+
+export async function listChannelsForUser(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ includeArchived?: boolean }> = {}
+) {
+  const summaries: ChannelSummary[] = []
+  let after: ChannelPageCursor | undefined
+  for (;;) {
+    const page = await listChannelsForUserPage(database, workspaceId, principal, {
+      after,
+      includeArchived: options.includeArchived,
+    })
+    summaries.push(...page.channels)
+    if (!page.nextAfter)
+      return summaries.toSorted(
+        (left, right) =>
+          left.sortOrder - right.sortOrder || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+      )
+    after = page.nextAfter
+  }
 }
 
 export async function getChannelForUser(
