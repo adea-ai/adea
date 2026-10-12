@@ -48,11 +48,12 @@ migrator bypass the preflight and should remain limited to disposable test
 fixtures.
 
 The migration history preflight integration proof runs in the root
-`bun run test:integration` lane. That runner provisions a dedicated disposable
-PostgreSQL instance and exports `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
-running the proof without this provisioning fails explicitly. The package
-`test:integration` script does not provision that database itself, so direct
-package runs need an explicitly supplied dedicated disposable provisioning URL.
+`bun run test:integration` lane and the package's
+`bun run --cwd packages/db test:integration` script. Both runners use the
+existing `run-with-capture-provisioning.mjs` helper to provision a dedicated
+disposable PostgreSQL instance and set `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
+running the proof directly without either runner fails explicitly unless a
+dedicated disposable provisioning URL is supplied.
 
 The root and package integration runners build the public `remote-content`
 and `types/runtime-node-delivery` entries before running the database producer tests, so a fresh checkout needs no
