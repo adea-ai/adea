@@ -111,6 +111,9 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
                 profileId: product.profileId,
                 profileVersion: product.profileVersion,
                 profileRevision: product.profileRevision,
+                ...(product.requestedModelSelections
+                  ? { requestedModelSelections: product.requestedModelSelections }
+                  : {}),
               })
             )
             .digest('hex')
@@ -131,6 +134,9 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
               profileId: product.profileId,
               profileVersion: product.profileVersion,
               profileRevision: product.profileRevision,
+              ...(product.requestedModelSelections
+                ? { requestedModelSelections: product.requestedModelSelections }
+                : {}),
             },
             { headers: { 'cache-control': 'private, no-store' } }
           )

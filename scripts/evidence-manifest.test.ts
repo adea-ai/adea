@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   ACCEPTANCE_IDS,
   CommandError,
@@ -777,6 +777,16 @@ describe('bounded git subprocesses (fail closed)', () => {
   })
 })
 
+const gitIn = (cwd, args) => {
+  const result = spawnSync(
+    'git',
+    ['-c', 'user.name=f', '-c', 'user.email=f@example.invalid', ...args],
+    { cwd, encoding: 'utf8' }
+  )
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+  return result.stdout.trim()
+}
+
 describe('committed manifest at its pinned commit (authorized read)', () => {
   const committed = JSON.parse(
     readFileSync(resolve(root, 'docs/plans/m18-evidence-manifest.json'), 'utf8')
@@ -819,15 +829,47 @@ describe('committed manifest at its pinned commit (authorized read)', () => {
     }
   }, 180_000)
 
-  test('the pinned commit cannot be read from another repository or from an unknown revision', () => {
-    expect(() =>
-      openAuthorizedCheckout({ name: 'adea-ai/control-plane', rootCommit, sourceSha: pin })
-    ).toThrow('cannot read')
-    expect(() => openAuthorizedCheckout({ name, rootCommit, sourceSha: '1'.repeat(40) })).toThrow(
-      'cannot read'
-    )
-    expect(rootCommit).toBe('663f2bd9133cd8bd3b4576224eb1caabf96cc34b')
-  }, 180_000)
+  test('authorized reads refuse a pin absent from its declared repository and unknown revisions', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'adea-evidence-authorized-identity-'))
+    const remoteRoot = join(scratch, 'remote')
+    const remoteBase = `file://${remoteRoot}/`
+    const seedRepository = (repository) => {
+      const work = join(scratch, 'source', repository)
+      const bare = join(remoteRoot, `${repository}.git`)
+      mkdirSync(work, { recursive: true })
+      gitIn(work, ['init', '-q'])
+      writeFileSync(join(work, 'controlled.test.ts'), "test('controlled remote', () => {})\n")
+      gitIn(work, ['add', '-A'])
+      gitIn(work, ['commit', '-q', '-m', 'controlled remote fixture'])
+      mkdirSync(dirname(bare), { recursive: true })
+      gitIn(scratch, ['clone', '-q', '--bare', work, bare])
+      gitIn(bare, ['config', 'uploadpack.allowFilter', 'true'])
+      gitIn(bare, ['config', 'uploadpack.allowAnySHA1InWant', 'true'])
+    }
+
+    try {
+      seedRepository('adea-ai/control-plane')
+      seedRepository('adea-ai/adea')
+      const otherRepository = 'adea-ai/control-plane'
+      expect(() =>
+        openAuthorizedCheckout(
+          { name: otherRepository, rootCommit, sourceSha: pin },
+          { remoteBase, timeoutMs: 5_000 }
+        )
+      ).toThrow(`cannot read ${pin} from ${otherRepository}`)
+
+      const unknownRevision = '1'.repeat(40)
+      expect(() =>
+        openAuthorizedCheckout(
+          { name, rootCommit, sourceSha: unknownRevision },
+          { remoteBase, timeoutMs: 5_000 }
+        )
+      ).toThrow(`cannot read ${unknownRevision} from ${name}`)
+      expect(rootCommit).toBe('663f2bd9133cd8bd3b4576224eb1caabf96cc34b')
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  }, 30_000)
 
   test('evidence pinned to another revision is refused by its own envelopes', () => {
     const older = '34e173df7bf4654d53e2b4daed5ff41239cafd8b'
@@ -854,18 +896,6 @@ describe('committed manifest at its pinned commit (authorized read)', () => {
 })
 
 // Stand-ins for the declared remote and the shallow clone the blind spot describes.
-const gitIn = (cwd, args) => {
-  const result = spawnSync(
-    'git',
-    ['-c', 'user.name=f', '-c', 'user.email=f@example.invalid', ...args],
-    {
-      cwd,
-      encoding: 'utf8',
-    }
-  )
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
-  return result.stdout.trim()
-}
 // The pinned tip and no history beyond it, cloned from the source's remote base.
 const shallowClone = ({ base, remoteBase }, label) => {
   const local = join(base, label)

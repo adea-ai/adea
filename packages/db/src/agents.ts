@@ -1,5 +1,6 @@
 import type { AgentSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq, isNull } from 'drizzle-orm'
+import { AgentPersonaPolicyError, decideAgentPersonaChange } from './agent-persona-policy'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { agents, projects, workspaceMemberships, workspaces } from './schema'
 import { appendWorkspaceEvent } from './transactions'
@@ -406,13 +407,30 @@ export async function changeAgentProfile(
       .for('update')
     if (!previous) throw new Error('Agent unavailable')
     if (previous.profileRevision !== input.expectedRevision) throw new AgentProfileConflictError()
+    // A profile/persona change may never smuggle a structural field into the
+    // write: the guard refuses project moves, lead designation, lifecycle
+    // changes and revision rewrites before the UPDATE is issued.
+    const persona = decideAgentPersonaChange({
+      agent: {
+        agentId: previous.id,
+        workspaceId: previous.workspaceId,
+        ...(previous.projectId ? { projectId: previous.projectId } : {}),
+        isWorkspaceLead: previous.isWorkspaceLead,
+        lifecycleState: previous.lifecycleState,
+        profileRevision: previous.profileRevision,
+      },
+      authorizedWorkspaceId: workspaceId,
+      expectedRevision: previous.profileRevision,
+      change: input,
+    })
+    if (!persona.allowed) throw new AgentPersonaPolicyError(persona.reason)
     const [updated] = await transaction
       .update(agents)
       .set({
-        profileId: input.profileId.trim(),
+        profileId: persona.plan.profileId,
         profileState: input.profileState ?? 'available',
-        profileVersion: input.profileVersion.trim(),
-        profileRevision: previous.profileRevision + 1,
+        profileVersion: persona.plan.profileVersion,
+        profileRevision: persona.plan.nextProfileRevision,
         updatedAt: new Date(),
       })
       .where(

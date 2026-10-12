@@ -178,12 +178,14 @@ describe('workspace API client', () => {
       },
     })
 
-    await expect(client.archiveWorkspace('workspace/one')).resolves.toEqual({
+    await expect(client.archiveWorkspace('workspace/one', { confirmed: true })).resolves.toEqual({
       archived: true,
       workspaceId: 'workspace/one',
     })
     expect(new URL(request!.url).pathname).toBe('/api/workspaces/workspace%2Fone/archive')
     expect(request?.method).toBe('POST')
+    expect(request?.headers.get('content-type')).toBe('application/json')
+    expect(await request?.json()).toEqual({ confirmed: true })
   })
 
   test('reopens a workspace through the typed contract', async () => {

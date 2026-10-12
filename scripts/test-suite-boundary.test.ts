@@ -36,6 +36,15 @@ describe('test suite boundaries', () => {
     expect(packageJson.scripts['test:unit']).toContain('turbo run test')
     expect(packageJson.scripts['test:unit']).toContain('bun run test:coverage')
     expect(packageJson.scripts['test:integration']).toBe('bun scripts/test-integration.mjs')
+    const localValidation = readFileSync(resolve(root, '.github/code-foundry.yml'), 'utf8')
+    expect(localValidation).toContain('features: validation,release')
+    const localRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
+    expect(localRunner).toContain(
+      "const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'"
+    )
+    expect(localRunner).toContain(
+      'environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl'
+    )
     const integrationRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
     expect(integrationRunner).toContain('DATABASE_MIGRATION_URL')
     expect(integrationRunner).toContain("spawnSync('docker'")
@@ -48,7 +57,14 @@ describe('test suite boundaries', () => {
     expect(integrationRunner).toContain("from './integration-inventory.mjs'")
     expect(integrationInventory).toContain("'tests', 'integration'")
     expect(integrationInventory).toContain("'apps', 'web', 'test', 'integration'")
-    expect(packageJson.scripts['test:e2e']).toContain('playwright')
+    expect(packageJson.scripts['test:e2e']).toBe('bun scripts/e2e-run.mjs')
+    expect(packageJson.scripts['test:e2e:dev-view-terminal']).toContain(
+      'bun scripts/e2e-setup.mjs &&'
+    )
+    const e2eRunner = readFileSync(resolve(root, 'scripts/e2e-run.mjs'), 'utf8')
+    expect(e2eRunner.indexOf('await runE2ePreparation()')).toBeLessThan(
+      e2eRunner.indexOf("spawnSync('bun'")
+    )
     // The Dev View chunk budget is a documented-raise ratchet, not a silent
     // dial: the check script carries the raise rationale, and this pin makes
     // any further raise a deliberate test edit.
@@ -87,7 +103,14 @@ describe('test suite boundaries', () => {
     )
     for (const [index, total] of [
       [1, 1],
-      [2, 2],
+      [1, 8],
+      [2, 8],
+      [3, 8],
+      [4, 8],
+      [5, 8],
+      [6, 8],
+      [7, 8],
+      [8, 8],
     ]) {
       const calls: { command: string; args: string[] }[] = []
       runInNewContext(runner, {
@@ -183,6 +206,60 @@ describe('test suite boundaries', () => {
     }
   })
 
+  test('requires the lead role and payer specs in the normal E2E selection, connected proof opt-in', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    for (const [index, total] of [
+      [1, 1],
+      [2, 2],
+    ]) {
+      const calls: { command: string; args: string[] }[] = []
+      runInNewContext(runner, {
+        spawnSync: (command: string, args: string[]) => {
+          calls.push({ command, args })
+          return { status: 0 }
+        },
+        process: { env: { E2E_SHARD_INDEX: String(index), E2E_TOTAL_SHARDS: String(total) } },
+        console,
+      })
+      const main = calls.find(
+        ({ command, args }) =>
+          command === 'playwright' && args.includes('apps/web/e2e/workspace-guest.spec.ts')
+      )
+      expect(main).toBeDefined()
+      expect(main!.args).toContain('apps/web/e2e/lead-role-choices.spec.ts')
+      expect(main!.args).toContain('apps/web/e2e/lead-payer-journey.spec.ts')
+      expect(main!.args).not.toContain('apps/web/e2e/lead-role-choices-connected.spec.ts')
+    }
+    for (const spec of ['lead-role-choices', 'lead-payer-journey', 'lead-role-choices-connected']) {
+      expect(existsSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`))).toBeTrue()
+    }
+    const connected = readFileSync(
+      resolve(root, 'apps/web/e2e/lead-role-choices-connected.spec.ts'),
+      'utf8'
+    )
+    expect(connected).toContain("process.env.PI_ROLE_CONNECTED_PROOF !== '1'")
+  })
+
+  test('keeps the lead E2E fixture servers off the managed dev server cache', () => {
+    // A second Vite instance that shares node_modules/.vite rewrites the dependency hashes the
+    // running app already requested, and the app then fails with a 504 Outdated Optimize Dep.
+    for (const spec of [
+      'lead-role-choices',
+      'lead-payer-journey',
+      'lead-role-choices-connected',
+      'lead-turn-controls',
+      'message-composer',
+    ]) {
+      const source = readFileSync(resolve(root, `apps/web/e2e/${spec}.spec.ts`), 'utf8')
+      expect(source).toContain('    cacheDir,\n')
+      expect(source).toContain('cacheDir = mkdtempSync(join(tmpdir(), ')
+      expect(source).toContain('rmSync(cacheDir, { recursive: true, force: true })')
+    }
+  })
+
   test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
     // #426 requires named packaged/perf/security/soak evidence commands; the
     // release report cites these exact entry points, so package.json cannot
@@ -255,11 +332,52 @@ describe('test suite boundaries', () => {
     expect(codeFoundry).toContain('coverage_minimum: 80')
   })
 
-  test('runs the database-backed integration category in the Neon lane', () => {
-    const neonWorkflow = readFileSync(resolve(root, '.github/workflows/neon_workflow.yml'), 'utf8')
-    expect(neonWorkflow).toContain('bun run test:integration')
-    expect(neonWorkflow).not.toContain('packages/db test:integration')
-    expect(neonWorkflow).not.toContain('packages/auth test:integration')
+  test('keeps full PostgreSQL integration local and limits Neon to provider proof', () => {
+    const neonWorkflow = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/workflows/neon_workflow.yml'), 'utf8')
+    ) as {
+      jobs: {
+        neon_proof: {
+          'timeout-minutes': number
+          strategy?: unknown
+          steps: { name?: string; run?: string }[]
+        }
+        migrate_gate: { needs: string[]; name: string }
+      }
+    }
+    const proof = neonWorkflow.jobs.neon_proof
+    const commands = proof.steps.map((step) => step.run ?? '').join('\n')
+    const authProbe = proof.steps.find((step) => step.name === 'Verify isolated Neon Auth endpoint')
+
+    expect(packageJson.scripts['test:integration']).toBe('bun scripts/test-integration.mjs')
+    expect(proof.strategy).toBeUndefined()
+    expect(proof['timeout-minutes']).toBe(5)
+    expect(commands).not.toContain('bun run test:integration')
+    expect(commands).not.toContain('ADEA_INTEGRATION_SHARD')
+    expect(commands).toContain('node scripts/database-health.mjs')
+    expect(commands).toContain('bun run --cwd packages/db db:check')
+    expect(commands).toContain('bun run --cwd packages/db db:verify')
+    expect(authProbe?.run).toContain('AbortSignal.timeout(15_000)')
+    expect(neonWorkflow.jobs.migrate_gate.needs).toEqual(['setup', 'neon_proof'])
+    expect(neonWorkflow.jobs.migrate_gate.name).toBe('Migrate Neon Branch')
+  })
+
+  test('uses eight E2E shards in the required pull-request validation lane', () => {
+    const config = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/code-foundry.yml'), 'utf8')
+    ) as { e2e_shards: number }
+    const workflow = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/workflows/validation.yml'), 'utf8')
+    ) as {
+      jobs: {
+        validation: {
+          with: { 'e2e-shard-list': string; 'e2e-total-shards': number }
+        }
+      }
+    }
+    expect(config.e2e_shards).toBe(8)
+    expect(workflow.jobs.validation.with['e2e-shard-list']).toBe('1,2,3,4,5,6,7,8')
+    expect(workflow.jobs.validation.with['e2e-total-shards']).toBe(8)
   })
 
   test('partitions the integration inventory explicitly instead of delegating to Bun --shard', () => {

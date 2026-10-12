@@ -1871,6 +1871,16 @@ export type MutationPlan = Readonly<{
     dependsOn: readonly string[]
   }>[]
   blockers: readonly CleanupBlocker[]
+  /**
+   * Read-only consequences of the plan for the confirmation surface. They
+   * describe what would be removed and why a step is blocked; they are never
+   * authority to execute, and an omitted list means no preview was computed.
+   */
+  consequences?: readonly Readonly<{
+    kind: string
+    blocking: boolean
+    detail: string
+  }>[]
   requiredApprovalIds: readonly string[]
   digest: string
   expiresAt: string
@@ -1904,7 +1914,7 @@ function decodeMutationPlan(value: unknown): MutationPlan {
       'digest',
       'expiresAt',
     ],
-    [],
+    ['consequences'],
     'mutationPlan'
   )
   if (!uuidPattern.test(stringValue(item.id, 'mutationPlan.id')))
@@ -1933,6 +1943,24 @@ function decodeMutationPlan(value: unknown): MutationPlan {
   item.blockers.forEach((blocker, index) =>
     decodeCleanupBlocker(blocker, `mutationPlan.blockers[${index}]`)
   )
+  if (item.consequences !== undefined) {
+    if (!Array.isArray(item.consequences)) fail('mutationPlan.consequences', 'expected array')
+    if (item.consequences.length > 10_000)
+      fail('mutationPlan.consequences', 'consequences exceed 10,000')
+    item.consequences.forEach((entry, index) => {
+      const consequence = record(entry, `mutationPlan.consequences[${index}]`)
+      exactKeys(
+        consequence,
+        ['kind', 'blocking', 'detail'],
+        [],
+        `mutationPlan.consequences[${index}]`
+      )
+      stringValue(consequence.kind, `mutationPlan.consequences[${index}].kind`, 1, 128)
+      if (typeof consequence.blocking !== 'boolean')
+        fail(`mutationPlan.consequences[${index}].blocking`, 'expected boolean')
+      stringValue(consequence.detail, `mutationPlan.consequences[${index}].detail`, 1, 512)
+    })
+  }
   validateType('string[]', item.requiredApprovalIds, 'mutationPlan.requiredApprovalIds')
   if (!sha256Pattern.test(stringValue(item.digest, 'mutationPlan.digest')))
     fail('mutationPlan.digest', 'expected sha256')

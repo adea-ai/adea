@@ -114,6 +114,8 @@ export function DevConfirmDialog(props: {
   description: string
   steps?: readonly string[]
   blockers?: readonly string[]
+  /** Read-only preview of what the action removes; never enables the action. */
+  consequences?: readonly string[]
   confirmLabel: string
   destructive?: boolean
   onConfirm: () => Outcome
@@ -144,6 +146,17 @@ export function DevConfirmDialog(props: {
               )}
             </For>
           </ol>
+        </Show>
+        <Show when={(props.consequences?.length ?? 0) > 0}>
+          <ul class="flex list-disc flex-col gap-1 ps-5" aria-label="Cleanup consequences">
+            <For each={props.consequences}>
+              {(consequence) => (
+                <li>
+                  <Text variant="label">{consequence}</Text>
+                </li>
+              )}
+            </For>
+          </ul>
         </Show>
         <Show when={blocked()}>
           <Alert variant="destructive">

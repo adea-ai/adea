@@ -35,8 +35,24 @@ user IDs or workspace foreign keys.
 2. Run `bun run --cwd packages/db db:generate -- --name=<short-name>`.
 3. Review the generated SQL and snapshot. Never edit a migration after it has been applied.
 4. Run `bun run --cwd packages/db db:check`.
-5. Against an isolated database, run `bun run --cwd packages/db db:verify` and
-   `bun run --cwd packages/db test:integration`.
+5. Against an isolated database, run `bun run --cwd packages/db db:verify`.
+6. From the repository root, run the canonical `bun run test:integration` lane.
+
+`db:verify` is the repository's guarded migration runner: before invoking
+Drizzle, it compares the existing migration ledger with the journal's SQL
+hashes and timestamps. It refuses ambiguous or moved applied migrations,
+non-increasing journal timestamps, and pending entries at or below the ledger's
+applied timestamp high-water mark. The `db:migrate` package command is a
+compatibility alias for the same guarded runner. Direct calls to Drizzle's
+migrator bypass the preflight and should remain limited to disposable test
+fixtures.
+
+The migration history preflight integration proof runs in the root
+`bun run test:integration` lane. That runner provisions a dedicated disposable
+PostgreSQL instance and exports `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
+running the proof without this provisioning fails explicitly. The package
+`test:integration` script does not provision that database itself, so direct
+package runs need an explicitly supplied dedicated disposable provisioning URL.
 
 The root and package integration runners build the public `remote-content`
 and `types/runtime-node-delivery` entries before running the database producer tests, so a fresh checkout needs no
@@ -76,6 +92,20 @@ writing; see the [lead identity evidence](../../docs/evidence/m11-workspace-lead
 It is additive with a default of zero. Apply it before callers that send `expectedRevision`:
 until every writer checks the revision, a pre-0045 writer can edit without advancing it, so
 complete the rollout before relying on conflicts.
+
+Migration 0046 adds #1207's artifact-reference grant table after 0045. Migration 0047 adds only
+the nullable requested lead/child selection column on the immutable lead intent and its strict
+check; it follows 0046 and descends from its snapshot. No migration is renumbered on `main`.
+Omission retains workspace role defaults; a changed choice on the same message/idempotency
+key conflicts. The locked private reader exposes only these requested references; CP validates
+workspace/target/readiness and retains accepted runtime selections. A parent child choice
+never inherits the lead choice. Child overrides require CP-owned canonical child admission.
+The requested references reach CP only through the authenticated lead-product evidence endpoint
+(`requestedModelSelections`); the public prepare request stays `{ intentId }`. CP resolves and pins
+the selection from that canonical evidence. A prepared model that differs from the requested lead
+reference is refused (`REQUESTED_MODEL_MISMATCH`) and never falls back to the workspace default.
+The older runtime workspace declaration must never generate a destructive rollback or renumber
+an applied migration.
 
 ## Permanent workspace deletion
 
@@ -139,3 +169,48 @@ identity decisions. No migration or onboarding operation connects an account.
 with no duplicates or foreign IDs, and updates only that member's positions. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
+
+The opt-in [installed SDK / production-factory consumer proof](../../docs/guides/pi-production-factory-consumer-proof.md)
+uses a reviewed CP checkout and actual public candidate packages with an owned restricted
+PG database. Its preflight regressions are in the normal DB unit inventory; the connected
+fixture requires explicit verified inputs and never substitutes a mocked SDK or live config.
+
+## Project-state promotion and channel provenance
+
+`promoteProjectState()` is the one explicit archived → active transition. It
+requires the caller's confirmation and the exact observed `version`, holds
+the project row lock, wakes only the channels the project-archive cascade
+slept, and appends `project.restored` / `channel.restored`. The pure
+`decideProjectStatePromotion` refuses missing, foreign, soft-deleted,
+already-active, stale and unconfirmed calls with typed reasons; visibility is
+carried through unchanged.
+
+Project revision is the additive integer `projects.version`
+(`DEFAULT 1 NOT NULL`, `CHECK (version > 0)`). Every project-row mutation
+increments it atomically — update, archive, soft delete, reorder (included),
+visibility change and promotion — and `ProjectSummary.version` plus the one
+canonical `projectSummary` mapper expose the single shape. A non-safe-integer,
+zero/negative or mismatched `expectedVersion` refuses `promotion_stale`;
+timestamps are display-only. The membership tables keep their own operation
+contracts and are not part of the project-row revision.
+
+Channel archive provenance is explicit in `channels.archive_source`:
+`project_cascade` marks the channels a project archive slept, `individual`
+marks an explicit channel archive (and the default for historical rows).
+Promotion restores exactly the cascade set; a channel archived on its own is
+never revived. `archiveProject`, `softDeleteProject` and
+`promoteProjectState` share `archiveProjectChannels`/`restoreProjectChannels`,
+which lock the project row first and the project's channels in id order, then
+compare-and-swap each channel `version`, so a concurrent write rolls the whole
+transaction back instead of losing an update.
+
+The combined local #1230 review candidate adds migration
+`0048_graceful_prima` after `0047_requested_role_model_selections`. This
+expand-only migration adds the `channel_archive_source` enum and
+`channels.archive_source`, positive `projects.version`, and the durable
+`management_authority_consumptions` table with its checks, workspace foreign
+key and index. Its SQL and snapshot are in the candidate journal at index 48;
+it has not landed on `main`. Local migration and database verification do not
+establish production migration history or live Control Plane qualification;
+verify the deployment target before any rollout. See
+[`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).

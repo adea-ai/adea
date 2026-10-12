@@ -184,7 +184,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.cleanupPolicy.createDraft': {
-    body: '{ projectId: string; name: string(1..128); predicates: CleanupPredicate[]; allowedSteps: CleanupStepKind[]; expiresAt?: timestamp }',
+    body: '{ projectId: string; name: string(1..128); predicates: CleanupPredicate[]; allowedSteps: CleanupStepKind[]; policyExpiresAt?: timestamp }',
     capabilities: ['dev.cleanup.approve'],
     reply: 'CleanupPolicy',
     resource: null,

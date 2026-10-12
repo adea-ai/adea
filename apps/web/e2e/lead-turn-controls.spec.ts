@@ -1,16 +1,23 @@
 import { expect, test } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let url = ''
 test.beforeAll(async () => {
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/lead-turn-controls-harness-app.tsx')
+  // A private optimizer cache. The managed dev server owns node_modules/.vite; this instance must
+  // not rewrite the dependency hashes that a running app has already requested.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-lead-turn-controls-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     logLevel: 'error',
     plugins: [
       solid(),
@@ -36,6 +43,7 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   await server?.close()
+  rmSync(cacheDir, { recursive: true, force: true })
 })
 
 test('cancellation appears after a running observation and follows busy and terminal updates', async ({

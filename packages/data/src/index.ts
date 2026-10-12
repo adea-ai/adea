@@ -4,6 +4,9 @@ import type { AccountDirectoryPageInput } from '@adea-ai/types/account-directory
 import type { TaskSummary } from '@adea-ai/types'
 import { workspaceStore } from '@adea-ai/state'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { projectQueryKeys } from './project-query-keys'
+
+export { projectQueryKeys } from './project-query-keys'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
@@ -41,13 +44,6 @@ export const workspaceQueryKeys = {
   bootstrap: ['workspaces', 'bootstrap'] as const,
   detail: (workspaceId: string) => ['workspaces', 'detail', workspaceId] as const,
   list: ['workspaces', 'list'] as const,
-}
-
-export const projectQueryKeys = {
-  all: (workspaceId: string) => ['workspaces', workspaceId, 'projects'] as const,
-  detail: (workspaceId: string, projectId: string) =>
-    ['workspaces', workspaceId, 'projects', 'detail', projectId] as const,
-  list: (workspaceId: string) => ['workspaces', workspaceId, 'projects', 'list'] as const,
 }
 
 export const agentQueryKeys = {
@@ -878,9 +874,13 @@ export const workspaceMutationOptions = {
     },
   }),
   archive: (client: AgentHqApiClient, queryClient: QueryClient) => ({
-    mutationFn: (workspaceId: string) => client.archiveWorkspace(workspaceId),
-    onSuccess: async (_result: unknown, workspaceId: string) => {
-      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(workspaceId) })
+    mutationFn: (input: Readonly<{ confirmed: true; workspaceId: string }>) =>
+      client.archiveWorkspace(input.workspaceId, { confirmed: input.confirmed }),
+    onSuccess: async (
+      _result: unknown,
+      input: Readonly<{ confirmed: true; workspaceId: string }>
+    ) => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(input.workspaceId) })
       await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
     },
   }),
@@ -1349,13 +1349,13 @@ export function usePrefetchThreadMessages(
   }
 }
 export function useCreateMessageMutation(
-  client: AgentHqApiClient,
+  client: MaybeAccessor<AgentHqApiClient>,
   workspaceId: MaybeAccessor<string>,
   channelId: MaybeAccessor<string>
 ) {
   return useMutation(() =>
     messageMutationOptions.create(
-      client,
+      resolveAccessor(client),
       useQueryClient(),
       resolveAccessor(workspaceId),
       resolveAccessor(channelId)

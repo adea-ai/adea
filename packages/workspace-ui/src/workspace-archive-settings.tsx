@@ -45,7 +45,7 @@ export function WorkspaceArchiveSettings(props: {
     if (!captured || archive.isPending) return
     setError(null)
     try {
-      await archive.mutateAsync(captured.id)
+      await archive.mutateAsync({ confirmed: true, workspaceId: captured.id })
       setTarget(null)
       toast.success(`${captured.name} is archived`, {
         description: 'Its history and links are kept.',
