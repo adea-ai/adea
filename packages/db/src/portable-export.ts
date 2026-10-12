@@ -2,7 +2,7 @@
 //
 // The export is the requester's own view of one workspace, read inside a READ COMMITTED,
 // READ WRITE transaction. The requester's access is checked when the export starts, before
-// every message page, and after the last read (`assertAccess` and `assertStanding`), so a
+// every message and task page, and after the last read (`assertAccess` and `assertStanding`), so a
 // revocation committed mid-export denies it. A principal with no current membership, a
 // removed membership, or a deleted or being-deleted workspace all fail with the same
 // "Workspace unavailable" error, so an export never reveals that the workspace exists. A
@@ -26,7 +26,7 @@ import {
   type PortableWorkspaceExportContent,
   type UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from './portable-export-transaction'
@@ -60,24 +60,37 @@ import {
   mapPortableContent,
   PortableExportError,
   toPortableParticipant,
+  type AgentRow,
   type ReadInputs,
+  type TaskRow,
   type WorkspaceRow,
 } from './portable-export-content'
 
 /** Messages are read through the canonical reader in pages of this size; the reader's own limit is 100. */
 const MESSAGE_PAGE = 100
+const TASK_PAGE = 25
+const REFERENCE_PAGE = 100
+
+type ExportReadBudget = { bytes: number }
+
+function accountExportLowerBound(budget: ExportReadBudget, value: unknown): void {
+  budget.bytes += portableJsonUtf8ByteLength(value)
+  if (budget.bytes > PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
+    throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+}
 
 /**
- * Test seam. `beforeMessagePage` runs before each message page is read, so a test can pause
- * an export between pages and change authority before the next page. `beforeStep` runs before
- * the tasks are read, before the content references are checked, and before the final access
- * check, so a test can pause an export between those reads and before its last check. Production
- * callers pass no hooks.
+ * Test seam. `beforeMessagePage` and `beforeTaskPage` run before each page is read, so a test can
+ * pause an export between pages and change authority before the next page. `beforeStep` runs
+ * before the tasks are read, before the content references are checked, and before the final
+ * access check, so a test can pause an export between those reads and before its last check.
+ * Production callers pass no hooks.
  */
 export type PortableExportHooks = Readonly<{
   beforeMessagePage?: (
     page: Readonly<{ afterSequence: number | undefined; channelId: string }>
   ) => void | Promise<void>
+  beforeTaskPage?: (page: Readonly<{ afterId: string | undefined }>) => void | Promise<void>
   beforeStep?: (step: Readonly<{ name: 'contentRefs' | 'final' | 'tasks' }>) => void | Promise<void>
 }>
 
@@ -180,10 +193,10 @@ async function readVisibleMessages(
   principal: UserPrincipalRef,
   channels: readonly ChannelSummary[],
   start: Standing,
-  hooks: PortableExportHooks | undefined
+  hooks: PortableExportHooks | undefined,
+  budget: ExportReadBudget
 ): Promise<MessageSummary[]> {
   const messages: MessageSummary[] = []
-  let messageLowerBoundBytes = 0
   for (const channel of channels) {
     let afterSequence: number | undefined
     for (;;) {
@@ -203,14 +216,9 @@ async function readVisibleMessages(
         // before reading another page. Content-ref messages may be withheld, so
         // they are counted later after their visibility is known.
         if (message.deleted || !message.bodyContentRefId) {
-          if (!message.deleted)
-            messageLowerBoundBytes += portableJsonUtf8ByteLength(message.bodyText ?? '')
-          messageLowerBoundBytes += portableJsonUtf8ByteLength(
-            message.mentions.map(toPortableParticipant)
-          )
+          if (!message.deleted) accountExportLowerBound(budget, message.bodyText ?? '')
+          accountExportLowerBound(budget, message.mentions.map(toPortableParticipant))
         }
-        if (messageLowerBoundBytes > PORTABLE_WORKSPACE_EXPORT_MAX_BYTES)
-          throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
       }
       messages.push(...page.messages)
       bounded(messages, 'messages')
@@ -255,6 +263,7 @@ async function readRequesterInputs(
     'projects'
   )
   const projectIds = new Set(projectRows.map((row) => row.id))
+  const readBudget: ExportReadBudget = { bytes: 0 }
 
   const channels = (await listChannelsForUser(transaction, workspaceId, principal)).filter(
     (channel) => !channel.projectId || projectIds.has(channel.projectId)
@@ -266,21 +275,71 @@ async function readRequesterInputs(
     principal,
     channels,
     start,
-    hooks
+    hooks,
+    readBudget
   )
 
   await hooks?.beforeStep?.({ name: 'tasks' })
-  const taskRows = bounded(
-    await transaction
-      .select()
+  const taskRows: TaskRow[] = []
+  let afterId: string | undefined
+  for (;;) {
+    await hooks?.beforeTaskPage?.({ afterId })
+    await assertAccess(transaction, workspaceId, principal, start)
+    const projectCondition = projectIds.size
+      ? or(isNull(tasks.projectId), inArray(tasks.projectId, [...projectIds]))
+      : isNull(tasks.projectId)
+    const afterCondition = afterId ? gt(tasks.id, afterId) : undefined
+    const pageLimit = Math.min(
+      TASK_PAGE,
+      PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1 - taskRows.length
+    )
+    const page = await transaction
+      .select({
+        agentId: tasks.agentId,
+        channelId: tasks.channelId,
+        createdAt: tasks.createdAt,
+        creatorUserId: tasks.creatorUserId,
+        id: tasks.id,
+        kind: tasks.kind,
+        lifecycleState: tasks.lifecycleState,
+        messageId: tasks.messageId,
+        objective: tasks.objective,
+        objectiveContentRefId: tasks.objectiveContentRefId,
+        priority: tasks.priority,
+        projectId: tasks.projectId,
+        threadRootMessageId: tasks.threadRootMessageId,
+        title: tasks.title,
+        updatedAt: tasks.updatedAt,
+        version: tasks.version,
+      })
       .from(tasks)
       .where(
-        and(eq(tasks.workspaceId, workspaceId), visibleProjectCondition(tasks.projectId, scope))
+        and(
+          eq(tasks.workspaceId, workspaceId),
+          visibleProjectCondition(tasks.projectId, scope),
+          projectCondition,
+          afterCondition
+        )
       )
-      .orderBy(asc(tasks.createdAt), asc(tasks.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1),
-    'tasks'
-  ).filter((row) => !row.projectId || projectIds.has(row.projectId))
+      .orderBy(asc(tasks.id))
+      .limit(pageLimit)
+
+    for (const row of page) {
+      // Objective and title are always included by the mapper. Their encoded JSON
+      // bytes are a lower bound for this task's final contribution, so reject as
+      // soon as the accumulated tasks alone cannot fit in the portable bundle.
+      accountExportLowerBound(readBudget, {
+        objective: row.objective,
+        title: row.title,
+      })
+      taskRows.push(row)
+      bounded(taskRows, 'tasks')
+    }
+    if (page.length < pageLimit) break
+    const last = page.at(-1)
+    if (!last) break
+    afterId = last.id
+  }
 
   // A content ref follows its task or its message's channel. The candidate set is
   // what visible records name; the reader's predicate decides which of them stay.
@@ -317,6 +376,7 @@ async function readRequesterInputs(
     messages,
     projectRows,
     taskRows,
+    readBudget,
     visibleContentRefIds,
   })
 }
@@ -331,6 +391,7 @@ async function readCompleteInputs(
   workspace: WorkspaceRow
 ): Promise<ReadInputs> {
   const workspaceId = workspace.id
+  const readBudget: ExportReadBudget = { bytes: 0 }
   const projectRows = bounded(
     await transaction
       .select()
@@ -488,6 +549,7 @@ async function readCompleteInputs(
     messages: messageSummaries,
     projectRows,
     taskRows,
+    readBudget,
     visibleContentRefIds: new Set(candidateRefIds),
   })
 }
@@ -503,7 +565,8 @@ async function finishInputs(
   partial: Pick<
     ReadInputs,
     'channels' | 'contentRefRows' | 'messages' | 'projectRows' | 'taskRows' | 'visibleContentRefIds'
-  >
+  > &
+    Readonly<{ readBudget: ExportReadBudget }>
 ): Promise<ReadInputs> {
   const workspaceId = workspace.id
   const taskIds = partial.taskRows.map((row) => row.id)
@@ -546,22 +609,82 @@ async function finishInputs(
   bounded(memberRows, 'project members')
   for (const member of memberRows) userIds.add(member.userId)
 
-  const agentRows = agentIds.size
-    ? await transaction
-        .select()
-        .from(agents)
-        .where(and(eq(agents.workspaceId, workspaceId), inArray(agents.id, [...agentIds])))
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
-    : []
-  bounded(agentRows, 'agents')
-  const userRows = userIds.size
-    ? await transaction
-        .select({ displayName: users.displayName, id: users.id })
-        .from(users)
-        .where(inArray(users.id, [...userIds]))
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
-    : []
-  bounded(userRows, 'users')
+  const agentRows: AgentRow[] = []
+  const referencedAgentIds = [...agentIds]
+  for (let offset = 0; offset < referencedAgentIds.length; offset += REFERENCE_PAGE) {
+    const page = await transaction
+      .select({
+        createdAt: agents.createdAt,
+        id: agents.id,
+        isWorkspaceLead: agents.isWorkspaceLead,
+        lifecycleState: agents.lifecycleState,
+        name: agents.name,
+        profileId: agents.profileId,
+        profileRevision: agents.profileRevision,
+        profileState: agents.profileState,
+        profileVersion: agents.profileVersion,
+        projectId: agents.projectId,
+        revision: agents.revision,
+        roleSummary: agents.roleSummary,
+        updatedAt: agents.updatedAt,
+      })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.workspaceId, workspaceId),
+          inArray(agents.id, referencedAgentIds.slice(offset, offset + REFERENCE_PAGE))
+        )
+      )
+      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    for (const row of page) {
+      // The two potentially large agent strings are always exported. Check their
+      // encoded lower bound before retaining another batch in memory.
+      accountExportLowerBound(partial.readBudget, {
+        name: row.name,
+        roleSummary: row.roleSummary,
+      })
+      agentRows.push(row)
+      bounded(agentRows, 'agents')
+    }
+  }
+  const userRows: { displayName: string | null; id: string }[] = []
+  const referencedUserIds = [...userIds]
+  for (let offset = 0; offset < referencedUserIds.length; offset += REFERENCE_PAGE) {
+    const remainingBytes = Math.max(
+      0,
+      PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - partial.readBudget.bytes
+    )
+    // A user name can come from an external identity provider and is not bounded
+    // by a local API field limit. Use SQL byte lengths and a cumulative JSON
+    // lower bound to avoid transferring a page of oversized names into the Worker.
+    const cumulativeLowerBound = sql`
+      sum(
+        case
+          when ${users.displayName} is null then 20
+          else octet_length(${users.displayName}) + 18
+        end
+      ) over (order by ${users.id} rows between unbounded preceding and current row)
+    `
+    const page = await transaction
+      .select({
+        displayName: sql<
+          string | null
+        >`case when ${cumulativeLowerBound} <= ${remainingBytes} then ${users.displayName} else null end`,
+        id: users.id,
+        withinByteBound: sql<boolean>`${cumulativeLowerBound} <= ${remainingBytes}`,
+      })
+      .from(users)
+      .where(inArray(users.id, referencedUserIds.slice(offset, offset + REFERENCE_PAGE)))
+      .orderBy(asc(users.id))
+      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    for (const row of page) {
+      if (!row.withinByteBound)
+        throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
+      accountExportLowerBound(partial.readBudget, { displayName: row.displayName })
+      userRows.push(row)
+      bounded(userRows, 'users')
+    }
+  }
 
   const dependencyRows = taskIds.length
     ? await transaction

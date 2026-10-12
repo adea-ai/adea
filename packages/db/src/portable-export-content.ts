@@ -176,9 +176,42 @@ export function toPortableParticipant(ref: ConversationParticipantRef): Portable
 
 export type ProjectRow = typeof projects.$inferSelect
 export type MemberRow = typeof projectMembers.$inferSelect
-export type TaskRow = typeof tasks.$inferSelect
+export type TaskRow = Pick<
+  typeof tasks.$inferSelect,
+  | 'agentId'
+  | 'channelId'
+  | 'createdAt'
+  | 'creatorUserId'
+  | 'id'
+  | 'kind'
+  | 'lifecycleState'
+  | 'messageId'
+  | 'objective'
+  | 'objectiveContentRefId'
+  | 'priority'
+  | 'projectId'
+  | 'threadRootMessageId'
+  | 'title'
+  | 'updatedAt'
+  | 'version'
+>
 export type ContentRefRow = typeof contentRefs.$inferSelect
-export type AgentRow = typeof agents.$inferSelect
+export type AgentRow = Pick<
+  typeof agents.$inferSelect,
+  | 'createdAt'
+  | 'id'
+  | 'isWorkspaceLead'
+  | 'lifecycleState'
+  | 'name'
+  | 'profileId'
+  | 'profileRevision'
+  | 'profileState'
+  | 'profileVersion'
+  | 'projectId'
+  | 'revision'
+  | 'roleSummary'
+  | 'updatedAt'
+>
 export type WorkspaceRow = typeof workspaces.$inferSelect
 
 /**

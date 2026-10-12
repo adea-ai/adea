@@ -71,7 +71,13 @@ check. The requester's access is checked at these points:
 - Before every message page: role, workspace status and visible projects. The canonical message
   reader checks membership and channel access for the page itself. If that reader refuses a
   page while the access is already gone, the refusal is reported as a denial.
-- Before the tasks are read, before the content references are checked, and before the final
+- Before every task page: role, workspace status and visible projects. Tasks use an ID cursor,
+  read 25 at a time, and select only fields the export carries. The UTF-8 JSON lower bound from
+  each task's objective and title is checked before retaining that row. Agent and user references
+  are read in 100-ID batches and projected to exported fields. Agent names and role summaries
+  join the same byte budget; user-name byte lengths are checked in SQL before name values are
+  transferred to the Worker.
+- Before the task pages begin, before the content references are checked, and before the final
   check: each is a test seam (`beforeStep`) so that revocations can be placed there.
 - After the last read and before the document is built: the start checks again, plus every
   channel the canonical reader served at the start.
@@ -136,6 +142,10 @@ in `portable-import.ts`; both are covered by the integration lane.
   - Controls with unchanged authority serve all 101 messages and the content references. A member
     who is neither listed on the members-only project nor a group participant receives none of
     those records or references.
+- `apps/web/test/integration/portable-workspace-routes.test.ts` also revokes a membership between
+  task pages and proves the next page is denied, and tests early refusal plus a valid task-heavy
+  export near the 8 MiB bound. It also uses an oversized identity-provider display name to prove
+  that SQL rejects it before transferring the value to the Worker.
 
 Mutation checks on the matrix (the same filtered run, against the module with one change):
 

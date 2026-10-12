@@ -20,6 +20,7 @@ import {
   createDatabase,
   createGroupChannel,
   createMessage,
+  createTask,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
   type DatabaseConnection,
@@ -231,6 +232,146 @@ describe('portable workspace routes', () => {
     expect(response.status).toBe(413)
     expect(await response.json()).toEqual({ error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
     expect(pagesRead).toBe(2)
+  }, 180_000)
+
+  test('a membership revoked between task pages denies the export before the next page', async () => {
+    const fixture = await seed('task-page-revocation')
+    for (let index = 0; index < 26; index += 1)
+      await createTask(
+        connection.db,
+        fixture.workspaceId,
+        fixture.owner.principal,
+        { objective: `Objective ${index}`, title: `Task ${index}` },
+        {
+          idempotencyKey: `task-page-revocation-${run}-${index}`,
+          requestId: crypto.randomUUID(),
+        }
+      )
+
+    let pagesRead = 0
+    const response = await portableWorkspaceExportResponse(
+      exportRequest(),
+      connection.db,
+      resolutionFor(fixture.member.principal),
+      fixture.workspaceId,
+      {
+        hooks: {
+          beforeTaskPage: async (page) => {
+            pagesRead += 1
+            if (page.afterId !== undefined)
+              await removeWorkspaceMembership(
+                connection.db,
+                fixture.workspaceId,
+                fixture.member.principal
+              )
+          },
+        },
+      }
+    )
+    expect(response.status).toBe(404)
+    expect(await response.text()).not.toContain('Objective')
+    expect(pagesRead).toBe(2)
+  }, 180_000)
+
+  test('task-heavy exports stop reading once task text proves the bundle is oversized', async () => {
+    const fixture = await seed('task-bound')
+    const objective = '漢'.repeat(20_000)
+    const count = 250
+    let pagesRead = 0
+    for (let index = 0; index < count; index += 1)
+      await createTask(
+        connection.db,
+        fixture.workspaceId,
+        fixture.owner.principal,
+        { objective, title: `Large task ${index}` },
+        {
+          idempotencyKey: `task-bound-${run}-${index}`,
+          requestId: crypto.randomUUID(),
+        }
+      )
+
+    const response = await portableWorkspaceExportResponse(
+      exportRequest(),
+      connection.db,
+      resolutionFor(fixture.owner.principal),
+      fixture.workspaceId,
+      {
+        hooks: {
+          beforeTaskPage: () => {
+            pagesRead += 1
+          },
+        },
+      }
+    )
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
+    expect(pagesRead).toBeGreaterThan(0)
+    expect(pagesRead).toBeLessThan(Math.ceil(count / 25))
+  }, 180_000)
+
+  test('task-heavy exports emit a valid document just below the byte bound', async () => {
+    const fixture = await seed('task-near-bound')
+    const objective = '漢'.repeat(9_000)
+    const count = 300
+    let pagesRead = 0
+    for (let index = 0; index < count; index += 1)
+      await createTask(
+        connection.db,
+        fixture.workspaceId,
+        fixture.owner.principal,
+        { objective, title: `Near bound task ${index}` },
+        {
+          idempotencyKey: `task-near-bound-${run}-${index}`,
+          requestId: crypto.randomUUID(),
+        }
+      )
+
+    const response = await portableWorkspaceExportResponse(
+      exportRequest(),
+      connection.db,
+      resolutionFor(fixture.owner.principal),
+      fixture.workspaceId,
+      {
+        hooks: {
+          beforeTaskPage: () => {
+            pagesRead += 1
+          },
+        },
+      }
+    )
+    expect(response.status).toBe(200)
+    expect(pagesRead).toBeGreaterThan(1)
+    const body = await response.text()
+    const bytes = new TextEncoder().encode(body).byteLength
+    expect(bytes).toBeLessThanOrEqual(PORTABLE_API_MAX_BYTES)
+    expect(bytes).toBeGreaterThan(PORTABLE_API_MAX_BYTES - 300_000)
+    expect(validatePortableWorkspaceExport(JSON.parse(body)).ok).toBe(true)
+  }, 180_000)
+
+  test('an oversized identity-provider display name is refused before export reads it', async () => {
+    const fixture = await seed('oversized-display-name')
+    const userId = fixture.owner.principal.userId
+    await connection.db
+      .update(users)
+      .set({ displayName: 'x'.repeat(PORTABLE_API_MAX_BYTES + 1) })
+      .where(eq(users.id, userId))
+
+    let response: Response
+    try {
+      response = await portableWorkspaceExportResponse(
+        exportRequest(),
+        connection.db,
+        resolutionFor(fixture.owner.principal),
+        fixture.workspaceId
+      )
+    } finally {
+      await connection.db
+        .update(users)
+        .set({ displayName: 'Route Owner' })
+        .where(eq(users.id, userId))
+    }
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: 'too_large', maxBytes: PORTABLE_API_MAX_BYTES })
   }, 180_000)
 
   test('the export emits a valid bundle just below the byte bound', async () => {
