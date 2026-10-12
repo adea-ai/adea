@@ -28,6 +28,7 @@ on:
       - 'packages/audio/**'
       - 'packages/spatial/**'
       - 'scripts/publish-packages.mjs'
+      - 'scripts/publish-version.mjs'
       - '.github/workflows/publish-packages.yml'
   workflow_dispatch:
 

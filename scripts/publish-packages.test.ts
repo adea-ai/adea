@@ -34,6 +34,14 @@ function workflowPaths(): string[] {
     .toSorted()
 }
 
+function workflowPushPaths(): string[] {
+  const pushPaths = /  push:\n    branches: \[main\]\n    paths:\n((?:      - .+\n)+)/.exec(
+    read('.github/workflows/publish-packages.yml')
+  )
+  if (!pushPaths) throw new Error('main push paths filter is missing')
+  return [...pushPaths[1]!.matchAll(/'([^']+)'/g)].map((match) => match[1]!)
+}
+
 function workflowBuildFilters(): string[] {
   const source = read('.github/workflows/publish-packages.yml')
   return [...source.matchAll(/turbo run build ([^\n]+)/g)]
@@ -64,6 +72,10 @@ describe('publish package lists agree', () => {
     const published = scriptPackages().map(toPackageName).toSorted()
     expect(workflowPaths().map(toPackageName)).toEqual(published)
     expect(workflowBuildFilters()).toEqual(published)
+  })
+
+  test('runs when the version decision helper changes', () => {
+    expect(workflowPushPaths()).toContain('scripts/publish-version.mjs')
   })
 })
 
