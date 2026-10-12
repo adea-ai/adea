@@ -224,6 +224,12 @@ test('cert 2.4.7: keyboard focus stays visible across the sidebar and toolbar wa
   await openDevView(page)
   await page.getByRole('button', { name: 'Split pane', exact: true }).click()
 
+  // Wait for the lazy SplitLayout controller so the first keyboard stop is
+  // the live separator rather than its disabled geometry placeholder.
+  const paneSeparators = page.getByRole('separator', { name: 'Resize workspace panes' })
+  await expect(paneSeparators).toHaveCount(1)
+  await expect(paneSeparators).not.toHaveAttribute('aria-disabled', 'true')
+
   // Walk the top of the tab order: frame chrome, toolbar, rail, sidebar rows,
   // and both splitter kinds. Every keyboard stop must report :focus-visible,
   // and every stop must carry a drawn indicator (ring, outline, or the
@@ -551,7 +557,10 @@ test('cert 1.3.1/2.1.1: splitter geometry and pane regions are exposed and opera
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await expect(separator).toHaveAttribute('aria-valuemin', '10')
   await expect(separator).toHaveAttribute('aria-valuemax', '90')
+  // This is the first keyboard operation on the pane divider after mount.
+  await expect(separator).not.toHaveAttribute('aria-disabled', 'true')
   await separator.focus()
+  await expect(separator).toBeFocused()
   await page.keyboard.press('ArrowRight')
   const valueAfter = Number(await separator.getAttribute('aria-valuenow'))
   expect(valueAfter).toBeGreaterThan(50)
