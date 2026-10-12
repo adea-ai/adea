@@ -50,7 +50,7 @@
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/audio": "workspace:*",
         "@adea-ai/auth": "workspace:*",
-        "@adea-ai/contracts": "1.20.0",
+        "@adea-ai/contracts": "1.21.0",
         "@adea-ai/data": "workspace:*",
         "@adea-ai/db": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
@@ -286,7 +286,7 @@
 
     "@adea-ai/config": ["@adea-ai/config@workspace:packages/config"],
 
-    "@adea-ai/contracts": ["@adea-ai/contracts@1.20.0", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-28BcQkafUYWLgRbfqfKlT5ssHr9Qz0EkNv+K8C/WDCokB5BseUHaORvKq4BX9SmI781zFveQ8wMQug0UvZdPTQ=="],
+    "@adea-ai/contracts": ["@adea-ai/contracts@1.21.0", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-BNXSE8llHau5iYEULQprU87h8vMq3bqq/qVMzyPkXj5miUitmbB8JZu1UB4H+9qL3KLHNjsm8By/YHncD2xoSg=="],
 
     "@adea-ai/data": ["@adea-ai/data@workspace:packages/data"],
 
