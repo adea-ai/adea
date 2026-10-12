@@ -17,6 +17,47 @@ export function inTransaction<T>(
   return database.transaction(operation)
 }
 
+/**
+ * A coherent snapshot for product reads whose authorization and result are
+ * resolved in separate statements. Reuse caller-owned REPEATABLE READ or
+ * SERIALIZABLE transactions as-is; reject weaker isolation rather than
+ * silently changing caller transaction semantics. Root reads get an explicit
+ * read-only REPEATABLE READ transaction so a revocation or concurrent write
+ * cannot split authorization from the returned rows.
+ */
+export class ReadSnapshotIsolationError extends Error {
+  constructor(isolationLevel: string) {
+    super(
+      `Coherent product reads require REPEATABLE READ or SERIALIZABLE isolation; received ${isolationLevel}`
+    )
+    this.name = 'ReadSnapshotIsolationError'
+  }
+}
+
+export function inReadSnapshot<T>(
+  database: AgentHqDatabase | AgentHqTransaction,
+  operation: (transaction: AgentHqTransaction) => Promise<T>
+): Promise<T> {
+  if ('rollback' in database) return reuseReadSnapshot(database, operation)
+  return database.transaction(operation, {
+    accessMode: 'read only',
+    isolationLevel: 'repeatable read',
+  })
+}
+
+async function reuseReadSnapshot<T>(
+  transaction: AgentHqTransaction,
+  operation: (transaction: AgentHqTransaction) => Promise<T>
+): Promise<T> {
+  const [row] = await transaction.execute<{ isolationLevel: string }>(sql`
+    select current_setting('transaction_isolation') as "isolationLevel"
+  `)
+  const isolationLevel = row?.isolationLevel?.toLowerCase() ?? 'unknown'
+  if (isolationLevel !== 'repeatable read' && isolationLevel !== 'serializable')
+    throw new ReadSnapshotIsolationError(isolationLevel)
+  return operation(transaction)
+}
+
 /** What a domain mutation hands to the durable event log. */
 export type WorkspaceEventInput = Readonly<{
   workspaceId: string

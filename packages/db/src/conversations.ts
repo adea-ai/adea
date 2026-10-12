@@ -17,6 +17,7 @@ import {
   evaluateGroupGrantWindow,
 } from './group-participation-policy'
 import {
+  admissionInForce,
   admissionForParticipant,
   loadGroupAdmission,
   loadGroupRoster,
@@ -30,7 +31,7 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { reopenTasksForChannelMessage } from './tasks'
-import { appendWorkspaceEvent } from './transactions'
+import { appendWorkspaceEvent, inReadSnapshot } from './transactions'
 import {
   agents,
   artifacts,
@@ -248,22 +249,27 @@ async function validateParticipant(
 }
 
 async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
-  const participantRows = await database
-    .select()
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.workspaceId, row.workspaceId),
-        eq(channelParticipants.channelId, row.id)
-      )
-    )
-  const participants = participantRows
-    .map((participant): ConversationParticipantRef =>
-      participant.principalKind === 'user'
-        ? { kind: 'user', userId: participant.userId! }
-        : { agentId: participant.agentId!, kind: 'agent' }
-    )
-    .toSorted(compareByStableKey)
+  const participants =
+    row.kind === 'group'
+      ? await groupParticipantsInForce(database, row)
+      : await database
+          .select()
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, row.workspaceId),
+              eq(channelParticipants.channelId, row.id)
+            )
+          )
+          .then((participantRows) =>
+            participantRows
+              .map((participant): ConversationParticipantRef =>
+                participant.principalKind === 'user'
+                  ? { kind: 'user', userId: participant.userId! }
+                  : { agentId: participant.agentId!, kind: 'agent' }
+              )
+              .toSorted(compareByStableKey)
+          )
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -281,6 +287,18 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
     visibility: row.visibility,
     workspaceId: row.workspaceId,
   })
+}
+
+async function groupParticipantsInForce(
+  database: Database,
+  row: ChannelRow
+): Promise<ConversationParticipantRef[]> {
+  const now = new Date().toISOString()
+  const roster = await loadGroupRoster(database, row.workspaceId, row.id)
+  return roster
+    .filter((admission) => admissionInForce(admission, row.id, now))
+    .map((admission) => admission.participant)
+    .toSorted(compareByStableKey)
 }
 
 async function requireChannel(
@@ -315,7 +333,8 @@ async function requireChannelAccess(
   channelId: string,
   principal: UserPrincipalRef,
   mode: 'read' | 'write' = 'read',
-  includeArchived = false
+  includeArchived = false,
+  now = new Date().toISOString()
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -327,7 +346,16 @@ async function requireChannelAccess(
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
-  if (channel.visibility === 'participants') {
+  if (channel.kind === 'group') {
+    // Group writes recheck admission under their channel/admission locks. Do not
+    // add an earlier wall-clock decision here: fenced lead writes carry their
+    // trusted time through the nested transaction and must keep the final gate.
+    if (
+      mode === 'read' &&
+      !(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now))
+    )
+      throw new Error('Channel unavailable')
+  } else if (channel.visibility === 'participants') {
     const [participant] = await database
       .select({ id: channelParticipants.id })
       .from(channelParticipants)
@@ -343,6 +371,20 @@ async function requireChannelAccess(
     if (!participant) throw new Error('Channel unavailable')
   }
   return channel
+}
+
+async function groupAdmissionInForce(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+  now: string
+): Promise<boolean> {
+  const admission = await loadGroupAdmission(database, workspaceId, channelId, {
+    kind: 'user',
+    userId,
+  })
+  return admissionInForce(admission, channelId, now)
 }
 
 /** Project-level write check for channel management (rename, archive, participants). */
@@ -725,11 +767,22 @@ export const createGroupChannel = (
     visibility: 'participants',
   })
 
-export async function listChannelsForUser(
-  database: AgentHqDatabase,
+export function listChannelsForUser(
+  database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    listChannelsForUserInSnapshot(snapshot, workspaceId, principal, options)
+  )
+}
+
+async function listChannelsForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ includeArchived?: boolean }>
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -751,15 +804,26 @@ export async function listChannelsForUser(
   const summaries = await Promise.all(rows.map((row) => channelSummary(database, row)))
   return summaries.filter(
     (channel) =>
-      channel.visibility === 'workspace' ||
+      (channel.kind !== 'group' && channel.visibility === 'workspace') ||
       channel.participants.some(
         (participant) => participant.kind === 'user' && participant.userId === principal.userId
       )
   )
 }
 
-export async function getChannelForUser(
-  database: AgentHqDatabase,
+export function getChannelForUser(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    getChannelForUserInSnapshot(snapshot, workspaceId, channelId, principal)
+  )
+}
+
+async function getChannelForUserInSnapshot(
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef
@@ -786,6 +850,10 @@ export async function updateChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
+      if (input.visibility === 'workspace') throw new Error('Channel participant policy conflict')
+    }
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
@@ -834,6 +902,8 @@ export async function archiveChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    if (channel.kind === 'group')
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.isPrimaryProjectChannel && channel.projectId) {
@@ -1456,8 +1526,8 @@ async function createMessageWithTextPolicy(
   })
 }
 
-export async function listMessagesForUser(
-  database: AgentHqDatabase,
+export function listMessagesForUser(
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
@@ -1467,6 +1537,23 @@ export async function listMessagesForUser(
     now?: string
     threadRootMessageId?: string
   }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    listMessagesForUserInSnapshot(snapshot, workspaceId, channelId, principal, options)
+  )
+}
+
+async function listMessagesForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{
+    afterSequence?: number
+    limit?: number
+    now?: string
+    threadRootMessageId?: string
+  }>
 ) {
   await requireMembership(database, workspaceId, principal)
   const channel = await requireChannelAccess(database, workspaceId, channelId, principal)
@@ -1532,12 +1619,24 @@ export async function listMessagesForUser(
   })
 }
 
-export async function getMessageForUser(
-  database: AgentHqDatabase,
+export function getMessageForUser(
+  database: Database,
   workspaceId: string,
   messageId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ now?: string }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    getMessageForUserInSnapshot(snapshot, workspaceId, messageId, principal, options)
+  )
+}
+
+async function getMessageForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  messageId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ now?: string }>
 ) {
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
@@ -1560,6 +1659,25 @@ export async function getMessageForUser(
   })
   if (decision.action !== 'allow') throw new Error('Message unavailable')
   return summary
+}
+
+/**
+ * A group mutation locks the channel before its admission and grant, matching
+ * the group write fence so mutation and grant revocation serialize together.
+ */
+async function requireGroupMutationStanding(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  await database
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+    .for('update')
+  await requireGroupTurn(database, workspaceId, { id: channelId, kind: 'group' }, principal)
 }
 
 /**

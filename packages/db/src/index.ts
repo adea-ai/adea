@@ -143,6 +143,7 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  ReadSnapshotIsolationError,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'

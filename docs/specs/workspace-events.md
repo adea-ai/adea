@@ -202,6 +202,14 @@ Workspace owners and admins retain their project privileges but cannot bypass a 
 channel's audience. Removing a participant therefore withholds that channel's replay events as well
 as future events; archived conversation history follows the same current audience check.
 
+Each page classification runs in one read-only repeatable-read snapshot when the caller supplies a
+root database connection. Membership, project scope, current group grants, and referenced content
+therefore come from one database view: a revoke committed before the snapshot denies the page; a
+revoke committed after it cannot mix an old grant decision with newer references. The next page or
+fresh read observes the revocation. A caller-owned transaction is reused with its locks intact only
+when its isolation is `REPEATABLE READ` or `SERIALIZABLE`; weaker isolation fails before page
+classification runs.
+
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
 current state through the query layer, which applies the same project and channel access. Cursors carry no
 access decision.
@@ -210,12 +218,12 @@ access decision.
 stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
 
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
-(membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
-most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
-the ids in the page, never one query per event. Channel audience checks use indexed participant
-existence projections in those lookups, including for owners and admins. A page containing only
-project events needs only the access-scope reads. Idle polls
-read nothing extra.
+(membership plus the workspace's `members` projects with the subscriber's rows), and one indexed
+group-admission/grant read for channel audience checks. Each page adds at most five batched
+reference lookups (channels, messages, tasks, artifacts, content refs) keyed by the ids in the
+page, never one query per event. Channel audience checks use indexed participant existence
+projections in those lookups, including for owners and admins. A page containing only project events
+needs only the access-scope and group-standing reads. Idle polls read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes

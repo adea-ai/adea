@@ -3,48 +3,56 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import {
+  ABSENT_GRANT_WINDOW,
+  admissionFromRow,
+  admissionInForce,
+  audienceGrantFromRow,
+  groupChannelIdsInForce,
+  resolveAdmissionWindow,
+  userChannelVisibility,
+} from './group-participation-store'
 import {
   type ProjectAccessScope,
   requireProjectAccessScope,
   visibleProjectCondition,
 } from './project-access'
-import { appendWorkspaceEvent } from './transactions'
+import { appendWorkspaceEvent, inReadSnapshot } from './transactions'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
+  groupAdmissions,
+  groupAudienceGrants,
   messages,
   threadReadStates,
 } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
-// The participant row that makes a private channel visible to the principal.
-function participantJoin(principal: UserPrincipalRef) {
-  return and(
-    eq(channelParticipants.channelId, channels.id),
-    eq(channelParticipants.principalKind, 'user'),
-    eq(channelParticipants.userId, principal.userId)
-  )
-}
-
 // Active channels the principal can see: workspace-visible or listing them as
-// a participant, outside every hidden project. The id listing, the read state
-// summary and its thread aggregate all use this one predicate, so they can
-// never disagree about which channels are in scope.
+// a participant (groups by canonical admission), outside every hidden project.
+// The id listing, the read state summary and its thread aggregate all use this
+// one predicate, so they can never disagree about which channels are in scope.
 function accessibleChannelCondition(
   workspaceId: string,
   principal: UserPrincipalRef,
-  scope: ProjectAccessScope
+  scope: ProjectAccessScope,
+  inForceGroupIds: readonly string[]
 ) {
   return and(
     eq(channels.workspaceId, workspaceId),
     eq(channels.lifecycleState, 'active'),
     visibleProjectCondition(channels.projectId, scope),
-    or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
+    userChannelVisibility({
+      channelId: sql`${channels.id}`,
+      inForceGroupIds,
+      kind: sql`${channels.kind}`,
+      userId: principal.userId,
+      visibility: sql`${channels.visibility}`,
+    })
   )
 }
 
@@ -52,16 +60,26 @@ function accessibleChannelIds(
   database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
-  scope: ProjectAccessScope
+  scope: ProjectAccessScope,
+  inForceGroupIds: readonly string[]
 ) {
   return database
     .select({ id: channels.id })
     .from(channels)
-    .leftJoin(channelParticipants, participantJoin(principal))
-    .where(accessibleChannelCondition(workspaceId, principal, scope))
+    .where(accessibleChannelCondition(workspaceId, principal, scope, inForceGroupIds))
 }
 
-export async function listAccessibleChannelIds(
+export function listAccessibleChannelIds(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    queryAccessibleChannelIds(snapshot, workspaceId, principal)
+  )
+}
+
+async function queryAccessibleChannelIds(
   database: Database,
   workspaceId: string,
   principal: UserPrincipalRef
@@ -74,25 +92,140 @@ export async function listAccessibleChannelIds(
     principal,
     'Read state unavailable'
   )
-  return accessibleChannelIds(database, workspaceId, principal, scope).orderBy(asc(channels.id))
+  const inForce = [
+    ...(await groupChannelIdsInForce(
+      database,
+      principal.userId,
+      new Date().toISOString(),
+      workspaceId
+    )),
+  ]
+  return accessibleChannelIds(database, workspaceId, principal, scope, inForce).orderBy(
+    asc(channels.id)
+  )
+}
+
+/**
+ * Lock and revalidate candidate group access for a read-state write. Candidate
+ * ids come from the caller's existing READ COMMITTED write transaction, so
+ * this second, locked decision orders a racing grant revoke before or after
+ * the state write. This helper locks channel, admission, then grant rows;
+ * group posts also lock the channel before resolving standing, while grant
+ * revocation updates only the grant row.
+ */
+async function lockCurrentGroupChannelIdsForReadStateWrite(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelIds: readonly string[],
+  principal: UserPrincipalRef
+): Promise<Readonly<{ groupIds: ReadonlySet<string>; inForceGroupIds: ReadonlySet<string> }>> {
+  if (!channelIds.length) return { groupIds: new Set(), inForceGroupIds: new Set() }
+
+  const lockedChannels = await transaction
+    .select({ id: channels.id, lifecycleState: channels.lifecycleState })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.kind, 'group'),
+        inArray(channels.id, [...channelIds])
+      )
+    )
+    .orderBy(asc(channels.id))
+    .for('update')
+  const groupIds = new Set(lockedChannels.map(({ id }) => id))
+  const activeGroupIds = lockedChannels
+    .filter(({ lifecycleState }) => lifecycleState === 'active')
+    .map(({ id }) => id)
+  if (!activeGroupIds.length) return { groupIds, inForceGroupIds: new Set() }
+
+  const admissions = await transaction
+    .select()
+    .from(groupAdmissions)
+    .where(
+      and(
+        eq(groupAdmissions.workspaceId, workspaceId),
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, principal.userId),
+        inArray(groupAdmissions.channelId, activeGroupIds)
+      )
+    )
+    .orderBy(
+      asc(groupAdmissions.channelId),
+      asc(groupAdmissions.createdAt),
+      asc(groupAdmissions.id)
+    )
+    .for('update')
+  const grantIds = [...new Set(admissions.map(({ authGrantId }) => authGrantId))]
+  const grants = grantIds.length
+    ? await transaction
+        .select()
+        .from(groupAudienceGrants)
+        .where(
+          and(
+            eq(groupAudienceGrants.workspaceId, workspaceId),
+            inArray(groupAudienceGrants.channelId, activeGroupIds),
+            inArray(groupAudienceGrants.grantId, grantIds)
+          )
+        )
+        .orderBy(asc(groupAudienceGrants.channelId), asc(groupAudienceGrants.grantId))
+        .for('update')
+    : []
+  const grantByBinding = new Map(
+    grants.map((grant) => [JSON.stringify([grant.channelId, grant.grantId]), grant])
+  )
+  const now = new Date().toISOString()
+  const inForceGroupIds = new Set<string>()
+  for (const row of admissions) {
+    const grantRow = grantByBinding.get(JSON.stringify([row.channelId, row.authGrantId]))
+    const audienceGrant = grantRow ? audienceGrantFromRow(row.channelId, grantRow) : null
+    const grantWindow = audienceGrant
+      ? resolveAdmissionWindow(
+          {
+            authorization: {
+              groupId: row.authGroupId,
+              grantId: row.authGrantId,
+              revision: row.authRevision,
+            },
+            participant: { kind: 'user', userId: principal.userId },
+          },
+          { audience: [audienceGrant], enlistment: [] },
+          row.channelId
+        )
+      : ABSENT_GRANT_WINDOW
+    const admission = admissionFromRow(row.channelId, row, grantWindow)
+    if (admissionInForce(admission, row.channelId, now)) inForceGroupIds.add(row.channelId)
+  }
+  return { groupIds, inForceGroupIds }
 }
 
 async function requireChannel(
-  database: Database,
+  database: AgentHqTransaction,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef
 ) {
-  const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
+  // This is a write-side authorization gate inside the mutation's existing
+  // transaction, not a product read. Keep its READ COMMITTED semantics. Its
+  // row locks make the standing decision serialize with a racing grant revoke.
+  const allowed = await queryAccessibleChannelIds(database, workspaceId, principal)
   if (!allowed.some(({ id }) => id === channelId)) throw new Error('Read state unavailable')
+  const locked = await lockCurrentGroupChannelIdsForReadStateWrite(
+    database,
+    workspaceId,
+    [channelId],
+    principal
+  )
+  if (locked.groupIds.has(channelId) && !locked.inForceGroupIds.has(channelId))
+    throw new Error('Read state unavailable')
 }
 
 /**
  * Per-channel unread state for one user, computed in the database.
  *
- * Four statements regardless of workspace size: the project access scope's
- * two indexed reads (resolved first, because they decide which channels exist
- * for the caller), then two aggregates issued together.
+ * Five data reads regardless of workspace size: the project access scope's
+ * two indexed reads, one canonical group admission/grant lookup, then two
+ * aggregates issued together. A root call also uses one read-only snapshot.
  *
  * - Channels. Each accessible channel with its read state row. The newest live
  *   top-level sequence is `channels.latest_message_sequence`, which message
@@ -107,8 +240,18 @@ async function requireChannel(
  * This used to load every live message of every accessible channel into the
  * application and count there, on every GET and after every mark.
  */
-export async function listReadStateForUser(
-  database: AgentHqDatabase,
+export function listReadStateForUser(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+): Promise<readonly ChannelReadStateSummary[]> {
+  return inReadSnapshot(database, (snapshot) =>
+    listReadStateForUserInSnapshot(snapshot, workspaceId, principal)
+  )
+}
+
+async function listReadStateForUserInSnapshot(
+  database: Database,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<readonly ChannelReadStateSummary[]> {
@@ -118,6 +261,14 @@ export async function listReadStateForUser(
     principal,
     'Read state unavailable'
   )
+  const inForce = [
+    ...(await groupChannelIdsInForce(
+      database,
+      principal.userId,
+      new Date().toISOString(),
+      workspaceId
+    )),
+  ]
   const channelReadFrontier = sql`coalesce(${channelReadStates.lastReadSequence}, 0)`
   const threadReadFrontier = sql`coalesce(${threadReadStates.lastReadSequence}, 0)`
   const [channelRows, threadRows] = await Promise.all([
@@ -143,7 +294,6 @@ export async function listReadStateForUser(
         updatedAt: channelReadStates.updatedAt,
       })
       .from(channels)
-      .leftJoin(channelParticipants, participantJoin(principal))
       .leftJoin(
         channelReadStates,
         and(
@@ -152,7 +302,7 @@ export async function listReadStateForUser(
           eq(channelReadStates.channelId, channels.id)
         )
       )
-      .where(accessibleChannelCondition(workspaceId, principal, scope))
+      .where(accessibleChannelCondition(workspaceId, principal, scope, inForce))
       .orderBy(asc(channels.id)),
     database
       .select({
@@ -182,7 +332,7 @@ export async function listReadStateForUser(
           eq(messages.workspaceId, workspaceId),
           inArray(
             messages.channelId,
-            accessibleChannelIds(database, workspaceId, principal, scope)
+            accessibleChannelIds(database, workspaceId, principal, scope, inForce)
           ),
           isNotNull(messages.threadRootMessageId),
           isNull(messages.deletedAt)
@@ -464,8 +614,16 @@ export async function markAllChannelsRead(
   principal: UserPrincipalRef
 ) {
   await database.transaction(async (transaction) => {
-    const allowed = await listAccessibleChannelIds(transaction, workspaceId, principal)
-    const channelIds = allowed.map(({ id }) => id)
+    const allowed = await queryAccessibleChannelIds(transaction, workspaceId, principal)
+    const lockedGroups = await lockCurrentGroupChannelIdsForReadStateWrite(
+      transaction,
+      workspaceId,
+      allowed.map(({ id }) => id),
+      principal
+    )
+    const channelIds = allowed
+      .filter(({ id }) => !lockedGroups.groupIds.has(id) || lockedGroups.inForceGroupIds.has(id))
+      .map(({ id }) => id)
     if (!channelIds.length) {
       return listReadStateForUser(database, workspaceId, principal)
     }

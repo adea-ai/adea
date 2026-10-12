@@ -36,7 +36,7 @@ import type {
   GroupTurnDecision,
 } from '@adea-ai/types'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
@@ -48,6 +48,7 @@ import {
 } from './group-participation-policy'
 import {
   agents,
+  channelParticipants,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
@@ -319,6 +320,87 @@ export async function loadGroupAdmission(
 ): Promise<GroupAdmission | null> {
   const roster = await loadGroupRoster(database, workspaceId, channelId, options)
   return roster.find((admission) => sameParticipant(admission.participant, participant)) ?? null
+}
+
+/** Whether a retained admission still has effective canonical grant standing. */
+export function admissionInForce(
+  admission: GroupAdmission | null,
+  groupId: string,
+  now: string
+): boolean {
+  return admission !== null && decideGroupTurn({ admission, groupId, now }).action === 'allow'
+}
+
+/** Group ids whose retained user admission resolves to a live, matching grant. */
+export async function groupChannelIdsInForce(
+  database: GroupStoreDatabase,
+  userId: string,
+  now: string,
+  workspaceId?: string
+): Promise<Set<string>> {
+  const rows = await database
+    .select({ admission: groupAdmissions, grant: groupAudienceGrants })
+    .from(groupAdmissions)
+    .leftJoin(
+      groupAudienceGrants,
+      and(
+        eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
+        eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .where(
+      and(
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, userId),
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
+      )
+    )
+  const inForce = rows.filter(({ admission: row, grant }) => {
+    const channelId = row.channelId
+    const window = resolveAdmissionWindow(
+      {
+        authorization: {
+          groupId: row.authGroupId,
+          grantId: row.authGrantId,
+          revision: row.authRevision,
+        },
+        participant: { kind: 'user', userId },
+      },
+      {
+        audience: grant ? [audienceGrantFromRow(channelId, grant)] : [],
+        enlistment: [],
+      },
+      channelId
+    )
+    return admissionInForce(admissionFromRow(channelId, row, window), channelId, now)
+  })
+  return new Set(inForce.map(({ admission }) => admission.channelId))
+}
+
+/** SQL predicate shared by product queries that expose channels to a user. */
+export function userChannelVisibility(input: {
+  channelId: SQL
+  inForceGroupIds: readonly string[]
+  kind: SQL
+  userId: string
+  visibility: SQL
+}): SQL {
+  const groupInForce = input.inForceGroupIds.length
+    ? sql`${input.channelId} in (${sql.join(
+        input.inForceGroupIds.map((id) => sql`${id}::uuid`),
+        sql`, `
+      )})`
+    : sql`false`
+  return sql`(case when ${input.kind} = 'group' then ${groupInForce} else (
+    ${input.visibility} = 'workspace'
+    or exists (
+      select 1 from ${channelParticipants} as roster_row
+      where roster_row.channel_id = ${input.channelId}
+        and roster_row.principal_kind = 'user'
+        and roster_row.user_id = ${input.userId}
+    )
+  ) end)`
 }
 
 /**

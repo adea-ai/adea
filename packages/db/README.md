@@ -24,6 +24,12 @@ Use `inTransaction()` for a domain mutation that must atomically append a `Works
 outbox/inbox record. Pass the transaction object through repository helpers; never fall back to a
 process-global connection inside a transaction.
 
+Use `inReadSnapshot()` for multi-statement product reads that resolve authorization separately
+from their result rows. Root connections run in a read-only `REPEATABLE READ` transaction; a
+caller-supplied transaction is reused only at `REPEATABLE READ` or `SERIALIZABLE` isolation. A
+weaker transaction fails closed before the read callback runs; its isolation and locks are never
+changed.
+
 `createUserWithAuthIdentity()` creates the stable `User` and provider identity in one transaction.
 Resolve sessions with `findUserPrincipalsByAuthIdentity()` and pass only the returned user
 `PrincipalRef` into authorization code. Provider subjects are authentication keys, never domain
