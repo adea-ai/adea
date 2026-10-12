@@ -801,7 +801,10 @@ function checkField(spec: FieldSpec, value: unknown, path: string, sink: IssueSi
         return
       }
       const tag = value[spec.tag]
-      const variant = typeof tag === 'string' ? spec.variants[tag] : undefined
+      const variant =
+        typeof tag === 'string' && Object.hasOwn(spec.variants, tag)
+          ? spec.variants[tag]
+          : undefined
       if (!variant) {
         sink.add('value', `${path}.${spec.tag}`, 'is not an allowed variant')
         return
@@ -818,14 +821,14 @@ function checkRecord(spec: RecordSpec, value: unknown, path: string, sink: Issue
     return
   }
   for (const key of Object.keys(spec)) {
-    if (!(key in value)) {
+    if (!Object.hasOwn(value, key)) {
       sink.add('missing_field', `${path}.${key}`, 'is required')
       continue
     }
     checkField(spec[key]!, value[key], `${path}.${key}`, sink)
   }
   for (const key of Object.keys(value)) {
-    if (!(key in spec))
+    if (!Object.hasOwn(spec, key))
       sink.add('unknown_field', `${path}.${key}`, 'is not part of format version 1')
   }
 }
@@ -1064,7 +1067,7 @@ export function validatePortableWorkspaceExport(value: unknown): PortableWorkspa
 function sortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedKeys)
   if (!isPlainObject(value)) return value
-  const sorted: Record<string, unknown> = {}
+  const sorted: Record<string, unknown> = Object.create(null)
   for (const key of Object.keys(value).toSorted()) sorted[key] = sortedKeys(value[key])
   return sorted
 }

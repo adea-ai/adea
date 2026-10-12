@@ -8,6 +8,7 @@ import {
 } from '@adea-ai/types'
 
 import { portableContentDigest } from '../../src/portable-export-content'
+import { importPortableWorkspace } from '../../src/portable-import'
 import { checkPortableBundle, PortableImportError } from '../../src/portable-import-guards'
 
 const workspaceId = '00000000-0000-4000-8000-0000000000aa'
@@ -83,6 +84,59 @@ describe('portable import guards', () => {
       },
     }
     expect(refusalOf(tampered).code).toBe('digest_mismatch')
+  })
+
+  test('refuses prototype-named unknown fields before any database transaction', async () => {
+    const withProto = JSON.parse(JSON.stringify(minimalDocument())) as PortableWorkspaceExport
+    const protoField = JSON.parse('{"__proto__":{"hidden":"not part of v1"}}')
+    Object.defineProperty(
+      withProto.content.workspace,
+      '__proto__',
+      Object.getOwnPropertyDescriptor(protoField, '__proto__')!
+    )
+    withProto.contentDigest.value = portableContentDigest(withProto.content)
+
+    let transactionStarted = false
+    const database = {
+      transaction: async () => {
+        transactionStarted = true
+        throw new Error('invalid input reached the database transaction')
+      },
+    }
+    const error = await importPortableWorkspace(database as never, {
+      bundle: withProto,
+      importer: { kind: 'user', userId: ownerId },
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(PortableImportError)
+    expect((error as PortableImportError).code).toBe('invalid_document')
+    expect((error as PortableImportError).issues).toContainEqual(
+      expect.objectContaining({
+        code: 'unknown_field',
+        path: 'document.content.workspace.__proto__',
+      })
+    )
+    expect(transactionStarted).toBe(false)
+  })
+
+  test('rejects a constructor field even with a digest over that field', () => {
+    const document = minimalDocument()
+    const constructorField = JSON.parse('{"constructor":{"hidden":"not part of v1"}}')
+    Object.defineProperty(
+      document.content.workspace,
+      'constructor',
+      Object.getOwnPropertyDescriptor(constructorField, 'constructor')!
+    )
+    document.contentDigest.value = portableContentDigest(document.content)
+
+    const error = refusalOf(document)
+    expect(error.code).toBe('invalid_document')
+    expect(error.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'unknown_field',
+        path: 'document.content.workspace.constructor',
+      })
+    )
   })
 
   test('refuses a non-object bundle as an invalid document', () => {

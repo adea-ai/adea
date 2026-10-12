@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -8,6 +8,10 @@ const runner = resolve(import.meta.dir, 'run-with-capture-provisioning.mjs')
 // A PATH with no docker in it: the runner's Docker probe fails, so no instance is started. No
 // container is created by these tests.
 const withoutDocker = mkdtempSync(join(tmpdir(), 'no-docker-'))
+
+afterAll(() => {
+  rmSync(withoutDocker, { force: true, recursive: true })
+})
 
 describe('run-with-capture-provisioning', () => {
   test('without Docker the command runs unchanged: the migration and application URLs pass through and the capture variable stays unset', () => {

@@ -305,6 +305,53 @@ describe('portable workspace export contract', () => {
     )
   })
 
+  test('rejects prototype-named unknown fields parsed from JSON', () => {
+    const withProto = JSON.parse(JSON.stringify(fixture())) as PortableWorkspaceExport
+    const protoField = JSON.parse('{"__proto__":{"hidden":"not part of v1"}}')
+    Object.defineProperty(
+      withProto.content.workspace,
+      '__proto__',
+      Object.getOwnPropertyDescriptor(protoField, '__proto__')!
+    )
+
+    const withConstructor = clone(fixture())
+    const constructorField = JSON.parse('{"constructor":{"hidden":"not part of v1"}}')
+    Object.defineProperty(
+      withConstructor.content.workspace,
+      'constructor',
+      Object.getOwnPropertyDescriptor(constructorField, 'constructor')!
+    )
+
+    expect(issuesOf(withProto)).toContainEqual(
+      expect.objectContaining({
+        code: 'unknown_field',
+        path: 'document.content.workspace.__proto__',
+      })
+    )
+    expect(issuesOf(withConstructor)).toContainEqual(
+      expect.objectContaining({
+        code: 'unknown_field',
+        path: 'document.content.workspace.constructor',
+      })
+    )
+  })
+
+  test('rejects inherited names as variant tags', () => {
+    for (const tag of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+      const document = clone(fixture())
+      const body = document.content.messages[0]!.body as unknown as Record<string, unknown>
+      body.kind = tag
+      delete body.text
+
+      expect(issuesOf(document)).toContainEqual(
+        expect.objectContaining({
+          code: 'value',
+          path: 'document.content.messages[0].body.kind',
+        })
+      )
+    }
+  })
+
   test('refuses a content ref that claims a body, availability or any storage other than local authority', () => {
     const availability = clone(fixture())
     ;(availability.content.contentRefs[0] as Record<string, unknown>).availability = 'available'
@@ -429,6 +476,11 @@ describe('canonical portable JSON', () => {
     const original = fixture()
     expect(JSON.stringify(reverseKeys(original))).not.toBe(JSON.stringify(original))
     expect(canonicalPortableJson(reverseKeys(original))).toBe(canonicalPortableJson(original))
+  })
+
+  test('preserves own __proto__ keys while sorting JSON-parsed objects', () => {
+    const value = JSON.parse('{"__proto__":{"z":1,"a":2}}')
+    expect(canonicalPortableJson(value)).toBe('{"__proto__":{"a":2,"z":1}}')
   })
 })
 

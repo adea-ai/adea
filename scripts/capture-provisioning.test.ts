@@ -38,8 +38,15 @@ esac
 // A process that starts the helper with no register callback and a 500 ms removal bound, then behaves as the
 // mode says. The natural mode ends with no stop call, so the exit listener does the removal.
 const childProgram = `import { spawnSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
 import { startCaptureProvisioning } from ${JSON.stringify(helper)}
 const mode = process.argv[2]
+if (mode === 'no-ready') {
+  writeFileSync(process.env.CHILD_PID_FILE, String(process.pid))
+  console.log('STARTED WITHOUT READY')
+  setInterval(() => {}, 1000)
+  await new Promise(() => {})
+}
 const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500 })
 if (!handle) { console.log('NULL'); process.exit(3) }
 console.log('READY ' + handle.containerName)
@@ -55,13 +62,16 @@ if (mode === 'blocking') { spawnSync('sleep', ['2']); handle.stop(); setTimeout(
 let workdir: string
 let childPath: string
 let shimDir: string
+let noDockerPath: string
 
 beforeAll(() => {
   workdir = mkdtempSync(join(tmpdir(), 'capture-provisioning-'))
   shimDir = join(workdir, 'bin')
+  noDockerPath = join(workdir, 'no-docker-bin')
   childPath = join(workdir, 'child.mjs')
   writeFileSync(childPath, childProgram)
   mkdirSync(shimDir, { recursive: true })
+  mkdirSync(noDockerPath)
   writeFileSync(join(shimDir, 'docker'), dockerShim)
   chmodSync(join(shimDir, 'docker'), 0o755)
 })
@@ -70,22 +80,75 @@ afterAll(() => {
   rmSync(workdir, { force: true, recursive: true })
 })
 
+async function waitForChildExit(child: ReturnType<typeof Bun.spawn>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      child.exited,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`child did not exit within ${timeoutMs} ms`)),
+          timeoutMs
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function terminateChild(child: ReturnType<typeof Bun.spawn>) {
+  if (child.exitCode !== null || child.signalCode !== null) return child.exited
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    // The child may exit between the state check and the signal.
+  }
+  try {
+    return await waitForChildExit(child, 1_000)
+  } catch {
+    // Escalate when graceful termination does not finish within its bound.
+  }
+  try {
+    child.kill('SIGKILL')
+  } catch {
+    // The child may exit between the timeout and the signal.
+  }
+  return waitForChildExit(child, 1_000)
+}
+
 async function readUntil(
   stream: ReadableStream<Uint8Array>,
-  marker: RegExp
+  marker: RegExp,
+  timeoutMs = 10_000
 ): Promise<RegExpMatchArray> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let text = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) throw new Error(`the stream ended before ${marker}: ${text}`)
-    text += decoder.decode(value, { stream: true })
-    const match = text.match(marker)
-    if (match) {
-      reader.releaseLock()
-      return match
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const read = (async () => {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) throw new Error(`the stream ended before ${marker}: ${text}`)
+      text += decoder.decode(value, { stream: true })
+      const match = text.match(marker)
+      if (match) return match
     }
+  })()
+  try {
+    return await Promise.race([
+      read,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`timed out waiting for ${marker} after ${timeoutMs} ms: ${text}`)),
+          timeoutMs
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
 }
 
@@ -112,14 +175,27 @@ function removals(log: string) {
   return calls(log).filter((line) => line.startsWith('rm '))
 }
 
-async function startChild(mode: string, environment: Record<string, string>) {
+async function startChild(
+  mode: string,
+  environment: Record<string, string>,
+  readinessTimeoutMs = 10_000
+) {
   const child = Bun.spawn([process.execPath, childPath, mode], {
     env: environment,
     stderr: 'pipe',
     stdout: 'pipe',
   })
-  const [, name] = await readUntil(child.stdout, /READY (adea-capture-prov-[0-9a-f]+)/)
-  return { child, name: name! }
+  try {
+    const [, name] = await readUntil(
+      child.stdout,
+      /READY (adea-capture-prov-[0-9a-f]+)/,
+      readinessTimeoutMs
+    )
+    return { child, name: name! }
+  } catch (error) {
+    await terminateChild(child)
+    throw error
+  }
 }
 
 describe('capture provisioning helper', () => {
@@ -246,7 +322,7 @@ describe('capture provisioning helper', () => {
   test('without Docker the helper starts nothing and removes nothing', async () => {
     const log = join(workdir, 'no-docker.log')
     const child = Bun.spawn([process.execPath, childPath, 'idle'], {
-      env: { PATH: '/usr/bin:/bin', SHIM_LOG: log },
+      env: { PATH: noDockerPath, SHIM_LOG: log },
       stderr: 'pipe',
       stdout: 'pipe',
     })
@@ -254,6 +330,14 @@ describe('capture provisioning helper', () => {
     expect(stdout.trim()).toBe('NULL')
     expect(await child.exited).toBe(3)
     expect(existsSync(log)).toBe(false)
+  })
+
+  test('a child that never reports readiness is stopped after the bounded wait', async () => {
+    const pidFile = join(workdir, 'no-ready-child.pid')
+    const { environment } = environmentFor('ok', { CHILD_PID_FILE: pidFile })
+    await expect(startChild('no-ready', environment, 100)).rejects.toThrow(/timed out waiting for/)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(() => process.kill(pid, 0)).toThrow()
   })
 
   test('a signal after a normal stop still ends the process by that signal, and removes nothing twice', async () => {
