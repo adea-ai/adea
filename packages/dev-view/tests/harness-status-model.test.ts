@@ -2,8 +2,15 @@
 // labels pinned without DOM.
 import { describe, expect, test } from 'bun:test'
 
-import type { HarnessRun, Scope } from '@adea-ai/types/dev-runtime'
+import type {
+  HarnessPreference,
+  HarnessRun,
+  RuntimeConnectionInventoryEntry,
+  Scope,
+} from '@adea-ai/types/dev-runtime'
 import {
+  buildHarnessInventoryRows,
+  capabilityLabel,
   deriveHarnessStatus,
   harnessStatusLabel,
   installationDisplayState,
@@ -184,5 +191,148 @@ describe('labels and helpers', () => {
     const first = run({ id: 'a', state: 'awaiting_input', startedAt: '2026-09-19T10:00:00Z' })
     const second = run({ id: 'b', state: 'working', startedAt: '2026-09-19T10:01:00Z' })
     expect(selectActiveRun([first, second])?.id).toBe('b')
+  })
+})
+
+function entry(
+  overrides: Partial<RuntimeConnectionInventoryEntry> = {}
+): RuntimeConnectionInventoryEntry {
+  return {
+    id: 'inst-codex',
+    scope: SCOPE,
+    family: 'codex',
+    displayName: 'Codex',
+    driverId: 'local-executable',
+    driverVersion: '1',
+    provenance: 'user_managed',
+    executableIdentity: '/usr/local/bin/codex',
+    executableLabel: 'codex (system)',
+    protocol: 'native',
+    acpAvailability: 'unavailable',
+    version: '1.2.3',
+    auth: 'ready',
+    health: 'healthy',
+    capabilities: ['native', 'models', 'resume'],
+    sessionOperations: ['session.new'],
+    entitlementHints: [],
+    limitations: [],
+    eligibility: { eligible: true, blockers: [] },
+    transport: 'direct_local',
+    models: [],
+    observedAt: '2026-10-13T12:00:00Z',
+    generation: 1,
+    ...overrides,
+  }
+}
+
+function preference(overrides: Partial<HarnessPreference> = {}): HarnessPreference {
+  return {
+    scope: SCOPE,
+    harnessInstallationId: 'inst-codex',
+    enabled: true,
+    sortKey: '0000000001',
+    default: false,
+    version: 1,
+    ...overrides,
+  }
+}
+
+describe('buildHarnessInventoryRows', () => {
+  test('an empty or missing inventory is an empty list, never a guess', () => {
+    expect(
+      buildHarnessInventoryRows({ inventory: undefined, preferences: [], managedPi: undefined })
+    ).toEqual([])
+    expect(
+      buildHarnessInventoryRows({
+        inventory: { items: [], freshness: [] },
+        preferences: [],
+        managedPi: { state: 'absent', installationId: undefined, executableLabel: undefined },
+      })
+    ).toEqual([])
+  })
+
+  test('rows carry reported names, versions, capabilities and make-default eligibility', () => {
+    const [row] = buildHarnessInventoryRows({
+      inventory: { items: [entry()], freshness: ['fresh'] },
+      preferences: [],
+      managedPi: undefined,
+    })
+    expect(row).toMatchObject({
+      installationId: 'inst-codex',
+      name: 'Codex',
+      version: '1.2.3',
+      state: 'ready',
+      capabilities: ['native', 'models', 'resume'],
+      isDefault: false,
+      canMakeDefault: true,
+      stale: false,
+    })
+  })
+
+  test('auth-required, ineligible and disabled installations cannot become the default', () => {
+    const rows = buildHarnessInventoryRows({
+      inventory: {
+        items: [
+          entry({ id: 'a', auth: 'required' }),
+          entry({
+            id: 'b',
+            eligibility: {
+              eligible: false,
+              blockers: [{ code: 'incompatible', message: 'Codex 0.1 is too old' }],
+            },
+          }),
+          entry({ id: 'c' }),
+        ],
+        freshness: ['fresh', 'fresh', 'stale'],
+      },
+      preferences: [preference({ harnessInstallationId: 'c', enabled: false })],
+      managedPi: undefined,
+    })
+    expect(rows.map((row) => [row.state, row.canMakeDefault])).toEqual([
+      ['auth_required', false],
+      ['ready', false],
+      ['disabled', false],
+    ])
+    expect(rows[1]?.blockers).toEqual(['Codex 0.1 is too old'])
+    expect(rows[2]?.stale).toBe(true)
+  })
+
+  test('the global default is marked and a project default is not mistaken for it', () => {
+    const base = {
+      inventory: { items: [entry()], freshness: ['fresh' as const] },
+      managedPi: undefined,
+    }
+    expect(
+      buildHarnessInventoryRows({ ...base, preferences: [preference({ default: true })] })[0]
+    ).toMatchObject({ isDefault: true, canMakeDefault: false })
+    expect(
+      buildHarnessInventoryRows({
+        ...base,
+        preferences: [preference({ default: true, projectId: 'project-1' })],
+      })[0]
+    ).toMatchObject({ isDefault: false, canMakeDefault: true })
+  })
+
+  test('a ready managed Pi the inventory does not list is added with no claimed capabilities', () => {
+    const rows = buildHarnessInventoryRows({
+      inventory: { items: [entry()], freshness: ['fresh'] },
+      preferences: [preference({ harnessInstallationId: 'managed-1', default: true })],
+      managedPi: { state: 'ready', installationId: 'managed-1', executableLabel: 'Pi (managed)' },
+    })
+    expect(rows[0]).toMatchObject({
+      installationId: 'managed-1',
+      name: 'Pi (managed)',
+      capabilities: [],
+      isDefault: true,
+      canMakeDefault: false,
+    })
+    expect(rows).toHaveLength(2)
+  })
+})
+
+describe('capabilityLabel', () => {
+  test('names known capabilities and keeps unknown ones readable', () => {
+    expect(capabilityLabel('slash_commands')).toBe('Slash commands')
+    expect(capabilityLabel('tool.use')).toBe('Tool use')
   })
 })
