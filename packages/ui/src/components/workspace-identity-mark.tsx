@@ -1,8 +1,8 @@
+import { useOptionalTheme } from '@adea-ai/ui/components/theme'
 import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
 import { createEffect, createSignal } from 'solid-js'
 import { Box, House } from 'lucide-solid'
 
-import { useOptionalTheme } from './theme-provider'
 import { paintAppearanceAccent, paintWorkspaceAccent } from './workspace-accent'
 
 export type WorkspaceIdentityLogo =
@@ -27,14 +27,14 @@ export function WorkspaceIdentityMark(props: {
     const element = host()
     if (!element) return
     if (props.accent !== null) {
-      paintWorkspaceAccent(element, props.accent, theme?.variantId() ?? '')
+      paintWorkspaceAccent(element, props.accent, theme)
       return
     }
     // No accent of its own: show the appearance accent, never the accent the
     // active workspace paints over the app. Read after the provider has
     // applied the current appearance to the document.
-    void theme?.variantId()
-    void theme?.preferences().accent
+    void theme?.variant().id
+    void theme?.selection().accent
     queueMicrotask(() => {
       if (props.accent === null) paintAppearanceAccent(element)
     })

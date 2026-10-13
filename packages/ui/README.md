@@ -127,10 +127,11 @@ Adea runs the published ThemeProvider (ADR 0014). This package keeps the host
 seams only: `appearance-codec.ts` (the stored V2 document, its keys and legacy
 migration, and the boot script rendered from the same schema),
 `custom-theme-library.ts` (imported themes and their own recovery key), and
-`appearance-host.tsx` (the provider configuration plus the V2 context that the
-appearance editor and the shell read). The mode selector uses the published
-controlled `ThemeModeToggle`; its selected mode still comes from the host's
-persisted preference. The pre-paint script resolves the saved theme attribute
+`appearance-host.tsx` (the provider configuration plus the V2 `update`/`preview`
+seam the appearance editor writes through). Shell code reads the shared context
+(`useOptionalTheme` from `@adea-ai/ui/components/theme`), and a workspace accent
+is derived by its `accentRolesFor`. The mode selector uses the published
+controlled `ThemeModeToggle`, driven by the shared selection. The pre-paint script resolves the saved theme attribute
 without embedding palette data. Native surface capability and reduced
 transparency are provider options. Unknown or removed catalogue IDs resolve to
 the default of the same appearance and the original stored record is preserved.

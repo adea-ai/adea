@@ -11,7 +11,10 @@ import {
 } from '@adea-ai/ui/components/composites/appearance-editor'
 import { ACCENTS as accentPresets, getAccent as accentPresetById } from '@adea-ai/themes'
 import { isThemeAccentId } from '@adea-ai/ui/lib/themes'
-import type { AppearancePreferencesV2 } from '@adea-ai/app-ui/components/appearance-codec'
+import {
+  preferencesFromSelection,
+  type AppearancePreferencesV2,
+} from '@adea-ai/app-ui/components/appearance-codec'
 import {
   readCustomThemeLibrary,
   removeCustomTheme,
@@ -232,7 +235,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
 
   const openDraft = () => {
-    const committed = untrack(() => appearance.preferences())
+    const committed = untrack(() => preferencesFromSelection(appearance.selection()))
     editor.open(committed)
     setCustomAccent(customAccentValue(committed.accent))
     setRawCustomAccent(customAccentValue(committed.accent))
@@ -255,7 +258,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
       return appearanceThemeForPreview(miniatures().dark, editor.draft().accent, editor.draft())
     },
     get resolvedAppearance() {
-      return appearance.resolvedMode()
+      return appearance.resolvedAppearance()
     },
     get themes() {
       return themes()

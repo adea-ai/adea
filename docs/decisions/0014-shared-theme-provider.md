@@ -46,7 +46,10 @@ only what is product schema or product capability, in three modules in
 - `appearance-host.tsx` configures the provider (persistence, imported themes,
   surface policy and the native-translucency capability, an accent contrast
   floor of 3:1, the editor-floor projection, hex tokens, font zoom) and exposes
-  the V2 view of its context that the appearance editor and the shell read.
+  the V2 `update` and `preview` seam the appearance editor writes through. The
+  shell reads the shared context itself (`useOptionalTheme` of
+  `@adea-ai/ui/components/theme`: the selection, the resolved appearance, the
+  variant and `accentRolesFor`); no compatibility copy of it remains.
 
 The catalogue palettes are painted by the published
 `@adea-ai/ui/theme-variants.css`; Adea's generated duplicates and the generator
