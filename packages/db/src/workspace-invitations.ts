@@ -5,6 +5,7 @@ import type {
   WorkspaceInvitationRole,
   WorkspaceInvitationState,
   WorkspaceInvitationSummary,
+  WorkspaceMemberRole,
   WorkspaceMemberSummary,
 } from '@adea-ai/types'
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
@@ -236,20 +237,24 @@ export async function revokeWorkspaceInvitation(
 }
 
 export type WorkspaceInvitationPreview = Readonly<{
+  /** True when the account is already in the workspace: accepting changes nothing for them. */
+  alreadyMember: boolean
   expiresAt: string
-  /** Current members, the owner included, before the invitee joins. */
+  /** Current members, the owner included; an existing member is already counted. */
   memberCount: number
   /** The owner's display name; null when the owner has none. */
   ownerName: string | null
-  role: WorkspaceInvitationRole
+  /** The role the account holds once it accepts; an existing member keeps their current role. */
+  role: WorkspaceMemberRole
   workspaceName: string
 }>
 
 /**
  * What an invitee may see before accepting: the workspace's name and owner, who is in it, and the
- * role they would join with. It repeats every acceptance gate and reads nothing else, so a token
- * that cannot be accepted by this account answers the same `Invitation unavailable` and cannot be
- * probed. It never changes the invitation.
+ * role they would hold. It repeats every acceptance gate and reads nothing else, so a token that
+ * cannot be accepted by this account answers the same `Invitation unavailable` and cannot be
+ * probed. A used token only previews for the account that used it and only while that account is
+ * still a member, so removal ends the view of the workspace. It never changes the invitation.
  */
 export async function previewWorkspaceInvitation(
   database: AgentHqDatabase,
@@ -275,6 +280,18 @@ export async function previewWorkspaceInvitation(
       email !== invitation.email)
   )
     throw new Error('Invitation unavailable')
+  const [membership] = await database
+    .select({ role: workspaceMemberships.role })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, invitation.workspaceId),
+        eq(workspaceMemberships.userId, principal.userId)
+      )
+    )
+    .limit(1)
+  // A used token is no longer a way in: without current membership it is as dead as an unknown one.
+  if (invitation.acceptedAt && !membership) throw new Error('Invitation unavailable')
   const [workspace] = await database
     .select({ name: workspaces.name, ownerName: users.displayName })
     .from(workspaces)
@@ -287,10 +304,11 @@ export async function previewWorkspaceInvitation(
     .from(workspaceMemberships)
     .where(eq(workspaceMemberships.workspaceId, invitation.workspaceId))
   return Object.freeze({
+    alreadyMember: Boolean(membership),
     expiresAt: invitation.expiresAt.toISOString(),
     memberCount: members?.count ?? 0,
     ownerName: workspace.ownerName?.trim() ? workspace.ownerName.trim() : null,
-    role: invitation.role,
+    role: membership?.role ?? invitation.role,
     workspaceName: workspace.name,
   })
 }

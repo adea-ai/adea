@@ -72,6 +72,31 @@ test('an unreadable member list never invents a count', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
+test('a failed or running member refresh never reuses an earlier count', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // Membership changes, then the next read fails: the cached "2 other members" is no longer evidence.
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', 'error'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+  // The refresh runs its retries and settles as a failure; the generic warning holds throughout.
+  await expect(root(page)).toHaveAttribute('data-members-calls', '5', { timeout: 20_000 })
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+
+  // Once a read succeeds again, the new count is stated.
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', '2'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('1 other member loses access until you reopen it.')
+  expect(errors).toEqual([])
+})
+
 test('the owner archives an optional workspace, finds it in the archived list, and reopens it', async ({
   page,
 }) => {

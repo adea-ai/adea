@@ -146,7 +146,7 @@ export function AcceptInvitation() {
       <Match when={status() === 'joined'}>
         <p class="auth-eyebrow">Adea workspace</p>
         <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
-          You’ve joined the workspace
+          {preview()?.alreadyMember ? 'Opening the workspace' : 'You’ve joined the workspace'}
         </Heading>
         <p class="auth-introduction" role="status" aria-live="polite">
           Opening it now…
@@ -175,9 +175,19 @@ export function AcceptInvitation() {
               <p class="auth-introduction" data-testid="invitation-context">
                 {describeInvitationContext(shown())}
               </p>
-              <p class="auth-introduction">
-                Accepting adds you as {invitationRoleLabel(shown().role)}. The workspace’s members
-                will see you in its member list.
+              <p class="auth-introduction" data-testid="invitation-effect">
+                <Show
+                  when={shown().alreadyMember}
+                  fallback={
+                    <>
+                      Accepting adds you as {invitationRoleLabel(shown().role)}. The workspace’s
+                      members will see you in its member list.
+                    </>
+                  }
+                >
+                  You’re already {invitationRoleLabel(shown().role)} of this workspace. Accepting
+                  doesn’t change your role; it only opens the workspace.
+                </Show>
               </p>
             </>
           )}
@@ -188,7 +198,11 @@ export function AcceptInvitation() {
           aria-busy={status() === 'accepting'}
           onClick={() => void accept()}
         >
-          {status() === 'accepting' ? 'Joining…' : 'Accept invitation'}
+          {status() === 'accepting'
+            ? 'Joining…'
+            : preview()?.alreadyMember
+              ? 'Open workspace'
+              : 'Accept invitation'}
         </Button>
       </Match>
     </Switch>

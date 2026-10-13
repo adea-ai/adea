@@ -166,6 +166,7 @@ function archiveFixtureClient(): AgentHqApiClient {
       }
     },
     async listWorkspaceMembers() {
+      countCall('data-members-calls')
       const staged = harnessRoot().getAttribute('data-archive-members')
       if (staged === 'error') throw new ApiClientError('Server error', 500)
       const total = Math.max(1, Number(staged ?? 1))

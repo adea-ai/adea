@@ -35,6 +35,7 @@ import type {
   TaskSummary,
   WorkspaceInvitationRole,
   WorkspaceInvitationSummary,
+  WorkspaceMemberRole,
   WorkspaceMemberSummary,
   WorkspaceSummary,
   WorkspaceUpdate,
@@ -322,13 +323,14 @@ export type ApiWorkspaceInvitationAcceptResponse = Readonly<{
 }>
 /**
  * What an invitee sees before accepting: the workspace, its owner, how many people are in it, and
- * the role they would join with. Every field comes from the invitation's own workspace record.
+ * the role they would hold, which for an existing member is the role they already have.
  */
 export type ApiWorkspaceInvitationPreviewResponse = Readonly<{
+  alreadyMember: boolean
   expiresAt: string
   memberCount: number
   ownerName: string | null
-  role: WorkspaceInvitationRole
+  role: WorkspaceMemberRole
   workspaceName: string
 }>
 export type ApiProjectArchiveResponse = Readonly<{ archived: true }>

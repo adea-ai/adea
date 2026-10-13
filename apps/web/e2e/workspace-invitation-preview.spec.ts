@@ -8,6 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 const TOKEN = 'A'.repeat(43)
 
 const preview = {
+  alreadyMember: false,
   expiresAt: '2026-10-20T00:00:00.000Z',
   memberCount: 4,
   ownerName: 'Acme Ops',
@@ -17,7 +18,11 @@ const preview = {
 
 async function openInvitation(
   page: Page,
-  outcome: { previewStatus?: number; acceptStatus?: number } = {}
+  outcome: {
+    preview?: typeof preview
+    previewStatus?: number
+    acceptStatus?: number
+  } = {}
 ) {
   const calls: string[] = []
   await page.route('**/api/workspace-invitations/preview', async (route) => {
@@ -25,7 +30,7 @@ async function openInvitation(
     const status = outcome.previewStatus ?? 200
     await route.fulfill(
       status === 200
-        ? { json: preview, status }
+        ? { json: outcome.preview ?? preview, status }
         : { json: { code: 'workspace_unavailable', message: 'Unavailable' }, status }
     )
   })
@@ -91,6 +96,22 @@ test('accepting happens only on the explicit button, after the preview', async (
   const calls = await openInvitation(page)
   await expect(page.getByTestId('invitation-context')).toBeVisible()
   await page.getByRole('button', { name: 'Accept invitation' }).click()
+  await expect(page).toHaveURL(/\/\?workspace=workspace-acme/)
+  expect(calls).toEqual(['preview', 'accept'])
+})
+
+test('an existing member sees the role they hold and that accepting changes nothing', async ({
+  page,
+}) => {
+  const calls = await openInvitation(page, {
+    preview: { ...preview, alreadyMember: true, role: 'member' },
+  })
+  await expect(page.getByTestId('invitation-context')).toHaveText(
+    'Owned by Acme Ops · 4 members now · You are already a member · Location unknown'
+  )
+  await expect(page.getByTestId('invitation-effect')).toContainText('doesn’t change your role')
+  await expect(page.getByRole('button', { name: 'Accept invitation' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open workspace' }).click()
   await expect(page).toHaveURL(/\/\?workspace=workspace-acme/)
   expect(calls).toEqual(['preview', 'accept'])
 })

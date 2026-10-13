@@ -11,10 +11,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 
 import {
+  acceptWorkspaceInvitation,
   createDatabase,
   createTemporaryUserSession,
   createWorkspaceInvitation,
   createWorkspaceWithOwner,
+  removeWorkspaceMembership,
   workspaceInvitations,
   type DatabaseConnection,
 } from '@adea-ai/db'
@@ -98,6 +100,7 @@ describe.skipIf(!connectionUrl)('workspace invitation preview route flow (#1175)
     expect(response.headers.get('cache-control')).toBe('no-store')
     const body = await response.json()
     expect(body).toEqual({
+      alreadyMember: false,
       expiresAt: created.invitation.expiresAt,
       memberCount: 1,
       ownerName: 'owner',
@@ -151,6 +154,32 @@ describe.skipIf(!connectionUrl)('workspace invitation preview route flow (#1175)
       bodies.add(await response.text())
     }
     expect(bodies.size).toBe(1)
+  })
+
+  test('a used link answers its member with the role they hold, and a removed one with the same 404', async () => {
+    const { created, email, workspace } = await invitation()
+    const invitee = await user('invitee-replay')
+    const account = { email, temporary: false }
+    await acceptWorkspaceInvitation(connection.db, invitee, { email, token: created.token })
+
+    const replay = await workspaceInvitationPreviewPost(
+      previewRequest({ token: created.token }),
+      dependencies(invitee, account)
+    )
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toMatchObject({ alreadyMember: true, role: 'member' })
+
+    await removeWorkspaceMembership(connection.db, workspace.id, invitee)
+    const removed = await workspaceInvitationPreviewPost(
+      previewRequest({ token: created.token }),
+      dependencies(invitee, account)
+    )
+    const unknown = await workspaceInvitationPreviewPost(
+      previewRequest({ token: 'A'.repeat(43) }),
+      dependencies(invitee, account)
+    )
+    expect(removed.status).toBe(404)
+    expect(await removed.text()).toBe(await unknown.text())
   })
 
   test('a malformed body is refused before any read', async () => {

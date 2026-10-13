@@ -38,10 +38,13 @@ export function WorkspaceArchiveSettings(props: {
   const archive = useArchiveWorkspaceMutation(props.client)
   const [target, setTarget] = createSignal<ArchiveTarget | null>(null)
   const [error, setError] = createSignal<string | null>(null)
-  // Read only while the confirmation is open, for the captured target.
-  const members = useWorkspaceMembersQuery(props.client, () => target()?.id)
+  // Read only while the confirmation is open, for the captured target, and read again each time it
+  // opens: a cached list is not evidence of who is in the workspace now.
+  const members = useWorkspaceMembersQuery(props.client, () => target()?.id, 0)
+  // The count is stated only from a list that was just read successfully. Cached data behind a
+  // refresh that is running or failed is unverified, so it falls back to naming every member.
   const memberCount = (): ArchiveMemberCount =>
-    members.data
+    members.isSuccess && !members.isFetching && members.data
       ? { state: 'known', total: members.data.members.length }
       : members.isError
         ? { state: 'unavailable' }

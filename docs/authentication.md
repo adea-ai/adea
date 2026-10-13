@@ -154,10 +154,14 @@ permission.
   per (workspace, email) is pending, enforced by a partial unique index.
 - `POST /api/workspace-invitations/preview { token }` lets the invitee see what they would join
   before accepting: the workspace name, its owner's display name, how many members it has now, the
-  role they would join with, and the expiry. It has the same gates as accepting and the same uniform
-  `404`, reads only, and never settles the invitation. A guest gets `401` and no workspace details.
-  Where the workspace's work runs is not part of an invitation, so the page says the location is
-  unknown.
+  role they would hold, whether they are already a member, and the expiry. Accepting never changes
+  an existing member's role, so for a member the role shown is the one they hold now, not the one
+  on the invitation. It has the same gates as accepting and the same uniform `404`, reads only, and
+  never settles the invitation. A used link previews only for the account that used it and only
+  while that account is still a member; after removal it answers the same `404` as an unknown
+  token, whatever has changed in the workspace since. Previewing requires sign-in: a guest gets
+  `401` and no workspace details, and the page sends them through sign-in first. Where the
+  workspace's work runs is not part of an invitation, so the page says the location is unknown.
 - `POST /api/workspace-invitations/accept { token }` requires a signed-in account — temporary
   guests get `401` and the page sends them through sign-in — whose provider email matches the
   invitation (case-insensitive). The first acceptance creates the membership, appended to the end of
