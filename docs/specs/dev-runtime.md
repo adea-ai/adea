@@ -5609,7 +5609,10 @@ default. The project and workspace defaults are `HarnessPreference` records
 (`default: true`, scoped to the active account, workspace and runtime node);
 setting one through `dev.harness.preferenceUpdate` is the per-workspace
 override, and clearing it (`default: false`) returns the workspace to the
-device default.
+device default. A stored preference outlives its installation: when the
+installation is uninstalled or lost in a rescan the record stays listed and
+`preferenceUpdate` still accepts a patch that does not set `default: true`
+(clear or disable); making a missing installation the default is `not_found`.
 
 `dev.harness.deviceDefault` (`dev.harness.read`) and
 `dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
