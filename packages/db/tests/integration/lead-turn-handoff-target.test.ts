@@ -5,6 +5,14 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createDirectAgentTopic, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createLeadTurn, getLatestLeadTurnForTarget } from '../../src/lead-turns'
+import {
+  observeLeadTurnRuntime,
+  prepareLeadTurnRuntime,
+  requestLeadTurnCancellation,
+} from '../../src/lead-turn-runtime'
+import { leadTurnRuntime } from '../../src/schema/lead-turn-runtime'
+import { messages } from '../../src/schema/conversations'
+import { workspaceMemberships, workspaces } from '../../src/schema/workspaces'
 import { leadTurnIntents } from '../../src/schema/lead-turns'
 import { createTask } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
@@ -555,4 +563,268 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       expect(rows).toHaveLength(change === 'retained-destination' ? 2 : 1)
     })
   }
+
+  // Test-only acceptance for the pending successor design. Adapter observations below are
+  // synthetic fixtures, never evidence of CP935 target-bound effects or session authority.
+  async function observeFixtureRuntime(
+    f: Awaited<ReturnType<typeof fixture>>,
+    intentId: string,
+    state: 'completed' | 'failed' | 'running' | 'unknown' | 'cancelling'
+  ) {
+    const [workspace] = await connection.db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, f.workspace.id))
+    const suffix = crypto
+      .randomUUID()
+      .replaceAll('-', '')
+      .slice(0, 26)
+      .toUpperCase()
+      .replace(/[ILOU]/g, '0')
+    const prepared = {
+      workspaceId: workspace!.controlPlaneWorkspaceId,
+      intentId,
+      executionId: `exe_${suffix}`,
+      attemptId: `att_${suffix}`,
+      selectionRef: `msel_${crypto.randomUUID().replaceAll('-', '')}`,
+      selectionRevision: 1,
+      preparationRef: `prep_${crypto.randomUUID().replaceAll('-', '')}`,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    }
+    await prepareLeadTurnRuntime(
+      connection.db,
+      f.workspace.id,
+      intentId,
+      f.owner.principal,
+      prepared
+    )
+    const observation = {
+      intentId,
+      executionId: prepared.executionId,
+      attemptId: prepared.attemptId,
+      dispatchId: `dispatch_${crypto.randomUUID().replaceAll('-', '')}`,
+      runtimeSessionId: `ses_${suffix}`,
+      state,
+      observedAt: new Date().toISOString(),
+    }
+    await observeLeadTurnRuntime(
+      connection.db,
+      f.workspace.id,
+      intentId,
+      f.owner.principal,
+      observation
+    )
+    const [persisted] = await connection.db
+      .select()
+      .from(leadTurnRuntime)
+      .where(eq(leadTurnRuntime.intentId, intentId))
+    expect(persisted).toMatchObject({
+      intentId,
+      executionId: observation.executionId,
+      attemptId: observation.attemptId,
+      dispatchId: observation.dispatchId,
+      runtimeSessionId: observation.runtimeSessionId,
+      state,
+      cancelRequestedAt: null,
+    })
+    expect(persisted?.observedAt?.toISOString()).toBe(observation.observedAt)
+  }
+
+  async function retainedHistory(intentId: string) {
+    const [intent] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, intentId))
+    const [runtime] = await connection.db
+      .select()
+      .from(leadTurnRuntime)
+      .where(eq(leadTurnRuntime.intentId, intentId))
+    const [message] = await connection.db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, intent!.messageId))
+    return { intent, runtime, message }
+  }
+
+  async function targetRows(f: Awaited<ReturnType<typeof fixture>>) {
+    return connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(
+        and(
+          eq(leadTurnIntents.workspaceId, f.workspace.id),
+          eq(leadTurnIntents.channelId, f.topic.id),
+          eq(leadTurnIntents.handoffTargetSessionId, 'terminal-target'),
+          eq(leadTurnIntents.handoffTargetGeneration, 3)
+        )
+      )
+  }
+
+  for (const state of ['completed', 'failed'] as const) {
+    test(`[EXPECTED RED: successor acceptance] fresh ${state} request creates a successor and retains predecessor history`, async () => {
+      const f = await fixture()
+      const predecessor = await f.admit('terminal-target', 3)
+      await observeFixtureRuntime(f, predecessor.leadTurn.intentId, state)
+      const before = await retainedHistory(predecessor.leadTurn.intentId)
+      const successor = await f.admit('terminal-target', 3)
+      expect(successor.leadTurn.intentId).not.toBe(predecessor.leadTurn.intentId)
+      expect(successor.message.id).not.toBe(predecessor.message.id)
+      expect(successor.leadTurn.handoffTarget).toEqual(predecessor.leadTurn.handoffTarget)
+      expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+      expect(await targetRows(f)).toHaveLength(2)
+      expect(
+        await getLatestLeadTurnForTarget(
+          connection.db,
+          f.workspace.id,
+          f.topic.id,
+          'terminal-target',
+          f.owner.principal
+        )
+      ).toMatchObject({ intentId: successor.leadTurn.intentId })
+    })
+
+    test(`[EXPECTED RED: successor acceptance] historical same-key replay after ${state} successor returns the predecessor`, async () => {
+      const f = await fixture()
+      const key = crypto.randomUUID()
+      const predecessor = await f.admit('terminal-target', 3, f.topic.id, { idempotencyKey: key })
+      await observeFixtureRuntime(f, predecessor.leadTurn.intentId, state)
+      const successorKey = crypto.randomUUID()
+      const successor = await f.admit('terminal-target', 3, f.topic.id, {
+        idempotencyKey: successorKey,
+      })
+      // This prerequisite intentionally fails today; old-intent dedupe cannot qualify historical replay.
+      expect(successor.leadTurn.intentId).not.toBe(predecessor.leadTurn.intentId)
+      const predecessorBeforeReplay = await retainedHistory(predecessor.leadTurn.intentId)
+      const successorBeforeReplay = await retainedHistory(successor.leadTurn.intentId)
+      const replay = await f.admit('terminal-target', 3, f.topic.id, { idempotencyKey: key })
+      expect(replay.leadTurn.intentId).toBe(predecessor.leadTurn.intentId)
+      expect(replay.message.id).toBe(predecessor.message.id)
+      const successorReplay = await f.admit('terminal-target', 3, f.topic.id, {
+        idempotencyKey: successorKey,
+      })
+      expect(successorReplay.leadTurn.intentId).toBe(successor.leadTurn.intentId)
+      expect(await targetRows(f)).toHaveLength(2)
+      expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(predecessorBeforeReplay)
+      expect(await retainedHistory(successor.leadTurn.intentId)).toEqual(successorBeforeReplay)
+      expect(
+        await getLatestLeadTurnForTarget(
+          connection.db,
+          f.workspace.id,
+          f.topic.id,
+          'terminal-target',
+          f.owner.principal
+        )
+      ).toMatchObject({ intentId: successor.leadTurn.intentId })
+    })
+
+    test(`[EXPECTED RED: successor acceptance] concurrent fresh ${state} requests converge on one successor`, async () => {
+      const f = await fixture()
+      const predecessor = await f.admit('terminal-target', 3)
+      await observeFixtureRuntime(f, predecessor.leadTurn.intentId, state)
+      const before = await retainedHistory(predecessor.leadTurn.intentId)
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () => f.admit('terminal-target', 3))
+      )
+      expect(new Set(results.map((result) => result.leadTurn.intentId)).size).toBe(1)
+      expect(new Set(results.map((result) => result.message.id)).size).toBe(1)
+      expect(results[0]!.leadTurn.intentId).not.toBe(predecessor.leadTurn.intentId)
+      expect(await targetRows(f)).toHaveLength(2)
+      expect(
+        await connection.db.select().from(messages).where(eq(messages.channelId, f.topic.id))
+      ).toHaveLength(2)
+      expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+    })
+  }
+
+  for (const state of ['running', 'unknown', 'cancelling', 'cancel-requested'] as const) {
+    test(`successor safety: ${state} refuses a new intent and recovers the retained request`, async () => {
+      const f = await fixture()
+      const predecessor = await f.admit('terminal-target', 3)
+      await observeFixtureRuntime(
+        f,
+        predecessor.leadTurn.intentId,
+        state === 'cancel-requested' ? 'running' : state
+      )
+      if (state === 'cancel-requested')
+        await requestLeadTurnCancellation(
+          connection.db,
+          f.workspace.id,
+          predecessor.leadTurn.intentId,
+          f.owner.principal
+        )
+      const before = await retainedHistory(predecessor.leadTurn.intentId)
+      expect(before.runtime?.state).toBe(state === 'cancel-requested' ? 'running' : state)
+      if (state === 'cancel-requested')
+        expect(before.runtime?.cancelRequestedAt).toBeInstanceOf(Date)
+      else expect(before.runtime?.cancelRequestedAt).toBeNull()
+      const retry = await f.admit('terminal-target', 3)
+      expect(retry.leadTurn.intentId).toBe(predecessor.leadTurn.intentId)
+      expect(retry.message.id).toBe(predecessor.message.id)
+      expect(await targetRows(f)).toHaveLength(1)
+      expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+    })
+  }
+
+  test('successor safety: completed history never permits a same-generation task mismatch', async () => {
+    const f = await fixture()
+    const predecessor = await f.admit('terminal-target', 3)
+    await observeFixtureRuntime(f, predecessor.leadTurn.intentId, 'completed')
+    const before = await retainedHistory(predecessor.leadTurn.intentId)
+    const otherTask = await createTask(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      { objective: 'Different target', title: 'Other task' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    await expect(
+      f.admit('terminal-target', 3, f.topic.id, {
+        handoffTarget: { ...f.target('terminal-target', 3), taskId: otherTask.id },
+      })
+    ).rejects.toThrow('Lead turn target mismatch')
+    expect(await targetRows(f)).toHaveLength(1)
+    expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+  })
+
+  test('successor safety: completed history does not bypass revoked workspace authority', async () => {
+    const f = await fixture()
+    const predecessorKey = crypto.randomUUID()
+    const predecessor = await f.admit('terminal-target', 3, f.topic.id, {
+      idempotencyKey: predecessorKey,
+    })
+    await observeFixtureRuntime(f, predecessor.leadTurn.intentId, 'completed')
+    const before = await retainedHistory(predecessor.leadTurn.intentId)
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f.workspace.id),
+          eq(workspaceMemberships.userId, f.owner.principal.userId)
+        )
+      )
+    await expect(f.admit('terminal-target', 3)).rejects.toThrow('Lead turn unavailable')
+    await expect(
+      f.admit('terminal-target', 3, f.topic.id, { idempotencyKey: predecessorKey })
+    ).rejects.toThrow('Lead turn unavailable')
+    expect(await targetRows(f)).toHaveLength(1)
+    expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+  })
+
+  test('successor safety: completed history cannot bypass host mediation with a fresh or historical key', async () => {
+    const f = await fixture()
+    const predecessorKey = crypto.randomUUID()
+    const predecessor = await f.admit('terminal-target', 3, f.topic.id, {
+      idempotencyKey: predecessorKey,
+    })
+    await observeFixtureRuntime(f, predecessor.leadTurn.intentId, 'completed')
+    const before = await retainedHistory(predecessor.leadTurn.intentId)
+    await expect(f.bypass('terminal-target', 3)).rejects.toThrow(
+      'Lead turn target requires host mediation'
+    )
+    await expect(
+      f.bypass('terminal-target', 3, { idempotencyKey: predecessorKey })
+    ).rejects.toThrow('Lead turn target requires host mediation')
+    expect(await targetRows(f)).toHaveLength(1)
+    expect(await retainedHistory(predecessor.leadTurn.intentId)).toEqual(before)
+  })
 })
