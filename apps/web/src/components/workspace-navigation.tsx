@@ -1138,6 +1138,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     loaded: () => orderedWorkspaces(),
     refetch: async () => (await workspaceList.refetch()).data,
     switchTo: (workspace, isCurrent) => switchToWorkspace(workspace, { isCurrent }),
+    // Authorising the switch selected the restored workspace's device scope; a dropped switch
+    // leaves the person where they are, so select the workspace they are on again.
+    onRetired: () => {
+      const current = props.activeWorkspace?.id
+      return current ? props.onAuthorizeWorkspace?.(current) : undefined
+    },
     onOpened: () => {
       setHashWorkspaceSettingsOpen(false)
       workspaceStore.getState().setGlobalPanel(null)
