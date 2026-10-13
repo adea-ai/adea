@@ -968,6 +968,18 @@
       "body": "{ runtimeSessionId?: string; state?: 'connecting'|'ready'|'disconnected'|'closed'|'failed'; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<AcpConnection>"
     },
+    "dev.harness.inventory": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "RuntimeConnectionInventorySnapshot"
+    },
+    "dev.harness.inventoryRefresh": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": null,
+      "body": "{}",
+      "reply": "RuntimeConnectionInventorySnapshot"
+    },
     "dev.harness.managedPiInstall": {
       "capabilities": ["dev.harness.manage"],
       "resource": null,

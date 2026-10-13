@@ -5581,6 +5581,26 @@ between plan and commit fails the commit `stale_generation`, and the reply's
 strict decoders (`JanitorScanReport`, `JanitorMeasurePage`, `JanitorPlan`,
 `JanitorCommitResult`) fail closed like every other operation's.
 
+### Harness inventory
+
+`dev.harness.inventory` (`dev.harness.read`) returns the machine's discovered
+harness installations as a `RuntimeConnectionInventorySnapshot`: one entry per
+family with its display name, version, `auth` and `health` states, declared
+`capabilities` and `sessionOperations`, `limitations`, and the eligibility
+verdict with typed blockers, plus a parallel `freshness` list. It is a pure
+projection of the last stored observation and never probes the machine, so an
+empty list means "not scanned yet" or "nothing found", not "not installed".
+
+`dev.harness.inventoryRefresh` (`dev.harness.manage`) is the explicit rescan.
+It runs the shell's discovery sources (the local-executable source: path
+resolution plus a bounded fixed-argv version probe per found executable, no
+shell text), stores the observation, publishes `dev.harness.updated` with
+`kind: 'inventory.refreshed'`, and returns the fresh snapshot. Overlapping
+rescans share one pass. A host composed without discovery sources returns the
+stored observation unchanged. Making a discovered installation the default
+goes through the existing `dev.harness.preferenceUpdate`; the default is per
+runtime node (optionally per project), not per workspace.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:

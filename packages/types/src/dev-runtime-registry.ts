@@ -1086,6 +1086,20 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.harness.inventory': {
+    body: '{}',
+    capabilities: ['dev.harness.read'],
+    reply: 'RuntimeConnectionInventorySnapshot',
+    resource: null,
+    stream: null,
+  },
+  'dev.harness.inventoryRefresh': {
+    body: '{}',
+    capabilities: ['dev.harness.manage'],
+    reply: 'RuntimeConnectionInventorySnapshot',
+    resource: null,
+    stream: null,
+  },
   'dev.harness.managedPiInstall': {
     body: '{}',
     capabilities: ['dev.harness.manage'],

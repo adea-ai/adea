@@ -25,7 +25,11 @@
 import { randomUUID } from 'node:crypto'
 
 import type { AuthorityAudit } from '../audit'
-import { createRuntimeConnectionInventory } from '../discovery/inventory'
+import {
+  createRuntimeConnectionInventory,
+  type RuntimeConnectionSnapshot,
+} from '../discovery/inventory'
+import type { HarnessDiscoverySource } from '../discovery/types'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type {
@@ -38,6 +42,7 @@ import type {
   HarnessPreferenceMutableFields,
   HarnessRun,
   HarnessRunState,
+  RuntimeConnectionInventorySnapshot,
   ManagedPiStatus,
   MemoryProposalReceipt,
   RuntimeEvent,
@@ -85,6 +90,12 @@ export type HarnessRuntimeInput = {
   managedPiArchiveResolver?: (version: string) => Promise<Uint8Array | null>
   /** Overrides the ACP lane driver (tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /**
+   * Discovery sources the explicit rescan (`dev.harness.inventoryRefresh`)
+   * runs. Absent, the inventory is read-only: a rescan reports the stored
+   * observation and never probes the machine.
+   */
+  discoverySources?: readonly HarnessDiscoverySource[]
   /**
    * #400 residue: guarded PTY prompt delivery (the terminal runtime's input
    * authority). Absent on hosts without a terminal runtime — delivery then
@@ -260,8 +271,12 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     driver: input.acpDriver ?? fallbackAcpDriver(),
     ...(input.audit ? { audit: input.audit } : {}),
   })
-  // The M10 #30 inventory read is store-backed: read() never probes.
-  const inventory = createRuntimeConnectionInventory({ dataDir: input.dataDir, sources: [] })
+  // The M10 #30 inventory read is store-backed: read() never probes; only the
+  // explicit rescan (`dev.harness.inventoryRefresh`) runs the sources.
+  const inventory = createRuntimeConnectionInventory({
+    dataDir: input.dataDir,
+    sources: input.discoverySources ?? [],
+  })
   const runs = createRunHistoryStore({ dataDir: input.dataDir, scope: input.scope })
   const events = createSessionEventLog({ dataDir: input.dataDir, scope: input.scope })
   const preferences = createHarnessPreferenceAuthority({
@@ -1022,7 +1037,43 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     }
   }
 
+  /** The wire snapshot: entries without the per-read freshness, which the
+   *  snapshot carries as a parallel list (decoder invariant). */
+  function inventorySnapshot(
+    snapshot: RuntimeConnectionSnapshot
+  ): RuntimeConnectionInventorySnapshot {
+    return {
+      scope: input.scope,
+      items: snapshot.connections.map(({ freshness: _freshness, ...entry }) => ({
+        ...entry,
+        scope: input.scope,
+      })),
+      freshness: snapshot.connections.map((entry) => entry.freshness),
+      observedAt: snapshot.observedAt,
+    }
+  }
+
+  let rescan: Promise<RuntimeConnectionSnapshot> | undefined
+
   const providers: Partial<Record<DevOperation, ProviderHandler>> = {
+    // ── M10 #30: machine-wide harness inventory ───────────────────────────
+    'dev.harness.inventory': (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.harness.inventory'].request(command.body)
+      return inventorySnapshot(inventory.read(input.scope))
+    },
+    'dev.harness.inventoryRefresh': async (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.harness.inventoryRefresh'].request(command.body)
+      // Overlapping rescans share one probe pass instead of racing the store.
+      rescan ??= inventory.discover(input.scope).finally(() => {
+        rescan = undefined
+      })
+      const snapshot = await rescan
+      publish('inventory.refreshed', { connections: snapshot.connections.length })
+      return inventorySnapshot(snapshot)
+    },
+
     // ── #31: managed Pi installation lifecycle ────────────────────────────
     'dev.harness.managedPiStatus': (command) => {
       requireScope(command)
