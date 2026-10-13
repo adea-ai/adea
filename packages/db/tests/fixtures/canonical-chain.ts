@@ -138,13 +138,15 @@ export function assertCanonicalOverlayMatchesLive(
 }
 
 export type CanonicalChainFolders = {
+  /** Main through the pinned base alone: the state a database holds before any canonical entry. */
+  base: string
   /** Main plus #1229 and #1230: the state a database holds before #1232 lands. */
   stageOne: string
   /** Main plus the whole canonical chain, in the approved order. */
   full: string
   /** Every journal entry of `full`, in order, for comparison against the recorded migrations. */
   fullEntries: { tag: string; when: number }[]
-  /** Removes both folders. */
+  /** Removes every assembled folder. */
   root: string
 }
 
@@ -207,6 +209,7 @@ export function canonicalChainFolders(): CanonicalChainFolders {
   }
 
   return {
+    base: assemble('base', []),
     stageOne: assemble('stage-one', canonical.slice(0, STAGE_ONE_COUNT)),
     full: assemble('full', canonical),
     fullEntries: [...live.entries, ...canonical].map((entry) => ({
