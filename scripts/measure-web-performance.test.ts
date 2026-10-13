@@ -4,7 +4,7 @@ import {
   measureScriptedInteractions,
   sampleResponseHeaders,
   summarizeInteractionEvidence,
-} from './measure-web-performance.mjs'
+} from './web-performance-samplers.mjs'
 
 test('header timing excludes a slow response body while still draining it', async () => {
   let clock = 0
