@@ -368,7 +368,8 @@ export async function requireChannelAccess(
   principal: UserPrincipalRef,
   mode: 'read' | 'write' = 'read',
   includeArchived = false,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  authorizationRecordLimit?: number
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -384,11 +385,19 @@ export async function requireChannelAccess(
     // Group writes recheck admission under their channel/admission locks. Do not
     // add an earlier wall-clock decision here: fenced lead writes carry their
     // trusted time through the nested transaction and must keep the final gate.
-    if (
-      mode === 'read' &&
-      !(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now))
-    )
-      throw new Error('Channel unavailable')
+    if (mode === 'read') {
+      // The admission read materializes the whole roster, so a caller that bounds authorization
+      // records must refuse an oversized group before this first read, not after it.
+      if (authorizationRecordLimit !== undefined)
+        await assertGroupAuthorizationBound(
+          database,
+          workspaceId,
+          channelId,
+          authorizationRecordLimit
+        )
+      if (!(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now)))
+        throw new Error('Channel unavailable')
+    }
   } else if (channel.visibility === 'participants') {
     const [participant] = await database
       .select({ id: channelParticipants.id })
@@ -2022,7 +2031,16 @@ async function listMessagesForUserInSnapshot(
   }>
 ) {
   await requireMembership(database, workspaceId, principal)
-  const channel = await requireChannelAccess(database, workspaceId, channelId, principal)
+  const channel = await requireChannelAccess(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    'read',
+    false,
+    undefined,
+    options.authorizationRecordLimit
+  )
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100)
   const rows = await database
     .select()
@@ -2105,7 +2123,16 @@ export function readMessagesForUserIds(
     throw new RangeError('message proof batch must contain at most 100 distinct IDs')
   return inReadSnapshot(database, async (snapshot) => {
     await requireMembership(snapshot, workspaceId, principal)
-    const channel = await requireChannelAccess(snapshot, workspaceId, channelId, principal)
+    const channel = await requireChannelAccess(
+      snapshot,
+      workspaceId,
+      channelId,
+      principal,
+      'read',
+      false,
+      undefined,
+      options.authorizationRecordLimit
+    )
     if (!ids.length) return []
     const rows = await snapshot
       .select()
