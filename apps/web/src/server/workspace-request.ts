@@ -1,6 +1,6 @@
 import {
-  workspaceAccentIds,
-  type WorkspaceAccentId,
+  isWorkspaceAccent,
+  type WorkspaceAccent,
   type WorkspaceLogo,
   type WorkspaceSceneId,
   type WorkspaceUpdate,
@@ -48,7 +48,7 @@ export function parseWorkspaceUpdate(body: unknown): ParsedWorkspaceUpdate | nul
   if (expectedVersion < 1) return null
 
   const update: {
-    accent?: WorkspaceAccentId | null
+    accent?: WorkspaceAccent | null
     logo?: WorkspaceLogo
     name?: string
     scene?: WorkspaceSceneId
@@ -65,9 +65,8 @@ export function parseWorkspaceUpdate(body: unknown): ParsedWorkspaceUpdate | nul
     update.scene = body.scene
   }
   if ('accent' in body) {
-    if (body.accent !== null && !workspaceAccentIds.includes(body.accent as WorkspaceAccentId))
-      return null
-    update.accent = body.accent as WorkspaceAccentId | null
+    if (body.accent !== null && !isWorkspaceAccent(body.accent)) return null
+    update.accent = body.accent
   }
   if ('logo' in body) {
     const logo = parseLogo(body.logo)
