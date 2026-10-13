@@ -143,6 +143,7 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  ReadSnapshotIsolationError,
   lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
@@ -247,6 +248,7 @@ export {
   groupCreationCandidatesFromGrants,
   groupCreationPayloadHash,
   GroupCreationError,
+  GroupPublicationHoldError,
   listGroupChannelMessagesForUser,
   liveGroupClock,
   loadGroupAdmission,
@@ -255,8 +257,10 @@ export {
   partitionGroupChannelHistory,
   postGroupChannelMessage,
   postGroupChannelMessageInTransaction,
+  publishGroupLeadResult,
   requireGroupManagementAuthority,
   resolveAdmissionWindow,
+  resolveGroupLeadAgent,
   revokeGroupGrant,
   setGroupChannelParticipantsInTransaction,
   setGroupChannelParticipantsWithGrants,
@@ -270,6 +274,7 @@ export {
   type GroupClock,
   type GroupFenceOptions,
   type GroupGrantKind,
+  type GroupLeadPublicationInput,
   type GroupPostBarrier,
   type GroupRosterBarrier,
   type GroupStoreDatabase,
@@ -430,6 +435,27 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+
+export {
+  completeTaskAndPublishOutboundResult,
+  createJobOutboundStoreService,
+  type JobOutboundCompletionOutcome,
+  type JobOutboundCompletionRequest,
+} from './job-outbound-result-store'
+export type {
+  JobOutboundArtifactPolicy,
+  JobOutboundDeliveryDecision,
+} from './job-outbound-result-policy'
+export {
+  completeTaskFromRequest,
+  type TaskCompletionInput,
+  type TaskCompletionOutcome,
+} from './task-completion-request'
+export {
+  parseOutboundCompletion,
+  summarizePublication,
+  type TaskCompletionPublication,
+} from './task-completion-parse'
 
 export * from './lead-model-selections'
 

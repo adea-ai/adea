@@ -1,5 +1,5 @@
 {
-  "id": "819b3681-c439-4bdd-b5fd-c9ba047a4691",
+  "id": "ff5cf6a6-763c-4ba3-b279-f6685531beb0",
   "prevId": "abcf1389-e765-4580-bf5b-5ce5379f6061",
   "version": "7",
   "dialect": "postgresql",
@@ -3636,24 +3636,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "handoff_target_session_id": {
-          "name": "handoff_target_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "handoff_target_generation": {
-          "name": "handoff_target_generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "handoff_target_task_id": {
-          "name": "handoff_target_task_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "dispatch_key": {
           "name": "dispatch_key",
           "type": "text",
@@ -3707,40 +3689,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "lead_turn_intents_target_unique": {
-          "name": "lead_turn_intents_target_unique",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "channel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "handoff_target_session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "handoff_target_generation",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3832,10 +3780,6 @@
         "lead_turn_intents_audience_valid": {
           "name": "lead_turn_intents_audience_valid",
           "value": "jsonb_typeof(\"app\".\"lead_turn_intents\".\"audience\") = 'array'"
-        },
-        "lead_turn_intents_handoff_target_valid": {
-          "name": "lead_turn_intents_handoff_target_valid",
-          "value": "(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is null) or (\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null and length(btrim(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\")) between 1 and 256 and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" >= 0 and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is not null)"
         },
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",
@@ -8512,7 +8456,7 @@
         },
         "workspaces_accent_valid": {
           "name": "workspaces_accent_valid",
-          "value": "\"app\".\"workspaces\".\"accent\" is null or \"app\".\"workspaces\".\"accent\" in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink')"
+          "value": "\"app\".\"workspaces\".\"accent\" is null or \"app\".\"workspaces\".\"accent\" in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink') or \"app\".\"workspaces\".\"accent\" ~ '^#[0-9a-f]{6}$'"
         },
         "workspaces_logo_valid": {
           "name": "workspaces_logo_valid",

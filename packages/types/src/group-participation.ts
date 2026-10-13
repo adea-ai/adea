@@ -170,11 +170,14 @@ export type GroupCreationInput = Readonly<{
   groupId: string
   /** Admission time used for deterministic grant-window checks. */
   now: string
-  /** The owning workspace bounding the group; every participant must belong to it. */
+  /** The host workspace scoping the group. Humans must belong to it;
+   * enlisted Agents keep their own source workspace, bound at creation. */
   workspaceId: string
 }>
 
 export type GroupCreationRejectionReason =
+  | 'agent_inactive'
+  | 'agent_unknown'
   | 'audience_empty'
   | 'audience_requires_human'
   | 'duplicate_participant'
@@ -186,12 +189,15 @@ export type GroupCreationRejectionReason =
   | 'grant_not_yet_issued'
   | 'grant_revision_invalid'
   | 'grant_revoked'
+  | 'grant_workspace_mismatch'
   | 'group_id_missing'
   | 'group_workspace_missing'
   | 'participant_cross_tenant'
   | 'participant_unqualified'
 
 export const groupCreationRejectionReasons = [
+  'agent_inactive',
+  'agent_unknown',
   'audience_empty',
   'audience_requires_human',
   'duplicate_participant',
@@ -203,6 +209,7 @@ export const groupCreationRejectionReasons = [
   'grant_not_yet_issued',
   'grant_revision_invalid',
   'grant_revoked',
+  'grant_workspace_mismatch',
   'group_id_missing',
   'group_workspace_missing',
   'participant_cross_tenant',

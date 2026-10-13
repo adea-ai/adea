@@ -24,9 +24,9 @@ const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
  * Drizzle's PostgreSQL migrator skips pending migrations older than the
  * latest applied created_at. A journal entry whose `when` predates an
  * already-applied predecessor is therefore silently skipped on upgrade:
- * an existing database sitting at 0050 would never apply 0051, keeping
+ * an existing database sitting at 0051 would never apply 0052, keeping
  * the old schema while the journal claims the chain complete. This test
- * replays exactly that upgrade — migrate through 0050, CLOSE/REOPEN the
+ * replays exactly that upgrade — migrate through 0051, CLOSE/REOPEN the
  * connection (a separate process lifetime, like a deployed database),
  * then apply the complete chain — and proves the new migration lands
  * exactly once with its columns, check, and index.
@@ -57,7 +57,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
   })
 
   test.skipIf(!provisioningUrl)(
-    'an existing database at 0050 still applies 0051 exactly once',
+    'an existing database at 0051 still applies 0052 exactly once',
     async () => {
       // A private database on the throwaway provisioning instance only:
       // sibling suites share the application database but never this name,
@@ -76,12 +76,12 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       await admin.unsafe(`CREATE DATABASE "${name}"`) // validated generated name only
       url.pathname = `/${name}`
       databaseUrl = url.toString()
-      // Stage the predecessor-only chain: every migration through 0050 with
-      // the journal truncated there, like a database migrated before 0051
+      // Stage the predecessor-only chain: every migration through 0051 with
+      // the journal truncated there, like a database migrated before 0052
       // existed.
       staged = mkdtempSync(join(tmpdir(), 'pi-1177-mig-'))
       const sqlFiles = (await Array.fromAsync(new Bun.Glob('00*.sql').scan(repoDrizzle))).toSorted()
-      const predecessor = sqlFiles.filter((file) => !file.startsWith('0051_'))
+      const predecessor = sqlFiles.filter((file) => !file.startsWith('0052_'))
       expect(predecessor.length).toBeGreaterThan(0)
       for (const file of predecessor) cpSync(join(repoDrizzle, file), join(staged, file))
       const journal = JSON.parse(
@@ -91,9 +91,9 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       }
       const truncated = {
         ...journal,
-        entries: journal.entries.filter((entry) => entry.idx <= 50),
+        entries: journal.entries.filter((entry) => entry.idx <= 51),
       }
-      expect(truncated.entries).toHaveLength(51)
+      expect(truncated.entries).toHaveLength(52)
       mkdirSync(join(staged, 'meta'), { recursive: true })
       writeFileSync(join(staged, 'meta', '_journal.json'), JSON.stringify(truncated, null, 2))
 
@@ -106,7 +106,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       const applied = await first.db.execute(
         sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
       )
-      expect(applied[0]!.n as number).toBe(51)
+      expect(applied[0]!.n as number).toBe(52)
       // Separate lifetime: close before the upgrade, like a redeployed process.
       await first.close()
       first = undefined
@@ -140,7 +140,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       const appliedJournal = await second.db.execute(
         sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
       )
-      expect(appliedJournal[0]!.n as number).toBe(52)
+      expect(appliedJournal[0]!.n as number).toBe(53)
       const dupes = await second.db.execute(sql`
       SELECT hash FROM app.__drizzle_migrations GROUP BY hash HAVING count(*) > 1`)
       expect(dupes).toHaveLength(0)

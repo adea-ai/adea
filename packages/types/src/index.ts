@@ -133,6 +133,22 @@ export type AgentSummary = {
 export const workspaceAccentIds = ['violet', 'blue', 'green', 'amber', 'cyan', 'pink'] as const
 export type WorkspaceAccentId = (typeof workspaceAccentIds)[number]
 
+/**
+ * What a workspace stores as its accent: a theme accent id, or a custom colour
+ * as lowercase `#rrggbb`. Custom colours are contrast-gated where they paint
+ * (see `deriveAccentRoles`), so storage only needs the shape.
+ */
+export type WorkspaceAccent = WorkspaceAccentId | `#${string}`
+const WORKSPACE_ACCENT_COLOR = /^#[0-9a-f]{6}$/
+
+export function isWorkspaceAccent(value: unknown): value is WorkspaceAccent {
+  return (
+    typeof value === 'string' &&
+    ((workspaceAccentIds as readonly string[]).includes(value) ||
+      WORKSPACE_ACCENT_COLOR.test(value))
+  )
+}
+
 /** A workspace mark. `monogram` is the legacy automatic workspace icon. */
 export type WorkspaceLogo =
   | Readonly<{ kind: 'monogram' }>
@@ -147,7 +163,7 @@ export type WorkspaceSummary = {
   /** This caller's persistent personal workspace; independent of its presentation. */
   isPersonal?: boolean
   deletionPending?: boolean
-  accent: WorkspaceAccentId | null
+  accent: WorkspaceAccent | null
   id: string
   logo: WorkspaceLogo
   name: string
@@ -160,7 +176,7 @@ export type WorkspaceSummary = {
 
 /** Fields a workspace update may change; at least one is required. */
 export type WorkspaceUpdate = Readonly<{
-  accent?: WorkspaceAccentId | null
+  accent?: WorkspaceAccent | null
   logo?: WorkspaceLogo
   name?: string
   scene?: WorkspaceSceneId

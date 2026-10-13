@@ -9,9 +9,9 @@ import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 
 const HARNESS_PATH = '/__repo-registry-panel'
-const ADOPTED = 'li[data-repo-id="44444444-4444-4444-8444-444444444444"]'
-const MANAGED = 'li[data-repo-id="55555555-5555-4555-8555-555555555555"]'
-const BINDING_ONLY = 'li[data-repo-id="66666666-6666-4666-8666-666666666666"]'
+const ADOPTED = '[data-repo-id="44444444-4444-4444-8444-444444444444"]'
+const MANAGED = '[data-repo-id="55555555-5555-4555-8555-555555555555"]'
+const BINDING_ONLY = '[data-repo-id="66666666-6666-4666-8666-666666666666"]'
 
 test.use({ headless: true })
 
@@ -30,10 +30,18 @@ test.beforeEach(async ({ page }) => {
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/repo-registry-panel-harness-app.tsx')
   )
   await expect(page.getByTestId('ready')).toHaveText('ready')
-  // The panel renders inside the sidebar's collapsible group; open it the
-  // way the Dev view's tree does before asserting on rows.
-  await page.locator('main > details > summary').click()
+  // The panel renders inside a Collapsible; open it through its trigger
+  // (aria-expanded flips) before asserting on rows.
+  await openRepositories(page)
 })
+
+/** Expand the Repositories disclosure and wait for its content to mount. */
+async function openRepositories(page: Page): Promise<void> {
+  const trigger = page.getByRole('button', { name: /^Repositories/ })
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await trigger.click()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+}
 
 /** The four registry reads the panel performs on every (re)load. */
 async function loadedCatalog(page: Page): Promise<string[]> {
@@ -129,7 +137,7 @@ test('a refused removal surfaces a typed notice and keeps the row', async ({ pag
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/repo-registry-panel-harness-app.tsx')
   )
   await expect(page.getByTestId('ready')).toHaveText('ready')
-  await page.locator('main > details > summary').click()
+  await openRepositories(page)
   const adopted = page.locator(ADOPTED)
   await adopted.getByRole('button', { name: 'Remove…' }).click()
   await adopted
@@ -137,6 +145,6 @@ test('a refused removal surfaces a typed notice and keeps the row', async ({ pag
     .getByRole('button', { name: 'Remove', exact: true })
     .click()
   await expect(adopted).toContainText('ready')
-  await expect(page.locator('p[role="alert"]')).toContainText('Remove was refused')
+  await expect(page.getByRole('alert').filter({ hasText: 'Remove was refused' })).toBeVisible()
   await expect(page.locator(ADOPTED)).toBeVisible()
 })

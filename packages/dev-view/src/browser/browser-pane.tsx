@@ -1017,6 +1017,7 @@ export function BrowserPane(props: BrowserPaneProps) {
         >
           <Input
             type="url"
+            size="sm"
             placeholder="Search or enter URL"
             spellcheck={false}
             aria-label="URL"
@@ -1448,6 +1449,7 @@ export function BrowserPane(props: BrowserPaneProps) {
               <Input
                 id="dev-browser-inspection-selector"
                 type="text"
+                size="sm"
                 aria-label="CSS selector"
                 maxLength={512}
                 autocomplete="off"

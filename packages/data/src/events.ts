@@ -87,7 +87,7 @@ export function queryKeysForEvent(
   // Sharing changes who can see a project — and with it its channels, tasks,
   // messages, read state and search hits — so they refresh the whole scope.
   if (eventType === 'project.visibility_changed' || eventType === 'project.members_changed')
-    return workspaceScopeKeys(workspaceId)
+    return [...workspaceScopeKeys(workspaceId), accountQueryKeys.inboxAll]
   const [family = ''] = eventType.split('.')
   switch (family) {
     case 'runtime_node':
@@ -103,6 +103,8 @@ export function queryKeysForEvent(
         taskQueryKeys.all(workspaceId),
         // Unread counts per workspace, outside the per-workspace prefix.
         accountQueryKeys.summary,
+        // Conversation recency and unread counts also appear in the inbox.
+        accountQueryKeys.inboxAll,
       ]
     case 'channel':
       return [
@@ -110,17 +112,19 @@ export function queryKeysForEvent(
         readStateQueryKeys.detail(workspaceId),
         projectQueryKeys.all(workspaceId),
         accountQueryKeys.summary,
+        accountQueryKeys.inboxAll,
       ]
     case 'thread':
       return [
         readStateQueryKeys.detail(workspaceId),
         channelQueryKeys.all(workspaceId),
         accountQueryKeys.summary,
+        accountQueryKeys.inboxAll,
       ]
     case 'project':
       return [projectQueryKeys.all(workspaceId), channelQueryKeys.all(workspaceId)]
     case 'agent':
-      return [agentQueryKeys.all(workspaceId)]
+      return [agentQueryKeys.all(workspaceId), accountQueryKeys.directoryAll]
     case 'artifact':
       return [artifactQueryKeys.all(workspaceId), taskQueryKeys.all(workspaceId)]
     case 'content':
@@ -324,7 +328,11 @@ export function createWorkspaceEventSubscription(
     // Current state is authoritative; a resync refetches it instead of guessing
     // from a stream that cannot prove continuity.
     diagnostics('resync', reason)
-    refresh(workspaceScopeKeys(workspaceId))
+    refresh([
+      ...workspaceScopeKeys(workspaceId),
+      accountQueryKeys.directoryAll,
+      accountQueryKeys.inboxAll,
+    ])
   }
 
   function diagnostics(event: WorkspaceEventDiagnostic['event'], reason?: string): void {
@@ -354,7 +362,11 @@ export function createWorkspaceEventSubscription(
       // only safe recovery, and the cursor still advances so the stream resumes.
       persistCursor(envelope.workspaceSequence)
       diagnostics('gap', `missing ${envelope.workspaceSequence - appliedSequence - 1}`)
-      refresh(workspaceScopeKeys(workspaceId))
+      refresh([
+        ...workspaceScopeKeys(workspaceId),
+        accountQueryKeys.directoryAll,
+        accountQueryKeys.inboxAll,
+      ])
       return
     }
     persistCursor(envelope.workspaceSequence)

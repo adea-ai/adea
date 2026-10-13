@@ -12,7 +12,7 @@ import {
   ProjectStatePromotionError,
   type ProjectStatePromotionObservation,
   type ProjectStatePromotionRefusal,
-} from '../../src/project-state-policy'
+} from '../../src/project-state-decisions'
 
 const WORKSPACE = '00000000-0000-4000-8000-00000000000a'
 const ELSEWHERE = '00000000-0000-4000-8000-00000000000b'

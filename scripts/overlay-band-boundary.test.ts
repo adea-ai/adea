@@ -97,8 +97,8 @@ describe('overlay band contract', () => {
 // whose cited `background: transparent` rule does not exist in the tree (the
 // cited line range is the palette token block). This contract keeps it that
 // way: the workspace stylesheet never paints a conventional dialog's own
-// background, and translucent-dialog intent stays in theme.css, where the
-// frosted surface policy already owns it as host surface policy.
+// background, and translucent-dialog intent stays in the published theme
+// sheet, where the frosted surface policy owns it.
 describe('conventional dialog surface contract', () => {
   const surfaceSelectors = ['.conventional-dialog {', '.conventional-settings-dialog {']
 
@@ -118,13 +118,18 @@ describe('conventional dialog surface contract', () => {
     }
   })
 
-  test('keeps translucent-dialog intent in the host theme policy', () => {
-    const source = withoutComments(themeCss)
+  test('keeps translucent-dialog intent in the published theme policy', () => {
     // The frosted policy is the sanctioned background painter: it resolves the
     // user's chosen surface, and both reduced-transparency paths clamp it back
-    // to opaque. (#1115 re-keyed the policy from the retiring
-    // .conventional-dialog class onto the role hook.)
-    expect(source).toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
-    expect(source).toContain('backdrop-filter')
+    // to opaque. It is owned by the published theme sheet (it styles every
+    // modal dialog), so the host sheet must not carry a second copy that could
+    // drift from it.
+    const published = withoutComments(
+      readFileSync(resolve(root, 'node_modules/@adea-ai/ui/src/styles/theme.css'), 'utf8')
+    )
+    const frost = "[data-surface='frosted'] [role='dialog']:not([data-variant])"
+    expect(published).toContain(frost)
+    expect(published).toContain('backdrop-filter')
+    expect(withoutComments(themeCss)).not.toContain(frost)
   })
 })

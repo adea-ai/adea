@@ -1,13 +1,12 @@
-import { GroupCreationError } from '@adea-ai/db'
+// No `server-only` marker: Bun-run unit tests import this module directly (same pattern as
+// marketplace-installation-request); the client-boundary guard keeps `src/server` out of browsers.
 import type {
   ConversationParticipantRef,
   GroupAgentEnlistmentGrant,
   GroupAudienceGrant,
 } from '@adea-ai/types'
 
-import { conversationErrorResponse as sharedConversationErrorResponse } from './conversation-response'
-import type { WorkspacePrincipalResolution } from './workspace-principal'
-import { workspaceJsonResponse } from './workspace-response'
+export { conversationErrorResponse } from './conversation-response'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -110,19 +109,4 @@ export function parseGroupEnlistmentGrant(value: unknown): GroupAgentEnlistmentG
     agent: { agentId: agent.agentId as string, workspaceId: agent.workspaceId as string },
     groupId: candidate.groupId,
   }
-}
-
-export function conversationErrorResponse(
-  error: unknown,
-  resolution: WorkspacePrincipalResolution,
-  request: Request
-) {
-  if (error instanceof GroupCreationError)
-    return workspaceJsonResponse(
-      { code: 'group_grant_rejected', message: error.message, rejections: error.rejections },
-      resolution,
-      request,
-      { status: 400 }
-    )
-  return sharedConversationErrorResponse(error, resolution, request)
 }

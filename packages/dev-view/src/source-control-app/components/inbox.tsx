@@ -18,6 +18,7 @@ import {
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import {
   ChevronDown,
   GitBranch,
@@ -249,10 +250,10 @@ export function ProjectInbox(props: {
     <>
       <div class="dev-scm-header">
         <div class="dev-scm-header__row">
-          <h1 class="dev-scm-header__title">
+          <Heading as="h1" size="section">
             <span class="dev-scm-header__owner">{props.project.owner} / </span>
             {props.project.name}
-          </h1>
+          </Heading>
           <Show when={meta()}>
             {(repository) => (
               <>
@@ -411,9 +412,9 @@ export function ProjectInbox(props: {
                   {(group) => (
                     <section aria-labelledby={`dev-scm-group-${group.id}`}>
                       <div class="dev-scm-group__head">
-                        <h2 class="dev-scm-group__label" id={`dev-scm-group-${group.id}`}>
+                        <Heading as="h2" size="subsection" id={`dev-scm-group-${group.id}`}>
                           {group.label}
-                        </h2>
+                        </Heading>
                         <Badge size="sm" variant="secondary">
                           {group.items.length}
                         </Badge>
@@ -471,9 +472,9 @@ export function ShortcutInbox(props: {
     <>
       <div class="dev-scm-header">
         <div class="dev-scm-header__row">
-          <h1 class="dev-scm-header__title">
+          <Heading as="h1" size="section">
             {props.id === 'ready' ? 'Ready to merge' : 'Needs you'}
-          </h1>
+          </Heading>
           <span class="dev-scm-caption">
             {props.id === 'ready'
               ? 'Approved, checks passing, up to date, across every project'
@@ -501,9 +502,9 @@ export function ShortcutInbox(props: {
               <For each={byProject()}>
                 {(group) => (
                   <section aria-label={`${group.project.owner}/${group.project.name}`}>
-                    <h2 class="dev-scm-section-project">
+                    <Text as="h2" variant="overline" class="mt-2 mb-1">
                       {group.project.owner} / {group.project.name}
-                    </h2>
+                    </Text>
                     <div class="dev-scm-rows">
                       <For each={group.prs}>
                         {(pr) => (

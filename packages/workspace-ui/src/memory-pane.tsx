@@ -7,12 +7,14 @@ import type { WorkspaceMemoryEntry } from '@adea-ai/types'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@adea-ai/ui/components/ui/empty'
 import { FormField } from '@adea-ai/ui/components/ui/field'
 import { ItemGroup, ItemGroupEntry } from '@adea-ai/ui/components/ui/item'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { Pencil, Trash2 } from 'lucide-solid'
 import { createEffect, createSignal, For, on, onCleanup, Show } from 'solid-js'
 
@@ -164,7 +166,11 @@ function MemoryManager(props: { service: WorkspaceMemoryService; workspaceId: st
       <div class="workspace-memory">
         <Show
           when={state().kind === 'ready' ? (state() as { view: MemoryView }).view : undefined}
-          fallback={<p class="conventional-settings-note">Loading memory…</p>}
+          fallback={
+            <Text variant="caption" tone="muted">
+              Loading memory…
+            </Text>
+          }
         >
           {(view) => (
             <>
@@ -215,14 +221,16 @@ function MemoryManager(props: { service: WorkspaceMemoryService; workspaceId: st
               </div>
 
               <Show when={notice()}>
-                <p class="conventional-settings-note" role="alert">
-                  {notice()}
-                </p>
+                <Alert variant="destructive">
+                  <AlertDescription>{notice()}</AlertDescription>
+                </Alert>
               </Show>
               <Show when={view().unreadable > 0}>
-                <p class="conventional-settings-note" role="status">
-                  {`${String(view().unreadable)} memory ${view().unreadable === 1 ? 'note' : 'notes'} could not be read on this device and ${view().unreadable === 1 ? 'is' : 'are'} not used.`}
-                </p>
+                <Alert role="status">
+                  <AlertDescription>
+                    {`${String(view().unreadable)} memory ${view().unreadable === 1 ? 'note' : 'notes'} could not be read on this device and ${view().unreadable === 1 ? 'is' : 'are'} not used.`}
+                  </AlertDescription>
+                </Alert>
               </Show>
 
               <Show when={view().pending.length > 0}>

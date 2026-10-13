@@ -49,10 +49,10 @@ import type {
   GroupAudienceGrant,
   GroupCompletedJob,
   GroupCreationCandidate,
-  GroupCreationRejection,
   GroupHistoryEntryRef,
   GroupHistoryReadDecision,
   GroupPublicationDecision,
+  GroupPublicationHoldReason,
   GroupSharingGrant,
   GroupSummaryReadDecision,
   GroupTurnDecision,
@@ -64,337 +64,76 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
-import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
-import {
-  decideGroupHistoryRead,
-  decideGroupPublication,
-  decideGroupSummaryRead,
-  decideGroupTurn,
-  validateGroupCreation,
-} from './group-participation-policy'
+import { publishLeadTurnResult } from './lead-turn-runtime'
+import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
+import type { RequestedRoleModelSelections } from './lead-model-selections'
+import { createMessageInGroupFence, getMessageForUser, listMessagesForUser } from './conversations'
+import { validateGroupCreation } from './group-participation-policy'
 import {
   admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  canonicalKey,
+  groupCreationPayloadHash,
+  GroupCreationError,
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
+  participantKey,
+  requireAgentEnlistmentSource,
+  requireGroupManagementAuthority,
+  requireGroupMembership,
+  requireGroupParticipantLiveness,
+  type GroupChannelGate,
 } from './group-participation-store'
 export {
   ABSENT_GRANT_WINDOW,
   admissionForParticipant,
   admissionFromRow,
+  assertGroupChannelGate,
   audienceGrantFromRow,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
   enlistmentGrantFromRow,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
   loadGroupAdmission,
   loadGroupRoster,
   loadGroupSharingGrants,
+  participantKey,
+  partitionGroupChannelHistory,
+  requireAgentEnlistmentSource,
+  requireGroupManagementAuthority,
+  requireGroupMembership,
+  requireGroupParticipantLiveness,
   resolveAdmissionWindow,
+  resolveGroupLeadAgent,
   sharingGrantFromRow,
+  type GroupChannelGate,
   type GroupStoreDatabase,
 } from './group-participation-store'
 import {
-  agents,
+  artifacts,
   channelParticipants,
   channels,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
   groupSharingGrants,
-  workspaceMemberships,
+  messageArtifactReferences,
 } from './schema'
+import { leadTurnIntents } from './schema/lead-turns'
+import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { appendWorkspaceEvent, inTransaction } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type ChannelRow = typeof channels.$inferSelect
-
-/** The live channel a group decision is pinned to. */
-export type GroupChannelGate = Readonly<{ channel: ChannelSummary; workspaceId: string }>
-
-export class GroupCreationError extends Error {
-  readonly rejections: readonly GroupCreationRejection[]
-
-  constructor(rejections: readonly GroupCreationRejection[]) {
-    super('Group creation rejected: every participant requires a valid explicit grant')
-    this.name = 'GroupCreationError'
-    this.rejections = rejections
-  }
-}
-
-function canonicalKey(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalKey).join(',')}]`
-  if (value && typeof value === 'object')
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .toSorted(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalKey(entry)}`)
-      .join(',')}}`
-  return JSON.stringify(value) ?? 'null'
-}
-
-function participantKey(workspaceId: string, participant: ConversationParticipantRef): string {
-  return participant.kind === 'user'
-    ? `user:${participant.userId}`
-    : `agent:${workspaceId}:${participant.agentId}`
-}
-
-/**
- * Build creation candidates from explicit grants. Human candidates resolve in
- * the owning workspace; Agent candidates resolve in their grant's workspace,
- * so a cross-tenant grant reaches the policy as a typed
- * `participant_cross_tenant` rejection instead of being silently dropped.
- */
-export function groupCreationCandidatesFromGrants(
-  workspaceId: string,
-  grants: Readonly<{
-    audienceGrants: readonly GroupAudienceGrant[]
-    enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
-  }>
-): GroupCreationCandidate[] {
-  return [
-    ...grants.audienceGrants.map((audienceGrant): GroupCreationCandidate => ({
-      audienceGrant,
-      kind: 'human',
-      participant: audienceGrant.participant,
-      workspaceId,
-    })),
-    ...grants.enlistmentGrants.map((enlistmentGrant): GroupCreationCandidate => ({
-      agentId: enlistmentGrant.agent.agentId,
-      enlistmentGrant,
-      kind: 'agent',
-      workspaceId: enlistmentGrant.agent.workspaceId,
-    })),
-  ]
-}
-
-/**
- * Group isolation: a group decision runs only against a participants-scoped
- * group channel with no project or Agent binding, in the owning workspace.
- * Anything else is answered like a missing channel, so group authority can
- * never leak into workspace tool authority and private direct chats never
- * become group content.
- */
-export function assertGroupChannelGate(gate: GroupChannelGate): void {
-  const { channel, workspaceId } = gate
-  if (
-    channel.workspaceId !== workspaceId ||
-    channel.kind !== 'group' ||
-    channel.visibility !== 'participants' ||
-    channel.projectId !== undefined ||
-    channel.agentId !== undefined
-  )
-    throw new Error('Channel unavailable')
-}
-
-/** Join-point history plus authorized earlier sharing, pinned to the live channel. */
-export function authorizeGroupChannelHistoryRead(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    entry: GroupHistoryEntryRef
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): GroupHistoryReadDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupHistoryRead({
-    admission: input.admission,
-    entry: input.entry,
-    groupId: gate.channel.id,
-    now: input.now,
-    sharingGrants: input.sharingGrants,
-  })
-}
-
-/** Authorized summaries, pinned to the live channel. */
-export function authorizeGroupChannelSummaryRead(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    fromSequence: number
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): GroupSummaryReadDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupSummaryRead({
-    admission: input.admission,
-    fromSequence: input.fromSequence,
-    groupId: gate.channel.id,
-    now: input.now,
-    sharingGrants: input.sharingGrants,
-  })
-}
-
-/** Turns require an effective participation grant at `now`, pinned to the live channel. */
-export function authorizeGroupChannelTurn(
-  gate: GroupChannelGate,
-  input: Readonly<{ admission: GroupAdmission | null; now: string }>
-): GroupTurnDecision {
-  assertGroupChannelGate(gate)
-  return decideGroupTurn({
-    admission: input.admission,
-    groupId: gate.channel.id,
-    now: input.now,
-  })
-}
-
-/**
- * The publication gate for a completed job, pinned to the live channel. An
- * admission or a job bound to another group is held with
- * `publication_binding_mismatch` before the pure comparison runs, so a
- * foreign pair that matches each other can never publish here. A hold keeps
- * one result out of the group and says nothing about the independently owned
- * job, which is never cancelled or reassigned.
- */
-export function authorizeGroupChannelPublication(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    job: GroupCompletedJob
-    now: string
-    publisher: ConversationParticipantRef
-  }>
-): GroupPublicationDecision {
-  assertGroupChannelGate(gate)
-  const { admission, job } = input
-  if (
-    !admission ||
-    admission.authorization.groupId !== gate.channel.id ||
-    (job.authorization !== null && job.authorization.groupId !== gate.channel.id)
-  )
-    return { action: 'hold', jobId: job.jobId, reason: 'publication_binding_mismatch' }
-  return decideGroupPublication({
-    admission,
-    job,
-    now: input.now,
-    publisher: input.publisher,
-  })
-}
-
-/**
- * Split already-fetched channel entries into the reader's visible history and
- * the held earlier history. Order is preserved on both sides.
- */
-export function partitionGroupChannelHistory(
-  gate: GroupChannelGate,
-  input: Readonly<{
-    admission: GroupAdmission | null
-    entries: readonly GroupHistoryEntryRef[]
-    now: string
-    sharingGrants: readonly GroupSharingGrant[]
-  }>
-): { hidden: GroupHistoryEntryRef[]; visible: GroupHistoryEntryRef[] } {
-  const visible: GroupHistoryEntryRef[] = []
-  const hidden: GroupHistoryEntryRef[] = []
-  for (const entry of input.entries) {
-    const decision = authorizeGroupChannelHistoryRead(gate, {
-      admission: input.admission,
-      entry,
-      now: input.now,
-      sharingGrants: input.sharingGrants,
-    })
-    if (decision.action === 'allow') visible.push(entry)
-    else hidden.push(entry)
-  }
-  return { hidden, visible }
-}
-
-async function requireGroupMembership(
-  database: Database,
-  workspaceId: string,
-  principal: UserPrincipalRef
-) {
-  const [membership] = await database
-    .select({ id: workspaceMemberships.id })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .limit(1)
-  if (!membership) throw new Error('Channel unavailable')
-}
-
-/**
- * Group-management authority: workspace owner/admin management roles only.
- * Membership alone — even in the same workspace — rewrites no roster and
- * revokes no grant. Denied like a missing channel, fail closed.
- */
-export async function requireGroupManagementAuthority(
-  database: Database,
-  workspaceId: string,
-  principal: UserPrincipalRef
-) {
-  const [membership] = await database
-    .select({ role: workspaceMemberships.role })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
-      )
-    )
-    .limit(1)
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin'))
-    throw new Error('Channel unavailable')
-}
-
-async function requireGroupParticipantLiveness(
-  database: Database,
-  workspaceId: string,
-  participant: ConversationParticipantRef
-) {
-  if (participant.kind === 'user') {
-    const [membership] = await database
-      .select({ id: workspaceMemberships.id })
-      .from(workspaceMemberships)
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, participant.userId)
-        )
-      )
-      .limit(1)
-    if (!membership) throw new Error('Conversation participant unavailable')
-    return
-  }
-  const [agent] = await database
-    .select({ id: agents.id })
-    .from(agents)
-    .where(
-      and(
-        eq(agents.id, participant.agentId),
-        eq(agents.workspaceId, workspaceId),
-        eq(agents.lifecycleState, 'active')
-      )
-    )
-    .limit(1)
-  if (!agent) throw new Error('Agent unavailable')
-}
-
-/**
- * The idempotency identity of a grant-validated creation: title plus the
- * sorted retained bindings and participant keys. A replay with the same key
- * and payload returns the existing channel; any difference is a conflict,
- * never a silent relabel.
- */
-export function groupCreationPayloadHash(
-  title: string,
-  workspaceId: string,
-  roster: readonly GroupAdmission[]
-): string {
-  return canonicalKey({
-    bindings: roster
-      .map((admission) => ({
-        authorization: admission.authorization,
-        participant: admission.participant,
-      }))
-      .toSorted((left, right) => canonicalKey(left).localeCompare(canonicalKey(right))),
-    title: title.trim(),
-    workspaceId,
-  })
-}
 
 function summarizeGroupChannel(
   row: ChannelRow,
@@ -543,13 +282,15 @@ async function persistEnlistmentGrant(
 async function loadChannelGate(
   database: Database,
   workspaceId: string,
-  channelId: string
+  channelId: string,
+  options: Readonly<{ forUpdate?: boolean }> = {}
 ): Promise<GroupChannelGate> {
-  const [channel] = await database
+  const channelQuery = database
     .select()
     .from(channels)
     .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
     .limit(1)
+  const [channel] = options.forUpdate ? await channelQuery.for('update') : await channelQuery
   if (!channel || channel.lifecycleState !== 'active') throw new Error('Channel unavailable')
   const participantRows = await database
     .select({
@@ -664,6 +405,8 @@ export type GroupChannelLeadPostInput = Readonly<{
   bodyText?: string
   idempotencyKey: string
   mentions?: readonly ConversationParticipantRef[]
+  /** Explicit lead/child choices, forwarded exactly as the caller stated them. */
+  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 export type GroupChannelPostInput =
@@ -713,7 +456,10 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
   const readNow = () => options.clock?.() ?? options.now ?? liveGroupClock()
-  const gate = await loadChannelGate(transaction, workspaceId, channelId)
+  // ONE lock order everywhere (channel before admission/grant): the roster
+  // rewrite locks the channel row first too, so a concurrent post and
+  // rewrite serialize instead of deadlocking.
+  const gate = await loadChannelGate(transaction, workspaceId, channelId, { forUpdate: true })
   const participant: ConversationParticipantRef | null =
     sender.kind === 'user'
       ? { kind: 'user', userId: sender.userId }
@@ -729,24 +475,49 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   const decision = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
   await options.barrier?.afterGate?.()
-  // Final in-transaction lifetime check: the nested write below can await
-  // its own locks, so re-evaluate on fresh trusted time. A denial here
-  // throws before any write runs and rolls the fence back clean.
-  const final = authorizeGroupChannelTurn(gate, { admission, now: readNow() })
+  // Final check re-reads the canonical admission: a removal committed
+  // during the wait denies here, before any write runs.
+  const current =
+    participant === null
+      ? null
+      : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+          forUpdate: true,
+        })
+  const final = authorizeGroupChannelTurn(gate, { admission: current, now: readNow() })
   if (final.action !== 'allow') throw new Error('Channel unavailable')
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
-    const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead)
+    const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead, {
+      clock: options.clock ?? liveGroupClock,
+    })
+    // Post-write check re-reads too: removal or revocation during the
+    // awaited write denies and rolls back ALL effects with zero rows.
+    const settledLead =
+      participant === null
+        ? null
+        : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+            forUpdate: true,
+          })
+    const settled = authorizeGroupChannelTurn(gate, { admission: settledLead, now: readNow() })
+    if (settled.action !== 'allow') throw new Error('Channel unavailable')
     return posted as T extends Readonly<{ mode: 'lead' }>
       ? Awaited<ReturnType<typeof createLeadTurn>>
       : MessageSummary
   }
   const direct = (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>)
     .message
-  const posted = await createMessage(transaction, workspaceId, channelId, principal, {
+  const posted = await createMessageInGroupFence(transaction, workspaceId, channelId, principal, {
     ...direct,
     sender,
   })
+  const settledDirect =
+    participant === null
+      ? null
+      : await loadGroupAdmission(transaction, workspaceId, channelId, participant, {
+          forUpdate: true,
+        })
+  const settled = authorizeGroupChannelTurn(gate, { admission: settledDirect, now: readNow() })
+  if (settled.action !== 'allow') throw new Error('Channel unavailable')
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>
     : MessageSummary
@@ -898,8 +669,20 @@ export async function createGroupChannelWithGrants(
 
   return database.transaction(async (transaction) => {
     await requireGroupMembership(transaction, workspaceId, principal)
-    for (const admission of roster)
-      await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
+    // Standing is proven per authority: humans through host membership,
+    // Agents through their own source workspace (never host equality).
+    for (const [candidateIndex, candidate] of input.candidates.entries()) {
+      if (candidate.kind === 'human')
+        await requireGroupParticipantLiveness(transaction, workspaceId, candidate.participant)
+      else
+        await requireAgentEnlistmentSource(
+          transaction,
+          candidateIndex,
+          candidate.agentId,
+          candidate.workspaceId,
+          principal
+        )
+    }
     // No conflict arbiter: concurrent retries carry the same explicit id,
     // so the primary key itself can collide before the idempotency key is
     // visible. Any conflict falls through to the replay path, which loads
@@ -1012,6 +795,8 @@ export async function setGroupChannelParticipantsWithGrants(
 /** Test barrier hooks for the roster rewrite; production callers omit them. */
 export type GroupRosterBarrier = Readonly<{
   afterChannelLock?: () => Promise<void>
+  afterSourceAuthorityLocks?: () => Promise<void>
+  afterAgentLock?: () => Promise<void>
 }>
 
 /**
@@ -1046,8 +831,22 @@ export async function setGroupChannelParticipantsInTransaction(
   // a newcomer join point always lands after every committed message.
   await barrier.afterChannelLock?.()
   if (channel.version !== validated.expectedVersion) throw new Error('Channel version conflict')
-  for (const admission of validated.roster)
-    await requireGroupParticipantLiveness(transaction, workspaceId, admission.participant)
+  for (const [candidateIndex, candidate] of validated.candidates.entries()) {
+    if (candidate.kind === 'human')
+      await requireGroupParticipantLiveness(transaction, workspaceId, candidate.participant)
+    else
+      await requireAgentEnlistmentSource(
+        transaction,
+        candidateIndex,
+        candidate.agentId,
+        candidate.workspaceId,
+        principal,
+        {
+          afterSourceAuthorityLocks: barrier.afterSourceAuthorityLocks,
+          afterAgentLock: barrier.afterAgentLock,
+        }
+      )
+  }
   const stored = await loadGroupRoster(transaction, workspaceId, channelId)
   const storedByParticipant = new Map(
     stored.map((admission) => [participantKey(workspaceId, admission.participant), admission])
@@ -1240,4 +1039,151 @@ export async function shareGroupHistory(
         .where(eq(groupSharingGrants.id, existing.id))
     }
   })
+}
+
+/** A held group publication, carrying the typed reason instead of failing silently. */
+export class GroupPublicationHoldError extends Error {
+  readonly reason: GroupPublicationHoldReason
+
+  constructor(reason: GroupPublicationHoldReason) {
+    super(`Group publication held: ${reason}`)
+    this.name = 'GroupPublicationHoldError'
+    this.reason = reason
+  }
+}
+
+export type GroupLeadPublicationInput = Readonly<{
+  /** Opaque runtime binding, forwarded verbatim to the job-outbound service. */
+  binding: LeadTurnRuntimeBinding
+  /** Exact destination channel: must equal the job's canonical channel. */
+  channelId: string
+  /** Canonical job: the retained lead-turn intent id. */
+  intentId: string
+  /** Result text for the audience-authorized projection. */
+  bodyText: string
+}>
+
+/**
+ * Result/artifact projection gate: every artifact linked to the job's
+ * source message must resolve to a live, workspace-bound row. A claimed link
+ * with no readable row fails closed — it never passes as artifact-free.
+ * Workspace-scoped like the group audience itself; project-scoped artifact
+ * authorization stays with the artifact lanes.
+ */
+async function requireGroupResultArtifacts(
+  database: Database,
+  workspaceId: string,
+  messageId: string,
+  options: Readonly<{ forUpdate?: boolean }> = {}
+): Promise<void> {
+  const links = await database
+    .select({ artifactId: messageArtifactReferences.artifactId })
+    .from(messageArtifactReferences)
+    .where(eq(messageArtifactReferences.messageId, messageId))
+  for (const link of links) {
+    const query = database
+      .select({ deletionState: artifacts.deletionState })
+      .from(artifacts)
+      .where(and(eq(artifacts.id, link.artifactId), eq(artifacts.workspaceId, workspaceId)))
+      .limit(1)
+    const [row] = options.forUpdate ? await query.for('update') : await query
+    if (!row || row.deletionState !== 'active')
+      throw new Error('Group publication artifact unresolved')
+  }
+}
+
+/**
+ * Publish a completed group lead job through the existing job-outbound
+ * service (`publishLeadTurnResult`, owned with #1217) — no competing store
+ * or outbox. Before invoking, this caller binds, from canonical rows: the
+ * job (retained intent), the original actor (publisher must be the intent's
+ * actor), the accepted group revision (the publisher's current admission
+ * binding, bound to the destination channel), the exact destination channel
+ * (must equal the intent's channel, and be a group), and the
+ * audience-authorized projection (the publisher's participation must be
+ * effective at completion and now). The SAME frozen job snapshot is then
+ * re-decided inside the service's canonical locks via the check closure, so
+ * a roster mutation between binding and publication lands as a typed hold
+ * instead of publishing under superseded authority. Group membership never
+ * implies source authority and vice versa: each is checked on its own rows.
+ */
+export async function publishGroupLeadResult(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  input: GroupLeadPublicationInput,
+  options: GroupFenceOptions & Readonly<{ beforeService?: () => Promise<void> }> = {}
+): Promise<string> {
+  const now = options.clock?.() ?? options.now ?? liveGroupClock()
+  const [intent] = await database
+    .select()
+    .from(leadTurnIntents)
+    .where(
+      and(eq(leadTurnIntents.id, input.intentId), eq(leadTurnIntents.workspaceId, workspaceId))
+    )
+    .limit(1)
+  if (!intent || intent.channelId !== input.channelId) throw new Error('Channel unavailable')
+  const publisher: ConversationParticipantRef = { kind: 'user', userId: principal.userId }
+  if (intent.actorUserId !== principal.userId)
+    throw new GroupPublicationHoldError('publication_authority_mismatch')
+  const bound = await inTransaction(database, async (transaction) => {
+    const gate = await loadChannelGate(transaction, workspaceId, input.channelId, {
+      forUpdate: true,
+    })
+    const roster = await loadGroupRoster(transaction, workspaceId, input.channelId, {
+      forUpdate: true,
+    })
+    const admission = admissionForParticipant(roster, publisher)
+    if (!admission) throw new GroupPublicationHoldError('publication_unauthorized_at_completion')
+    const [runtime] = await transaction
+      .select({ observedAt: leadTurnRuntime.observedAt })
+      .from(leadTurnRuntime)
+      .where(eq(leadTurnRuntime.intentId, intent.id))
+      .limit(1)
+    const job: GroupCompletedJob = {
+      authorization: admission.authorization,
+      completedAt: runtime?.observedAt?.toISOString() ?? now,
+      jobId: intent.id,
+      participant: publisher,
+    }
+    const decision = authorizeGroupChannelPublication(gate, {
+      admission,
+      job,
+      now,
+      publisher,
+    })
+    if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+    await requireGroupResultArtifacts(transaction, workspaceId, intent.messageId)
+    return job
+  })
+  await options.beforeService?.()
+  return publishLeadTurnResult(
+    database,
+    workspaceId,
+    intent.id,
+    principal,
+    input.binding,
+    input.bodyText,
+    async (transaction) => {
+      // The check reads through the service transaction, so it joins the locks
+      // the service already holds (channel, roster and grants, the lead Agent,
+      // the lead turn row) and checks out no second pool connection. Its
+      // artifact locks last until the publication commits. A revocation
+      // therefore orders wholly before or after this publication, and expiry is
+      // judged at the fresh trusted instant below.
+      const freshNow = options.clock?.() ?? options.now ?? liveGroupClock()
+      const gate = await loadChannelGate(transaction, workspaceId, input.channelId)
+      const roster = await loadGroupRoster(transaction, workspaceId, input.channelId)
+      const decision = authorizeGroupChannelPublication(gate, {
+        admission: admissionForParticipant(roster, publisher),
+        job: bound,
+        now: freshNow,
+        publisher,
+      })
+      if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+      await requireGroupResultArtifacts(transaction, workspaceId, intent.messageId, {
+        forUpdate: true,
+      })
+    }
+  )
 }

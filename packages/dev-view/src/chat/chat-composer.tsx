@@ -381,6 +381,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                   fallback={<span>{props.agentProfile?.label ?? 'Select an agent profile'}</span>}
                 >
                   <NativeSelect
+                    size="sm"
+                    class="max-w-56"
                     id="dev-chat-composer-agent"
                     value={props.agentProfile?.id ?? ''}
                     onChange={(event) => props.onAgentProfileChange?.(event.currentTarget.value)}
@@ -395,6 +397,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 </Show>
                 <Label for="dev-chat-composer-mode">Mode</Label>
                 <NativeSelect
+                  size="sm"
+                  class="max-w-56"
                   id="dev-chat-composer-mode"
                   value={mode()}
                   onChange={(event) => selectMode(event.currentTarget.value as ComposerMode)}
@@ -409,6 +413,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                   <div class="dev-chat__composer-controls" aria-label="Customize launch pins">
                     <Label for="dev-chat-composer-harness">Harness</Label>
                     <NativeSelect
+                      size="sm"
+                      class="max-w-56"
                       id="dev-chat-composer-harness"
                       value={customization().harnessId ?? ''}
                       onChange={(event) =>
@@ -424,6 +430,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                     />
                     <Label for="dev-chat-composer-model">Model</Label>
                     <NativeSelect
+                      size="sm"
+                      class="max-w-56"
                       id="dev-chat-composer-model"
                       value={customization().modelId ?? ''}
                       onChange={(event) =>
@@ -440,6 +448,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                     <Show when={(customization().runtimeOptions ?? []).length > 0}>
                       <Label for="dev-chat-composer-runtime">Location</Label>
                       <NativeSelect
+                        size="sm"
+                        class="max-w-56"
                         id="dev-chat-composer-runtime"
                         value={customization().runtimeDefinitionId ?? ''}
                         onChange={(event) =>

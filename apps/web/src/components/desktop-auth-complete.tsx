@@ -3,6 +3,7 @@ import { createSignal, Match, onMount, Switch } from 'solid-js'
 
 import { parseDesktopCallbackFragment } from '../lib/desktop-auth-navigation'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { TextLink } from '@adea-ai/ui/components/ui/text-link'
 
 type CompletionStatus = 'opening' | 'opened' | 'invalid' | 'early_access'
@@ -48,9 +49,9 @@ export function DesktopAuthComplete() {
     <Switch>
       <Match when={status() === 'early_access'}>
         <p class="auth-eyebrow">Adea desktop</p>
-        <h1 class="auth-title" id="desktop-auth-complete-title">
+        <Heading as="h1" size="display" data-auth-title id="desktop-auth-complete-title">
           Adea is in early access
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
@@ -69,9 +70,9 @@ export function DesktopAuthComplete() {
       </Match>
       <Match when={status() === 'invalid'}>
         <p class="auth-eyebrow">Adea desktop</p>
-        <h1 class="auth-title" id="desktop-auth-complete-title">
+        <Heading as="h1" size="display" data-auth-title id="desktop-auth-complete-title">
           Return link expired
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="alert">
           Start sign-in again from the Adea desktop app to generate a new secure return link.
         </p>
@@ -81,9 +82,9 @@ export function DesktopAuthComplete() {
           <Check />
         </span>
         <p class="auth-eyebrow">Sign-in successful</p>
-        <h1 class="auth-title" id="desktop-auth-complete-title">
+        <Heading as="h1" size="display" data-auth-title id="desktop-auth-complete-title">
           You’re all set
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="status" aria-live="polite">
           Adea {status() === 'opening' ? 'is opening' : 'has been opened'}. You can close this tab
           and continue in the desktop app.

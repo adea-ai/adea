@@ -8,10 +8,19 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import type { WorkspaceEventView } from './event-log'
+import {
+  groupHistoryAccessByUser,
+  groupHistoryMessageAndThreadVisibleCondition,
+  userChannelVisibility,
+} from './group-participation-store'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import { resolveProjectAccessScope } from './project-access'
-import { artifacts, channelParticipants, channels, contentRefs, messages, tasks } from './schema'
+import { artifacts, channels, contentRefs, messages, tasks } from './schema'
+import { inReadSnapshot } from './transactions'
+
+type Database = AgentHqDatabase | AgentHqTransaction
 
 /**
  * How one event reaches one subscriber.
@@ -78,8 +87,19 @@ function conversationReferences(event: WorkspaceEventView) {
  * never one query per event. Participant checks use indexed EXISTS inside
  * those lookups; owner/admin project privileges do not bypass a private channel.
  */
-export async function classifyWorkspaceEventsForUser(
-  database: AgentHqDatabase,
+export function classifyWorkspaceEventsForUser(
+  database: Database,
+  workspaceId: string,
+  userId: string,
+  events: readonly WorkspaceEventView[]
+): Promise<readonly WorkspaceEventDelivery[] | null> {
+  return inReadSnapshot(database, (snapshot) =>
+    classifyWorkspaceEventsForUserInSnapshot(snapshot, workspaceId, userId, events)
+  )
+}
+
+async function classifyWorkspaceEventsForUserInSnapshot(
+  database: Database,
   workspaceId: string,
   userId: string,
   events: readonly WorkspaceEventView[]
@@ -108,14 +128,32 @@ export async function classifyWorkspaceEventsForUser(
     }
   }
 
-  const canReadChannel = sql<boolean>`coalesce(${channels.visibility} = 'workspace' or exists (
-    select 1 from ${channelParticipants}
-    where ${channelParticipants.workspaceId} = ${workspaceId}
-      -- Keep the outer-table qualifier in single-table Drizzle projections.
-      and ${channelParticipants.channelId} = ${channels}.${sql.identifier('id')}
-      and ${channelParticipants.principalKind} = 'user'
-      and ${channelParticipants.userId} = ${userId}
-  ), false)`
+  const historyAccess = await groupHistoryAccessByUser(
+    database,
+    userId,
+    new Date().toISOString(),
+    workspaceId
+  )
+  const inForce = [...historyAccess.keys()]
+  // Keep the outer-table qualifier in single-table Drizzle projections.
+  const canReadChannel = sql<boolean>`coalesce(${userChannelVisibility({
+    channelId: sql`${channels}.${sql.identifier('id')}`,
+    inForceGroupIds: inForce,
+    kind: sql`${channels}.${sql.identifier('kind')}`,
+    userId,
+    visibility: sql`${channels}.${sql.identifier('visibility')}`,
+  })}, false)`
+  const messageHistoryVisible = sql<boolean>`coalesce(
+    ${channels.kind} <> 'group'
+    or ${groupHistoryMessageAndThreadVisibleCondition({
+      channelId: sql`${messages.channelId}`,
+      sequence: sql`${messages.sequence}`,
+      threadRootMessageId: sql`${messages.threadRootMessageId}`,
+      replyToMessageId: sql`${messages.replyToMessageId}`,
+      access: historyAccess,
+    })},
+    false
+  )`
 
   const [channelRows, messageRows, taskRows, artifactRows, contentRows] = await Promise.all([
     channelIds.size
@@ -126,7 +164,17 @@ export async function classifyWorkspaceEventsForUser(
       : [],
     messageIds.size
       ? database
-          .select({ id: messages.id, projectId: channels.projectId, canReadChannel })
+          .select({
+            id: messages.id,
+            executionRef: messages.executionRef,
+            projectId: channels.projectId,
+            replyToMessageId: messages.replyToMessageId,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
+            canReadChannel,
+            historyVisible: messageHistoryVisible,
+          })
           .from(messages)
           .innerJoin(
             channels,
@@ -153,10 +201,17 @@ export async function classifyWorkspaceEventsForUser(
       ? database
           .select({
             channelProjectId: channels.projectId,
+            contentRefMessageId: contentRefs.messageId,
+            executionRef: messages.executionRef,
             id: contentRefs.id,
             taskProjectId: tasks.projectId,
-            messageId: contentRefs.messageId,
+            messageId: messages.id,
+            replyToMessageId: messages.replyToMessageId,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
+            historyVisible: messageHistoryVisible,
           })
           .from(contentRefs)
           .leftJoin(
@@ -187,9 +242,47 @@ export async function classifyWorkspaceEventsForUser(
     contentRows.map((row) => [row.id, [row.taskProjectId, row.channelProjectId]])
   )
   const readableChannels = new Map(channelRows.map((row) => [row.id, row.canReadChannel]))
-  const readableMessages = new Map(messageRows.map((row) => [row.id, row.canReadChannel]))
+  // A job publication is readable only while the subscriber is currently authorized for it, and a
+  // reply only while its thread root is: the same gates history applies. Channel audience alone
+  // admits neither.
+  const contentMessageCandidates = contentRows.flatMap((row) =>
+    row.contentRefMessageId && row.messageId && row.senderKind
+      ? [
+          {
+            executionRef: row.executionRef,
+            id: row.messageId,
+            replyToMessageId: row.replyToMessageId,
+            senderKind: row.senderKind,
+            senderSystemId: row.senderSystemId,
+            threadRootMessageId: row.threadRootMessageId,
+          },
+        ]
+      : []
+  )
+  const allMessageCandidates = new Map(
+    [...messageRows, ...contentMessageCandidates].map((row) => [row.id, row])
+  )
+  const visibleMessageIds = new Set(
+    (await filterVisibleMessageRows(database, [...allMessageCandidates.values()], userId)).map(
+      (row) => row.id
+    )
+  )
+  const readableMessages = new Map(
+    messageRows.map((row) => [
+      row.id,
+      row.canReadChannel && row.historyVisible && visibleMessageIds.has(row.id),
+    ])
+  )
   const readableContent = new Map(
-    contentRows.map((row) => [row.id, !row.messageId || row.canReadChannel])
+    contentRows.map((row) => [
+      row.id,
+      !row.contentRefMessageId ||
+        (Boolean(row.messageId) &&
+          Boolean(row.senderKind) &&
+          row.canReadChannel &&
+          row.historyVisible &&
+          visibleMessageIds.has(row.messageId!)),
+    ])
   )
 
   return events.map((event, index): WorkspaceEventDelivery => {

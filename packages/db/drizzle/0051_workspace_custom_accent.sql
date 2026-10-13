@@ -1,0 +1,2 @@
+ALTER TABLE "app"."workspaces" DROP CONSTRAINT "workspaces_accent_valid";--> statement-breakpoint
+ALTER TABLE "app"."workspaces" ADD CONSTRAINT "workspaces_accent_valid" CHECK ("app"."workspaces"."accent" is null or "app"."workspaces"."accent" in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink') or "app"."workspaces"."accent" ~ '^#[0-9a-f]{6}$');

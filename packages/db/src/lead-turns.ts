@@ -8,7 +8,15 @@ import {
   sameRequestedRoleModelSelections,
   type RequestedRoleModelSelections,
 } from './lead-model-selections'
-import { createMessage, messageSummary, requireVisibleTask } from './conversations'
+import {
+  createMessage,
+  createMessageInGroupFence,
+  messageSummary,
+  requireVisibleTask,
+} from './conversations'
+import { evaluateGroupGrantWindow } from './group-participation-policy'
+import { loadGroupAdmission, resolveGroupLeadAgentId } from './group-participation-store'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import {
   agents,
   channelParticipants,
@@ -76,6 +84,11 @@ export function parseHandoffTarget(value: unknown): HandoffTarget | undefined {
   }
 }
 
+/** Trusted wall time for lead boundaries; tests inject a deterministic clock. */
+const liveLeadClock = () => new Date().toISOString()
+
+/** Locks current admission authority through commit; no caller-supplied execution authority. */
+
 function receipt(intent: Intent) {
   return Object.freeze({
     schemaVersion: 'pi-lead-intent/v1' as const,
@@ -102,7 +115,8 @@ async function lockAuthority(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  requireAudienceMemberships = true
+  requireAudienceMemberships = true,
+  clock: () => string = liveLeadClock
 ) {
   const [workspace] = await tx
     .select({ id: workspaces.id })
@@ -141,15 +155,44 @@ async function lockAuthority(
       )
     )
     .for('update')
-  if (!channel || channel.kind !== 'direct_agent' || !channel.agentId || channel.taskId)
-    throw new Error('Lead turn unavailable')
+  if (!channel || channel.taskId) throw new Error('Lead turn unavailable')
+  // Trusted time is read AFTER the channel lock above, so a grant expiring
+  // while this transaction waited still denies here.
+  const now = clock()
+  // Group admission (targetless): the caller's canonical admission must be
+  // effective for EVERY entry point — createLeadTurn, inspection and replay
+  // alike — never just the HTTP wrapper. A direct channel keeps its bound
+  // agent; neither path weakens the other, and no handoff target is read or
+  // required here. Admission and grant rows lock with the decision in this
+  // same transaction, so a concurrent revocation orders before or after the
+  // authority — never inside it.
+  if (channel.kind === 'group') {
+    const admission = await loadGroupAdmission(
+      tx,
+      workspaceId,
+      channelId,
+      { kind: 'user', userId: principal.userId },
+      { forUpdate: true }
+    )
+    if (!admission || evaluateGroupGrantWindow(admission.grant, now) !== 'effective')
+      throw new Error('Lead turn unavailable')
+  }
+  const groupLeadAgentId =
+    channel.kind === 'group' && !channel.agentId
+      ? await resolveGroupLeadAgentId(tx, workspaceId, channelId, now, { forUpdate: true })
+      : null
+  const leadAgentId = channel.kind === 'direct_agent' ? channel.agentId : groupLeadAgentId
+  if (!leadAgentId) throw new Error('Lead turn unavailable')
+  // Tool authority is source-scoped: a group lead Agent is pinned in its
+  // own home workspace (proved at enlist time), never the host's. Direct
+  // channels keep their bound agent; the row read is identical either way.
   const [agent] = await tx
     .select()
     .from(agents)
     .where(
       and(
-        eq(agents.id, channel.agentId),
-        eq(agents.workspaceId, workspaceId),
+        eq(agents.id, leadAgentId),
+        ...(channel.kind === 'group' ? [] : [eq(agents.workspaceId, workspaceId)]),
         eq(agents.isWorkspaceLead, true),
         eq(agents.lifecycleState, 'active'),
         isNull(agents.projectId)
@@ -224,6 +267,43 @@ function assertPinned(
     throw new Error('Lead turn version conflict')
 }
 
+/**
+ * Post-write group freshness for a just-written lead turn. Direct channels
+ * return immediately (their authority carries no group binding); group
+ * channels re-resolve the actor admission and the selected lead on fresh
+ * trusted time and require the SAME lead the authority admitted. Anything
+ * else throws and the caller's transaction rolls everything back.
+ */
+async function assertGroupLeadFreshness(
+  tx: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  authority: Readonly<{ agentId: string }>,
+  clock: () => string
+): Promise<void> {
+  const [channel] = await tx
+    .select({ kind: channels.kind })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+  if (!channel || channel.kind !== 'group') return
+  const now = clock()
+  const admission = await loadGroupAdmission(
+    tx,
+    workspaceId,
+    channelId,
+    { kind: 'user', userId: principal.userId },
+    { forUpdate: true }
+  )
+  if (!admission || evaluateGroupGrantWindow(admission.grant, now) !== 'effective')
+    throw new Error('Lead turn unavailable')
+  const leadAgentId = await resolveGroupLeadAgentId(tx, workspaceId, channelId, now, {
+    forUpdate: true,
+  })
+  if (leadAgentId !== authority.agentId) throw new Error('Lead turn unavailable')
+}
+
 /** Message, message event, and blocked dispatch intent commit as one durable unit.
  *
  *  A structured handoff target is accepted only over the authenticated
@@ -232,14 +312,17 @@ function assertPinned(
  *  bare session id can never prove binding, currency, or control
  *  permission here. Unmediated target claims fail closed before anything
  *  is retained, which keeps every retained target host-channeled by
- *  construction — reads never see a forged binding. */
+ *  construction — reads never see a forged binding. A target is a direct
+ *  lead conversation's property; a group never carries one. */
 export async function createLeadTurn(
   database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
   input: Input,
-  options: Readonly<{ hostMediated?: boolean }> = {}
+  // Test-only trusted clock; production callers omit it and read live wall
+  // time inside the transaction. Never an HTTP caller-supplied instant.
+  options: Readonly<{ clock?: () => string; hostMediated?: boolean }> = {}
 ) {
   const allowed = new Set([
     'artifactIds',
@@ -265,12 +348,21 @@ export async function createLeadTurn(
     handoffTarget: _handoffTarget,
     ...messageInput
   } = input
+  const clock = options.clock ?? liveLeadClock
   return database.transaction(async (tx) => {
-    const authority = await lockAuthority(tx, workspaceId, channelId, principal)
-    // The claimed task is server-resolved authority: it must be a visible
-    // task, and it is stamped on the intent so later reads can tell a
-    // retargeted or phantom task from the admitted one.
-    if (handoffTarget) await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
+    const authority = await lockAuthority(tx, workspaceId, channelId, principal, true, clock)
+    if (handoffTarget) {
+      // The channel is locked by the authority above, so its kind cannot change under us.
+      const [channel] = await tx
+        .select({ kind: channels.kind })
+        .from(channels)
+        .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+      if (channel?.kind !== 'direct_agent') throw new Error('Lead turn unavailable')
+      // The claimed task is server-resolved authority: it must be a visible
+      // task, and it is stamped on the intent so later reads can tell a
+      // retargeted or phantom task from the admitted one.
+      await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
+    }
     // A message key already belongs to its immutable target, even when the
     // newly requested target has another recoverable intent of its own.
     // Check before target recovery can return that unrelated receipt.
@@ -335,12 +427,18 @@ export async function createLeadTurn(
         }
       }
     }
-    const message = await createMessage(tx, workspaceId, channelId, principal, {
+    const message = await createMessageInGroupFence(tx, workspaceId, channelId, principal, {
       ...messageInput,
       sender: principal,
       leadTurn: true,
     })
     if (message.deletedAt) throw new Error('Lead turn unavailable')
+    // Post-write group freshness: the awaited write above may have waited on
+    // locks until after a grant lapsed. Both the actor admission and the
+    // selected lead enlistment are re-resolved on fresh trusted time and
+    // must still name the authority that admitted them; denial throws and
+    // rolls back the message, the intent and the event with zero rows.
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
     const [existing] = await tx
       .select()
       .from(leadTurnIntents)
@@ -354,10 +452,13 @@ export async function createLeadTurn(
         )
       )
         throw new Error('Lead turn model selection conflict')
+      // Final freshness covers the replay path too: the awaited intent
+      // select above may have waited on locks until after a grant lapsed.
+      await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
       return { message, leadTurn: receipt(existing) }
     }
     const id = randomUUID()
-    const [inserted] = await tx
+    const [intent] = await tx
       .insert(leadTurnIntents)
       .values({
         ...authority,
@@ -376,8 +477,13 @@ export async function createLeadTurn(
         channelId,
       })
       .returning()
-    if (!inserted) throw new Error('Lead turn unavailable')
-    return { message, leadTurn: receipt(inserted) }
+    if (!intent) throw new Error('Lead turn unavailable')
+    // Final trusted-time check after ALL intended writes (message, event,
+    // intent insert): first-time lock waits are inside the boundary, so a
+    // grant lapsing anywhere up to the commit still denies and rolls back
+    // every effect with zero rows surviving.
+    await assertGroupLeadFreshness(tx, workspaceId, channelId, principal, authority, clock)
+    return { message, leadTurn: receipt(intent) }
   })
 }
 
@@ -444,6 +550,9 @@ async function requireIntentMessage(tx: AgentHqTransaction, workspaceId: string,
       )
     )
   if (!message) throw new Error('Lead turn unavailable')
+  // A retained turn on a message the reader cannot see is unavailable, as the message is.
+  if ((await filterVisibleMessageRows(tx, [message], intent.actorUserId)).length === 0)
+    throw new Error('Lead turn unavailable')
   return messageSummary(tx, message)
 }
 
@@ -466,6 +575,9 @@ export async function getLeadTurnForUser(
         )
       )
     if (!message) throw new Error('Lead turn unavailable')
+    // A turn on a message the reader cannot see is unavailable, as the message is.
+    if ((await filterVisibleMessageRows(tx, [message], principal.userId)).length === 0)
+      throw new Error('Lead turn unavailable')
     const authority = await lockAuthority(tx, workspaceId, message.channelId, principal, false)
     const [liveMessage] = await tx
       .select({ id: messages.id })
@@ -524,6 +636,8 @@ export async function withAuthorizedLeadTurn<T>(
       .from(workspaces)
       .where(eq(workspaces.id, workspaceId))
     if (!message || message.senderUserId !== intent.actorUserId || !workspace)
+      throw new Error('Lead turn unavailable')
+    if ((await filterVisibleMessageRows(tx, [message], principal.userId)).length === 0)
       throw new Error('Lead turn unavailable')
     return operation(tx, intent, message, workspace.id)
   })

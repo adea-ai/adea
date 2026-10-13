@@ -16,6 +16,7 @@ import { Progress } from '@adea-ai/ui/components/ui/progress'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import {
   CircleCheck,
   File,
@@ -547,7 +548,9 @@ export function FilesChanged(props: {
             </PopoverTrigger>
             <PopoverContent hideArrow aria-label="Finish your review">
               <div class="dev-scm-form">
-                <h2 class="dev-scm-group__label">Finish your review</h2>
+                <Heading as="h2" size="subsection">
+                  Finish your review
+                </Heading>
                 <p class="dev-scm-caption">{copy().status}</p>
                 <Show when={draftStale()}>
                   <p class="dev-scm-caption" role="alert">

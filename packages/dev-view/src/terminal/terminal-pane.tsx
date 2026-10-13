@@ -87,11 +87,24 @@ import { terminalConnectionErrorMessage } from './connection-errors'
 import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
 import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { Toggle } from '@adea-ai/ui/components/ui/toggle'
+import { ArrowDown, ArrowUp, X } from 'lucide-solid'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
@@ -691,14 +704,19 @@ export function TerminalPane(props: TerminalPaneProps) {
             <Input
               ref={(element) => (searchInputElement = element)}
               type="text"
+              size="sm"
+              class="flex-1"
               placeholder="Search terminal"
               aria-label="Search terminal"
               value={search().query}
               onKeyDown={onSearchInputKeyDown}
               onInput={(event) => setSearch(searchSetQuery(search(), event.currentTarget.value))}
             />
-            <Button
+            <ActionButton
               type="button"
+              variant="outline"
+              size="icon-sm"
+              tooltip="Previous match"
               aria-label="Previous match"
               disabled={!searchPresent().steppable}
               onClick={() => {
@@ -710,10 +728,13 @@ export function TerminalPane(props: TerminalPaneProps) {
                 }
               }}
             >
-              ↑
-            </Button>
-            <Button
+              <ArrowUp aria-hidden="true" />
+            </ActionButton>
+            <ActionButton
               type="button"
+              variant="outline"
+              size="icon-sm"
+              tooltip="Next match"
               aria-label="Next match"
               disabled={!searchPresent().steppable}
               onClick={() => {
@@ -725,11 +746,18 @@ export function TerminalPane(props: TerminalPaneProps) {
                 }
               }}
             >
-              ↓
-            </Button>
-            <Button type="button" aria-label="Close search" onClick={closeSearch}>
-              ×
-            </Button>
+              <ArrowDown aria-hidden="true" />
+            </ActionButton>
+            <ActionButton
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              tooltip="Close search"
+              aria-label="Close search"
+              onClick={closeSearch}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
             <span class="dev-terminal-search-count" aria-live="polite">
               {searchPresent().count}
             </span>
@@ -743,17 +771,32 @@ export function TerminalPane(props: TerminalPaneProps) {
             </Toggle>
           </div>
         </Show>
-        <Show when={surfacePaste !== undefined}>
-          <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
-            <span>Paste contains multiple lines or control characters. Send anyway?</span>
-            <Button type="button" onClick={confirmSurfacePaste}>
-              Paste
-            </Button>
-            <Button type="button" onClick={rejectSurfacePaste}>
-              Cancel
-            </Button>
-          </div>
-        </Show>
+        <AlertDialog
+          open={surfacePaste() !== undefined}
+          onOpenChange={(open) => {
+            if (!open && surfacePaste() !== undefined) rejectSurfacePaste()
+          }}
+        >
+          <AlertDialogContent
+            // confirm/rejectSurfacePaste hand focus back to the terminal themselves.
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm paste</AlertDialogTitle>
+              <AlertDialogDescription>
+                Paste contains multiple lines or control characters. Send anyway?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel as={Button} type="button" variant="outline">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction as={Button} type="button" onClick={confirmSurfacePaste}>
+                Paste
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <Show
         when={editor().mode === 'compose'}
@@ -763,7 +806,12 @@ export function TerminalPane(props: TerminalPaneProps) {
               Raw keyboard mode — every key reaches the terminal. Paste with the system shortcut;
               multiline pastes ask first.
             </p>
-            <Button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditor(editorToggleMode(editor()))}
+            >
               Compose mode
             </Button>
           </div>
@@ -772,6 +820,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         <div class="dev-terminal-editor">
           <Textarea
             rows={2}
+            resize="none"
             aria-label="Compose terminal input"
             value={editor().draft}
             onInput={(event) => setEditor(editorChangeDraft(editor(), event.currentTarget.value))}
@@ -800,22 +849,45 @@ export function TerminalPane(props: TerminalPaneProps) {
               }
             }}
           />
-          <Show when={editor().pendingPaste !== undefined}>
-            <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
-              <span>Paste contains multiple lines or control characters. Send anyway?</span>
-              <Button type="button" onClick={() => setEditor(editorConfirmPaste(editor()))}>
-                Paste
-              </Button>
-              <Button type="button" onClick={() => setEditor(editorRejectPaste(editor()))}>
-                Cancel
-              </Button>
-            </div>
-          </Show>
+          <AlertDialog
+            open={editor().pendingPaste !== undefined}
+            onOpenChange={(open) => {
+              if (!open && editor().pendingPaste !== undefined) {
+                setEditor(editorRejectPaste(editor()))
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirm paste</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Paste contains multiple lines or control characters. Send anyway?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel as={Button} type="button" variant="outline">
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  as={Button}
+                  type="button"
+                  onClick={() => setEditor(editorConfirmPaste(editor()))}
+                >
+                  Paste
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <footer>
-            <Button type="button" onClick={sendDraft}>
+            <Button type="button" size="sm" onClick={sendDraft}>
               {editor().sendLabel}
             </Button>
-            <Button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditor(editorToggleMode(editor()))}
+            >
               Raw mode
             </Button>
           </footer>
@@ -823,18 +895,26 @@ export function TerminalPane(props: TerminalPaneProps) {
       </Show>
       <Show when={shellPresent().showChooser}>
         <div class="dev-terminal-shell-chooser" role="group" aria-label={shellPresent().heading}>
-          <h2>{shellPresent().heading}</h2>
-          <p>{shellPresent().detail}</p>
+          <Heading as="h2" size="subsection">
+            {shellPresent().heading}
+          </Heading>
+          <Text variant="caption" tone="muted">
+            {shellPresent().detail}
+          </Text>
           <ul>
             {(props.shellProfiles ?? []).map((profile) => (
               <li>
                 <Button
                   type="button"
+                  variant={shellSelection().selectedProfileId === profile.id ? 'subtle' : 'outline'}
+                  class="w-full justify-between"
                   onClick={() => pickShellProfile(profile.id)}
                   aria-pressed={shellSelection().selectedProfileId === profile.id}
                 >
                   {profile.label}
-                  <span class="dev-terminal-shell-path">{profile.argv.join(' ')}</span>
+                  <Text variant="code" tone="muted">
+                    {profile.argv.join(' ')}
+                  </Text>
                 </Button>
                 <Show when={profileIntegrationNote(profile)}>
                   {(note) => <p class="dev-terminal-hint">{note()}</p>}
