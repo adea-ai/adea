@@ -108,8 +108,8 @@ places a module whole. `themeRegistry` (the one reader of `builtinThemes`) lives
 `theme-registry.ts`, imported only by the lazy appearance editor, not in
 `custom-theme-library.ts`; and the start-up code imports nothing defined in
 `@adea-ai/ui/lib/themes` beside the table: not `accents` (read
-`@adea-ai/ui/lib/accent-presets`) and not `variantFromRecord`, whose projection
-`imported-theme-variant.ts` carries (pinned to the published function by a test)
-until the shared package exports it from a module of its own. The bundle gate
+`@adea-ai/ui/lib/accent-presets`) and not `variantFromRecord` (read
+`@adea-ai/ui/lib/theme-records`; both are published from modules of their own
+since 0.128.4, which retired the host copy and its parity test). The bundle gate
 (`scripts/client-bundle-budgets.mjs`) fails if a catalogue display name appears in
 the start-up closure, and a boundary test fails on the imports above.

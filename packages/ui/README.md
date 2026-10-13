@@ -137,8 +137,8 @@ transparency are provider options. Unknown or removed catalogue IDs resolve to
 the default of the same appearance and the original stored record is preserved.
 The shell imports the provider from the published lazy entry
 (`@adea-ai/ui/components/theme/lazy`) so the 34-theme catalogue is a chunk of its
-own rather than part of start-up; `theme-registry.ts` and
-`imported-theme-variant.ts` exist to keep it there (ADR 0014).
+own rather than part of start-up; `theme-registry.ts` exists to keep it there
+(ADR 0014).
 
 The unused AccountDrawer, SceneSettings, and OnScreenControls copies and their test-only harnesses are removed. The global account menu composes the published AccountMenu. The external Agent Sim scene engine owns its live scene settings and movement controls and depends on published UI, not this private package. The app retains its `data-agent-hq-on-screen-controls` viewport positioning hook for that engine. Do not restore these unused copies or add generic controls to the host adapter package.
 

@@ -64,7 +64,7 @@ describe('private application UI boundary', () => {
       const code = repositoryFile(path)
       // The eager entry imports the 34-theme catalogue; the lazy one is the same context.
       expect(code, path).not.toMatch(/from '@adea-ai\/ui\/components\/theme'/)
-      // `variantFromRecord` and `accents` are defined in lib/themes.ts beside the table, and a
+      // `lib/themes` re-exports `variantFromRecord` and `accents`, but defines them beside the table, and a
       // bundler places a module whole: importing either from a start-up module drags it in.
       for (const [, names] of code.matchAll(
         /import\s*\{([^}]*)\}\s*from '@adea-ai\/ui\/lib\/themes'/g

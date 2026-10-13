@@ -13,9 +13,8 @@ import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/themes'
 import { contrastRatio } from '@adea-ai/ui/lib/accent-roles'
 import { quarantineRecord, readVersionedRecord } from '@adea-ai/ui/lib/preference-store'
 import { defaultVariantFor } from '@adea-ai/ui/lib/theme-defaults'
+import { variantFromRecord } from '@adea-ai/ui/lib/theme-records'
 import type { ThemeVariant as UiThemeVariant } from '@adea-ai/ui/lib/themes'
-
-import { importedVariantFromRecord } from './imported-theme-variant'
 
 /**
  * The custom theme library: themes the user imported from a file, stored in
@@ -345,7 +344,7 @@ export function toUiVariant(stored: CustomThemeStored): UiThemeVariant {
   const { variant } = stored
   let base: UiThemeVariant
   try {
-    base = importedVariantFromRecord(storedVariantRecord(variant))
+    base = variantFromRecord(storedVariantRecord(variant))
   } catch {
     // The shipped default of the appearance: the provider's own start-up data, so the
     // shell never imports the themes catalogue to repair an import.
