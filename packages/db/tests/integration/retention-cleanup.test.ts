@@ -61,6 +61,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 const connectionUrl = process.env.DATABASE_URL
 const CHECKSUM = 'c'.repeat(64)
 const DAY_MS = 86_400_000
+const executorByWorkspace = new Map<string, string>()
 
 /** Every category is periodically eligible: an expired anchor, one-day periods. */
 const EXPIRED_ANCHOR = new Date(Date.now() - 3 * DAY_MS).toISOString()
@@ -118,11 +119,20 @@ function gateInput(
   subjectId: string,
   overrides: Partial<RetentionGateInput> = {}
 ): RetentionGateInput {
+  const executorId = executorByWorkspace.get(workspaceId)
   return {
     anchorAt: EXPIRED_ANCHOR,
     category,
     periods: ALL_ONE_DAY,
     reconciliationOpen: false,
+    coverageInventory: executorId
+      ? Object.fromEntries(
+          RETENTION_COVERAGE_RULES[category].requiredCoverage.map((coverage) => [
+            coverage,
+            [executorId],
+          ])
+        )
+      : undefined,
     subjectId,
     workspaceId,
     ...overrides,
@@ -233,6 +243,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     }
     workspaceIds.length = 0
     userIds.length = 0
+    executorByWorkspace.clear()
   }
 
   async function temporaryUser(name: string): Promise<UserPrincipalRef> {
@@ -258,6 +269,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     await addWorkspaceMembership(connection.db, workspace.id, admin, 'admin')
     await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
     const node = await makeNode(workspace.id, owner, name)
+    executorByWorkspace.set(workspace.id, node.id)
     return { admin, member, node, owner, workspace }
   }
 
@@ -283,6 +295,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       runtimeNodeId: node!.id,
       verifiedAt: new Date(),
     })
+    if (!executorByWorkspace.has(workspaceId)) executorByWorkspace.set(workspaceId, node!.id)
     return { id: node!.id, workspaceId }
   }
 
@@ -956,6 +969,7 @@ describe.skipIf(!connectionUrl)(
           workspaceId: workspace.id,
         })
         .returning()
+      executorByWorkspace.set(workspace.id, node!.id)
       const publicKey = `root-findings-signing-${crypto.randomUUID()}`
       await connection.db.insert(runtimeNodeKeys).values({
         algorithm: 'ed25519',
@@ -1028,6 +1042,12 @@ describe.skipIf(!connectionUrl)(
       const decision = await evaluateStoredRetentionDeletion(connection.db, {
         anchorAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
         category: 'messages',
+        coverageInventory: Object.fromEntries(
+          RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverageKind) => [
+            coverageKind,
+            [executor.runtimeNodeId],
+          ])
+        ),
         periods: parseRetentionPeriods(
           Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((c) => [c, 1]))
         ),
@@ -1080,6 +1100,12 @@ describe.skipIf(!connectionUrl)(
       const decision = await evaluateStoredRetentionDeletion(connection.db, {
         anchorAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
         category: 'messages',
+        coverageInventory: Object.fromEntries(
+          RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverageKind) => [
+            coverageKind,
+            [executor.runtimeNodeId],
+          ])
+        ),
         periods: parseRetentionPeriods(
           Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((c) => [c, 1]))
         ),

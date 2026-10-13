@@ -16,6 +16,7 @@ import {
 } from './schema'
 import {
   evaluateRetentionDeletion,
+  parseRetentionCoverageInventory,
   RETENTION_CATEGORIES,
   recordCleanupReceipt,
   RetentionPolicyError,
@@ -26,6 +27,7 @@ import {
   type RetentionDecision,
   type RetentionHold,
   type RetentionPeriods,
+  type RetentionCoverageInventory,
   type TrustedCleanupExecutor,
 } from './retention-policy'
 
@@ -478,6 +480,11 @@ export type StoredCleanupReceiptInput = Readonly<{
   workspaceId: string
 }>
 
+type RuntimeNodeCleanupReceiptAuthenticator = (
+  transaction: AgentHqTransaction,
+  runtimeNodeId: string
+) => Promise<string>
+
 /**
  * Record one cleanup receipt from the authenticated executor node. A repeated
  * delivery with the same idempotency key and the same payload replays the
@@ -487,6 +494,27 @@ export type StoredCleanupReceiptInput = Readonly<{
 export async function recordRetentionCleanupReceipt(
   database: AgentHqDatabase,
   input: StoredCleanupReceiptInput
+): Promise<Readonly<{ outcome: 'recorded' | 'replayed'; receipt: StoredCleanupReceiptRecord }>> {
+  return recordRetentionCleanupReceiptInternal(database, input)
+}
+
+/**
+ * Record a node-authenticated cleanup receipt. The caller rechecks the exact
+ * signing key inside this transaction after the subject lock, then returns its
+ * fingerprint so persistence can bind the row to that verified key.
+ */
+export async function recordRuntimeNodeRetentionCleanupReceipt(
+  database: AgentHqDatabase,
+  input: StoredCleanupReceiptInput,
+  authenticate: RuntimeNodeCleanupReceiptAuthenticator
+): Promise<Readonly<{ outcome: 'recorded' | 'replayed'; receipt: StoredCleanupReceiptRecord }>> {
+  return recordRetentionCleanupReceiptInternal(database, input, authenticate)
+}
+
+async function recordRetentionCleanupReceiptInternal(
+  database: AgentHqDatabase,
+  input: StoredCleanupReceiptInput,
+  authenticate?: RuntimeNodeCleanupReceiptAuthenticator
 ): Promise<Readonly<{ outcome: 'recorded' | 'replayed'; receipt: StoredCleanupReceiptRecord }>> {
   if (!UUID.test(input.workspaceId)) reject('invalid_input')
   if (input.executor.kind !== 'runtime_node' || !UUID.test(input.executor.runtimeNodeId))
@@ -517,6 +545,9 @@ export async function recordRetentionCleanupReceipt(
     // Lock first. Every read below is ordered by the subject lock, and a receipt
     // that waited for it is judged at admission, not at arrival.
     await lockSubject(transaction, input.workspaceId, input.category, subjectId)
+    const verifiedSigningFingerprint = authenticate
+      ? await authenticate(transaction, executorId)
+      : undefined
     let eligible: Awaited<ReturnType<typeof requireEligibleRuntimeNode>>
     try {
       eligible = await requireEligibleRuntimeNode(transaction, input.workspaceId, executorId)
@@ -524,6 +555,11 @@ export async function recordRetentionCleanupReceipt(
       if (error instanceof RuntimeNodeError) reject('receipt_untrusted')
       throw error
     }
+    if (
+      verifiedSigningFingerprint !== undefined &&
+      eligible.signingKeyFingerprint !== verifiedSigningFingerprint
+    )
+      reject('receipt_untrusted')
     // Evidence binds to the live deletion generation, never to the subject alone.
     const authority = await liveAuthorization(
       transaction,
@@ -583,7 +619,7 @@ export async function recordRetentionCleanupReceipt(
         authorizationId: authority.id,
         category: input.category,
         coverage: receipt.coverage,
-        executorSigningFingerprint: eligible.signingKeyFingerprint,
+        executorSigningFingerprint: verifiedSigningFingerprint ?? eligible.signingKeyFingerprint,
         idempotencyKey: input.idempotencyKey,
         observedAt: new Date(Date.parse(receipt.observedAt)),
         operation: receipt.operation,
@@ -621,6 +657,8 @@ export type RetentionGateInput = Readonly<{
   /** The owning domain's retention anchor for this subject, as an ISO timestamp. */
   anchorAt: string
   category: RetentionCategory
+  /** Test- or caller-supplied inventory; missing required members fail closed. */
+  coverageInventory?: RetentionCoverageInventory
   periods?: RetentionPeriods
   /** Supplied by the owning domain. An unknown or open reconciliation is `true`. */
   reconciliationOpen: boolean
@@ -716,10 +754,20 @@ export async function withRetentionDeletionGate<T>(
       residualCount: row.residualCount,
       subjectId: row.subjectId,
     }))
+    let inventory: ReturnType<typeof parseRetentionCoverageInventory>
+    try {
+      inventory = parseRetentionCoverageInventory(input.coverageInventory, input.category)
+    } catch (error) {
+      if (error instanceof RetentionPolicyError) reject('invalid_input')
+      throw error
+    }
+    const expectedExecutorIds = [
+      ...new Set([...inventory.executorsByCoverage.values()].flatMap((ids) => [...ids])),
+    ]
     const trustedExecutors = await trustedExecutorsFor(
       transaction,
       input.workspaceId,
-      receipts.map((receipt) => receipt.executorId)
+      expectedExecutorIds
     )
 
     // The final decision instant: sampled after the last awaited read. Expiry of the
@@ -759,6 +807,7 @@ export async function withRetentionDeletionGate<T>(
         periods: input.periods ?? UNSET_RETENTION_PERIODS,
         receipts,
         trustedExecutors,
+        coverageInventory: input.coverageInventory,
       })
     } catch (error) {
       if (error instanceof RetentionPolicyError) reject('invalid_input')

@@ -6,15 +6,18 @@
  * only eventual (backups). Periods are configuration, not defaults: each one is
  * `null` (unset) until approved, and an unset period refuses every deletion
  * (fail closed). Holds, shared references and open reconciliation refuse
- * deletion even after the period has expired. A subject is verified complete
- * only when, for every required coverage kind, the latest trusted delete
- * receipt completed and a later trusted read check found zero residuals.
+ * deletion even after the period has expired. The caller supplies an explicit
+ * authoritative executor inventory for each required coverage; receipts never
+ * define that inventory. A subject is verified complete only when, for every
+ * listed executor and coverage, the latest trusted delete completed and a later
+ * trusted read check found zero residuals.
  *
  * The functions are pure: candidates, receipts, the trusted executor set, the
- * periods and the clock are injected. Nothing here deletes data, contacts an
- * executor, or persists receipts. Decisions carry only reason and blocker codes,
- * never subject ids, timestamps, locations or content. Trust in an executor id
- * is established by the caller's authenticated boundary, not by this module.
+ * coverage inventory, periods and clock are injected. Nothing here deletes
+ * data, contacts an executor or persists receipts. Missing required inventory
+ * blocks cleanup. Decisions carry only reason and blocker codes, never subject
+ * ids, timestamps, locations or content. Trust in the inventory and executor
+ * identities is established by the caller's authenticated boundary, not here.
  */
 
 export const RETENTION_CATEGORIES = [
@@ -339,6 +342,7 @@ export type RetentionBlocker =
       readonly reason:
         | 'executor_unreachable'
         | 'cleanup_in_progress'
+        | 'cleanup_failed'
         | 'coverage_incomplete'
         | 'ambiguous_order'
     }
@@ -355,7 +359,44 @@ export type RetentionEvaluationInput = {
   readonly periods: RetentionPeriods
   readonly receipts: readonly unknown[]
   readonly trustedExecutors: ReadonlyMap<string, TrustedCleanupExecutor>
+  /** Explicit authority inventory: every node that must report for each required coverage. */
+  readonly coverageInventory?: RetentionCoverageInventory
   readonly now: string
+}
+
+export type RetentionCoverageInventory = Readonly<
+  Partial<Record<CleanupCoverageKind, readonly string[]>>
+>
+
+type ParsedRetentionCoverageInventory = Readonly<{
+  complete: boolean
+  executorsByCoverage: ReadonlyMap<CleanupCoverageKind, readonly string[]>
+}>
+
+/** Validate the caller-supplied executor inventory without inferring members from receipts. */
+export function parseRetentionCoverageInventory(
+  value: unknown,
+  category: RetentionCategory
+): ParsedRetentionCoverageInventory {
+  const required = RETENTION_COVERAGE_RULES[category]?.requiredCoverage
+  if (!required) fail('invalid_candidate')
+  if (value === undefined)
+    return Object.freeze({ complete: required.length === 0, executorsByCoverage: new Map() })
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) fail('invalid_candidate')
+  const record = value as Record<string, unknown>
+  const allowed = new Set(required)
+  const executorsByCoverage = new Map<CleanupCoverageKind, readonly string[]>()
+  for (const [rawCoverage, rawExecutors] of Object.entries(record)) {
+    if (!allowed.has(rawCoverage as CleanupCoverageKind) || !Array.isArray(rawExecutors))
+      fail('invalid_candidate')
+    const executorIds = rawExecutors.map((executorId) => opaqueId(executorId, 'invalid_candidate'))
+    if (new Set(executorIds).size !== executorIds.length) fail('invalid_candidate')
+    executorsByCoverage.set(rawCoverage as CleanupCoverageKind, Object.freeze(executorIds))
+  }
+  const complete = required.every(
+    (coverage) => (executorsByCoverage.get(coverage)?.length ?? 0) > 0
+  )
+  return Object.freeze({ complete, executorsByCoverage })
 }
 
 function parseCandidate(value: RetentionCandidate): RetentionCandidate {
@@ -393,21 +434,26 @@ function authorizationIsCurrent(authorization: RetentionAuthorization, nowMs: nu
 
 function blockedCoverage(
   coverage: CleanupCoverageKind,
-  reason: 'executor_unreachable' | 'cleanup_in_progress' | 'coverage_incomplete' | 'ambiguous_order'
+  reason:
+    | 'executor_unreachable'
+    | 'cleanup_in_progress'
+    | 'cleanup_failed'
+    | 'coverage_incomplete'
+    | 'ambiguous_order'
 ): CoverageState {
-  return { state: 'blocked', blocker: { kind: 'coverage', coverage, reason } }
+  return { state: 'blocked', blockers: [{ kind: 'coverage', coverage, reason }] }
 }
 
 type CoverageState =
   | { readonly state: 'verified' }
-  | { readonly state: 'failed' }
-  | { readonly state: 'blocked'; readonly blocker: RetentionBlocker }
+  | { readonly state: 'blocked'; readonly blockers: readonly RetentionBlocker[] }
 
 function stateForOutcome(
   outcome: CleanupReceiptOutcome,
   coverage: CleanupCoverageKind
 ): CoverageState {
   if (outcome === 'in_progress') return blockedCoverage(coverage, 'cleanup_in_progress')
+  if (outcome === 'failed') return blockedCoverage(coverage, 'cleanup_failed')
   return blockedCoverage(coverage, 'executor_unreachable')
 }
 
@@ -420,10 +466,14 @@ function stateForOutcome(
 function latestFor(
   receipts: readonly CleanupReceipt[],
   coverage: CleanupCoverageKind,
-  operation: CleanupReceiptOperation
+  operation: CleanupReceiptOperation,
+  executorId: string
 ): CleanupReceipt | 'ambiguous' | undefined {
   const matching = receipts.filter(
-    (receipt) => receipt.coverage === coverage && receipt.operation === operation
+    (receipt) =>
+      receipt.coverage === coverage &&
+      receipt.operation === operation &&
+      receipt.executorId === executorId
   )
   if (matching.length === 0) return undefined
   const newest = Math.max(...matching.map((receipt) => Date.parse(receipt.observedAt)))
@@ -435,22 +485,44 @@ function latestFor(
 
 function coverageState(
   coverage: CleanupCoverageKind,
-  receipts: readonly CleanupReceipt[]
+  receipts: readonly CleanupReceipt[],
+  executorIds: readonly string[]
 ): CoverageState {
-  const deletion = latestFor(receipts, coverage, 'delete')
-  if (deletion === 'ambiguous') return blockedCoverage(coverage, 'ambiguous_order')
-  if (!deletion) return blockedCoverage(coverage, 'coverage_incomplete')
-  if (deletion.outcome === 'failed') return { state: 'failed' }
-  if (deletion.outcome !== 'completed') return stateForOutcome(deletion.outcome, coverage)
-  const read = latestFor(receipts, coverage, 'read_check')
-  if (read === 'ambiguous') return blockedCoverage(coverage, 'ambiguous_order')
-  // The verifying read must be strictly later than the delete: a read at the same instant is not proof.
-  if (!read || Date.parse(read.observedAt) <= Date.parse(deletion.observedAt))
-    return blockedCoverage(coverage, 'coverage_incomplete')
-  if (read.outcome === 'failed' || (read.outcome === 'completed' && read.residualCount > 0))
-    return { state: 'failed' }
-  if (read.outcome !== 'completed') return stateForOutcome(read.outcome, coverage)
-  return { state: 'verified' }
+  if (executorIds.length === 0) return blockedCoverage(coverage, 'coverage_incomplete')
+  const blockers = new Map<string, RetentionBlocker>()
+  for (const executorId of executorIds) {
+    const deletion = latestFor(receipts, coverage, 'delete', executorId)
+    let state: CoverageState
+    if (deletion === 'ambiguous') {
+      state = blockedCoverage(coverage, 'ambiguous_order')
+    } else if (!deletion) {
+      state = blockedCoverage(coverage, 'coverage_incomplete')
+    } else if (deletion.outcome !== 'completed') {
+      state = stateForOutcome(deletion.outcome, coverage)
+    } else {
+      const read = latestFor(receipts, coverage, 'read_check', executorId)
+      if (read === 'ambiguous') {
+        state = blockedCoverage(coverage, 'ambiguous_order')
+      } else if (!read || Date.parse(read.observedAt) <= Date.parse(deletion.observedAt)) {
+        // A read at or before the delete cannot prove absence.
+        state = blockedCoverage(coverage, 'coverage_incomplete')
+      } else if (read.outcome !== 'completed') {
+        state = stateForOutcome(read.outcome, coverage)
+      } else if (read.residualCount > 0) {
+        state = stateForOutcome('failed', coverage)
+      } else {
+        state = { state: 'verified' }
+      }
+    }
+    if (state.state === 'blocked') {
+      for (const blocker of state.blockers) {
+        if (blocker.kind === 'coverage') blockers.set(blocker.reason, blocker)
+      }
+    }
+  }
+  return blockers.size > 0
+    ? { state: 'blocked', blockers: [...blockers.values()] }
+    : { state: 'verified' }
 }
 
 /**
@@ -484,6 +556,20 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
   if (rule.eventualBackupExpiry)
     return { outcome: 'pending', blockers: [{ kind: 'backup_expiry' }] }
 
+  const inventory = parseRetentionCoverageInventory(input.coverageInventory, candidate.category)
+  if (!inventory.complete) {
+    return {
+      outcome: 'pending',
+      blockers: rule.requiredCoverage
+        .filter((coverage) => (inventory.executorsByCoverage.get(coverage)?.length ?? 0) === 0)
+        .map((coverage) => ({
+          kind: 'coverage' as const,
+          coverage,
+          reason: 'coverage_incomplete' as const,
+        })),
+    }
+  }
+
   const receipts = input.receipts
     .map(parseReceipt)
     .filter(
@@ -496,10 +582,10 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
     )
   if (receipts.length === 0) return { outcome: 'cleanup_ready' }
 
-  const states = rule.requiredCoverage.map((coverage) => coverageState(coverage, receipts))
-  if (states.some((state) => state.state === 'failed'))
-    return { outcome: 'refused', reason: 'cleanup_failed' }
-  const blockers = states.flatMap((state) => (state.state === 'blocked' ? [state.blocker] : []))
+  const states = rule.requiredCoverage.map((coverage) =>
+    coverageState(coverage, receipts, inventory.executorsByCoverage.get(coverage) ?? [])
+  )
+  const blockers = states.flatMap((state) => (state.state === 'blocked' ? state.blockers : []))
   if (blockers.length > 0) return { outcome: 'pending', blockers }
   return { outcome: 'verified_complete', coverage: rule.requiredCoverage }
 }

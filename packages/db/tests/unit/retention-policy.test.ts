@@ -20,6 +20,7 @@ import {
   type RetentionCategory,
   type RetentionEvaluationInput,
   type RetentionPeriods,
+  type RetentionCoverageInventory,
 } from '../../src/retention-policy'
 
 /**
@@ -110,11 +111,19 @@ function verifiedReceipts(
 }
 
 function evaluate(overrides: Partial<RetentionEvaluationInput> = {}) {
+  const selectedCandidate = overrides.candidate ?? candidate()
+  const selectedRule = RETENTION_COVERAGE_RULES[selectedCandidate.category]
+  const coverageInventory = Object.hasOwn(overrides, 'coverageInventory')
+    ? overrides.coverageInventory
+    : selectedRule
+      ? Object.fromEntries(selectedRule.requiredCoverage.map((coverage) => [coverage, [CLOUD]]))
+      : undefined
   return evaluateRetentionDeletion({
-    candidate: candidate(),
+    candidate: selectedCandidate,
     periods: EVERY_CATEGORY_EXPIRED,
     receipts: [],
     trustedExecutors: TRUSTED,
+    coverageInventory: coverageInventory as RetentionCoverageInventory | undefined,
     now: NOW,
     ...overrides,
   })
@@ -251,6 +260,21 @@ describe('trusted cleanup gates deletion', () => {
     expect(evaluate()).toEqual({ outcome: 'cleanup_ready' })
   })
 
+  test('missing or incomplete authorized inventory cannot claim readiness or completion', () => {
+    const missing = evaluate({ coverageInventory: undefined })
+    expect(missing).toEqual({
+      outcome: 'pending',
+      blockers: RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverage) => ({
+        kind: 'coverage',
+        coverage,
+        reason: 'coverage_incomplete',
+      })),
+    })
+    expect(
+      evaluate({ coverageInventory: { primary: [CLOUD] } as RetentionCoverageInventory }).outcome
+    ).toBe('pending')
+  })
+
   test('verified complete only when every required coverage kind has a trusted delete and zero-residual read check', () => {
     const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
     expect(evaluate({ receipts: verifiedReceipts(required) })).toEqual({
@@ -300,6 +324,7 @@ describe('trusted cleanup gates deletion', () => {
       evaluate({
         candidate: candidate({ category: 'native_transcripts' }),
         receipts,
+        coverageInventory: { runtime_state: [NATIVE], cache: [CLOUD] },
       })
     ).toEqual({
       outcome: 'pending',
@@ -323,12 +348,19 @@ describe('trusted cleanup gates deletion', () => {
     })
   })
 
-  test('a failed delete or residual data refuses deletion as cleanup_failed', () => {
+  test('a failed delete or residual data remains retryable and pending as cleanup_failed', () => {
     const required = RETENTION_COVERAGE_RULES.messages.requiredCoverage
     const failedDelete = [receipt('primary', 'delete', 'failed', EARLY)]
     expect(evaluate({ receipts: failedDelete })).toEqual({
-      outcome: 'refused',
-      reason: 'cleanup_failed',
+      outcome: 'pending',
+      blockers: [
+        { kind: 'coverage', coverage: 'primary', reason: 'cleanup_failed' },
+        ...required.slice(1).map((coverage) => ({
+          kind: 'coverage' as const,
+          coverage,
+          reason: 'coverage_incomplete' as const,
+        })),
+      ],
     })
     const residual = verifiedReceipts(required).map((item) =>
       item.operation === 'read_check' && item.coverage === 'cache'
@@ -336,8 +368,30 @@ describe('trusted cleanup gates deletion', () => {
         : item
     )
     expect(evaluate({ receipts: residual })).toEqual({
-      outcome: 'refused',
-      reason: 'cleanup_failed',
+      outcome: 'pending',
+      blockers: [{ kind: 'coverage', coverage: 'cache', reason: 'cleanup_failed' }],
+    })
+  })
+
+  test('one completed executor cannot mask an offline executor for the same store coverage', () => {
+    const expected = ['primary', 'index'] as const
+    const receipts = [
+      ...verifiedReceipts(expected, { category: 'logs', executorId: CLOUD }),
+      receipt('primary', 'delete', 'unreachable', EARLY, {
+        category: 'logs',
+        executorId: NATIVE,
+      }),
+      ...verifiedReceipts(['index'], { category: 'logs', executorId: NATIVE }),
+    ]
+    expect(
+      evaluate({
+        candidate: candidate({ category: 'logs' }),
+        receipts,
+        coverageInventory: { primary: [CLOUD, NATIVE], index: [CLOUD, NATIVE] },
+      })
+    ).toEqual({
+      outcome: 'pending',
+      blockers: [{ kind: 'coverage', coverage: 'primary', reason: 'executor_unreachable' }],
     })
   })
 

@@ -79,6 +79,7 @@ export {
   type RetentionEvaluationInput,
   type RetentionHold,
   type RetentionPeriods,
+  type RetentionCoverageInventory,
   type RetentionPolicyErrorCode,
   type RetentionRefusalReason,
   type TrustedCleanupExecutor,

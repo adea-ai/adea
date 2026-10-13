@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   evaluateRetentionDeletion,
+  parseRetentionCoverageInventory,
   parseRetentionPeriods,
   recordCleanupReceipt,
   RETENTION_COVERAGE_RULES,
@@ -81,12 +82,19 @@ function candidate(overrides: Partial<RetentionCandidate> = {}): RetentionCandid
 }
 
 function decide(receipts: readonly CleanupReceipt[], overrides: Partial<RetentionCandidate> = {}) {
+  const selectedCandidate = candidate(overrides)
   return evaluateRetentionDeletion({
-    candidate: candidate(overrides),
+    candidate: selectedCandidate,
     now: NOW,
     periods: DAY_PERIODS,
     receipts,
     trustedExecutors: EXECUTORS,
+    coverageInventory: Object.fromEntries(
+      RETENTION_COVERAGE_RULES[selectedCandidate.category].requiredCoverage.map((coverage) => [
+        coverage,
+        [EXECUTOR],
+      ])
+    ),
   })
 }
 
@@ -118,6 +126,27 @@ function blockerFor(decision: ReturnType<typeof decide>, coverage: CleanupCovera
 }
 
 describe('stale and future observations never answer the current generation', () => {
+  test('coverage inventory requires unique executor identities and only required coverage kinds', () => {
+    expect(() =>
+      parseRetentionCoverageInventory(
+        { primary: [EXECUTOR, EXECUTOR], index: [EXECUTOR] },
+        'messages'
+      )
+    ).toThrow(RetentionPolicyError)
+    expect(() =>
+      parseRetentionCoverageInventory(
+        {
+          primary: [EXECUTOR],
+          index: [EXECUTOR],
+          cache: [EXECUTOR],
+          replica: [EXECUTOR],
+          runtime_state: [EXECUTOR],
+        },
+        'messages'
+      )
+    ).toThrow(RetentionPolicyError)
+  })
+
   test('a delete and read observed before the generation was granted do not count', () => {
     const stale = '2026-10-04T23:59:59.999Z'
     expect(decide(verifiedPairs(stale, stale))).toEqual({ outcome: 'cleanup_ready' })

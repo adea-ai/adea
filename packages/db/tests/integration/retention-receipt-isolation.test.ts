@@ -48,9 +48,76 @@ const DAY_PERIODS = parseRetentionPeriods(
 )
 const EXPIRED_ANCHOR = new Date(Date.now() - 3 * 86_400_000).toISOString()
 const CHECKS = RETENTION_COVERAGE_RULES.messages.requiredCoverage
+const executorByWorkspace = new Map<string, string>()
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+type ReceiptAdmissionResult = Awaited<ReturnType<typeof recordAsExecutor>>
+
+type PromiseOutcome<T> =
+  | Readonly<{ status: 'fulfilled'; value: T }>
+  | Readonly<{ status: 'rejected'; reason: unknown }>
+
+/** Attach rejection handling as soon as an async operation starts. */
+function observePromise<T>(promise: Promise<T>): Promise<PromiseOutcome<T>> {
+  return promise.then(
+    (value) => ({ status: 'fulfilled', value }),
+    (reason: unknown) => ({ status: 'rejected', reason })
+  )
+}
+
+/** Wait for readiness only while its owning operation remains unsettled. */
+async function awaitReadiness<T>(
+  ready: Promise<T>,
+  operation: Promise<PromiseOutcome<unknown>>,
+  label: string,
+  timeoutMs = 10_000
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const readyOutcome = ready.then(
+    (value) => ({ kind: 'ready' as const, value }),
+    (reason: unknown) => ({ kind: 'readiness_error' as const, reason })
+  )
+  const timeout = new Promise<{ kind: 'timeout' }>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs)
+  })
+  try {
+    const result = await Promise.race([
+      readyOutcome,
+      operation.then((outcome) => ({ kind: 'operation' as const, outcome })),
+      timeout,
+    ])
+    if (result.kind === 'ready') return result.value
+    if (result.kind === 'readiness_error') throw result.reason
+    if (result.kind === 'timeout') {
+      throw new Error(`${label} did not become ready within ${timeoutMs}ms`)
+    }
+    if (result.outcome.status === 'rejected') throw result.outcome.reason
+    throw new Error(`${label}: operation settled before readiness`)
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
+
+async function settleWithin<T>(
+  operation: Promise<PromiseOutcome<T>>,
+  label: string,
+  timeoutMs = 15_000
+): Promise<PromiseOutcome<T>> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} did not settle within ${timeoutMs}ms`)),
+      timeoutMs
+    )
+  })
+  try {
+    return await Promise.race([operation, timeout])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
 }
 
 type Observation = Readonly<{
@@ -143,9 +210,18 @@ function gateInput(
   subjectId: string,
   category: RetentionCategory = 'messages'
 ): RetentionGateInput {
+  const executorId = executorByWorkspace.get(workspaceId)
   return {
     anchorAt: EXPIRED_ANCHOR,
     category,
+    coverageInventory: executorId
+      ? Object.fromEntries(
+          RETENTION_COVERAGE_RULES[category].requiredCoverage.map((coverage) => [
+            coverage,
+            [executorId],
+          ])
+        )
+      : undefined,
     periods: DAY_PERIODS,
     reconciliationOpen: false,
     subjectId,
@@ -174,6 +250,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
         .where(eq(workspaceMemberships.workspaceId, workspaceId))
       await connection.db.delete(workspaces).where(eq(workspaces.id, workspaceId))
     }
+    executorByWorkspace.clear()
     await connection.close()
   })
 
@@ -205,6 +282,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
         workspaceId: workspace.id,
       })
       .returning()
+    executorByWorkspace.set(workspace.id, node!.id)
     const publicKey = `isolation-signing-${crypto.randomUUID()}`
     await connection.db.insert(runtimeNodeKeys).values({
       algorithm: 'ed25519',
@@ -722,34 +800,46 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
         return decision
       }
     )
-    await gateEntered
-    const receipt = {
-      ...observed(
-        subject,
-        'primary',
-        'delete',
-        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
-      ),
-      category: 'messages',
-      requestId: generation.id,
+    const gateOutcome = observePromise(gate)
+    let admissionOutcome: Promise<PromiseOutcome<ReceiptAdmissionResult>> | undefined
+    try {
+      await awaitReadiness(gateEntered, gateOutcome, 'retention subject gate')
+      const receipt = {
+        ...observed(
+          subject,
+          'primary',
+          'delete',
+          new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+        ),
+        category: 'messages',
+        requestId: generation.id,
+      }
+      const admission = recordAsExecutor(
+        connection.db,
+        recordInput(workspaceId, executor, 'lock-expiry', receipt)
+      )
+      admissionOutcome = observePromise(admission)
+      await awaitReadiness(
+        waitForWaiter('advisory'),
+        admissionOutcome,
+        'receipt advisory-lock wait'
+      )
+      // The grant expires while the receipt waits.
+      await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
+    } finally {
+      releaseGate()
+      const gateResult = await settleWithin(gateOutcome, 'retention subject gate')
+      if (admissionOutcome) await settleWithin(admissionOutcome, 'receipt admission')
+      if (gateResult.status === 'rejected') throw gateResult.reason
     }
-    const admission = recordAsExecutor(
-      connection.db,
-      recordInput(workspaceId, executor, 'lock-expiry', receipt)
-    ).then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error })
+    const outcome = await admissionOutcome!
+    expect(outcome.status).toBe('rejected')
+    expect((outcome as Extract<typeof outcome, { status: 'rejected' }>).reason).toBeInstanceOf(
+      RetentionCleanupError
     )
-    await waitForWaiter('advisory')
-    // The grant expires while the receipt waits.
-    await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
-    releaseGate()
-    await gate
-    const outcome = await admission
-    expect(outcome).toEqual({ error: expect.any(RetentionCleanupError) })
-    expect((outcome as { error: RetentionCleanupError }).error.code).toBe(
-      'authorization_not_current'
-    )
+    expect((outcome as Extract<typeof outcome, { status: 'rejected' }>).reason).toMatchObject({
+      code: 'authorization_not_current',
+    })
     expect(await storedCount(workspaceId)).toBe(0)
   })
 
@@ -774,25 +864,41 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
         return decision
       }
     )
-    await gateEntered
-    const receipt = {
-      ...observed(
-        subject,
-        'primary',
-        'delete',
-        new Date(Date.parse(generation.grantedAt) + 5).toISOString()
-      ),
-      category: 'messages',
-      requestId: generation.id,
+    const gateOutcome = observePromise(gate)
+    let admissionOutcome: Promise<PromiseOutcome<ReceiptAdmissionResult>> | undefined
+    try {
+      await awaitReadiness(gateEntered, gateOutcome, 'retention subject gate')
+      const receipt = {
+        ...observed(
+          subject,
+          'primary',
+          'delete',
+          new Date(Date.parse(generation.grantedAt) + 5).toISOString()
+        ),
+        category: 'messages',
+        requestId: generation.id,
+      }
+      const admission = recordAsExecutor(
+        connection.db,
+        recordInput(workspaceId, executor, 'lock-live', receipt)
+      )
+      admissionOutcome = observePromise(admission)
+      await awaitReadiness(
+        waitForWaiter('advisory'),
+        admissionOutcome,
+        'receipt advisory-lock wait'
+      )
+    } finally {
+      releaseGate()
+      const gateResult = await settleWithin(gateOutcome, 'retention subject gate')
+      if (admissionOutcome) await settleWithin(admissionOutcome, 'receipt admission')
+      if (gateResult.status === 'rejected') throw gateResult.reason
     }
-    const admission = recordAsExecutor(
-      connection.db,
-      recordInput(workspaceId, executor, 'lock-live', receipt)
+    const outcome = await admissionOutcome!
+    expect(outcome.status).toBe('fulfilled')
+    expect((outcome as Extract<typeof outcome, { status: 'fulfilled' }>).value.outcome).toBe(
+      'recorded'
     )
-    await waitForWaiter('advisory')
-    releaseGate()
-    await gate
-    expect((await admission).outcome).toBe('recorded')
   })
 
   test('the gate judges expiry at its final decision, after waiting on its authority read', async () => {
@@ -815,12 +921,32 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       enteredHolder()
       await holderReleased
     })
-    await holderEntered
-    const gate = evaluateStoredRetentionDeletion(connection.db, gateInput(workspaceId, subject))
-    await waitForWaiter('authorizations')
-    await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
-    releaseHolder()
-    await holder
-    expect(await gate).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+    const holderOutcome = observePromise(holder)
+    let gateOutcome: Promise<PromiseOutcome<RetentionDecision>> | undefined
+    try {
+      await awaitReadiness(holderEntered, holderOutcome, 'authorization table lock holder')
+      const gate = evaluateStoredRetentionDeletion(connection.db, gateInput(workspaceId, subject))
+      gateOutcome = observePromise(gate)
+      await awaitReadiness(
+        waitForWaiter('authorizations'),
+        gateOutcome,
+        'retention gate authority-read wait'
+      )
+      await sleep(Date.parse(generation.expiresAt) - Date.now() + 200)
+    } finally {
+      releaseHolder()
+      const holderResult = await settleWithin(holderOutcome, 'authorization table lock holder')
+      const gateResult = gateOutcome
+        ? await settleWithin(gateOutcome, 'retention gate evaluation')
+        : undefined
+      if (holderResult.status === 'rejected') throw holderResult.reason
+      if (gateResult?.status === 'rejected') throw gateResult.reason
+    }
+    const gateResult = await gateOutcome!
+    expect(gateResult.status).toBe('fulfilled')
+    expect((gateResult as Extract<typeof gateResult, { status: 'fulfilled' }>).value).toEqual({
+      outcome: 'refused',
+      reason: 'authorization_not_current',
+    })
   })
 })

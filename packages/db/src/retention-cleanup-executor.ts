@@ -8,21 +8,27 @@ import {
   type CleanupReceiptOperation,
   type CleanupReceiptOutcome,
   type RetentionCategory,
+  type RetentionCoverageInventory,
   type RetentionDecision,
   type RetentionPeriods,
+  parseRetentionCoverageInventory,
 } from './retention-policy'
 
 /**
  * Source-level cleanup executor composition (#1221). It runs only inside the
  * retention gate: the gate decides under the subject lock, and only a decision of
- * `cleanup_ready` with a live generation reaches a store. Deletion and read-back
- * happen in the gate's transaction, so holds, revocations, reference
+ * an initial `cleanup_ready` decision or a retryable coverage-pending decision
+ * with a live generation reaches its assigned stores. The explicit coverage
+ * inventory names every executor whose evidence is required; a missing member
+ * fails closed. Deletion and read-back happen in the gate's transaction, so holds, revocations, reference
  * registrations, and reconciliation changes for the subject wait for the commit.
  * Receipts are submitted after the commit, through the caller's signed submission
  * port, and only once the database clock has passed each observation.
  *
- * Nothing here schedules work or chooses a period. A caller passes periods
- * explicitly, and an unset period refuses before any store is touched.
+ * A pending generation can be retried after an unreachable or failed store, or
+ * after receipt submission was interrupted. No receipt from a retry replaces
+ * another executor's required evidence. Nothing here schedules work or chooses
+ * a period; an unset period refuses before any store is touched.
  */
 
 export type RetentionCleanupSubject = Readonly<{
@@ -137,6 +143,10 @@ export async function runRetentionCleanupExecutor(
   input: RetentionCleanupSubject &
     Readonly<{
       anchorAt: string
+      /** The authenticated executor identity for this invocation. */
+      executorId: string
+      /** Every node that must report for each required coverage. */
+      coverageInventory: RetentionCoverageInventory
       periods?: RetentionPeriods
       reconciliationOpen: boolean
       stores: readonly RetentionCleanupStorePort[]
@@ -144,11 +154,26 @@ export async function runRetentionCleanupExecutor(
     }>
 ): Promise<RetentionCleanupExecution> {
   const rule = RETENTION_COVERAGE_RULES[input.category]
-  const storeFor = new Map(input.stores.map((store) => [store.coverage, store]))
-  for (const coverage of rule.requiredCoverage) {
-    // Fail closed before the gate: a missing port means no deletion can be claimed.
-    if (!storeFor.has(coverage)) throw new Error('retention cleanup store port missing')
+  const inventory = parseRetentionCoverageInventory(input.coverageInventory, input.category)
+  if (!inventory.complete) throw new Error('retention cleanup coverage inventory incomplete')
+  const storeFor = new Map<CleanupCoverageKind, RetentionCleanupStorePort>()
+  for (const store of input.stores) {
+    if (!rule.requiredCoverage.includes(store.coverage))
+      throw new Error('retention cleanup store port not required')
+    if (storeFor.has(store.coverage)) throw new Error('retention cleanup store port duplicated')
+    if (!inventory.executorsByCoverage.get(store.coverage)?.includes(input.executorId))
+      throw new Error('retention cleanup executor not assigned to store')
+    storeFor.set(store.coverage, store)
   }
+  let assignedCoverageCount = 0
+  for (const coverage of rule.requiredCoverage) {
+    if (inventory.executorsByCoverage.get(coverage)?.includes(input.executorId)) {
+      assignedCoverageCount++
+      if (!storeFor.has(coverage)) throw new Error('retention cleanup store port missing')
+    }
+  }
+  if (assignedCoverageCount === 0)
+    throw new Error('retention cleanup executor has no assigned stores')
   const subject: RetentionCleanupSubject = {
     category: input.category,
     subjectId: input.subjectId,
@@ -164,15 +189,21 @@ export async function runRetentionCleanupExecutor(
       reconciliationOpen: input.reconciliationOpen,
       subjectId: input.subjectId,
       workspaceId: input.workspaceId,
+      coverageInventory: input.coverageInventory,
     },
     async (decision, context): Promise<RetentionCleanupExecution> => {
-      if (decision.outcome !== 'cleanup_ready' || !context.authorization)
+      const retryablePending =
+        decision.outcome === 'pending' &&
+        decision.blockers.length > 0 &&
+        decision.blockers.every((blocker) => blocker.kind === 'coverage')
+      if ((decision.outcome !== 'cleanup_ready' && !retryablePending) || !context.authorization)
         return { decision, drafts: [], halt: null, status: 'skipped' }
       const requestId = context.authorization.id
       const drafts: RetentionReceiptDraft[] = []
       let halt: RetentionCleanupHalt | null = null
       for (const coverage of rule.requiredCoverage) {
-        const store = storeFor.get(coverage)!
+        const store = storeFor.get(coverage)
+        if (!store) continue
         // Fail closed: a store is called only while this generation is current on the
         // database clock. Earlier stores may have run long enough for expiry to pass.
         if (!(await context.isAuthorizationCurrent())) {

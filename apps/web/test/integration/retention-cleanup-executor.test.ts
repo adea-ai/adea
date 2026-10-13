@@ -14,6 +14,7 @@ import {
   createArtifact,
   createDatabase,
   parseRetentionPeriods,
+  RETENTION_COVERAGE_RULES,
   registerArtifactReferenceGrant,
   UNSET_RETENTION_PERIODS,
   type CleanupCoverageKind,
@@ -66,6 +67,72 @@ const TABLE_FOR_COVERAGE: Record<CleanupCoverageKind, string> = {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+type RetentionHoldResult = Awaited<ReturnType<typeof placeRetentionHold>>
+
+type PromiseOutcome<T> =
+  | Readonly<{ status: 'fulfilled'; value: T }>
+  | Readonly<{ status: 'rejected'; reason: unknown }>
+
+/** Attach rejection handling as soon as an async operation starts. */
+function observePromise<T>(promise: Promise<T>): Promise<PromiseOutcome<T>> {
+  return promise.then(
+    (value) => ({ status: 'fulfilled', value }),
+    (reason: unknown) => ({ status: 'rejected', reason })
+  )
+}
+
+/** Wait for readiness only while its owning operation remains unsettled. */
+async function awaitReadiness<T>(
+  ready: Promise<T>,
+  operation: Promise<PromiseOutcome<unknown>>,
+  label: string,
+  timeoutMs = 10_000
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const readyOutcome = ready.then(
+    (value) => ({ kind: 'ready' as const, value }),
+    (reason: unknown) => ({ kind: 'readiness_error' as const, reason })
+  )
+  const timeout = new Promise<{ kind: 'timeout' }>((resolve) => {
+    timeoutId = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs)
+  })
+  try {
+    const result = await Promise.race([
+      readyOutcome,
+      operation.then((outcome) => ({ kind: 'operation' as const, outcome })),
+      timeout,
+    ])
+    if (result.kind === 'ready') return result.value
+    if (result.kind === 'readiness_error') throw result.reason
+    if (result.kind === 'timeout') {
+      throw new Error(`${label} did not become ready within ${timeoutMs}ms`)
+    }
+    if (result.outcome.status === 'rejected') throw result.outcome.reason
+    throw new Error(`${label}: operation settled before readiness`)
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
+}
+
+async function settleWithin<T>(
+  operation: Promise<PromiseOutcome<T>>,
+  label: string,
+  timeoutMs = 15_000
+): Promise<PromiseOutcome<T>> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} did not settle within ${timeoutMs}ms`)),
+      timeoutMs
+    )
+  })
+  try {
+    return await Promise.race([operation, timeout])
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  }
 }
 
 /** Every pause opened by a test. A failed proof releases them, so no store call outlives its test. */
@@ -386,12 +453,20 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       }> = {}
     ) {
       const responses: Array<{ body: Record<string, unknown>; status: number; text: string }> = []
+      const category = options.category ?? 'messages'
       const execution = await runRetentionCleanupExecutor(connection.db as AgentHqDatabase, {
         anchorAt: EXPIRED_ANCHOR,
-        category: options.category ?? 'messages',
+        category,
+        executorId: f.nodeId,
+        coverageInventory: Object.fromEntries(
+          RETENTION_COVERAGE_RULES[category].requiredCoverage.map((coverage) => [
+            coverage,
+            [f.nodeId],
+          ])
+        ),
         periods: options.periods ?? ONE_DAY_PERIODS,
         reconciliationOpen: options.reconciliationOpen ?? false,
-        stores: options.stores ?? portsFor(options.category ?? 'messages'),
+        stores: options.stores ?? portsFor(category),
         subjectId,
         submit: async (receipt) => {
           await options.beforeSubmit?.()
@@ -410,6 +485,12 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       return evaluateStoredRetentionDeletion(connection.db as AgentHqDatabase, {
         anchorAt: EXPIRED_ANCHOR,
         category,
+        coverageInventory: Object.fromEntries(
+          RETENTION_COVERAGE_RULES[category].requiredCoverage.map((coverage) => [
+            coverage,
+            [f.nodeId],
+          ])
+        ),
         periods: ONE_DAY_PERIODS,
         reconciliationOpen: false,
         subjectId,
@@ -593,9 +674,12 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       expect(await rowCount(f.workspaceId, 'index_rows', subject)).toBe(1)
       expect(await rowCount(f.workspaceId, 'cache_rows', subject)).toBe(1)
       expect((await statusOf(f, subject)).outcome).toBe('pending')
+      const retry = await execute(f, subject)
+      expect(retry.execution.status).toBe('executed')
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
     })
 
-    test('a failed delete is refused as cleanup_failed and nothing is verified', async () => {
+    test('a failed delete remains pending and the same generation can retry after recovery', async () => {
       const f = await fixture('failed')
       const subject = crypto.randomUUID()
       await seed(f.workspaceId, [subject], ['primary_rows', 'index_rows'])
@@ -608,7 +692,10 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         operation: 'delete',
         outcome: 'failed',
       })
-      expect(await statusOf(f, subject)).toEqual({ outcome: 'refused', reason: 'cleanup_failed' })
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'pending' })
+      const retry = await execute(f, subject)
+      expect(retry.execution.status).toBe('executed')
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
     })
 
     test('the read-back catches a row that reappears after delete, so no absence is claimed', async () => {
@@ -624,7 +711,60 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         operation: 'read_check',
         residualCount: 1,
       })
-      expect(await statusOf(f, subject)).toEqual({ outcome: 'refused', reason: 'cleanup_failed' })
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'pending' })
+      const retry = await execute(f, subject)
+      expect(retry.execution.status).toBe('executed')
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
+    })
+
+    test('a duplicate port for one coverage refuses before any store runs', async () => {
+      const f = await fixture('duplicate-port')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      await grant(f, subject)
+      const duplicate = [
+        ...portsFor('messages'),
+        replicaPort('primary', TABLE_FOR_COVERAGE.primary),
+      ]
+      await expect(execute(f, subject, { stores: duplicate })).rejects.toThrow(
+        'retention cleanup store port duplicated'
+      )
+      expect(await rowCount(f.workspaceId, 'primary_rows', subject)).toBe(1)
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'cleanup_ready' })
+    })
+
+    test('a retry after partial receipt submission reuses the same live generation', async () => {
+      const f = await fixture('partial-submission-retry')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      const authorization = await grant(f, subject)
+      let submissions = 0
+      await expect(
+        execute(f, subject, {
+          beforeSubmit: async () => {
+            submissions++
+            if (submissions === 2) throw new Error('SIMULATED_RECEIPT_SUBMISSION_CRASH')
+          },
+        })
+      ).rejects.toThrow('SIMULATED_RECEIPT_SUBMISSION_CRASH')
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'pending' })
+
+      const retry = await execute(f, subject)
+      expect(retry.execution.status).toBe('executed')
+      expect(retry.execution.drafts.length).toBeGreaterThan(0)
+      expect(retry.execution.drafts.every((draft) => draft.requestId === authorization.id)).toBe(
+        true
+      )
+      expect(retry.responses.every((response) => response.status === 200)).toBe(true)
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
     })
 
     test('replay: a completed run is skipped on rerun, and a captured signed receipt replays idempotently', async () => {
@@ -693,19 +833,41 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         beforeSubmit: () => revocation,
         stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      const holderPid = await point.reached
-      revocation = revokeRetentionDeletionAuthorization(connection.db, {
-        actor: f.owner,
-        authorizationId: record.id,
-        workspaceId: f.workspaceId,
-      }).then(
-        () => 'settled' as const,
-        () => 'failed' as const
-      )
-      await waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock')
-      point.open()
-      const { responses } = await running
-      expect(await revocation).toBe('settled')
+      const runningOutcome = observePromise(running)
+      let revocationOutcome: Promise<PromiseOutcome<'settled' | 'failed'>> | undefined
+      try {
+        const holderPid = await awaitReadiness(
+          point.reached,
+          runningOutcome,
+          'executor delete-pause readiness'
+        )
+        revocation = revokeRetentionDeletionAuthorization(connection.db, {
+          actor: f.owner,
+          authorizationId: record.id,
+          workspaceId: f.workspaceId,
+        }).then(
+          () => 'settled' as const,
+          () => 'failed' as const
+        )
+        revocationOutcome = observePromise(revocation)
+        await awaitReadiness(
+          waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock'),
+          runningOutcome,
+          'executor revocation-lock wait'
+        )
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+        if (revocationOutcome) await settleWithin(revocationOutcome, 'authorization revocation')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const { responses } = runOutcome.value
+      const revocationResult = await revocationOutcome!
+      expect(revocationResult.status).toBe('fulfilled')
+      expect(
+        (revocationResult as Extract<typeof revocationResult, { status: 'fulfilled' }>).value
+      ).toBe('settled')
       expect(responses.length).toBeGreaterThan(0)
       expect(
         responses.every((response) => response.body.code === 'retention_authorization_not_current')
@@ -729,17 +891,35 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       const running = execute(f, subject, {
         stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      const holderPid = await point.reached
-      const hold = placeRetentionHold(connection.db, {
-        actor: f.owner,
-        category: 'messages',
-        subjectId: subject,
-        workspaceId: f.workspaceId,
-      })
-      await waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock')
-      point.open()
-      await running
-      await hold
+      const runningOutcome = observePromise(running)
+      let holdOutcome: Promise<PromiseOutcome<RetentionHoldResult>> | undefined
+      try {
+        const holderPid = await awaitReadiness(
+          point.reached,
+          runningOutcome,
+          'executor delete-pause readiness'
+        )
+        const hold = placeRetentionHold(connection.db, {
+          actor: f.owner,
+          category: 'messages',
+          subjectId: subject,
+          workspaceId: f.workspaceId,
+        })
+        holdOutcome = observePromise(hold)
+        await awaitReadiness(
+          waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock'),
+          runningOutcome,
+          'executor hold-lock wait'
+        )
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+        if (holdOutcome) await settleWithin(holdOutcome, 'retention hold')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const holdResult = await holdOutcome!
+      if (holdResult.status === 'rejected') throw holdResult.reason
       expect(await statusOf(f, subject)).toEqual({ outcome: 'refused', reason: 'hold_active' })
     })
 
@@ -772,28 +952,50 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         category: 'artifacts',
         stores: portsFor('artifacts', { primary: { pause: point.pause } }),
       })
-      const holderPid = await point.reached
-      const registration = registerArtifactReferenceGrant(connection.db, f.workspaceId, f.owner, {
-        artifactId: artifact.id,
-        audienceWorkspaceId: audience.workspace.id,
-        checksumSha256: CHECKSUM,
-        expiresAt: null,
-        grantId: `grant-${crypto.randomUUID()}`,
-        version: 1,
-      }).then(
-        () => 'settled' as const,
-        () => 'failed' as const
-      )
-      // The registration is queued behind the gate's artifact lock: it cannot settle until the commit.
-      await waitForQueuedOperation(holderPid, 'for update')
-      const early = await Promise.race([
-        registration.then(() => 'settled' as const),
-        sleep(150).then(() => 'pending' as const),
-      ])
-      expect(early).toBe('pending')
-      point.open()
-      await running
-      expect(await registration).toBe('settled')
+      const runningOutcome = observePromise(running)
+      let registrationOutcome: Promise<PromiseOutcome<'settled' | 'failed'>> | undefined
+      try {
+        const holderPid = await awaitReadiness(
+          point.reached,
+          runningOutcome,
+          'executor delete-pause readiness'
+        )
+        const registration = registerArtifactReferenceGrant(connection.db, f.workspaceId, f.owner, {
+          artifactId: artifact.id,
+          audienceWorkspaceId: audience.workspace.id,
+          checksumSha256: CHECKSUM,
+          expiresAt: null,
+          grantId: `grant-${crypto.randomUUID()}`,
+          version: 1,
+        }).then(
+          () => 'settled' as const,
+          () => 'failed' as const
+        )
+        registrationOutcome = observePromise(registration)
+        // The registration is queued behind the gate's artifact lock: it cannot settle until the commit.
+        await awaitReadiness(
+          waitForQueuedOperation(holderPid, 'for update'),
+          runningOutcome,
+          'executor artifact-lock wait'
+        )
+        const early = await Promise.race([
+          registrationOutcome.then(() => 'settled' as const),
+          sleep(150).then(() => 'pending' as const),
+        ])
+        expect(early).toBe('pending')
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+        if (registrationOutcome)
+          await settleWithin(registrationOutcome, 'artifact reference registration')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const registrationResult = await registrationOutcome!
+      expect(registrationResult.status).toBe('fulfilled')
+      expect(
+        (registrationResult as Extract<typeof registrationResult, { status: 'fulfilled' }>).value
+      ).toBe('settled')
       // The reference now lives, so no verified claim may stand for this subject.
       expect(await statusOf(f, artifact.id, 'artifacts')).toEqual({
         outcome: 'refused',
@@ -815,11 +1017,22 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       const running = execute(f, subject, {
         stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      // The call was reached, so the check before it passed. Expiry then lands while it is held.
-      await point.reached
-      await waitForDatabaseClockPast(expiresAt)
-      point.open()
-      const { execution, responses } = await running
+      const runningOutcome = observePromise(running)
+      try {
+        // The call was reached, so the check before it passed. Expiry then lands while it is held.
+        await awaitReadiness(point.reached, runningOutcome, 'executor delete-pause readiness')
+        await awaitReadiness(
+          waitForDatabaseClockPast(expiresAt),
+          runningOutcome,
+          'database-clock expiry wait'
+        )
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const { execution, responses } = runOutcome.value
       expect(execution.halt).toEqual({ coverage: 'primary', reason: 'authorization_not_current' })
       expect(
         execution.drafts.map((draft) => [draft.coverage, draft.operation, draft.outcome])
@@ -852,10 +1065,21 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       const running = execute(f, subject, {
         stores: portsFor('messages', { primary: { pause: point.pause } }),
       })
-      await point.reached
-      await waitForDatabaseClockPast(expiresAt)
-      point.open()
-      const { execution, responses } = await running
+      const runningOutcome = observePromise(running)
+      try {
+        await awaitReadiness(point.reached, runningOutcome, 'executor read-back pause readiness')
+        await awaitReadiness(
+          waitForDatabaseClockPast(expiresAt),
+          runningOutcome,
+          'database-clock expiry wait'
+        )
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const { execution, responses } = runOutcome.value
       expect(execution.halt).toEqual({ coverage: 'primary', reason: 'authorization_not_current' })
       // No read_check is drafted: the read-back finished after expiry and proves no completion.
       expect(

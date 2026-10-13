@@ -32,7 +32,7 @@ import {
   TaskSubmissionError,
 } from './task-submissions'
 import { appendWorkspaceEvent } from './transactions'
-import { recordRetentionCleanupReceipt } from './retention-cleanup'
+import { recordRuntimeNodeRetentionCleanupReceipt } from './retention-cleanup'
 import type { RetentionCategory } from './retention-policy'
 
 export class RuntimeNodeDeliveryError extends Error {
@@ -410,11 +410,57 @@ export async function recordRuntimeNodeRetentionReceipt(
   const key = await signingKey(database, scope, body.envelope.keyId)
   if (!key || !(await verifyRuntimeNodeRetentionReceipt(scope, body, key.publicKey)))
     throw new RuntimeNodeDeliveryError('unavailable')
-  return recordRetentionCleanupReceipt(database, {
-    category: body.category as RetentionCategory,
-    executor: { kind: 'runtime_node', runtimeNodeId: scope.runtimeNodeId },
-    idempotencyKey: body.envelope.nonce,
-    receipt: { ...body.receipt, category: body.category },
-    workspaceId: scope.workspaceId,
-  })
+  return recordRuntimeNodeRetentionCleanupReceipt(
+    database,
+    {
+      category: body.category as RetentionCategory,
+      executor: { kind: 'runtime_node', runtimeNodeId: scope.runtimeNodeId },
+      idempotencyKey: body.envelope.nonce,
+      receipt: { ...body.receipt, category: body.category },
+      workspaceId: scope.workspaceId,
+    },
+    async (transaction, runtimeNodeId) => {
+      if (runtimeNodeId !== scope.runtimeNodeId) throw new RuntimeNodeDeliveryError('unavailable')
+      // Match the pull path's lock order. The subject lock is already held by
+      // receipt admission; then serialize node transport, workspace, node, keys.
+      await transaction.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`adea-node-pull:${runtimeNodeId}`}, 0))`
+      )
+      const [workspace] = await transaction
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(and(eq(workspaces.id, scope.workspaceId), isNull(workspaces.deletedAt)))
+        .for('share')
+      const [node] = await transaction
+        .select()
+        .from(runtimeNodes)
+        .where(
+          and(eq(runtimeNodes.workspaceId, scope.workspaceId), eq(runtimeNodes.id, runtimeNodeId))
+        )
+        .for('update')
+      if (!workspace || !node || node.pairingState !== 'paired')
+        throw new RuntimeNodeDeliveryError('unavailable')
+      const keys = await transaction
+        .select()
+        .from(runtimeNodeKeys)
+        .where(eq(runtimeNodeKeys.runtimeNodeId, runtimeNodeId))
+        .for('share')
+      const admittedKey = keys.find(
+        (candidate) =>
+          candidate.id === body.envelope.keyId &&
+          candidate.role === 'signing' &&
+          candidate.algorithm === 'ed25519' &&
+          candidate.verifiedAt !== null &&
+          candidate.retiredAt === null
+      )
+      if (
+        !admittedKey ||
+        !withinWindow(body.envelope, Date.now()) ||
+        !(await verifyRuntimeNodeRetentionReceipt(scope, body, admittedKey.publicKey)) ||
+        !withinWindow(body.envelope, Date.now())
+      )
+        throw new RuntimeNodeDeliveryError('unavailable')
+      return admittedKey.fingerprint
+    }
+  )
 }
