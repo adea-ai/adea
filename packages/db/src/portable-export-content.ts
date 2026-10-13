@@ -32,11 +32,7 @@ import {
   type PortableWorkspaceExport,
   type PortableWorkspaceExportContent,
 } from '@adea-ai/types/portable-export'
-import type {
-  ChannelSummary,
-  ConversationParticipantRef,
-  MessageSummary,
-} from '@adea-ai/types'
+import type { ChannelSummary, ConversationParticipantRef, MessageSummary } from '@adea-ai/types'
 
 import type {
   agents,
