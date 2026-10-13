@@ -80,7 +80,10 @@ export function withComposeImage(env, image) {
 // Like runWithPullBackoff, but a rate-limited attempt first falls over to the same digest on the
 // other registries before any backoff. `attempt(image)` runs the real command: `image` is
 // undefined for the canonical reference, or a fallback reference that `pull` already fetched.
-// Only a registry rate limit moves on: a real failure from any attempt is returned unchanged.
+// Only the canonical attempt is judged by its failure kind: a real failure there is returned
+// unchanged. Once it has been rate limited, a fallback that fails in any way (cannot be pulled,
+// or its attempt fails) only moves on to the next registry, because the failure of one mirror says
+// nothing about the others.
 export async function runWithPullFallback(
   attempt,
   image,
@@ -105,7 +108,8 @@ export async function runWithPullFallback(
         continue
       }
       result = await attempt(fallback)
-      if (!isRateLimitedResult(result)) return result
+      if (result.status === 0) return result
+      log(`Running with ${fallback} failed (exit ${result.status}); trying the next registry.`)
     }
     if (retry >= delaysMs.length) return result
     const delayMs = delaysMs[retry]
@@ -123,19 +127,25 @@ export async function ensureImage(image, options = {}) {
     options.inspect ?? ((reference) => captureCommand('docker', ['image', 'inspect', reference]))
   const pull =
     options.pull ?? ((reference) => captureCommand('docker', ['pull', '--quiet', reference]))
-  if ((await inspect(image)).status === 0)
+  if ((await inspect(image)).status === 0) {
     return { result: { status: 0, stdout: '', stderr: '' }, image }
+  }
   const echo = options.log ?? ((message) => console.warn(message))
   let used = image
   const result = await runWithPullFallback(
     async (fallback) => {
-      used = fallback ?? image
-      const attempt = await pull(used)
+      // A fallback was already pulled by runWithPullFallback, so only the canonical reference
+      // is pulled here; its failure is what decides whether the fallbacks are tried.
+      if (fallback !== undefined) {
+        used = fallback
+        return { status: 0, stdout: '', stderr: '' }
+      }
+      const attempt = await pull(image)
       if (attempt.stderr) echo(attempt.stderr.trim())
       return attempt
     },
     image,
-    { ...options, pull: async () => ({ status: 0 }) }
+    { ...options, pull }
   )
   return { result, image: used }
 }

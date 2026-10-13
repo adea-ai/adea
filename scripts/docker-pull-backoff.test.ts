@@ -278,10 +278,26 @@ test('skips a fallback that cannot be pulled and tries the next one', async () =
   assert.ok(harness.messages.some((message) => /manifest unknown/.test(message)))
 })
 
-test('returns a real failure from a fallback instead of masking it', async () => {
-  const harness = fallbackHarness({ canonical: [ecrDataLimit], [mirror]: [permanent] })
+test('moves on to Docker Hub when the mirror pulls but its run fails', async () => {
+  const harness = fallbackHarness({
+    canonical: [ecrDataLimit],
+    [mirror]: [permanent],
+    [hub]: [succeeded],
+  })
+  assert.equal(await harness.run(), succeeded)
+  assert.deepEqual(harness.attempted, [undefined, mirror, hub])
+  assert.deepEqual(harness.pulled, [mirror, hub])
+  assert.deepEqual(harness.delays, [])
+})
+
+test('surfaces the last failure once every registry has failed in the ordinary way', async () => {
+  const harness = fallbackHarness({
+    canonical: [ecrDataLimit],
+    [mirror]: [permanent],
+    [hub]: [permanent],
+  })
   assert.equal(await harness.run(), permanent)
-  assert.deepEqual(harness.pulled, [mirror])
+  assert.deepEqual(harness.pulled.slice(0, 2), [mirror, hub])
 })
 
 test('backs off and retries every registry when all of them are rate limited', async () => {
@@ -325,6 +341,27 @@ test('ensures an image from a fallback registry and reports the reference now lo
   assert.equal(found.result.status, 0)
   assert.equal(found.image, mirror)
   assert.deepEqual(pulled, [canonicalImage, mirror])
+})
+
+test('ECR rate limit, then an ordinary mirror failure, still reaches Docker Hub', async () => {
+  const pulled: string[] = []
+  const { delays, sleep } = recordingSleep()
+  const found = await ensureImage(canonicalImage, {
+    inspect: async () => ({ status: 1 }),
+    pull: async (reference: string) => {
+      pulled.push(reference)
+      if (reference === canonicalImage) return ecrDataLimit
+      if (reference === mirror) return { status: 1, stdout: '', stderr: 'manifest unknown' }
+      return succeeded
+    },
+    sleep,
+    log: () => {},
+  })
+  assert.equal(found.result.status, 0)
+  assert.equal(found.image, hub)
+  // Each registry once, in order, with no backoff before the last one is tried.
+  assert.deepEqual(pulled, [canonicalImage, mirror, hub])
+  assert.deepEqual(delays, [])
 })
 
 test('reports an image that no registry could provide', async () => {
