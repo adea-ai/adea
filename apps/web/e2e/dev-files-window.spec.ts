@@ -243,3 +243,49 @@ test('Quick Open keeps fuzzy ordering, keyboard selection, file identity, and fo
     .poll(async () => (await readReport(page)).openedFile?.relativePath)
     .toBe('file-1198.txt')
 })
+
+test('Quick Open dismisses on outside interaction without stealing focus', async ({ page }) => {
+  const { tree } = await mountFilesPane(page)
+  const opener = page.getByRole('button', { name: 'Quick open files' })
+  const panel = page.getByRole('region', { name: 'Quick open' })
+  const input = panel.getByRole('textbox', { name: 'Quick open' })
+
+  // Pressing the opener again refocuses the search box instead of closing.
+  await opener.click()
+  await expect(input).toBeFocused()
+  await input.fill('file')
+  await page.getByRole('button', { name: 'Refresh files' }).focus()
+  await expect(panel).toBeHidden()
+  await opener.click()
+  await expect(input).toBeFocused()
+  await input.blur()
+  await opener.click()
+  await expect(panel).toBeVisible()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('')
+
+  // Tabbing out of the panel dismisses it and leaves focus on the next control.
+  await input.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: 'Refresh files' })).toBeFocused()
+  await expect(panel).toBeHidden()
+
+  // Clicking another pane or the tree dismisses it and keeps the clicked target focused.
+  await opener.click()
+  await expect(panel).toBeVisible()
+  await tree.getByRole('treeitem').last().click()
+  await expect(panel).toBeHidden()
+  await expect(opener).not.toBeFocused()
+
+  // Clicking empty page space outside Files dismisses it without refocusing the opener.
+  await opener.click()
+  await expect(panel).toBeVisible()
+  await page.mouse.click(940, 700)
+  await expect(panel).toBeHidden()
+  await expect(opener).not.toBeFocused()
+
+  // Escape still dismisses it and returns focus to the opener.
+  await opener.click()
+  await panel.getByRole('textbox', { name: 'Quick open' }).press('Escape')
+  await expect(panel).toBeHidden()
+  await expect(opener).toBeFocused()
+})

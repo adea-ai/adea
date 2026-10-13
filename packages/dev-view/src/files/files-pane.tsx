@@ -665,19 +665,59 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   let quickOpenOpener: HTMLElement | null = null
   const [quickOpenResultsElement, setQuickOpenResultsElement] = createSignal<HTMLUListElement>()
 
+  const [quickOpenPanel, setQuickOpenPanel] = createSignal<HTMLElement>()
+
   function openQuickOpen(): void {
+    // Already open: the opener (or Ctrl+P) just brings the search box back.
+    const panel = quickOpenPanel()
+    if (quickOpenOpen() && panel) {
+      panel.querySelector('input')?.focus()
+      return
+    }
     setNotice(undefined)
     setQuickOpenQuery('')
     quickOpenOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setQuickOpenOpen(true)
   }
 
-  function closeQuickOpen(): void {
+  /** Closing from outside the panel must leave focus where the user put it. */
+  function closeQuickOpen(restoreFocus = true): void {
     setQuickOpenOpen(false)
     setQuickOpenQuery('')
-    quickOpenOpener?.focus()
+    if (restoreFocus) quickOpenOpener?.focus()
     quickOpenOpener = null
   }
+
+  // Like a popover: a pointer press, focus move or Escape anywhere else
+  // dismisses it. The opener counts as inside so pressing it again refocuses
+  // the search box instead of closing and reopening.
+  createEffect(() => {
+    if (!quickOpenOpen()) return
+    const inside = (target: EventTarget | null): boolean =>
+      target instanceof Element &&
+      (quickOpenPanel()?.contains(target) === true ||
+        target.closest('[data-quick-open-opener]') !== null)
+    const onOutside = (event: Event): void => {
+      if (!inside(event.target)) closeQuickOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const active = document.activeElement
+      // Escape from inside the panel (or with nothing focused) returns focus
+      // to the opener; from anywhere else it only dismisses.
+      closeQuickOpen(
+        active === null || active === document.body || quickOpenPanel()?.contains(active) === true
+      )
+    }
+    document.addEventListener('pointerdown', onOutside, true)
+    document.addEventListener('focusin', onOutside)
+    document.addEventListener('keydown', onKeyDown)
+    onCleanup(() => {
+      document.removeEventListener('pointerdown', onOutside, true)
+      document.removeEventListener('focusin', onOutside)
+      document.removeEventListener('keydown', onKeyDown)
+    })
+  })
 
   /** Move focus through the result buttons; `from` is -1 for the search box. */
   function moveQuickOpenFocus(from: number, step: 1 | -1): void {
@@ -936,7 +976,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           }
           return
         }
-        if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
       }}
     >
       <Show when={contentQuery().length > 0}>
@@ -1020,6 +1059,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           variant="outline"
           size="icon-sm"
           tooltip="Quick open (Ctrl+P)"
+          data-quick-open-opener=""
           aria-label="Quick open files"
           title="Quick open (Ctrl+P)"
           onClick={() => openQuickOpen()}
@@ -1039,6 +1079,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       </div>
       <Show when={quickOpenOpen()}>
         <section
+          ref={setQuickOpenPanel}
           aria-label="Quick open"
           class="absolute inset-x-2 top-10 z-(--z-menu) flex max-h-3/5 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
         >
