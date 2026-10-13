@@ -98,12 +98,13 @@ function seedInventoryConnection(
     auth?: 'ready' | 'required' | 'expired' | 'unknown'
     health?: 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
     acpAvailability?: 'available' | 'adapter_required' | 'unavailable'
+    family?: string
   }
 ): void {
   const entry = {
     id: connection.id,
     scope,
-    family: 'claude',
+    family: connection.family ?? 'claude',
     displayName: 'Claude Code (ACP)',
     driverId: 'local-executable',
     driverVersion: '1',
@@ -312,6 +313,19 @@ async function createSession(
     lifecycle: 'ready',
     version: 1,
   })
+  const reply = await channel.execute(
+    commandFor('dev.session.create', SCOPE_A, {
+      projectId: '00000000-0000-4000-8000-0000000000aa',
+      repoId: '00000000-0000-4000-8000-0000000000ab',
+      worktreeId: randomUUID(),
+    })
+  )
+  if (!reply.ok) throw new Error(`session create failed: ${JSON.stringify(reply.error)}`)
+  return reply.value as { id: string; generation: number; version: number; projectId: string }
+}
+
+/** A further session in the project `createSession` already registered. */
+async function createAnotherSession(channel: Awaited<ReturnType<Boot['openChannel']>>) {
   const reply = await channel.execute(
     commandFor('dev.session.create', SCOPE_A, {
       projectId: '00000000-0000-4000-8000-0000000000aa',
@@ -1311,6 +1325,160 @@ describe('harness default and session override independence (#1211)', () => {
       )
       expect(fallback.installationId).toBe(managed)
       expect(fallback).not.toHaveProperty('modelId')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('device-wide default harness', () => {
+  async function launchDefault(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    session: Awaited<ReturnType<typeof createSession>>
+  ) {
+    return channel.execute(
+      commandFor(
+        'dev.session.launchDefault',
+        SCOPE_A,
+        {
+          runtimeSessionId: session.id,
+          expectedGeneration: session.generation,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+        },
+        { resource: sessionResource(session) }
+      )
+    )
+  }
+
+  test('reads, sets and clears behind a version fence and rejects unknown families', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      const empty = okValue(
+        await channel.execute(commandFor('dev.harness.deviceDefault', SCOPE_A, {}))
+      )
+      expect(empty).toMatchObject({ version: 0 })
+      expect(empty.family).toBeUndefined()
+
+      const unknown = await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          family: 'not-a-harness',
+          expectedVersion: 0,
+        })
+      )
+      expect(errorCode(unknown)).toBe('invalid_state')
+
+      const set = okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'codex',
+            expectedVersion: 0,
+          })
+        )
+      )
+      expect(set).toMatchObject({ family: 'codex', version: 1 })
+
+      const stale = await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          family: 'pi',
+          expectedVersion: 0,
+        })
+      )
+      expect(errorCode(stale)).toBe('stale_version')
+
+      const cleared = okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, { expectedVersion: 1 })
+        )
+      )
+      expect(cleared).toMatchObject({ version: 2 })
+      expect(cleared.family).toBeUndefined()
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('launchDefault follows the device default, a workspace default overrides it, clearing restores it', async () => {
+    const claude = randomUUID()
+    const codex = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: claude, family: 'claude-code' },
+    })
+    try {
+      seedInventoryConnection(shell.dataDir, SCOPE_A, { id: codex, family: 'codex' })
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const session = await createSession(shell.host(), channel)
+
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'claude-code',
+            expectedVersion: 0,
+          })
+        )
+      )
+      // The managed Pi root default yields: the effective list is empty.
+      const effective = okValue(
+        await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {}))
+      )
+      expect(effective.items).toEqual([])
+      const viaDevice = okValue(await launchDefault(channel, session))
+      expect(viaDevice).toMatchObject({ installationId: claude })
+
+      // A workspace default overrides the device default.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      const fresh = await createAnotherSession(channel)
+      expect(okValue(await launchDefault(channel, fresh))).toMatchObject({ installationId: codex })
+
+      // Clearing the workspace default falls back to the device default.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 1,
+            patch: { default: false },
+          })
+        )
+      )
+      const again = await createAnotherSession(channel)
+      expect(okValue(await launchDefault(channel, again))).toMatchObject({ installationId: claude })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a device default that is not installed here refuses typed instead of launching another harness', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const session = await createSession(shell.host(), channel)
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'codex',
+            expectedVersion: 0,
+          })
+        )
+      )
+      const refused = await launchDefault(channel, session)
+      expect(errorCode(refused)).toBe('capability_unavailable')
+      if (!refused.ok) {
+        expect(refused.error.remediation?.action).toBe('dev.harness.inventoryRefresh')
+      }
+      const runs = okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+      expect((runs.items as unknown[]).length).toBe(0)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

@@ -968,6 +968,18 @@
       "body": "{ runtimeSessionId?: string; state?: 'connecting'|'ready'|'disconnected'|'closed'|'failed'; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<AcpConnection>"
     },
+    "dev.harness.deviceDefault": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "HarnessDeviceDefault"
+    },
+    "dev.harness.deviceDefaultUpdate": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": null,
+      "body": "{ family?: string(1..64); expectedVersion: integer(0..2147483647) }",
+      "reply": "HarnessDeviceDefault"
+    },
     "dev.harness.inventory": {
       "capabilities": ["dev.harness.read"],
       "resource": null,
