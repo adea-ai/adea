@@ -1065,6 +1065,11 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     'dev.harness.inventoryRefresh': async (command) => {
       requireScope(command)
       devOperationDecoders['dev.harness.inventoryRefresh'].request(command.body)
+      // Without sources there is nothing to probe, and a pass would replace
+      // the stored observation with an empty one: report what is stored.
+      if ((input.discoverySources?.length ?? 0) === 0) {
+        return inventorySnapshot(inventory.read(input.scope))
+      }
       // Overlapping rescans share one probe pass instead of racing the store.
       rescan ??= inventory.discover(input.scope).finally(() => {
         rescan = undefined

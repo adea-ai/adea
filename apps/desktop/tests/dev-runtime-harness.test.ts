@@ -798,14 +798,21 @@ describe('harness inventory operations', () => {
     }
   }, 60_000)
 
-  test('a host without discovery sources reports the stored inventory and never probes', async () => {
-    const shell = await boot()
+  test('a host without discovery sources keeps its saved inventory on rescan', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({ seedAcpInstallation: { id: installationId } })
     try {
       const channel = await shell.openChannel()
+      const before = okValue(
+        await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {}))
+      )
+      expect(before.items).toHaveLength(1)
       const refreshed = okValue(
         await channel.execute(commandFor('dev.harness.inventoryRefresh', SCOPE_A, {}))
       )
-      expect(refreshed.items).toEqual([])
+      expect(refreshed.items).toEqual(before.items)
+      const after = okValue(await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {})))
+      expect(after.items).toEqual(before.items)
       const foreign = await channel.execute(commandFor('dev.harness.inventory', OTHER_SCOPE, {}))
       expect(errorCode(foreign)).toBe('channel_unauthorized')
     } finally {
