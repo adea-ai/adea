@@ -21,18 +21,9 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { PanelRightClose, PanelRightOpen } from 'lucide-solid'
-import {
-  Match,
-  Show,
-  Switch,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  on,
-  type JSX,
-} from 'solid-js'
+import { Match, Show, Switch, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
 
+import { createReadResource } from '../resource'
 import { errorText } from '../client'
 import { prRef } from '../model/format'
 import { mergeDock, preferredMethod } from '../model/merge-dock'
@@ -84,7 +75,7 @@ export function PullRequestDetail(props: {
   const [confirmClose, setConfirmClose] = createSignal(false)
   const [localRevision, setLocalRevision] = createSignal(0)
 
-  const [summary, { mutate: setSummary }] = createResource(
+  const [summary, { mutate: setSummary }] = createReadResource(
     () => ({ id: props.pullRequestId, revision: props.revision + localRevision() }),
     async (source) => client.summary(source.id, source.revision > 0)
   )
@@ -99,18 +90,18 @@ export function PullRequestDetail(props: {
     return fresh ? props.state.link(fresh) : cached()
   })
 
-  const [timeline, { mutate: setTimeline, refetch: refetchTimeline }] = createResource(
+  const [timeline, { mutate: setTimeline, refetch: refetchTimeline }] = createReadResource(
     () => ({ id: props.pullRequestId, revision: props.revision + localRevision() }),
     async (source) => client.timeline(source.id)
   )
-  const [commits] = createResource(
+  const [commits] = createReadResource(
     () =>
       props.tab === 'commits' || props.tab === 'checks'
         ? { id: props.pullRequestId, head: pr()?.headSha }
         : undefined,
     async (source) => (await client.commits(source.id)).items
   )
-  const [files] = createResource(
+  const [files] = createReadResource(
     () => (props.tab === 'files' ? { id: props.pullRequestId, head: pr()?.headSha } : undefined),
     async (source) => client.files(source.id)
   )

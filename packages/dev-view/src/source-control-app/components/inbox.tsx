@@ -29,9 +29,10 @@ import {
   Plus,
   type LucideIcon,
 } from 'lucide-solid'
-import { For, Show, createMemo, createResource, createSignal, type JSX } from 'solid-js'
+import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
+import { createReadResource } from '../resource'
 import { errorText } from '../client'
 import { prRef, relativeTime, shortSha } from '../model/format'
 import {
@@ -223,7 +224,7 @@ export function ProjectInbox(props: {
   const meta = () => props.state.repoMeta().get(props.project.repoId)
   const open = () => props.state.openPulls(props.project.repoId)
 
-  const [history] = createResource(
+  const [history] = createReadResource(
     () =>
       scope() === 'merged' || scope() === 'closed'
         ? { repoId: props.project.repoId, state: scope() }
