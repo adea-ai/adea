@@ -15,6 +15,12 @@ const webInputs = [
   /^bun\.lock$/,
   /^package\.json$/,
   /^playwright\.config\.ts$/,
+  // Build and type configuration shared by every package: a change here can alter what the
+  // lanes build or run without touching any path above.
+  /^turbo\.json$/,
+  /^tsconfig\.base\.json$/,
+  /^tsconfig\.json$/,
+  /^bunfig\.toml$/,
 ]
 
 const lanes = {
