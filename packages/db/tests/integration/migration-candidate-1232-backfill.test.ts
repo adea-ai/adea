@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
@@ -23,7 +23,7 @@ import {
   resolveMigrationSnapshotCaptureDomains,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { channelParticipants, workspaceMemberships } from '../../src/schema'
+import { channelParticipants, messages, workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
   CANONICAL_BASE_TAG,
@@ -49,9 +49,9 @@ import { insertLegacyGroup, insertLegacyMessage } from '../fixtures/legacy-audie
 // 0049/0050 backfill on top. Each recorded migration is checked against the journal, so an entry
 // drizzle skips is a failure here, not a silent success.
 //
-// What it does NOT prove: the group join-point gate and its read paths (the product read functions
-// here are main's), and any quarantine of ambiguous group records. The chain has no quarantine
-// surface, so the test records that absence instead of passing as coverage.
+// This rehearsal checks legacy-message visibility after the canonical chain is applied; it does
+// not replace the focused group join-point authorization tests. The chain has no quarantine surface,
+// so the test records that absence instead of passing as coverage.
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
@@ -168,22 +168,33 @@ async function executeScenario() {
     sender: owner,
     workspaceId,
   })
+  // The candidate product read path uses 0049 group-grant tables, so it cannot be called on this
+  // deliberate pre-0049 schema. Capture the legacy participant/message relation as the baseline;
+  // after migration, the real product read path below must preserve that visibility.
+  const legacyVisibleMessageIds = async (principal: UserPrincipalRef) =>
+    (
+      await connection.db
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(
+          channelParticipants,
+          and(
+            eq(channelParticipants.workspaceId, messages.workspaceId),
+            eq(channelParticipants.channelId, messages.channelId),
+            eq(channelParticipants.principalKind, 'user'),
+            eq(channelParticipants.userId, principal.userId)
+          )
+        )
+        .where(and(eq(messages.workspaceId, workspaceId), eq(messages.channelId, activeId)))
+        .orderBy(messages.sequence)
+    ).map((row) => row.id)
+  const ownerLegacyMessages = await legacyVisibleMessageIds(owner)
+  const memberLegacyMessages = await legacyVisibleMessageIds(member)
+  const outsiderLegacyMessages = await legacyVisibleMessageIds(outsider)
   const readsBefore = {
-    ownerActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, activeId, owner)).messages.map(
-        (message) => message.id
-      )
-    ),
-    memberActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, activeId, member)).messages.map(
-        (message) => message.id
-      )
-    ),
-    outsiderActive: await view(async () =>
-      (await listMessagesForUser(connection.db, workspaceId, activeId, outsider)).messages.map(
-        (message) => message.id
-      )
-    ),
+    ownerActive: ownerLegacyMessages,
+    memberActive: memberLegacyMessages,
+    outsiderActive: outsiderLegacyMessages.length === 0 ? 'denied' : outsiderLegacyMessages,
   }
   const archivedId = await insertLegacyGroup(
     connection.db,

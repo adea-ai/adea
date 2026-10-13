@@ -185,31 +185,19 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         historical
       ))!.every(({ kind }) => kind === 'deliver')
     ).toBe(true)
-    const publicGroup = await updateChannel(
-      connection.db,
-      f.workspace.id,
-      group.id,
-      f.owner,
-      { visibility: 'workspace' },
-      removed.version
-    )
-    expect(
-      (await classifyWorkspaceEventsForUser(
+    // Groups remain participants-visible. A workspace-visibility edit is refused,
+    // and the remaining admitted member can still archive the group.
+    await expect(
+      updateChannel(
         connection.db,
         f.workspace.id,
-        f.admin.userId,
-        historical
-      ))!.every(({ kind }) => kind === 'deliver')
-    ).toBe(true)
-    const privateGroup = await updateChannel(
-      connection.db,
-      f.workspace.id,
-      group.id,
-      f.owner,
-      { visibility: 'participants' },
-      publicGroup.version
-    )
-    await archiveChannel(connection.db, f.workspace.id, group.id, f.owner, privateGroup.version)
+        group.id,
+        f.member,
+        { visibility: 'workspace' },
+        removed.version
+      )
+    ).rejects.toThrow('Channel participant policy conflict')
+    await archiveChannel(connection.db, f.workspace.id, group.id, f.member, removed.version)
     const archived = await listWorkspaceEventsAfter(connection.db, f.workspace.id, start, 100)
     expect(archived.some(({ eventType }) => eventType === 'channel.archived')).toBe(true)
     expect(
@@ -237,16 +225,25 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
   })
 
   test('workspace-to-private transition gives former readers an ID-free audience resync', async () => {
+    // Visibility transitions remain available for non-group conversations.
     const f = await fixture()
-    const created = await createGroupChannel(connection.db, f.workspace.id, f.owner, {
-      idempotencyKey: 'formerly-public',
-      title: 'Formerly public',
+    const agent = await createAgent(connection.db, f.workspace.id, f.owner, {
+      name: 'Formerly public agent',
+      profileId: 'lead',
+      profileVersion: '1',
     })
+    const created = await createDirectAgentTopic(
+      connection.db,
+      f.workspace.id,
+      agent.id,
+      f.member,
+      { idempotencyKey: 'formerly-public', title: 'Formerly public' }
+    )
     const group = await updateChannel(
       connection.db,
       f.workspace.id,
       created.id,
-      f.owner,
+      f.member,
       { visibility: 'workspace' },
       created.version
     )
@@ -258,7 +255,7 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
       connection.db,
       f.workspace.id,
       group.id,
-      f.owner,
+      f.member,
       { visibility: 'participants' },
       group.version
     )
@@ -422,13 +419,14 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         f.events
       )
       expect(small!.every(({ kind }) => kind === 'withheld')).toBe(true)
-      expect(queries).toBe(5)
+      // Six indexed data reads plus begin, isolation setup and commit.
+      expect(queries).toBe(9)
       queries = 0
       const page = Array.from({ length: 24 }, () => f.events).flat()
       const large = await classifyWorkspaceEventsForUser(db, f.workspace.id, f.owner.userId, page)
       expect(large).toHaveLength(120)
       expect(large!.every(({ kind }) => kind === 'withheld')).toBe(true)
-      expect(queries).toBe(5)
+      expect(queries).toBe(9)
     } finally {
       await counting.end({ timeout: 5 })
     }
