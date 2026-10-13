@@ -12,17 +12,9 @@ import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-ch
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { RefreshCw } from 'lucide-solid'
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  on,
-  type JSX,
-} from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
 
+import { createReadResource } from '../resource'
 import { errorText, type ScmClient } from '../client'
 import { hasCheckLog, runTiming } from '../model/checks'
 import { duration, relativeTime, shortSha } from '../model/format'
@@ -135,7 +127,7 @@ export function ChecksView(props: {
     )
   )
 
-  const [checks, { refetch }] = createResource(
+  const [checks, { refetch }] = createReadResource(
     () => ({ pr: props.pr.id, sha: sha() }),
     async (source) =>
       (await props.client.checks(source.pr, source.sha)).items.toSorted(
@@ -167,7 +159,7 @@ export function ChecksView(props: {
     const check = selectedCheck()
     return check && logged(check) ? check : undefined
   }
-  const [log] = createResource(
+  const [log] = createReadResource(
     () => (loggedCheck() ? { pr: props.pr.id, id: selected()! } : undefined),
     async (source) => props.client.checkLog(source.pr, source.id)
   )
