@@ -39,6 +39,8 @@ export type HistoryPaneStatus =
   | 'ready'
   /** The session runs in a terminal and publishes no structured event feed. */
   | 'no_feed'
+  /** The stream lost events or belongs to an older generation; reopen to recover. */
+  | 'stale'
   | 'unavailable'
 
 export type HistoryPaneProps = Readonly<{
@@ -274,9 +276,20 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                 <EmptyState
                   announceAs="status"
                   icon={<History aria-hidden="true" />}
-                  title="History is unavailable"
-                  detail="The conversation could not be read from this runtime."
-                  {...(props.onRetry ? { action: props.onRetry, actionLabel: 'Try again' } : {})}
+                  title={
+                    props.status === 'stale' ? 'History is out of date' : 'History is unavailable'
+                  }
+                  detail={
+                    props.status === 'stale'
+                      ? 'Some events were missed or this feed belongs to an older run of the session. Reload to read the current history.'
+                      : 'The conversation could not be read from this runtime.'
+                  }
+                  {...(props.onRetry
+                    ? {
+                        action: props.onRetry,
+                        actionLabel: props.status === 'stale' ? 'Reload' : 'Try again',
+                      }
+                    : {})}
                 />
               }
             >

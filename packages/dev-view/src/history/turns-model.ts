@@ -69,6 +69,20 @@ function resultFailed(event: RuntimeEvent): boolean {
   return status === 'failed' || status === 'error'
 }
 
+/**
+ * A transcript that lost events (`resync_required`), disagrees with itself
+ * (`conflict`) or belongs to an older generation (`stale_generation`) cannot
+ * back a truthful prompt list. Chat detaches and offers a reconnect in those
+ * cases; History does the same instead of presenting a partial window as ready.
+ */
+export function transcriptIsStale(availability: { status: string }): boolean {
+  return (
+    availability.status === 'resync_required' ||
+    availability.status === 'conflict' ||
+    availability.status === 'stale_generation'
+  )
+}
+
 const ACTIVE_RUN_STATES: ReadonlySet<string> = new Set([
   'working',
   'awaiting_input',

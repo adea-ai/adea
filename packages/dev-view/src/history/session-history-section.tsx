@@ -10,7 +10,7 @@ import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 
 import { openRuntimeEventStream } from '../chat/model/event-stream'
 import { HistoryPane, type HistoryPaneStatus } from './history-pane'
-import { newestRunActive } from './turns-model'
+import { newestRunActive, transcriptIsStale } from './turns-model'
 import {
   createDevUtilityFenceSource,
   hasDevUtilitySession,
@@ -123,8 +123,19 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
             stream.close()
             return
           }
-          unsubscribe = stream.subscribe(() => publish('ready'))
-          publish('ready')
+          const observe = () => {
+            const state = stream?.state()
+            if (!state || !transcriptIsStale(state.availability)) return publish('ready')
+            // Stop reading a window that has a gap or belongs to an older
+            // generation and say so; Try again reopens against the current
+            // session record.
+            unsubscribe?.()
+            stream?.close()
+            stream = undefined
+            publish('stale')
+          }
+          unsubscribe = stream.subscribe(observe)
+          observe()
         } catch (error) {
           if (closed || isDevUtilityContextChanged(error)) return
           publish('unavailable')

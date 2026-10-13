@@ -1419,7 +1419,7 @@ cross-session search and no second store.
 - **Runs tab.** The existing `RunHistoryPane` for the session.
 - **Truthful states.** A `terminal_fallback` projection has no structured feed, so
   the Turns tab says so instead of showing an empty list; a window that retention
-  dropped older events from says "Showing the latest events only"; an unreadable
+  dropped older events from says "Showing the latest events only"; a feed that lost events (`resync_required`), conflicts, or belongs to an older generation (`stale_generation`) is closed and shown as "History is out of date" with Reload, never as a partial list; an unreadable
   feed offers Try again.
 - **Redaction.** Prompt and reply text pass `redactSearchText` (secrets, private
   paths, control characters, bounded length), and `credential`-classified events

@@ -102,3 +102,12 @@ test('shows a loading status while the feed opens', async ({ page }) => {
   await expect(page.getByRole('status', { name: 'Loading history' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Search this conversation' })).toBeDisabled()
 })
+
+test('a stale feed says so, hides the partial list and offers a reload', async ({ page }) => {
+  await mount(page, '?status=stale')
+  await expect(page.getByRole('status').filter({ hasText: 'History is out of date' })).toBeVisible()
+  await expect(page.getByText('deploy the staging build')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Search this conversation' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await expect(page.getByTestId('jumps')).toHaveText('retry')
+})

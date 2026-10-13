@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
-import { buildHistoryTurns, formatRelativeTime, newestRunActive } from '../src/history/turns-model'
+import {
+  buildHistoryTurns,
+  formatRelativeTime,
+  newestRunActive,
+  transcriptIsStale,
+} from '../src/history/turns-model'
 
 function event(seq: number, overrides: Partial<RuntimeEvent>): RuntimeEvent {
   return {
@@ -137,5 +142,13 @@ describe('newestRunActive', () => {
 
   test('no runs is not active', () => {
     expect(newestRunActive([])).toBe(false)
+  })
+})
+
+describe('transcriptIsStale', () => {
+  test('a gap, a conflict or an older generation is stale; a healthy or bounded window is not', () => {
+    for (const status of ['resync_required', 'conflict', 'stale_generation'])
+      expect(transcriptIsStale({ status })).toBe(true)
+    for (const status of ['available', 'bounded']) expect(transcriptIsStale({ status })).toBe(false)
   })
 })
