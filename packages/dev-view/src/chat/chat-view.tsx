@@ -13,6 +13,7 @@ import { statusLabel } from './presentation'
 import './chat.css'
 import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export type ChatViewProps = Readonly<{
   conversation: ChatConversation
@@ -183,7 +184,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     <section class="dev-chat" aria-label={`Conversation ${props.conversation.title}`}>
       <header class="dev-chat__header">
         <div class="dev-chat__heading">
-          <h2>{props.conversation.title}</h2>
+          <Heading as="h2" size="card" data-chat-title="">
+            {props.conversation.title}
+          </Heading>
           <p>
             Runtime session · generation {props.conversation.generation} ·{' '}
             {statusLabel(props.conversation.status)}

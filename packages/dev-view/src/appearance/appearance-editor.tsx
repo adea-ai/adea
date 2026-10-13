@@ -76,6 +76,7 @@ import {
   SheetTrigger,
 } from '@adea-ai/ui/components/ui/sheet'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import {
   EyeOff,
   ChevronDown,
@@ -148,7 +149,9 @@ export function SettingsRow(props: {
           {props.icon}
         </span>
         <div class="min-w-0">
-          <h3 class="text-sm font-medium">{props.title}</h3>
+          <Heading as="h3" size="subsection">
+            {props.title}
+          </Heading>
           <Show when={props.description}>
             <div class="mt-0.5 text-xs text-muted-foreground">{props.description}</div>
           </Show>

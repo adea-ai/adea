@@ -407,10 +407,6 @@
   color: var(--cw-notice);
   flex: none;
 }
-.conventional-session-notice h2 {
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
 .conventional-session-notice p {
   color: var(--cw-muted);
   font-size: var(--text-xs);
@@ -452,11 +448,6 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-.conventional-kanban__heading h1 {
-  font-size: var(--text-base);
-  font-weight: 600;
-  line-height: 1.5;
 }
 .conventional-kanban__filter-result {
   color: var(--muted-foreground);
@@ -589,13 +580,15 @@
   gap: 1rem;
   margin: 0 auto 1.5rem;
 }
-.conventional-surface-header h1 {
-  font-size: calc(clamp(1.5rem, 3vw, 2.1rem) * var(--font-ui-scale, 1));
-  font-weight: 600;
-}
 .conventional-surface-header p {
   margin-top: 0.3rem;
   color: var(--cw-muted);
+}
+/* The conversation title ellipsizes inside the header's flexible column. */
+[data-conversation-title] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A surface-level status sits on the same measure as the header it follows. */
 .conventional-surface-status {
@@ -977,17 +970,6 @@
   align-items: center;
   margin-top: 1rem;
 }
-.conventional-destructive-confirmation {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--cw-danger);
-  border-radius: var(--radius-md);
-  color: var(--cw-danger);
-}
 .conventional-agent-delete-note {
   margin-top: 0.8rem !important;
 }
@@ -999,9 +981,6 @@
   }
   .conventional-form-grid {
     grid-template-columns: 1fr;
-  }
-  .conventional-destructive-confirmation {
-    grid-template-columns: auto 1fr;
   }
 }
 
@@ -1017,9 +996,6 @@
   padding: 2rem;
   color: var(--cw-muted);
   text-align: center;
-}
-.conventional-error h2 {
-  color: var(--cw-text);
 }
 /* The 2rem alert mark is the error surface's own leading icon only. An
    unscoped descendant selector also resized the icons inside the shared
@@ -1257,11 +1233,6 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-}
-.workspace-app-library__heading h1 {
-  margin: 0;
-  font-size: var(--text-3xl);
-  font-weight: 600;
 }
 .workspace-app-library__heading p {
   margin: 0.25rem 0 0;

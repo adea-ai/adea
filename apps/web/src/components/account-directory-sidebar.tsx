@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { RefreshCw } from 'lucide-solid'
 import { createAccountDirectoryPages, createAccountInboxPages } from '../lib/account-directory'
 import {
@@ -171,7 +172,9 @@ export function AccountDirectoryAgents(props: {
     <Show when={!hidden()}>
       <section class="mt-6 border-t pt-4" aria-label="Agents across workspaces">
         <header class="mb-3">
-          <h2 class="text-base font-semibold">Across your workspaces</h2>
+          <Heading as="h2" size="card">
+            Across your workspaces
+          </Heading>
           <p class="text-muted-foreground text-sm">
             Agents from your other workspaces. This workspace's Agents are listed above.
           </p>

@@ -7,6 +7,7 @@ import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
@@ -196,7 +197,9 @@ export function WorkspaceDetailsDialog(props: {
                 <header>
                   <Dynamic component={sectionIcons[panelSection]} aria-hidden="true" />
                   <div>
-                    <h3>{workspaceSettingsSectionLabels[panelSection]}</h3>
+                    <Heading as="h3" size="card">
+                      {workspaceSettingsSectionLabels[panelSection]}
+                    </Heading>
                     <p>{sectionDescription()}</p>
                   </div>
                 </header>

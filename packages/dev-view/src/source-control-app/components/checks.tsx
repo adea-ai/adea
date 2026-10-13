@@ -10,6 +10,7 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { RefreshCw } from 'lucide-solid'
 import {
   For,
@@ -192,7 +193,9 @@ export function ChecksView(props: {
   return (
     <div class="dev-scm-checks">
       <nav class="dev-scm-checks__commits" aria-label="Commits on this branch">
-        <h2 class="dev-scm-eyebrow px-2 pb-1">Commits on this branch</h2>
+        <Text as="h2" variant="overline" class="mx-2 mb-1">
+          Commits on this branch
+        </Text>
         <For each={(props.commits ?? []).toReversed()}>
           {(entry) => (
             <Button
@@ -218,7 +221,7 @@ export function ChecksView(props: {
       <div class="dev-scm-checks__run">
         <div class="dev-scm-header__row">
           <div class="flex min-w-0 flex-1 flex-col">
-            <h2 class="dev-scm-group__label">
+            <Heading as="h2" size="subsection">
               {[
                 summary().failing ? `${summary().failing} failing` : '',
                 summary().passing ? `${summary().passing} passing` : '',
@@ -227,7 +230,7 @@ export function ChecksView(props: {
               ]
                 .filter(Boolean)
                 .join(', ') || 'No checks'}
-            </h2>
+            </Heading>
             <span class="dev-scm-caption">
               On <span class="dev-scm-mono">{shortSha(sha())}</span>
               {commit() ? ` · ${commit()!.headline}` : ''}

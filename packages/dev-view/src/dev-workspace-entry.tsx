@@ -86,6 +86,7 @@ import { DevWorkspaceSidebar, type DevWorkspaceNavHost } from './sidebar/dev-wor
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 // Keep the sidebar and runtime controls independent of the central split
 // renderer. Its resize dependency is loaded when the panes actually mount.
@@ -1432,7 +1433,14 @@ function FileSourceControlSlot(props: {
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <h2 id={`dev-utility-heading-${props.side}`}>{visibleItem()?.title}</h2>
+          <Heading
+            as="h2"
+            size="subsection"
+            id={`dev-utility-heading-${props.side}`}
+            data-utility-panel-title=""
+          >
+            {visibleItem()?.title}
+          </Heading>
           <ActionButton
             type="button"
             variant="ghost"
