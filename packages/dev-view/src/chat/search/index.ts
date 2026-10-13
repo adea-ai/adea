@@ -1,4 +1,5 @@
 export {
+  conversationSearchRowLabel,
   redactSearchText,
   searchConversationHistory,
   virtualSearchRows,

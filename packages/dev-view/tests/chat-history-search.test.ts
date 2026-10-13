@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeEvent, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 
 import {
+  conversationSearchRowLabel,
   exportTranscriptWindow,
   searchConversationHistory,
   virtualSearchRows,
@@ -134,5 +135,34 @@ describe('exportTranscriptWindow', () => {
     })
     expect(result.exportedEvents).toBe(1)
     expect(result.truncated).toBe(true)
+  })
+})
+
+describe('conversationSearchRowLabel', () => {
+  test('names a result by its session title, matched kind, and preview', () => {
+    const page = searchConversationHistory({
+      sessions: [session],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({}),
+            event({
+              eventId: 'approval-1',
+              sourceEventId: 'approval-source',
+              seq: '2',
+              kind: 'approval.requested',
+              payload: { title: 'Deploy' },
+            }),
+          ],
+        ],
+      ]),
+      query: 'deploy',
+      limit: 10,
+    })
+    const labels = page.items.map(conversationSearchRowLabel)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('Adea task, approval: Deploy')
   })
 })
