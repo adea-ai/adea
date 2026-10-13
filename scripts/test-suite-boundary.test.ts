@@ -13,6 +13,17 @@ const desktopPackageJson = JSON.parse(
 ) as { version: string }
 
 describe('test suite boundaries', () => {
+  test('builds the data consumer state dependency before integration route-flow tests', () => {
+    const runner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
+    const routeFlow = runner.slice(runner.indexOf('if (plan.routeFiles.length > 0)'))
+    const stateBuild = routeFlow.indexOf(
+      "run('bun', ['run', '--cwd', 'packages/state', 'build'], process.env)"
+    )
+    const routeTests = routeFlow.indexOf('...plan.routeFiles.map((file) => resolve(root, file))')
+    expect(stateBuild).toBeGreaterThanOrEqual(0)
+    expect(routeTests).toBeGreaterThan(stateBuild)
+  })
+
   test('installs locked Playwright before downloading browsers for the Start host', () => {
     const workflow = Bun.YAML.parse(
       readFileSync(resolve(root, '.github/workflows/tanstack-start.yml'), 'utf8')
@@ -40,10 +51,18 @@ describe('test suite boundaries', () => {
     expect(localValidation).toContain('features: validation,release')
     const localRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
     expect(localRunner).toContain(
-      "const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'"
+      "import {\n  captureProvisioningDatabaseUrlVariable,\n  startCaptureProvisioning,\n} from './capture-provisioning.mjs'"
     )
+    expect(localRunner).toContain('captureProvisioning = startCaptureProvisioning((handle) => {')
     expect(localRunner).toContain(
       'environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl'
+    )
+    const captureProvisioning = readFileSync(
+      resolve(root, 'scripts/capture-provisioning.mjs'),
+      'utf8'
+    )
+    expect(captureProvisioning).toContain(
+      "export const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'"
     )
     const integrationRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
     expect(integrationRunner).toContain('DATABASE_MIGRATION_URL')
@@ -132,6 +151,27 @@ describe('test suite boundaries', () => {
         expect(product!.args).toContain(`${index}/${total}`)
       }
     }
+  })
+
+  test('keeps the direct-session handoff journey (#1177) in the normal E2E shard', () => {
+    const runner = readFileSync(resolve(root, 'scripts/e2e-playwright.mjs'), 'utf8').replace(
+      "import { spawnSync } from 'node:child_process'",
+      ''
+    )
+    const calls: { command: string; args: string[] }[] = []
+    runInNewContext(runner, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args })
+        return { status: 0 }
+      },
+      process: { env: {} },
+      console,
+    })
+    const journeys = calls.find(
+      ({ command, args }) =>
+        command === 'playwright' && args.includes('apps/web/e2e/direct-session-handoff.spec.ts')
+    )
+    expect(journeys).toBeDefined()
   })
 
   test('keeps the cross-product session journeys (#1223) in the normal E2E shard', () => {

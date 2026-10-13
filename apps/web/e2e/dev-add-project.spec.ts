@@ -55,7 +55,7 @@ test('the dialog loads once and imports the confirmed entry under the project id
   expect(formRequests.get(page)).toHaveLength(1)
   await expect(page.getByTestId('operations')).toHaveText('["dev.project.bookmarks"]')
   await root.selectOption('root')
-  const confirmation = dialog.getByRole('checkbox', { name: 'Fixture projectbun' })
+  const confirmation = dialog.getByRole('checkbox', { name: 'Fixture project' })
   await confirmation.focus()
   await confirmation.press('Space')
   await expect(confirmation).toBeChecked()
@@ -94,7 +94,7 @@ test('authorizing a folder mints a root, lists it, and scans it', async ({ page 
   const root = page.getByRole('combobox', { name: 'Authorized root to scan', includeHidden: true })
   await expect(root).toBeVisible()
   await expect(root).toHaveValue('authorized')
-  await expect(page.getByRole('checkbox', { name: 'Fixture projectbun' })).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: 'Fixture project' })).toBeVisible()
 })
 
 test('a refused authorization explains itself and keeps the draft path', async ({ page }) => {
@@ -141,7 +141,7 @@ test('the native picker fills the local path while authorization and confirmatio
   await expect(page.getByTestId('picker-calls')).toHaveText('1')
   await expect(page.getByTestId('operations')).toHaveText('["dev.project.bookmarks"]')
   await dialog.getByRole('button', { name: 'Authorize folder' }).click()
-  const confirmation = dialog.getByRole('checkbox', { name: 'Fixture projectbun' })
+  const confirmation = dialog.getByRole('checkbox', { name: 'Fixture project' })
   await expect(confirmation).toBeVisible()
   await expect(page.getByTestId('imports')).toHaveText('0')
   await confirmation.focus()

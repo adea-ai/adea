@@ -54,11 +54,12 @@ migrator bypass the preflight and should remain limited to disposable test
 fixtures.
 
 The migration history preflight integration proof runs in the root
-`bun run test:integration` lane. That runner provisions a dedicated disposable
-PostgreSQL instance and exports `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
-running the proof without this provisioning fails explicitly. The package
-`test:integration` script does not provision that database itself, so direct
-package runs need an explicitly supplied dedicated disposable provisioning URL.
+`bun run test:integration` lane and the package's
+`bun run --cwd packages/db test:integration` script. Both runners use the
+existing `run-with-capture-provisioning.mjs` helper to provision a dedicated
+disposable PostgreSQL instance and set `MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`;
+running the proof directly without either runner fails explicitly unless a
+dedicated disposable provisioning URL is supplied.
 
 The root and package integration runners build the public `remote-content`
 and `types/runtime-node-delivery` entries before running the database producer tests, so a fresh checkout needs no
@@ -154,8 +155,10 @@ immutable settings boundary never accepts `isPersonal`. A partial owner unique
 index and active-root constraint prevent duplicate personal identities or
 archive/pending states. Additional creation produces a box icon and empty data,
 appends to the member's list, and never seeds accounts, projects or agents.
-All memberships, including Home, remain reorderable; bootstrap's default is the
-personal identity rather than list position.
+The caller's canonical personal workspace is always first in list, reorder and
+bootstrap results, even after renaming or when historical membership positions
+put it last. Optional workspaces retain their relative order. Bootstrap's default
+is the personal identity rather than list position; reads preserve saved positions.
 
 The production API regression uses the `react-server` condition to exercise its
 `server-only` database entry; both supported integration runners build that entry
@@ -173,6 +176,10 @@ identity decisions. No migration or onboarding operation connects an account.
 
 `reorderWorkspaces()` locks the member's user row, requires the complete live list
 with no duplicates or foreign IDs, and updates only that member's positions. It
+normalizes valid submissions to put the caller's personal root at position zero
+while preserving the submitted relative order of optional workspaces. Another
+owner's personal workspace is optional in the caller's list. Validation precedes
+normalization, so a missing root or foreign ID is still refused. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
 
@@ -211,6 +218,8 @@ compare-and-swap each channel `version`, so a concurrent write rolls the whole
 transaction back instead of losing an update.
 
 Migration `0048_graceful_prima` follows `0047_requested_role_model_selections` in the current `main` journal. It is expand-only and adds the `channel_archive_source` enum, `channels.archive_source`, positive `projects.version`, and `management_authority_consumptions` with its checks, workspace foreign key and index. The group-participation migrations follow it at 0049 and 0050. `db:verify` validates the journal and SQL against an isolated target; local verification does not establish production migration history or live Control Plane qualification. See [`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).
+
+Migration `0052_lead_handoff_target` is additive and nullable only. It adds the exact direct session a lead turn coordinates (`lead_turn_intents.handoff_target_session_id`, `handoff_target_generation`, `handoff_target_task_id` and the `handoff_target_attempt` ordinal), a check that the four are all set or all null, and a partial unique index so one workspace channel holds at most one intent per target session, generation and attempt. A fresh request for a context whose newest runtime completed or failed admits a successor with the next attempt and leaves the predecessor untouched; any other runtime state recovers the retained request. A target is retained only for requests carried by the authenticated desktop-host channel.
 
 ## Group channel write admission
 

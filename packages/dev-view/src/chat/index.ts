@@ -9,6 +9,10 @@ export {
   type ChatInputAuthority,
 } from './chat-composer'
 export { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
+export {
+  DirectSessionHandoffControls,
+  type DirectSessionHandoffControlsProps,
+} from './handoff-controls'
 export { ChatView, type ChatViewProps } from './chat-view'
 export * from './presentation'
 export * from './notifications'

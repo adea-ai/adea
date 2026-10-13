@@ -186,6 +186,8 @@ export type HarnessInventoryRow = Readonly<{
   /** This workspace's own default, overriding the device default. */
   isWorkspaceDefault: boolean
   enabled: boolean
+  /** The backend's launch eligibility; false carries its blockers. */
+  eligible: boolean
   /** True when it can be made the device default right now. */
   canMakeDeviceDefault: boolean
   /** True when it can be made this workspace's default right now. */
@@ -257,6 +259,7 @@ export function buildHarnessInventoryRows(input: {
       isDeviceDefault,
       isWorkspaceDefault,
       enabled: choice?.enabled ?? true,
+      eligible: base.eligible,
       canMakeDeviceDefault: usable && !isDeviceDefault,
       canUseInWorkspace: usable && !isWorkspaceDefault,
       stale: base.stale,
@@ -305,13 +308,33 @@ export type HarnessDefaultSummary = Readonly<{
   overriddenDeviceName?: string
   /** The device default is set but is not installed and ready here. */
   deviceDefaultMissing: boolean
+  /**
+   * The workspace default is stored but its harness is not installed and ready
+   * here, so a launch is refused rather than substituted. Only ever true with
+   * `source: 'workspace'`; the override stays visible and clearable.
+   */
+  workspaceOverrideUnavailable?: true
 }>
+
+/** A harness that can start a session now: ready here and launch-eligible. */
+const isLaunchable = (row: HarnessInventoryRow | undefined): row is HarnessInventoryRow =>
+  row !== undefined && row.state === 'ready' && row.eligible
+
+/** The workspace override the user stored, whether or not its harness is still listed. */
+export function storedWorkspaceDefault(
+  preferences: readonly HarnessPreference[]
+): HarnessPreference | undefined {
+  return preferences.find(
+    (preference) => isGlobalDefault(preference) && preference.rootDefault !== true
+  )
+}
 
 /**
  * Which harness a new session in this workspace starts with, in the backend's
  * own order: workspace default, then device default, then the managed-Pi
- * fallback. A device default that is not usable here is reported as missing,
- * never substituted.
+ * fallback. A default that is not usable here is reported as unavailable,
+ * never substituted, and a workspace default whose installation has vanished
+ * is still the workspace default (the backend keeps refusing on it).
  */
 export function summarizeHarnessDefault(input: {
   rows: readonly HarnessInventoryRow[]
@@ -319,18 +342,20 @@ export function summarizeHarnessDefault(input: {
   deviceDefaultFamily?: string | undefined
   managedPi: Pick<ManagedPiStatus, 'state' | 'installationId' | 'executableLabel'> | undefined
 }): HarnessDefaultSummary {
-  const deviceRow = input.rows.find((row) => row.isDeviceDefault)
-  const workspaceRow = input.rows.find((row) => row.isWorkspaceDefault)
-  const deviceUsable = deviceRow !== undefined && deviceRow.state === 'ready'
+  const deviceRows = input.rows.filter((row) => row.isDeviceDefault)
+  const deviceRow = deviceRows.find(isLaunchable) ?? deviceRows[0]
+  const deviceUsable = isLaunchable(deviceRow)
   const deviceDefaultMissing = input.deviceDefaultFamily !== undefined && !deviceUsable
-  if (workspaceRow) {
+  const workspaceRow = input.rows.find((row) => row.isWorkspaceDefault)
+  if (workspaceRow || storedWorkspaceDefault(input.preferences)) {
     return {
       source: 'workspace',
-      name: workspaceRow.name,
-      ...(deviceRow && !workspaceRow.isDeviceDefault
+      ...(workspaceRow ? { name: workspaceRow.name } : {}),
+      ...(deviceRow && !workspaceRow?.isDeviceDefault
         ? { overriddenDeviceName: deviceRow.name }
         : {}),
       deviceDefaultMissing,
+      ...(isLaunchable(workspaceRow) ? {} : { workspaceOverrideUnavailable: true as const }),
     }
   }
   if (input.deviceDefaultFamily !== undefined) {

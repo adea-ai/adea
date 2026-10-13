@@ -878,6 +878,14 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  importPortable: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (bundleText: string) => client.importWorkspace(bundleText),
+    onSuccess: async () => {
+      // The restored workspace joins the owner's list under its own ID; the list refetch is how
+      // the sidebar and the workspace switcher learn about it.
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
+    },
+  }),
   update: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (
       input: Readonly<{
@@ -1039,6 +1047,11 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useImportPortableWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.importPortable(client, queryClient))
 }
 
 export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
