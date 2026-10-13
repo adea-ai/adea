@@ -7,7 +7,7 @@
 //     cleared for the cold run and restored for the warm one;
 //   - deploy artifact sizes SEPARATED from local build caches (dist/ totals,
 //     the client JS surface, the worker entry, the largest client chunks);
-//   - local TTFB against the built Worker booted through wrangler;
+//   - local response-header timing (a TTFB proxy) against the built Worker;
 //   - browser LCP and CLS on the built app, plus an event-timing INP proxy
 //     from a scripted interaction burst (labeled as a proxy: real INP needs
 //     field data, not a lab run).
@@ -38,7 +38,7 @@ const startedAt = new Date()
 // and the Dev View chunk budget stay in their own gates (invoked below); these
 // cover what only this lane measures, with headroom for a busy machine.
 const BUDGETS = {
-  /** Local TTFB against the built Worker on loopback. */
+  /** Local response-header timing against the built Worker on loopback. */
   ttfbMedianMs: 300,
   /** Largest Contentful Paint on the pinned Chromium, cold cache. */
   lcpMs: 4_000,
@@ -233,6 +233,19 @@ function startPreview(port) {
   return { child, output: () => output }
 }
 
+export async function sampleResponseHeaders(
+  url,
+  { request = fetch, now = () => performance.now() } = {}
+) {
+  const start = now()
+  const response = await request(url, { redirect: 'manual' })
+  // fetch resolves at response headers. Drain the body outside the timing
+  // interval so transfer/decode time cannot inflate the TTFB proxy.
+  const elapsedMs = now() - start
+  await response.arrayBuffer()
+  return { response, elapsedMs }
+}
+
 async function measureTtfb(port) {
   const url = `http://127.0.0.1:${port}/`
   const deadline = Date.now() + 90_000
@@ -254,16 +267,15 @@ async function measureTtfb(port) {
   await fetch(url, { redirect: 'manual' }).catch(() => undefined)
   const samples = []
   for (let index = 0; index < 20; index += 1) {
-    const start = performance.now()
-    const response = await fetch(url, { redirect: 'manual' })
-    await response.arrayBuffer()
-    samples.push(performance.now() - start)
+    const { response, elapsedMs } = await sampleResponseHeaders(url)
+    samples.push(elapsedMs)
     if (!response.ok && response.status !== 307) {
       return { error: `unexpected status ${response.status}` }
     }
   }
   samples.sort((left, right) => left - right)
   return {
+    metric: 'response_headers',
     samples: samples.length,
     minMs: Number(samples[0].toFixed(1)),
     medianMs: Number(samples[Math.floor(samples.length / 2)].toFixed(1)),
@@ -277,7 +289,7 @@ async function measureBrowser(port) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()
   await page.addInitScript(() => {
-    const buffer = { lcp: 0, cls: 0, events: [] }
+    const buffer = { lcp: 0, cls: 0, events: [], eventTimingSupported: false }
     // eslint-disable-next-line no-underscore-dangle
     window.__perfBuffer = buffer
     try {
@@ -292,8 +304,9 @@ async function measureBrowser(port) {
       new PerformanceObserver((entries) => {
         for (const entry of entries.getEntries()) buffer.events.push(entry.duration)
       }).observe({ type: 'event', buffered: true, durationThreshold: 16 })
+      buffer.eventTimingSupported = true
     } catch {
-      /* older engines: metrics stay zero and the lane reports them as such */
+      /* Unsupported Event Timing stays explicitly unavailable. */
     }
   })
 
@@ -313,6 +326,34 @@ async function measureBrowser(port) {
       : null
   })
 
+  const metrics = await measureScriptedInteractions(page)
+  await browser.close()
+  return { status: navigation?.status() ?? 0, navTiming, ...metrics }
+}
+
+export function summarizeInteractionEvidence(steps, events, eventTimingSupported) {
+  const unavailable = (reason, status = 'unavailable') => ({
+    interactionStatus: status,
+    interactionReason: reason,
+    interactionCount: events.length,
+    interactionWorstMs: null,
+    requiredInteractions: steps,
+  })
+  if (steps.length !== 4 || steps.some((step) => !step.completed))
+    return unavailable('required_interaction_failed')
+  if (!eventTimingSupported) return unavailable('event_timing_unavailable')
+  if (events.some((duration) => !Number.isFinite(duration) || duration < 0))
+    return unavailable('invalid_interaction_observation', 'failed')
+  if (events.length === 0) return unavailable('no_interaction_observations')
+  return {
+    interactionStatus: 'measured',
+    interactionCount: events.length,
+    interactionWorstMs: Math.round(Math.max(...events)),
+    requiredInteractions: steps,
+  }
+}
+
+export async function measureScriptedInteractions(page) {
   // Scripted interaction burst: the worst event-timing duration is an INP
   // proxy, not field INP.
   const interactionTargets = [
@@ -329,12 +370,17 @@ async function measureBrowser(port) {
         .click({ timeout: 5_000 }),
     () => page.keyboard.press('Escape'),
   ]
-  for (const act of interactionTargets) {
+  const steps = []
+  const names = ['search', 'dismiss_search', 'user_settings', 'dismiss_settings']
+  for (const [index, act] of interactionTargets.entries()) {
     try {
       await act()
       await page.waitForTimeout(250)
+      steps.push({ name: names[index], completed: true })
     } catch {
-      /* a target may not exist on this surface; the burst continues */
+      // Continue for diagnostic coverage, but never claim a latency sample
+      // when any required target/interaction could not execute.
+      steps.push({ name: names[index], completed: false })
     }
   }
   await page.waitForTimeout(1_000)
@@ -345,16 +391,19 @@ async function measureBrowser(port) {
     return {
       lcpMs: Math.round(buffer?.lcp ?? 0),
       cls: Number((buffer?.cls ?? 0).toFixed(4)),
-      interactionCount: events.length,
-      interactionWorstMs: events.length ? Math.round(Math.max(...events)) : 0,
+      events,
+      eventTimingSupported: buffer?.eventTimingSupported === true,
     }
   })
-  await browser.close()
-  return { status: navigation?.status() ?? 0, navTiming, ...metrics }
+  return {
+    lcpMs: metrics.lcpMs,
+    cls: metrics.cls,
+    ...summarizeInteractionEvidence(steps, metrics.events, metrics.eventTimingSupported),
+  }
 }
 
 async function main() {
-  const results = { gates: {}, measurements: {}, failures: [] }
+  const results = { schemaVersion: 2, gates: {}, measurements: {}, failures: [] }
 
   const builds = await measureBuilds()
   results.measurements.builds = builds
@@ -398,19 +447,21 @@ async function main() {
   try {
     const ttfb = await measureTtfb(port)
     results.measurements.ttfb = ttfb
-    if (!ttfb) {
-      results.failures.push('the built Worker never answered on loopback')
+    if (!ttfb || ttfb.error) {
+      results.failures.push(ttfb?.error ?? 'the built Worker never answered on loopback')
     } else if (ttfb.medianMs > BUDGETS.ttfbMedianMs) {
       results.failures.push(`TTFB median ${ttfb.medianMs}ms exceeds ${BUDGETS.ttfbMedianMs}ms`)
     }
-    if (ttfb) {
+    if (ttfb && !ttfb.error) {
       const browserMetrics = await measureBrowser(port)
       results.measurements.browser = browserMetrics
       if (browserMetrics.lcpMs > BUDGETS.lcpMs)
         results.failures.push(`LCP ${browserMetrics.lcpMs}ms exceeds ${BUDGETS.lcpMs}ms`)
       if (browserMetrics.cls > BUDGETS.cls)
         results.failures.push(`CLS ${browserMetrics.cls} exceeds ${BUDGETS.cls}`)
-      if (browserMetrics.interactionWorstMs > BUDGETS.interactionWorstMs)
+      if (browserMetrics.interactionStatus !== 'measured')
+        results.failures.push(`interaction proxy unavailable: ${browserMetrics.interactionReason}`)
+      else if (browserMetrics.interactionWorstMs > BUDGETS.interactionWorstMs)
         results.failures.push(
           `worst scripted interaction ${browserMetrics.interactionWorstMs}ms exceeds ${BUDGETS.interactionWorstMs}ms`
         )
@@ -451,9 +502,9 @@ async function main() {
   console.log(
     `  worker entry          ${results.measurements.artifacts.workerEntry?.bytes ?? 'n/a'} bytes`
   )
-  if (results.measurements.ttfb)
+  if (results.measurements.ttfb && !results.measurements.ttfb.error)
     console.log(
-      `  local TTFB            min ${results.measurements.ttfb.minMs} / median ${results.measurements.ttfb.medianMs} / p95 ${results.measurements.ttfb.p95Ms} ms`
+      `  header timing         min ${results.measurements.ttfb.minMs} / median ${results.measurements.ttfb.medianMs} / p95 ${results.measurements.ttfb.p95Ms} ms (TTFB proxy)`
     )
   if (results.measurements.browser) {
     const browser = results.measurements.browser
@@ -462,7 +513,9 @@ async function main() {
     )
     console.log(`  LCP / CLS             ${browser.lcpMs} ms / ${browser.cls}`)
     console.log(
-      `  interaction proxy     worst ${browser.interactionWorstMs} ms over ${browser.interactionCount} event-timing entries`
+      browser.interactionStatus === 'measured'
+        ? `  interaction proxy     worst ${browser.interactionWorstMs} ms over ${browser.interactionCount} event-timing entries`
+        : `  interaction proxy     ${browser.interactionStatus}: ${browser.interactionReason}`
     )
   }
   console.log(
@@ -483,4 +536,6 @@ async function main() {
   }
 }
 
-await main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main()
+}
