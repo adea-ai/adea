@@ -240,7 +240,12 @@ export function SharedDevUtilityHost(props: {
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <Heading as="h2" size="subsection" id="dev-utility-heading-right" data-utility-panel-title="">
+          <Heading
+            as="h2"
+            size="subsection"
+            id="dev-utility-heading-right"
+            data-utility-panel-title=""
+          >
             {title()}
           </Heading>
           <ActionButton
