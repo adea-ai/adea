@@ -17,6 +17,7 @@ import {
   INSTALLATION_STATE_LABELS,
   isGlobalDefault,
   selectActiveRun,
+  summarizeHarnessDefault,
 } from '../src/agents/harness-status-model'
 
 const SCOPE: Scope = {
@@ -237,6 +238,13 @@ function preference(overrides: Partial<HarnessPreference> = {}): HarnessPreferen
   }
 }
 
+const base = (items: RuntimeConnectionInventoryEntry[], extra = {}) => ({
+  inventory: { items, freshness: items.map(() => 'fresh' as const) },
+  preferences: [] as HarnessPreference[],
+  managedPi: undefined,
+  ...extra,
+})
+
 describe('buildHarnessInventoryRows', () => {
   test('an empty or missing inventory is an empty list, never a guess', () => {
     expect(
@@ -251,28 +259,27 @@ describe('buildHarnessInventoryRows', () => {
     ).toEqual([])
   })
 
-  test('rows carry reported names, versions, capabilities and make-default eligibility', () => {
-    const [row] = buildHarnessInventoryRows({
-      inventory: { items: [entry()], freshness: ['fresh'] },
-      preferences: [],
-      managedPi: undefined,
-    })
+  test('rows carry reported names, versions, capabilities and what can be made default', () => {
+    const [row] = buildHarnessInventoryRows(base([entry()]))
     expect(row).toMatchObject({
       installationId: 'inst-codex',
+      family: 'codex',
       name: 'Codex',
       version: '1.2.3',
       state: 'ready',
       capabilities: ['native', 'models', 'resume'],
-      isDefault: false,
-      canMakeDefault: true,
+      isDeviceDefault: false,
+      isWorkspaceDefault: false,
+      canMakeDeviceDefault: true,
+      canUseInWorkspace: true,
       stale: false,
     })
   })
 
-  test('auth-required, ineligible and disabled installations cannot become the default', () => {
-    const rows = buildHarnessInventoryRows({
-      inventory: {
-        items: [
+  test('auth-required, ineligible and disabled installations cannot become a default', () => {
+    const rows = buildHarnessInventoryRows(
+      base(
+        [
           entry({ id: 'a', auth: 'required' }),
           entry({
             id: 'b',
@@ -283,50 +290,108 @@ describe('buildHarnessInventoryRows', () => {
           }),
           entry({ id: 'c' }),
         ],
-        freshness: ['fresh', 'fresh', 'stale'],
-      },
-      preferences: [preference({ harnessInstallationId: 'c', enabled: false })],
-      managedPi: undefined,
-    })
-    expect(rows.map((row) => [row.state, row.canMakeDefault])).toEqual([
-      ['auth_required', false],
-      ['ready', false],
-      ['disabled', false],
-    ])
+        { preferences: [preference({ harnessInstallationId: 'c', enabled: false })] }
+      )
+    )
+    expect(rows.map((row) => [row.state, row.canMakeDeviceDefault, row.canUseInWorkspace])).toEqual(
+      [
+        ['auth_required', false, false],
+        ['ready', false, false],
+        ['disabled', false, false],
+      ]
+    )
     expect(rows[1]?.blockers).toEqual(['Codex 0.1 is too old'])
-    expect(rows[2]?.stale).toBe(true)
   })
 
-  test('the global default is marked and a project default is not mistaken for it', () => {
-    const base = {
-      inventory: { items: [entry()], freshness: ['fresh' as const] },
-      managedPi: undefined,
-    }
-    expect(
-      buildHarnessInventoryRows({ ...base, preferences: [preference({ default: true })] })[0]
-    ).toMatchObject({ isDefault: true, canMakeDefault: false })
-    expect(
-      buildHarnessInventoryRows({
-        ...base,
-        preferences: [preference({ default: true, projectId: 'project-1' })],
-      })[0]
-    ).toMatchObject({ isDefault: false, canMakeDefault: true })
-  })
-
-  test('a ready managed Pi the inventory does not list is added with no claimed capabilities', () => {
-    const rows = buildHarnessInventoryRows({
-      inventory: { items: [entry()], freshness: ['fresh'] },
-      preferences: [preference({ harnessInstallationId: 'managed-1', default: true })],
-      managedPi: { state: 'ready', installationId: 'managed-1', executableLabel: 'Pi (managed)' },
+  test('the device default is a family; a workspace default is a stored global preference', () => {
+    const [row] = buildHarnessInventoryRows(
+      base([entry()], {
+        deviceDefaultFamily: 'codex',
+        preferences: [preference({ default: true })],
+      })
+    )
+    expect(row).toMatchObject({
+      isDeviceDefault: true,
+      isWorkspaceDefault: true,
+      canMakeDeviceDefault: false,
+      canUseInWorkspace: false,
     })
+    const [other] = buildHarnessInventoryRows(
+      base([entry()], {
+        deviceDefaultFamily: 'claude-code',
+        preferences: [preference({ default: true, projectId: 'project-1' })],
+      })
+    )
+    expect(other).toMatchObject({ isDeviceDefault: false, isWorkspaceDefault: false })
+  })
+
+  test('the synthesized managed-Pi fallback is never shown as a workspace choice', () => {
+    const rows = buildHarnessInventoryRows(
+      base([entry()], {
+        preferences: [
+          preference({ harnessInstallationId: 'managed-1', default: true, rootDefault: true }),
+        ],
+        managedPi: { state: 'ready', installationId: 'managed-1', executableLabel: 'Pi (managed)' },
+      })
+    )
     expect(rows[0]).toMatchObject({
       installationId: 'managed-1',
+      family: 'pi',
       name: 'Pi (managed)',
       capabilities: [],
-      isDefault: true,
-      canMakeDefault: false,
+      isWorkspaceDefault: false,
+      canUseInWorkspace: true,
     })
     expect(rows).toHaveLength(2)
+  })
+})
+
+describe('summarizeHarnessDefault', () => {
+  const managedPi = {
+    state: 'ready' as const,
+    installationId: 'managed-1',
+    executableLabel: 'Pi (managed)',
+  }
+  const summary = (
+    entries: RuntimeConnectionInventoryEntry[],
+    preferences: HarnessPreference[],
+    deviceDefaultFamily?: string
+  ) => {
+    const rows = buildHarnessInventoryRows({
+      inventory: { items: entries, freshness: entries.map(() => 'fresh' as const) },
+      preferences,
+      managedPi,
+      deviceDefaultFamily,
+    })
+    return summarizeHarnessDefault({ rows, preferences, deviceDefaultFamily, managedPi })
+  }
+  const claude = entry({ id: 'inst-claude', family: 'claude-code', displayName: 'Claude Code' })
+  const codex = entry()
+
+  test('with nothing chosen the managed Pi is a labelled fallback', () => {
+    expect(summary([claude], [])).toMatchObject({ source: 'fallback', name: 'Pi (managed)' })
+  })
+
+  test('the device default applies to a workspace that has no override', () => {
+    expect(summary([claude, codex], [], 'codex')).toMatchObject({ source: 'device', name: 'Codex' })
+  })
+
+  test('a workspace default overrides the device default and names what it overrides', () => {
+    expect(
+      summary(
+        [claude, codex],
+        [preference({ harnessInstallationId: 'inst-claude', default: true })],
+        'codex'
+      )
+    ).toMatchObject({ source: 'workspace', name: 'Claude Code', overriddenDeviceName: 'Codex' })
+  })
+
+  test('a device default that is not usable here is reported missing, never substituted', () => {
+    expect(summary([claude], [], 'codex')).toEqual({ source: 'none', deviceDefaultMissing: true })
+    expect(summary([claude, entry({ auth: 'required' })], [], 'codex')).toEqual({
+      source: 'none',
+      deviceDefaultMissing: true,
+    })
   })
 })
 

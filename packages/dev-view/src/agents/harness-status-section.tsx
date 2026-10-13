@@ -7,6 +7,7 @@
  */
 import type {
   DevError,
+  HarnessDeviceDefault,
   HarnessPreference,
   HarnessRun,
   ManagedPiStatus,
@@ -24,8 +25,33 @@ import {
   type DevUtilityContextReader,
 } from '../utility-context'
 import { executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
-import { buildHarnessInventoryRows } from './harness-status-model'
+import {
+  buildHarnessInventoryRows,
+  summarizeHarnessDefault,
+  type HarnessInventoryRow,
+} from './harness-status-model'
 import { HarnessStatusPane } from './harness-status-pane'
+
+/** Runs a version-fenced write, retrying once at the version a stale refusal reports. */
+async function fenced(
+  initialVersion: number,
+  write: (expectedVersion: number) => Promise<unknown>
+): Promise<void> {
+  let expectedVersion = initialVersion
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await write(expectedVersion)
+      return
+    } catch (error) {
+      const typed = (error as { error?: DevError } | null)?.error
+      if (attempt === 0 && typed?.code === 'stale_version' && typed.currentVersion !== undefined) {
+        expectedVersion = typed.currentVersion
+        continue
+      }
+      throw error
+    }
+  }
+}
 
 /** The message of a typed failure thrown as a failed reply, else a generic one. */
 function failureMessage(error: unknown, fallback: string): string {
@@ -126,6 +152,16 @@ export function HarnessStatusSection(props: HarnessStatusSectionProps) {
         snapshot && sameDevUtilityScope(snapshot.scope, fence.context.scope) ? snapshot : undefined,
     }
   })
+  const [deviceDefault] = createResource(refetchKey, async ({ key }) => {
+    const fence = fences.capture('session')
+    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
+    const value = await readDevUtilityCommand<HarnessDeviceDefault>(
+      fence,
+      'dev.harness.deviceDefault',
+      {}
+    )
+    return { contextKey: key, value }
+  })
   const [managedPi] = createResource(contextKey, async (key) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
@@ -150,10 +186,21 @@ export function HarnessStatusSection(props: HarnessStatusSectionProps) {
       : []
   const currentManagedPi = () =>
     managedPi()?.contextKey === contextKey() ? managedPi()?.status : undefined
+  const currentDeviceDefault = (): HarnessDeviceDefault | undefined =>
+    deviceDefault()?.contextKey === contextKey() ? deviceDefault()?.value : undefined
   const inventoryRows = createMemo(() =>
     buildHarnessInventoryRows({
       inventory: inventory()?.contextKey === contextKey() ? inventory()?.snapshot : undefined,
       preferences: currentPreferences(),
+      managedPi: currentManagedPi(),
+      deviceDefaultFamily: currentDeviceDefault()?.family,
+    })
+  )
+  const defaultSummary = createMemo(() =>
+    summarizeHarnessDefault({
+      rows: inventoryRows(),
+      preferences: currentPreferences(),
+      deviceDefaultFamily: currentDeviceDefault()?.family,
       managedPi: currentManagedPi(),
     })
   )
@@ -182,35 +229,47 @@ export function HarnessStatusSection(props: HarnessStatusSectionProps) {
       await executeDevUtilityCommand(fence, 'dev.harness.inventoryRefresh', {})
     })
 
-  const makeDefault = (installationId: string) =>
+  const workspaceChoice = (installationId: string) =>
+    currentPreferences().find(
+      (preference) =>
+        preference.harnessInstallationId === installationId &&
+        preference.projectId === undefined &&
+        preference.rootDefault !== true
+    )
+
+  const makeDeviceDefault = (row: HarnessInventoryRow) =>
     perform(async (fence) => {
-      const existing = currentPreferences().find(
-        (preference) =>
-          preference.harnessInstallationId === installationId && preference.projectId === undefined
+      await fenced(currentDeviceDefault()?.version ?? 0, (expectedVersion) =>
+        executeDevUtilityCommand(fence, 'dev.harness.deviceDefaultUpdate', {
+          family: row.family,
+          expectedVersion,
+        })
       )
-      let expectedVersion = existing?.version ?? 0
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          await executeDevUtilityCommand(fence, 'dev.harness.preferenceUpdate', {
-            installationId,
-            expectedVersion,
-            patch: { default: true },
-          })
-          return
-        } catch (error) {
-          const typed = (error as { error?: DevError } | null)?.error
-          // Another writer moved the preference on: retry once at its version.
-          if (
-            attempt === 0 &&
-            typed?.code === 'stale_version' &&
-            typed.currentVersion !== undefined
-          ) {
-            expectedVersion = typed.currentVersion
-            continue
-          }
-          throw error
-        }
-      }
+    })
+
+  const useInWorkspace = (row: HarnessInventoryRow) =>
+    perform(async (fence) => {
+      await fenced(workspaceChoice(row.installationId)?.version ?? 0, (expectedVersion) =>
+        executeDevUtilityCommand(fence, 'dev.harness.preferenceUpdate', {
+          installationId: row.installationId,
+          expectedVersion,
+          patch: { default: true },
+        })
+      )
+    })
+
+  const useDeviceDefault = () =>
+    perform(async (fence) => {
+      const override = inventoryRows().find((row) => row.isWorkspaceDefault)
+      const choice = override ? workspaceChoice(override.installationId) : undefined
+      if (!override || !choice) return
+      await fenced(choice.version, (expectedVersion) =>
+        executeDevUtilityCommand(fence, 'dev.harness.preferenceUpdate', {
+          installationId: override.installationId,
+          expectedVersion,
+          patch: { default: false },
+        })
+      )
     })
 
   return (
@@ -241,7 +300,10 @@ export function HarnessStatusSection(props: HarnessStatusSectionProps) {
           inventoryRows={inventoryRows()}
           busy={busy()}
           {...(actionError() !== undefined ? { actionError: actionError() } : {})}
-          onMakeDefault={(installationId) => void makeDefault(installationId)}
+          defaultSummary={defaultSummary()}
+          onMakeDeviceDefault={(row) => void makeDeviceDefault(row)}
+          onUseInWorkspace={(row) => void useInWorkspace(row)}
+          onUseDeviceDefault={() => void useDeviceDefault()}
           onRescan={() => void rescan()}
         />
       </Show>
