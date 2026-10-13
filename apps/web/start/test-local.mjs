@@ -9,7 +9,12 @@ import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { writeLocalWorkerConfig } from './local-worker-config.mjs'
-import { captureCommand, runWithPullBackoff } from '../../../scripts/docker-pull-backoff.mjs'
+import {
+  captureCommand,
+  composePostgresImage,
+  runWithPullFallback,
+  withComposeImage,
+} from '../../../scripts/docker-pull-backoff.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -72,12 +77,15 @@ async function composeUpPostgres() {
     '60',
     'postgres',
   ]
-  const result = await runWithPullBackoff(async () => {
-    const attempt = await captureCommand('docker', args, { cwd: root, env: databaseEnvironment })
+  const result = await runWithPullFallback(async (image) => {
+    const attempt = await captureCommand('docker', args, {
+      cwd: root,
+      env: withComposeImage(databaseEnvironment, image),
+    })
     if (attempt.stdout) process.stdout.write(attempt.stdout)
     if (attempt.stderr) process.stderr.write(attempt.stderr)
     return attempt
-  })
+  }, composePostgresImage(root))
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`docker ${args.join(' ')} exited ${String(result.status)}`)
