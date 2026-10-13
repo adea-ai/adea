@@ -544,6 +544,76 @@ describe('harness preferences and the root default (#400)', () => {
     }
   }, 60_000)
 
+  test('a stored workspace default outlives its installation and can still be cleared', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({ seedAcpInstallation: { id: installationId } })
+    try {
+      const channel = await shell.openChannel()
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      // The installation disappears (uninstalled, or lost in a rescan).
+      writeFileSync(
+        join(shell.dataDir, 'dev-runtime', 'discovery', 'inventory.json'),
+        JSON.stringify({ schemaVersion: 1, savedAt: new Date().toISOString(), records: [] })
+      )
+      // It cannot be made the default again, and an unknown id still refuses.
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId,
+              expectedVersion: 1,
+              patch: { default: true },
+            })
+          )
+        )
+      ).toBe('not_found')
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId: randomUUID(),
+              expectedVersion: 0,
+              patch: { default: false },
+            })
+          )
+        )
+      ).toBe('not_found')
+      // The stored default is still listed, and clearing it is accepted.
+      const listed = okValue(
+        await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {}))
+      )
+      expect(
+        (listed.items as Array<Record<string, unknown>>).some(
+          (item) => item.harnessInstallationId === installationId && item.default === true
+        )
+      ).toBe(true)
+      const cleared = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 1,
+            patch: { default: false },
+          })
+        )
+      )
+      expect(cleared).toMatchObject({
+        harnessInstallationId: installationId,
+        default: false,
+        version: 2,
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   test('a workspace-chosen non-Pi default launches with managed Pi absent and never bootstraps it', async () => {
     const installationId = randomUUID()
     let bootstrapCalls = 0

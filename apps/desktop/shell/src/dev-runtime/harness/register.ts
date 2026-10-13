@@ -1227,9 +1227,6 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       // once ready, or a discovered inventory entry. Credential values do not
       // exist in the model, so nothing secret can be persisted here.
       const resolution = resolveInstallation(installationId)
-      if (!resolution) {
-        throw devError('not_found', 'harness installation is not registered on this runtime node')
-      }
       const stored = preferences
         .stored()
         .find(
@@ -1237,6 +1234,12 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
             record.harnessInstallationId === installationId &&
             (record.projectId ?? undefined) === projectId
         )
+      // A stored preference outlives its installation (uninstalled, or lost in
+      // a rescan). It stays addressable so the user can clear or disable it;
+      // only making a missing installation the default is refused.
+      if (!resolution && !(stored && patch.default !== true)) {
+        throw devError('not_found', 'harness installation is not registered on this runtime node')
+      }
       if (stored && stored.version !== expectedVersion) {
         throw {
           code: 'stale_version',
