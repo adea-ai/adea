@@ -25,6 +25,7 @@ import {
   workspaceMemberships,
   workspaces,
 } from './schema'
+import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { leadTurnIntents } from './schema/lead-turns'
 
 type Database = AgentHqDatabase | AgentHqTransaction
@@ -387,19 +388,35 @@ export async function createLeadTurn(
         keyed.intent.handoffTargetGeneration !== (handoffTarget?.expectedGeneration ?? null))
     )
       throw new Error('Lead turn target mismatch')
-    // Canonical recovery before another admission: a retained intent for the
-    // exact target context dedupes reload/eviction retries without any
-    // client-held request identity. The COMPLETE retained target must match:
-    // same session and generation but a different task is a contradictory
-    // claim about one context and fails closed. A different generation
-    // mints anew (ordering, never ground truth: the session host alone
-    // knows current generation, and display currency is decided where the
-    // live generation is known). Serialization note: createLeadTurn is the
-    // sole inserter and holds the channel FOR UPDATE lock (lockAuthority)
-    // before any insert, so concurrent same-target admissions serialize and
-    // the loser always finds the winner here; the partial unique target
-    // index below is the backstop, not a path with its own recovery.
+    let targetAttempt = 1
     if (handoffTarget) {
+      // A replay of a retained key returns that exact admission, current or historical: a key
+      // never reaches a successor created under another key.
+      if (keyed?.intent) {
+        assertPinned(keyed.intent, authority)
+        assertSameModelSelections(keyed.intent, requestedModelSelections)
+        return {
+          message: await requireIntentMessage(tx, workspaceId, keyed.intent),
+          leadTurn: receipt(keyed.intent),
+        }
+      }
+      // Canonical recovery before another admission: the newest retained intent for the exact
+      // target context dedupes reload/eviction retries without any client-held request
+      // identity. The COMPLETE retained target must match: same session and generation but a
+      // different task is a contradictory claim about one context and fails closed, whatever
+      // the runtime has done since. A different generation mints anew (ordering, never ground
+      // truth: the session host alone knows current generation, and display currency is decided
+      // where the live generation is known).
+      //
+      // The same context admits a successor only after the newest admission's runtime has
+      // completed or failed, since only then is nothing left in flight that a second request
+      // could duplicate. A running, unknown or cancelling runtime, and an admission whose runtime
+      // has not been observed yet, recover the retained request instead.
+      //
+      // Serialization note: createLeadTurn is the sole inserter and holds the channel FOR UPDATE
+      // lock (lockAuthority) before any insert, so concurrent same-target admissions serialize
+      // and the loser always finds the winner here; the partial unique target index below is the
+      // backstop, not a path with its own recovery.
       const retained = await findTargetIntent(
         tx,
         workspaceId,
@@ -411,20 +428,14 @@ export async function createLeadTurn(
         assertPinned(retained, authority)
         if (retained.handoffTargetTaskId !== handoffTarget.taskId)
           throw new Error('Lead turn target mismatch')
-        // Explicit choices are identity too: a changed selection must hit
-        // the same conflict the message-idempotency path reports, never a
-        // silent return of the old receipt.
-        if (
-          !sameRequestedRoleModelSelections(
-            retained.requestedModelSelections ?? undefined,
-            requestedModelSelections
-          )
-        )
-          throw new Error('Lead turn model selection conflict')
-        return {
-          message: await requireIntentMessage(tx, workspaceId, retained),
-          leadTurn: receipt(retained),
+        if (!(await runtimeSettled(tx, retained.id))) {
+          assertSameModelSelections(retained, requestedModelSelections)
+          return {
+            message: await requireIntentMessage(tx, workspaceId, retained),
+            leadTurn: receipt(retained),
+          }
         }
+        targetAttempt = (retained.handoffTargetAttempt ?? 1) + 1
       }
     }
     const message = await createMessageInGroupFence(tx, workspaceId, channelId, principal, {
@@ -470,6 +481,7 @@ export async function createLeadTurn(
               handoffTargetSessionId: handoffTarget.runtimeSessionId,
               handoffTargetGeneration: handoffTarget.expectedGeneration,
               handoffTargetTaskId: handoffTarget.taskId,
+              handoffTargetAttempt: targetAttempt,
             }
           : {}),
         messageId: message.id,
@@ -487,9 +499,8 @@ export async function createLeadTurn(
   })
 }
 
-/** Retained intent for one complete target context, if any. At most one row
- *  can match: the partial unique target index enforces a single intent per
- *  (workspace, channel, session, generation). */
+/** Newest retained intent for one complete target context, if any. The partial unique target
+ *  index allows one intent per (workspace, channel, session, generation, attempt). */
 async function findTargetIntent(
   tx: AgentHqTransaction,
   workspaceId: string,
@@ -510,8 +521,28 @@ async function findTargetIntent(
         isNull(messages.deletedAt)
       )
     )
+    .orderBy(desc(leadTurnIntents.handoffTargetAttempt))
     .limit(1)
   return retained?.intent
+}
+
+/** Whether the intent's runtime has finished for good: completed or failed. */
+async function runtimeSettled(tx: AgentHqTransaction, intentId: string): Promise<boolean> {
+  const [runtime] = await tx
+    .select({ state: leadTurnRuntime.state })
+    .from(leadTurnRuntime)
+    .where(eq(leadTurnRuntime.intentId, intentId))
+  return runtime?.state === 'completed' || runtime?.state === 'failed'
+}
+
+/** Explicit choices are identity too: a changed selection must hit the same conflict the
+ *  message-idempotency path reports, never a silent return of the old receipt. */
+function assertSameModelSelections(
+  intent: Intent,
+  requested: RequestedRoleModelSelections | undefined
+) {
+  if (!sameRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined, requested))
+    throw new Error('Lead turn model selection conflict')
 }
 
 /** Latest retained intent for one exact target session, newest generation first. */

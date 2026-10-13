@@ -1,5 +1,5 @@
 {
-  "id": "361c27aa-c5bc-4c9e-a79c-425d196788c9",
+  "id": "d3d6dcb4-79df-41a8-b462-b8ad46622768",
   "prevId": "ff5cf6a6-763c-4ba3-b279-f6685531beb0",
   "version": "7",
   "dialect": "postgresql",
@@ -3654,6 +3654,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "handoff_target_attempt": {
+          "name": "handoff_target_attempt",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "dispatch_key": {
           "name": "dispatch_key",
           "type": "text",
@@ -3734,6 +3740,12 @@
             },
             {
               "expression": "handoff_target_generation",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "handoff_target_attempt",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3835,7 +3847,7 @@
         },
         "lead_turn_intents_handoff_target_valid": {
           "name": "lead_turn_intents_handoff_target_valid",
-          "value": "(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is null) or (\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null and length(btrim(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\")) between 1 and 256 and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" >= 0 and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is not null)"
+          "value": "(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is null and \"app\".\"lead_turn_intents\".\"handoff_target_attempt\" is null) or (\"app\".\"lead_turn_intents\".\"handoff_target_session_id\" is not null and length(btrim(\"app\".\"lead_turn_intents\".\"handoff_target_session_id\")) between 1 and 256 and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_generation\" >= 0 and \"app\".\"lead_turn_intents\".\"handoff_target_task_id\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_attempt\" is not null and \"app\".\"lead_turn_intents\".\"handoff_target_attempt\" >= 1)"
         },
         "lead_turn_intents_blocked_only": {
           "name": "lead_turn_intents_blocked_only",

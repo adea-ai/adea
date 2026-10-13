@@ -564,7 +564,7 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     })
   }
 
-  // Test-only acceptance for the pending successor design. Adapter observations below are
+  // Acceptance for the same-generation terminal successor. Adapter observations below are
   // synthetic fixtures, never evidence of CP935 target-bound effects or session authority.
   async function observeFixtureRuntime(
     f: Awaited<ReturnType<typeof fixture>>,
@@ -661,7 +661,7 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
   }
 
   for (const state of ['completed', 'failed'] as const) {
-    test(`[EXPECTED RED: successor acceptance] fresh ${state} request creates a successor and retains predecessor history`, async () => {
+    test(`fresh ${state} request creates a successor and retains predecessor history`, async () => {
       const f = await fixture()
       const predecessor = await f.admit('terminal-target', 3)
       await observeFixtureRuntime(f, predecessor.leadTurn.intentId, state)
@@ -683,7 +683,7 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       ).toMatchObject({ intentId: successor.leadTurn.intentId })
     })
 
-    test(`[EXPECTED RED: successor acceptance] historical same-key replay after ${state} successor returns the predecessor`, async () => {
+    test(`historical same-key replay after ${state} successor returns the predecessor`, async () => {
       const f = await fixture()
       const key = crypto.randomUUID()
       const predecessor = await f.admit('terminal-target', 3, f.topic.id, { idempotencyKey: key })
@@ -717,7 +717,7 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
       ).toMatchObject({ intentId: successor.leadTurn.intentId })
     })
 
-    test(`[EXPECTED RED: successor acceptance] concurrent fresh ${state} requests converge on one successor`, async () => {
+    test(`concurrent fresh ${state} requests converge on one successor`, async () => {
       const f = await fixture()
       const predecessor = await f.admit('terminal-target', 3)
       await observeFixtureRuntime(f, predecessor.leadTurn.intentId, state)

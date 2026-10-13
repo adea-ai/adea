@@ -123,6 +123,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       WHERE table_schema = 'app' AND table_name = 'lead_turn_intents'
         AND column_name LIKE 'handoff%' ORDER BY 1`)
       expect(columns.map((row) => row.column_name as string)).toEqual([
+        'handoff_target_attempt',
         'handoff_target_generation',
         'handoff_target_session_id',
         'handoff_target_task_id',
