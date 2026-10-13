@@ -35,6 +35,7 @@ import {
   contentReplicas,
   groupAdmissions,
   groupAudienceGrants,
+  groupSharingGrants,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -839,6 +840,57 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     })
     expect(after.content.channels.map((channel) => channel.channelId)).not.toContain(groupId)
     expect(JSON.stringify(after)).not.toContain(canary.privateText)
+  })
+
+  test('a group whose authorization records exceed the export bound is refused as too large', async () => {
+    const fixture = await seed('group-records-bound')
+    const groupId = fixture.channels.privateGroup.id
+    await db.execute(sql`
+      insert into app.group_sharing_grants
+        (workspace_id, channel_id, grant_id, revision, principal_kind, user_id, scope, issued_at)
+      select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'bound-' || n, 1, 'user',
+        ${fixture.member.principal.userId}::uuid, 'earlier_history', ${new Date().toISOString()}
+      from generate_series(1, ${PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1}) as n
+    `)
+    expect(
+      await exportOutcome(
+        exportPortableWorkspace(db, {
+          principal: fixture.owner.principal,
+          workspaceId: fixture.workspaceId,
+        })
+      )
+    ).toBe('too_large')
+    // The records stay stored. Removing the excess serves the same export.
+    await db.delete(groupSharingGrants).where(eq(groupSharingGrants.channelId, groupId))
+    const exported = await exportPortableWorkspace(db, {
+      principal: fixture.owner.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    expect(exported.content.channels.map((channel) => channel.channelId)).toContain(groupId)
+  })
+
+  test('a group whose authorization records outgrow the bound before the final proof is refused as too large', async () => {
+    const fixture = await seed('group-records-growth')
+    const groupId = fixture.channels.privateGroup.id
+    const outcome = await exportOutcome(
+      exportPortableWorkspace(db, {
+        hooks: {
+          beforeStep: async ({ name }) => {
+            if (name !== 'final') return
+            await db.execute(sql`
+              insert into app.group_sharing_grants
+                (workspace_id, channel_id, grant_id, revision, principal_kind, user_id, scope, issued_at)
+              select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'growth-' || n, 1, 'user',
+                ${fixture.member.principal.userId}::uuid, 'earlier_history', ${new Date().toISOString()}
+              from generate_series(1, ${PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1}) as n
+            `)
+          },
+        },
+        principal: fixture.owner.principal,
+        workspaceId: fixture.workspaceId,
+      })
+    )
+    expect(outcome).toBe('too_large')
   })
 
   test('no export carries credentials, ciphertext, artifact locators, deleted text or invitations', async () => {

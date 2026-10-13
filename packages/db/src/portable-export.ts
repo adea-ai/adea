@@ -255,9 +255,15 @@ async function readVisibleMessages(
       await assertAccess(transaction, workspaceId, principal, start)
       const page = await listMessagesForUser(transaction, workspaceId, channel.id, principal, {
         afterSequence,
+        authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
         limit: MESSAGE_PAGE,
       }).catch(async (error: unknown) => {
         await assertStanding(transaction, workspaceId, principal, start)
+        if (error instanceof ChannelParticipantOverflowError)
+          throw new PortableExportError(
+            'too_large',
+            'group authorization records exceed the portable bound'
+          )
         throw error
       })
       for (const message of page.messages) {
@@ -972,6 +978,16 @@ export async function exportPortableWorkspace(
   }, PORTABLE_EXPORT_PROOF_TRANSACTION_CONFIG)
 }
 
+/** The final proof refuses an oversized group the way the page reads do, never as a raw error. */
+function rethrowOverflowAsTooLarge(error: unknown): never {
+  if (error instanceof ChannelParticipantOverflowError)
+    throw new PortableExportError(
+      'too_large',
+      'group authorization records exceed the portable bound'
+    )
+  throw error
+}
+
 /** No buffered record is emitted solely on the authority of an earlier page snapshot. */
 async function proveRetainedRecords(
   snapshot: AgentHqTransaction,
@@ -990,7 +1006,7 @@ async function proveRetainedRecords(
         channelIds: ids,
         limit: ids.length,
         after,
-      })
+      }).catch(rethrowOverflowAsTooLarge)
       for (const channel of page.channels) {
         if (JSON.stringify(channel) !== JSON.stringify(expectedChannels.get(channel.id)))
           denyRetainedExport()
@@ -1052,8 +1068,9 @@ async function proveRetainedRecords(
         workspaceId,
         channelId,
         principal,
-        expected.map((message) => message.id)
-      )
+        expected.map((message) => message.id),
+        { authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS }
+      ).catch(rethrowOverflowAsTooLarge)
       const byId = new Map(current.map((message) => [message.id, message]))
       for (const message of expected) {
         if (JSON.stringify(message) !== JSON.stringify(byId.get(message.id))) denyRetainedExport()

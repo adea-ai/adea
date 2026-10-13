@@ -44,6 +44,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  groupSharingGrants,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -1877,6 +1878,7 @@ export function listMessagesForUser(
   principal: UserPrincipalRef,
   options: Readonly<{
     afterSequence?: number
+    authorizationRecordLimit?: number
     limit?: number
     now?: string
     threadRootMessageId?: string
@@ -1887,6 +1889,32 @@ export function listMessagesForUser(
   )
 }
 
+/**
+ * Refuse a group whose authorization records exceed `limit` per family, before the roster and
+ * sharing history are materialized. The records are never truncated: an authorization decision
+ * made from part of them could allow what the whole forbids.
+ */
+async function assertGroupAuthorizationBound(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  limit: number
+): Promise<void> {
+  for (const table of [
+    groupAdmissions,
+    groupAudienceGrants,
+    groupEnlistmentGrants,
+    groupSharingGrants,
+  ]) {
+    const rows = await database
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.workspaceId, workspaceId), eq(table.channelId, channelId)))
+      .limit(limit + 1)
+    if (rows.length > limit) throw new ChannelParticipantOverflowError()
+  }
+}
+
 /** Keep visible group history, require visible roots for thread replies, and redact hidden refs. */
 async function projectGroupHistoryVisibleRows(
   database: Database,
@@ -1894,9 +1922,12 @@ async function projectGroupHistoryVisibleRows(
   channelId: string,
   principal: UserPrincipalRef,
   rows: readonly MessageRow[],
-  now: string
+  now: string,
+  authorizationRecordLimit?: number
 ): Promise<MessageRow[]> {
   if (!rows.length) return []
+  if (authorizationRecordLimit !== undefined)
+    await assertGroupAuthorizationBound(database, workspaceId, channelId, authorizationRecordLimit)
   const [roster, sharingGrants] = await Promise.all([
     loadGroupRoster(database, workspaceId, channelId),
     loadGroupSharingGrants(database, workspaceId, channelId),
@@ -1976,6 +2007,7 @@ async function listMessagesForUserInSnapshot(
   principal: UserPrincipalRef,
   options: Readonly<{
     afterSequence?: number
+    authorizationRecordLimit?: number
     limit?: number
     now?: string
     threadRootMessageId?: string
@@ -2009,7 +2041,8 @@ async function listMessagesForUserInSnapshot(
     channel,
     principal,
     page,
-    options.now
+    options.now,
+    options.authorizationRecordLimit
   )
   return Object.freeze({
     messages: Object.freeze(summaries),
@@ -2024,7 +2057,8 @@ async function projectMessageRowsForUser(
   channel: ChannelRow,
   principal: UserPrincipalRef,
   page: readonly MessageRow[],
-  now?: string
+  now?: string,
+  authorizationRecordLimit?: number
 ): Promise<MessageSummary[]> {
   const jobVisibleRows = await filterVisibleMessageRows(database, page, principal.userId)
   const visibleRows =
@@ -2035,7 +2069,8 @@ async function projectMessageRowsForUser(
           channel.id,
           principal,
           jobVisibleRows,
-          now ?? new Date().toISOString()
+          now ?? new Date().toISOString(),
+          authorizationRecordLimit
         )
       : jobVisibleRows
   const reads = await readMessageChildReads(
@@ -2055,7 +2090,8 @@ export function readMessagesForUserIds(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  ids: readonly string[]
+  ids: readonly string[],
+  options: Readonly<{ authorizationRecordLimit?: number }> = {}
 ): Promise<readonly MessageSummary[]> {
   if (ids.length > 100 || new Set(ids).size !== ids.length)
     throw new RangeError('message proof batch must contain at most 100 distinct IDs')
@@ -2075,7 +2111,15 @@ export function readMessagesForUserIds(
       )
       .orderBy(asc(messages.sequence))
       .limit(ids.length)
-    return projectMessageRowsForUser(snapshot, workspaceId, channel, principal, rows)
+    return projectMessageRowsForUser(
+      snapshot,
+      workspaceId,
+      channel,
+      principal,
+      rows,
+      undefined,
+      options.authorizationRecordLimit
+    )
   })
 }
 

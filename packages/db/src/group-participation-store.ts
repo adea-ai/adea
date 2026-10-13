@@ -232,11 +232,19 @@ async function selectGrants(
         eq(groupEnlistmentGrants.channelId, channelId)
       )
     )
-  const [audienceRows, enlistmentRows, agentHomes] = await Promise.all([
+  const [audienceRows, enlistmentRows] = await Promise.all([
     forUpdate ? audienceQuery.for('update') : audienceQuery,
     forUpdate ? enlistmentQuery.for('update') : enlistmentQuery,
-    database.select({ agentId: agents.id, workspaceId: agents.workspaceId }).from(agents),
   ])
+  // Resolve only the Agents these grants name: the registry is global, and the roster of one
+  // group must not scale with every Agent that exists.
+  const enlistedAgentIds = [...new Set(enlistmentRows.map((row) => row.agentId))]
+  const agentHomes = enlistedAgentIds.length
+    ? await database
+        .select({ agentId: agents.id, workspaceId: agents.workspaceId })
+        .from(agents)
+        .where(inArray(agents.id, enlistedAgentIds))
+    : []
   const homeWorkspaceByAgent = new Map(agentHomes.map((row) => [row.agentId, row.workspaceId]))
   return {
     audience: audienceRows.map((row) => audienceGrantFromRow(channelId, row)),
