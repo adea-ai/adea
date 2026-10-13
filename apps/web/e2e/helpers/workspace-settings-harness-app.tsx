@@ -185,6 +185,7 @@ function Harness() {
       sortOrder,
     }))
   let reorderCalls = 0
+  let openCalls = 0
   let deleteCalls = 0
   const workspaceDialog = workspaceSettingsSectionFromHash(window.location.hash) !== undefined
   // A versioned in-memory workspace store: a stale version is refused the way
@@ -257,9 +258,16 @@ function Harness() {
             client={client()}
             onClose={() => setOpen(false)}
             workspaceOrder={workspaceOrder()}
-            onOpenWorkspace={(id) =>
-              document.querySelector('#harness-root')!.setAttribute('data-opened-workspace', id)
-            }
+            onOpenWorkspace={async (id) => {
+              const root = document.querySelector('#harness-root')!
+              openCalls += 1
+              root.setAttribute('data-open-calls', String(openCalls))
+              await new Promise((resolve) => setTimeout(resolve, 100))
+              // A staged failure covers the first attempt only, so the retry is reachable.
+              if (root.hasAttribute('data-open-failure') && openCalls === 1) return false
+              root.setAttribute('data-opened-workspace', id)
+              return true
+            }}
             onReorderWorkspaces={async (ids) => {
               reorderCalls += 1
               const root = document.querySelector('#harness-root')!

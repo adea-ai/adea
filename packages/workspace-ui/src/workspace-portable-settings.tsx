@@ -16,8 +16,11 @@ import {
   type PortableFailure,
   type PortableFileSummary,
   portableCountLabels,
+  OPEN_RESTORED_FAILURE,
   PORTABLE_MAX_BYTES,
+  type PortableFileReading,
   readPortableFile,
+  type RejectedFileReason,
   rejectedFileFailure,
   restoreFailure,
   savePortableFile,
@@ -49,7 +52,7 @@ const NOT_INCLUDED = [
 const RESTORE_EFFECTS = [
   'You become the owner. Members and roles are not restored; invite people afterwards.',
   'Everyone named in the file needs an account here already.',
-  'Group conversations admit you and the person who exported it, so you both read the restored history. Anyone else joins after it.',
+  'Group conversations keep the people who were in them when the file was exported. If you weren’t one of them, you won’t see that history automatically.',
   'If this workspace already exists here, nothing is restored and nothing changes.',
 ] as const
 
@@ -206,6 +209,7 @@ export function WorkspaceExportSettings(props: {
 
 type RestoreState =
   | Readonly<{ kind: 'idle' }>
+  | Readonly<{ fileName: string; kind: 'reading' }>
   | Readonly<{ failure: PortableFailure; kind: 'rejected' }>
   | Readonly<{
       bytes: number
@@ -225,19 +229,32 @@ type RestoreState =
 export function WorkspaceRestoreSettings(props: {
   client: AgentHqApiClient
   /** Takes the user into the restored workspace; without it the result offers only Done. */
-  onOpenWorkspace?: (workspaceId: string) => void
+  onOpenWorkspace?: (workspaceId: string) => Promise<boolean>
 }) {
   const importPortable = useImportPortableWorkspaceMutation(props.client)
   const [state, setState] = createSignal<RestoreState>({ kind: 'idle' })
   const [picker, setPicker] = createSignal<HTMLInputElement>()
+  const [opening, setOpening] = createSignal(false)
+  const [openFailure, setOpenFailure] = createSignal(false)
+  // Bumped whenever a read starts or is cancelled, so a read that finishes late is dropped
+  // instead of replacing the file the person chose after it or the Cancel they pressed.
+  let readToken = 0
 
   async function choose(file: File | undefined) {
-    if (!file) return
-    // The size is checked before the file is read, so an oversized file never loads into memory.
-    const reading =
-      file.size > PORTABLE_MAX_BYTES
-        ? ({ ok: false, reason: 'too_large' } as const)
-        : readPortableFile(await file.text(), file.size)
+    if (!file || state().kind === 'restoring') return
+    const token = ++readToken
+    setState({ fileName: file.name, kind: 'reading' })
+    let reading: PortableFileReading | { ok: false; reason: RejectedFileReason }
+    try {
+      // The size is checked before the file is read, so an oversized file never loads into memory.
+      reading =
+        file.size > PORTABLE_MAX_BYTES
+          ? { ok: false, reason: 'too_large' }
+          : readPortableFile(await file.text(), file.size)
+    } catch {
+      reading = { ok: false, reason: 'unreadable' }
+    }
+    if (token !== readToken) return
     if (!reading.ok) setState({ failure: rejectedFileFailure(reading.reason), kind: 'rejected' })
     else
       setState({
@@ -249,13 +266,34 @@ export function WorkspaceRestoreSettings(props: {
       })
   }
 
+  function cancelReading() {
+    readToken += 1
+    setState({ kind: 'idle' })
+  }
+
+  async function open(workspaceId: string, onOpen: (workspaceId: string) => Promise<boolean>) {
+    if (opening()) return
+    setOpening(true)
+    setOpenFailure(false)
+    try {
+      // On success the dialog closes and this row goes away with it.
+      if (!(await onOpen(workspaceId))) setOpenFailure(true)
+    } catch {
+      setOpenFailure(true)
+    } finally {
+      setOpening(false)
+    }
+  }
+
   async function restore() {
     const current = state()
     if ((current.kind !== 'review' && current.kind !== 'restoring') || importPortable.isPending)
       return
+    readToken += 1
     setState({ ...current, failure: undefined, kind: 'restoring' })
     try {
       const result = await importPortable.mutateAsync(current.text)
+      setOpenFailure(false)
       setState({ kind: 'done', result, workspaceName: current.summary.workspaceName })
     } catch (failure) {
       setState({ ...current, failure: restoreFailure(failure), kind: 'review' })
@@ -269,6 +307,10 @@ export function WorkspaceRestoreSettings(props: {
   const finished = () => {
     const current = state()
     return current.kind === 'done' ? current : undefined
+  }
+  const reading = () => {
+    const current = state()
+    return current.kind === 'reading' ? current : undefined
   }
   const rejected = () => {
     const current = state()
@@ -293,7 +335,7 @@ export function WorkspaceRestoreSettings(props: {
         }}
       />
       <Show
-        when={reviewing() ?? finished()}
+        when={reviewing() ?? finished() ?? reading()}
         fallback={
           <SettingsRow label="Restore from export" description={RESTORE_DESCRIPTION}>
             <div class="flex flex-col gap-2">
@@ -315,6 +357,27 @@ export function WorkspaceRestoreSettings(props: {
           description={RESTORE_DESCRIPTION}
           orientation="vertical"
         >
+          <Show when={reading()}>
+            {(current) => (
+              <>
+                <div
+                  role="status"
+                  class="border-border bg-card flex items-center gap-3 rounded-lg border px-3 py-2"
+                >
+                  <FileText aria-hidden="true" class="text-muted-foreground flex-none" />
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate font-medium">{current().fileName}</span>
+                    <span class="text-muted-foreground text-xs">Reading file…</span>
+                  </div>
+                </div>
+                <div>
+                  <Button variant="outline" onClick={cancelReading}>
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            )}
+          </Show>
           <Show when={reviewing()}>
             {(current) => (
               <>
@@ -393,11 +456,18 @@ export function WorkspaceRestoreSettings(props: {
                   label="Not restored"
                   items={NOT_RESTORED}
                 />
+                <Show when={openFailure()}>
+                  <FailureAlert failure={OPEN_RESTORED_FAILURE} />
+                </Show>
                 <div class="flex items-center gap-2">
                   <Show when={props.onOpenWorkspace}>
-                    {(open) => (
-                      <Button onClick={() => open()(current().result.workspaceId)}>
-                        Open workspace
+                    {(onOpen) => (
+                      <Button
+                        disabled={opening()}
+                        aria-busy={opening()}
+                        onClick={() => void open(current().result.workspaceId, onOpen())}
+                      >
+                        {opening() ? 'Opening…' : 'Open workspace'}
                       </Button>
                     )}
                   </Show>
