@@ -255,4 +255,32 @@ describe.skipIf(!databaseUrl)('canonical foreign source product', () => {
     await expect(read).rejects.toThrow('Lead turn unavailable')
     expect(disclosed).toBe(false)
   })
+  test('audience expiry during delayed final service verification denies the returned product', async () => {
+    const f = await fixture()
+    const expiresAt = new Date(Date.now() + 800).toISOString()
+    await connection.db
+      .update(groupAudienceGrants)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(groupAudienceGrants.workspaceId, f.host.id),
+          eq(groupAudienceGrants.channelId, f.channelId),
+          eq(groupAudienceGrants.userId, f.actor.principal.userId)
+        )
+      )
+    let verificationEntered = false
+    const read = withCurrentSourceLeadTurnProduct(
+      connection.db,
+      f.source.controlPlaneWorkspaceId,
+      f.admitted.leadTurn.intentId,
+      async (product) => {
+        verificationEntered = true
+        expect(Date.now()).toBeLessThan(Date.parse(expiresAt))
+        await Bun.sleep(Math.max(0, Date.parse(expiresAt) - Date.now()) + 20)
+        return product
+      }
+    )
+    await expect(read).rejects.toThrow('Lead turn unavailable')
+    expect(verificationEntered).toBe(true)
+  })
 })

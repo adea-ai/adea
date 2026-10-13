@@ -196,3 +196,12 @@ shared schemas. They create no authority or publication effect and are not wired
 to HTTP, the shared guarded reader or existing runtime/preparation/publication
 routes. Source-authorized destination configuration, production combined fences,
 delivery integration and disposable physical tool-effect proof remain outstanding.
+
+The consumer test now uses an in-repository byte-for-byte contract fixture pinned
+to CP `6c296fbe561b755bda0fa87f7e1a05ab451bc2f7`, with provenance hashes and a
+separate frozen Zod 4.6.5 lockfile. Normal web tests run its explicit setup;
+direct invocations require `bun scripts/setup-source-contract-tests.mjs` first.
+No sibling checkout, schema fallback, package publication or silent skip is used.
+Publication tests cover exactly-now expiry, over 30 seconds, the original intent
+deadline and delayed final verification; PostgreSQL also covers grant expiry
+during an awaited final service verification callback.

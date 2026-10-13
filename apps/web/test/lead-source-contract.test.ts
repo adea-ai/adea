@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { CurrentSourceLeadTurnProduct } from '@adea-ai/db'
 import { createHash } from 'node:crypto'
+import { verifySourceContractFixture } from '../../../scripts/setup-source-contract-tests.mjs'
 import {
   sourceLeadProductSnapshot,
   isSourceLeadPublicationCurrent,
@@ -8,7 +9,8 @@ import {
 
 // Cross-check the actual candidate shared schemas; never substitute a local
 // handwritten validator. This is a consumer contract test, not a deployed SDK.
-const contracts = await import('../../../../control-plane/packages/contracts/src/index.ts')
+verifySourceContractFixture()
+const contracts = await import('./fixtures/source-contracts/.runtime/index.ts')
 const now = Date.UTC(2026, 9, 13, 12)
 const id = (kind: string, char: string) => `${kind}_${char.repeat(26)}`
 const product: CurrentSourceLeadTurnProduct = {
@@ -161,5 +163,47 @@ test('changed host audience/enlistment, source profile, intent lifetime or sessi
       'Exact source answer\n',
       { contracts, lifetimeMs: 300_000, now }
     )
+  ).toBe(false)
+})
+test.each([0, 30_001])('publication expiring at now + %d milliseconds is withheld', (offset) => {
+  const value = proof()
+  value.publication.expiresAt = new Date(now + offset).toISOString()
+  expect(
+    isSourceLeadPublicationCurrent(product, pins, value, 'Exact source answer\n', {
+      contracts,
+      lifetimeMs: 300_000,
+      now,
+    })
+  ).toBe(false)
+})
+test('publication beyond the original intent deadline is withheld even inside the freshness window', () => {
+  const ending = { ...product, intentCreatedAt: new Date(now - 299_000).toISOString() }
+  const value = proof()
+  value.binding.intentExpiresAt = new Date(now + 1_000).toISOString()
+  value.publication.expiresAt = new Date(now + 1_001).toISOString()
+  expect(
+    isSourceLeadPublicationCurrent(ending, pins, value, 'Exact source answer\n', {
+      contracts,
+      lifetimeMs: 300_000,
+      now,
+    })
+  ).toBe(false)
+})
+test('delayed verification evaluates publication freshness at the final check', async () => {
+  const value = proof()
+  expect(
+    isSourceLeadPublicationCurrent(product, pins, value, 'Exact source answer\n', {
+      contracts,
+      lifetimeMs: 300_000,
+      now,
+    })
+  ).toBe(true)
+  await Promise.resolve()
+  expect(
+    isSourceLeadPublicationCurrent(product, pins, value, 'Exact source answer\n', {
+      contracts,
+      lifetimeMs: 300_000,
+      now: Date.parse(value.publication.expiresAt),
+    })
   ).toBe(false)
 })
