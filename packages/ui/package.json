@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "@adea-ai/themes": "0.10.4",
-    "@adea-ai/ui": "0.128.3",
+    "@adea-ai/ui": "0.128.4",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

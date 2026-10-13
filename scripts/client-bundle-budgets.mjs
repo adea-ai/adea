@@ -189,6 +189,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // imported-theme projection stay, +19 KB raw / +1.5 KB gzip over main before
   // the provider). Raw ratchets down to 787 KiB and gzip to 253 KiB (~2% each).
   // A catalogue display name in this closure now fails the check outright.
+  // Shared theme records (2026-10-13, ui 0.128.4): the host's copy of the
+  // projection is gone and the published `lib/theme-records` module serves
+  // the same code, so startup stays 790,322 raw / 253,360 gzip (+309 / +47
+  // bytes) and the caps hold; the change removes code, not bytes.
   startup: { rawBytes: 787 * 1024, gzipBytes: 253 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
