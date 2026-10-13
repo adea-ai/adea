@@ -76,7 +76,10 @@ Message or Task body content, prompts, provider output, ciphertext, key
 envelopes, credentials, signed locations or URLs, or transient token/data
 streams, and it is bounded in size. Events also record the aggregate, the acting
 principal (derived from the payload's `actorUserId`/`ownerUserId`), and an
-optional correlation id.
+optional correlation id. A job publication (a system-sender message written by
+job outbound release, #1217) records no acting principal: its `message.created`
+payload carries no `actorUserId`, because the original actor exists only in the
+publication binding, which delivery reads and history never shows.
 
 ### Explicit Agent profile changes
 
@@ -206,9 +209,35 @@ the channel's project for `channelId`; the message's channel for every `messageI
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
 Channel, message, thread/reply and content references also require current channel audience access.
+A group message event must also lie within the subscriber's effective join-point history window (or
+an authorized earlier-history share). Current admission after a removal and rejoin does not make
+pre-join message events visible again; reply and thread-root ancestry use that same history window.
+A thread reply also requires its thread root to be visible to the subscriber under the same rules: a
+reply whose root is a job publication the subscriber is no longer authorized for is withheld, live and on
+replay, exactly as the publication itself is. The replies stay stored; they are delivered again when
+current authorization permits, and their watermark is never reset.
+A `replyToMessageId` is independently checked even when no thread root is present. A message that
+references a publication or thread the reader can no longer see is withheld. Direct ContentRef reads
+and encrypted replica reads apply the same current message visibility, so knowing the ContentRef id
+does not preserve access after the publication grant is revoked.
+A job publication message also requires current publication authorization for the subscriber: the
+same gates history and delivery apply (the artifact grant, the original actor's source authority, the
+subscriber's destination membership, and the channel roster at the bound revision). A publication the
+subscriber is not currently authorized for is withheld, live and on replay, and the frame names nothing.
 Workspace owners and admins retain their project privileges but cannot bypass a participant-only
 channel's audience. Removing a participant therefore withholds that channel's replay events as well
 as future events; archived conversation history follows the same current audience check.
+Roster replacement locks the channel before changing participant rows. Message-bound ContentRef
+visibility reads hold shared locks on the channel and participant row, so they take the same
+channel-before-roster order.
+
+Each page classification runs in one read-only repeatable-read snapshot when the caller supplies a
+root database connection. Membership, project scope, current group grants, and referenced content
+therefore come from one database view: a revoke committed before the snapshot denies the page; a
+revoke committed after it cannot mix an old grant decision with newer references. The next page or
+fresh read observes the revocation. A caller-owned transaction is reused with its locks intact only
+when its isolation is `REPEATABLE READ` or `SERIALIZABLE`; weaker isolation fails before page
+classification runs.
 
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
 current state through the query layer, which applies the same project and channel access. Cursors carry no
@@ -218,12 +247,15 @@ access decision.
 stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
 
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
-(membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
-most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
-the ids in the page, never one query per event. Channel audience checks use indexed participant
-existence projections in those lookups, including for owners and admins. A page containing only
-project events needs only the access-scope reads. Idle polls
-read nothing extra.
+(membership plus the workspace's `members` projects with the subscriber's rows), and one indexed
+group-admission/grant read for channel audience checks. Each page adds at most five batched
+reference lookups (channels, messages, tasks, artifacts, content refs) keyed by the ids in the
+page, never one query per event. Channel audience checks use indexed participant existence
+projections in those lookups, including for owners and admins. A page containing only project events
+needs only the access-scope and group-standing reads. Idle polls read nothing extra.
+The job publication and reply ancestry gates run in bulk for the page, so their reads are fixed per
+page rather than one evaluation per event. A page containing only project events needs only the
+access-scope and group-standing reads. Idle polls read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes
@@ -307,14 +339,47 @@ unreadChannels, mentions }] }` with `cache-control: private, no-store`. No
   message, or person.
 - **One grouped query.** Channel visibility matches read state: active
   channels that are workspace-visible or list the caller as a participant.
-  `unreadChannels` counts those whose `channels.latest_message_sequence` is
-  past `channel_read_states.last_read_sequence` (missing state reads as 0), or
-  that are marked `manually_unread`. Thread-only replies do not make a channel
-  unread here; the in-workspace read state still counts them. `mentions`
+  `unreadChannels` counts those with a top-level message the caller can see past
+  `channel_read_states.last_read_sequence` (missing state reads as 0), or that
+  are marked `manually_unread`. A job publication is seen only while the caller
+  is authorized for it under the publication gates; a hidden publication is not
+  unread (#1217). A channel with no ordinary or manual unread is checked for an
+  unread publication the caller may still see, in pages of 200 in message
+  sequence order, and the check stops once each such channel has one. Thread-only
+  replies do not make a channel unread here; the in-workspace read state still
+  counts them, but only for threads whose root the caller can see (below). `mentions`
   counts live, unread top-level messages in those channels that mention the
   caller (`message_mentions`, indexed by `message_mentions_user_idx`).
+- **Threads follow their root.** A reply is shown in history, search and read
+  state, and counted in thread and inbox unread, only while its thread root is
+  visible to the caller under the publication gates (#1217). A thread whose root
+  is a job publication the caller is no longer authorized for, or a root that is
+  missing, not top-level, or malformed, is omitted whole: no root id, reply or
+  count from it reaches the caller. Its replies stay stored, and its watermark is
+  not written by a direct mark or by mark-all. Authority that returns shows the
+  same replies under the same ids, unread past the stored watermark. A revoked
+  audience (for example a moved roster revision) does not return them. A new
+  reply into a hidden thread is refused as a missing message. The check is
+  one root read and one publication gate per page, not per thread.
+- **Changes follow visibility.** Editing or deleting a message the caller cannot see is refused as
+  `Message unavailable` before any version check, so a wrong version reveals nothing and nothing
+  changes. A lead turn on a message the caller cannot see is `Lead turn unavailable`.
+- **Search fills its window from visible matches.** Matching messages are read in sequence order
+  and gated a page at a time until the page's window is full, or the scan budget (5051 raw rows)
+  is spent. A hidden publication or a reply in a hidden thread never takes a place in the window.
+  `privateResultsUnavailable` is set only when the caller can see an encrypted-content message, so
+  a hidden one is never reported.
 - **The frontier column.** `channels.latest_message_sequence` (migration
   `0031`) is the newest live top-level message sequence, 0 when there is none.
+  It is the stored starting point only: the frontier a reader is shown, and the
+  watermark mark-read writes, is the newest top-level message that reader can
+  see (#1217). A hidden publication at the top is walked past to the newest
+  visible message; the walk costs the hidden publications at the top of that
+  channel, in batches of 64 indexed rows, each batch gated in one bulk pass.
+  Hidden unread publications are counted per channel in keyset pages of 200 on
+  the globally unique message sequence, each page gated in one bulk pass. Every
+  publication gate reads its facts for the whole page at once, so statements
+  grow with pages, not with publications.
   `createMessage` advances it with `GREATEST` in the insert transaction, so
   out-of-order commits never move it back; a thread reply leaves it alone.
   `deleteMessage` of the current newest top-level message moves it back to the

@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import { defaultAppearancePreferences } from '@adea-ai/app-ui/components/appearance'
+import { defaultAppearancePreferences } from '@adea-ai/app-ui/components/appearance-codec'
 import { draftVariants } from '../src/appearance/composition'
 
 describe('appearance composition (ported Zeron appearance page layout)', () => {

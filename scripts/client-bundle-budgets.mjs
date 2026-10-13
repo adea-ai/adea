@@ -149,7 +149,20 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // measuring 3,051,359 raw / 928,958 gzip across 159 files locally
   // (2026-10-09); total ratchets to 3,112,000 raw / 926 KiB gzip and the
   // file cap to 162 (~2% each).
-  total: { rawBytes: 3_112_000, gzipBytes: 926 * 1024, fileCount: 162 },
+  // Re-measured for the shared ThemeProvider (2026-10-13, ADR 0014) against
+  // the same build of main's 3,092,176 raw / 943,661 gzip across 158 files:
+  // 3,155,152 raw / 952,052 gzip across 158 files. The published provider
+  // imported the whole themes catalogue at startup, where Adea's own appearance
+  // data rode a lazy chunk; the 240 KB of generated duplicates are deleted, but
+  // the catalogue the shared provider needs is not. Raw ratcheted to 3,220,000
+  // and gzip to 949 KiB (~2% each).
+  // Lazy catalogue (2026-10-13, ADR 0014): the shell imports the provider's
+  // lazy entry, so the same catalogue bytes ship as one lazy chunk and the
+  // aggregate bytes do not move (3,155,873 raw / 953,773 gzip across 162
+  // files: one more for the catalogue chunk). Raw and gzip keep their caps
+  // (~2%); file count takes its 5-file step to 167. The saving is in the
+  // startup cap below.
+  total: { rawBytes: 3_220_000, gzipBytes: 949 * 1024, fileCount: 167 },
   // Startup measured 732,351 raw / 239,561 gzip on the same build; raw had
   // 0.67% headroom. Raw ratchets to 730 KiB; gzip to 239 KiB (~2% each).
   // Re-measured for the account-wide directory and inbox (#1174): the
@@ -165,7 +178,22 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // startup chunk now carries the published typography roles instead of
   // per-surface heading CSS, measuring 250,941 gzip locally and in CI (29 bytes
   // over the old cap); gzip ratchets to 250 KiB (~2% headroom).
-  startup: { rawBytes: 756 * 1024, gzipBytes: 250 * 1024 },
+  // Re-measured for the shared ThemeProvider (2026-10-13, ADR 0014): the
+  // startup chunk carried the published provider and the themes catalogue it
+  // resolves from, 854,513 raw / 265,450 gzip against main's 770,769 / 251,791
+  // on the same build; raw ratcheted to 852 KiB and gzip to 265 KiB.
+  // Lazy catalogue (2026-10-13, ADR 0014): the shell imports the provider's
+  // lazy entry and the catalogue loads in a chunk of its own, so startup is
+  // 790,013 raw / 253,313 gzip (the catalogue's 34 themes leave: -64,500 raw /
+  // -12,100 gzip against the eager build; the provider core and the host's
+  // imported-theme projection stay, +19 KB raw / +1.5 KB gzip over main before
+  // the provider). Raw ratchets down to 787 KiB and gzip to 253 KiB (~2% each).
+  // A catalogue display name in this closure now fails the check outright.
+  // Shared theme records (2026-10-13, ui 0.128.4): the host's copy of the
+  // projection is gone and the published `lib/theme-records` module serves
+  // the same code, so startup stays 790,322 raw / 253,360 gzip (+309 / +47
+  // bytes) and the caps hold; the change removes code, not bytes.
+  startup: { rawBytes: 787 * 1024, gzipBytes: 253 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now
@@ -453,6 +481,7 @@ export const CLIENT_BUNDLE_BUDGETS = {
   },
 }
 
+const THEME_CATALOGUE_MARKERS = ['Catppuccin Mocha', 'Tokyo Night Storm', 'Solarized Light']
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
 const DEV_LAYOUT_MARKER = 'Developer center panes'
 const SHARED_UTILITY_HOST_MARKER = 'Shared developer utilities'
@@ -662,6 +691,18 @@ export function inspectClientBundle(input) {
     chunkByPrefix(chunks, 'workspace-navigation-entry-', 'workspace navigation entry'),
   ]
   const startupFiles = staticClosure(startupRoots, chunksByFile)
+  // The published provider's lazy entry keeps the 34-theme catalogue out of this graph
+  // (ADR 0014). Display names exist only in the catalogue's data, so one in a startup
+  // chunk means a static import reached @adea-ai/themes' data or lib/themes.
+  for (const file of startupFiles) {
+    const marker = THEME_CATALOGUE_MARKERS.find((name) =>
+      chunksByFile.get(file).source.includes(name)
+    )
+    if (marker)
+      throw new Error(
+        `Workspace startup statically loads the themes catalogue (${marker} in ${file})`
+      )
+  }
 
   const virtualRoot = chunkByPrefix(chunks, 'workspace-shell-', 'Virtual view')
   const chatRoot = chunkByPrefix(chunks, 'conventional-workspace-entry-', 'Chat view')

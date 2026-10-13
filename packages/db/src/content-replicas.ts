@@ -265,25 +265,27 @@ export async function listContentReplicasForUser(
   principal: UserPrincipalRef
 ): Promise<ContentReplicaSummary[]> {
   if (!UUID.test(contentRefId)) throw new Error('Content replica unavailable')
-  await requireMembership(database, workspaceId, principal)
-  if (!(await isContentRefVisible(database, workspaceId, principal.userId, contentRefId)))
-    throw new Error('Content replica unavailable')
-  const [contentRef] = await database
-    .select({ synchronizationPolicy: contentRefs.synchronizationPolicy })
-    .from(contentRefs)
-    .where(and(eq(contentRefs.workspaceId, workspaceId), eq(contentRefs.id, contentRefId)))
-    .limit(1)
-  if (!contentRef || contentRef.synchronizationPolicy !== 'agent_hq_e2ee_sync')
-    throw new Error('Content replica unavailable')
-  const rows = await database
-    .select()
-    .from(contentReplicas)
-    .where(
-      and(
-        eq(contentReplicas.workspaceId, workspaceId),
-        eq(contentReplicas.contentRefId, contentRefId)
+  return database.transaction(async (transaction) => {
+    await requireMembership(transaction, workspaceId, principal)
+    if (!(await isContentRefVisible(transaction, workspaceId, principal.userId, contentRefId)))
+      throw new Error('Content replica unavailable')
+    const [contentRef] = await transaction
+      .select({ synchronizationPolicy: contentRefs.synchronizationPolicy })
+      .from(contentRefs)
+      .where(and(eq(contentRefs.workspaceId, workspaceId), eq(contentRefs.id, contentRefId)))
+      .limit(1)
+    if (!contentRef || contentRef.synchronizationPolicy !== 'agent_hq_e2ee_sync')
+      throw new Error('Content replica unavailable')
+    const rows = await transaction
+      .select()
+      .from(contentReplicas)
+      .where(
+        and(
+          eq(contentReplicas.workspaceId, workspaceId),
+          eq(contentReplicas.contentRefId, contentRefId)
+        )
       )
-    )
-    .orderBy(asc(contentReplicas.revision), asc(contentReplicas.createdAt))
-  return rows.map(summarize)
+      .orderBy(asc(contentReplicas.revision), asc(contentReplicas.createdAt))
+    return rows.map(summarize)
+  })
 }

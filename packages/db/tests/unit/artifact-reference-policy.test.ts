@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   authorizeArtifactReferencePublication,
   authorizeArtifactReferenceRetrieval,
-} from '../../src/artifact-reference-policy'
+} from '../../src/artifact-reference-decisions'
 import type {
   ArtifactReferenceEvidence,
   ArtifactReferenceGrant,

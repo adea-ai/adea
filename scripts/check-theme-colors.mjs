@@ -57,16 +57,12 @@ const COLOR_PROPERTIES = new Set(
 )
 
 /**
- * Exact outputs written and verified by packages/ui/scripts/generate-canonical-theme-data.ts.
- * packages/ui's themes:check runs that generator with --check in its test lane.
- * Do not add app-authored sheets or token aliases here.
+ * Files exempt from literal scanning. The generated catalogue projection that
+ * used to live here moved to the published @adea-ai/ui theme-variants.css, so
+ * nothing in this repository is exempt. Do not add app-authored sheets or token
+ * aliases here.
  */
-export const GENERATED_THEME_FILES = [
-  'packages/ui/src/styles/canonical-themes.css',
-  'packages/ui/src/components/canonical-theme-data.ts',
-  'packages/ui/src/components/canonical-theme-css-data.ts',
-  'packages/ui/src/components/canonical-theme-meta.ts',
-]
+export const GENERATED_THEME_FILES = []
 
 /** Canonical palette roles may only be written by the generated projection. */
 const SHARED_PALETTE_TOKENS = new Set([

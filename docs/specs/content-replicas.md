@@ -44,8 +44,12 @@ authoritative ContentRef and ContentReplica state, while the event log remains
 free of ciphertext and duplicate replay notifications.
 
 Replica listing applies the same existing, synchronization-enabled ContentRef
-check as writes. A nonexistent, cross-workspace, or local-only ContentRef is an
-explicit unavailable response and never an empty successful list.
+check as writes. For a ContentRef attached to a message, metadata reads, replica
+listing, and writes also recheck that message's current visibility, including its
+channel audience, job-publication authorization, thread root, and reply target.
+This keeps a known ContentRef id from exposing metadata or encrypted replica rows
+after a publication grant is revoked. A nonexistent, cross-workspace, or local-only
+ContentRef is an explicit unavailable response and never an empty successful list.
 
 ## Persistence checks
 
