@@ -1213,6 +1213,9 @@ export type HarnessPreference = Readonly<{
   agentProfileId?: string
   modelId?: string
   version: number
+  /** True only on the synthesized managed-Pi fallback (never stored): the user
+   * has expressed no default, so the UI must not present it as a choice. */
+  rootDefault?: true
 }>
 
 /** The device-wide default harness: a harness FAMILY (an installation id is
@@ -4102,10 +4105,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
     exactKeys(
       item,
       ['scope', 'harnessInstallationId', 'enabled', 'sortKey', 'default', 'version'],
-      ['projectId', 'agentProfileId', 'modelId'],
+      ['projectId', 'agentProfileId', 'modelId', 'rootDefault'],
       path
     )
     decodeScope(item.scope, `${path}.scope`)
+    if (item.rootDefault !== undefined && item.rootDefault !== true)
+      fail(`${path}.rootDefault`, 'expected true')
     stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
     if (typeof item.enabled !== 'boolean') fail(`${path}.enabled`, 'expected boolean')
     stringValue(item.sortKey, `${path}.sortKey`, 1, 64)

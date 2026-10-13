@@ -367,6 +367,8 @@ describe('harness preferences and the root default (#400)', () => {
         harnessInstallationId: managedId,
         enabled: true,
         default: true,
+        // Marked so the UI never presents the fallback as a user choice.
+        rootDefault: true,
       })
       expect(items[0]!.projectId).toBeUndefined()
     } finally {
