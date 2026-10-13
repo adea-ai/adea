@@ -28,6 +28,17 @@ export type ConversationSearchRow = Readonly<{
   resumeReason?: 'available' | 'cancelled' | 'missing_start' | 'non_terminal' | 'unknown_state'
 }>
 
+/**
+ * Accessible name of a result's jump button. A session title repeats across
+ * every match in that session, so the matched event kind and preview make each
+ * button distinguishable to a screen reader's links/buttons list.
+ */
+export function conversationSearchRowLabel(
+  row: Pick<ConversationSearchRow, 'title' | 'kind' | 'preview'>
+): string {
+  return `${row.title}, ${row.kind}: ${row.preview}`
+}
+
 export type ConversationSearchPage = Readonly<{
   items: readonly ConversationSearchRow[]
   nextCursor?: string

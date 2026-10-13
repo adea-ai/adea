@@ -2,6 +2,7 @@ import type { HarnessRun, RuntimeEvent, RuntimeSession } from '@adea-ai/types/de
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 
 import {
+  conversationSearchRowLabel,
   searchConversationHistory,
   type ConversationSearchJump,
   type ConversationSearchRow,
@@ -81,6 +82,7 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
                           type="button"
                           variant="outline"
                           size="sm"
+                          aria-label={`Resume generation ${row.generation} of ${row.title}`}
                           onClick={() => props.onResume?.(row)}
                         >
                           Resume generation {row.generation}
@@ -99,6 +101,7 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
                       type="button"
                       variant="link"
                       size="sm"
+                      aria-label={conversationSearchRowLabel(row)}
                       onClick={() => props.onJump?.(row.jump)}
                     >
                       {row.title}
