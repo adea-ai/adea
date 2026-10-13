@@ -101,11 +101,7 @@ import {
   type DevWorkspaceNavHost,
 } from '../lib/dev-workspace-nav-host'
 import { RuntimeResourcesControl } from './runtime-resources-control'
-import {
-  AccountConversationInbox,
-  AccountDirectoryAgents,
-  type AccountDirectorySearchState,
-} from './account-directory-sidebar'
+import type { AccountDirectorySearchState } from './account-directory-sidebar'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -258,6 +254,17 @@ const WorkspaceGlobalNav = lazyComponent(
     import('@adea-ai/workspace-ui/global-nav-sections').then(
       ({ WorkspaceGlobalNav: Sections }) => Sections
     ),
+  { loading: () => null }
+)
+
+// The account-wide Agents and Conversations results mount below the canonical
+// workspace lists, so they load after startup instead of weighing on it.
+const AccountDirectoryAgents = lazyComponent(
+  () => import('./account-directory-sidebar').then((module) => module.AccountDirectoryAgents),
+  { loading: () => null }
+)
+const AccountConversationInbox = lazyComponent(
+  () => import('./account-directory-sidebar').then((module) => module.AccountConversationInbox),
   { loading: () => null }
 )
 
