@@ -235,6 +235,66 @@ export async function revokeWorkspaceInvitation(
   })
 }
 
+export type WorkspaceInvitationPreview = Readonly<{
+  expiresAt: string
+  /** Current members, the owner included, before the invitee joins. */
+  memberCount: number
+  /** The owner's display name; null when the owner has none. */
+  ownerName: string | null
+  role: WorkspaceInvitationRole
+  workspaceName: string
+}>
+
+/**
+ * What an invitee may see before accepting: the workspace's name and owner, who is in it, and the
+ * role they would join with. It repeats every acceptance gate and reads nothing else, so a token
+ * that cannot be accepted by this account answers the same `Invitation unavailable` and cannot be
+ * probed. It never changes the invitation.
+ */
+export async function previewWorkspaceInvitation(
+  database: AgentHqDatabase,
+  principal: UserPrincipalRef,
+  input: Readonly<{ email: string | null; token: string }>,
+  now = new Date()
+): Promise<WorkspaceInvitationPreview> {
+  if (!isInvitationToken(input.token)) throw new Error('Invitation unavailable')
+  const email = normalizeInvitationEmail(input.email)
+  const [invitation] = await database
+    .select()
+    .from(workspaceInvitations)
+    .where(eq(workspaceInvitations.tokenDigest, digestInvitationToken(input.token)))
+    .limit(1)
+  if (!invitation) throw new Error('Invitation unavailable')
+  if (invitation.acceptedAt && invitation.acceptedByUserId !== principal.userId)
+    throw new Error('Invitation unavailable')
+  if (
+    !invitation.acceptedAt &&
+    (invitation.revokedAt ||
+      invitation.expiresAt.getTime() <= now.getTime() ||
+      !email ||
+      email !== invitation.email)
+  )
+    throw new Error('Invitation unavailable')
+  const [workspace] = await database
+    .select({ name: workspaces.name, ownerName: users.displayName })
+    .from(workspaces)
+    .leftJoin(users, eq(users.id, workspaces.ownerUserId))
+    .where(and(eq(workspaces.id, invitation.workspaceId), isNull(workspaces.deletedAt)))
+    .limit(1)
+  if (!workspace) throw new Error('Invitation unavailable')
+  const [members] = await database
+    .select({ count: sql<number>`count(*)::int` })
+    .from(workspaceMemberships)
+    .where(eq(workspaceMemberships.workspaceId, invitation.workspaceId))
+  return Object.freeze({
+    expiresAt: invitation.expiresAt.toISOString(),
+    memberCount: members?.count ?? 0,
+    ownerName: workspace.ownerName?.trim() ? workspace.ownerName.trim() : null,
+    role: invitation.role,
+    workspaceName: workspace.name,
+  })
+}
+
 export type WorkspaceInvitationAcceptance = Readonly<{
   /** False when the principal was already a member; the role is left unchanged. */
   joined: boolean

@@ -1,10 +1,23 @@
-import { ApiClientError, createApiClient } from '@adea-ai/api-client'
+import {
+  ApiClientError,
+  createApiClient,
+  type ApiWorkspaceInvitationPreviewResponse,
+} from '@adea-ai/api-client'
 import { useAcceptWorkspaceInvitationMutation } from '@adea-ai/data'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
-import { createSignal, Match, onMount, Switch } from 'solid-js'
+import { createSignal, Match, onMount, Show, Switch } from 'solid-js'
 
-type AcceptStatus = 'loading' | 'ready' | 'accepting' | 'sign-in' | 'invalid' | 'joined'
+import { describeInvitationContext, invitationRoleLabel } from '../lib/workspace-invitation-preview'
+
+type AcceptStatus =
+  | 'loading'
+  | 'ready'
+  | 'accepting'
+  | 'sign-in'
+  | 'invalid'
+  | 'unavailable'
+  | 'joined'
 
 /** Session-scoped hand-off so the token survives a sign-in round trip in this tab. */
 const PENDING_INVITATION_KEY = 'adea:pending-workspace-invitation'
@@ -30,15 +43,35 @@ function writePending(token: string | null) {
 /**
  * Accepts a workspace invitation link (`/invite#token=…`). The token lives in
  * the fragment, so it never reaches the server in a URL; it is read once,
- * removed from the address bar, and sent only in the accept request's body.
+ * removed from the address bar, and sent only in request bodies. The page
+ * first previews the invitation, so the invitee sees the workspace, its owner,
+ * its audience and their role before joining; the preview has the acceptance
+ * gates, so a guest is sent to sign in before they are shown anything.
  * Signing in uses the normal sign-in page and returns here. Render it inside a
  * query provider: accepting goes through the shared sharing mutation, which
  * refreshes the workspace list.
  */
 export function AcceptInvitation() {
-  const acceptInvitation = useAcceptWorkspaceInvitationMutation(createApiClient())
+  const client = createApiClient()
+  const acceptInvitation = useAcceptWorkspaceInvitationMutation(client)
   let token: string | null = null
   const [status, setStatus] = createSignal<AcceptStatus>('loading')
+  const [preview, setPreview] = createSignal<ApiWorkspaceInvitationPreviewResponse>()
+
+  async function loadPreview() {
+    if (!token) return
+    setStatus('loading')
+    try {
+      setPreview(await client.previewWorkspaceInvitation(token))
+      setStatus('ready')
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) setStatus('sign-in')
+      else if (error instanceof ApiClientError && error.status < 500) {
+        writePending(null)
+        setStatus('invalid')
+      } else setStatus('unavailable')
+    }
+  }
 
   async function accept() {
     if (!token) return
@@ -71,7 +104,7 @@ export function AcceptInvitation() {
       return
     }
     writePending(token)
-    setStatus('ready')
+    void loadPreview()
   })
 
   return (
@@ -86,6 +119,18 @@ export function AcceptInvitation() {
           address. Ask the person who invited you for a new link.
         </p>
         <a href="/">Open Adea</a>
+      </Match>
+      <Match when={status() === 'unavailable'}>
+        <p class="auth-eyebrow">Adea workspace</p>
+        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
+          This invitation could not be checked
+        </Heading>
+        <p class="auth-introduction" role="alert">
+          Adea could not reach the invitation just now. Nothing was joined. Try again.
+        </p>
+        <Button type="button" onClick={() => void loadPreview()}>
+          Try again
+        </Button>
       </Match>
       <Match when={status() === 'sign-in'}>
         <p class="auth-eyebrow">Adea workspace</p>
@@ -109,12 +154,34 @@ export function AcceptInvitation() {
       </Match>
       <Match when={status() === 'loading' || status() === 'ready' || status() === 'accepting'}>
         <p class="auth-eyebrow">Adea workspace</p>
-        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
-          You’ve been invited to a workspace
-        </Heading>
-        <p class="auth-introduction">
-          Accepting adds you as a member with the role you were invited with.
-        </p>
+        <Show
+          when={preview()}
+          fallback={
+            <>
+              <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
+                You’ve been invited to a workspace
+              </Heading>
+              <p class="auth-introduction" role="status">
+                Checking the invitation…
+              </p>
+            </>
+          }
+        >
+          {(shown) => (
+            <>
+              <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
+                You’ve been invited to {shown().workspaceName}
+              </Heading>
+              <p class="auth-introduction" data-testid="invitation-context">
+                {describeInvitationContext(shown())}
+              </p>
+              <p class="auth-introduction">
+                Accepting adds you as {invitationRoleLabel(shown().role)}. The workspace’s members
+                will see you in its member list.
+              </p>
+            </>
+          )}
+        </Show>
         <Button
           type="button"
           disabled={status() !== 'ready'}

@@ -22,6 +22,7 @@ import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/mark
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
 import { Route as ApiV1PortableImportsRouteImport } from './routes/api/v1/portable-imports'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
+import { Route as ApiWorkspaceInvitationsPreviewRouteImport } from './routes/api/workspace-invitations/preview'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ApiWorkspacesArchivedRouteImport } from './routes/api/workspaces/archived'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
@@ -185,6 +186,12 @@ const ApiWorkspaceInvitationsAcceptRoute =
   ApiWorkspaceInvitationsAcceptRouteImport.update({
     id: '/api/workspace-invitations/accept',
     path: '/api/workspace-invitations/accept',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiWorkspaceInvitationsPreviewRoute =
+  ApiWorkspaceInvitationsPreviewRouteImport.update({
+    id: '/api/workspace-invitations/preview',
+    path: '/api/workspace-invitations/preview',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiWorkspacesWorkspaceIdRoute =
@@ -775,6 +782,7 @@ export interface FileRoutesByFullPath {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
+  '/api/workspace-invitations/preview': typeof ApiWorkspaceInvitationsPreviewRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
@@ -886,6 +894,7 @@ export interface FileRoutesByTo {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
+  '/api/workspace-invitations/preview': typeof ApiWorkspaceInvitationsPreviewRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
@@ -998,6 +1007,7 @@ export interface FileRoutesById {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
+  '/api/workspace-invitations/preview': typeof ApiWorkspaceInvitationsPreviewRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
@@ -1111,6 +1121,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
+    | '/api/workspace-invitations/preview'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
@@ -1222,6 +1233,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
+    | '/api/workspace-invitations/preview'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
@@ -1333,6 +1345,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
+    | '/api/workspace-invitations/preview'
     | '/api/workspaces/$workspaceId'
     | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
@@ -1445,6 +1458,7 @@ export interface RootRouteChildren {
   ApiTelemetryScenePerformanceRoute: typeof ApiTelemetryScenePerformanceRoute
   ApiV1PortableImportsRoute: typeof ApiV1PortableImportsRoute
   ApiWorkspaceInvitationsAcceptRoute: typeof ApiWorkspaceInvitationsAcceptRoute
+  ApiWorkspaceInvitationsPreviewRoute: typeof ApiWorkspaceInvitationsPreviewRoute
   AuthDesktopCompleteRoute: typeof AuthDesktopCompleteRoute
   ApiAuthDesktopAuthorizeRoute: typeof ApiAuthDesktopAuthorizeRoute
   ApiAuthDesktopExchangeRoute: typeof ApiAuthDesktopExchangeRoute
@@ -1575,6 +1589,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/workspace-invitations/accept'
       fullPath: '/api/workspace-invitations/accept'
       preLoaderRoute: typeof ApiWorkspaceInvitationsAcceptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspace-invitations/preview': {
+      id: '/api/workspace-invitations/preview'
+      path: '/api/workspace-invitations/preview'
+      fullPath: '/api/workspace-invitations/preview'
+      preLoaderRoute: typeof ApiWorkspaceInvitationsPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/$workspaceId': {
@@ -2693,6 +2714,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTelemetryScenePerformanceRoute: ApiTelemetryScenePerformanceRoute,
   ApiV1PortableImportsRoute: ApiV1PortableImportsRoute,
   ApiWorkspaceInvitationsAcceptRoute: ApiWorkspaceInvitationsAcceptRoute,
+  ApiWorkspaceInvitationsPreviewRoute: ApiWorkspaceInvitationsPreviewRoute,
   AuthDesktopCompleteRoute: AuthDesktopCompleteRoute,
   ApiAuthDesktopAuthorizeRoute: ApiAuthDesktopAuthorizeRoute,
   ApiAuthDesktopExchangeRoute: ApiAuthDesktopExchangeRoute,

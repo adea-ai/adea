@@ -152,6 +152,12 @@ permission.
 - An invitation expires after 7 days. Re-inviting the same email replaces (revokes) the pending
   invitation, because the plaintext of the old link cannot be shown again. At most one invitation
   per (workspace, email) is pending, enforced by a partial unique index.
+- `POST /api/workspace-invitations/preview { token }` lets the invitee see what they would join
+  before accepting: the workspace name, its owner's display name, how many members it has now, the
+  role they would join with, and the expiry. It has the same gates as accepting and the same uniform
+  `404`, reads only, and never settles the invitation. A guest gets `401` and no workspace details.
+  Where the workspace's work runs is not part of an invitation, so the page says the location is
+  unknown.
 - `POST /api/workspace-invitations/accept { token }` requires a signed-in account — temporary
   guests get `401` and the page sends them through sign-in — whose provider email matches the
   invitation (case-insensitive). The first acceptance creates the membership, appended to the end of

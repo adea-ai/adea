@@ -289,8 +289,10 @@ export {
   listWorkspaceInvitationsForUser,
   listWorkspaceMembersForUser,
   normalizeInvitationEmail,
+  previewWorkspaceInvitation,
   revokeWorkspaceInvitation,
   type WorkspaceInvitationAcceptance,
+  type WorkspaceInvitationPreview,
 } from './workspace-invitations'
 export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './event-visibility'
 export {

@@ -320,6 +320,17 @@ export type ApiWorkspaceInvitationAcceptResponse = Readonly<{
   joined: boolean
   workspaceId: string
 }>
+/**
+ * What an invitee sees before accepting: the workspace, its owner, how many people are in it, and
+ * the role they would join with. Every field comes from the invitation's own workspace record.
+ */
+export type ApiWorkspaceInvitationPreviewResponse = Readonly<{
+  expiresAt: string
+  memberCount: number
+  ownerName: string | null
+  role: WorkspaceInvitationRole
+  workspaceName: string
+}>
 export type ApiProjectArchiveResponse = Readonly<{ archived: true }>
 export type ApiProjectDeleteResponse = Readonly<{ deleted: true }>
 
@@ -1051,6 +1062,15 @@ export class AgentHqApiClient {
       controlPlanePath(workspaceId, `cloud-connections/${encodeURIComponent(credentialId)}/revoke`),
       input
     )
+  }
+
+  /** Read what an invitation grants without accepting it; the token travels in the body only. */
+  async previewWorkspaceInvitation(token: string): Promise<ApiWorkspaceInvitationPreviewResponse> {
+    return this.request<ApiWorkspaceInvitationPreviewResponse>('/workspace-invitations/preview', {
+      body: JSON.stringify({ token }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
   }
 
   /** Accept an invitation as the signed-in account; the token travels in the body only. */

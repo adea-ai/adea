@@ -902,7 +902,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   title={`${archive ? 'Archive' : 'Delete'} ${state.name}?`}
                   description={
                     archive
-                      ? 'The project leaves the sidebar for everyone; its history is kept and it can be restored from workspace settings. Its local repository binding on this device is removed and is not brought back by a restore; files are never touched.'
+                      ? 'The project leaves the sidebar for everyone; history is kept and settings can restore it. Its local binding is removed; files are never touched.'
                       : 'The project leaves every list for everyone. This cannot be undone. Its local repository binding on this device is removed; files are never touched.'
                   }
                   confirmLabel={archive ? 'Archive project' : 'Delete project'}

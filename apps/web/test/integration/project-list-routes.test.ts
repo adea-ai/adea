@@ -29,6 +29,14 @@ import type { WorkspacePrincipalResolution } from '../../src/server/workspace-pr
 
 const connectionUrl = process.env.DATABASE_URL
 
+function listRequest(workspaceId: string, query = ''): Request {
+  return new Request(`https://adea.test/api/v1/workspaces/${workspaceId}/projects${query}`)
+}
+
+async function names(response: Response): Promise<string[]> {
+  return ((await response.json()) as ProjectSummary[]).map((project) => project.name).toSorted()
+}
+
 describe.skipIf(!connectionUrl)('project list route flow (#1218)', () => {
   let connection: DatabaseConnection
 
@@ -74,14 +82,6 @@ describe.skipIf(!connectionUrl)('project list route flow (#1218)', () => {
         temporary: true,
       }),
     }
-  }
-
-  function listRequest(workspaceId: string, query = ''): Request {
-    return new Request(`https://adea.test/api/v1/workspaces/${workspaceId}/projects${query}`)
-  }
-
-  async function names(response: Response): Promise<string[]> {
-    return ((await response.json()) as ProjectSummary[]).map((project) => project.name).toSorted()
   }
 
   async function workspaceWithProjects() {
