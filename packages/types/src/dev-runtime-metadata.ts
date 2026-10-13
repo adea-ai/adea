@@ -404,6 +404,12 @@ export const devOperationMetadata = {
   'dev.harness.acpConnections': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_harness_acpConnections
   ),
+  'dev.harness.inventory': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_inventory
+  ),
+  'dev.harness.inventoryRefresh': commandMetadata(
+    operationMetadata.devOperationMetadataFor_dev_harness_inventoryRefresh
+  ),
   'dev.harness.managedPiInstall': commandMetadata(
     operationMetadata.devOperationMetadataFor_dev_harness_managedPiInstall
   ),

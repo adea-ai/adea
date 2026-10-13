@@ -4731,6 +4731,9 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       value,
       'reply.value'
     ),
+  // Machine-wide harness inventory: the stored read, and the explicit rescan.
+  'dev.harness.inventory': (value) => decodeRuntimeConnectionInventorySnapshot(value),
+  'dev.harness.inventoryRefresh': (value) => decodeRuntimeConnectionInventorySnapshot(value),
   'dev.harness.managedPiInstall': (value) => decodeManagedPiStatus(value),
   'dev.harness.managedPiStatus': (value) => decodeManagedPiStatus(value),
   'dev.harness.runs': (value) =>

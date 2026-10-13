@@ -115,6 +115,14 @@ describe('dev.harness command bodies', () => {
     expect(() => decodeDevCommand(command('dev.harness.managedPiInstall', {}))).not.toThrow()
   })
 
+  test('the inventory read and rescan take an empty body', () => {
+    expect(() => decodeDevCommand(command('dev.harness.inventory', {}))).not.toThrow()
+    expect(() => decodeDevCommand(command('dev.harness.inventoryRefresh', {}))).not.toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.harness.inventoryRefresh', { force: true }))
+    ).toThrow()
+  })
+
   test('acpConnect requires the runtime_session resource binding', () => {
     const decoded = decodeDevCommand(
       command('dev.harness.acpConnect', {
@@ -250,6 +258,20 @@ describe('dev.harness command bodies', () => {
 })
 
 describe('dev.harness success replies', () => {
+  test('the inventory replies decode as an empty snapshot and reject drift', () => {
+    const snapshot = {
+      scope: command('dev.harness.inventory', {}).scope,
+      items: [],
+      freshness: [],
+      observedAt: now,
+    }
+    expect(() => decodeDevReply(reply('dev.harness.inventory', snapshot))).not.toThrow()
+    expect(() => decodeDevReply(reply('dev.harness.inventoryRefresh', snapshot))).not.toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.harness.inventory', { ...snapshot, freshness: ['fresh'] }))
+    ).toThrow()
+  })
+
   test('managedPiStatus decodes strictly, including the failed state', () => {
     expect(() =>
       decodeDevReply(reply('dev.harness.managedPiStatus', managedPiStatus))
@@ -470,6 +492,8 @@ describe('dev.harness request decoders', () => {
       'dev.harness.acpClose',
       'dev.harness.acpConnect',
       'dev.harness.acpConnections',
+      'dev.harness.inventory',
+      'dev.harness.inventoryRefresh',
       'dev.harness.managedPiInstall',
       'dev.harness.managedPiStatus',
       'dev.harness.runs',
