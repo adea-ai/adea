@@ -713,11 +713,13 @@ test.describe('the account directory and inbox driven through their UI', () => {
     // Switching back restores the same account-wide row in the Conversations
     // section, with the one local copy left in its owner's workspace.
     await page.goto(`/?workspace=${encodeURIComponent(homeWorkspaceId)}`)
+    // The supplemental row names the owner workspace; the canonical row (and its
+    // option buttons) in the owner workspace never does, so this waits for the
+    // switch to Home instead of matching a stale canonical copy.
     const globalConversationRow = page
       .getByRole('region', { name: 'Conversations' })
       .getByRole('button', {
-        name: /Browser UI Journey Lane/,
-        exact: true,
+        name: /Browser UI Journey Lane.*in Browser UI Journey Workspace/,
       })
     await expect(globalConversationRow).toBeVisible()
     await globalConversationRow.click()
