@@ -34,7 +34,6 @@ import {
   verifiedCanonicalChain,
 } from '../fixtures/canonical-chain'
 import {
-  DRIZZLE_DIR,
   type RehearsalResources,
   disposeRehearsal,
   settleAndDispose,
@@ -488,7 +487,7 @@ describe.skipIf(!provisioningUrl && !inCi)(
             const connection = createDatabase(urlForDatabase(scratch))
             scratchResources.connection = connection
             if (mode === 'upgrade-from-main')
-              await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+              await migrate(connection.db, { migrationsFolder: chain.base })
             await migrate(connection.db, { migrationsFolder: chain.full })
             const result = appliedAgainstJournal(
               chain.fullEntries,

@@ -2,6 +2,7 @@ import { getAccent } from '@adea-ai/themes'
 import type { ThemeContextValue } from '@adea-ai/ui/components/theme/lazy'
 import {
   ACCENT_PAINT_PROPERTIES,
+  isCustomAccent,
   paintAccentRoles,
   type AccentRoles,
 } from '@adea-ai/ui/lib/accent-roles'
@@ -21,7 +22,7 @@ export function workspaceAccentRoles(
   accent: string | null,
   theme: WorkspaceAccentTheme | undefined
 ): AccentRoles | undefined {
-  if (accent === null || !getAccent(accent)) return undefined
+  if (accent === null || !(getAccent(accent) || isCustomAccent(accent))) return undefined
   return theme?.accentRolesFor(accent)
 }
 

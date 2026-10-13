@@ -1,7 +1,7 @@
 import {
   sidebarGroupModes,
   type SidebarGroupMode,
-  type WorkspaceAccentId,
+  type WorkspaceAccent,
   type WorkspaceLogo,
 } from '@adea-ai/types'
 
@@ -83,7 +83,7 @@ export type NavWorkspace = Readonly<{
   id: string
   name: string
   logo: WorkspaceLogo
-  accent: WorkspaceAccentId | null
+  accent: WorkspaceAccent | null
   sortOrder: number
   /** The caller's Home workspace: it always leads the list, whatever the stored order says. */
   isHome?: boolean

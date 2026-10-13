@@ -28,7 +28,7 @@ export const workspaces = appSchema.table(
     id: entityId(),
     name: text('name').notNull(),
     scene: text('scene').default('home').notNull(),
-    /** A theme-provided accent id, or null for the theme default. */
+    /** A theme-provided accent id, a custom lowercase `#rrggbb`, or null for the theme default. */
     accent: text('accent'),
     logoKind: text('logo_kind').default('box').notNull(),
     /** The emoji grapheme when `logo_kind` is `emoji`; null otherwise. */
@@ -68,7 +68,7 @@ export const workspaces = appSchema.table(
     check('workspaces_scene_valid', sql`${table.scene} in ('home', 'work')`),
     check(
       'workspaces_accent_valid',
-      sql`${table.accent} is null or ${table.accent} in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink')`
+      sql`${table.accent} is null or ${table.accent} in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink') or ${table.accent} ~ '^#[0-9a-f]{6}$'`
     ),
     check(
       'workspaces_logo_valid',
