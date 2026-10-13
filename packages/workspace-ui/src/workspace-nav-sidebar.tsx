@@ -276,6 +276,9 @@ export function GlobalQuickActions(props: {
   )
 }
 
+/** The title the server gives an Agent's default direct lane (db createDirectAgentChannel). */
+const DEFAULT_DIRECT_TITLE = 'Direct conversation'
+
 /**
  * The global Conversations section (direct agent and group conversations),
  * below the Workspaces accordion in every view. Presentational: the host owns
@@ -301,6 +304,12 @@ export function ConversationsSection(props: {
   touchTarget?: 'comfortable'
 }) {
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
+  // The default lane reads as the Agent; a named topic keeps its title, so several
+  // topics with one Agent stay distinguishable in the list.
+  const directLabel = (channel: ChannelSummary) => {
+    const name = agentById().get(channel.agentId ?? '')?.name ?? 'Agent'
+    return channel.title === DEFAULT_DIRECT_TITLE ? name : `${name} · ${channel.title}`
+  }
   const readStateByChannel = createMemo(
     () => new Map(props.readState.map((state) => [state.channelId, state]))
   )
@@ -356,10 +365,7 @@ export function ConversationsSection(props: {
         ) : (
           <Users aria-hidden="true" />
         ),
-      () =>
-        channel().kind === 'direct_agent'
-          ? (agentById().get(channel().agentId ?? '')?.name ?? 'Agent')
-          : channel().title
+      () => (channel().kind === 'direct_agent' ? directLabel(channel()) : channel().title)
     )
   const accountInboxContent = props.accountInbox
     ? untrack(() =>
