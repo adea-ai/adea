@@ -9,7 +9,14 @@ import {
 import './chat-history-search.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import {
+  ItemDescription,
+  ItemGroup,
+  ItemGroupEntry,
+  ItemTitle,
+} from '@adea-ai/ui/components/ui/item'
 import { Label } from '@adea-ai/ui/components/ui/label'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type ChatHistorySearchProps = Readonly<{
   sessions: readonly RuntimeSession[]
@@ -48,35 +55,67 @@ export function ChatHistorySearch(props: ChatHistorySearchProps): JSX.Element {
         placeholder="Search prompts, tools, approvals, and statuses"
         onInput={(event) => updateQuery(event.currentTarget.value)}
       />
-      <p role="status">
+      <Text variant="caption" tone="muted" role="status">
         {page().totalMatches} result{page().totalMatches === 1 ? '' : 's'}
-      </p>
-      <Show when={page().items.length > 0} fallback={<p>No matching history.</p>}>
-        <ol aria-label="Conversation history results">
-          <For each={page().items}>
-            {(row) => (
-              <li>
-                <Button type="button" onClick={() => props.onJump?.(row.jump)}>
-                  <span class="dev-history-search__title">{row.title}</span>
-                  <span class="dev-history-search__kind">{row.kind}</span>
-                  <span class="dev-history-search__preview">{row.preview}</span>
-                </Button>
-                <Show when={row.resumable}>
-                  <Button type="button" onClick={() => props.onResume?.(row)}>
-                    Resume generation {row.generation}
-                  </Button>
-                </Show>
-                <Show when={!row.resumable && row.kind === 'run'}>
-                  <span>Not resumable ({row.resumeReason?.replace('_', ' ')})</span>
-                </Show>
-              </li>
-            )}
-          </For>
-        </ol>
+      </Text>
+      <Show
+        when={page().items.length > 0}
+        fallback={
+          <Text variant="caption" tone="muted">
+            No matching history.
+          </Text>
+        }
+      >
+        <div class="dev-history-search__results">
+          <ItemGroup listLabel="Conversation history results">
+            <For each={page().items}>
+              {(row) => (
+                <ItemGroupEntry
+                  variant="outline"
+                  size="sm"
+                  stackTrailing
+                  trailing={
+                    <>
+                      <Show when={row.resumable}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => props.onResume?.(row)}
+                        >
+                          Resume generation {row.generation}
+                        </Button>
+                      </Show>
+                      <Show when={!row.resumable && row.kind === 'run'}>
+                        <Text variant="caption" tone="muted">
+                          Not resumable ({row.resumeReason?.replace('_', ' ')})
+                        </Text>
+                      </Show>
+                    </>
+                  }
+                >
+                  <ItemTitle>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      onClick={() => props.onJump?.(row.jump)}
+                    >
+                      {row.title}
+                    </Button>
+                  </ItemTitle>
+                  <ItemDescription>
+                    <Text variant="overline">{row.kind}</Text> {row.preview}
+                  </ItemDescription>
+                </ItemGroupEntry>
+              )}
+            </For>
+          </ItemGroup>
+        </div>
       </Show>
       <Show when={page().nextCursor}>
         {(next) => (
-          <Button type="button" onClick={() => setCursor(next())}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setCursor(next())}>
             Load more
           </Button>
         )}

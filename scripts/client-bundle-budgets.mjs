@@ -389,7 +389,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Its merge moved raw to 329 KiB without a comment — 0.2% headroom.
     // Raw ratchets to 335 KiB (~2%); gzip holds at 105 KiB (~18% headroom,
     // worth re-tightening on the next re-measure of this route).
-    devShell: { rawBytes: 335 * 1024, gzipBytes: 105 * 1024 },
+    // Library parts for the repository registry (2026-10-13): Collapsible,
+    // Item and Alert replace the native details and the local `.dev-tree-*`
+    // rows, so the shell closure grows. CI measures 343,135 raw (95 bytes over
+    // the 335 KiB cap above); raw ratchets to 342 KiB (~2% headroom).
+    devShell: { rawBytes: 342 * 1024, gzipBytes: 105 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested
@@ -408,7 +412,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // chunk the panes share with it: 178,335 raw / 61,542 gzip against the
     // same build of main's 178,006 / 60,882 (102 bytes over 60 KiB gzip).
     // Gzip ratchets to the next whole KiB; raw keeps its cap.
-    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 61 * 1024 },
+    // Repository registry on library Collapsible, Item and Alert (#1317, #1318
+    // harness pane): the shared utility open route measures 181,693 raw,
+    // 1,469 bytes over the 176 KiB cap. Raw ratchets to 181 KiB (~2% headroom).
+    devUtilityPanes: { rawBytes: 181 * 1024, gzipBytes: 61 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.

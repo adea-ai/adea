@@ -2561,9 +2561,8 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   const form = page.locator('form.conventional-agent-customization')
-  // The bold label is the grid's field header; the controls themselves keep
-  // the normal weight, and the native select fills its grid column so its
-  // chevron sits at the select's edge instead of the column's end.
+  // The controls keep the normal weight, and the native select fills its grid
+  // column so its chevron sits at the select's edge instead of the column's end.
   const fieldPaint = await form.evaluate((formElement) => {
     const input = formElement.querySelector<HTMLInputElement>('input[name="name"]')
     const select = formElement.querySelector<HTMLSelectElement>('select[name="projectId"]')
@@ -2612,6 +2611,9 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     .getByRole('alertdialog', { name: 'Archive Research Agent' })
     .getByRole('button', { name: 'Cancel' })
     .click()
+  // The dialog returns focus to its trigger when it closes. Wait for that, or a slow
+  // machine presses Tab below and then has focus pulled back to "Archive Agent".
+  await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeHidden()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   for (const mode of ['light', 'dark']) {
     await page.evaluate((theme) => {

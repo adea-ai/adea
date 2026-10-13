@@ -32,6 +32,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@adea-ai/ui/components/ui/alert-dialog'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
@@ -292,12 +293,13 @@ function CloudConnectionsContent(props: { client: AgentHqApiClient; workspaceId:
       </Show>
       <Show when={notice()}>
         {(current) => (
-          <p
-            class="conventional-settings-note"
+          <Alert
+            class="mt-4"
+            variant={current().tone === 'alert' ? 'destructive' : 'default'}
             role={current().tone === 'alert' ? 'alert' : 'status'}
           >
-            {current().text}
-          </p>
+            <AlertDescription>{current().text}</AlertDescription>
+          </Alert>
         )}
       </Show>
     </>

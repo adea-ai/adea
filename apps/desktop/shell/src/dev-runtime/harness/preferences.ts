@@ -60,6 +60,10 @@ export function createHarnessPreferenceAuthority(input: {
   scope: Scope
   /** The managed installation id when ready; the root-default anchor. */
   managedInstallationId: () => string | undefined
+  /** True when the device-wide default names a family. The managed-Pi root
+   * default then yields to it (the register resolves the family to an
+   * installation), so the effective list never shows both as the default. */
+  deviceDefaultActive?: () => boolean
 }): HarnessPreferenceAuthority {
   const store = createDurableJsonStore<HarnessPreferenceRecord>({
     file: join(input.dataDir, PREFS_STORE_FILE),
@@ -87,6 +91,7 @@ export function createHarnessPreferenceAuthority(input: {
     ) {
       return undefined
     }
+    if (input.deviceDefaultActive?.()) return undefined
     const managedId = input.managedInstallationId()
     if (!managedId) return undefined
     return {
@@ -96,6 +101,7 @@ export function createHarnessPreferenceAuthority(input: {
       sortKey: sortKeyFor(0),
       default: true,
       version: 1,
+      rootDefault: true,
     }
   }
 

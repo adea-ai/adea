@@ -32,12 +32,14 @@ import {
   type ScanBookmarkRow,
   type ScanPreviewRow,
 } from './scan-preview-model'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type AddProjectFormProps = Readonly<{
   scope: Scope
@@ -214,12 +216,12 @@ export function AddProjectForm(props: AddProjectFormProps) {
   }
 
   return (
-    <>
-      <div role="group" aria-label="Authorize a project folder">
-        <p class="dev-tree-empty">
+    <div class="flex flex-col gap-2">
+      <div role="group" aria-label="Authorize a project folder" class="flex flex-col gap-2">
+        <Text as="p" variant="caption" tone="muted">
           Authorize a folder on this machine, then import the projects found inside it.
-        </p>
-        <div class="dev-tree-row dev-tree-row--project">
+        </Text>
+        <div>
           <Label class="w-full">
             <span class="sr-only">Folder path to authorize</span>
             <Input
@@ -234,9 +236,9 @@ export function AddProjectForm(props: AddProjectFormProps) {
           </Label>
         </div>
         <Show when={authorizeError()}>
-          <p class="dev-tree-empty" role="alert">
-            {authorizeError()}
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>{authorizeError()}</AlertDescription>
+          </Alert>
         </Show>
         <div class="flex flex-wrap items-center gap-2">
           <Show when={props.pickFolder}>
@@ -262,20 +264,20 @@ export function AddProjectForm(props: AddProjectFormProps) {
         </div>
       </div>
       <Show when={bookmarksError()}>
-        <p class="dev-tree-empty" role="alert">
-          {bookmarksError()}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>{bookmarksError()}</AlertDescription>
+        </Alert>
       </Show>
       <Show when={!bookmarksError()}>
         <Show
           when={bookmarks().length > 0}
           fallback={
-            <p class="dev-tree-empty">
+            <Text as="p" variant="caption" tone="muted">
               No authorized roots yet. An authorized folder is listed here for scanning.
-            </p>
+            </Text>
           }
         >
-          <p class="dev-tree-empty">
+          <div>
             <Label>
               <span class="sr-only">Authorized root to scan</span>
               <NativeSelect
@@ -294,28 +296,34 @@ export function AddProjectForm(props: AddProjectFormProps) {
                 ]}
               />
             </Label>
-          </p>
+          </div>
         </Show>
         <Show when={scan().status === 'scanning'}>
-          <p class="dev-tree-empty" role="status">
+          <Text as="p" variant="caption" tone="muted" role="status">
             Scanning under the authorized root…
-          </p>
+          </Text>
         </Show>
         <Show when={scan().status === 'failed'}>
-          <p class="dev-tree-empty" role="alert">
-            {(scan() as { status: 'failed'; message: string }).message}
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>
+              {(scan() as { status: 'failed'; message: string }).message}
+            </AlertDescription>
+          </Alert>
         </Show>
         <Show when={readyScan()}>
-          <div role="group" aria-label="Scan results requiring confirmation">
+          <div
+            role="group"
+            aria-label="Scan results requiring confirmation"
+            class="flex flex-col gap-2"
+          >
             <Show when={readyScan()?.notice}>
-              <p class="dev-tree-empty" role="status">
+              <Text as="p" variant="caption" tone="muted" role="status">
                 {readyScan()?.notice}
-              </p>
+              </Text>
             </Show>
             <For each={readyScan()?.rows}>
               {(row) => (
-                <div class="dev-tree-row dev-tree-row--project">
+                <div>
                   <Checkbox
                     class="w-full"
                     disabled={row.duplicate}
@@ -323,7 +331,9 @@ export function AddProjectForm(props: AddProjectFormProps) {
                     label={
                       <>
                         <span>{row.entry.name}</span>
-                        <span class="dev-tree-row__count">{row.entry.packageManager}</span>
+                        <Text variant="caption" tone="muted" class="ms-auto">
+                          {row.entry.packageManager}
+                        </Text>
                         <Show when={row.duplicate}>
                           <Badge
                             size="sm"
@@ -351,6 +361,6 @@ export function AddProjectForm(props: AddProjectFormProps) {
           </div>
         </Show>
       </Show>
-    </>
+    </div>
   )
 }

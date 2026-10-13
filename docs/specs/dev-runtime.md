@@ -5581,6 +5581,52 @@ between plan and commit fails the commit `stale_generation`, and the reply's
 strict decoders (`JanitorScanReport`, `JanitorMeasurePage`, `JanitorPlan`,
 `JanitorCommitResult`) fail closed like every other operation's.
 
+### Harness inventory
+
+`dev.harness.inventory` (`dev.harness.read`) returns the machine's discovered
+harness installations as a `RuntimeConnectionInventorySnapshot`: one entry per
+family with its display name, version, `auth` and `health` states, declared
+`capabilities` and `sessionOperations`, `limitations`, and the eligibility
+verdict with typed blockers, plus a parallel `freshness` list. It is a pure
+projection of the last stored observation and never probes the machine, so an
+empty list means "not scanned yet" or "nothing found", not "not installed".
+
+`dev.harness.inventoryRefresh` (`dev.harness.manage`) is the explicit rescan.
+It runs the shell's discovery sources (the local-executable source: path
+resolution plus a bounded fixed-argv version probe per found executable, no
+shell text), stores the observation, publishes `dev.harness.updated` with
+`kind: 'inventory.refreshed'`, and returns the fresh snapshot. Overlapping
+rescans share one pass. A host composed without discovery sources returns the
+stored observation unchanged. Making a discovered installation the default
+goes through the existing `dev.harness.preferenceUpdate`; the default is per
+runtime node (optionally per project), not per workspace.
+
+### Default harness: device and workspace
+
+A new session with no explicit harness starts with the first of: the project
+default, the workspace default, the device default, the managed-Pi root
+default. The project and workspace defaults are `HarnessPreference` records
+(`default: true`, scoped to the active account, workspace and runtime node);
+setting one through `dev.harness.preferenceUpdate` is the per-workspace
+override, and clearing it (`default: false`) returns the workspace to the
+device default.
+
+`dev.harness.deviceDefault` (`dev.harness.read`) and
+`dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
+default: one harness family (`claude-code`, `codex`, `opencode`, `pi`) shared by
+every workspace on this device, so a new workspace needs no reconfiguring. It
+names a family, not an installation, because installation ids are bound to one
+workspace scope. The update is fenced by `expectedVersion` (0 when never set,
+`stale_version` with the current version otherwise); omitting `family` clears
+it; an unknown family is `invalid_state`. While a device default is set the
+managed-Pi root default is not synthesized into `dev.harness.preferences`.
+
+`dev.session.launchDefault` resolves the device default family to a
+launch-eligible installation in the active workspace (scanning once when the
+workspace was never scanned). A family that is not installed or not eligible
+refuses `capability_unavailable` with remediation `dev.harness.inventoryRefresh`;
+it never launches a different harness.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:

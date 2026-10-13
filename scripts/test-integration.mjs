@@ -1,6 +1,12 @@
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
+  captureCommand,
+  composePostgresImage,
+  runWithPullFallback,
+  withComposeImage,
+} from './docker-pull-backoff.mjs'
+import {
   discoverIntegrationInventory,
   parseIntegrationShard,
   planIntegrationRun,
@@ -57,6 +63,26 @@ function run(command, args, environment, cwd = root) {
   }
 }
 
+// A bare `compose up` would fail the lane on the shared registry's anonymous pull limit, so the
+// start goes through the same fallback and backoff as the E2E setup. Output is echoed once each
+// attempt settles so a rate-limited attempt stays visible in the log.
+async function composeUpPostgres() {
+  const args = ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres']
+  const result = await runWithPullFallback(async (image) => {
+    const attempt = await captureCommand('docker', args, {
+      cwd: root,
+      env: withComposeImage(process.env, image),
+    })
+    if (attempt.stdout) process.stdout.write(attempt.stdout)
+    if (attempt.stderr) process.stderr.write(attempt.stderr)
+    return attempt
+  }, composePostgresImage(root))
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`docker ${args.join(' ')} failed with exit code ${result.status}`)
+  }
+}
+
 function runningComposeServices() {
   const result = spawnSync('docker', ['compose', 'ps', '--status', 'running', '--services'], {
     cwd: root,
@@ -102,11 +128,7 @@ try {
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
-    run(
-      'docker',
-      ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres'],
-      process.env
-    )
+    await composeUpPostgres()
     startedLocalPostgres = true
   }
 

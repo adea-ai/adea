@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/solid-router'
+import { TextLink } from '@adea-ai/ui/components/ui/text-link'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 import { SignInForm } from '../../../components/sign-in-form'
@@ -37,9 +38,9 @@ function SignInPage() {
         </p>
         <SignInForm returnTo={returnTo() ?? '/'} />
         {!desktopFlow() ? (
-          <a class="browser-auth-continue" href="/">
-            Continue without an account
-          </a>
+          <p class="mt-4 text-center text-sm">
+            <TextLink href="/">Continue without an account</TextLink>
+          </p>
         ) : null}
       </section>
     </main>

@@ -1,6 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
-import { runWithPullBackoff } from './docker-pull-backoff.mjs'
+import {
+  composePostgresImage,
+  runWithPullFallback,
+  withComposeImage,
+} from './docker-pull-backoff.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -34,20 +38,21 @@ const environment = usesExplicitDatabase
   : { ...process.env, ...localDatabaseEnvironment }
 
 // This caller is synchronous, so each attempt stays a blocking spawnSync. Output is
-// captured to recognize the registry rate limit, and echoed once each attempt settles.
+// captured to recognize the registry rate limit, and echoed once each attempt settles. A rate
+// limit moves to the same digest on another registry before it backs off.
 async function composeUpPostgres() {
   const args = ['compose', 'up', '-d', '--wait', '--wait-timeout', '60', 'postgres']
-  const result = await runWithPullBackoff(() => {
+  const result = await runWithPullFallback((image) => {
     const attempt = spawnSync('docker', args, {
       cwd: root,
       encoding: 'utf8',
-      env: process.env,
+      env: withComposeImage(process.env, image),
       stdio: 'pipe',
     })
     if (attempt.stdout) process.stdout.write(attempt.stdout)
     if (attempt.stderr) process.stderr.write(attempt.stderr)
     return attempt
-  })
+  }, composePostgresImage(root))
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`docker ${args.join(' ')} failed with exit code ${result.status}`)
