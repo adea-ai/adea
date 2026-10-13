@@ -54,6 +54,19 @@ binding at entry, authorizes, audits, then:
 its existing database function. HTTP routes and the lead tool surface both
 construct the same operations object.
 
+The production composition also enforces the catalog permission inside the
+mutation/event transaction. `withWorkspaceManagementAuthority` locks the
+workspace first (including its lifecycle), then reads the actor membership
+with `FOR SHARE`, which conflicts with deletion and non-key role updates.
+A revocation committed before acquisition denies the effect; an effect that
+acquires valid authority first holds revocation until commit or rollback.
+All eleven supported cloud management executors receive that transaction;
+their existing transaction wrappers create savepoints on the same connection.
+The generic query-layer project/editor policies remain unchanged for other
+callers. Reopen retains its owner-only executor policy and is the sole binding
+that permits an archived workspace. This local database ordering does not
+make the remote CP assertion and the Adea effect a distributed atomic action.
+
 ## Exact-call lead authority
 
 `ManagementCallBinding` is
@@ -132,20 +145,23 @@ including reorder, and promotion/restore requiring a positive safe-integer
 `expectedVersion` plus `confirmed: boolean`. Timestamps remain display data and
 are never the CAS token.
 
-The shared catalog hunk in `packages/types/src/management.ts` is owned by this
-lane and now carries the published additions: the `project_revision` revision
-kind documented as that integer version (not `updatedAt`), the
-`project.promote` operation id, and its catalog spec (`promoteProjectState`,
-`explicit` confirmation, `version_conflict` recovery, `workspace.update`
-permission). The executor, restore route and lead tool live in the 1218 lane,
-so every lane for `project.promote` is declared `not_implemented` here until
-that hunk lands and flips them to `cloudLanes`; the catalog shape and integer
-semantics are authoritative from now on. `packages/db/src/projects.ts` is
-1218-owned and was not edited.
+The combined local #1230 review candidate includes the #1218 project-promotion
+work. `packages/types/src/management.ts` declares `project_revision` as the
+integer version (not `updatedAt`), and lists `project.promote` with
+`promoteProjectState`, explicit confirmation, `version_conflict` recovery and
+`workspace.update` permission. Its catalog classifies the web, desktop and
+lead lanes as supported. The shared gateway, executor, restore route and lead
+tool are present in the candidate. `packages/db/src/projects.ts` now increments
+the project version for row mutations, while `project-state-policy.ts` owns
+the canonical project/channel lock and compare-and-swap transitions.
 
-CP production pieces now landed (control-plane
-`feat/issue-932-management-current-authority`, commits `ec46d2fb` and
-`b841bb10`):
+This is code and test scope for a local review candidate, not live production
+qualification. The Control Plane deployment launcher and governed
+tool-to-Adea effect caller remain incomplete below.
+
+Control Plane issuer/transport implementation and fixture evidence
+(control-plane `feat/issue-932-management-current-authority`, commits
+`ec46d2fb` and `b841bb10`; code-level evidence only, not live qualification):
 
 - `apps/control-api/src/pi-durable/management-decision-issuer.ts` is the
   canonical `adea-management-authority/v1` issuer. It emits exactly the claim
@@ -200,7 +216,8 @@ owner; CP keeps repeatable admission/approval/effect/publication checks.
 
 `claimManagementAuthorityDecision` in
 `packages/db/src/management-authority-consumption.ts` (table
-`management_authority_consumptions`, migration 0045 provisionally) inserts
+`management_authority_consumptions`, candidate migration
+`0048_graceful_prima`) inserts
 `{decisionId, binding digests, state: 'claimed'}` before the effect;
 `completeManagementAuthorityDecision` marks `succeeded`/`failed` after it. The
 unique `decision_id` makes the database the replay owner across workers, cold
@@ -220,17 +237,19 @@ Unsupported lanes: `device_required`, `upstream_authority_unavailable`,
 
 ## Regression coverage
 
-- `packages/types/tests/management.test.ts` — catalog, digests, strict parser,
-  validator, approval expiry, server-only assertion.
+- `packages/types/tests/management.test.ts` — catalog and generated registry
+  bindings/lane classification, digests, strict parser, validator, approval
+  expiry, server-only assertion.
 - `apps/web/test/management-gateway.test.ts` — human/lead parity, binding
   mismatch, denied/expired/future decisions, late-authority denial, parked-await
   expiry, canonical `effect` boundary assertion, current-authority throw,
-  missing owner, bounded error projection.
+  device refusal, denial attribution, missing owner, bounded error projection.
 - `apps/web/test/management-operations.test.ts` — executor wiring, conflict
-  contracts, zero-executor refusal without a lead binding, digest-only lead
-  audit with a canary secret.
+  and version/order contracts, dedicated confirmation operations, zero-executor
+  refusal without a lead binding, digest-only lead audit with a canary secret.
 - `apps/web/test/lead-management-tools.test.ts` — lead-callable slice, exact
-  binding handed to the resolver, malformed/expired decisions.
+  binding handed to the resolver, malformed/expired decisions, and execution
+  through the shared operations.
 - `apps/web/test/lead-management-service-auth.test.ts` — signed claim grammar,
   trust/revocation, forgery, lifetimes and approval expiry.
 - `apps/web/test/lead-management-route.test.ts` — strict call parsing,
@@ -246,32 +265,30 @@ Unsupported lanes: `device_required`, `upstream_authority_unavailable`,
   claim recovery, replay, mismatched binding, interrupted-claim reconciliation.
 - `apps/web/test/management-routing-boundary.test.ts` — no API route imports a
   management database function directly.
-- `packages/types/tests/management.test.ts` pins the catalog's shape, the
-  `dev.*` bindings against the generated operation registry, and the lane
-  classification.
-- `apps/web/test/management-gateway.test.ts` pins human/lead parity, the
-  fail-closed authority boundary, device refusal, denial attribution and the
-  bounded error projection.
-- `apps/web/test/management-operations.test.ts` pins executor wiring, the
-  version/order conflict contracts and the dedicated confirmation operations.
 - `apps/web/test/project-promotion-management.test.ts` pins the explicit
   `project.promote` path: `workspace.update` authorization, exact revision,
   typed stale-revision projection, unconfirmed refusal and lead-lane audit
   parity.
-- `apps/web/test/lead-management-tools.test.ts` pins that the lead definitions
-  are exactly the inventory's lead-callable slice and that execution routes
-  through the same shared operations.
 
 ## Migration ordering gate
 
-`origin/main` currently ends at `0044_lead_turn_runtime`. Adea #1233/#1213 is
-selected to land `0045_agent-edit-revisions` first. The `0045_management_authority_consumption`
-migration on this branch is **provisional** and must be regenerated on updated
-main after that landing (next authoritative free number), coordinated with root
-before publication. No migration is claimed to have landed.
+Fresh base `main` at `bc3fd1b07befaea2dc01f424423a4d0af7bcbd34` ends at
+`0047_requested_role_model_selections` (journal index 47). The combined local
+#1230 candidate adds `0048_graceful_prima` (journal index 48), whose SQL and
+snapshot include the `channel_archive_source` enum and `channels.archive_source`,
+`projects.version` with its positive check, and the
+`management_authority_consumptions` state/table, constraints, foreign key and
+workspace index. This replaces the older branch-local provisional 0045/0046
+numbering; no migration renumbering is proposed for `main`.
+
+The migration and application changes have local database verification, but
+0048 has not landed on `main` and this candidate is not a live deployment
+qualification. Verify the target's migration history/catalog before any
+deployment.
 
 ## Remaining boundary
 
-The canonical CP host mapping above and the authoritative migration number are
-the remaining integration gates. Device-local operations still await the remote
-runtime-node channel.
+The canonical CP host/deployment mapping above remains an integration gate;
+the local `0048_graceful_prima` journal state does not qualify a production
+deployment. Device-local operations still await the remote runtime-node
+channel.

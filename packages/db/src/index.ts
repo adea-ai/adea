@@ -25,6 +25,15 @@ export {
   type MigrationSnapshotPayloadDigestInconclusiveReason,
 } from './migration-snapshot-capture'
 export {
+  captureNativeSessionSection,
+  NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
+  NativeSessionInventoryError,
+  type NativeSessionInventoryFailure,
+  type NativeSessionInventoryPage,
+  type NativeSessionInventoryScope,
+  type NativeSessionInventorySource,
+} from './native-session-inventory'
+export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
   RuntimeNodeDeliveryError,
@@ -48,6 +57,7 @@ export {
   deleteArtifact,
   getArtifactForUser,
   listArtifactsForUser,
+  readArtifactReferenceEvidenceById,
   setArtifactAvailability,
   type ArtifactCreateInput,
 } from './artifacts'
@@ -56,6 +66,11 @@ export {
   authorizeArtifactReferenceRetrieval,
   readArtifactReferenceEvidence,
 } from './artifact-reference-policy'
+export {
+  publishArtifactReference,
+  retrieveArtifactReference,
+  type ArtifactReferenceServiceResult,
+} from './artifact-reference-service'
 export {
   readCurrentArtifactReferenceGrant,
   registerArtifactReferenceGrant,
@@ -128,6 +143,8 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  ReadSnapshotIsolationError,
+  lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'
@@ -297,6 +314,7 @@ export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './e
 export {
   addWorkspaceMembership,
   archiveWorkspace,
+  listArchivedWorkspacesForOwner,
   deleteWorkspace,
   beginWorkspaceDeletion,
   WorkspaceCleanupRequiredError,
@@ -435,3 +453,5 @@ export {
 } from './conversations'
 
 export * from './lead-model-selections'
+
+export { withWorkspaceManagementAuthority } from './management-workspace-authority'

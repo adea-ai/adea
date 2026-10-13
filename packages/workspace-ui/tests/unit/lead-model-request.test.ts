@@ -35,6 +35,7 @@ function fixture() {
   } as const
   let ready = true
   let invalid = false
+  let refSuffix = ''
   const client = {
     listModelConnections: async () => {
       calls.push('list')
@@ -52,7 +53,7 @@ function fixture() {
           provider: 'test',
           authKind: 'api_key',
           fundingSource: 'byo_api',
-          selectionRef: `msel_${(input.role === 'lead' ? 'a' : 'b').repeat(32)}`,
+          selectionRef: `msel_${(input.role === 'lead' ? 'a' : 'b').repeat(32)}${refSuffix}`,
           selectionRevision: invalid ? 0 : 1,
         },
       }
@@ -67,6 +68,9 @@ function fixture() {
     },
     setInvalid: () => {
       invalid = true
+    },
+    setRefSuffix: (value: string) => {
+      refSuffix = value
     },
   }
 }
@@ -87,6 +91,26 @@ test('resolves each explicit role independently and retries the same immutable r
     )
   ).toBe(first)
   expect(f.calls).toHaveLength(3)
+})
+
+test('resolved references with trailing line terminators are refused and never retained', async () => {
+  for (const role of ['lead', 'child'] as const)
+    for (const suffix of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+      const f = fixture()
+      f.setRefSuffix(suffix)
+      await expect(
+        f.resolver.resolve('workspace', 'same-save', { [role]: f.choice }, () => true)
+      ).rejects.toThrow('response invalid')
+      f.setRefSuffix('')
+      const retried = await f.resolver.resolve(
+        'workspace',
+        'same-save',
+        { [role]: f.choice },
+        () => true
+      )
+      expect(retried?.[role]?.selectionRef).not.toContain(suffix)
+      expect(f.calls).toHaveLength(4)
+    }
 })
 test('changed same-key choices and revoked audience cannot reuse retained refs', async () => {
   const f = fixture()

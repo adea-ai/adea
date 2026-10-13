@@ -127,6 +127,9 @@ bun run lint
 bun run typecheck
 bun run test
 bun run test:integration
+# Opt-in #1230 joined proof against an explicit control-plane checkout (pinned in
+# apps/web/test/control-plane-joined/control-plane-source.json; never skips):
+ADEA_CONTROL_PLANE_SOURCE=/path/to/control-plane-checkout bun run test:integration:control-plane-joined
 bun run build
 bun run test:packaged
 bun run test:browser:desktop-client
@@ -136,7 +139,7 @@ PLAYWRIGHT_HEADLESS=1 bun run test:e2e
 ```
 
 CI delegates general validation to the shared Code Foundry workflow. The
-separate Neon workflow runs integration tests against an isolated branch.
+separate Neon workflow runs the integration inventory as two shards, each against its own isolated branch, behind one required `Migrate Neon Branch` check.
 Package unit tests fan out through Turborepo.
 
 `bun run test:unit` includes an 80% line-and-function coverage gate for the

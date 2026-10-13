@@ -44,6 +44,7 @@ export function conversationErrorResponse(
     })
   if (
     message === 'Primary Project Channel required' ||
+    message === 'Channel participant policy conflict' ||
     message.endsWith('thread conflict') ||
     message.endsWith('reply conflict')
   )

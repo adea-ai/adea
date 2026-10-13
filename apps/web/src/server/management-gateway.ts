@@ -19,6 +19,7 @@
  */
 import type { UserPrincipalRef, WorkspacePermission } from '@adea-ai/types'
 import {
+  ManagementAuthorityError,
   managementOperationSupport,
   managementOperations,
   validateManagementAuthorityDecision,
@@ -56,7 +57,10 @@ export type ManagementFailureCode =
   | 'unavailable'
   | 'unsupported'
 
-export type ManagementFailureReason = ManagementAuthorityReasonCode | ManagementUnsupportedReason
+export type ManagementFailureReason =
+  | ManagementAuthorityReasonCode
+  | ManagementUnsupportedReason
+  | 'workspace_personal_protected'
 
 export type ManagementFailure = Readonly<{
   code: ManagementFailureCode
@@ -117,9 +121,12 @@ export type ManagementGateway = Readonly<{
   run<T>(
     operation: ManagementOperationId,
     input: ManagementRunInput,
-    execute: () => Promise<T>
+    execute: (assertEffectCurrent: ManagementEffectAssertion) => Promise<T>
   ): Promise<ManagementOutcome<T>>
 }>
+
+/** Called by the production executor only after its transaction locks are held. */
+export type ManagementEffectAssertion = () => Promise<void>
 
 const KNOWN_REVISIONS = new Set(['Workspace version conflict', 'Workspace order conflict'])
 const KNOWN_ORDER_CONFLICTS = new Set(['Project order conflict'])
@@ -176,8 +183,14 @@ export function managementFailure(
       message: 'Management target requires cleanup before this operation',
       operation,
     })
+  if (known.has('WorkspacePersonalProtectedError'))
+    return Object.freeze({
+      code: 'forbidden' as const,
+      message: 'Management operation is forbidden',
+      operation,
+      reason: 'workspace_personal_protected' as const,
+    })
   if (
-    known.has('WorkspacePersonalProtectedError') ||
     known.has('Project sharing forbidden') ||
     known.has('Project read-only') ||
     known.has('WorkspacePersonalProtected')
@@ -234,7 +247,7 @@ export function createManagementGateway(
     async run<T>(
       operation: ManagementOperationId,
       input: ManagementRunInput,
-      execute: () => Promise<T>
+      execute: (assertEffectCurrent: ManagementEffectAssertion) => Promise<T>
     ): Promise<ManagementOutcome<T>> {
       const lane = caller.kind === 'lead' ? 'lead' : 'web'
       const support = managementOperationSupport(operation, lane)
@@ -309,45 +322,40 @@ export function createManagementGateway(
           message: 'Management operation is forbidden',
         })
 
-      if (caller.kind === 'lead') {
-        // Per-delivery CP current-authority assertion immediately before the
-        // effect, then a final synchronous time/binding recheck after every
-        // await so an expired or parked decision cannot execute.
-        if (dependencies.assertCurrent) {
-          try {
-            await dependencies.assertCurrent(
-              {
-                approval: caller.decision.approval,
-                audienceRef: caller.decision.audienceRef,
-                authorityRef: caller.decision.authorityRef,
-                ...(caller.canonicalRequest !== undefined
-                  ? { canonicalRequest: caller.canonicalRequest }
-                  : {}),
-                authorityRevision: caller.decision.authorityRevision,
-                binding: binding!,
-                decisionId: caller.decision.decisionId,
-                intentId: caller.decision.intentId,
-                leadAgentId: caller.decision.leadAgentId,
-                now: now(),
-                planRef: caller.decision.planRef,
-                planRevision: caller.decision.planRevision,
-                principal: caller.decision.principal,
-              },
-              'effect'
-            )
-          } catch {
-            return Object.freeze({
-              failure: authorityFailure(operation, 'authority_unavailable'),
-              ok: false,
-            })
-          }
-        } else {
-          // Without a current-authority owner no lead effect may run, even
-          // when the signed decision is locally current.
-          return Object.freeze({
-            failure: authorityFailure(operation, 'authority_unavailable'),
-            ok: false,
-          })
+      if (caller.kind === 'lead' && !dependencies.assertCurrent)
+        return Object.freeze({
+          failure: authorityFailure(operation, 'authority_unavailable'),
+          ok: false,
+        })
+
+      // The production executor invokes this only after its workspace and
+      // operation-specific row locks are held. Rechecking here would let a
+      // lock wait outlive CP revocation or the signed decision's expiry.
+      const assertEffectCurrent: ManagementEffectAssertion = async () => {
+        if (caller.kind !== 'lead') return
+        try {
+          await dependencies.assertCurrent!(
+            {
+              approval: caller.decision.approval,
+              audienceRef: caller.decision.audienceRef,
+              authorityRef: caller.decision.authorityRef,
+              ...(caller.canonicalRequest !== undefined
+                ? { canonicalRequest: caller.canonicalRequest }
+                : {}),
+              authorityRevision: caller.decision.authorityRevision,
+              binding: binding!,
+              decisionId: caller.decision.decisionId,
+              intentId: caller.decision.intentId,
+              leadAgentId: caller.decision.leadAgentId,
+              now: now(),
+              planRef: caller.decision.planRef,
+              planRevision: caller.decision.planRevision,
+              principal: caller.decision.principal,
+            },
+            'effect'
+          )
+        } catch {
+          throw new ManagementAuthorityError('authority_unavailable')
         }
         const invalid =
           validateManagementAuthorityDecision(caller.decision, {
@@ -357,13 +365,21 @@ export function createManagementGateway(
             leadAgentId: caller.reference.leadAgentId,
             now: now(),
           }) ?? bindingOperationMismatch(operation, input, caller.decision, binding!)
-        if (invalid)
-          return Object.freeze({ failure: authorityFailure(operation, invalid), ok: false })
+        if (invalid) throw new ManagementAuthorityError(invalid)
       }
 
       try {
-        return Object.freeze({ ok: true as const, operation, value: await execute() })
+        return Object.freeze({
+          ok: true as const,
+          operation,
+          value: await execute(assertEffectCurrent),
+        })
       } catch (error) {
+        if (error instanceof ManagementAuthorityError)
+          return Object.freeze({
+            failure: authorityFailure(operation, error.reason),
+            ok: false,
+          })
         return Object.freeze({ failure: managementFailure(operation, error), ok: false })
       }
     },

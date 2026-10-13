@@ -1,12 +1,16 @@
 import { spawnSync } from 'node:child_process'
 
-// Runs the Playwright half of the E2E lane after scripts/e2e-setup.mjs has
-// prepared the database. When the Code Foundry E2E lane fans out into shards
-// (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned with Playwright's
-// native --shard so each runner executes a slice of the suite against its own
-// runner-local database. Without shard variables the invocation is unchanged.
+// Runs the Playwright half of the E2E lane after scripts/e2e-run.mjs has
+// prepared the database, browser, and web build. When the Code Foundry E2E lane
+// fans out into shards (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned
+// with Playwright's native --shard so each runner executes a slice of the suite
+// against its own runner-local database. Without shard variables the invocation
+// is unchanged.
 const specs = [
   'apps/web/e2e/workspace-guest.spec.ts',
+  // The new-workspace creation draft: owner wording in the chat and Dev sidebars (#1264).
+  'apps/web/e2e/workspace-creation-owner.spec.ts',
+  'apps/web/e2e/workspace-nav.spec.ts',
   'apps/web/e2e/sidebar-resize.spec.ts',
   'apps/web/e2e/cursor-check.spec.ts',
   'apps/web/e2e/dev-view.spec.ts',
@@ -49,9 +53,28 @@ const specs = [
   // trip and reconnect convergence, driven through the real directory and
   // inbox surfaces instead of fetching their APIs from the page.
   'apps/web/e2e/account-directory-ui.spec.ts',
+  // Cross-product session journeys (#1223): chat continuity and
+  // workspace/project placement over real app routes with isolated
+  // fixtures — same actual-authentication class as the account specs.
+  'apps/web/e2e/chat-continuity.spec.ts',
+  'apps/web/e2e/workspace-project-placement.spec.ts',
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Lead model-role choices (#1211): the requested-reference picker, composer carry-through and
+  // the mismatch refusal, mounted over module-only fixtures that need no host inputs. The
+  // connected CP journey is deliberately absent: it is the opt-in PI_ROLE_CONNECTED_PROOF lane
+  // behind the hash-verified candidate wrapper.
+  'apps/web/e2e/lead-role-choices.spec.ts',
+  // Lead payer journey (#1211): the same module-only fixture class.
+  'apps/web/e2e/lead-payer-journey.spec.ts',
+  // Archive and reopen of optional workspaces (#1175): the real shell end to end, and the
+  // targeted settings harness for the confirmation, refusal and retry cases.
+  'apps/web/e2e/workspace-archive-lifecycle.spec.ts',
+  'apps/web/e2e/workspace-archive-settings.spec.ts',
+  // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
+  // target and a revisit by the same ID selects it again. No route mocks.
+  'apps/web/e2e/workspace-deeplink-real.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
@@ -74,8 +97,6 @@ function run(command, args) {
   }
 }
 
-run('bunx', ['playwright', 'install', '--with-deps', 'chromium'])
-run('bunx', ['turbo', 'run', 'build', '--filter=@adea-ai/web^...'])
 run('playwright', ['test', '--config=playwright.config.ts', ...shardArgs, ...specs])
 
 // The event-listener regression probe is a single test. Running it once (on

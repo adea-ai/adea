@@ -17,6 +17,7 @@ import {
   evaluateGroupGrantWindow,
 } from './group-participation-policy'
 import {
+  admissionInForce,
   admissionForParticipant,
   loadGroupAdmission,
   loadGroupRoster,
@@ -30,7 +31,7 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { reopenTasksForChannelMessage } from './tasks'
-import { appendWorkspaceEvent } from './transactions'
+import { appendWorkspaceEvent, inReadSnapshot } from './transactions'
 import {
   agents,
   artifacts,
@@ -138,7 +139,9 @@ async function requireActiveAgent(database: Database, workspaceId: string, agent
  * Agent sender standing for group channels (M15.01 scope reconciliation).
  * The host workspace never vouches for foreign Agents: the sender must be
  * active in its own home workspace AND hold an effective enlistment in this
- * group. Unenlisted or inactive senders fail like a missing channel.
+ * group. Unenlisted or inactive senders fail like a missing channel. The
+ * enlistment row is locked, so a concurrent revocation serializes with this
+ * check the same way a user's admission does (see requireGroupUserAdmission).
  */
 async function requireGroupAgentSender(
   database: Database,
@@ -157,11 +160,66 @@ async function requireGroupAgentSender(
     workspaceId,
     channelId,
     { agentId, kind: 'agent' },
-    {}
+    { forUpdate: true }
   )
   if (
     !admission ||
     evaluateGroupGrantWindow(admission.grant, new Date().toISOString()) !== 'effective'
+  )
+    throw new Error('Channel unavailable')
+}
+
+/**
+ * Group senders on the generic boundary clear the same live admission the
+ * fenced group post checks (`decideGroupTurn`), so a caller that skips
+ * postGroupChannelMessage cannot write as a withheld participant. Runs under
+ * the channel row lock the caller already holds (channel before admission, the
+ * fence's order) and never calls the group post back, so there is no
+ * recursion. A fenced caller has proven user admission at trusted time in this
+ * transaction, so it skips only that re-check; membership and Agent standing
+ * still apply to it. System senders are not group participants and keep their
+ * existing validation: no admission applies to them.
+ */
+async function requireGroupSender(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  sender: MessageSenderRef,
+  fenced: boolean
+) {
+  if (sender.kind === 'agent') {
+    await requireGroupAgentSender(database, workspaceId, channelId, sender.agentId)
+    return
+  }
+  if (sender.kind !== 'user') return validateSender(database, workspaceId, sender)
+  await requireWorkspaceUser(database, workspaceId, sender.userId)
+  if (!fenced) await requireGroupUserAdmission(database, workspaceId, channelId, sender.userId)
+}
+
+/**
+ * A group user's live admission, decided on trusted time read under the
+ * channel lock, with the same rule the fenced group post applies. Used before
+ * the writes and again after them, so a lapse during a wait denies.
+ */
+async function requireGroupUserAdmission(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  userId: string
+) {
+  const admission = await loadGroupAdmission(
+    database,
+    workspaceId,
+    channelId,
+    { kind: 'user', userId },
+    { forUpdate: true }
+  )
+  if (
+    decideGroupTurn({
+      admission,
+      groupId: channelId,
+      now: new Date().toISOString(),
+    }).action !== 'allow'
   )
     throw new Error('Channel unavailable')
 }
@@ -191,22 +249,27 @@ async function validateParticipant(
 }
 
 async function channelSummary(database: Database, row: ChannelRow): Promise<ChannelSummary> {
-  const participantRows = await database
-    .select()
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.workspaceId, row.workspaceId),
-        eq(channelParticipants.channelId, row.id)
-      )
-    )
-  const participants = participantRows
-    .map((participant): ConversationParticipantRef =>
-      participant.principalKind === 'user'
-        ? { kind: 'user', userId: participant.userId! }
-        : { agentId: participant.agentId!, kind: 'agent' }
-    )
-    .toSorted(compareByStableKey)
+  const participants =
+    row.kind === 'group'
+      ? await groupParticipantsInForce(database, row)
+      : await database
+          .select()
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, row.workspaceId),
+              eq(channelParticipants.channelId, row.id)
+            )
+          )
+          .then((participantRows) =>
+            participantRows
+              .map((participant): ConversationParticipantRef =>
+                participant.principalKind === 'user'
+                  ? { kind: 'user', userId: participant.userId! }
+                  : { agentId: participant.agentId!, kind: 'agent' }
+              )
+              .toSorted(compareByStableKey)
+          )
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -224,6 +287,18 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
     visibility: row.visibility,
     workspaceId: row.workspaceId,
   })
+}
+
+async function groupParticipantsInForce(
+  database: Database,
+  row: ChannelRow
+): Promise<ConversationParticipantRef[]> {
+  const now = new Date().toISOString()
+  const roster = await loadGroupRoster(database, row.workspaceId, row.id)
+  return roster
+    .filter((admission) => admissionInForce(admission, row.id, now))
+    .map((admission) => admission.participant)
+    .toSorted(compareByStableKey)
 }
 
 async function requireChannel(
@@ -258,7 +333,8 @@ async function requireChannelAccess(
   channelId: string,
   principal: UserPrincipalRef,
   mode: 'read' | 'write' = 'read',
-  includeArchived = false
+  includeArchived = false,
+  now = new Date().toISOString()
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -270,7 +346,16 @@ async function requireChannelAccess(
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
-  if (channel.visibility === 'participants') {
+  if (channel.kind === 'group') {
+    // Group writes recheck admission under their channel/admission locks. Do not
+    // add an earlier wall-clock decision here: fenced lead writes carry their
+    // trusted time through the nested transaction and must keep the final gate.
+    if (
+      mode === 'read' &&
+      !(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now))
+    )
+      throw new Error('Channel unavailable')
+  } else if (channel.visibility === 'participants') {
     const [participant] = await database
       .select({ id: channelParticipants.id })
       .from(channelParticipants)
@@ -286,6 +371,20 @@ async function requireChannelAccess(
     if (!participant) throw new Error('Channel unavailable')
   }
   return channel
+}
+
+async function groupAdmissionInForce(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+  now: string
+): Promise<boolean> {
+  const admission = await loadGroupAdmission(database, workspaceId, channelId, {
+    kind: 'user',
+    userId,
+  })
+  return admissionInForce(admission, channelId, now)
 }
 
 /** Project-level write check for channel management (rename, archive, participants). */
@@ -668,11 +767,22 @@ export const createGroupChannel = (
     visibility: 'participants',
   })
 
-export async function listChannelsForUser(
-  database: AgentHqDatabase,
+export function listChannelsForUser(
+  database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    listChannelsForUserInSnapshot(snapshot, workspaceId, principal, options)
+  )
+}
+
+async function listChannelsForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ includeArchived?: boolean }>
 ) {
   const scope = await requireProjectAccessScope(
     database,
@@ -694,15 +804,26 @@ export async function listChannelsForUser(
   const summaries = await Promise.all(rows.map((row) => channelSummary(database, row)))
   return summaries.filter(
     (channel) =>
-      channel.visibility === 'workspace' ||
+      (channel.kind !== 'group' && channel.visibility === 'workspace') ||
       channel.participants.some(
         (participant) => participant.kind === 'user' && participant.userId === principal.userId
       )
   )
 }
 
-export async function getChannelForUser(
-  database: AgentHqDatabase,
+export function getChannelForUser(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    getChannelForUserInSnapshot(snapshot, workspaceId, channelId, principal)
+  )
+}
+
+async function getChannelForUserInSnapshot(
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef
@@ -729,6 +850,10 @@ export async function updateChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
+      if (input.visibility === 'workspace') throw new Error('Channel participant policy conflict')
+    }
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (input.taskId) await requireVisibleTask(transaction, workspaceId, input.taskId, principal)
@@ -777,6 +902,8 @@ export async function archiveChannel(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.kind === 'direct_agent' && channel.createPayloadHash)
       await requireChannelAccess(transaction, workspaceId, channelId, principal, 'write')
+    if (channel.kind === 'group')
+      await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.isPrimaryProjectChannel && channel.projectId) {
@@ -1166,7 +1293,40 @@ export function createMessage(
   principal: UserPrincipalRef,
   input: CreateMessageInput
 ) {
-  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, false)
+  return createMessageWithTextPolicy(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    false,
+    false
+  )
+}
+
+/**
+ * Writer for a caller that already proved group admission at trusted time under
+ * the channel lock, inside this transaction: postGroupChannelMessageInTransaction
+ * and createLeadTurn (whose lockAuthority admits the principal first). It keeps
+ * the fence's own clock readings, so the generic re-check does not add one.
+ * Never call this for an unproven caller; use createMessage.
+ */
+export function createMessageInGroupFence(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  input: CreateMessageInput
+) {
+  return createMessageWithTextPolicy(
+    transaction,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    false,
+    true
+  )
 }
 
 /** Server-only terminal publication; never expose this text policy as a caller input. */
@@ -1183,7 +1343,15 @@ export function createRuntimeResultMessage(
     sender: Extract<MessageSenderRef, { kind: 'agent' }>
   }>
 ) {
-  return createMessageWithTextPolicy(database, workspaceId, channelId, principal, input, true)
+  return createMessageWithTextPolicy(
+    database,
+    workspaceId,
+    channelId,
+    principal,
+    input,
+    true,
+    false
+  )
 }
 
 async function createMessageWithTextPolicy(
@@ -1192,7 +1360,8 @@ async function createMessageWithTextPolicy(
   channelId: string,
   principal: UserPrincipalRef,
   input: CreateMessageInput,
-  preserveText: boolean
+  preserveText: boolean,
+  fenced: boolean
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
@@ -1215,13 +1384,24 @@ async function createMessageWithTextPolicy(
         .limit(1)
         .for('update')
     }
-    // Group agent senders prove standing through their enlistment (checked
-    // just below), never through host membership — validateSender keeps the
-    // host-workspace rule for every other lane.
-    if (!(channel.kind === 'group' && input.sender.kind === 'agent'))
-      await validateSender(transaction, workspaceId, input.sender)
-    if (channel.kind === 'group' && input.sender.kind === 'agent')
-      await requireGroupAgentSender(transaction, workspaceId, channelId, input.sender.agentId)
+    // Group senders prove standing through their CURRENT group admission, never
+    // host membership alone; validateSender keeps the host-workspace rule for
+    // every other lane.
+    if (channel.kind === 'group')
+      await requireGroupSender(transaction, workspaceId, channelId, input.sender, fenced)
+    else await validateSender(transaction, workspaceId, input.sender)
+    // The awaited writes below can wait on locks past a grant's expiry, so a
+    // group user or Agent re-proves its standing after them. A denial throws
+    // inside this transaction and rolls back the message, event, mentions and
+    // frontier. Fenced callers re-check after their own nested write instead,
+    // and system senders keep their existing validation.
+    const reproveGroupSender = async () => {
+      if (channel.kind !== 'group' || fenced) return
+      if (input.sender.kind === 'user')
+        await requireGroupUserAdmission(transaction, workspaceId, channelId, input.sender.userId)
+      if (input.sender.kind === 'agent')
+        await requireGroupAgentSender(transaction, workspaceId, channelId, input.sender.agentId)
+    }
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
     const artifactIds = [...new Set(input.artifactIds ?? [])].toSorted()
@@ -1305,7 +1485,9 @@ async function createMessageWithTextPolicy(
         existing.id,
         principal
       )
-      return messageSummary(transaction, existing)
+      const summary = await messageSummary(transaction, existing)
+      await reproveGroupSender()
+      return summary
     }
     if (!created.threadRootMessageId)
       await advanceChannelLatestSequence(transaction, channelId, created.sequence)
@@ -1338,12 +1520,14 @@ async function createMessageWithTextPolicy(
       workspaceId,
     })
     await reopenTasksForChannelMessage(transaction, workspaceId, channelId, created.id, principal)
-    return messageSummary(transaction, created)
+    const summary = await messageSummary(transaction, created)
+    await reproveGroupSender()
+    return summary
   })
 }
 
-export async function listMessagesForUser(
-  database: AgentHqDatabase,
+export function listMessagesForUser(
+  database: Database,
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
@@ -1353,6 +1537,23 @@ export async function listMessagesForUser(
     now?: string
     threadRootMessageId?: string
   }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    listMessagesForUserInSnapshot(snapshot, workspaceId, channelId, principal, options)
+  )
+}
+
+async function listMessagesForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{
+    afterSequence?: number
+    limit?: number
+    now?: string
+    threadRootMessageId?: string
+  }>
 ) {
   await requireMembership(database, workspaceId, principal)
   const channel = await requireChannelAccess(database, workspaceId, channelId, principal)
@@ -1418,12 +1619,24 @@ export async function listMessagesForUser(
   })
 }
 
-export async function getMessageForUser(
-  database: AgentHqDatabase,
+export function getMessageForUser(
+  database: Database,
   workspaceId: string,
   messageId: string,
   principal: UserPrincipalRef,
   options: Readonly<{ now?: string }> = {}
+) {
+  return inReadSnapshot(database, (snapshot) =>
+    getMessageForUserInSnapshot(snapshot, workspaceId, messageId, principal, options)
+  )
+}
+
+async function getMessageForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  messageId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{ now?: string }>
 ) {
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
@@ -1446,6 +1659,25 @@ export async function getMessageForUser(
   })
   if (decision.action !== 'allow') throw new Error('Message unavailable')
   return summary
+}
+
+/**
+ * A group mutation locks the channel before its admission and grant, matching
+ * the group write fence so mutation and grant revocation serialize together.
+ */
+async function requireGroupMutationStanding(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef
+) {
+  await database
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+    .for('update')
+  await requireGroupTurn(database, workspaceId, { id: channelId, kind: 'group' }, principal)
 }
 
 /**
@@ -1475,6 +1707,40 @@ async function requireGroupTurn(
   if (decision.action !== 'allow') throw new Error('Channel unavailable')
 }
 
+/** Check target and thread-parent history before a mutation can reveal version state. */
+async function requireGroupMessageHistory(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  message: MessageRow,
+  principal: UserPrincipalRef
+) {
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(transaction, workspaceId, channelId, { forUpdate: true }),
+    loadGroupSharingGrants(transaction, workspaceId, channelId, { forUpdate: true }),
+  ])
+  const admission = admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
+  const now = new Date().toISOString()
+  const relatedIds = new Set([
+    message.id,
+    ...(message.threadRootMessageId ? [message.threadRootMessageId] : []),
+    ...(message.replyToMessageId ? [message.replyToMessageId] : []),
+  ])
+  for (const relatedId of relatedIds) {
+    const related =
+      relatedId === message.id ? message : await requireMessage(transaction, workspaceId, relatedId)
+    if (related.channelId !== channelId) throw new Error('Message unavailable')
+    const decision = decideGroupHistoryRead({
+      admission,
+      entry: { occurredAt: related.createdAt.toISOString(), sequence: related.sequence },
+      groupId: channelId,
+      now,
+      sharingGrants,
+    })
+    if (decision.action !== 'allow') throw new Error('Message unavailable')
+  }
+}
+
 export async function editMessage(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -1493,7 +1759,10 @@ export async function editMessage(
       principal,
       'write'
     )
-    await requireGroupTurn(transaction, workspaceId, channel, principal)
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
+      await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
+    }
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1545,7 +1814,10 @@ export async function deleteMessage(
       principal,
       'write'
     )
-    await requireGroupTurn(transaction, workspaceId, channel, principal)
+    if (channel.kind === 'group') {
+      await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
+      await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
+    }
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()

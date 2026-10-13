@@ -8,10 +8,14 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm'
 
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import type { WorkspaceEventView } from './event-log'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import { resolveProjectAccessScope } from './project-access'
-import { artifacts, channelParticipants, channels, contentRefs, messages, tasks } from './schema'
+import { artifacts, channels, contentRefs, messages, tasks } from './schema'
+import { inReadSnapshot } from './transactions'
+
+type Database = AgentHqDatabase | AgentHqTransaction
 
 /**
  * How one event reaches one subscriber.
@@ -78,8 +82,19 @@ function conversationReferences(event: WorkspaceEventView) {
  * never one query per event. Participant checks use indexed EXISTS inside
  * those lookups; owner/admin project privileges do not bypass a private channel.
  */
-export async function classifyWorkspaceEventsForUser(
-  database: AgentHqDatabase,
+export function classifyWorkspaceEventsForUser(
+  database: Database,
+  workspaceId: string,
+  userId: string,
+  events: readonly WorkspaceEventView[]
+): Promise<readonly WorkspaceEventDelivery[] | null> {
+  return inReadSnapshot(database, (snapshot) =>
+    classifyWorkspaceEventsForUserInSnapshot(snapshot, workspaceId, userId, events)
+  )
+}
+
+async function classifyWorkspaceEventsForUserInSnapshot(
+  database: Database,
   workspaceId: string,
   userId: string,
   events: readonly WorkspaceEventView[]
@@ -108,14 +123,17 @@ export async function classifyWorkspaceEventsForUser(
     }
   }
 
-  const canReadChannel = sql<boolean>`coalesce(${channels.visibility} = 'workspace' or exists (
-    select 1 from ${channelParticipants}
-    where ${channelParticipants.workspaceId} = ${workspaceId}
-      -- Keep the outer-table qualifier in single-table Drizzle projections.
-      and ${channelParticipants.channelId} = ${channels}.${sql.identifier('id')}
-      and ${channelParticipants.principalKind} = 'user'
-      and ${channelParticipants.userId} = ${userId}
-  ), false)`
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, userId, new Date().toISOString(), workspaceId)),
+  ]
+  // Keep the outer-table qualifier in single-table Drizzle projections.
+  const canReadChannel = sql<boolean>`coalesce(${userChannelVisibility({
+    channelId: sql`${channels}.${sql.identifier('id')}`,
+    inForceGroupIds: inForce,
+    kind: sql`${channels}.${sql.identifier('kind')}`,
+    userId,
+    visibility: sql`${channels}.${sql.identifier('visibility')}`,
+  })}, false)`
 
   const [channelRows, messageRows, taskRows, artifactRows, contentRows] = await Promise.all([
     channelIds.size

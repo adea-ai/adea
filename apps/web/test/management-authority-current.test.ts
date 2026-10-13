@@ -75,12 +75,13 @@ describe('Control API management current authority client (#1215)', () => {
     server.stop(true)
   })
 
-  function client(fetchImpl?: typeof fetch) {
+  function client(fetchImpl?: typeof fetch, timeoutMs?: number) {
     return createControlPlaneManagementCurrentAuthority({
       credential: async () => ({ token: TOKEN, workspaceId: WORKSPACE }),
       environment: { CONTROL_PLANE_ORIGIN: `http://127.0.0.1:${server.port}` },
       now: () => MANAGEMENT_NOW,
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      ...(timeoutMs ? { timeoutMs } : {}),
     })
   }
 
@@ -156,6 +157,103 @@ describe('Control API management current authority client (#1215)', () => {
       })(request, 'effect')
     ).rejects.toBeInstanceOf(ManagementAuthorityError)
     expect(fetches).toBe(0)
+  })
+
+  test('an oversize body is refused at the 16 KB bound and its stream is cancelled', async () => {
+    let pulled = 0
+    let cancelled = false
+    const oversize = (async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          pull(controller) {
+            pulled += 1
+            controller.enqueue(new Uint8Array(8 * 1024).fill(120))
+          },
+        })
+      )) as unknown as typeof fetch
+    await expect(client(oversize)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
+    // The 16 KB bound is reached within three 8 KB chunks (one may be queued
+    // ahead); an unbounded read would keep pulling this infinite stream.
+    expect(pulled).toBeLessThanOrEqual(4)
+  })
+
+  test('the deadline aborts the owned request and body stream', async () => {
+    let aborted = false
+    let cancelled = false
+    const stalled = (async (_url: unknown, init?: { signal?: AbortSignal }) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => {
+          aborted = true
+        },
+        { once: true }
+      )
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+        })
+      )
+    }) as unknown as typeof fetch
+    const started = Date.now()
+    await expect(client(stalled, 40)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(aborted).toBe(true)
+    expect(cancelled).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  test('a complete prefix followed by a stall is refused once the deadline cancels the body', async () => {
+    let cancelled = false
+    const prefixThenStall = (async () =>
+      new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          start(controller) {
+            // A complete `{ asserted: true }` document is buffered, then the
+            // stream never closes; cancelling it must not let the prefix pass.
+            controller.enqueue(new TextEncoder().encode('{"asserted":true}'))
+          },
+        })
+      )) as unknown as typeof fetch
+    const started = Date.now()
+    await expect(client(prefixThenStall, 40)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  test('a complete body that arrives after the deadline already fired is refused and released', async () => {
+    let cancelled = false
+    const late = (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+      return new Response(
+        new ReadableStream({
+          cancel() {
+            cancelled = true
+          },
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"asserted":true}'))
+            controller.close()
+          },
+        })
+      )
+    }) as unknown as typeof fetch
+    await expect(client(late, 20)(request, 'effect')).rejects.toBeInstanceOf(
+      ManagementAuthorityError
+    )
+    expect(cancelled).toBe(true)
   })
 
   test('an unknown boundary is refused without a hop', async () => {

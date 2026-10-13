@@ -15,8 +15,9 @@ renamed the cloud room entity to projects in one migration (`0030`). The
 `project.reordered`, `project.restored`, `project.deleted`) replaced `room.*`,
 `task.room_changed` became `task.project_changed`, and `agent.room_assigned`
 became `agent.project_assigned`. Explicit project-state promotion appends
-`project.restored` and wakes every archived project channel with
-`channel.restored` (aggregate `channel`, payload `actorUserId`, `channelId`,
+`project.restored`; it emits `channel.restored` only for channels archived by
+the project cascade (`archive_source = 'project_cascade'`), never for channels
+archived individually (aggregate `channel`, payload `actorUserId`, `channelId`,
 `projectId`; ids only, like `channel.archived`). The `room` aggregate type
 survives in the database enum only so historical rows stay readable; no
 current contract emits it, and a client that replays an old `room.*` event
@@ -47,6 +48,13 @@ and receive distinct ordered sequences; a rolled-back mutation releases its
 increment with the rest of the transaction, so committed events have no gaps a
 client could read as missing work. `(workspace_id, workspace_sequence)` is
 unique, and the sequence is positive by check constraint.
+
+Managed mutations that can append durable events acquire this counter row after
+their sorted domain-row locks and before the effect-time Control Plane authority
+recheck. This is a non-incrementing lock; `appendWorkspaceEvent` still allocates
+the sequence when it writes. Project archive and promotion therefore keep the
+project → channel → sequence lock order while avoiding a sequence-row wait after
+the current-authority check.
 
 **One publication path.** `appendWorkspaceEvent(transaction, { workspaceId,
 eventType, payload })` resolves the contract, validates the payload, allocates
@@ -202,6 +210,14 @@ Workspace owners and admins retain their project privileges but cannot bypass a 
 channel's audience. Removing a participant therefore withholds that channel's replay events as well
 as future events; archived conversation history follows the same current audience check.
 
+Each page classification runs in one read-only repeatable-read snapshot when the caller supplies a
+root database connection. Membership, project scope, current group grants, and referenced content
+therefore come from one database view: a revoke committed before the snapshot denies the page; a
+revoke committed after it cannot mix an old grant decision with newer references. The next page or
+fresh read observes the revocation. A caller-owned transaction is reused with its locks intact only
+when its isolation is `REPEATABLE READ` or `SERIALIZABLE`; weaker isolation fails before page
+classification runs.
+
 **Never via resync.** `resync_required` frames carry only a fresh cursor; the client then refetches
 current state through the query layer, which applies the same project and channel access. Cursors carry no
 access decision.
@@ -210,12 +226,12 @@ access decision.
 stream ends with `membership-revoked` straight away rather than at the next 30-second recheck.
 
 **Cost.** Every page that has events costs one or two indexed reads for the access scope
-(membership plus the workspace's `members` projects with the subscriber's rows). Each page adds at
-most five batched reference lookups (channels, messages, tasks, artifacts, content refs) keyed by
-the ids in the page, never one query per event. Channel audience checks use indexed participant
-existence projections in those lookups, including for owners and admins. A page containing only
-project events needs only the access-scope reads. Idle polls
-read nothing extra.
+(membership plus the workspace's `members` projects with the subscriber's rows), and one indexed
+group-admission/grant read for channel audience checks. Each page adds at most five batched
+reference lookups (channels, messages, tasks, artifacts, content refs) keyed by the ids in the
+page, never one query per event. Channel audience checks use indexed participant existence
+projections in those lookups, including for owners and admins. A page containing only project events
+needs only the access-scope and group-standing reads. Idle polls read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes

@@ -1,13 +1,15 @@
-# M14.03 management-action contract: #1218 on top of #1215
+# M14.03 management-action contract: #1218 scope in the combined #1230 candidate
 
-- Status: implemented on the stacked lane (2026-10-09).
+- Status: implemented in the combined local review candidate (2026-10-12); not
+  merged or live-qualified.
 - Lane: **#1218** — preserve memory provenance/audience and explicit project
   state promotion; preview sensitive/dirty-worktree cleanup.
 - Sibling: **#1215** — route management through shared audited APIs
   (`feat/issue-1215-management-audit-apis`, commit `8364b2865`, PR #1230).
-- Stacking: this branch is rebased onto `8364b2865`, so PR #1227's diff
-  shrinks to this lane's single commit once #1230 merges. Both slices target
-  `main`.
+- Consolidation: the current local #1230 candidate includes the #1215 shared
+  management surface and the #1218/#1227 project, memory-provenance and cleanup
+  work. No separate #1227 code commit is pending in this candidate. Remote PR
+  #1227 remains an open draft and was not updated by this handoff.
 - Contract sources: REQ 022,033,050,052–058,086,087; tests A11,A14,A33,A35;
   reuse gate [#811](https://github.com/adea-ai/adea/issues/811).
 
@@ -34,7 +36,7 @@
 one inventory entry and wires the promotion through the same gateway; it does
 not fork the gateway, authorization or audit paths.
 
-## What this lane lands on top of #1215
+## What the combined candidate includes from this lane
 
 - **Inventory** — `project.promote` (`project`/cloud, permission
   `workspace.update`, `explicit` confirmation, `workspace_event` audit,
@@ -52,8 +54,8 @@ not fork the gateway, authorization or audit paths.
   sidebar and rendered in the delete confirmation. The preview stays read-only
   (`executesNothing: true`) and never grants execution.
 - **Channel archive provenance** — new `channels.archive_source`
-  (`individual | project_cascade`) with the provisional migration
-  `0045_solid_ted_forrester` (see migration sequencing below). The canonical
+  (`individual | project_cascade`) in the combined candidate's migration
+  `0048_graceful_prima` (see migration sequencing below). The canonical
   `archiveProjectChannels`/`restoreProjectChannels` in
   `packages/db/src/project-state-policy.ts` are shared by `archiveProject`,
   `softDeleteProject` and `promoteProjectState`: the project row is locked
@@ -87,26 +89,25 @@ not fork the gateway, authorization or audit paths.
 
 ## Migration sequencing (root-coordinated)
 
-- **#1233/#1213 `0045_agent-edit-revisions` has landed.** Verified on actual
-  `main` = `30913129c` (squash of reviewed `fdc940d79`); the main journal ends
-  `idx 45 = 0045_agent-edit-revisions`. Nothing here claims or fabricates that
-  landing.
-- This branch is still stacked on the pre-#1233 #1215 commit and therefore
-  carries **two provisional, branch-local migrations**: `0045_solid_ted_forrester`
-  (channels `archive_source`) and `0046_wealthy_mister_fear`
-  (`projects.version` + positive check). They exist only so the branch can be
-  tested; they are not for publication and must not be merged as numbered.
-- At the safe integration point (after 1207 regenerates `0046` and #1229's
-  `0047` land), rebase on actual `main`, delete both provisional SQL/snapshot
-  entries, and regenerate **one** combined migration from the authoritative
-  journal; the number is coordinated with root, never pre-assigned.
-- Regeneration note: drizzle-kit 0.31.11 emitted only
-  `ALTER TABLE ... ADD COLUMN` for the new enum used by an added column. After
-  regenerating, prepend
-  `CREATE TYPE "app"."channel_archive_source" AS ENUM('individual', 'project_cascade');`
-  and re-run `drizzle-kit check`.
-- No migration number is claimed for publication until root confirms the
-  journal state; this lane publishes only its draft PR.
+- Fresh base `main` is `bc3fd1b07befaea2dc01f424423a4d0af7bcbd34`; its
+  journal ends at index 47, `0047_requested_role_model_selections`. The
+  earlier #1233/#1213 `0045_agent-edit-revisions`, #1207 `0046` artifact grant,
+  and requested-role `0047` migrations are already in that history.
+- The combined local #1230 candidate adds the actual migration
+  `0048_graceful_prima` at journal index 48 (timestamp `1791602651133`) with
+  its matching SQL and snapshot. It combines the previously provisional
+  archive-source/project-version schema with the durable management-authority
+  consumption table: `channel_archive_source` and `channels.archive_source`,
+  positive `projects.version`, and `management_authority_consumptions` with its
+  state enum, checks, workspace foreign key and index.
+- The migration is not on `main` yet, and no migration is renumbered on `main`.
+  Local `test:integration`, migration verification and `db:verify` cover the
+  candidate database state; they do not establish production migration history
+  or live Control Plane qualification. Verify the intended deployment target
+  before any rollout.
+- Remote #1227 remains an open draft that contains stacked history. Its code
+  scope is represented in this local combined candidate, but this note does
+  not update, close or merge that PR.
 
 ## Implemented: canonical project revision
 
@@ -130,9 +131,10 @@ NOT NULL` with `CHECK (version > 0)`, matching the workspaces/channels
   refuses `promotion_stale`, and the SQL CAS is
   `eq(projects.version, expectedVersion)`. Timestamps remain display-only.
 - The management executor/operation, the `restore` route and
-  `ApiProjectRestoreInput` now carry `{ confirmed: true; expectedVersion }`;
-  `packages/types/src/management.ts` was not edited — `project_revision`
-  remains the catalog name for this integer.
+  `ApiProjectRestoreInput` now carry `{ confirmed: true; expectedVersion }`.
+  `packages/types/src/management.ts` includes `project_revision`, the
+  `project.promote` operation and the candidate's supported web/desktop/lead
+  lane classifications.
 - Archived-channel provenance and the project→channels(id) lock order are
   unchanged.
 

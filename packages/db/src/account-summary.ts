@@ -2,8 +2,8 @@ import type { AccountWorkspaceSummary, UserPrincipalRef } from '@adea-ai/types'
 import { sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
   messageMentions,
@@ -13,12 +13,14 @@ import {
   workspaceMemberships,
   workspaces,
 } from './schema'
+import { inReadSnapshot } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
 /**
  * Counts-only unread status for every live workspace the principal belongs to
- * (ADR 0011, "Counts-only cross-workspace status"), in one grouped query.
+ * (ADR 0011, "Counts-only cross-workspace status") with one grouped result
+ * query and one bounded lookup for live group admissions and grants.
  *
  * Membership is the only authority: the query starts from the principal's own
  * memberships, so a workspace they do not belong to can never appear. Channel
@@ -38,10 +40,22 @@ type Database = AgentHqDatabase | AgentHqTransaction
  *
  * Nothing in the result names a channel, message, or person.
  */
-export async function accountWorkspaceSummaries(
+export function accountWorkspaceSummaries(
   database: Database,
   principal: UserPrincipalRef
 ): Promise<readonly AccountWorkspaceSummary[]> {
+  return inReadSnapshot(database, (snapshot) =>
+    accountWorkspaceSummariesInSnapshot(snapshot, principal)
+  )
+}
+
+async function accountWorkspaceSummariesInSnapshot(
+  database: Database,
+  principal: UserPrincipalRef
+): Promise<readonly AccountWorkspaceSummary[]> {
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const rows = await database.execute<{
     mentions: number
     unreadChannels: number
@@ -60,15 +74,13 @@ export async function accountWorkspaceSummaries(
     left join ${channels} as channel
       on channel.workspace_id = membership.workspace_id
       and channel.lifecycle_state = 'active'
-      and (
-        channel.visibility = 'workspace'
-        or exists (
-          select 1 from ${channelParticipants} as participant
-          where participant.channel_id = channel.id
-            and participant.principal_kind = 'user'
-            and participant.user_id = membership.user_id
-        )
-      )
+      and ${userChannelVisibility({
+        channelId: sql.raw('channel.id'),
+        inForceGroupIds: inForce,
+        kind: sql.raw('channel.kind'),
+        userId: principal.userId,
+        visibility: sql.raw('channel.visibility'),
+      })}
       and (
         channel.project_id is null
         or membership.role in ('owner', 'admin')

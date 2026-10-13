@@ -71,9 +71,9 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
         .where(inArray(workspaceMemberships.workspaceId, workspaceIds))
       await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
     }
-    for (const userId of userIds) {
-      await db.delete(temporaryUserSessions).where(eq(temporaryUserSessions.userId, userId))
-      await db.delete(users).where(eq(users.id, userId))
+    if (userIds.length) {
+      await db.delete(temporaryUserSessions).where(inArray(temporaryUserSessions.userId, userIds))
+      await db.delete(users).where(inArray(users.id, userIds))
     }
     await connection.close()
   })
@@ -226,7 +226,8 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
       await counting`select 1`
       queries = 0
       const summaries = await accountWorkspaceSummaries(drizzle(counting, { schema }), alice)
-      expect(queries).toBe(1)
+      // Two data reads plus begin, isolation setup and commit for the snapshot.
+      expect(queries).toBe(5)
       expect(summaries).toEqual([
         { mentions: 1, unreadChannels: 2, workspaceId: one },
         { mentions: 2, unreadChannels: 1, workspaceId: two },

@@ -1,7 +1,11 @@
-import { readdirSync, existsSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import {
+  discoverIntegrationInventory,
+  parseIntegrationShard,
+  planIntegrationRun,
+} from './integration-inventory.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const localDatabaseEnvironment = {
@@ -13,33 +17,33 @@ const localDatabaseEnvironment = {
     'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
 }
 
-const integrationDirectories = readdirSync(resolve(root, 'packages'), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => resolve(root, 'packages', entry.name, 'tests', 'integration'))
-  .filter((directory) => existsSync(directory))
-  .toSorted()
+// ADEA_INTEGRATION_SHARD=<index>/<total> runs one explicit slice of the package suites, so a lane
+// can split them across independent databases. Unset runs everything, route flow included. The
+// route flow belongs to shard 1 only. See integration-inventory.mjs for the inventory and the split.
+const shard = parseIntegrationShard(process.env.ADEA_INTEGRATION_SHARD)
+const plan = planIntegrationRun(discoverIntegrationInventory(root), shard)
 
-if (integrationDirectories.length === 0) {
-  throw new Error('No package integration test directories were found')
+// --plan prints this invocation's selection and exits before any build, Docker, or database work.
+if (process.argv.includes('--plan')) {
+  console.log(JSON.stringify({ shard, ...plan }, null, 2))
+  process.exit(0)
 }
 
-// The apps/web route-flow tests (server route handlers against PostgreSQL)
-// share this lane's provisioning but run under the react-server export
-// condition, which the runner supplies — the route modules carry the
-// `server-only` marker and cannot initialize under bun's default conditions.
-// The directory is required to exist: coverage silently shrinking out of the
-// lane would be indistinguishable from a green run.
-const routeFlowDirectory = resolve(root, 'apps', 'web', 'test', 'integration')
-if (!existsSync(routeFlowDirectory)) {
+// The opt-in joined proof (apps/web/test/control-plane-joined) mounts one pinned control-plane
+// checkout. It is not part of the default lanes: `--control-plane-joined` runs only that proof,
+// on this lane's provisioning, and a missing checkout fails the run instead of skipping it.
+const controlPlaneJoined = process.argv.includes('--control-plane-joined')
+const controlPlaneJoinedDirectory = resolve(root, 'apps', 'web', 'test', 'control-plane-joined')
+const controlPlaneSource = process.env.ADEA_CONTROL_PLANE_SOURCE
+if (controlPlaneJoined && !controlPlaneSource) {
   throw new Error(
-    'apps/web/test/integration is missing; the route-flow lane cannot be silently skipped'
+    'ADEA_CONTROL_PLANE_SOURCE must name a checkout of the pinned control-plane revision (apps/web/test/control-plane-joined/control-plane-source.json)'
   )
 }
-const routeFlowDirectories = [routeFlowDirectory]
 
-function run(command, args, environment) {
+function run(command, args, environment, cwd = root) {
   const result = spawnSync(command, args, {
-    cwd: root,
+    cwd,
     encoding: 'utf8',
     env: environment,
     stdio: 'inherit',
@@ -77,7 +81,8 @@ function runningComposeServices() {
 // randomly-passworded container that exists only for this run is the point;
 // widening an application role to make room for a test would not be.
 const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'
-const captureProvisioningImage = 'postgres:18-alpine'
+const captureProvisioningImage =
+  'public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
 
 function dockerDaemonAvailable() {
   const result = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
@@ -246,30 +251,56 @@ try {
     )
   }
 
-  run(
-    'bun',
-    [
-      '--conditions=react-server',
-      'test',
-      '--timeout',
-      String(timeoutMs),
-      ...integrationDirectories,
-    ],
-    environment
-  )
-  // The route flow imports the compiled @adea-ai/api-client entry (the package
-  // suites above read their own src relatively; the database entry is already
-  // built before provisioning), so it must be built on a clean checkout before
-  // the route tests run. Like the builds above, this keeps integration
-  // runnable independently from a workspace-wide turbo build.
-  run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
-  // The runner sets the react-server condition for the route-flow modules;
-  // the shared database environment and the same latency-sized ceiling apply.
-  run(
-    'bun',
-    ['test', '--conditions=react-server', '--timeout', String(timeoutMs), ...routeFlowDirectories],
-    environment
-  )
+  if (controlPlaneJoined) {
+    // Run from the control-plane checkout so its sources compile under its own TypeScript
+    // configuration (decorators); the Adea modules load by relative path from this directory.
+    run(
+      'bun',
+      [
+        'test',
+        '--conditions=react-server',
+        '--timeout',
+        String(timeoutMs),
+        controlPlaneJoinedDirectory,
+      ],
+      { ...environment, ADEA_CONTROL_PLANE_SOURCE: controlPlaneSource },
+      controlPlaneSource
+    )
+  } else {
+    run(
+      'bun',
+      [
+        '--conditions=react-server',
+        'test',
+        '--timeout',
+        String(timeoutMs),
+        ...plan.packageFiles.map((file) => resolve(root, file)),
+      ],
+      environment
+    )
+    // The route flow imports the compiled @adea-ai/api-client entry (the package
+    // suites above read their own src relatively; the database entry is already
+    // built before provisioning), so it must be built on a clean checkout before
+    // the route tests run. Like the builds above, this keeps integration
+    // runnable independently from a workspace-wide turbo build.
+    if (plan.routeFiles.length > 0) {
+      run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+      // The apps/web route-flow tests run under the react-server export condition, which the runner
+      // supplies: the route modules carry the `server-only` marker and cannot initialize under bun's
+      // default conditions. The shared database environment and the same latency-sized ceiling apply.
+      run(
+        'bun',
+        [
+          'test',
+          '--conditions=react-server',
+          '--timeout',
+          String(timeoutMs),
+          ...plan.routeFiles.map((file) => resolve(root, file)),
+        ],
+        environment
+      )
+    }
+  }
 } catch (error) {
   primaryFailure = error
 }

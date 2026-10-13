@@ -13,8 +13,8 @@ import {
   isAccountResourceId,
 } from './account-cursor'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
 import {
-  channelParticipants,
   channelReadStates,
   channels,
   messageMentions,
@@ -25,6 +25,7 @@ import {
   workspaceMemberships,
   workspaces,
 } from './schema'
+import { inReadSnapshot } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
@@ -53,8 +54,9 @@ type InboxRow = {
 }
 
 // The account-wide inbox lists conversations from every workspace the
-// principal belongs to in one grouped query, independent of the currently
-// selected workspace (M11.03). Its three authorization checks stay distinct
+// principal belongs to in one grouped result query, independent of the
+// currently selected workspace (M11.03). A bounded group standing lookup
+// supplies canonical group visibility. Its three authorization checks stay distinct
 // predicates, mirroring the workspace-scoped modules:
 //
 // 1. workspace membership — the query starts from the principal's own
@@ -143,21 +145,19 @@ const inboxSelection = sql`
     coalesce(mention.count, 0) as "unreadMentions"
   `
 
-const inboxAuthorization = (userId: string) => sql`
+const inboxAuthorization = (userId: string, inForceGroupIds: readonly string[]) => sql`
     from ${workspaceMemberships} as membership
     inner join ${workspaces} as workspace
       on workspace.id = membership.workspace_id and workspace.deleted_at is null
     join ${channels} as channel
       on channel.workspace_id = membership.workspace_id
-      and (
-        channel.visibility = 'workspace'
-        or exists (
-          select 1 from ${channelParticipants} as participant
-          where participant.channel_id = channel.id
-            and participant.principal_kind = 'user'
-            and participant.user_id = ${userId}
-        )
-      )
+      and ${userChannelVisibility({
+        channelId: sql.raw('channel.id'),
+        inForceGroupIds,
+        kind: sql.raw('channel.kind'),
+        userId,
+        visibility: sql.raw('channel.visibility'),
+      })}
       and (
         channel.project_id is null
         or membership.role in ('owner', 'admin')
@@ -245,12 +245,25 @@ function inboxEntry(row: InboxRow): AccountConversationInboxEntry {
  * inside the authorization — the inbox's authoritative search, answered by
  * the database rather than by whatever pages a client happens to hold.
  */
-export async function accountConversationInbox(
+export function accountConversationInbox(
   database: Database,
   principal: UserPrincipalRef,
   options: Readonly<AccountDirectoryPageInput> = {}
 ): Promise<AccountConversationInboxPage> {
+  return inReadSnapshot(database, (snapshot) =>
+    accountConversationInboxInSnapshot(snapshot, principal, options)
+  )
+}
+
+async function accountConversationInboxInSnapshot(
+  database: Database,
+  principal: UserPrincipalRef,
+  options: Readonly<AccountDirectoryPageInput>
+): Promise<AccountConversationInboxPage> {
   const limit = accountDirectoryPageLimit(options.limit)
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const after = options.after ? decodeAccountInboxCursor(options.after) : null
   const lifecycle = options.includeArchived ? sql`true` : sql`channel.lifecycle_state = 'active'`
   // The search predicate sits INSIDE the authorization statement: it filters
@@ -266,7 +279,7 @@ export async function accountConversationInbox(
     : sql``
   const rows = await database.execute<InboxRow>(sql`
     select ${inboxSelection}
-    ${inboxAuthorization(principal.userId)}
+    ${inboxAuthorization(principal.userId, inForce)}
     and ${lifecycle}
     ${search}
     ${cursor}
@@ -298,18 +311,32 @@ export async function accountConversationInbox(
  * workspace, or a missing id — is the same `null`; denied is never
  * distinguishable from nonexistent.
  */
-export async function findAccountConversation(
+export function findAccountConversation(
   database: Database,
   principal: UserPrincipalRef,
   conversationId: string,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<AccountConversationInboxEntry | null> {
-  if (!isAccountResourceId(conversationId)) return null
+  if (!isAccountResourceId(conversationId)) return Promise.resolve(null)
+  return inReadSnapshot(database, (snapshot) =>
+    findAccountConversationInSnapshot(snapshot, principal, conversationId, options)
+  )
+}
+
+async function findAccountConversationInSnapshot(
+  database: Database,
+  principal: UserPrincipalRef,
+  conversationId: string,
+  options: Readonly<{ includeArchived?: boolean }>
+): Promise<AccountConversationInboxEntry | null> {
+  const inForce = [
+    ...(await groupChannelIdsInForce(database, principal.userId, new Date().toISOString())),
+  ]
   const lifecycle =
     options.includeArchived === false ? sql`channel.lifecycle_state = 'active'` : sql`true`
   const [row] = await database.execute<InboxRow>(sql`
     select ${inboxSelection}
-    ${inboxAuthorization(principal.userId)}
+    ${inboxAuthorization(principal.userId, inForce)}
     and ${lifecycle}
     and channel.id = ${conversationId}::uuid
     limit 1

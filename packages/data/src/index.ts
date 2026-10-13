@@ -4,6 +4,9 @@ import type { AccountDirectoryPageInput } from '@adea-ai/types/account-directory
 import type { TaskSummary } from '@adea-ai/types'
 import { workspaceStore } from '@adea-ai/state'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { projectQueryKeys } from './project-query-keys'
+
+export { projectQueryKeys } from './project-query-keys'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
@@ -37,16 +40,10 @@ export function settledData<TData>(result: {
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
+  archived: ['workspaces', 'archived'] as const,
   bootstrap: ['workspaces', 'bootstrap'] as const,
   detail: (workspaceId: string) => ['workspaces', 'detail', workspaceId] as const,
   list: ['workspaces', 'list'] as const,
-}
-
-export const projectQueryKeys = {
-  all: (workspaceId: string) => ['workspaces', workspaceId, 'projects'] as const,
-  detail: (workspaceId: string, projectId: string) =>
-    ['workspaces', workspaceId, 'projects', 'detail', projectId] as const,
-  list: (workspaceId: string) => ['workspaces', workspaceId, 'projects', 'list'] as const,
 }
 
 export const agentQueryKeys = {
@@ -891,6 +888,17 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  archive: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (input: Readonly<{ confirmed: true; workspaceId: string }>) =>
+      client.archiveWorkspace(input.workspaceId, { confirmed: input.confirmed }),
+    onSuccess: async (
+      _result: unknown,
+      input: Readonly<{ confirmed: true; workspaceId: string }>
+    ) => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(input.workspaceId) })
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
+    },
+  }),
   reopen: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (workspaceId: string) => client.reopenWorkspace(workspaceId),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['reopenWorkspace']>>) => {
@@ -976,6 +984,10 @@ export const workspaceDeleteMutationOptions = (
 })
 
 export const workspaceQueryOptions = {
+  archived: (client: AgentHqApiClient) => ({
+    queryKey: workspaceQueryKeys.archived,
+    queryFn: async () => (await client.listArchivedWorkspaces()).workspaces,
+  }),
   bootstrap: (client: AgentHqApiClient) => ({
     queryKey: workspaceQueryKeys.bootstrap,
     queryFn: () => client.bootstrapWorkspace(),
@@ -992,6 +1004,10 @@ export const workspaceQueryOptions = {
   }),
 }
 
+export function useArchivedWorkspacesQuery(client: AgentHqApiClient) {
+  return useQuery(() => workspaceQueryOptions.archived(client))
+}
+
 export function useWorkspaceListQuery(client: AgentHqApiClient) {
   return useQuery(() => workspaceQueryOptions.list(client))
 }
@@ -1003,6 +1019,16 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.archive(client, queryClient))
+}
+
+export function useReopenWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.reopen(client, queryClient))
 }
 
 export function useDeleteWorkspaceMutation(client: AgentHqApiClient) {

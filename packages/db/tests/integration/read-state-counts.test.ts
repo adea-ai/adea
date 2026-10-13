@@ -4,7 +4,12 @@ import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import {
+  createDatabase,
+  type AgentHqDatabase,
+  type AgentHqTransaction,
+  type DatabaseConnection,
+} from '../../src/connection'
 import { createMessage, deleteMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { setProjectVisibility } from '../../src/project-sharing'
@@ -34,11 +39,132 @@ import {
 import { addWorkspaceMembership, createWorkspaceWithOwner } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
+const READ_STATE_GATE_TIMEOUT_MS = 5_000
+
+type SettledWrite<T> = { status: 'fulfilled'; value: T } | { status: 'rejected'; reason: unknown }
 
 function channelOf(state: readonly ChannelReadStateSummary[], channelId: string) {
   const row = state.find((entry) => entry.channelId === channelId)
   expect(row, `channel ${channelId} missing from read state`).toBeDefined()
   return row!
+}
+
+function observeWrite<T>(operation: Promise<T>): Promise<SettledWrite<T>> {
+  return operation.then(
+    (value) => ({ status: 'fulfilled', value }),
+    (reason: unknown) => ({ status: 'rejected', reason })
+  )
+}
+
+async function waitForReadStateUpsert(
+  entered: Promise<void>,
+  completion: Promise<SettledWrite<unknown>>
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await Promise.race([
+      entered.then(() => ({ kind: 'entered' as const })),
+      completion.then((outcome) => ({ kind: 'settled' as const, outcome })),
+      new Promise<{ kind: 'timeout' }>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: 'timeout' }), READ_STATE_GATE_TIMEOUT_MS)
+      }),
+    ])
+    if (result.kind === 'entered') return
+    if (result.kind === 'settled') {
+      if (result.outcome.status === 'rejected') throw result.outcome.reason
+      throw new Error('Read-state write completed before reaching the upsert gate')
+    }
+    throw new Error(
+      `Read-state write did not reach the upsert gate within ${READ_STATE_GATE_TIMEOUT_MS} ms`
+    )
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** Pause one read-state upsert after its transaction has read the old frontier. */
+function pauseNextReadStateUpsert(
+  database: AgentHqDatabase,
+  table: typeof channelReadStates | typeof threadReadStates
+) {
+  let signalEntered!: () => void
+  const entered = new Promise<void>((resolve) => {
+    signalEntered = resolve
+  })
+  let signalRelease!: () => void
+  const released = new Promise<void>((resolve) => {
+    signalRelease = resolve
+  })
+  let intercepted = false
+
+  const gateTransaction = (transaction: AgentHqTransaction) =>
+    new Proxy(transaction as object, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target)
+        if (property !== 'insert') return typeof value === 'function' ? value.bind(target) : value
+        return (insertedTable: unknown) => {
+          const insert = Reflect.get(target, property, target) as (table: unknown) => object
+          const builder = insert.call(target, insertedTable)
+          if (insertedTable !== table) return builder
+          return new Proxy(builder, {
+            get(builderTarget, builderProperty) {
+              const builderValue = Reflect.get(builderTarget, builderProperty, builderTarget)
+              if (builderProperty !== 'values')
+                return typeof builderValue === 'function'
+                  ? builderValue.bind(builderTarget)
+                  : builderValue
+              return (...valuesArgs: unknown[]) => {
+                const values = builderValue as (...args: unknown[]) => object
+                const conflictBuilder = values.apply(builderTarget, valuesArgs)
+                return new Proxy(conflictBuilder, {
+                  get(conflictTarget, conflictProperty) {
+                    const conflictValue = Reflect.get(
+                      conflictTarget,
+                      conflictProperty,
+                      conflictTarget
+                    )
+                    if (conflictProperty !== 'onConflictDoUpdate')
+                      return typeof conflictValue === 'function'
+                        ? conflictValue.bind(conflictTarget)
+                        : conflictValue
+                    return async (...conflictArgs: unknown[]) => {
+                      if (!intercepted) {
+                        intercepted = true
+                        signalEntered()
+                        await released
+                      }
+                      const onConflict = conflictValue as (...args: unknown[]) => unknown
+                      return onConflict.apply(conflictTarget, conflictArgs)
+                    }
+                  },
+                })
+              }
+            },
+          })
+        }
+      },
+    }) as unknown as AgentHqTransaction
+
+  const gatedDatabase = new Proxy(database as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (property !== 'transaction')
+        return typeof value === 'function' ? value.bind(target) : value
+      return (
+        callback: (transaction: AgentHqTransaction) => Promise<unknown>,
+        ...args: unknown[]
+      ) => {
+        const transaction = value as (...transactionArgs: unknown[]) => Promise<unknown>
+        return transaction.call(
+          target,
+          (tx: AgentHqTransaction) => callback(gateTransaction(tx)),
+          ...args
+        )
+      }
+    },
+  }) as unknown as AgentHqDatabase
+
+  return { database: gatedDatabase, entered, release: signalRelease }
 }
 
 describe.skipIf(!connectionUrl)('read state unread counts', () => {
@@ -74,9 +200,9 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
         .where(inArray(workspaceMemberships.workspaceId, workspaceIds))
       await db.delete(workspaces).where(inArray(workspaces.id, workspaceIds))
     }
-    for (const userId of userIds) {
-      await db.delete(temporaryUserSessions).where(eq(temporaryUserSessions.userId, userId))
-      await db.delete(users).where(eq(users.id, userId))
+    if (userIds.length) {
+      await db.delete(temporaryUserSessions).where(inArray(temporaryUserSessions.userId, userIds))
+      await db.delete(users).where(inArray(users.id, userIds))
     }
     await connection.close()
   })
@@ -448,10 +574,12 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       }
     }
 
-    // Two for the project access scope, then one channel aggregate and one
-    // thread aggregate — never one per channel, thread, or message.
+    // Two for the project access scope, one canonical read of this user's group
+    // admissions, then one channel aggregate and one thread aggregate. The
+    // measured total includes the read snapshot's begin, isolation setup, and
+    // commit — never one read per channel, thread, or message.
     const small = await countQueries(bob)
-    expect(small.queries).toBe(4)
+    expect(small.queries).toBe(8)
     expect(small.result).toEqual(bobState)
 
     for (let index = 0; index < 5; index += 1) {
@@ -461,8 +589,157 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       await post(workspaceId, channelId, owner, { threadRootMessageId: root.id })
     }
     const large = await countQueries(bob)
-    expect(large.queries).toBe(4)
+    expect(large.queries).toBe(8)
     expect(large.result).toHaveLength(6)
     expect(large.result).toEqual(await reference(workspaceId, bob))
+  })
+
+  test('does not rewind a non-group channel frontier when an older writer commits last', async () => {
+    const owner = await user('channel-frontier-race')
+    const workspaceId = await workspace(owner)
+    const { channelId } = await projectChannel(workspaceId, owner, 'Channel frontier race')
+    const first = await post(workspaceId, channelId, owner)
+    const secondConnection = createDatabase(connectionUrl!)
+    const gate = pauseNextReadStateUpsert(connection.db, channelReadStates)
+    const staleWrite = observeWrite(
+      markChannelReadState(gate.database, workspaceId, channelId, owner, 'read', first.sequence)
+    )
+    let failed = false
+    let failure: unknown
+
+    try {
+      await waitForReadStateUpsert(gate.entered, staleWrite)
+
+      const second = await createMessage(secondConnection.db, workspaceId, channelId, owner, {
+        bodyText: 'newer channel frontier',
+        idempotencyKey: crypto.randomUUID(),
+        sender: owner,
+      })
+      expect(second.sequence).toBeGreaterThan(first.sequence)
+      await markChannelReadState(
+        secondConnection.db,
+        workspaceId,
+        channelId,
+        owner,
+        'read',
+        second.sequence
+      )
+      gate.release()
+      const outcome = await staleWrite
+      if (outcome.status === 'rejected') throw outcome.reason
+
+      const [saved] = await connection.db
+        .select({ lastReadSequence: channelReadStates.lastReadSequence })
+        .from(channelReadStates)
+        .where(
+          and(
+            eq(channelReadStates.workspaceId, workspaceId),
+            eq(channelReadStates.channelId, channelId),
+            eq(channelReadStates.userId, owner.userId)
+          )
+        )
+      expect(saved?.lastReadSequence).toBe(second.sequence)
+    } catch (error) {
+      failed = true
+      failure = error
+    } finally {
+      gate.release()
+      const outcome = await staleWrite
+      try {
+        await secondConnection.close()
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          failure = error
+        }
+      }
+      if (!failed && outcome.status === 'rejected') {
+        failed = true
+        failure = outcome.reason
+      }
+    }
+    if (failed) throw failure
+  })
+
+  test('does not rewind a non-group thread frontier when an older writer commits last', async () => {
+    const owner = await user('thread-frontier-race')
+    const workspaceId = await workspace(owner)
+    const { channelId } = await projectChannel(workspaceId, owner, 'Thread frontier race')
+    const root = await post(workspaceId, channelId, owner)
+    const firstReply = await post(workspaceId, channelId, owner, {
+      threadRootMessageId: root.id,
+    })
+    const secondConnection = createDatabase(connectionUrl!)
+    const gate = pauseNextReadStateUpsert(connection.db, threadReadStates)
+    const staleWrite = observeWrite(
+      markThreadReadState(
+        gate.database,
+        workspaceId,
+        channelId,
+        root.id,
+        owner,
+        'read',
+        firstReply.sequence
+      )
+    )
+    let failed = false
+    let failure: unknown
+
+    try {
+      await waitForReadStateUpsert(gate.entered, staleWrite)
+
+      const secondReply = await createMessage(secondConnection.db, workspaceId, channelId, owner, {
+        bodyText: 'newer thread frontier',
+        idempotencyKey: crypto.randomUUID(),
+        replyToMessageId: root.id,
+        sender: owner,
+        threadRootMessageId: root.id,
+      })
+      expect(secondReply.sequence).toBeGreaterThan(firstReply.sequence)
+      await markThreadReadState(
+        secondConnection.db,
+        workspaceId,
+        channelId,
+        root.id,
+        owner,
+        'read',
+        secondReply.sequence
+      )
+      gate.release()
+      const outcome = await staleWrite
+      if (outcome.status === 'rejected') throw outcome.reason
+
+      const [saved] = await connection.db
+        .select({ lastReadSequence: threadReadStates.lastReadSequence })
+        .from(threadReadStates)
+        .where(
+          and(
+            eq(threadReadStates.workspaceId, workspaceId),
+            eq(threadReadStates.channelId, channelId),
+            eq(threadReadStates.threadRootMessageId, root.id),
+            eq(threadReadStates.userId, owner.userId)
+          )
+        )
+      expect(saved?.lastReadSequence).toBe(secondReply.sequence)
+    } catch (error) {
+      failed = true
+      failure = error
+    } finally {
+      gate.release()
+      const outcome = await staleWrite
+      try {
+        await secondConnection.close()
+      } catch (error) {
+        if (!failed) {
+          failed = true
+          failure = error
+        }
+      }
+      if (!failed && outcome.status === 'rejected') {
+        failed = true
+        failure = outcome.reason
+      }
+    }
+    if (failed) throw failure
   })
 })

@@ -1,7 +1,7 @@
 import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } from '@adea-ai/types'
 import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { decideGroupHistoryRead } from './group-participation-policy'
 import {
   admissionForParticipant,
@@ -16,6 +16,9 @@ import {
 import { listAccessibleChannelIds } from './read-state'
 import { searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
+import { inReadSnapshot } from './transactions'
+
+type Database = AgentHqDatabase | AgentHqTransaction
 
 function pattern(query: string) {
   return `%${query.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
@@ -38,12 +41,24 @@ function compare(left: WorkspaceSearchResult, right: WorkspaceSearchResult) {
   )
 }
 
-export async function searchWorkspaceForUser(
-  database: AgentHqDatabase,
+export function searchWorkspaceForUser(
+  database: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   query: string,
   options: Readonly<{ channelId?: string; limit?: number; now?: string; offset?: number }> = {}
+): Promise<WorkspaceSearchPage> {
+  return inReadSnapshot(database, (snapshot) =>
+    searchWorkspaceForUserInSnapshot(snapshot, workspaceId, principal, query, options)
+  )
+}
+
+async function searchWorkspaceForUserInSnapshot(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  query: string,
+  options: Readonly<{ channelId?: string; limit?: number; now?: string; offset?: number }>
 ): Promise<WorkspaceSearchPage> {
   const normalized = query.trim()
   if (normalized.length < 2 || normalized.length > 120) throw new Error('Search query invalid')
