@@ -5601,6 +5601,32 @@ stored observation unchanged. Making a discovered installation the default
 goes through the existing `dev.harness.preferenceUpdate`; the default is per
 runtime node (optionally per project), not per workspace.
 
+### Default harness: device and workspace
+
+A new session with no explicit harness starts with the first of: the project
+default, the workspace default, the device default, the managed-Pi root
+default. The project and workspace defaults are `HarnessPreference` records
+(`default: true`, scoped to the active account, workspace and runtime node);
+setting one through `dev.harness.preferenceUpdate` is the per-workspace
+override, and clearing it (`default: false`) returns the workspace to the
+device default.
+
+`dev.harness.deviceDefault` (`dev.harness.read`) and
+`dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
+default: one harness family (`claude-code`, `codex`, `opencode`, `pi`) shared by
+every workspace on this device, so a new workspace needs no reconfiguring. It
+names a family, not an installation, because installation ids are bound to one
+workspace scope. The update is fenced by `expectedVersion` (0 when never set,
+`stale_version` with the current version otherwise); omitting `family` clears
+it; an unknown family is `invalid_state`. While a device default is set the
+managed-Pi root default is not synthesized into `dev.harness.preferences`.
+
+`dev.session.launchDefault` resolves the device default family to a
+launch-eligible installation in the active workspace (scanning once when the
+workspace was never scanned). A family that is not installed or not eligible
+refuses `capability_unavailable` with remediation `dev.harness.inventoryRefresh`;
+it never launches a different harness.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:

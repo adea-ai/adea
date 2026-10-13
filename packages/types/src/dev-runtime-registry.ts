@@ -1086,6 +1086,20 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.harness.deviceDefault': {
+    body: '{}',
+    capabilities: ['dev.harness.read'],
+    reply: 'HarnessDeviceDefault',
+    resource: null,
+    stream: null,
+  },
+  'dev.harness.deviceDefaultUpdate': {
+    body: '{ family?: string(1..64); expectedVersion: integer(0..2147483647) }',
+    capabilities: ['dev.harness.manage'],
+    reply: 'HarnessDeviceDefault',
+    resource: null,
+    stream: null,
+  },
   'dev.harness.inventory': {
     body: '{}',
     capabilities: ['dev.harness.read'],
