@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { parseHandoffTarget } from '../../src/lead-turns'
+import { parseHandoffTarget } from '../../src/lead-turn-handoff-target'
 
 // Admission front-door validation (#1177): the structured target is
 // validated structurally here; task authority is resolved server-side

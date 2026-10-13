@@ -15,6 +15,7 @@ import {
   requireVisibleTask,
 } from './conversations'
 import { evaluateGroupGrantWindow } from './group-participation-policy'
+import { parseHandoffTarget, type HandoffTarget } from './lead-turn-handoff-target'
 import { loadGroupAdmission, resolveGroupLeadAgentId } from './group-participation-store'
 import { filterVisibleMessageRows } from './job-outbound-read'
 import {
@@ -27,6 +28,8 @@ import {
 } from './schema'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { leadTurnIntents } from './schema/lead-turns'
+
+export { parseHandoffTarget, type HandoffTarget }
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type Intent = typeof leadTurnIntents.$inferSelect
@@ -41,48 +44,6 @@ type Input = Omit<
   | 'replyToMessageId'
 > & { handoffTarget?: HandoffTarget } & {
   requestedModelSelections?: RequestedRoleModelSelections
-}
-
-/** Structured handoff target: the exact direct session this admission coordinates. */
-export type HandoffTarget = Readonly<{
-  runtimeSessionId: string
-  taskId: string
-  expectedGeneration: number
-}>
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-/** Validates the caller-supplied handoff target; the task itself is resolved server-side. */
-export function parseHandoffTarget(value: unknown): HandoffTarget | undefined {
-  if (value === undefined) return undefined
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new Error('Invalid lead turn')
-  const record = value as Record<string, unknown>
-  if (
-    !Object.keys(record).every(
-      (key) => key === 'runtimeSessionId' || key === 'taskId' || key === 'expectedGeneration'
-    )
-  )
-    throw new Error('Invalid lead turn')
-  const { runtimeSessionId, taskId, expectedGeneration } = record
-  if (
-    typeof runtimeSessionId !== 'string' ||
-    !runtimeSessionId.trim() ||
-    runtimeSessionId.trim().length > 256
-  )
-    throw new Error('Invalid lead turn')
-  if (typeof taskId !== 'string' || !UUID_PATTERN.test(taskId)) throw new Error('Invalid lead turn')
-  if (
-    typeof expectedGeneration !== 'number' ||
-    !Number.isSafeInteger(expectedGeneration) ||
-    expectedGeneration < 0
-  )
-    throw new Error('Invalid lead turn')
-  return {
-    runtimeSessionId: runtimeSessionId.trim(),
-    taskId: taskId.toLowerCase(),
-    expectedGeneration,
-  }
 }
 
 /** Trusted wall time for lead boundaries; tests inject a deterministic clock. */
