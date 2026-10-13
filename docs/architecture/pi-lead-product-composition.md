@@ -6,6 +6,16 @@ SDK operations and schemas. An older SDK, missing operator configuration, or a
 missing workspace mapping leaves the existing durable intent and transcript
 available while execution remains blocked.
 
+The current private execution evidence has one Control Plane workspace. An
+enlisted Agent from another workspace can participate in a host group, but the
+reader withholds execution evidence for that foreign lead: host service scope
+must not substitute for the Agent's source profile, model or tool authority.
+The reader compares the Agent's current home workspace under the canonical
+Agent row lock. Supporting foreign lead execution requires a separately bound
+source-authority contract; changing the workspace selector alone would also
+change credential, funding, execution and publication scope. This guard does
+not remove group history, revoke enlistments or change independent job lifecycle.
+
 `PI_DURABLE_LEAD_ENABLED=true` and an explicit `PI_DURABLE_LEAD_TARGET` JSON destination opt this server into the composition. The supported first destination is `remote_host` / `pi_durable` / `1.1.0` / `pi_durable_models`. This describes the requested destination; readiness is always supplied by current CP authority. It does not
 create credentials, service scopes, grants, model connections, or payer authority.
 The existing Control Plane origin and signing configuration must already be
