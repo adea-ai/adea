@@ -389,7 +389,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Its merge moved raw to 329 KiB without a comment — 0.2% headroom.
     // Raw ratchets to 335 KiB (~2%); gzip holds at 105 KiB (~18% headroom,
     // worth re-tightening on the next re-measure of this route).
-    devShell: { rawBytes: 335 * 1024, gzipBytes: 105 * 1024 },
+    // Library parts for the repository registry (2026-10-13): Collapsible,
+    // Item and Alert replace the native details and the local `.dev-tree-*`
+    // rows, so the shell closure grows. CI measures 343,135 raw (95 bytes over
+    // the 335 KiB cap above); raw ratchets to 342 KiB (~2% headroom).
+    devShell: { rawBytes: 342 * 1024, gzipBytes: 105 * 1024 },
     // Re-measured for the cross-view sidebar shell (2026-10-04): 172,791 raw
     // / 58,778 gzip across 19 files under the async-closure methodology this
     // gate now uses (Dev entry roots plus the shared utility host's nested

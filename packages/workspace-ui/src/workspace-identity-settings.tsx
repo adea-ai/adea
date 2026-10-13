@@ -14,6 +14,7 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import type { JSX } from 'solid-js'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 
@@ -185,14 +186,16 @@ export function WorkspaceIdentitySettings(props: {
           <RadioGroupItem value="work" label="Work" />
         </RadioGroup>
       </SettingsRow>
-      <p
-        class="conventional-settings-note"
+      <Text
+        variant="caption"
+        tone="muted"
+        class="mt-4"
         role="status"
         aria-label="Workspace identity save status"
         aria-live="polite"
       >
         {status()}
-      </p>
+      </Text>
     </>
   )
 }
