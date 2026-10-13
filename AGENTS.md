@@ -22,6 +22,62 @@ decision or authority.
 - Keep draft auto-merge off. Never force-push over others or push unreviewed work
   to an auto-merge head.
 
+## Adea repository map
+
+Adea's web app uses Solid, TanStack Start and Vite. Start with the existing
+module-spec router and shared UI guidance below when changing those subsystems.
+
+| Area                            | Entry points                                                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Web routes and request handling | `apps/web/src/start/routes`, `apps/web/src/server`                                                                           |
+| Sessions and authorization      | `packages/auth`, `apps/web/src/server/workspace-authorization.ts`                                                            |
+| Durable data and migrations     | `packages/db/src/schema/index.ts`, `packages/db/drizzle`, `packages/db/drizzle.config.ts`                                    |
+| Shared UI and app composition   | `packages/ui`, [shared UI design reference](docs/guides/shared-ui-design-reference.md)                                       |
+| Desktop shell                   | `apps/desktop`, [desktop README](apps/desktop/README.md)                                                                     |
+| CI and validation               | `.github/code-foundry.yml`, `.github/workflows/validation.yml`, `.github/workflows/review-policy.yml`                        |
+| Database and deployment CI      | `.github/workflows/neon_workflow.yml`, `.github/workflows/cloudflare-db-migrate.yml`, `.github/workflows/tanstack-start.yml` |
+
+## Adea commands
+
+Run from the repository root unless a package directory is specified.
+`package.json` pins Bun 1.4.0; `bun.lock` owns dependency resolution.
+
+| Task                                 | Command                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| Install                              | `bun install --frozen-lockfile`                                                |
+| Web development                      | `bun run dev`                                                                  |
+| Format check / write                 | `bun run format:check` / `bun run format:write`                                |
+| Lint / types / build                 | `bun run lint` / `bun run typecheck` / `bun run build`                         |
+| Unit tests and coverage              | `bun run test:unit`                                                            |
+| Integration tests                    | `bun run test:integration`                                                     |
+| Browser tests                        | `bun run test:e2e`                                                             |
+| Desktop packaged tests               | `bun run test:packaged`                                                        |
+| Documentation links and spec routing | `bun test scripts/docs-boundary.test.ts`                                       |
+| Generate / check DB migrations       | `bun run --cwd packages/db db:generate` / `bun run --cwd packages/db db:check` |
+| Apply and verify DB migrations       | `bun run --cwd packages/db db:migrate`                                         |
+
+### Practical development notes
+
+- `test:unit` includes Turborepo package tests and the explicit coverage lane;
+  running one `bun test` path gives focused evidence for that path.
+- The DB schema, SQL, snapshots and journal live together in `packages/db`.
+  `db:migrate` and `db:verify` both execute `src/verify-migrations.ts`, use
+  `DATABASE_MIGRATION_URL`, apply migrations twice and compare history. Neither
+  command is a read-only schema check; `db:check` invokes Drizzle's check command.
+- `scripts/test-integration.mjs` owns integration setup; its joined Control Plane
+  lane is exposed as `bun run test:integration:control-plane-joined`.
+- Web type checking runs Cloudflare type generation before TypeScript. The web
+  build also synchronizes assets and checks UI sources; a plain TypeScript
+  invocation does not exercise those build steps.
+- Workspace authorization entry points are in the web server and
+  `packages/auth`; durable records and grant readers are in `packages/db`.
+  Follow those existing implementations and the relevant specs for route work.
+- The private app UI package is `@adea-ai/app-ui`; published shared primitives
+  come from `@adea-ai/ui`. Existing UI sections below describe their styling
+  conventions. The app is Solid, so use its existing component patterns.
+- Consumer CI configuration lives in `.github/code-foundry.yml` and workflow
+  files. Generic managed examples mentioning `src/runtime.mjs` describe the
+  Code Foundry runtime; this consumer repository has no root runtime script.
 
 <!-- code-foundry-managed: config-aware-policy -->
 
