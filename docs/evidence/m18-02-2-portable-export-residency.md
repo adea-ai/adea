@@ -404,3 +404,34 @@ This closes only the pre-transfer bound for agent names and role summaries. Issu
 partial: the pre-join audience proof and withheld job-publication proof still depend on #1232 and
 #1237, respectively, and this change does not cover artifact storage, replicas, or native runtime
 state.
+
+## Unpublished current-main isolation repair (2026-10-13)
+
+The implementation below composes published #1245 `b7588ea040f0116df6f2f3343785f43945513cb7`
+with main `2e40c2d829a3ab7020acdc11b3afedfc4eca34f5`. It does not incorporate or reconstruct the
+unavailable earlier qualified candidate `d575a16f3b5a4d08cb1f1c7e1192140d2ca3cd51`.
+
+Orchestration reads use short READ COMMITTED transactions and release the pool connection before
+hooks or canonical page snapshots. Channels and messages are projected in their canonical coherent
+snapshots. Group summaries use effective admissions, not legacy participant rows; sequence cursors
+advance over raw scanned rows even when a whole page is withheld. Final verification uses one
+READ WRITE / REPEATABLE READ snapshot so the existing share locks are legal, and checks buffered
+channel summaries, message projections, task identities/versions/parents and visible content-ref
+bindings before building the bundle. Missing or changed required records refuse the entire export.
+The final authorization point is the coherent final snapshot, not a claim of perpetual authority
+after response delivery. No application rows are written by export.
+
+The ordinary channel/participant size fixtures now use actual project channels. They retain the
+original record, materialization, statement and byte assertions. Separate real-group tests prove
+pre-join withholding, admission and earlier-history revocation, expiry, empty-page progress and
+canonical snapshot isolation. Source-authority and artifact-grant changes before the final proof
+refuse buffered publications and reply ancestry. A one-connection PostgreSQL pool exercises content
+references and actual share locks, and records zero INSERT/UPDATE/DELETE/DDL statements during export.
+The four newly landed group authority tables are explicitly excluded under the existing version-1
+`authority_grants` class; source grants and admissions are not transplanted.
+
+Remaining blocker: the provisioned restore-order suite exposes that imported groups have no new
+canonical destination admission. Three cases pass and the two canonical read/order cases refuse
+with `Channel unavailable`. This isolation repair does not grant new import authority or weaken
+that refusal. Destination admission creation needs its own reviewed restore-policy repair.
+Issue #1226 remains open; this is not complete import/residency acceptance or permission to merge.

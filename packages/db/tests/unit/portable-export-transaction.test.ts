@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from '../../src/portable-export-transaction'
+import {
+  PORTABLE_EXPORT_PROOF_TRANSACTION_CONFIG,
+  PORTABLE_EXPORT_TRANSACTION_CONFIG,
+} from '../../src/portable-export-transaction'
 
 describe('portable export transaction', () => {
   test('runs READ COMMITTED in READ WRITE mode, so the canonical readers can take their share locks', () => {
@@ -9,6 +12,12 @@ describe('portable export transaction', () => {
     expect(PORTABLE_EXPORT_TRANSACTION_CONFIG).toEqual({
       accessMode: 'read write',
       isolationLevel: 'read committed',
+    })
+  })
+  test('final record proof uses a coherent snapshot and permits canonical share locks', () => {
+    expect(PORTABLE_EXPORT_PROOF_TRANSACTION_CONFIG).toEqual({
+      accessMode: 'read write',
+      isolationLevel: 'repeatable read',
     })
   })
 })

@@ -140,6 +140,9 @@ describe('workspace event client', () => {
       workspaceId,
       'agents',
     ])
+    expect(queryKeysForEvent(workspaceId, 'agent.created')).toContainEqual(['account', 'directory'])
+    expect(queryKeysForEvent(workspaceId, 'channel.created')).toContainEqual(['account', 'inbox'])
+    expect(queryKeysForEvent(workspaceId, 'channel.updated')).toContainEqual(['account', 'inbox'])
     expect(queryKeysForEvent(workspaceId, 'artifact.availability_changed')).toContainEqual([
       'workspaces',
       workspaceId,
@@ -208,6 +211,27 @@ describe('workspace event client', () => {
     expect(diagnostics).toContain('applied')
   })
 
+  test('Agent and conversation events refresh their account-wide pages', async () => {
+    const { client, invalidated } = fakeQueryClient()
+    const subscription = createWorkspaceEventSubscription({
+      fetchImpl: streamFetch([
+        frame(envelope(1, 'agent.presentation_updated')),
+        frame(envelope(2, 'channel.created')),
+      ]),
+      queryClient: client,
+      schedule: immediateScheduler([]),
+      storage: memoryStorage(),
+      url,
+      workspaceId,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    subscription.stop()
+
+    expect(invalidated).toContain(JSON.stringify(accountQueryKeys.directoryAll))
+    expect(invalidated).toContain(JSON.stringify(accountQueryKeys.inboxAll))
+  })
+
   test('resumes from the stored cursor and ignores replayed events', async () => {
     const { client, invalidated } = fakeQueryClient()
     const storage = memoryStorage()
@@ -272,7 +296,11 @@ describe('workspace event client', () => {
     // The cursor still advances so the stream can resume, but the client asks
     // for current state rather than inventing the missing sequences.
     expect(subscription.appliedSequence()).toBe(7)
-    expect(invalidated).toEqual([JSON.stringify(['workspaces', workspaceId])])
+    expect(invalidated).toEqual(
+      [['workspaces', workspaceId], accountQueryKeys.directoryAll, accountQueryKeys.inboxAll].map(
+        (key) => JSON.stringify(key)
+      )
+    )
     expect(diagnostics.some((entry) => entry.event === 'gap')).toBe(true)
   })
 
@@ -310,7 +338,10 @@ describe('workspace event client', () => {
 
   test('sharing changes refresh the whole workspace scope', () => {
     for (const type of ['project.visibility_changed', 'project.members_changed'])
-      expect(queryKeysForEvent(workspaceId, type)).toEqual(workspaceScopeKeys(workspaceId))
+      expect(queryKeysForEvent(workspaceId, type)).toEqual([
+        ...workspaceScopeKeys(workspaceId),
+        accountQueryKeys.inboxAll,
+      ])
     expect(queryKeysForEvent(workspaceId, 'workspace.member_joined')).toContainEqual([
       'workspaces',
       workspaceId,

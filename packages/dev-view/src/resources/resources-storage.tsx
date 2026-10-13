@@ -8,6 +8,7 @@
 import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 import { SegmentBar, Swatch } from './resources-charts'
 import { retainedGroups } from './resources-model'
@@ -91,10 +92,12 @@ export function StorageTab(props: {
       </div>
 
       <section class="dev-resources__group" aria-label="Worktrees">
-        <h3 class="dev-resources__group-header">
-          <span class="dev-resources__group-title">Worktrees</span>
+        <div class="dev-resources__group-header">
+          <Text as="h3" variant="overline">
+            Worktrees
+          </Text>
           <span class="dev-resources__row-detail">{props.rows.length}</span>
-        </h3>
+        </div>
         <Show
           when={props.available}
           fallback={
@@ -142,10 +145,12 @@ export function StorageTab(props: {
       </section>
 
       <section class="dev-resources__group" aria-label="Retained data">
-        <h3 class="dev-resources__group-header">
-          <span class="dev-resources__group-title">Retained data</span>
+        <div class="dev-resources__group-header">
+          <Text as="h3" variant="overline">
+            Retained data
+          </Text>
           <span class="dev-resources__row-detail">Kept by Adea outside worktrees</span>
-        </h3>
+        </div>
         <Show
           when={groups().length > 0}
           fallback={<p class="dev-resources__note">No retained data reported.</p>}

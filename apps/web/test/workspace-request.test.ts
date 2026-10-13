@@ -21,6 +21,10 @@ describe('workspace update requests', () => {
         scene: 'work',
       },
     })
+    expect(parseWorkspaceUpdate({ accent: '#2563eb', expectedVersion: 1 })).toEqual({
+      expectedVersion: 1,
+      update: { accent: '#2563eb' },
+    })
     expect(parseWorkspaceUpdate({ accent: null, expectedVersion: 1 })).toEqual({
       expectedVersion: 1,
       update: { accent: null },
@@ -62,6 +66,9 @@ describe('workspace update requests', () => {
     ['a blank name', { expectedVersion: 1, name: '   ' }],
     ['a long name', { expectedVersion: 1, name: 'x'.repeat(81) }],
     ['an unknown accent', { accent: 'red', expectedVersion: 1 }],
+    ['an uppercase custom accent', { accent: '#2563EB', expectedVersion: 1 }],
+    ['a short custom accent', { accent: '#fff', expectedVersion: 1 }],
+    ['a custom accent without the hash', { accent: '2563eb', expectedVersion: 1 }],
     ['an unknown scene', { expectedVersion: 1, scene: 'office' }],
     ['text as an emoji', { expectedVersion: 1, logo: { kind: 'emoji', value: 'AB' } }],
     ['two emoji', { expectedVersion: 1, logo: { kind: 'emoji', value: '🚀🚀' } }],

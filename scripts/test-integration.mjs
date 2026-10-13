@@ -178,10 +178,13 @@ try {
       // The apps/web route-flow tests run under the react-server export condition, which the runner
       // supplies: the route modules carry the `server-only` marker and cannot initialize under bun's
       // default conditions. The shared database environment and the same latency-sized ceiling apply.
+      // These files install different `mock.module` route/auth seams, so per-file workers keep the
+      // route contracts and their module registries from leaking into one another.
       run(
         'bun',
         [
           'test',
+          '--parallel',
           '--conditions=react-server',
           '--timeout',
           String(timeoutMs),

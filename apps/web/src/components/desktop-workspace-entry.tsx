@@ -50,6 +50,7 @@ import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import {
   desktopWorkspaceDeletion,
@@ -589,9 +590,9 @@ export function DesktopStartSurface(props: {
     <main class="auth-shell">
       <section class="auth-panel" aria-labelledby="desktop-title" aria-busy={props.busy}>
         <p class="auth-eyebrow">Adea desktop</p>
-        <h1 class="auth-title" id="desktop-title">
+        <Heading as="h1" size="display" data-auth-title id="desktop-title">
           Your workspace, ready when you are.
-        </h1>
+        </Heading>
         <p class="auth-introduction">
           Start immediately without an account. Sign in later to keep this workspace across devices.
         </p>

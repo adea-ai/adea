@@ -143,21 +143,23 @@ export async function getContentRefForUser(
   contentId: string,
   principal: UserPrincipalRef
 ): Promise<ContentRefSummary | null> {
-  const [row] = await database
-    .select({ contentRef: contentRefs })
-    .from(contentRefs)
-    .innerJoin(
-      workspaceMemberships,
-      and(
-        eq(workspaceMemberships.workspaceId, contentRefs.workspaceId),
-        eq(workspaceMemberships.userId, principal.userId)
+  return database.transaction(async (transaction) => {
+    const [row] = await transaction
+      .select({ contentRef: contentRefs })
+      .from(contentRefs)
+      .innerJoin(
+        workspaceMemberships,
+        and(
+          eq(workspaceMemberships.workspaceId, contentRefs.workspaceId),
+          eq(workspaceMemberships.userId, principal.userId)
+        )
       )
-    )
-    .where(and(eq(contentRefs.id, contentId), eq(contentRefs.workspaceId, workspaceId)))
-    .limit(1)
-  if (!row || !(await isContentRefVisible(database, workspaceId, principal.userId, contentId)))
-    return null
-  return summarize(row.contentRef)
+      .where(and(eq(contentRefs.id, contentId), eq(contentRefs.workspaceId, workspaceId)))
+      .limit(1)
+    if (!row || !(await isContentRefVisible(transaction, workspaceId, principal.userId, contentId)))
+      return null
+    return summarize(row.contentRef)
+  })
 }
 
 export async function updateContentRef(

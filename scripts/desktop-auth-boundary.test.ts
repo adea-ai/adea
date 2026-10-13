@@ -449,7 +449,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(desktop).toContain('class="auth-shell"')
     expect(web).toContain('class="auth-shell"')
     expect(sharedStyles).toContain('.auth-panel')
-    expect(sharedStyles).toContain('.auth-title')
+    expect(sharedStyles).toContain('[data-auth-title]')
     expect(sharedStyles).toContain('.auth-status')
     expect(sharedStyles).toContain('--auth-accent: var(--primary)')
     expect(sharedStyles).toContain('--auth-background: var(--background)')

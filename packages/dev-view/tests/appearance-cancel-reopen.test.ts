@@ -14,87 +14,87 @@
  * instance, and leaving it disposes the instance and reverts the draft.
  */
 import { describe, expect, test } from 'bun:test'
-import { createEffect, createRoot, createSignal, untrack, type Accessor } from 'solid-js'
+import { batch, createEffect, createRoot, createSignal, untrack, type Accessor } from 'solid-js'
 
 import {
-  applyAppearanceToDocument,
+  createVersionedPersistence,
+  defaultThemeSelection,
+  type ThemeContextValue,
+  type ThemeSelection,
+} from '@adea-ai/ui/components/theme/lazy'
+import {
+  adeaV2Codec,
+  appearanceSchema,
+  APPEARANCE_STORAGE_KEY,
   defaultAppearancePreferences,
-  resolveAppearanceState,
+  preferencesFromSelection,
   type AppearancePreferencesV2,
-} from '@adea-ai/app-ui/components/appearance'
+} from '@adea-ai/app-ui/components/appearance-codec'
+import { createAppearanceContext } from '@adea-ai/app-ui/components/appearance-host'
 import { createAppearanceEditor, type AppearanceEditor } from '../src/appearance/editor'
 
-type StyleRecord = Record<string, string>
-
-function fakeDocument() {
-  const style: StyleRecord = {}
-  const dataset: Record<string, string> = {}
-  const classes = new Set<string>()
-  const document = {
-    documentElement: {
-      style: {
-        colorScheme: '',
-        setProperty: (name: string, value: string) => void (style[name] = value),
-        removeProperty: (name: string) => void delete style[name],
-      },
-      dataset,
-      setAttribute: (name: string, value: string) => {
-        const key = name
-          .slice(5)
-          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
-        dataset[key] = value
-      },
-      removeAttribute: (name: string) => {
-        const key = name
-          .slice(5)
-          .replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
-        delete dataset[key]
-      },
-      classList: {
-        toggle: (name: string, force: boolean) => {
-          if (force) classes.add(name)
-          else classes.delete(name)
-        },
-      },
-    },
+function memoryStorage() {
+  const store = new Map<string, string>()
+  return {
+    store,
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key: string, value: string) => void store.set(key, value),
   }
-  return { document, style, dataset, classes }
 }
 
 /**
- * The ThemeProvider contract the dialog consumes (the web app mounts one
- * ThemeProvider above the rail and the dialog): a committed-preferences
- * signal, `preview` applying a draft — or the committed state on `undefined`
- * — to the document without persisting, and `update` persisting. Resolved
- * against the E2E lane's environment: light OS appearance, no OS reduced
- * transparency, no native translucency.
+ * The shared ThemeProvider's seam as the host sees it, reduced to its contract:
+ * a committed selection signal that persists through the real V2 codec,
+ * `setSelection` that commits and ends any open preview (the shared provider's
+ * rule), `preview` that lays a draft over the committed selection, and the
+ * resolved appearance the document is painted from. The document write itself is
+ * the shared provider's and is covered by its own tests; here `dark` on the root
+ * stands for it. Resolved against the E2E lane: light OS appearance.
  */
-function createProviderHarness(doc: ReturnType<typeof fakeDocument>) {
-  const [preferences, setPreferences] = createSignal<AppearancePreferencesV2>(
-    defaultAppearancePreferences
-  )
-  const environment = {
-    systemAppearance: 'light' as const,
-    osReducedTransparency: false,
-    nativeTranslucency: false,
-  }
-  const apply = (state: ReturnType<typeof resolveAppearanceState>) =>
-    applyAppearanceToDocument(doc.document, state)
-  // The provider's own effect: committed changes re-apply on their own.
-  createEffect(() => apply(resolveAppearanceState(preferences(), environment)))
-  return {
-    preferences,
-    preview: (draft: AppearancePreferencesV2 | undefined) => {
-      apply(
-        draft
-          ? resolveAppearanceState(draft, environment)
-          : resolveAppearanceState(preferences(), environment)
-      )
-    },
-    update: (patch: Partial<AppearancePreferencesV2>) =>
-      setPreferences({ ...preferences(), ...patch }),
-  }
+function createSharedProviderHarness(storage: ReturnType<typeof memoryStorage>) {
+  const persistence = createVersionedPersistence(appearanceSchema, adeaV2Codec, {
+    storage: () => storage,
+  })
+  const [selection, setCommitted] = createSignal<ThemeSelection>({
+    ...defaultThemeSelection,
+    ...persistence.read(),
+  })
+  const [drafted, setDrafted] = createSignal<Partial<ThemeSelection> | undefined>()
+  const shown = () => ({ ...selection(), ...drafted() })
+  const resolvedAppearance = () => (shown().appearance === 'dark' ? 'dark' : 'light')
+  // What the shared provider writes onto the root, read straight from the signals.
+  const classes = { has: (name: string) => name === 'dark' && resolvedAppearance() === 'dark' }
+  const ui = {
+    selection,
+    setSelection: (patch: Partial<ThemeSelection>) =>
+      batch(() => {
+        const next = { ...selection(), ...patch }
+        setCommitted(next)
+        setDrafted(undefined)
+        persistence.write(next)
+      }),
+    preview: (patch: Partial<ThemeSelection> | undefined) => setDrafted(patch),
+    previewing: () => drafted() !== undefined,
+    resolvedAppearance,
+    variant: () => ({
+      id: shown().appearance === 'dark' ? shown().darkThemeId : shown().lightThemeId,
+    }),
+  } as unknown as ThemeContextValue
+  return { ui, classes }
 }
+
+/**
+ * The host's own context over that provider: what the appearance dialog consumes.
+ */
+function createProviderHarness(storage = memoryStorage()) {
+  const shared = createSharedProviderHarness(storage)
+  const appearance = createAppearanceContext(shared.ui)
+  return { appearance, classes: shared.classes, storage }
+}
+
+/** The committed V2 preferences, read from the shared selection like the dialog does. */
+const committedPreferences = (appearance: ReturnType<typeof createAppearanceContext>) =>
+  preferencesFromSelection(appearance.selection())
 
 /** The dialog's reactive surface the E2E flow touches (see appearance-surface.tsx). */
 type DialogHarness = {
@@ -116,10 +116,8 @@ async function settle_until(check: () => boolean): Promise<void> {
 
 describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () => {
   test('cancel reverts the draft and a re-opened dialog keeps previewing', async () => {
-    const doc = fakeDocument()
-    const appearance = createProviderHarness(doc)
-
-    expect(doc.classes.has('dark')).toBe(false)
+    const storage = memoryStorage()
+    let harness!: ReturnType<typeof createProviderHarness>
 
     const [appearanceOpen, setAppearanceOpen] = createSignal(false)
     let dialog: DialogHarness | undefined
@@ -130,6 +128,8 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     // keeping the assertions inside the test rather than leaking them as
     // unhandled errors after it completes.
     const disposeRoot = createRoot((dispose) => {
+      harness = createProviderHarness(storage)
+      const { appearance } = harness
       createEffect(() => {
         if (!appearanceOpen()) {
           dialog = undefined
@@ -139,7 +139,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
         // The dialog's snapshot-on-open effect (appearance-surface.tsx): it
         // tracks the committed preferences only, never the draft.
         createEffect(() => {
-          const committed = appearance.preferences()
+          const committed = committedPreferences(appearance)
           untrack(() => {
             editor.open(committed)
           })
@@ -160,6 +160,8 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
       })
       return dispose
     })
+    const doc = { classes: harness.classes }
+    expect(doc.classes.has('dark')).toBe(false)
 
     // E2E: openAppearance(page)
     setAppearanceOpen(true)
@@ -178,6 +180,8 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     expect(appearanceOpen()).toBe(false)
     expect(dialog).toBeUndefined()
     expect(doc.classes.has('dark')).toBe(false)
+    // Nothing was written: a preview is never persisted.
+    expect(storage.store.has(APPEARANCE_STORAGE_KEY)).toBe(false)
 
     // E2E: re-open; the dialog is operable again from the committed state.
     setAppearanceOpen(true)
@@ -193,8 +197,77 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     dialog?.requestClose()
     await settle_until(() => !doc.classes.has('dark'))
     expect(doc.classes.has('dark')).toBe(false)
+    expect(storage.store.has(APPEARANCE_STORAGE_KEY)).toBe(false)
 
     disposeRoot()
+  })
+
+  test('save commits the draft through the stored V2 document', () => {
+    const storage = memoryStorage()
+    let harness!: ReturnType<typeof createProviderHarness>
+    // Effects of a root flush when its factory returns, so the actions below run
+    // after it, like the dialog's own event handlers.
+    const dispose = createRoot((disposeRoot) => {
+      harness = createProviderHarness(storage)
+      return disposeRoot
+    })
+    const { appearance, classes } = harness
+    const editor = createAppearanceEditor()
+    editor.open(committedPreferences(appearance))
+    editor.set({ mode: 'dark', accent: 'blue', surface: 'frosted' })
+    appearance.preview(editor.draft())
+    expect(classes.has('dark')).toBe(true)
+    expect(storage.store.has(APPEARANCE_STORAGE_KEY)).toBe(false)
+
+    appearance.update(editor.save())
+    appearance.preview(undefined)
+    expect(classes.has('dark')).toBe(true)
+    expect(JSON.parse(storage.store.get(APPEARANCE_STORAGE_KEY)!)).toMatchObject({
+      version: 2,
+      mode: 'dark',
+      accent: 'blue',
+      surface: 'frosted',
+      terminalThemeId: 'theme',
+    })
+    expect(committedPreferences(appearance)).toMatchObject({ mode: 'dark', accent: 'blue' })
+    dispose()
+  })
+
+  test('a committed change while a draft is open leaves the draft showing', () => {
+    let harness!: ReturnType<typeof createProviderHarness>
+    const dispose = createRoot((disposeRoot) => {
+      harness = createProviderHarness()
+      return disposeRoot
+    })
+    const { appearance, classes, storage } = harness
+    const editor = createAppearanceEditor()
+    editor.open(committedPreferences(appearance))
+    editor.set({ mode: 'dark' })
+    appearance.preview(editor.draft())
+    expect(classes.has('dark')).toBe(true)
+
+    // The mode toggle and the zoom chords commit straight to the provider, which
+    // ends a preview; the open draft is still the user's, so it keeps showing.
+    appearance.setSelection({ appearance: 'light' })
+    expect(appearance.selection().appearance).toBe('light')
+    expect(JSON.parse(storage.store.get(APPEARANCE_STORAGE_KEY)!).mode).toBe('light')
+    expect(classes.has('dark')).toBe(true)
+
+    // Ending the draft returns to what was committed.
+    appearance.preview(undefined)
+    expect(classes.has('dark')).toBe(false)
+    dispose()
+  })
+
+  test('the legacy accent spelling commits as the default preset', () => {
+    let harness!: ReturnType<typeof createProviderHarness>
+    const dispose = createRoot((disposeRoot) => {
+      harness = createProviderHarness()
+      return disposeRoot
+    })
+    harness.appearance.update({ accent: 'theme' })
+    expect(committedPreferences(harness.appearance).accent).toBe('violet')
+    dispose()
   })
 
   test('draft reads stay accessors so the harness never snapshots mid-edit', () => {

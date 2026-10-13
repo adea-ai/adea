@@ -1,7 +1,8 @@
 // Authorized portable workspace export: the readers (M18.02.2, #1226).
 //
-// The export is the requester's own view of one workspace, read inside a READ COMMITTED,
-// READ WRITE transaction. The requester's access is checked when the export starts, before
+// The export is the requester's own view of one workspace. Short READ COMMITTED checks
+// surround coherent canonical page snapshots; a final snapshot reproves retained authority and
+// record bindings. The requester's access is checked when the export starts, before
 // every message and task page, and after the last read (`assertAccess` and `assertStanding`), so a
 // revocation committed mid-export denies it. A principal with no current membership, a
 // removed membership, or a deleted or being-deleted workspace all fail with the same
@@ -31,13 +32,17 @@ import type {
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { PORTABLE_EXPORT_TRANSACTION_CONFIG } from './portable-export-transaction'
+import {
+  PORTABLE_EXPORT_TRANSACTION_CONFIG,
+  PORTABLE_EXPORT_PROOF_TRANSACTION_CONFIG,
+} from './portable-export-transaction'
 import {
   CHANNEL_SUMMARY_PAGE_SIZE,
   ChannelParticipantOverflowError,
   listChannelIdsForUser,
   listChannelsForUserPage,
   listMessagesForUser,
+  readMessagesForUserIds,
   type ChannelPageCursor,
 } from './conversations'
 import {
@@ -127,32 +132,45 @@ type Access = Readonly<{
 /** The requester's access when the export began, and the channels the canonical reader served them. */
 type Standing = Access & Readonly<{ channelIds: ReadonlySet<string> }>
 
+type Database = AgentHqDatabase | AgentHqTransaction
+
+/** Short orchestration reads release their connection before hooks or canonical page snapshots. */
+async function readExportRows<T>(
+  database: Database,
+  operation: (transaction: AgentHqTransaction) => Promise<T>
+): Promise<T> {
+  if ('rollback' in database) return operation(database)
+  return database.transaction(operation, PORTABLE_EXPORT_TRANSACTION_CONFIG)
+}
+
 /** The requester's access now, or null when it is gone. */
 async function accessNow(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<Access | null> {
+  if (!('rollback' in transaction))
+    return readExportRows(transaction, (snapshot) => accessNow(snapshot, workspaceId, principal))
   const scope = await resolveProjectAccessScope(transaction, workspaceId, principal.userId)
   if (!scope) return null
-  const [workspace] = await transaction
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1)
+  const [workspace] = await readExportRows(transaction, (readTransaction) =>
+    readTransaction.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
+  )
   if (!workspace || workspace.deletedAt || workspace.deletionRequestedAt) return null
-  const projectRows = await transaction
-    .select({ id: projects.id })
-    .from(projects)
-    .where(
-      and(
-        eq(projects.workspaceId, workspaceId),
-        eq(projects.lifecycleState, 'active'),
-        isNull(projects.deletedAt),
-        visibleProjectCondition(projects.id, scope)
+  const projectRows = await readExportRows(transaction, (readTransaction) =>
+    readTransaction
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.workspaceId, workspaceId),
+          eq(projects.lifecycleState, 'active'),
+          isNull(projects.deletedAt),
+          visibleProjectCondition(projects.id, scope)
+        )
       )
-    )
-    .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+  )
   return {
     projectIds: new Set(bounded(projectRows, 'projects').map((row) => row.id)),
     scope,
@@ -162,7 +180,7 @@ async function accessNow(
 
 /** The ids of the channels the canonical reader serves the requester now. */
 async function channelIdsNow(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<Set<string>> {
@@ -171,6 +189,8 @@ async function channelIdsNow(
       bounded(await listChannelIdsForUser(transaction, workspaceId, principal), 'channels')
     )
   } catch (error) {
+    if (error instanceof ChannelParticipantOverflowError)
+      throw new PortableExportError('too_large', 'channel standing exceeds the portable bound')
     if (error instanceof Error && error.message === 'Channel unavailable')
       throw new PortableExportError('denied', 'Workspace unavailable')
     throw error
@@ -188,7 +208,7 @@ function containsAll(current: ReadonlySet<string>, required: ReadonlySet<string>
  * committed before it is observed.
  */
 async function assertAccess(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   start: Access
@@ -200,7 +220,7 @@ async function assertAccess(
 
 /** `assertAccess`, and every channel the canonical reader served at the start is still served. */
 async function assertStanding(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   start: Standing
@@ -218,7 +238,7 @@ async function assertStanding(
  * its own error otherwise.
  */
 async function readVisibleMessages(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspaceId: string,
   principal: UserPrincipalRef,
   channels: readonly ChannelSummary[],
@@ -269,7 +289,7 @@ async function readVisibleMessages(
  * themselves. Agents and users are included only when a visible record names them.
  */
 async function readRequesterInputs(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   principal: UserPrincipalRef,
   start: Standing,
   hooks: PortableExportHooks | undefined
@@ -282,20 +302,22 @@ async function readRequesterInputs(
     ? inArray(projects.id, baselineProjectIds)
     : sql`false`
   const projectRows = bounded(
-    await transaction
-      .select()
-      .from(projects)
-      .where(
-        and(
-          eq(projects.workspaceId, workspaceId),
-          eq(projects.lifecycleState, 'active'),
-          isNull(projects.deletedAt),
-          baselineProjectCondition,
-          visibleProjectCondition(projects.id, scope)
+    await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select()
+        .from(projects)
+        .where(
+          and(
+            eq(projects.workspaceId, workspaceId),
+            eq(projects.lifecycleState, 'active'),
+            isNull(projects.deletedAt),
+            baselineProjectCondition,
+            visibleProjectCondition(projects.id, scope)
+          )
         )
-      )
-      .orderBy(asc(projects.sortOrder), asc(projects.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1),
+        .orderBy(asc(projects.sortOrder), asc(projects.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    ),
     'projects'
   )
   const projectIds = new Set(projectRows.map((row) => row.id))
@@ -370,36 +392,38 @@ async function readRequesterInputs(
       TASK_PAGE,
       PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1 - taskRows.length
     )
-    const page = await transaction
-      .select({
-        agentId: tasks.agentId,
-        channelId: tasks.channelId,
-        createdAt: tasks.createdAt,
-        creatorUserId: tasks.creatorUserId,
-        id: tasks.id,
-        kind: tasks.kind,
-        lifecycleState: tasks.lifecycleState,
-        messageId: tasks.messageId,
-        objective: tasks.objective,
-        objectiveContentRefId: tasks.objectiveContentRefId,
-        priority: tasks.priority,
-        projectId: tasks.projectId,
-        threadRootMessageId: tasks.threadRootMessageId,
-        title: tasks.title,
-        updatedAt: tasks.updatedAt,
-        version: tasks.version,
-      })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.workspaceId, workspaceId),
-          visibleProjectCondition(tasks.projectId, scope),
-          projectCondition,
-          afterCondition
+    const page = await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select({
+          agentId: tasks.agentId,
+          channelId: tasks.channelId,
+          createdAt: tasks.createdAt,
+          creatorUserId: tasks.creatorUserId,
+          id: tasks.id,
+          kind: tasks.kind,
+          lifecycleState: tasks.lifecycleState,
+          messageId: tasks.messageId,
+          objective: tasks.objective,
+          objectiveContentRefId: tasks.objectiveContentRefId,
+          priority: tasks.priority,
+          projectId: tasks.projectId,
+          threadRootMessageId: tasks.threadRootMessageId,
+          title: tasks.title,
+          updatedAt: tasks.updatedAt,
+          version: tasks.version,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.workspaceId, workspaceId),
+            visibleProjectCondition(tasks.projectId, scope),
+            projectCondition,
+            afterCondition
+          )
         )
-      )
-      .orderBy(asc(tasks.id))
-      .limit(pageLimit)
+        .orderBy(asc(tasks.id))
+        .limit(pageLimit)
+    )
 
     for (const row of page) {
       // Objective and title are always included by the mapper. Their encoded JSON
@@ -431,19 +455,25 @@ async function readRequesterInputs(
   await hooks?.beforeStep?.({ name: 'contentRefs' })
   const visibleContentRefIds = new Set<string>()
   for (const id of candidateRefIds)
-    if (await isContentRefVisible(transaction, workspaceId, principal.userId, id))
+    if (
+      await readExportRows(transaction, (snapshot) =>
+        isContentRefVisible(snapshot, workspaceId, principal.userId, id)
+      )
+    )
       visibleContentRefIds.add(id)
   const contentRefRows = visibleContentRefIds.size
-    ? await transaction
-        .select()
-        .from(contentRefs)
-        .where(
-          and(
-            eq(contentRefs.workspaceId, workspaceId),
-            inArray(contentRefs.id, [...visibleContentRefIds])
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(contentRefs)
+          .where(
+            and(
+              eq(contentRefs.workspaceId, workspaceId),
+              inArray(contentRefs.id, [...visibleContentRefIds])
+            )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(contentRefRows, 'content refs')
 
@@ -476,36 +506,42 @@ async function readCompleteInputs(
   const workspaceId = workspace.id
   const readBudget: ExportReadBudget = { bytes: 0 }
   const projectRows = bounded(
-    await transaction
-      .select()
-      .from(projects)
-      .where(and(eq(projects.workspaceId, workspaceId), isNull(projects.deletedAt)))
-      .orderBy(asc(projects.sortOrder), asc(projects.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1),
+    await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select()
+        .from(projects)
+        .where(and(eq(projects.workspaceId, workspaceId), isNull(projects.deletedAt)))
+        .orderBy(asc(projects.sortOrder), asc(projects.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    ),
     'projects'
   )
   const projectIds = new Set(projectRows.map((row) => row.id))
   const channelRows = bounded(
-    await transaction
-      .select()
-      .from(channelTable)
-      .where(eq(channelTable.workspaceId, workspaceId))
-      .orderBy(asc(channelTable.sortOrder), asc(channelTable.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1),
+    await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select()
+        .from(channelTable)
+        .where(eq(channelTable.workspaceId, workspaceId))
+        .orderBy(asc(channelTable.sortOrder), asc(channelTable.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    ),
     'channels'
   ).filter((row) => !row.projectId || projectIds.has(row.projectId))
   const channelIds = channelRows.map((row) => row.id)
   const participantRows = channelIds.length
-    ? await transaction
-        .select()
-        .from(channelParticipants)
-        .where(
-          and(
-            eq(channelParticipants.workspaceId, workspaceId),
-            inArray(channelParticipants.channelId, channelIds)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, workspaceId),
+              inArray(channelParticipants.channelId, channelIds)
+            )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(participantRows, 'channel participants')
   const participantsByChannel = groupBy(participantRows, (row) => row.channelId)
@@ -535,33 +571,37 @@ async function readCompleteInputs(
   }))
 
   const messageRows = channelIds.length
-    ? await transaction
-        .select()
-        .from(messageTable)
-        .where(
-          and(
-            eq(messageTable.workspaceId, workspaceId),
-            inArray(messageTable.channelId, channelIds)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(messageTable)
+          .where(
+            and(
+              eq(messageTable.workspaceId, workspaceId),
+              inArray(messageTable.channelId, channelIds)
+            )
           )
-        )
-        .orderBy(asc(messageTable.channelId), asc(messageTable.sequence))
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .orderBy(asc(messageTable.channelId), asc(messageTable.sequence))
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(messageRows, 'messages')
   const mentionRows = messageRows.length
-    ? await transaction
-        .select()
-        .from(messageMentions)
-        .where(
-          and(
-            eq(messageMentions.workspaceId, workspaceId),
-            inArray(
-              messageMentions.messageId,
-              messageRows.map((row) => row.id)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(messageMentions)
+          .where(
+            and(
+              eq(messageMentions.workspaceId, workspaceId),
+              inArray(
+                messageMentions.messageId,
+                messageRows.map((row) => row.id)
+              )
             )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(mentionRows, 'message mentions')
   const mentionsByMessage = groupBy(mentionRows, (row) => row.messageId)
@@ -599,12 +639,14 @@ async function readCompleteInputs(
   }))
 
   const taskRows = bounded(
-    await transaction
-      .select()
-      .from(tasks)
-      .where(eq(tasks.workspaceId, workspaceId))
-      .orderBy(asc(tasks.createdAt), asc(tasks.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1),
+    await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select()
+        .from(tasks)
+        .where(eq(tasks.workspaceId, workspaceId))
+        .orderBy(asc(tasks.createdAt), asc(tasks.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    ),
     'tasks'
   ).filter((row) => !row.projectId || projectIds.has(row.projectId))
   const candidateRefIds = [
@@ -616,13 +658,15 @@ async function readCompleteInputs(
     ]),
   ]
   const contentRefRows = candidateRefIds.length
-    ? await transaction
-        .select()
-        .from(contentRefs)
-        .where(
-          and(eq(contentRefs.workspaceId, workspaceId), inArray(contentRefs.id, candidateRefIds))
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(contentRefs)
+          .where(
+            and(eq(contentRefs.workspaceId, workspaceId), inArray(contentRefs.id, candidateRefIds))
+          )
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(contentRefRows, 'content refs')
 
@@ -643,7 +687,7 @@ async function readCompleteInputs(
  * cloud attempts. A reference is loaded only when an included record names it.
  */
 async function finishInputs(
-  transaction: AgentHqTransaction,
+  transaction: Database,
   workspace: WorkspaceRow,
   partial: Pick<
     ReadInputs,
@@ -679,16 +723,18 @@ async function finishInputs(
   }
 
   const memberRows = projectIds.length
-    ? await transaction
-        .select()
-        .from(projectMembers)
-        .where(
-          and(
-            eq(projectMembers.workspaceId, workspaceId),
-            inArray(projectMembers.projectId, projectIds)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.workspaceId, workspaceId),
+              inArray(projectMembers.projectId, projectIds)
+            )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(memberRows, 'project members')
   for (const member of memberRows) userIds.add(member.userId)
@@ -708,36 +754,38 @@ async function finishInputs(
         octet_length(${agents.name}) + coalesce(octet_length(${agents.roleSummary}), 0)
       ) over (order by ${agents.id} rows between unbounded preceding and current row)
     `
-    const page = await transaction
-      .select({
-        createdAt: agents.createdAt,
-        id: agents.id,
-        isWorkspaceLead: agents.isWorkspaceLead,
-        lifecycleState: agents.lifecycleState,
-        name: sql<
-          string | null
-        >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.name} else null end`,
-        profileId: agents.profileId,
-        profileRevision: agents.profileRevision,
-        profileState: agents.profileState,
-        profileVersion: agents.profileVersion,
-        projectId: agents.projectId,
-        revision: agents.revision,
-        roleSummary: sql<
-          string | null
-        >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.roleSummary} else null end`,
-        updatedAt: agents.updatedAt,
-        withinByteBound: sql<boolean>`${cumulativeTextBytes} <= ${remainingBytes}`,
-      })
-      .from(agents)
-      .where(
-        and(
-          eq(agents.workspaceId, workspaceId),
-          inArray(agents.id, referencedAgentIds.slice(offset, offset + REFERENCE_PAGE))
+    const page = await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select({
+          createdAt: agents.createdAt,
+          id: agents.id,
+          isWorkspaceLead: agents.isWorkspaceLead,
+          lifecycleState: agents.lifecycleState,
+          name: sql<
+            string | null
+          >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.name} else null end`,
+          profileId: agents.profileId,
+          profileRevision: agents.profileRevision,
+          profileState: agents.profileState,
+          profileVersion: agents.profileVersion,
+          projectId: agents.projectId,
+          revision: agents.revision,
+          roleSummary: sql<
+            string | null
+          >`case when ${cumulativeTextBytes} <= ${remainingBytes} then ${agents.roleSummary} else null end`,
+          updatedAt: agents.updatedAt,
+          withinByteBound: sql<boolean>`${cumulativeTextBytes} <= ${remainingBytes}`,
+        })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.workspaceId, workspaceId),
+            inArray(agents.id, referencedAgentIds.slice(offset, offset + REFERENCE_PAGE))
+          )
         )
-      )
-      .orderBy(asc(agents.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+        .orderBy(asc(agents.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    )
 
     if (hooks?.afterAgentPage)
       await hooks.afterAgentPage({
@@ -783,18 +831,20 @@ async function finishInputs(
         end
       ) over (order by ${users.id} rows between unbounded preceding and current row)
     `
-    const page = await transaction
-      .select({
-        displayName: sql<
-          string | null
-        >`case when ${cumulativeLowerBound} <= ${remainingBytes} then ${users.displayName} else null end`,
-        id: users.id,
-        withinByteBound: sql<boolean>`${cumulativeLowerBound} <= ${remainingBytes}`,
-      })
-      .from(users)
-      .where(inArray(users.id, referencedUserIds.slice(offset, offset + REFERENCE_PAGE)))
-      .orderBy(asc(users.id))
-      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    const page = await readExportRows(transaction, (readTransaction) =>
+      readTransaction
+        .select({
+          displayName: sql<
+            string | null
+          >`case when ${cumulativeLowerBound} <= ${remainingBytes} then ${users.displayName} else null end`,
+          id: users.id,
+          withinByteBound: sql<boolean>`${cumulativeLowerBound} <= ${remainingBytes}`,
+        })
+        .from(users)
+        .where(inArray(users.id, referencedUserIds.slice(offset, offset + REFERENCE_PAGE)))
+        .orderBy(asc(users.id))
+        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    )
     for (const row of page) {
       if (!row.withinByteBound)
         throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
@@ -805,29 +855,33 @@ async function finishInputs(
   }
 
   const dependencyRows = taskIds.length
-    ? await transaction
-        .select()
-        .from(taskDependencies)
-        .where(
-          and(
-            eq(taskDependencies.workspaceId, workspaceId),
-            inArray(taskDependencies.taskId, taskIds)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(taskDependencies)
+          .where(
+            and(
+              eq(taskDependencies.workspaceId, workspaceId),
+              inArray(taskDependencies.taskId, taskIds)
+            )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(dependencyRows, 'task dependencies')
   const attemptRows = taskIds.length
-    ? await transaction
-        .select()
-        .from(taskExecutionAttempts)
-        .where(
-          and(
-            eq(taskExecutionAttempts.workspaceId, workspaceId),
-            inArray(taskExecutionAttempts.taskId, taskIds)
+    ? await readExportRows(transaction, (readTransaction) =>
+        readTransaction
+          .select()
+          .from(taskExecutionAttempts)
+          .where(
+            and(
+              eq(taskExecutionAttempts.workspaceId, workspaceId),
+              inArray(taskExecutionAttempts.taskId, taskIds)
+            )
           )
-        )
-        .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+          .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+      )
     : []
   bounded(attemptRows, 'execution attempts')
 
@@ -855,11 +909,9 @@ export async function readCompletePortableContent(
   transaction: AgentHqTransaction,
   workspaceId: string
 ): Promise<PortableWorkspaceExportContent | null> {
-  const [workspace] = await transaction
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1)
+  const [workspace] = await readExportRows(transaction, (readTransaction) =>
+    readTransaction.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1)
+  )
   if (!workspace || workspace.deletedAt) return null
   return mapPortableContent(await readCompleteInputs(transaction, workspace))
 }
@@ -880,22 +932,149 @@ export async function exportPortableWorkspace(
     workspaceId: string
   }>
 ): Promise<PortableWorkspaceExport> {
-  return database.transaction(async (transaction) => {
-    const access = await accessNow(transaction, input.workspaceId, input.principal)
-    if (!access) throw new PortableExportError('denied', 'Workspace unavailable')
-    const start: Standing = {
-      ...access,
-      channelIds: await channelIdsNow(transaction, input.workspaceId, input.principal),
+  const access = await accessNow(database, input.workspaceId, input.principal)
+  if (!access) throw new PortableExportError('denied', 'Workspace unavailable')
+  const start: Standing = {
+    ...access,
+    channelIds: await channelIdsNow(database, input.workspaceId, input.principal),
+  }
+  const inputs = await readRequesterInputs(database, input.principal, start, input.hooks)
+  await input.hooks?.beforeStep?.({ name: 'final' })
+  return database.transaction(async (snapshot) => {
+    await assertStanding(snapshot, input.workspaceId, input.principal, start)
+    try {
+      await proveRetainedRecords(snapshot, input.workspaceId, input.principal, inputs)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        ['Workspace unavailable', 'Channel unavailable', 'Message unavailable'].includes(
+          error.message
+        )
+      )
+        denyRetainedExport()
+      throw error
     }
-    const inputs = await readRequesterInputs(transaction, input.principal, start, input.hooks)
-    // The families above are read statement by statement, so a revocation can land between
-    // them. Checking once more after the last read denies the export before anything is built.
-    await input.hooks?.beforeStep?.({ name: 'final' })
-    await assertStanding(transaction, input.workspaceId, input.principal, start)
     const envelope = {
       exportedAt: input.exportedAt ?? new Date(),
       exportedBy: { role: start.scope.role, userId: start.scope.userId },
     }
     return buildPortableWorkspaceExport(mapPortableContent(inputs, envelope), envelope)
-  }, PORTABLE_EXPORT_TRANSACTION_CONFIG)
+  }, PORTABLE_EXPORT_PROOF_TRANSACTION_CONFIG)
+}
+
+/** No buffered record is emitted solely on the authority of an earlier page snapshot. */
+async function proveRetainedRecords(
+  snapshot: AgentHqTransaction,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  inputs: ReadInputs
+): Promise<void> {
+  const expectedChannels = new Map(inputs.channels.map((channel) => [channel.id, channel]))
+  const channelIds = [...expectedChannels.keys()].toSorted()
+  for (let offset = 0; offset < channelIds.length; offset += CHANNEL_SUMMARY_PAGE_SIZE) {
+    const ids = channelIds.slice(offset, offset + CHANNEL_SUMMARY_PAGE_SIZE)
+    let after: ChannelPageCursor | undefined
+    const proved = new Set<string>()
+    for (;;) {
+      const page = await listChannelsForUserPage(snapshot, workspaceId, principal, {
+        channelIds: ids,
+        limit: ids.length,
+        after,
+      })
+      for (const channel of page.channels) {
+        if (JSON.stringify(channel) !== JSON.stringify(expectedChannels.get(channel.id)))
+          denyRetainedExport()
+        proved.add(channel.id)
+      }
+      if (!page.nextAfter) break
+      after = page.nextAfter
+    }
+    if (proved.size !== ids.length) denyRetainedExport()
+  }
+  const retainedMessages = inputs.messages.filter(
+    (message) =>
+      message.deleted ||
+      !message.bodyContentRefId ||
+      inputs.visibleContentRefIds.has(message.bodyContentRefId)
+  )
+  // Reassignment or a version change can withdraw a task without changing the
+  // workspace's visible-project set. Reprove fixed-size identity fields, not
+  // potentially oversized objectives/titles that have already been read.
+  for (let offset = 0; offset < inputs.taskRows.length; offset += REFERENCE_PAGE) {
+    const expected = inputs.taskRows.slice(offset, offset + REFERENCE_PAGE)
+    const current = await snapshot
+      .select({
+        id: tasks.id,
+        version: tasks.version,
+        projectId: tasks.projectId,
+        objectiveContentRefId: tasks.objectiveContentRefId,
+      })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.workspaceId, workspaceId),
+          inArray(
+            tasks.id,
+            expected.map((row) => row.id)
+          )
+        )
+      )
+      .limit(expected.length)
+    const byId = new Map(current.map((row) => [row.id, row]))
+    for (const task of expected) {
+      const row = byId.get(task.id)
+      if (
+        !row ||
+        row.version !== task.version ||
+        row.projectId !== task.projectId ||
+        row.objectiveContentRefId !== task.objectiveContentRefId
+      )
+        denyRetainedExport()
+    }
+  }
+  const byChannel = groupBy(retainedMessages, (message) => message.channelId)
+  const provedMessages = new Set<string>()
+  for (const [channelId, messages] of byChannel) {
+    for (let offset = 0; offset < messages.length; offset += MESSAGE_PAGE) {
+      const expected = messages.slice(offset, offset + MESSAGE_PAGE)
+      const current = await readMessagesForUserIds(
+        snapshot,
+        workspaceId,
+        channelId,
+        principal,
+        expected.map((message) => message.id)
+      )
+      const byId = new Map(current.map((message) => [message.id, message]))
+      for (const message of expected) {
+        if (JSON.stringify(message) !== JSON.stringify(byId.get(message.id))) denyRetainedExport()
+        provedMessages.add(message.id)
+      }
+    }
+  }
+  for (const ref of inputs.contentRefRows) {
+    if (!inputs.visibleContentRefIds.has(ref.id)) continue
+    if (ref.messageId && !provedMessages.has(ref.messageId)) denyRetainedExport()
+    if (!(await isContentRefVisible(snapshot, workspaceId, principal.userId, ref.id)))
+      denyRetainedExport()
+    const [current] = await snapshot
+      .select({
+        revision: contentRefs.revision,
+        messageId: contentRefs.messageId,
+        taskId: contentRefs.taskId,
+      })
+      .from(contentRefs)
+      .where(and(eq(contentRefs.workspaceId, workspaceId), eq(contentRefs.id, ref.id)))
+      .limit(1)
+    if (
+      !current ||
+      current.revision !== ref.revision ||
+      current.messageId !== ref.messageId ||
+      current.taskId !== ref.taskId
+    )
+      denyRetainedExport()
+  }
+}
+
+function denyRetainedExport(): never {
+  throw new PortableExportError('denied', 'Workspace unavailable')
 }

@@ -2,7 +2,7 @@ import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { SettingsNavigation, SettingsRow } from '@adea-ai/ui/components/composites/settings'
@@ -51,6 +51,7 @@ import {
 } from './settings-section'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const sectionIcons = {
   account: UserRound,
@@ -342,7 +343,9 @@ export function WorkspaceSettingsDialog(props: {
                       aria-hidden="true"
                     />
                     <div>
-                      <h3>{settingsSectionLabels[panelSection]}</h3>
+                      <Heading as="h3" size="card">
+                        {settingsSectionLabels[panelSection]}
+                      </Heading>
                       <p>{sectionDescriptions[panelSection]}</p>
                     </div>
                   </header>

@@ -87,11 +87,22 @@ import { terminalConnectionErrorMessage } from './connection-errors'
 import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
 import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { Toggle } from '@adea-ai/ui/components/ui/toggle'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export type TerminalPaneProps = {
   /** Opens one authenticated terminal-bytes-v1 stream (new grant per call). */
@@ -743,17 +754,32 @@ export function TerminalPane(props: TerminalPaneProps) {
             </Toggle>
           </div>
         </Show>
-        <Show when={surfacePaste !== undefined}>
-          <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
-            <span>Paste contains multiple lines or control characters. Send anyway?</span>
-            <Button type="button" onClick={confirmSurfacePaste}>
-              Paste
-            </Button>
-            <Button type="button" onClick={rejectSurfacePaste}>
-              Cancel
-            </Button>
-          </div>
-        </Show>
+        <AlertDialog
+          open={surfacePaste() !== undefined}
+          onOpenChange={(open) => {
+            if (!open && surfacePaste() !== undefined) rejectSurfacePaste()
+          }}
+        >
+          <AlertDialogContent
+            // confirm/rejectSurfacePaste hand focus back to the terminal themselves.
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm paste</AlertDialogTitle>
+              <AlertDialogDescription>
+                Paste contains multiple lines or control characters. Send anyway?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel as={Button} type="button" variant="outline">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction as={Button} type="button" onClick={confirmSurfacePaste}>
+                Paste
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <Show
         when={editor().mode === 'compose'}
@@ -800,17 +826,35 @@ export function TerminalPane(props: TerminalPaneProps) {
               }
             }}
           />
-          <Show when={editor().pendingPaste !== undefined}>
-            <div class="dev-terminal-paste-confirm" role="alertdialog" aria-label="Confirm paste">
-              <span>Paste contains multiple lines or control characters. Send anyway?</span>
-              <Button type="button" onClick={() => setEditor(editorConfirmPaste(editor()))}>
-                Paste
-              </Button>
-              <Button type="button" onClick={() => setEditor(editorRejectPaste(editor()))}>
-                Cancel
-              </Button>
-            </div>
-          </Show>
+          <AlertDialog
+            open={editor().pendingPaste !== undefined}
+            onOpenChange={(open) => {
+              if (!open && editor().pendingPaste !== undefined) {
+                setEditor(editorRejectPaste(editor()))
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirm paste</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Paste contains multiple lines or control characters. Send anyway?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel as={Button} type="button" variant="outline">
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  as={Button}
+                  type="button"
+                  onClick={() => setEditor(editorConfirmPaste(editor()))}
+                >
+                  Paste
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <footer>
             <Button type="button" onClick={sendDraft}>
               {editor().sendLabel}
@@ -823,7 +867,9 @@ export function TerminalPane(props: TerminalPaneProps) {
       </Show>
       <Show when={shellPresent().showChooser}>
         <div class="dev-terminal-shell-chooser" role="group" aria-label={shellPresent().heading}>
-          <h2>{shellPresent().heading}</h2>
+          <Heading as="h2" size="subsection">
+            {shellPresent().heading}
+          </Heading>
           <p>{shellPresent().detail}</p>
           <ul>
             {(props.shellProfiles ?? []).map((profile) => (

@@ -385,6 +385,26 @@ test('General saves workspace identity changes as they are made', async ({ page 
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
     .toMatchObject({ name: 'Renamed harness', scene: 'home', version: 3 })
+
+  // A custom colour saves as lowercase #rrggbb and shows on the Custom button;
+  // choosing a preset afterwards replaces it.
+  const custom = panel.getByRole('button', { name: 'Custom', exact: true })
+  await expect(custom).toHaveAttribute('aria-pressed', 'false')
+  await panel.locator('input[type="color"]').fill('#2563eb')
+  await expect
+    .poll(async () =>
+      JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
+    )
+    .toMatchObject({ accent: '#2563eb', version: 4 })
+  await expect(custom).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.locator('[data-custom-accent-swatch]')).toBeVisible()
+  await panel.getByRole('radio', { name: 'Violet', exact: true }).check({ force: true })
+  await expect
+    .poll(async () =>
+      JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
+    )
+    .toMatchObject({ accent: 'violet', version: 5 })
+  await expect(custom).toHaveAttribute('aria-pressed', 'false')
   expect(errors).toEqual([])
 })
 

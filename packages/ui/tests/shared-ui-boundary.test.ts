@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = (path: string) => readFileSync(join(import.meta.dir, '../src', path), 'utf8')
@@ -9,10 +9,69 @@ const repositoryFile = (path: string) =>
 describe('private application UI boundary', () => {
   test('delegates mode selection and roving focus to the published controlled toggle', () => {
     const toggle = source('components/theme-toggle.tsx')
-    expect(toggle).toContain("import { ThemeModeToggle } from '@adea-ai/ui/components/theme'")
-    expect(toggle).toContain('mode={theme()}')
-    expect(toggle).toContain('onModeChange={setTheme}')
+    expect(toggle).toContain(
+      "import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme/lazy'"
+    )
+    expect(toggle).toContain('mode={theme.selection().appearance}')
+    expect(toggle).toContain('theme.setSelection({ appearance })')
     expect(toggle).not.toContain('role="radio"')
+  })
+
+  test('shell code reads the shared theme context, not a host copy of it', () => {
+    const consumers = [
+      'apps/web/src/components/workspace-navigation.tsx',
+      'packages/workspace-nav/src/workspace-nav.tsx',
+      'packages/workspace-ui/src/workspace-identity-settings.tsx',
+      'packages/workspace-ui/src/workspace-settings.tsx',
+      'packages/ui/src/components/workspace-identity-mark.tsx',
+    ]
+    for (const path of consumers) {
+      const code = repositoryFile(path)
+      expect(code).toContain("from '@adea-ai/ui/components/theme/lazy'")
+      expect(code).not.toContain('components/theme-provider')
+    }
+    // The host view keeps only the V2 seam the appearance editor writes through.
+    const host = source('components/appearance-host.tsx')
+    for (const name of [
+      'resolvedTheme',
+      'setTheme',
+      'variantId',
+      'resolvedMode',
+      'preferences: Accessor',
+    ]) {
+      expect(host).not.toContain(name)
+    }
+    expect(host).not.toContain('export function useOptionalTheme')
+    expect(source('components/workspace-accent.ts')).not.toContain('variantId')
+  })
+
+  test('no module reaches the themes catalogue from the start-up path', () => {
+    const root = join(import.meta.dir, '../../..')
+    const files = [
+      'apps/web/src',
+      'packages/ui/src',
+      'packages/workspace-nav/src',
+      'packages/workspace-ui/src',
+    ]
+      .flatMap((directory) =>
+        (readdirSync(join(root, directory), { recursive: true }) as string[]).map((entry) =>
+          join(directory, entry)
+        )
+      )
+      .filter((path) => /\.tsx?$/.test(path))
+    expect(files.length).toBeGreaterThan(50)
+    for (const path of files) {
+      const code = repositoryFile(path)
+      // The eager entry imports the 34-theme catalogue; the lazy one is the same context.
+      expect(code, path).not.toMatch(/from '@adea-ai\/ui\/components\/theme'/)
+      // `lib/themes` re-exports `variantFromRecord` and `accents`, but defines them beside the table, and a
+      // bundler places a module whole: importing either from a start-up module drags it in.
+      for (const [, names] of code.matchAll(
+        /import\s*\{([^}]*)\}\s*from '@adea-ai\/ui\/lib\/themes'/g
+      )) {
+        expect(names, path).not.toMatch(/\b(?:variantFromRecord|accents)\b/)
+      }
+    }
   })
 
   test('loads the shared layers before the private host layers', () => {
@@ -50,7 +109,11 @@ describe('private application UI boundary', () => {
 
   test('keeps host surface policy without copied shared resets', () => {
     const theme = source('styles/theme.css')
-    expect(theme).toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
+    // The surface amounts and the frosted dialog rule belong to the published theme.
+    expect(theme).not.toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
+    expect(theme).not.toContain('--surface-alpha:')
+    expect(theme).not.toContain('--surface-frost')
+    expect(theme).toContain("[data-surface='translucent'] .conventional-workspace")
     expect(theme).not.toContain('button:not(:disabled)')
     expect(theme).not.toContain('border-color: var(--border)')
     expect(theme).not.toContain('background: var(--background)')

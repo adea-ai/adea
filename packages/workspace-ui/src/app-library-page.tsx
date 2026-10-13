@@ -1,4 +1,5 @@
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import {
   ArrowLeft,
@@ -229,7 +230,9 @@ export function AppLibraryPage(props: {
     <main class="workspace-app-library" aria-labelledby="workspace-app-library-title">
       <header class="workspace-app-library__header">
         <div class="workspace-app-library__heading">
-          <h1 id="workspace-app-library-title">App Library</h1>
+          <Heading as="h1" size="display" id="workspace-app-library-title">
+            App Library
+          </Heading>
           <p>Choose the views and tools in your workspace.</p>
         </div>
         <div class="workspace-app-library__controls">

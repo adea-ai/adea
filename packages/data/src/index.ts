@@ -78,7 +78,9 @@ export const artifactQueryKeys = {
 export const accountQueryKeys = {
   all: ['account'] as const,
   summary: ['account', 'summary'] as const,
+  directoryAll: ['account', 'directory'] as const,
   directory: (input: AccountDirectoryPageInput = {}) => ['account', 'directory', input] as const,
+  inboxAll: ['account', 'inbox'] as const,
   inbox: (input: AccountDirectoryPageInput = {}) => ['account', 'inbox', input] as const,
 }
 
@@ -152,7 +154,8 @@ function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string)
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
-    // The account summary counts this workspace's unread channels too.
+    // The account summary and inbox project this workspace's unread state.
+    void invalidateAccountInbox(queryClient)
     void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
   }
 }
@@ -291,6 +294,7 @@ function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
+    void invalidateAccountInbox(queryClient)
     await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
   }
 }
@@ -363,6 +367,7 @@ function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, c
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
     const targetChannelId = channelId ?? result.message.channelId
+    void invalidateAccountInbox(queryClient)
     await queryClient.invalidateQueries({
       queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
     })
@@ -712,7 +717,7 @@ export const agentMutationOptions = {
       }),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToProject']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -720,14 +725,14 @@ export const agentMutationOptions = {
       client.createAgent(workspaceId, input),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['createAgent']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (agentId: string) => client.archiveAgent(workspaceId, agentId),
     onSuccess: async (_result: unknown, agentId: string) => {
       queryClient.removeQueries({ queryKey: agentQueryKeys.detail(workspaceId, agentId) })
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   profile: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -739,7 +744,7 @@ export const agentMutationOptions = {
     ) => client.changeAgentProfile(workspaceId, input.agentId, input.profile),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['changeAgentProfile']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   presentation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -751,9 +756,24 @@ export const agentMutationOptions = {
     ) => client.updateAgentPresentation(workspaceId, input.agentId, input.presentation),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['updateAgentPresentation']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
+}
+
+/**
+ * Agent writes change both their workspace roster and the account search. Only
+ * the roster is awaited: the account list is supplemental, so a slow or failing
+ * account query must never hold a save open.
+ */
+async function invalidateAgentDirectory(queryClient: QueryClient, workspaceId: string) {
+  void queryClient.invalidateQueries({ queryKey: accountQueryKeys.directoryAll })
+  await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+}
+
+/** Fire and forget for the same reason: supplemental account rows never gate a write. */
+function invalidateAccountInbox(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll })
 }
 
 export const projectQueryOptions = {
@@ -774,6 +794,21 @@ export const projectMutationOptions = {
     mutationFn: (projectId: string) => client.archiveProject(workspaceId, projectId),
     onSuccess: async (_result: unknown, projectId: string) => {
       queryClient.removeQueries({ queryKey: projectQueryKeys.detail(workspaceId, projectId) })
+      await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
+    },
+  }),
+  restore: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      variables: Readonly<{
+        input: Parameters<AgentHqApiClient['restoreProject']>[2]
+        projectId: string
+      }>
+    ) => client.restoreProject(workspaceId, variables.projectId, variables.input),
+    onSuccess: async (
+      result: Awaited<ReturnType<AgentHqApiClient['restoreProject']>>,
+      variables: Readonly<{ projectId: string }>
+    ) => {
+      queryClient.setQueryData(projectQueryKeys.detail(workspaceId, variables.projectId), result)
       await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
     },
   }),
@@ -1079,6 +1114,17 @@ export function useDeleteProjectMutation(
   )
 }
 
+/** Explicit promotion of an archived project at the observed revision. */
+export function useRestoreProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.restore(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
 export function useAgentListQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>
@@ -1241,6 +1287,14 @@ export function useCreateDirectChannelMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.direct(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useCreateDirectTopicMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.directTopic(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useCreateGroupChannelMutation(

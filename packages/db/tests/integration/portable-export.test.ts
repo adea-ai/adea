@@ -205,7 +205,13 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       (
         await db
           .insert(channels)
-          .values({ kind: 'group', visibility: 'workspace', workspaceId, ...values })
+          .values({
+            kind: 'project',
+            projectId: projectA!.id,
+            visibility: 'workspace',
+            workspaceId,
+            ...values,
+          })
           .returning()
       )[0]!
     const general = await channel({
@@ -240,6 +246,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       agentId: agentA!.id,
       idempotencyKey: 'topic-direct',
       kind: 'direct_agent',
+      projectId: null,
       sortOrder: 4,
       title: 'Direct',
       visibility: 'participants',
@@ -1199,7 +1206,8 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     const publication = owner.content.messages.find(
       (message) => message.body.kind === 'text' && message.body.text === 'Publication body text'
     )
-    expect(publication?.sender).toEqual({ kind: 'system', systemId: 'system' })
+    // Malformed encoded publications are withheld by the canonical reader, not relabelled as ordinary system messages.
+    expect(publication).toBeUndefined()
   })
 
   test('refuses a workspace above the portable bound instead of truncating it', async () => {
