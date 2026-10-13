@@ -627,6 +627,10 @@ export function ConventionalWorkspaceShell(props: {
                               await controller.openAgentConversation(agentId)
                               setSurface('conversation')
                             }}
+                            onNewConversation={async (agentId, topic) => {
+                              await controller.startAgentTopic(agentId, topic)
+                              setSurface('conversation')
+                            }}
                             onUpdate={async (agent, input) => {
                               // Presentation and placement share one Agent revision. Each saved edit
                               // names the revision it opened, and the next edit chains the revision
