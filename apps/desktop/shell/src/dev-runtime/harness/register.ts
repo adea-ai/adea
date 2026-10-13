@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto'
 import type { AuthorityAudit } from '../audit'
 import {
   createRuntimeConnectionInventory,
+  type RuntimeConnectionEntry,
   type RuntimeConnectionSnapshot,
 } from '../discovery/inventory'
 import type { HarnessDiscoverySource } from '../discovery/types'
@@ -1066,17 +1067,37 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   /** The launch-eligible installation of `family` in this scope: the ready
-   * managed Pi for `pi`, else a discovered installation. A scope that was
+   * managed Pi for `pi`, else a discovered installation. Eligibility is the
+   * launch gate itself: an installation the user disabled never qualifies, and
+   * a missing native login counts as satisfied when the workspace's own
+   * account for the family will be delivered into this launch
+   * (`accountInjected`), the same rule `launchRun` applies. A scope that was
    * never scanned has an empty inventory, so one scan runs before giving up. */
-  async function installationForFamily(family: string): Promise<string | undefined> {
+  async function installationForFamily(
+    family: string,
+    options: { accountInjected: boolean; projectId: string | undefined }
+  ): Promise<string | undefined> {
+    const launchable = (entry: RuntimeConnectionEntry): boolean => {
+      if (preferences.isDisabled(entry.id, options.projectId)) return false
+      const satisfiedByAccount =
+        options.accountInjected && (entry.auth === 'required' || entry.auth === 'unknown')
+      return entry.eligibility.blockers.every(
+        (blocker) => blocker.code === 'auth_required' && satisfiedByAccount
+      )
+    }
     const find = (): string | undefined => {
       const managed = managedPi.status()
-      if (family === 'pi' && managed.state === 'ready' && managed.installationId) {
+      if (
+        family === 'pi' &&
+        managed.state === 'ready' &&
+        managed.installationId &&
+        !preferences.isDisabled(managed.installationId, options.projectId)
+      ) {
         return managed.installationId
       }
       return inventory
         .read(input.scope)
-        .connections.find((entry) => entry.family === family && entry.eligibility.eligible)?.id
+        .connections.find((entry) => entry.family === family && launchable(entry))?.id
     }
     const known = find()
     if (known !== undefined || (input.discoverySources?.length ?? 0) === 0) return known
@@ -1424,7 +1445,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     'dev.session.launchDefault': async (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.launchDefault'].request(command.body)
-      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      let session = resolveSessionOrThrow(body.runtimeSessionId as string)
       requireSessionResource(command, session)
       requireGeneration(command, session)
       requireLaunchableSession(session)
@@ -1447,14 +1468,43 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           observedAt: iso(),
         } satisfies DevError
       }
-      const installationId =
-        deviceFamily !== undefined
-          ? await installationForFamily(deviceFamily)
-          : resolution?.kind === 'root_default'
-            ? managedPi.status().installationId
-            : resolution?.kind === 'preference'
-              ? resolution.preference.harnessInstallationId
-              : undefined
+      let installationId: string | undefined
+      if (deviceFamily !== undefined) {
+        // The workspace's own account for the family is resolved before any
+        // installation is judged ineligible: a delivered credential satisfies
+        // a missing native login, so eligibility depends on it. A broken
+        // binding refuses typed here, as it would at launch.
+        const account = input.resolveHarnessAccount?.({
+          harnessId: deviceFamily,
+          operation: 'dev.session.launchHarness',
+        })
+        installationId = await installationForFamily(deviceFamily, {
+          accountInjected: account?.connection === 'workspace' && body.attachTerminal === true,
+          projectId: session.projectId,
+        })
+        // The lookup may have waited on a discovery scan. The session can have
+        // been archived or transferred (a new generation) meanwhile, and the
+        // defaults can have moved; none of that may launch on the old read.
+        session = resolveSessionOrThrow(body.runtimeSessionId as string)
+        requireSessionResource(command, session)
+        requireGeneration(command, session)
+        requireLaunchableSession(session)
+        if (
+          deviceDefault.read().family !== deviceFamily ||
+          preferences.resolveDefault(session.projectId) !== undefined
+        ) {
+          throw {
+            code: 'invalid_state',
+            retryable: true,
+            message: 'the default harness changed while discovery ran; launch again',
+            observedAt: iso(),
+          } satisfies DevError
+        }
+      } else if (resolution?.kind === 'root_default') {
+        installationId = managedPi.status().installationId
+      } else if (resolution?.kind === 'preference') {
+        installationId = resolution.preference.harnessInstallationId
+      }
       if (!installationId) {
         if (deviceFamily !== undefined) {
           throw {
