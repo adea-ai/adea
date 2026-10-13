@@ -18,9 +18,6 @@ import { QueryClient, createQueries, useQueryClient } from '@tanstack/solid-quer
 import { createEffect, createMemo, createSignal, on, onCleanup, type Accessor } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
 
-/** The two account-wide sections the directory surface can show. */
-export type AccountDirectorySection = 'agents' | 'inbox'
-
 /** Page size requested for every account-wide page. The server clamps 1..100. */
 export const ACCOUNT_DIRECTORY_PAGE_SIZE = 25
 
@@ -35,20 +32,8 @@ export const ACCOUNT_INBOX_REFETCH_INTERVAL_MS = 60_000
  * prefix-based, and the shared key builder folds the page input in as a third
  * element, so the prefix is the first two elements of that key.
  */
-const DIRECTORY_KEY_PREFIX = ['account', 'directory'] as const
-const INBOX_KEY_PREFIX = ['account', 'inbox'] as const
-
-/** Parses the `?directory=` search value; anything else is not a section. */
-export function parseDirectorySection(
-  value: string | undefined
-): AccountDirectorySection | undefined {
-  return value === 'agents' || value === 'inbox' ? value : undefined
-}
-
-/** The surface heading for one section. */
-export function directoryTitle(section: AccountDirectorySection): string {
-  return section === 'agents' ? 'Agents directory' : 'Conversations inbox'
-}
+const DIRECTORY_KEY_PREFIX = accountQueryKeys.directoryAll
+const INBOX_KEY_PREFIX = accountQueryKeys.inboxAll
 
 /**
  * The workspace label shown on a directory or inbox row. Only names of
@@ -63,11 +48,11 @@ export function accountWorkspaceLabel(
 }
 
 /**
- * The search patch that opens one inbox conversation: the directory closes,
- * the conversation's own workspace becomes active, and the existing channel
- * deep link (`?workspace=…&channel=…`) selects it once that switch lands and
- * the workspace's conversation lists load. Stale single-surface params are
- * cleared so exactly the linked conversation is selected.
+ * The search patch that opens one account inbox conversation: the conversation's
+ * own workspace becomes active, and the existing channel deep link
+ * (`?workspace=…&channel=…`) selects it once that switch lands and the
+ * workspace's conversation lists load. Stale single-surface params are cleared
+ * so exactly the linked conversation is selected.
  */
 export function conversationOpenPatch(entry: AccountConversationInboxEntry) {
   return {
@@ -201,7 +186,7 @@ export type AccountListPages<Row> = Readonly<{
   isFetchingNextPage: Accessor<boolean>
   /** Appends the next cursor-bounded page. One page per cursor, ever. */
   loadMore: () => void
-  /** Refetches every loaded page. */
+  /** Refreshes loaded pages and rebuilds successor cursors from predecessors. */
   refresh: () => void
 }>
 
@@ -210,10 +195,10 @@ export type AccountListPages<Row> = Readonly<{
  *
  * Each "load more" appends ONE page input whose key carries the cursor, so
  * every loaded page is a normal cache entry under the `['account', …]` prefix:
- * invalidation refetches exactly the pages the surface holds, a workspace
- * switch never touches them, and no code path can fetch without bound — a page
- * is only ever requested on an explicit load-more of the cursor the previous
- * page returned.
+ * invalidation refreshes the loaded walk and re-keys successor pages if an
+ * earlier boundary changes, a workspace switch never touches them, and no
+ * code path can fetch without bound — additional depth only comes from an
+ * explicit load-more of the last settled page's cursor.
  *
  * `baseInput` is the walk's constant part — the authoritative search term and
  * the archive scope. Because it participates in every page's key, cached pages
@@ -270,6 +255,51 @@ function createAccountPages<
     }),
     () => queryClient
   )
+  // A keyset cursor belongs to the last row of its predecessor. Prefix
+  // invalidation refetches all currently loaded keys independently, but if an
+  // insertion or rename changes an earlier page boundary, the old successor
+  // cursor can skip rows that moved across that boundary. Re-key each loaded
+  // successor as its predecessor settles. Keep the existing page count while
+  // a replacement page is loading, then continue the walk from its refreshed
+  // cursor. If a refreshed predecessor has no next cursor, the walk is truly
+  // exhausted and its now-unreachable suffix is removed.
+  createEffect(() => {
+    const inputs = pageInputs()
+    if (inputs.length < 2 || JSON.stringify(inputs[0]) !== JSON.stringify(baseInput())) return
+
+    const nextInputs: AccountDirectoryPageInput[] = [inputs[0]!]
+    for (let pageIndex = 0; pageIndex < inputs.length - 1; pageIndex += 1) {
+      const predecessor = queries[pageIndex]
+      // A pending, refetching, or failed page has no authoritative refreshed
+      // boundary yet. Refetching queries can still expose cached success data,
+      // including an old exhausted cursor, so retain loaded depth until the
+      // fresh response settles and rebuild from that result.
+      if (!predecessor || predecessor.isFetching || !predecessor.isSuccess || !predecessor.data) {
+        nextInputs.push(...inputs.slice(pageIndex + 1))
+        break
+      }
+
+      const cursor = predecessor.data.nextCursor
+      if (!cursor) break
+
+      const successor = { ...baseInput(), after: cursor }
+      nextInputs.push(successor)
+      if (JSON.stringify(successor) !== JSON.stringify(inputs[pageIndex + 1])) {
+        // This page is now keyed to the refreshed boundary. Keep the later
+        // inputs mounted at their current depth; each will be rebuilt after its
+        // newly keyed predecessor returns.
+        nextInputs.push(...inputs.slice(pageIndex + 2))
+        break
+      }
+    }
+
+    if (
+      nextInputs.length !== inputs.length ||
+      nextInputs.some((input, index) => JSON.stringify(input) !== JSON.stringify(inputs[index]))
+    ) {
+      setPageInputs(nextInputs)
+    }
+  })
   const rows = createMemo<readonly Row[]>(() => {
     const seen = new Set<string>()
     const collected: Row[] = []
@@ -459,4 +489,24 @@ export function watchAccountIdentity(
     previous = id
     reconcileAccountCacheOwner(queryClient, id)
   })
+}
+
+/**
+ * An empty supplemental list is only "no results" once every page was read.
+ * While more pages exist the rows loaded so far may simply all be filtered out
+ * (search miss, or this workspace's own rows), so say so and keep paging.
+ */
+export function emptyAccountListCopy(input: {
+  search: string
+  canLoadMore: boolean
+  noun: string
+  exhaustedSearch: string
+  exhaustedEmpty: string
+}): string {
+  if (input.canLoadMore) {
+    return input.search
+      ? `No ${input.noun} matches in the results loaded so far. Load more to keep looking.`
+      : `No ${input.noun}s from other workspaces in the results loaded so far. Load more to keep looking.`
+  }
+  return input.search ? input.exhaustedSearch : input.exhaustedEmpty
 }

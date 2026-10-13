@@ -19,10 +19,8 @@ export type WorkspaceSearch = {
   chatE2e?: string
   chatState?: string
   /**
-   * The account-wide directory surface (M11.03): `agents` shows the global
-   * Agents directory, `inbox` the global conversation inbox. Present, the
-   * surface replaces the workspace view; the results never scope to the
-   * selected workspace.
+   * Legacy account-directory links. The frame normalizes these into the
+   * existing Chat Agents or Conversations surface, then removes the key.
    */
   directory?: 'agents' | 'inbox'
   /** Dev View deep links: deterministic project/session selection. */
