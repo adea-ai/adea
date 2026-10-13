@@ -14,6 +14,7 @@ import type {
   HarnessRun,
   HarnessRunState,
   ManagedPiStatus,
+  RuntimeConnectionInventorySnapshot,
 } from '@adea-ai/types/dev-runtime'
 
 export type HarnessStatusTone = 'neutral' | 'progress' | 'success' | 'failure' | 'unknown'
@@ -149,4 +150,103 @@ export function isGlobalDefault(preference: HarnessPreference | undefined): bool
     preference?.enabled === true &&
     preference.projectId === undefined
   )
+}
+
+const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
+  native: 'Native',
+  models: 'Models',
+  slash_commands: 'Slash commands',
+  resume: 'Resume',
+  acp: 'ACP',
+  pty: 'Terminal',
+}
+
+/** A capability id as a chip label; ids the model does not know stay readable. */
+export function capabilityLabel(capability: string): string {
+  const known = CAPABILITY_LABELS[capability]
+  if (known) return known
+  const spaced = capability.replaceAll(/[_.]+/g, ' ').trim()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+export type HarnessInventoryRow = Readonly<{
+  installationId: string
+  name: string
+  version?: string
+  state: InstallationDisplayState
+  stateLabel: string
+  /** Capability chips exactly as the backend reported them, no inference. */
+  capabilities: readonly string[]
+  /** Typed eligibility blocker messages (why a launch would be refused). */
+  blockers: readonly string[]
+  isDefault: boolean
+  enabled: boolean
+  /** True when the installation can be made the default right now. */
+  canMakeDefault: boolean
+  stale: boolean
+}>
+
+/**
+ * The selector's rows: every installation the backend reports (the
+ * `dev.harness.inventory` read), plus the managed Pi installation when it is
+ * ready and the inventory does not list it. Nothing is guessed: an empty
+ * inventory is an empty list, and the managed row claims no capabilities it
+ * was not reported to have.
+ */
+export function buildHarnessInventoryRows(input: {
+  inventory: Pick<RuntimeConnectionInventorySnapshot, 'items' | 'freshness'> | undefined
+  preferences: readonly HarnessPreference[]
+  managedPi: Pick<ManagedPiStatus, 'state' | 'installationId' | 'executableLabel'> | undefined
+}): readonly HarnessInventoryRow[] {
+  const preferenceFor = (installationId: string) =>
+    input.preferences.find(
+      (preference) =>
+        preference.harnessInstallationId === installationId && preference.projectId === undefined
+    )
+  const items = input.inventory?.items ?? []
+  const rows: HarnessInventoryRow[] = items.map((entry, index) => {
+    const preference = preferenceFor(entry.id)
+    const state = installationDisplayState({
+      preference,
+      managedPi: input.managedPi,
+      installationId: entry.id,
+      discovered: { auth: entry.auth, health: entry.health },
+    })
+    const isDefault = isGlobalDefault(preference)
+    return {
+      installationId: entry.id,
+      name: entry.displayName,
+      ...(entry.version !== undefined ? { version: entry.version } : {}),
+      state,
+      stateLabel: INSTALLATION_STATE_LABELS[state],
+      capabilities: entry.capabilities,
+      blockers: entry.eligibility.blockers.map((blocker) => blocker.message),
+      isDefault,
+      enabled: preference?.enabled ?? true,
+      canMakeDefault: !isDefault && state === 'ready' && entry.eligibility.eligible,
+      stale: input.inventory?.freshness[index] === 'stale',
+    }
+  })
+  const managed = input.managedPi
+  if (
+    managed?.state === 'ready' &&
+    managed.installationId !== undefined &&
+    !items.some((entry) => entry.id === managed.installationId)
+  ) {
+    const preference = preferenceFor(managed.installationId)
+    const isDefault = isGlobalDefault(preference)
+    rows.unshift({
+      installationId: managed.installationId,
+      name: managed.executableLabel ?? 'Pi (managed)',
+      state: 'ready',
+      stateLabel: INSTALLATION_STATE_LABELS.ready,
+      capabilities: [],
+      blockers: [],
+      isDefault,
+      enabled: preference?.enabled ?? true,
+      canMakeDefault: !isDefault && (preference?.enabled ?? true),
+      stale: false,
+    })
+  }
+  return rows
 }
