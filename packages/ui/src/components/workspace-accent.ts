@@ -1,32 +1,28 @@
 import { getAccent } from '@adea-ai/themes'
+import type { ThemeContextValue } from '@adea-ai/ui/components/theme'
 import {
   ACCENT_PAINT_PROPERTIES,
   paintAccentRoles,
   type AccentRoles,
 } from '@adea-ai/ui/lib/accent-roles'
-import { accentRolesForSelection } from '@adea-ai/ui/lib/themes'
 
-import { APPEARANCE_ACCENT_CONTRAST_FLOOR } from './appearance-codec'
-import { themeRegistry } from './custom-theme-library'
+/** What a workspace accent needs of the shared theme context. */
+export type WorkspaceAccentTheme = Pick<ThemeContextValue, 'accentRolesFor'>
 
 /**
  * The accent roles a workspace paints over the active theme variant, or
- * `undefined` when the workspace keeps the theme's own accent (or the variant
- * is unknown). Values come from the theme catalogue through the same
- * contrast-gated derivation the document uses; nothing is authored here.
+ * `undefined` when the workspace keeps the theme's own accent, the accent is not
+ * a preset, or no theme provider is mounted. The shared provider derives the
+ * roles through the same contrast-gated derivation the document uses (its
+ * `accentRolesFor`, held to the provider's floor); nothing is authored here.
+ * Read inside an effect, it follows the selected theme.
  */
 export function workspaceAccentRoles(
   accent: string | null,
-  variantId: string
+  theme: WorkspaceAccentTheme | undefined
 ): AccentRoles | undefined {
   if (accent === null || !getAccent(accent)) return undefined
-  const variant = themeRegistry().find(({ id }) => id === variantId)
-  if (!variant) return undefined
-  return accentRolesForSelection(accent, variant.appearance, undefined, {
-    background: variant.colors.background,
-    floor: APPEARANCE_ACCENT_CONTRAST_FLOOR,
-    variantId: variant.id,
-  })
+  return theme?.accentRolesFor(accent)
 }
 
 /**
@@ -38,9 +34,9 @@ export function workspaceAccentRoles(
 export function paintWorkspaceAccent(
   element: HTMLElement,
   accent: string | null,
-  variantId: string
+  theme: WorkspaceAccentTheme | undefined
 ): void {
-  paintAccentRoles(element, workspaceAccentRoles(accent, variantId))
+  paintAccentRoles(element, workspaceAccentRoles(accent, theme))
 }
 
 /**

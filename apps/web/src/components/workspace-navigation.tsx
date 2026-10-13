@@ -66,7 +66,7 @@ import type {
   WorkspaceDeepLink,
   WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
   enabledWorkspaceApps,
@@ -1115,14 +1115,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const theme = useOptionalTheme()
   createEffect(() => {
     if (typeof document === 'undefined') return
-    paintWorkspaceAccent(
-      document.body,
-      props.activeWorkspace?.accent ?? null,
-      theme?.variantId() ?? ''
-    )
+    paintWorkspaceAccent(document.body, props.activeWorkspace?.accent ?? null, theme)
   })
   onCleanup(() => {
-    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, '')
+    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, undefined)
   })
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)

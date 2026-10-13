@@ -27,6 +27,7 @@ import {
   appearanceSchema,
   APPEARANCE_STORAGE_KEY,
   defaultAppearancePreferences,
+  preferencesFromSelection,
   type AppearancePreferencesV2,
 } from '@adea-ai/app-ui/components/appearance-codec'
 import { createAppearanceContext } from '@adea-ai/app-ui/components/appearance-host'
@@ -91,6 +92,10 @@ function createProviderHarness(storage = memoryStorage()) {
   return { appearance, classes: shared.classes, storage }
 }
 
+/** The committed V2 preferences, read from the shared selection like the dialog does. */
+const committedPreferences = (appearance: ReturnType<typeof createAppearanceContext>) =>
+  preferencesFromSelection(appearance.selection())
+
 /** The dialog's reactive surface the E2E flow touches (see appearance-surface.tsx). */
 type DialogHarness = {
   draft: AppearanceEditor['draft']
@@ -134,7 +139,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
         // The dialog's snapshot-on-open effect (appearance-surface.tsx): it
         // tracks the committed preferences only, never the draft.
         createEffect(() => {
-          const committed = appearance.preferences()
+          const committed = committedPreferences(appearance)
           untrack(() => {
             editor.open(committed)
           })
@@ -208,7 +213,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     })
     const { appearance, classes } = harness
     const editor = createAppearanceEditor()
-    editor.open(appearance.preferences())
+    editor.open(committedPreferences(appearance))
     editor.set({ mode: 'dark', accent: 'blue', surface: 'frosted' })
     appearance.preview(editor.draft())
     expect(classes.has('dark')).toBe(true)
@@ -224,7 +229,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
       surface: 'frosted',
       terminalThemeId: 'theme',
     })
-    expect(appearance.preferences()).toMatchObject({ mode: 'dark', accent: 'blue' })
+    expect(committedPreferences(appearance)).toMatchObject({ mode: 'dark', accent: 'blue' })
     dispose()
   })
 
@@ -236,15 +241,15 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
     })
     const { appearance, classes, storage } = harness
     const editor = createAppearanceEditor()
-    editor.open(appearance.preferences())
+    editor.open(committedPreferences(appearance))
     editor.set({ mode: 'dark' })
     appearance.preview(editor.draft())
     expect(classes.has('dark')).toBe(true)
 
     // The mode toggle and the zoom chords commit straight to the provider, which
     // ends a preview; the open draft is still the user's, so it keeps showing.
-    appearance.setTheme('light')
-    expect(appearance.theme()).toBe('light')
+    appearance.setSelection({ appearance: 'light' })
+    expect(appearance.selection().appearance).toBe('light')
     expect(JSON.parse(storage.store.get(APPEARANCE_STORAGE_KEY)!).mode).toBe('light')
     expect(classes.has('dark')).toBe(true)
 
@@ -261,7 +266,7 @@ describe('appearance dialog cancel/re-open (E2E appearance.spec contract)', () =
       return disposeRoot
     })
     harness.appearance.update({ accent: 'theme' })
-    expect(harness.appearance.preferences().accent).toBe('violet')
+    expect(committedPreferences(harness.appearance).accent).toBe('violet')
     dispose()
   })
 

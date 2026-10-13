@@ -1,9 +1,14 @@
-import { ThemeModeToggle } from '@adea-ai/ui/components/theme'
-import { useTheme } from './theme-provider'
+import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme'
 
-/** The shared mode selector controlled by Adea's persisted host preference. */
+/** The shared mode selector, controlled by the shared provider's persisted selection. */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const theme = useTheme()
 
-  return <ThemeModeToggle mode={theme()} onModeChange={setTheme} aria-label="Theme" />
+  return (
+    <ThemeModeToggle
+      mode={theme.selection().appearance}
+      onModeChange={(appearance) => theme.setSelection({ appearance })}
+      aria-label="Theme"
+    />
+  )
 }

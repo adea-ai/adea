@@ -6,12 +6,9 @@
 export {
   ThemeProvider,
   ThemeScript,
-  useOptionalTheme,
   useTheme,
   type AppearanceContextValue,
   type AppearanceMode,
   type AppearancePreferencesV2,
   type ResolvedAppearance,
-  type ResolvedTheme,
-  type Theme,
 } from './appearance-host'

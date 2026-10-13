@@ -5883,7 +5883,10 @@ owns the imported-theme library and its own recovery key,
 preference's quarantine. `appearance-host.tsx` configures the provider
 (`persistence`, imported `themes`, the surface policy and native-translucency
 capability, `accentContrastFloor: 3`, `editorRoles: 'floor'`, hex tokens, font
-zoom) and exposes the V2 view that the appearance editor and the shell read.
+zoom) and exposes the V2 `update`/`preview` seam the appearance editor writes
+through; the shell (workspace accent, identity marks, the mode toggle) reads the
+shared context directly, and `accentRolesFor` derives a workspace accent over
+the active variant.
 Preference IDs and the stored document remain Adea-owned; the pre-paint script
 is the shared `themeScript` rendered from the same storage schema as the
 persistence, so first paint and the mounted provider read one document.

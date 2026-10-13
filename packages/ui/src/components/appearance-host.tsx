@@ -12,10 +12,8 @@
 import {
   createContext,
   createEffect,
-  createMemo,
   createSignal,
   useContext,
-  type Accessor,
   type Context,
   type JSX,
   type ParentProps,
@@ -34,11 +32,8 @@ import {
   APPEARANCE_ACCENT_CONTRAST_FLOOR,
   appearanceThemeScript,
   createAppearancePersistence,
-  preferencesFromSelection,
   selectionFromPreferences,
-  type AppearanceMode,
   type AppearancePreferencesV2,
-  type ResolvedAppearance,
 } from './appearance-codec'
 import {
   customUiVariants,
@@ -46,22 +41,19 @@ import {
   subscribeCustomThemes,
 } from './custom-theme-library'
 
-export type Theme = AppearanceMode
-export type ResolvedTheme = ResolvedAppearance
-
 export type {
   AppearanceMode,
   AppearancePreferencesV2,
   ResolvedAppearance,
 } from './appearance-codec'
 
+/**
+ * The shared theme context plus the V2 document seam the appearance editor works
+ * in. Everything the shell reads (the selection, the resolved appearance, the
+ * variant, `accentRolesFor`) is the shared context itself; only a V2-shaped write
+ * and a V2-shaped draft preview are Adea's.
+ */
 export type AppearanceContextValue = Omit<UiThemeContextValue, 'preview'> & {
-  /** The persisted v2 appearance preferences. */
-  preferences: Accessor<AppearancePreferencesV2>
-  /** Mode after combining the user choice with the OS report. */
-  resolvedMode: Accessor<ResolvedAppearance>
-  /** The active theme variant id (`documentElement.dataset.theme`). */
-  variantId: Accessor<string>
   /** Persist a field update immediately (Zeron's `SavePolicy::Immediate`). */
   update: (patch: Partial<AppearancePreferencesV2>) => void
   /**
@@ -69,11 +61,6 @@ export type AppearanceContextValue = Omit<UiThemeContextValue, 'preview'> & {
    * while a draft is open (a zoom chord, the mode toggle) leaves the draft showing.
    */
   preview: (preferences: AppearancePreferencesV2 | undefined) => void
-
-  /** Legacy single-mode seam (settings toggle and existing consumers). */
-  theme: Accessor<Theme>
-  resolvedTheme: Accessor<ResolvedTheme>
-  setTheme: (theme: Theme) => void
 }
 
 /*
@@ -124,7 +111,6 @@ export function appearanceProviderProps(
  * writer of the document and of storage.
  */
 export function createAppearanceContext(ui: UiThemeContextValue): AppearanceContextValue {
-  const preferences = createMemo(() => preferencesFromSelection(ui.selection()))
   let draft: AppearancePreferencesV2 | undefined
 
   const preview = (next: AppearancePreferencesV2 | undefined) => {
@@ -141,14 +127,8 @@ export function createAppearanceContext(ui: UiThemeContextValue): AppearanceCont
 
   return {
     ...ui,
-    preferences,
-    resolvedMode: ui.resolvedAppearance,
-    variantId: () => ui.variant().id,
     update: (patch) => ui.setSelection(selectionFromPreferences(patch)),
     preview,
-    theme: () => ui.selection().appearance,
-    resolvedTheme: ui.resolvedAppearance,
-    setTheme: (mode) => ui.setSelection({ appearance: mode }),
   }
 }
 
@@ -200,17 +180,18 @@ export function ThemeProvider(props: ThemeProviderProps) {
   )
 }
 
+/**
+ * The appearance editor's view of the context: the shared context with the V2
+ * `update` and `preview` seam. Shell code that only reads the theme (the selection,
+ * the variant, `accentRolesFor`) uses the shared `useOptionalTheme` of
+ * `@adea-ai/ui/components/theme` instead.
+ */
 export function useTheme(): AppearanceContextValue {
-  const context = useOptionalTheme()
+  const context = useContext(appearanceContext())
   if (!context) {
     throw new Error('useTheme must be used within a ThemeProvider.')
   }
   return context
-}
-
-/** Hosts without appearance persistence can render an explicit unavailable state. */
-export function useOptionalTheme(): AppearanceContextValue | undefined {
-  return useContext(appearanceContext())
 }
 
 /**
