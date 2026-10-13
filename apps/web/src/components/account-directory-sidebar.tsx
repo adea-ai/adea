@@ -76,6 +76,26 @@ function useBaseInput(search: () => string, includeArchived: () => boolean) {
   }))
 }
 
+/**
+ * The supplemental block earns its space only when there is something from
+ * other workspaces to show or the person is actively looking: a single-workspace
+ * account (or a first load) renders nothing instead of an empty search box.
+ */
+function supplementalHidden(input: {
+  term: Accessor<string>
+  includeArchived: Accessor<boolean>
+  error: Accessor<unknown>
+  canLoadMore: Accessor<boolean>
+  visibleCount: Accessor<number>
+}) {
+  return () =>
+    !input.term().trim() &&
+    !input.includeArchived() &&
+    input.error() === undefined &&
+    !input.canLoadMore() &&
+    input.visibleCount() === 0
+}
+
 function AccountListError(props: { error: unknown; retry: () => void }) {
   return (
     <Alert variant="destructive" class="my-2" role="alert">
@@ -109,6 +129,13 @@ export function AccountDirectoryAgents(props: {
       (agent) => !localAgentIds().has(agent.id)
     )
   )
+  const hidden = supplementalHidden({
+    term,
+    includeArchived,
+    error: pages.error,
+    canLoadMore: pages.canLoadMore,
+    visibleCount: () => visibleAgents().length,
+  })
   const [online, setOnline] = createSignal(true)
   const updateOnlineStatus = () => setOnline(navigator.onLine)
   createEffect(() => {
@@ -142,91 +169,93 @@ export function AccountDirectoryAgents(props: {
     )
   }
   return (
-    <section class="mt-6 border-t pt-4" aria-label="Agents across workspaces">
-      <header class="mb-3">
-        <Heading as="h2" size="card">
-          Across your workspaces
-        </Heading>
-        <p class="text-muted-foreground text-sm">
-          Agents from your other workspaces. This workspace's Agents are listed above.
-        </p>
-      </header>
-      <div class="mb-3 flex items-center gap-2">
-        <Input
-          type="search"
-          aria-label="Search Agents across workspaces"
-          placeholder="Search Agents"
-          value={term()}
-          onInput={(event) => setTerm(event.currentTarget.value)}
-        />
-        <ActionButton
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-pressed={includeArchived()}
-          tooltip={includeArchived() ? 'Hide archived Agents' : 'Also list archived Agents'}
-          onClick={() => setIncludeArchived(!includeArchived())}
-        >
-          Archived
-        </ActionButton>
-        <ActionButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Refresh Agents across workspaces"
-          tooltip="Refresh Agents across workspaces"
-          onClick={() => pages.refresh()}
-        >
-          <RefreshCw aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <Show when={!online()}>
-        <p class="text-muted-foreground mb-2 text-xs" role="status">
-          Offline. Results refresh when the connection returns.
-        </p>
-      </Show>
-      <Show
-        when={!pages.isLoading()}
-        fallback={<Skeleton class="h-16 w-full" aria-label="Loading Agents across workspaces" />}
-      >
-        <Show
-          when={!pages.error()}
-          fallback={<AccountListError error={pages.error()} retry={pages.refresh} />}
-        >
-          <Show
-            when={visibleAgents().length > 0}
-            fallback={
-              <p class="text-muted-foreground py-3 text-sm" role="status">
-                {emptyAccountListCopy({
-                  search: search(),
-                  canLoadMore: pages.canLoadMore(),
-                  noun: 'Agent',
-                  exhaustedSearch: 'No authorized Agent name matches this search.',
-                  exhaustedEmpty: 'Agents from your other workspaces appear here.',
-                })}
-              </p>
-            }
+    <Show when={!hidden()}>
+      <section class="mt-6 border-t pt-4" aria-label="Agents across workspaces">
+        <header class="mb-3">
+          <Heading as="h2" size="card">
+            Across your workspaces
+          </Heading>
+          <p class="text-muted-foreground text-sm">
+            Agents from your other workspaces. This workspace's Agents are listed above.
+          </p>
+        </header>
+        <div class="mb-3 flex items-center gap-2">
+          <Input
+            type="search"
+            aria-label="Search Agents across workspaces"
+            placeholder="Search Agents"
+            value={term()}
+            onInput={(event) => setTerm(event.currentTarget.value)}
+          />
+          <ActionButton
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-pressed={includeArchived()}
+            tooltip={includeArchived() ? 'Hide archived Agents' : 'Also list archived Agents'}
+            onClick={() => setIncludeArchived(!includeArchived())}
           >
-            <div class="conventional-agent-grid">
-              <For each={visibleAgents()}>{renderDirectoryAgent}</For>
-            </div>
-          </Show>
-        </Show>
-      </Show>
-      <Show when={pages.canLoadMore()}>
-        <div class="flex justify-center pt-2">
-          <Button
+            Archived
+          </ActionButton>
+          <ActionButton
             type="button"
             variant="ghost"
-            size="sm"
-            disabled={pages.isFetchingNextPage()}
-            onClick={() => pages.loadMore()}
+            size="icon-sm"
+            aria-label="Refresh Agents across workspaces"
+            tooltip="Refresh Agents across workspaces"
+            onClick={() => pages.refresh()}
           >
-            {pages.isFetchingNextPage() ? 'Loading…' : 'Load more Agents'}
-          </Button>
+            <RefreshCw aria-hidden="true" />
+          </ActionButton>
         </div>
-      </Show>
-    </section>
+        <Show when={!online()}>
+          <p class="text-muted-foreground mb-2 text-xs" role="status">
+            Offline. Results refresh when the connection returns.
+          </p>
+        </Show>
+        <Show
+          when={!pages.isLoading()}
+          fallback={<Skeleton class="h-16 w-full" aria-label="Loading Agents across workspaces" />}
+        >
+          <Show
+            when={!pages.error()}
+            fallback={<AccountListError error={pages.error()} retry={pages.refresh} />}
+          >
+            <Show
+              when={visibleAgents().length > 0}
+              fallback={
+                <p class="text-muted-foreground py-3 text-sm" role="status">
+                  {emptyAccountListCopy({
+                    search: search(),
+                    canLoadMore: pages.canLoadMore(),
+                    noun: 'Agent',
+                    exhaustedSearch: 'No authorized Agent name matches this search.',
+                    exhaustedEmpty: 'Agents from your other workspaces appear here.',
+                  })}
+                </p>
+              }
+            >
+              <div class="conventional-agent-grid">
+                <For each={visibleAgents()}>{renderDirectoryAgent}</For>
+              </div>
+            </Show>
+          </Show>
+        </Show>
+        <Show when={pages.canLoadMore()}>
+          <div class="flex justify-center pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={pages.isFetchingNextPage()}
+              onClick={() => pages.loadMore()}
+            >
+              {pages.isFetchingNextPage() ? 'Loading…' : 'Load more Agents'}
+            </Button>
+          </div>
+        </Show>
+      </section>
+    </Show>
   )
 }
 
@@ -254,6 +283,13 @@ export function AccountConversationInbox(props: {
       (entry) => !localChannelIds().has(entry.id)
     )
   )
+  const hidden = supplementalHidden({
+    term,
+    includeArchived,
+    error: pages.error,
+    canLoadMore: pages.canLoadMore,
+    visibleCount: () => visibleConversations().length,
+  })
   const [online, setOnline] = createSignal(true)
   const updateOnlineStatus = () => setOnline(navigator.onLine)
   createEffect(() => {
@@ -392,9 +428,11 @@ export function AccountConversationInbox(props: {
     </div>
   )
   return (
-    <div class="conventional-sidebar__nav-nested">
-      <p class="text-muted-foreground px-2 py-1 text-xs">Across your workspaces</p>
-      {content()}
-    </div>
+    <Show when={!hidden()}>
+      <div class="conventional-sidebar__nav-nested">
+        <p class="text-muted-foreground px-2 py-1 text-xs">Across your workspaces</p>
+        {content()}
+      </div>
+    </Show>
   )
 }
