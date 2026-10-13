@@ -76,7 +76,6 @@ import {
   createSessionTerminal,
   isTerminalPlaceholderLeaf,
   replaceLeaf,
-  terminateSessionTerminal,
   terminatesOnLastClose,
 } from './terminal/terminal-close'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
@@ -698,13 +697,20 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     const terminalId = closedLeaf.resourceId ?? primaryTerminalId
     if (!terminalId) return
-    void terminateSessionTerminal({
-      execute: (command) => props.runtime.execute(command),
-      scope,
-      runtimeSessionId,
-      worktreeId,
-      terminalId,
-    }).then((freed) => setTerminalCloseOutcome(freed ? 'freed' : 'kept'))
+    void import('./terminal/runtime-terminal-pane')
+      .then((terminals) =>
+        terminals.terminateSessionTerminal({
+          execute: (command) => props.runtime.execute(command),
+          scope,
+          runtimeSessionId,
+          worktreeId,
+          terminalId,
+        })
+      )
+      .then(
+        (freed) => setTerminalCloseOutcome(freed ? 'freed' : 'kept'),
+        () => setTerminalCloseOutcome('kept')
+      )
   }
   /**
    * The closed pane's new-terminal action: create a fresh runtime instance

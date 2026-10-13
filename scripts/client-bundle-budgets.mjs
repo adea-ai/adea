@@ -415,7 +415,18 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Repository registry on library Collapsible, Item and Alert (#1317, #1318
     // harness pane): the shared utility open route measures 181,693 raw,
     // 1,469 bytes over the 176 KiB cap. Raw ratchets to 181 KiB (~2% headroom).
-    devUtilityPanes: { rawBytes: 181 * 1024, gzipBytes: 61 * 1024 },
+    // Per-pane caps (2026-10-13, History tab #1346): a user opens one utility
+    // pane at a time, so each lazy pane is held to its own cap instead of the
+    // sum of every pane, which charged each new pane to a download nobody
+    // makes. The sum grew 40 KB with the History pane and could only be
+    // satisfied by deleting pane features. Measured on the same build of main:
+    // the largest Dev pane (browser) is 69,660 raw / 22,330 gzip, so raw is 72
+    // KiB (~6% headroom) and gzip 23 KiB (~5%). Panes the shared host opens
+    // load the host first; the largest of those (browser again) is 146,759 raw
+    // / 41,539 gzip, so raw is 152 KiB (~6%) and gzip 43 KiB (~6%). A pane that
+    // outgrows its cap fails by name; do not raise the cap, shrink the pane.
+    devUtilityPane: { rawBytes: 72 * 1024, gzipBytes: 23 * 1024 },
+    sharedUtilityPane: { rawBytes: 152 * 1024, gzipBytes: 43 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
@@ -666,6 +677,33 @@ function asyncRouteDelta(
 }
 
 /**
+ * Measure each lazy pane on its own: what opening that one pane downloads on
+ * top of startup and the already-loaded shell. A pane opens at a time, so the
+ * largest pane (not the sum of every pane) is what a user can be charged.
+ * `baseRoots` are chunks every pane in the set loads first, such as the shared
+ * utility host; their static closure is charged to each pane.
+ */
+function perPaneDeltas(
+  baseRoots,
+  paneRoots,
+  startupFiles,
+  chunksByFile,
+  additionallyExcluded = new Set()
+) {
+  const preloadedFiles = new Set([...startupFiles, ...additionallyExcluded])
+  const baseFiles = staticClosure(baseRoots, chunksByFile)
+  return paneRoots.map((root) => {
+    const files = new Set(
+      [...baseFiles, ...asyncClosure([root], chunksByFile, preloadedFiles)].filter(
+        (file) => !preloadedFiles.has(file)
+      )
+    )
+    const { rawBytes, gzipBytes } = measure(files, chunksByFile)
+    return { pane: root.file, rawBytes, gzipBytes }
+  })
+}
+
+/**
  * Measure startup plus incremental view and pane graphs. Dynamic imports
  * remain lazy and count only when their route or pane opens; shared startup
  * chunks are charged once to startup.
@@ -770,24 +808,21 @@ export function inspectClientBundle(input) {
   // Dev's own lazy panes are direct Dev-entry imports. The shared host's lazy
   // pane roots are discovered only through its static module closure; scanning
   // every Dev descendant would misattribute dialogs such as project import.
-  const devUtilityPaneRoots = [
-    ...dynamicChunkTargets([devEntry.file], chunksByFile).filter(
-      ({ file }) =>
-        ![
-          devLayout.file,
-          runtimeTerminalPane.file,
-          codeEditor.file,
-          repoRegistryPanel.file,
-          ...devSidebarOnDemand.map((chunk) => chunk.file),
-        ].includes(file)
-    ),
-    ...dynamicChunkTargets(
-      [...staticClosure([sharedUtilityHost], chunksByFile)].filter(
-        (file) => !startupFiles.has(file)
-      ),
-      chunksByFile
-    ),
-  ]
+  const devOwnPaneRoots = dynamicChunkTargets([devEntry.file], chunksByFile).filter(
+    ({ file }) =>
+      ![
+        devLayout.file,
+        runtimeTerminalPane.file,
+        codeEditor.file,
+        repoRegistryPanel.file,
+        ...devSidebarOnDemand.map((chunk) => chunk.file),
+      ].includes(file)
+  )
+  const sharedHostPaneRoots = dynamicChunkTargets(
+    [...staticClosure([sharedUtilityHost], chunksByFile)].filter((file) => !startupFiles.has(file)),
+    chunksByFile
+  )
+  const devUtilityPaneRoots = [...devOwnPaneRoots, ...sharedHostPaneRoots]
   const uniqueDevUtilityPaneRoots = [
     ...new Map(devUtilityPaneRoots.map((root) => [root.file, root])).values(),
   ]
@@ -824,30 +859,50 @@ export function inspectClientBundle(input) {
     'Dev editor route'
   )
 
+  const devPaneExcluded = new Set([
+    ...staticClosure([devEntry, devLayout, terminalPane, runtimeTerminalPane], chunksByFile),
+    ...staticClosure([devEntry, devLayout, codeEditor, editorMirror, fileStream], chunksByFile),
+  ])
+
   const views = {
     virtual: routeDelta('Virtual view', [virtualRoot], startupFiles, chunksByFile),
     chat: routeDelta('Chat view', [chatRoot], startupFiles, chunksByFile),
     appLibrary: routeDelta('App Library route', [libraryRoot], startupFiles, chunksByFile),
     devShell: routeDelta('Dev View', [devEntry, devLayout], startupFiles, chunksByFile),
-    devUtilityPanes: asyncRouteDelta(
-      'Dev utility panes',
-      uniqueDevUtilityPaneRoots,
-      startupFiles,
-      chunksByFile,
-      new Set([
-        ...staticClosure([devEntry, devLayout, terminalPane, runtimeTerminalPane], chunksByFile),
-        ...staticClosure([devEntry, devLayout, codeEditor, editorMirror, fileStream], chunksByFile),
-      ])
-    ),
+    devUtilityPanes: {
+      ...asyncRouteDelta(
+        'Dev utility panes',
+        uniqueDevUtilityPaneRoots,
+        startupFiles,
+        chunksByFile,
+        devPaneExcluded
+      ),
+      panes: [
+        // The shared host's own panes load the host chunk first; its other
+        // lazy edges are panes measured below, not part of the host.
+        ...perPaneDeltas(
+          [sharedUtilityHost],
+          sharedHostPaneRoots,
+          startupFiles,
+          chunksByFile,
+          devPaneExcluded
+        ),
+        ...perPaneDeltas(
+          [],
+          devOwnPaneRoots.filter(({ file }) => file !== sharedUtilityHost.file),
+          startupFiles,
+          chunksByFile,
+          devPaneExcluded
+        ),
+      ],
+    },
     // Chat and Virtual open this host from the workspace shell. Count the
     // shell's actual dynamic edge, its static host code, and all nested lazy
     // pane chunks once, excluding dependencies already downloaded at startup.
-    sharedUtilityOpen: asyncRouteDelta(
-      'shared utility host',
-      sharedUtilityOpenRoots,
-      startupFiles,
-      chunksByFile
-    ),
+    sharedUtilityOpen: {
+      ...asyncRouteDelta('shared utility host', sharedUtilityOpenRoots, startupFiles, chunksByFile),
+      panes: perPaneDeltas(sharedUtilityOpenRoots, sharedHostPaneRoots, startupFiles, chunksByFile),
+    },
     devTerminal: routeDelta(
       'Dev terminal route',
       [devEntry, devLayout, terminalPane, runtimeTerminalPane],
@@ -883,6 +938,11 @@ function assertByteBudget(label, measurement, budget) {
   }
 }
 
+/** Each lazy pane is held to the per-pane cap; the pane's name is in the error. */
+function assertPaneBudgets(label, panes, budget) {
+  for (const pane of panes) assertByteBudget(`${label} ${pane.pane}`, pane, budget)
+}
+
 export function assertClientBundleBudgets(report) {
   assertByteBudget('Workspace startup', report.startup, CLIENT_BUNDLE_BUDGETS.startup)
   assertByteBudget('Virtual route', report.views.virtual, CLIENT_BUNDLE_BUDGETS.views.virtual)
@@ -893,15 +953,15 @@ export function assertClientBundleBudgets(report) {
     CLIENT_BUNDLE_BUDGETS.views.appLibrary
   )
   assertByteBudget('Dev View shell', report.views.devShell, CLIENT_BUNDLE_BUDGETS.views.devShell)
-  assertByteBudget(
-    'Dev utility panes',
-    report.views.devUtilityPanes,
-    CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
+  assertPaneBudgets(
+    'Dev utility pane',
+    report.views.devUtilityPanes.panes,
+    CLIENT_BUNDLE_BUDGETS.views.devUtilityPane
   )
-  assertByteBudget(
-    'Shared utility open',
-    report.views.sharedUtilityOpen,
-    CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes
+  assertPaneBudgets(
+    'Shared utility pane',
+    report.views.sharedUtilityOpen.panes,
+    CLIENT_BUNDLE_BUDGETS.views.sharedUtilityPane
   )
   assertByteBudget(
     'Dev terminal route',

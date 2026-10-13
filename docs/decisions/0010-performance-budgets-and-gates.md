@@ -70,7 +70,7 @@ from each emitted JavaScript file compressed independently.
 | Chat view incremental route                              |     176 KiB |     56 KiB |              155,219 B / 44,738 B |
 | App Library incremental route                            |       6 KiB |      3 KiB |                 4,769 B / 2,075 B |
 | Dev View shell incremental route                         |     128 KiB |     40 KiB |              103,466 B / 31,580 B |
-| Other lazy Dev utility panes, combined                   |     168 KiB |     56 KiB |    133,293 B / 44,110 B; 14 files |
+| Each lazy Dev utility pane, alone (largest)              |      72 KiB |     23 KiB |     69,660 B / 22,330 B (browser) |
 | Dev terminal route, including its static dependencies    |     768 KiB |    192 KiB |             694,364 B / 168,009 B |
 | Dev code editor route, including its static dependencies |     512 KiB |    160 KiB |             458,007 B / 138,862 B |
 | Dev entry + central layout pair                          |     112 KiB |     34 KiB |              100,091 B / 29,708 B |
@@ -80,10 +80,14 @@ The route caps leave room for small changes but require a named budget decision
 when a surface grows past its own limit. Startup graph attribution follows
 static imports from the client bootstrap, workspace mount, and navigation entry.
 The view checks follow each route's static imports and exclude startup files.
-The aggregate utility-pane budget covers the initial static graphs for Dev's
-other lazy panes, excluding startup and the separately budgeted terminal/editor
-routes. Their deeper interaction-specific chunks still consume the full-client
-aggregate ceiling. The Dev editor route explicitly includes its
+The utility-pane budget is per pane: each lazy pane is measured alone (its
+static graph and nested lazy chunks, plus the shared utility host for panes the
+host opens), excluding startup and the separately budgeted terminal/editor
+routes, and held to its own cap, because a user opens one pane at a time and a
+sum charges every new pane for a download nobody makes. Panes the shared host
+opens have their own cap (152 KiB raw / 43 KiB gzip, host included). A pane that
+outgrows its cap fails by name. Deeper interaction-specific chunks also
+consume the full-client aggregate ceiling. The Dev editor route explicitly includes its
 `editor-mirror` and `file-stream` children; the terminal route includes its
 `terminal-pane` child. Attribution assertions fail when those lazy imports
 change. `check-client.mjs` fails closed if expected route roots are missing or

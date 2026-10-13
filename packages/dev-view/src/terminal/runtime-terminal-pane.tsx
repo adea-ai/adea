@@ -6,6 +6,10 @@ import type { DevRuntimeService } from '../platform'
 import { createTerminalRuntimeConnection } from './runtime-connection'
 import { resolveSelectedTerminal } from './selected-terminal'
 
+// Ending a terminal ships with the pane chunk so the Dev View shell stays free
+// of the terminate command builder.
+export { terminateSessionTerminal } from './open-terminal'
+
 const TerminalPane = lazy(() =>
   import('./terminal-pane').then((module) => ({ default: module.TerminalPane }))
 )

@@ -216,22 +216,51 @@ test('enforces each route budget independently of the full-client total', () => 
   expect(() => assertClientBundleBudgets(report)).toThrow('Chat route exceeds raw byte budget')
 })
 
-test('enforces a separate budget for the aggregate of other lazy Dev panes', () => {
+test('measures each lazy Dev pane on its own', () => {
   const report = inspectClientBundle(fixture())
-  report.views.devUtilityPanes.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes.rawBytes + 1
+
+  expect(report.views.devUtilityPanes.panes).toEqual(
+    expect.arrayContaining([
+      // browser: the pane, its nested lazy pane and the chunk it shares with devices
+      expect.objectContaining({ pane: 'browser-pane.js', rawBytes: 20, gzipBytes: 11 }),
+      expect.objectContaining({ pane: 'devices-pane.js', rawBytes: 11, gzipBytes: 6 }),
+      expect.objectContaining({ pane: 'other-pane.js', rawBytes: 9, gzipBytes: 5 }),
+    ])
+  )
+  expect(report.views.sharedUtilityOpen.panes.map(({ pane }) => pane).toSorted()).toEqual([
+    'browser-pane.js',
+    'devices-pane.js',
+  ])
+})
+
+test('holds each lazy Dev pane to its own cap', () => {
+  const report = inspectClientBundle(fixture())
+  report.views.devUtilityPanes.panes[0].rawBytes =
+    CLIENT_BUNDLE_BUDGETS.views.devUtilityPane.rawBytes + 1
 
   expect(() => assertClientBundleBudgets(report)).toThrow(
-    'Dev utility panes exceeds raw byte budget'
+    `Dev utility pane ${report.views.devUtilityPanes.panes[0].pane} exceeds raw byte budget`
   )
 })
 
-test('enforces the existing utility-pane cap when the shared host opens', () => {
+test('holds each pane the shared host opens to its own cap', () => {
   const report = inspectClientBundle(fixture())
-  report.views.sharedUtilityOpen.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPanes.rawBytes + 1
+  report.views.sharedUtilityOpen.panes[0].gzipBytes =
+    CLIENT_BUNDLE_BUDGETS.views.sharedUtilityPane.gzipBytes + 1
 
   expect(() => assertClientBundleBudgets(report)).toThrow(
-    'Shared utility open exceeds raw byte budget'
+    `Shared utility pane ${report.views.sharedUtilityOpen.panes[0].pane} exceeds gzip byte budget`
   )
+})
+
+test('does not charge the sum of every pane to the pane cap', () => {
+  const report = inspectClientBundle(fixture())
+  // Many panes each under the cap stay green however large their sum grows.
+  report.views.devUtilityPanes.rawBytes = CLIENT_BUNDLE_BUDGETS.views.devUtilityPane.rawBytes * 4
+  report.views.sharedUtilityOpen.rawBytes =
+    CLIENT_BUNDLE_BUDGETS.views.sharedUtilityPane.rawBytes * 4
+
+  expect(() => assertClientBundleBudgets(report)).not.toThrow()
 })
 
 test('retains aggregate raw, gzip, and file-count ceilings', () => {

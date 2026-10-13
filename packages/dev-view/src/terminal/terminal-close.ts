@@ -12,13 +12,9 @@ import type {
   Scope,
   TerminalRecord,
 } from '@adea-ai/types/dev-runtime'
-import {
-  devOperationMetadataFor_dev_terminal_create,
-  devOperationMetadataFor_dev_terminal_terminate,
-} from '@adea-ai/types/dev-runtime-operation-metadata'
+import { devOperationMetadataFor_dev_terminal_create } from '@adea-ai/types/dev-runtime-operation-metadata'
 
 import { buildDevCommandFromMetadata } from '../browser/command-core'
-import { resolveSelectedTerminal } from './selected-terminal'
 
 /** The layout model's close placeholder: closing the last center leaf swaps
  *  in one of these terminal leaves, and the pane renderer shows the
@@ -52,47 +48,6 @@ export function terminatesOnLastClose(input: {
     (input.closedLeaf.resourceId === undefined ||
       input.closedLeaf.resourceId === input.primaryTerminalId)
   )
-}
-
-/**
- * End one runtime terminal instance: revalidate the exact record (the
- * terminate command binds its generation), then issue the privileged
- * `dev.terminal.terminate` with an explicit confirmation id. Resolves false
- * without issuing anything when the record can no longer be verified.
- */
-export async function terminateSessionTerminal(options: {
-  execute: (command: DevCommand) => Promise<DevReply>
-  scope: Scope
-  runtimeSessionId: string
-  worktreeId: string
-  terminalId: string
-}): Promise<boolean> {
-  const resolved = await resolveSelectedTerminal({
-    execute: options.execute,
-    scope: options.scope,
-    selection: {
-      runtimeSessionId: options.runtimeSessionId,
-      worktreeId: options.worktreeId,
-      terminalId: options.terminalId,
-    },
-  })
-  if (resolved.status !== 'ready') return false
-  const terminal = resolved.terminal
-  const command = buildDevCommandFromMetadata(devOperationMetadataFor_dev_terminal_terminate, {
-    scope: options.scope,
-    body: {
-      terminalId: terminal.id,
-      expectedGeneration: terminal.generation,
-      confirmationId: `close-${terminal.id}-${terminal.generation}`,
-    },
-    resource: { kind: 'terminal', id: terminal.id, generation: terminal.generation },
-  })
-  try {
-    const reply = await options.execute(command)
-    return reply.ok
-  } catch {
-    return false
-  }
 }
 
 /**
