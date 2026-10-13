@@ -91,7 +91,7 @@ import {
 import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
-import { isThemeAccentId } from '@adea-ai/app-ui/components/appearance'
+import { isThemeAccentId } from '@adea-ai/ui/lib/themes'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 
 /**

@@ -71,7 +71,8 @@ workspace ModalDialog and its overlay/header appearance styles are removed.
 ## Theming contract: the published palette is the color authority
 
 Components and consumer styles use semantic color roles from the published
-`@adea-ai/ui/theme.css` and generated catalogue projections. Local shell and
+`@adea-ai/ui/theme.css` and the published catalogue sheet
+`@adea-ai/ui/theme-variants.css`. Local shell and
 status styles may alias those roles or derive translucent colors from them;
 they do not declare color literals or override shared palette roles. The shell
 stylesheet owns layout and host surface policy, while theme selection and every
@@ -99,10 +100,9 @@ The rule is a gate with a burn-down, not a rewrite:
 - Files in `BASELINE` may carry an exact number of literals, each entry with a
   reason. Adding a literal fails the build, and so does removing one without
   updating the count, so the list only shrinks.
-- `GENERATED_THEME_FILES` contains only exact outputs of
-  `packages/ui/scripts/generate-canonical-theme-data.ts`; the package's
-  `themes:check` command verifies those projections against the published
-  package. App-authored sheets are scanned normally.
+- `GENERATED_THEME_FILES` is empty: the generated catalogue projection ships in
+  the published `@adea-ai/ui` package, so no file in this repository is exempt.
+  App-authored sheets are scanned normally.
 - CSS named colors are checked in color-bearing declaration values and custom
   properties. CSS-wide/semantic keywords, quoted strings, URLs, comments, and
   TS/TSX class-name strings are not treated as palette values.
@@ -111,12 +111,11 @@ Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
 
-The built-in palettes are the complete published `@adea-ai/themes` catalogue
-pinned in this package’s manifest, led by the `adea-light`/`adea-dark` pair. Every theme passes the host's
-4.5:1 editor floor; no palette is waived. Build-time generation consumes the
-published `@adea-ai/ui/lib/themes` framework projection plus the catalogue's
-terminal/editor adapters. The generated stylesheet includes default and named
-palettes, all sidebar/status/raised-surface roles, and renderer aliases. The
+The built-in palettes are the complete published `@adea-ai/themes` catalogue,
+carried by the exact `@adea-ai/ui` version pinned in this package's manifest and
+led by the `adea-light`/`adea-dark` pair. Every theme passes the host's 4.5:1
+editor floor; no palette is waived. The stylesheet that paints each palette
+before hydration is the published `@adea-ai/ui/theme-variants.css`. The
 app-authored theme sheet contains host aliases, branding hooks, and surface
 policy. The logo asset uses the published scrim contrast pair, and the shell
 mark uses the selected palette's primary pair. The shell no longer replaces
@@ -124,14 +123,19 @@ the selected catalogue palette with a hand-authored light/dark palette.
 A scanner regression rejects palette literals in consumer properties and
 direct overrides of shared color roles.
 
-The mode selector uses the published controlled `ThemeModeToggle`; its selected
-mode still comes from the host's persisted preference provider. The pre-paint
-script resolves the saved theme attribute without embedding palette data. V2
-preference persistence, custom-theme recovery, native surface capability, and reduced transparency remain host adapters. Unknown or removed
-catalogue IDs resolve to the default of the same appearance and the original
-stored record is preserved. Run `bun run --cwd packages/ui themes:generate`
-after changing the published source; `bun run --cwd packages/ui themes:check`
-verifies the committed generated files are current.
+Adea runs the published ThemeProvider (ADR 0014). This package keeps the host
+seams only: `appearance-codec.ts` (the stored V2 document, its keys and legacy
+migration, and the boot script rendered from the same schema),
+`custom-theme-library.ts` (imported themes and their own recovery key), and
+`appearance-host.tsx` (the provider configuration plus the V2 context that the
+appearance editor and the shell read). The mode selector uses the published
+controlled `ThemeModeToggle`; its selected mode still comes from the host's
+persisted preference. The pre-paint script resolves the saved theme attribute
+without embedding palette data. Native surface capability and reduced
+transparency are provider options. Unknown or removed catalogue IDs resolve to
+the default of the same appearance and the original stored record is preserved.
+The package's tests run with the `browser` and `development` conditions so the
+published sources resolve the way the application resolves them.
 
 The unused AccountDrawer, SceneSettings, and OnScreenControls copies and their test-only harnesses are removed. The global account menu composes the published AccountMenu. The external Agent Sim scene engine owns its live scene settings and movement controls and depends on published UI, not this private package. The app retains its `data-agent-hq-on-screen-controls` viewport positioning hook for that engine. Do not restore these unused copies or add generic controls to the host adapter package.
 

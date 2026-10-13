@@ -149,7 +149,15 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // measuring 3,051,359 raw / 928,958 gzip across 159 files locally
   // (2026-10-09); total ratchets to 3,112,000 raw / 926 KiB gzip and the
   // file cap to 162 (~2% each).
-  total: { rawBytes: 3_112_000, gzipBytes: 926 * 1024, fileCount: 162 },
+  // Re-measured for the shared ThemeProvider (2026-10-13, ADR 0014) against
+  // the same build of main's 3,092,176 raw / 943,661 gzip across 158 files:
+  // 3,155,152 raw / 952,052 gzip across 158 files. The published provider
+  // imports the whole themes catalogue at startup, where Adea's own appearance
+  // data rode a lazy chunk; the 240 KB of generated duplicates are deleted, but
+  // the catalogue the shared provider needs is not. Raw ratchets to 3,220,000
+  // and gzip to 949 KiB (~2% each). The follow-up that moves the catalogue out
+  // of startup lives in the published package, and these caps drop with it.
+  total: { rawBytes: 3_220_000, gzipBytes: 949 * 1024, fileCount: 162 },
   // Startup measured 732,351 raw / 239,561 gzip on the same build; raw had
   // 0.67% headroom. Raw ratchets to 730 KiB; gzip to 239 KiB (~2% each).
   // Re-measured for the account-wide directory and inbox (#1174): the
@@ -165,7 +173,11 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // startup chunk now carries the published typography roles instead of
   // per-surface heading CSS, measuring 250,941 gzip locally and in CI (29 bytes
   // over the old cap); gzip ratchets to 250 KiB (~2% headroom).
-  startup: { rawBytes: 756 * 1024, gzipBytes: 250 * 1024 },
+  // Re-measured for the shared ThemeProvider (2026-10-13, ADR 0014): the
+  // startup chunk carries the published provider and the themes catalogue it
+  // resolves from, 854,513 raw / 265,450 gzip against main's 770,769 / 251,791
+  // on the same build. Raw ratchets to 852 KiB and gzip to 265 KiB (~2% each).
+  startup: { rawBytes: 852 * 1024, gzipBytes: 265 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now

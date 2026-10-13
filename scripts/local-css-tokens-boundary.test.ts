@@ -15,10 +15,10 @@ function filesUnder(directory: string): string[] {
   return files
 }
 
-// Every project stylesheet root. The generated palette and the token layer
-// itself define the values everything else must reference.
+// Every project stylesheet root. The token layer itself defines the values
+// everything else must reference.
 const stylesheetRoots = ['apps/web/src', 'packages/dev-view/src', 'packages/ui/src/styles']
-const tokenLayer = new Set(['canonical-themes.css', 'theme.css', 'appearance-font-settings.css'])
+const tokenLayer = new Set(['theme.css', 'appearance-font-settings.css'])
 
 // Two utilities are the only sanctioned colour-mix users: the shimmer
 // highlight and the sign-in grid hairline.

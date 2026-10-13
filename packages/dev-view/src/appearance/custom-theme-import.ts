@@ -24,15 +24,17 @@ import {
   colorToHex,
   contrastRatio,
   ensureContrast,
-  flatVariantTokens,
   parseColor as parseHex,
+} from '@adea-ai/ui/lib/accent-roles'
+import {
+  flatVariantTokens,
   setCustomThemes,
   validateThemeRegistry,
   type AppearanceStorage,
   type CustomThemeStored,
-  type ThemeColors,
-  type ThemeVariant,
-} from '@adea-ai/app-ui/components/appearance'
+  type StoredThemeColors as ThemeColors,
+  type StoredThemeVariant as ThemeVariant,
+} from '@adea-ai/app-ui/components/custom-theme-library'
 import adeaDark from '@adea-ai/themes/themes/adea-dark'
 import adeaLight from '@adea-ai/themes/themes/adea-light'
 

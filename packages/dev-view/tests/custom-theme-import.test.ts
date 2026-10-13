@@ -6,7 +6,7 @@ import {
   setCustomThemes,
   themeRegistry,
   type CustomThemeStored,
-} from '@adea-ai/app-ui/components/appearance'
+} from '@adea-ai/app-ui/components/custom-theme-library'
 import { importCustomTheme } from '../src/appearance/custom-theme-import'
 
 function memoryStorage(): Storage {
