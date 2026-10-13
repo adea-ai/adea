@@ -22,16 +22,9 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyState } from '@adea-ai/ui/components/ui/empty'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from '@adea-ai/ui/components/ui/input-group'
-import { ItemGroup, ItemGroupEntry } from '@adea-ai/ui/components/ui/item'
+import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type HistoryPaneStatus =
@@ -102,15 +95,31 @@ function Highlighted(props: { text: string; query: string }): JSX.Element {
   )
 }
 
+// Plain list rows: the shared Item and Tabs compositions pull their own
+// primitives into the utility host for what is a bordered list and a switch.
+function EntryList(props: { label: string; children: JSX.Element }): JSX.Element {
+  return (
+    <ul role="list" aria-label={props.label} class="m-0 flex list-none flex-col gap-2 p-0">
+      {props.children}
+    </ul>
+  )
+}
+
+function Entry(props: { trailing?: JSX.Element; children: JSX.Element }): JSX.Element {
+  return (
+    <li class="flex items-start gap-2 rounded-md border border-border p-2">
+      <div class="min-w-0 flex-1">{props.children}</div>
+      {props.trailing}
+    </li>
+  )
+}
+
 function TurnRow(props: { turn: HistoryTurn; nowMs: number; id: string }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false)
   const status = () => TURN_STATUS[props.turn.state]
   const bodyId = () => `${props.id}-body`
   return (
-    <ItemGroupEntry
-      variant="outline"
-      size="sm"
-      class="items-start"
+    <Entry
       trailing={
         <ActionButton
           type="button"
@@ -173,7 +182,7 @@ function TurnRow(props: { turn: HistoryTurn; nowMs: number; id: string }): JSX.E
           </Text>
         </div>
       </div>
-    </ItemGroupEntry>
+    </Entry>
   )
 }
 
@@ -184,10 +193,7 @@ function ResultRow(props: {
   onJump?: (jump: ConversationSearchJump) => void
 }): JSX.Element {
   return (
-    <ItemGroupEntry
-      variant="outline"
-      size="sm"
-      class="items-start"
+    <Entry
       trailing={
         <Show when={props.onJump}>
           {(jump) => (
@@ -221,7 +227,7 @@ function ResultRow(props: {
           </Text>
         </div>
       </div>
-    </ItemGroupEntry>
+    </Entry>
   )
 }
 
@@ -321,11 +327,11 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
             }
           >
             <div class="p-3">
-              <ItemGroup listLabel="Prompts and replies, newest first">
+              <EntryList label="Prompts and replies, newest first">
                 <For each={turns()}>
                   {(turn) => <TurnRow turn={turn} nowMs={nowMs()} id={`${idPrefix}-${turn.id}`} />}
                 </For>
-              </ItemGroup>
+              </EntryList>
             </div>
           </Show>
         }
@@ -341,7 +347,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
           }
         >
           <div class="p-3">
-            <ItemGroup listLabel="Search results">
+            <EntryList label="Search results">
               <For each={page()?.items ?? []}>
                 {(row) => (
                   <ResultRow
@@ -352,7 +358,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                   />
                 )}
               </For>
-            </ItemGroup>
+            </EntryList>
           </div>
           <Show when={page()?.nextCursor}>
             <div class="px-3 pb-3">
@@ -372,13 +378,11 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
   )
 
   return (
-    <Tabs value={tab()} onChange={setTab} class="h-full" aria-label="Conversation history">
+    <div class="flex h-full min-h-0 flex-col" aria-label="Conversation history" role="region">
       <div class="flex flex-col gap-2 border-b border-border p-3">
-        <InputGroup class="w-full">
-          <InputGroupAddon>
-            <Search aria-hidden="true" />
-          </InputGroupAddon>
-          <InputGroupInput
+        <div class="flex items-center gap-2">
+          <Input
+            class="min-w-0 flex-1"
             aria-label="Search this conversation"
             placeholder="Search prompts, replies and tools"
             value={query()}
@@ -386,45 +390,61 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
             onInput={(event) => updateQuery(event.currentTarget.value)}
           />
           <Show when={searching()}>
-            <InputGroupAddon align="end">
-              <InputGroupButton aria-label="Clear search" onClick={() => updateQuery('')}>
-                <X aria-hidden="true" />
-              </InputGroupButton>
-            </InputGroupAddon>
+            <ActionButton
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              tooltip="Clear search"
+              aria-label="Clear search"
+              onClick={() => updateQuery('')}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
           </Show>
-        </InputGroup>
-        <TabsList appearance="segmented" aria-label="History view">
-          <TabsTrigger appearance="segmented" value="turns">
+        </div>
+        <div role="group" aria-label="History view" class="flex gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant={tab() === 'turns' ? 'secondary' : 'ghost'}
+            aria-pressed={tab() === 'turns'}
+            onClick={() => setTab('turns')}
+          >
             Turns
-          </TabsTrigger>
-          <TabsTrigger appearance="segmented" value="runs">
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={tab() === 'runs' ? 'secondary' : 'ghost'}
+            aria-pressed={tab() === 'runs'}
+            onClick={() => setTab('runs')}
+          >
             Runs
-          </TabsTrigger>
-        </TabsList>
+          </Button>
+        </div>
       </div>
-      <TabsContent value="turns" class="overflow-y-auto">
-        <Show when={searching() && page()}>
-          {(current) => (
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <Show when={tab() === 'turns'} fallback={<RunHistoryPane runs={props.runs} />}>
+          <Show when={searching() && page()}>
+            {(current) => (
+              <div class="px-3 pt-2">
+                <Text variant="caption" tone="muted" role="status">
+                  {current().totalMatches} result{current().totalMatches === 1 ? '' : 's'} for “
+                  {query().trim()}”
+                </Text>
+              </div>
+            )}
+          </Show>
+          <Show when={props.bounded && props.status === 'ready' && !searching()}>
             <div class="px-3 pt-2">
               <Text variant="caption" tone="muted" role="status">
-                {current().totalMatches} result{current().totalMatches === 1 ? '' : 's'} for “
-                {query().trim()}”
+                Showing the latest events only. Older prompts were dropped by retention.
               </Text>
             </div>
-          )}
+          </Show>
+          {turnsBody()}
         </Show>
-        <Show when={props.bounded && props.status === 'ready' && !searching()}>
-          <div class="px-3 pt-2">
-            <Text variant="caption" tone="muted" role="status">
-              Showing the latest events only. Older prompts were dropped by retention.
-            </Text>
-          </div>
-        </Show>
-        {turnsBody()}
-      </TabsContent>
-      <TabsContent value="runs" class="overflow-y-auto">
-        <RunHistoryPane runs={props.runs} />
-      </TabsContent>
-    </Tabs>
+      </div>
+    </div>
   )
 }

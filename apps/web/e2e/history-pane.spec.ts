@@ -23,7 +23,7 @@ async function mount(page: Page, query = '') {
     },
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/history-pane-harness-app.tsx')
   )
-  await expect(page.getByRole('tablist', { name: 'History view' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'History view' })).toBeVisible()
 }
 
 test('lists prompts newest first with a reply summary', async ({ page }) => {
