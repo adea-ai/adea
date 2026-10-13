@@ -106,6 +106,8 @@ export async function createSessionTerminal(options: {
   scope: Scope
   runtimeSessionId: string
   worktreeId: string
+  /** A host-advertised shell profile; absent starts the host default. */
+  shellProfileId?: string
 }): Promise<
   | Readonly<{ status: 'ready'; terminal: TerminalRecord }>
   | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
@@ -117,6 +119,7 @@ export async function createSessionTerminal(options: {
       worktreeId: options.worktreeId,
       cols: 80,
       rows: 24,
+      ...(options.shellProfileId !== undefined ? { shellProfileId: options.shellProfileId } : {}),
     },
   })
   try {

@@ -84,6 +84,8 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import { terminalConnectionErrorMessage } from './connection-errors'
+import { CustomizeToolbarMenu, ShellMenu } from './toolbar-menus'
+import { toolbarPreferences } from './toolbar-preferences'
 import { observeTerminalTheme, createTerminalFontBinding } from './theme-binding'
 import { withTerminalSelectionPreserved } from './selection-preserver'
 import './terminal-pane.css'
@@ -147,6 +149,13 @@ export type TerminalPaneProps = {
   shellProfiles?: readonly ShellProfile[]
   /** The user's preferred shell ($SHELL), when the host knows it. */
   preferredShell?: string
+  /** The profile this terminal was started with, when the host reports it. */
+  currentShellProfileId?: string
+  /**
+   * Starts a new terminal with the chosen shell. Absent where the surface
+   * cannot create terminals; the shell menu then only informs.
+   */
+  onNewTerminalWithShell?: (profileId: string) => void
   /** Reports the user's confirmed shell choice; never called automatically. */
   onShellProfileSelected?: (profileId: string) => void
   /** Per-worktree seed for the bottom editor's command history. */
@@ -610,28 +619,39 @@ export function TerminalPane(props: TerminalPaneProps) {
       onKeyDown={onSectionKeyDown}
     >
       <header class="dev-terminal-pane-header">
-        <span
-          class="dev-terminal-pane-status"
-          data-state={connection()}
-          data-error={connectionError()?.code}
-        >
-          {connectionError()?.message ?? connection()}
-        </span>
-        <Show when={props.worktreeLabel}>
+        <Show when={toolbarPreferences().items.shell && (props.shellProfiles?.length ?? 0) > 0}>
+          <ShellMenu
+            profiles={props.shellProfiles ?? []}
+            currentProfileId={props.currentShellProfileId}
+            onNewTerminalWithShell={props.onNewTerminalWithShell}
+          />
+        </Show>
+        <Show when={toolbarPreferences().items.status || connectionError() !== null}>
+          <span
+            class="dev-terminal-pane-status"
+            data-state={connection()}
+            data-error={connectionError()?.code}
+          >
+            {connectionError()?.message ?? connection()}
+          </span>
+        </Show>
+        <Show when={props.worktreeLabel && toolbarPreferences().items.worktree}>
           <Badge size="sm" variant="outline">
             {props.worktreeLabel}
           </Badge>
         </Show>
-        <Badge
-          size="sm"
-          variant={integrationPresent().status === 'active' ? 'secondary' : 'outline'}
-          data-terminal-integration=""
-          data-status={integrationPresent().status}
-          title={integrationPresent().detail}
-        >
-          {integrationPresent().label}
-        </Badge>
-        <Show when={cwd()}>
+        <Show when={toolbarPreferences().items.integration}>
+          <Badge
+            size="sm"
+            variant={integrationPresent().status === 'active' ? 'secondary' : 'outline'}
+            data-terminal-integration=""
+            data-status={integrationPresent().status}
+            title={integrationPresent().detail}
+          >
+            {integrationPresent().label}
+          </Badge>
+        </Show>
+        <Show when={toolbarPreferences().items.cwd ? cwd() : undefined}>
           {(current) => (
             <span
               class="dev-terminal-pane-cwd"
@@ -642,61 +662,66 @@ export function TerminalPane(props: TerminalPaneProps) {
             </span>
           )}
         </Show>
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          data-terminal-copy=""
-          data-degraded={clipboardPresent().degraded ? 'true' : undefined}
-          disabled={!hasSelection()}
-          onClick={() => void copySelection()}
-        >
-          {clipboardPresent().label}
-        </Button>
+        <span class="dev-terminal-pane-actions">
+          <CustomizeToolbarMenu />
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            data-terminal-copy=""
+            data-degraded={clipboardPresent().degraded ? 'true' : undefined}
+            disabled={!hasSelection()}
+            onClick={() => void copySelection()}
+          >
+            {clipboardPresent().label}
+          </Button>
+        </span>
         <Show when={clipboardPresent().hint}>
           <span class="dev-terminal-hint">{clipboardPresent().hint}</span>
         </Show>
       </header>
-      <div class="dev-terminal-blocks" role="list" aria-label="Command blocks">
-        {visibleBlocks(blocks())
-          .slice(-8)
-          .map((block) => (
-            <div
-              role="listitem"
-              class="dev-terminal-block"
-              data-state={block.state}
-              aria-label={
-                block.state === 'completed'
-                  ? `${block.command}, exit ${block.exitCode}, ${block.durationMs} milliseconds`
-                  : `${block.command}, running`
-              }
-            >
-              <code>{block.command}</code>
-              <Show when={block.state === 'completed'}>
-                <span class="dev-terminal-block-exit" data-exit={block.exitCode}>
-                  exit {block.exitCode} · {block.durationMs}ms
-                </span>
-              </Show>
-              <Show when={blockExportText(block)}>
-                {(text) => (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    data-terminal-copy=""
-                    onClick={() =>
-                      void copyThroughSeam(text()).then((outcome) => {
-                        setClipboard(applyCopyOutcome(clipboard(), outcome))
-                      })
-                    }
-                  >
-                    Copy
-                  </Button>
-                )}
-              </Show>
-            </div>
-          ))}
-      </div>
+      <Show when={toolbarPreferences().blocks}>
+        <div class="dev-terminal-blocks" role="list" aria-label="Command blocks">
+          {visibleBlocks(blocks())
+            .slice(-8)
+            .map((block) => (
+              <div
+                role="listitem"
+                class="dev-terminal-block"
+                data-state={block.state}
+                aria-label={
+                  block.state === 'completed'
+                    ? `${block.command}, exit ${block.exitCode}, ${block.durationMs} milliseconds`
+                    : `${block.command}, running`
+                }
+              >
+                <code>{block.command}</code>
+                <Show when={block.state === 'completed'}>
+                  <span class="dev-terminal-block-exit" data-exit={block.exitCode}>
+                    exit {block.exitCode} · {block.durationMs}ms
+                  </span>
+                </Show>
+                <Show when={blockExportText(block)}>
+                  {(text) => (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      data-terminal-copy=""
+                      onClick={() =>
+                        void copyThroughSeam(text()).then((outcome) => {
+                          setClipboard(applyCopyOutcome(clipboard(), outcome))
+                        })
+                      }
+                    >
+                      Copy
+                    </Button>
+                  )}
+                </Show>
+              </div>
+            ))}
+        </div>
+      </Show>
       <div class="dev-terminal-surface-anchor">
         <div class="dev-terminal-surface" data-terminal-surface="" ref={setSurface} />
         <Show when={search().open}>

@@ -201,6 +201,28 @@ describe('createSessionTerminal', () => {
     expect(command.resource).toBeUndefined()
   })
 
+  test('passes the chosen shell profile through to the create command', async () => {
+    const commands: DevCommand[] = []
+    const shell = '00000000-0000-4000-8000-00000000d002'
+    await createSessionTerminal({
+      scope,
+      runtimeSessionId: session,
+      worktreeId: worktree,
+      shellProfileId: shell,
+      execute: async (command) => {
+        commands.push(command)
+        return success(command, record({ id: other, shellProfileId: shell }))
+      },
+    })
+    expect(commands[0]!.body).toEqual({
+      runtimeSessionId: session,
+      worktreeId: worktree,
+      cols: 80,
+      rows: 24,
+      shellProfileId: shell,
+    })
+  })
+
   test('fails closed on a refusal, a malformed record, or a thrown transport', async () => {
     const refusal = await createSessionTerminal({
       scope,

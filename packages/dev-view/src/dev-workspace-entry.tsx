@@ -72,6 +72,8 @@ import { defaultLeftUtilitySize, utilityPaneById } from './utility-preferences'
 import { UtilityResizeHandle } from './utility-resize-handle'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
+import { listShellProfiles } from './terminal/shell-profiles'
+import { resolveDefaultShellProfileId, toolbarPreferences } from './terminal/toolbar-preferences'
 import {
   createSessionTerminal,
   isTerminalPlaceholderLeaf,
@@ -719,11 +721,18 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (!scope || !runtimeSessionId || !worktreeId || !placeholder) return
     setNewTerminalPending(true)
     try {
+      // The device default shell, only while the host still advertises it;
+      // otherwise the host default starts.
+      const shellProfileId = resolveDefaultShellProfileId(
+        await listShellProfiles({ execute: (command) => props.runtime.execute(command), scope }),
+        toolbarPreferences().defaultShellProfileId
+      )
       const created = await createSessionTerminal({
         execute: (command) => props.runtime.execute(command),
         scope,
         runtimeSessionId,
         worktreeId,
+        ...(shellProfileId !== undefined ? { shellProfileId } : {}),
       })
       if (created.status !== 'ready') {
         setAnnouncement('The runtime could not open a new terminal.')
@@ -743,6 +752,46 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     } finally {
       setNewTerminalPending(false)
     }
+  }
+  /**
+   * The terminal toolbar's "New terminal with" action: start a runtime terminal
+   * with the chosen shell and open it beside the focused pane. The running
+   * terminal keeps its own shell.
+   */
+  const openNewTerminalWithShell = async (shellProfileId: string) => {
+    const scope = activeScope()
+    const runtimeSessionId = selectedSession()
+    const worktreeId = selectedSessionWorktreeId()
+    if (!scope || !runtimeSessionId || !worktreeId) return
+    if (splitPaneDisabled(countLeaves(layout().center), selectedProject())) {
+      setAnnouncement('Close a pane to open another terminal.')
+      return
+    }
+    const created = await createSessionTerminal({
+      execute: (command) => props.runtime.execute(command),
+      scope,
+      runtimeSessionId,
+      worktreeId,
+      shellProfileId,
+    })
+    if (created.status !== 'ready') {
+      setAnnouncement('The runtime could not open a new terminal.')
+      return
+    }
+    const suffix = ++nextPaneId
+    updateLayout((state) =>
+      splitPaneBalanced(state, state.focusedLeafId, {
+        placement: 'after',
+        leaf: {
+          kind: 'leaf',
+          id: `dev-terminal-${suffix}`,
+          pane: 'terminal',
+          resourceId: created.terminal.id,
+        },
+        splitId: `dev-split-${suffix}`,
+      })
+    )
+    setAnnouncement('New terminal opened')
   }
   const showPane = (pane: DevUtilityPane) => {
     utilityOwner.showUtilityPane(pane, selectedCanonicalBinding() ?? null)
@@ -1227,6 +1276,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                       canAttach={capabilities().get('dev.terminal.attach')?.granted}
                       canInput={capabilities().get('dev.terminal.input')?.granted}
                       canManage={capabilities().get('dev.terminal.manage')?.granted}
+                      onNewTerminalWithShell={(profileId) =>
+                        void openNewTerminalWithShell(profileId)
+                      }
                     />
                   </Suspense>
                 )

@@ -41,6 +41,7 @@ const state = {
   inputsByGeneration: new Map<number, string[]>(),
   resizes: [] as Array<{ cols: number; rows: number; generation: number }>,
   copies: [] as string[],
+  newTerminals: [] as string[],
   restarts: 0,
   dataFramesEmitted: 0,
   echo: true,
@@ -166,6 +167,7 @@ const harness = {
       inputsByGeneration: Object.fromEntries(state.inputsByGeneration),
       resizes: state.resizes,
       copies: state.copies,
+      newTerminals: state.newTerminals,
     }
   },
 }
@@ -178,12 +180,19 @@ declare global {
   }
 }
 
+// Host profile ids are UUIDs; the device default only stores ids of that shape.
+const SH_PROFILE_ID = '00000000-0000-4000-8000-00000000d0a1'
+const BASH_PROFILE_ID = '00000000-0000-4000-8000-00000000d0a2'
+
 function mount() {
   const container = document.getElementById('harness-root')
   if (!container) throw new Error('harness root missing')
   // Mirror the app's prepaint System defaults before xterm measures glyphs.
   applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS)
-  const shellProfiles: readonly ShellProfile[] = [{ id: 'sh', label: 'sh', argv: ['/bin/sh'] }]
+  const shellProfiles: readonly ShellProfile[] = [
+    { id: SH_PROFILE_ID, label: 'sh', argv: ['/bin/sh'] },
+    { id: BASH_PROFILE_ID, label: 'bash', argv: ['/bin/bash'] },
+  ]
   render(
     () => (
       <TerminalPane
@@ -198,6 +207,8 @@ function mount() {
         worktreeLabel="Example project"
         shellProfiles={shellProfiles}
         preferredShell="/bin/sh"
+        currentShellProfileId={SH_PROFILE_ID}
+        onNewTerminalWithShell={(profileId) => state.newTerminals.push(profileId)}
       />
     ),
     container
