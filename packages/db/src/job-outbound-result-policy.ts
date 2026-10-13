@@ -37,7 +37,7 @@ import {
 import {
   authorizeArtifactReferencePublication,
   authorizeArtifactReferenceRetrieval,
-} from './artifact-reference-policy'
+} from './artifact-reference-decisions'
 
 /** Summaries are refused above this size; they are never silently truncated. */
 export const JOB_OUTBOUND_SUMMARY_MAX_BYTES = 8_192
