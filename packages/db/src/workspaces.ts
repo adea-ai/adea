@@ -252,7 +252,7 @@ export async function personalWorkspaceInTransaction(
   return promoted
 }
 
-/** The user's live workspaces in their own order (position, then creation). */
+/** The caller's personal root first, then live workspaces in their own order. */
 async function workspacesForUser(
   transaction: AgentHqDatabase | AgentHqTransaction,
   owner: UserPrincipalRef
@@ -262,7 +262,12 @@ async function workspacesForUser(
     .from(workspaceMemberships)
     .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
     .where(and(eq(workspaceMemberships.userId, owner.userId), isNull(workspaces.deletedAt)))
-    .orderBy(asc(workspaceMemberships.sortOrder), asc(workspaces.createdAt), asc(workspaces.id))
+    .orderBy(
+      sql`case when ${workspaces.isPersonal} and ${workspaces.ownerUserId} = ${owner.userId} then 0 else 1 end`,
+      asc(workspaceMemberships.sortOrder),
+      asc(workspaces.createdAt),
+      asc(workspaces.id)
+    )
 }
 
 /**
@@ -438,7 +443,7 @@ export async function listWorkspacesForUser(
   )
 }
 
-/** Reorders only this member's own complete live list, including their personal root. */
+/** Reorders the member's complete live list, pinning their personal root first. */
 export async function reorderWorkspaces(
   database: AgentHqDatabase,
   principal: UserPrincipalRef,
@@ -458,7 +463,13 @@ export async function reorderWorkspaces(
       workspaceIds.some((id) => !liveIds.has(id))
     )
       throw new Error('Workspace order conflict')
-    for (const [sortOrder, workspaceId] of workspaceIds.entries())
+    const personalId = rows.find(
+      ({ workspace }) => workspace.isPersonal && workspace.ownerUserId === principal.userId
+    )?.workspace.id
+    const orderedIds = personalId
+      ? [personalId, ...workspaceIds.filter((id) => id !== personalId)]
+      : workspaceIds
+    for (const [sortOrder, workspaceId] of orderedIds.entries())
       await transaction
         .update(workspaceMemberships)
         .set({ sortOrder, updatedAt: new Date() })

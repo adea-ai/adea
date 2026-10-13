@@ -148,8 +148,10 @@ immutable settings boundary never accepts `isPersonal`. A partial owner unique
 index and active-root constraint prevent duplicate personal identities or
 archive/pending states. Additional creation produces a box icon and empty data,
 appends to the member's list, and never seeds accounts, projects or agents.
-All memberships, including Home, remain reorderable; bootstrap's default is the
-personal identity rather than list position.
+The caller's canonical personal workspace is always first in list, reorder and
+bootstrap results, even after renaming or when historical membership positions
+put it last. Optional workspaces retain their relative order. Bootstrap's default
+is the personal identity rather than list position; reads preserve saved positions.
 
 The production API regression uses the `react-server` condition to exercise its
 `server-only` database entry; both supported integration runners build that entry
@@ -167,6 +169,10 @@ identity decisions. No migration or onboarding operation connects an account.
 
 `reorderWorkspaces()` locks the member's user row, requires the complete live list
 with no duplicates or foreign IDs, and updates only that member's positions. It
+normalizes valid submissions to put the caller's personal root at position zero
+while preserving the submitted relative order of optional workspaces. Another
+owner's personal workspace is optional in the caller's list. Validation precedes
+normalization, so a missing root or foreign ID is still refused. It
 shares the creation/claim lock, and neither modifies workspace versions nor
 changes another user's membership order.
 
