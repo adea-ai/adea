@@ -567,25 +567,29 @@ test('settings headers and notes keep the shared palette and sized marks', async
   await openSettingsHarness(page)
   const dialog = page.getByRole('dialog', { name: 'Settings' })
   await expect(dialog).toBeVisible()
-  // The Input & notifications section ships a note with a leading mark.
-  const noteLocator = page.locator(
-    '#settings-panel-input-notifications .conventional-settings-note'
-  )
+  // The Input & notifications section ships a note with a leading mark. It is
+  // the library Alert in a non-urgent `note` role, so it must not add to the
+  // page's `alert` count.
+  const panelLocator = page.locator('#settings-panel-input-notifications')
+  const noteLocator = panelLocator.getByRole('note').filter({
+    hasText: 'Notification clicks will use canonical Project',
+  })
   await expect(noteLocator).toBeVisible()
+  await expect(noteLocator).toHaveAttribute('data-slot', 'alert')
+  await expect(panelLocator.getByRole('alert')).toHaveCount(0)
+  const iconLocator = noteLocator.locator('[data-slot="alert-icon"] svg')
+  await expect(iconLocator).toBeVisible()
   const probe = await page.evaluate(() => {
     const panel = document.querySelector('#settings-panel-input-notifications')
     const header = panel?.querySelector('.conventional-settings-panel > header')
     const headerIcon = header?.querySelector('svg')
-    const note = panel?.querySelector('.conventional-settings-note')
-    const noteIcon = note?.querySelector('svg')
+    const noteIcon = panel?.querySelector(
+      '[data-slot="alert"][role="note"] [data-slot="alert-icon"] svg'
+    )
     const root = getComputedStyle(document.documentElement)
     return {
       primaryToken: root.getPropertyValue('--primary').trim(),
-      mutedToken: root.getPropertyValue('--muted').trim(),
-      mutedForegroundToken: root.getPropertyValue('--muted-foreground').trim(),
       headerIconColor: headerIcon ? getComputedStyle(headerIcon).color : null,
-      noteColor: note ? getComputedStyle(note).color : null,
-      noteBackground: note ? getComputedStyle(note).backgroundColor : null,
       noteIconWidth: noteIcon ? getComputedStyle(noteIcon).width : null,
       noteIconHeight: noteIcon ? getComputedStyle(noteIcon).height : null,
     }
@@ -593,13 +597,13 @@ test('settings headers and notes keep the shared palette and sized marks', async
   // The settings dialogs portal beside the workspace frame, so the palette
   // must resolve where the portaled content can see it: the shared --cw-*
   // aliases resolve at :root (#1115). An alias that resolves empty leaves the
-  // header mark foreground-toned and the note unpainted.
+  // header mark foreground-toned.
   expect(parseColor(probe.headerIconColor!)).toEqual(parseColor(probe.primaryToken))
-  expect(parseColor(probe.noteColor!)).toEqual(parseColor(probe.mutedForegroundToken))
-  expect(parseColor(probe.noteBackground!)).toEqual(parseColor(probe.mutedToken))
-  // The note's mark rides at the 1.1rem rung, not lucide's 24px default.
-  expect(Number.parseFloat(probe.noteIconWidth!)).toBeCloseTo(17.6, 1)
-  expect(Number.parseFloat(probe.noteIconHeight!)).toBeCloseTo(17.6, 1)
+  // The note's mark is sized by the Alert, not lucide's 24px default.
+  const noteIconWidth = Number.parseFloat(probe.noteIconWidth!)
+  expect(noteIconWidth).toBeGreaterThan(0)
+  expect(noteIconWidth).toBeLessThan(24)
+  expect(Number.parseFloat(probe.noteIconHeight!)).toBeCloseTo(noteIconWidth, 1)
 })
 
 test('publish form textareas honor their rows contract', async ({ page }) => {

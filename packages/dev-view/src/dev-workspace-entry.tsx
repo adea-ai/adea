@@ -86,7 +86,7 @@ import { DevWorkspaceSidebar, type DevWorkspaceNavHost } from './sidebar/dev-wor
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { ButtonGroup } from '@adea-ai/ui/components/ui/button-group'
-import { Heading } from '@adea-ai/ui/components/ui/typography'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 // Keep the sidebar and runtime controls independent of the central split
 // renderer. Its resize dependency is loaded when the panes actually mount.
@@ -1093,9 +1093,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           restoreFocusRef={props.sidebarOpener}
           status={
             !fixtureMode() && !activeScope() ? (
-              <p class="dev-tree-empty" role="status">
+              <Text as="p" variant="caption" tone="muted" role="status">
                 No runtime projects available.
-              </p>
+              </Text>
             ) : undefined
           }
           footer={
