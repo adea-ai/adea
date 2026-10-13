@@ -213,6 +213,8 @@ transaction back instead of losing an update.
 
 Migration `0048_graceful_prima` follows `0047_requested_role_model_selections` in the current `main` journal. It is expand-only and adds the `channel_archive_source` enum, `channels.archive_source`, positive `projects.version`, and `management_authority_consumptions` with its checks, workspace foreign key and index. The group-participation migrations follow it at 0049 and 0050. `db:verify` validates the journal and SQL against an isolated target; local verification does not establish production migration history or live Control Plane qualification. See [`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).
 
+Migration `0052_lead_handoff_target` is additive and nullable only. It adds the exact direct session a lead turn coordinates (`lead_turn_intents.handoff_target_session_id`, `handoff_target_generation`, `handoff_target_task_id` and the `handoff_target_attempt` ordinal), a check that the four are all set or all null, and a partial unique index so one workspace channel holds at most one intent per target session, generation and attempt. A fresh request for a context whose newest runtime completed or failed admits a successor with the next attempt and leaves the predecessor untouched; any other runtime state recovers the retained request. A target is retained only for requests carried by the authenticated desktop-host channel.
+
 ## Group channel write admission
 
 A grant-gated group channel admits a user's writes only while that user's group
