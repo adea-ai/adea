@@ -320,9 +320,17 @@ function channelSummaryFromRefs(
 /** A group's participants: the admissions still in force under their live grants. */
 export async function groupParticipantsInForce(
   database: Database,
-  row: ChannelRow
+  row: ChannelRow,
+  options: Readonly<{ authorizationRecordLimit?: number }> = {}
 ): Promise<ConversationParticipantRef[]> {
   const now = new Date().toISOString()
+  if (options.authorizationRecordLimit !== undefined)
+    await assertGroupAuthorizationBound(
+      database,
+      row.workspaceId,
+      row.id,
+      options.authorizationRecordLimit
+    )
   const roster = await loadGroupRoster(database, row.workspaceId, row.id)
   return roster
     .filter((admission) => admissionInForce(admission, row.id, now))
@@ -997,8 +1005,8 @@ export function listChannelsForUserPage(
     const summaries: ChannelSummary[] = []
     for (const row of summaryRows) {
       if (row.kind === 'group') {
-        // Bound the grant families used by loadGroupRoster before it materializes them.
-        for (const table of [groupAudienceGrants, groupEnlistmentGrants]) {
+        // Bound the record families used by loadGroupRoster before it materializes them.
+        for (const table of [groupAdmissions, groupAudienceGrants, groupEnlistmentGrants]) {
           const grants = await snapshot
             .select({ id: table.id })
             .from(table)
@@ -1894,7 +1902,7 @@ export function listMessagesForUser(
  * sharing history are materialized. The records are never truncated: an authorization decision
  * made from part of them could allow what the whole forbids.
  */
-async function assertGroupAuthorizationBound(
+export async function assertGroupAuthorizationBound(
   database: Database,
   workspaceId: string,
   channelId: string,

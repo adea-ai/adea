@@ -468,9 +468,10 @@ export async function importPortableWorkspace(
 
     // A group's audience is its admissions under live grants, not its participant rows. Admit each
     // restored participant afresh, since neither grants nor join points travel in a bundle. The
-    // importer and the person who exported the bundle, whose view it is, read the whole restored
-    // history. Everyone else joins after it, so a later joiner never gains the history the source kept from them, and the history a
-    // source member could read only through a sharing grant stays unshared.
+    // importer, when the content names them, reads the whole restored history; the exporter's id
+    // is envelope metadata outside the digest and decides nothing. Everyone else joins after it, so
+    // a later joiner never gains the history the source kept from them, and the history a source
+    // member could read only through a sharing grant stays unshared.
     const groupChannels = content.channels.filter((channel) => channel.kind === 'group')
     if (groupChannels.length) {
       const frontierRows = await transaction
@@ -526,10 +527,11 @@ export async function importPortableWorkspace(
             authRevision: 1,
             channelId: channel.channelId,
             joinedAt: issuedAt,
+            // Only the importer, named as a participant by the digest-covered content, reads the
+            // restored history; they already hold it in the file. `exportedBy` sits outside the
+            // digest, so an edit of it never moves anyone's join point.
             joinedSequence:
-              participant.kind === 'user' &&
-              (participant.userId === input.importer.userId ||
-                participant.userId === document.exportedBy.userId)
+              participant.kind === 'user' && participant.userId === input.importer.userId
                 ? 0
                 : (frontiers.get(channel.channelId) ?? 0),
             principalKind: participant.kind,
