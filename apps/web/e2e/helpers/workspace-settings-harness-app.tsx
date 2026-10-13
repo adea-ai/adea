@@ -45,6 +45,18 @@ const countCall = (name: string) => {
 
 // The owner's archived rows outlive the dialog that archived them, as the query cache does in the app.
 let archivedRows: WorkspaceSummary[] = []
+// Archived projects staged for the restore flow; `data-archived-projects` seeds them once.
+type FixtureProject = { id: string; name: string; version: number }
+let archivedProjects: FixtureProject[] | undefined
+function archivedProjectRows(): FixtureProject[] {
+  archivedProjects ??= harnessRoot().hasAttribute('data-archived-projects')
+    ? [
+        { id: 'project-billing', name: 'Billing rebuild', version: 3 },
+        { id: 'project-mobile', name: 'Mobile', version: 1 },
+      ]
+    : []
+  return archivedProjects
+}
 const fixtureNames: Record<string, string> = {
   'settings-sibling': 'Secondary',
   'workspace-settings-e2e': 'Settings harness',
@@ -108,6 +120,50 @@ function archiveFixtureClient(): AgentHqApiClient {
     },
     async listArchivedWorkspaces() {
       return { workspaces: archivedRows }
+    },
+    async listArchivedProjects() {
+      return archivedProjectRows().map((project) => ({
+        ...project,
+        createdAt: '2026-10-01T00:00:00.000Z',
+        iconKey: 'folder',
+        lifecycleState: 'archived' as const,
+        sortOrder: 0,
+        sourceKind: 'none' as const,
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        visibility: 'workspace' as const,
+        workspaceId: initialWorkspace.id,
+      }))
+    },
+    async restoreProject(
+      _workspaceId: string,
+      projectId: string,
+      input: { confirmed: true; expectedVersion: number }
+    ) {
+      countCall('data-restore-calls')
+      harnessRoot().setAttribute('data-restore-target', projectId)
+      harnessRoot().setAttribute('data-restore-version', String(input.expectedVersion))
+      harnessRoot().setAttribute('data-restore-confirmed', String(input.confirmed))
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const mode = harnessRoot().getAttribute('data-restore-mode')
+      if (mode === 'conflict') throw new ApiClientError('Conflict', 409, 'project_conflict')
+      if (mode === 'error') throw new ApiClientError('Server error', 500)
+      const row = archivedProjectRows().find((project) => project.id === projectId)
+      if (!row) throw new ApiClientError('Unavailable', 404, 'workspace_unavailable')
+      archivedProjects = archivedProjectRows().filter((project) => project.id !== projectId)
+      return {
+        project: {
+          ...row,
+          createdAt: '2026-10-01T00:00:00.000Z',
+          iconKey: 'folder',
+          lifecycleState: 'active' as const,
+          sortOrder: 0,
+          sourceKind: 'none' as const,
+          updatedAt: '2026-10-13T00:00:00.000Z',
+          version: row.version + 1,
+          visibility: 'workspace' as const,
+          workspaceId: initialWorkspace.id,
+        },
+      }
     },
     async listWorkspaceMembers() {
       const staged = harnessRoot().getAttribute('data-archive-members')

@@ -777,6 +777,11 @@ function invalidateAccountInbox(queryClient: QueryClient) {
 }
 
 export const projectQueryOptions = {
+  archived: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: projectQueryKeys.archived(workspaceId ?? ''),
+    queryFn: () => client.listArchivedProjects(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
   detail: (client: AgentHqApiClient, workspaceId?: string, projectId?: string) => ({
     queryKey: projectQueryKeys.detail(workspaceId ?? '', projectId ?? ''),
     queryFn: () => client.getProject(workspaceId!, projectId!),
@@ -1125,6 +1130,14 @@ export function useDeleteProjectMutation(
   return useMutation(() =>
     projectMutationOptions.delete(client, queryClient, resolveAccessor(workspaceId))
   )
+}
+
+/** The archived projects this caller may restore, newest keys under the workspace's project prefix. */
+export function useArchivedProjectsQuery(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => projectQueryOptions.archived(client, resolveAccessor(workspaceId)))
 }
 
 /** Explicit promotion of an archived project at the observed revision. */

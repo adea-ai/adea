@@ -1119,6 +1119,17 @@ export class AgentHqApiClient {
     )
   }
 
+  /**
+   * The archived projects this caller may read, for the explicit restore flow. The server lists
+   * archived rows beside active ones on request; only the archived ones are returned here.
+   */
+  async listArchivedProjects(workspaceId: string): Promise<readonly ProjectSummary[]> {
+    const projects = await this.request<readonly ProjectSummary[]>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects?includeArchived=true`
+    )
+    return projects.filter((project) => project.lifecycleState === 'archived')
+  }
+
   async getProject(workspaceId: string, projectId: string): Promise<ApiProjectResponse> {
     return this.request<ApiProjectResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}`

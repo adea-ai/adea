@@ -162,3 +162,84 @@ test('a transient failure shows a retry message, and a double click archives onc
   await expect(root(page)).toHaveAttribute('data-archive-calls', '2')
   expect(errors).toEqual([])
 })
+
+const restoreButton = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Restore ${name}`, exact: true })
+
+test('an archived project is restored only after an explicit confirmation at the listed revision', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archived-projects': '' })
+  await expect(restoreButton(page, 'Billing rebuild')).toBeVisible()
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  await restoreButton(page, 'Billing rebuild').click()
+  const consequences = page.getByRole('list', { name: 'Restore consequences' })
+  await expect(consequences).toContainText(
+    'It returns to the sidebar for everyone who can see it, with its conversations.'
+  )
+  await expect(consequences).toContainText('Who can see it does not change.')
+  // Opening the confirmation sends nothing.
+  await expect(root(page)).not.toHaveAttribute('data-restore-calls')
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Archived projects status' })).toHaveText(
+    'Billing rebuild is restored.'
+  )
+  await expect(root(page)).toHaveAttribute('data-restore-target', 'project-billing')
+  await expect(root(page)).toHaveAttribute('data-restore-version', '3')
+  await expect(root(page)).toHaveAttribute('data-restore-confirmed', 'true')
+  await expect(restoreButton(page, 'Billing rebuild')).toHaveCount(0)
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('cancelling the restore confirmation sends nothing', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archived-projects': '' })
+  await restoreButton(page, 'Mobile').click()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toHaveCount(0)
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  await expect(root(page)).not.toHaveAttribute('data-restore-calls')
+  expect(errors).toEqual([])
+})
+
+test('a project that changed since it was listed is refused, not forced, and the list is read again', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, {
+    'data-archived-projects': '',
+    'data-restore-mode': 'conflict',
+  })
+  await restoreButton(page, 'Billing rebuild').click()
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('This project changed since it was listed.')
+  await expect(root(page)).toHaveAttribute('data-restore-calls', '1')
+  // The conflict closes the confirmation: the owner reviews the refreshed row and decides again.
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toHaveCount(0)
+  await expect(restoreButton(page, 'Billing rebuild')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('a transient restore failure keeps the confirmation open for a retry', async ({ page }) => {
+  const errors = await openArchiveHarness(page, {
+    'data-archived-projects': '',
+    'data-restore-mode': 'error',
+  })
+  await restoreButton(page, 'Mobile').click()
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText(
+    'The project could not be restored. Try again.'
+  )
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toBeVisible()
+  await root(page).evaluate((element) => element.setAttribute('data-restore-mode', 'ok'))
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Archived projects status' })).toHaveText(
+    'Mobile is restored.'
+  )
+  expect(errors).toEqual([])
+})
+
+test('a workspace with no archived projects says so', async ({ page }) => {
+  const errors = await openArchiveHarness(page)
+  await expect(page.getByText('No archived projects.')).toBeVisible()
+  expect(errors).toEqual([])
+})

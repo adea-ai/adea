@@ -89,3 +89,18 @@ describe('project mutation contracts', () => {
     })
   })
 })
+
+describe('archived project query', () => {
+  test('lives under the workspace project prefix so project events refresh it', async () => {
+    const archived = { ...project, lifecycleState: 'archived' as const }
+    const api = client({
+      listArchivedProjects: async () => [archived],
+    } as Partial<AgentHqApiClient>)
+    const options = projectQueryOptions.archived(api, 'workspace-1')
+    expect(options.queryKey).toEqual(['workspaces', 'workspace-1', 'projects', 'archived'])
+    expect(options.queryKey.slice(0, 3)).toEqual(projectQueryKeys.all('workspace-1'))
+    expect(options.enabled).toBe(true)
+    await expect(options.queryFn()).resolves.toEqual([archived])
+    expect(projectQueryOptions.archived(api, undefined).enabled).toBe(false)
+  })
+})
