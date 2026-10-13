@@ -721,7 +721,31 @@ test.describe('the account directory and inbox driven through their UI', () => {
       .getByRole('button', {
         name: /Browser UI Journey Lane.*in Browser UI Journey Workspace/,
       })
-    await expect(globalConversationRow).toBeVisible()
+    await expect(globalConversationRow)
+      .toBeVisible()
+      .catch(async (error: unknown) => {
+        // Diagnostic: show where the app actually landed.
+        console.log('journey diag url', page.url())
+        console.log(
+          'journey diag sidebar',
+          JSON.stringify(
+            await page
+              .getByRole('region', { name: 'Conversations' })
+              .innerText()
+              .catch(() => 'no conversations region')
+          )
+        )
+        console.log(
+          'journey diag active',
+          JSON.stringify(
+            await page
+              .locator('[data-conventional-nav-item][data-active]')
+              .allInnerTexts()
+              .catch(() => [])
+          )
+        )
+        throw error
+      })
     await globalConversationRow.click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
 
