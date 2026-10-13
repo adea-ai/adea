@@ -1,0 +1,5 @@
+{
+  "repository": "adea-ai/control-plane",
+  "revision": "c5387139f8aa20af498fa96f32fb24ca8248c5d4",
+  "dependency": "CP #1041 transactional child admission"
+}
