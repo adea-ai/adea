@@ -187,7 +187,6 @@ function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHis
   const channelId = sql.raw(`${alias}.channel_id`)
   const sequence = sql.raw(`${alias}.sequence`)
   const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
-  const replyToMessageId = sql.raw(`${alias}.reply_to_message_id`)
   return sql`(
     ${channelId} not in (${sql.join(
       [...access.keys()].map((id) => sql`${id}::uuid`),
@@ -198,14 +197,12 @@ function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHis
         channelId,
         sequence,
         threadRootMessageId,
-        replyToMessageId,
         access,
       })}
       and ${groupSummaryMessageAndThreadVisibleCondition({
         channelId,
         sequence,
         threadRootMessageId,
-        replyToMessageId,
         access,
       })}
     )

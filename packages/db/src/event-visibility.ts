@@ -10,7 +10,11 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import type { WorkspaceEventView } from './event-log'
-import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
+import {
+  groupHistoryAccessByUser,
+  groupHistoryMessageAndThreadVisibleCondition,
+  userChannelVisibility,
+} from './group-participation-store'
 import { filterVisibleMessageRows } from './job-outbound-read'
 import { resolveProjectAccessScope } from './project-access'
 import { artifacts, channels, contentRefs, messages, tasks } from './schema'
@@ -124,9 +128,13 @@ async function classifyWorkspaceEventsForUserInSnapshot(
     }
   }
 
-  const inForce = [
-    ...(await groupChannelIdsInForce(database, userId, new Date().toISOString(), workspaceId)),
-  ]
+  const historyAccess = await groupHistoryAccessByUser(
+    database,
+    userId,
+    new Date().toISOString(),
+    workspaceId
+  )
+  const inForce = [...historyAccess.keys()]
   // Keep the outer-table qualifier in single-table Drizzle projections.
   const canReadChannel = sql<boolean>`coalesce(${userChannelVisibility({
     channelId: sql`${channels}.${sql.identifier('id')}`,
@@ -135,6 +143,17 @@ async function classifyWorkspaceEventsForUserInSnapshot(
     userId,
     visibility: sql`${channels}.${sql.identifier('visibility')}`,
   })}, false)`
+  const messageHistoryVisible = sql<boolean>`coalesce(
+    ${channels.kind} <> 'group'
+    or ${groupHistoryMessageAndThreadVisibleCondition({
+      channelId: sql`${messages.channelId}`,
+      sequence: sql`${messages.sequence}`,
+      threadRootMessageId: sql`${messages.threadRootMessageId}`,
+      replyToMessageId: sql`${messages.replyToMessageId}`,
+      access: historyAccess,
+    })},
+    false
+  )`
 
   const [channelRows, messageRows, taskRows, artifactRows, contentRows] = await Promise.all([
     channelIds.size
@@ -154,6 +173,7 @@ async function classifyWorkspaceEventsForUserInSnapshot(
             senderSystemId: messages.senderSystemId,
             threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
+            historyVisible: messageHistoryVisible,
           })
           .from(messages)
           .innerJoin(
@@ -191,6 +211,7 @@ async function classifyWorkspaceEventsForUserInSnapshot(
             senderSystemId: messages.senderSystemId,
             threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
+            historyVisible: messageHistoryVisible,
           })
           .from(contentRefs)
           .leftJoin(
@@ -247,7 +268,10 @@ async function classifyWorkspaceEventsForUserInSnapshot(
     )
   )
   const readableMessages = new Map(
-    messageRows.map((row) => [row.id, row.canReadChannel && visibleMessageIds.has(row.id)])
+    messageRows.map((row) => [
+      row.id,
+      row.canReadChannel && row.historyVisible && visibleMessageIds.has(row.id),
+    ])
   )
   const readableContent = new Map(
     contentRows.map((row) => [
@@ -256,6 +280,7 @@ async function classifyWorkspaceEventsForUserInSnapshot(
         (Boolean(row.messageId) &&
           Boolean(row.senderKind) &&
           row.canReadChannel &&
+          row.historyVisible &&
           visibleMessageIds.has(row.messageId!)),
     ])
   )

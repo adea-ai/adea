@@ -136,6 +136,11 @@ export type JobOutboundPrepare<TTransaction, TPrepared> = (
   context: JobOutboundAuthorizationContext<TTransaction>
 ) => Promise<TPrepared>
 
+/** A requester's current authority check after publication judgment, immediately before write. */
+export type JobOutboundFinalPublicationCheck<TTransaction> = (
+  context: JobOutboundAuthorizationContext<TTransaction>
+) => Promise<void>
+
 export type JobOutboundPublishResult<TPrepared = null> = Readonly<{
   decision: JobOutboundPublicationDecision
   /** The canonical message id when the publication was written in the same transaction. */
@@ -152,7 +157,8 @@ export type JobOutboundResultService<TTransaction> = Readonly<{
   publish: <TPrepared = null>(
     input: JobOutboundPublishInput,
     write: JobOutboundPublicationWrite<TTransaction>,
-    prepare?: JobOutboundPrepare<TTransaction, TPrepared>
+    prepare?: JobOutboundPrepare<TTransaction, TPrepared>,
+    finalCheck?: JobOutboundFinalPublicationCheck<TTransaction>
   ) => Promise<JobOutboundPublishResult<TPrepared>>
 }>
 
@@ -209,7 +215,7 @@ export function createJobOutboundResultService<TTransaction>(
 ): JobOutboundResultService<TTransaction> {
   const { authorize, clock, resolveDelivery } = options
   return {
-    async publish(input, write, prepare) {
+    async publish(input, write, prepare, finalCheck) {
       return authorize(grantScopeFor(input.artifact, input.result), async (context) => {
         const { grantState, reads, transaction } = context
         // Prepared first, so every read below sees its effects.
@@ -265,6 +271,11 @@ export function createJobOutboundResultService<TTransaction>(
         await input.beforeWrite?.()
         const decision = await judge()
         if (decision.action !== 'publish') return { decision, messageId: null, prepared }
+        // Completion requests can be made by an administrator other than the job's original
+        // actor. Recheck that requester's authority after the final publication judgment and
+        // before the write; the publication binding intentionally remains attributed to the
+        // original actor.
+        await finalCheck?.(context)
         // The write runs in the same transaction as the decision: it commits or rolls back with it.
         const written = await write({ transaction }, decision)
         return typeof written === 'string'

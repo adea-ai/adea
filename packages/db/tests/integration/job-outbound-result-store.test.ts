@@ -307,6 +307,19 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
 
   type Fixture = Awaited<ReturnType<typeof fixture>>
 
+  async function addDestinationMember(f: Fixture) {
+    const session = await createTemporaryUserSession(connection.db, {
+      credentialDigest: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    await connection.db.insert(workspaceMemberships).values({
+      role: 'member',
+      userId: session.principal.userId,
+      workspaceId: f.destination.id,
+    })
+    return session.principal
+  }
+
   const service = () => createJobOutboundStoreService(connection.db)
 
   /** Publishes and returns the canonical message id; a held publication fails the test. */
@@ -1329,6 +1342,51 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     })
   })
 
+  test('a source-admin requester whose group admission expires while publication is parked is refused', async () => {
+    const f = await fixture({ complete: false })
+    const requester = await newUser(f, { destination: 'member', source: 'admin' })
+    await joinChannel(f, requester.userId)
+    expect(requester.userId).not.toBe(f.owner.principal.userId)
+
+    const expiresAt = new Date(Date.now() + 2_000).toISOString()
+    const [grant] = await connection.db
+      .update(schema.groupAudienceGrants)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(schema.groupAudienceGrants.channelId, f.channelA.id),
+          eq(schema.groupAudienceGrants.userId, requester.userId)
+        )
+      )
+      .returning({ id: schema.groupAudienceGrants.id })
+    expect(grant).toBeDefined()
+
+    const key = crypto.randomUUID()
+    const before = await taskState(f)
+    const seam = { enteredMs: 0, expiredMs: 0 }
+    await expect(
+      completeJob(f, key, outboundRequest(f), {
+        actor: requester,
+        seams: {
+          beforePublicationWrite: async () => {
+            seam.enteredMs = Date.now()
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.max(0, Date.parse(expiresAt) + 150 - Date.now()))
+            )
+            seam.expiredMs = Date.now()
+          },
+        },
+      })
+    ).rejects.toThrow('Channel unavailable')
+
+    expect(seam.enteredMs).toBeGreaterThan(0)
+    expect(seam.enteredMs).toBeLessThan(Date.parse(expiresAt))
+    expect(seam.expiredMs).toBeGreaterThanOrEqual(Date.parse(expiresAt))
+    expect(await taskState(f)).toEqual(before)
+    expect(await reservations(f, key)).toEqual([])
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  }, 30_000)
+
   test('a source admin who is not a member of the destination is refused; the completion rolls back', async () => {
     const f = await fixture({ complete: false })
     const admin = await newUser(f, { destination: null, source: 'admin' })
@@ -1557,6 +1615,132 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         (delivery) => delivery.kind === 'deliver' && delivery.event.aggregateId === ordinary.id
       )
     ).toBe(true)
+  })
+
+  test('message event replay respects the group join point after removal and rejoin', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const oldRoot = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'pre-join root',
+      idempotencyKey: `pre-join-root-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+    })
+    const oldReply = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'pre-join reply',
+      idempotencyKey: `pre-join-reply-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+      threadRootMessageId: oldRoot.id,
+    })
+
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal],
+      await rosterVersion(channelId)
+    )
+    await setChannelParticipants(
+      connection.db,
+      workspaceId,
+      channelId,
+      f.owner.principal,
+      [f.owner.principal, { kind: 'user', userId: reader.userId }],
+      await rosterVersion(channelId)
+    )
+    const newRoot = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'post-join root',
+      idempotencyKey: `post-join-root-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+    })
+    const newReply = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'post-join reply',
+      idempotencyKey: `post-join-reply-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+      threadRootMessageId: newRoot.id,
+    })
+
+    const messageIds = new Set([oldRoot.id, oldReply.id, newRoot.id, newReply.id])
+    const events = (await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)).filter(
+      (event) => event.eventType === 'message.created' && messageIds.has(event.aggregateId ?? '')
+    )
+    expect(events).toHaveLength(messageIds.size)
+    const classified = await classifyWorkspaceEventsForUser(
+      connection.db,
+      workspaceId,
+      reader.userId,
+      events
+    )
+    expect(classified?.map((delivery) => delivery.kind)).toEqual([
+      'withheld',
+      'withheld',
+      'deliver',
+      'deliver',
+    ])
+    expect(JSON.stringify(classified)).not.toContain(oldRoot.id)
+    expect(JSON.stringify(classified)).not.toContain(oldReply.id)
+    expect(
+      classified?.flatMap((delivery) =>
+        delivery.kind === 'deliver' ? [delivery.event.aggregateId] : []
+      )
+    ).toEqual([newRoot.id, newReply.id])
+  })
+
+  test('event classification keeps one repeatable-read decision when group membership is revoked concurrently', async () => {
+    const f = await fixture()
+    const reader = f.recipient.principal
+    const workspaceId = f.destination.id
+    const channelId = f.channelA.id
+    const message = await createMessage(connection.db, workspaceId, channelId, f.owner.principal, {
+      bodyText: 'visible at snapshot start',
+      idempotencyKey: `snapshot-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+    })
+    const event = (await listWorkspaceEventsAfter(connection.db, workspaceId, 0, 200)).find(
+      (candidate) =>
+        candidate.eventType === 'message.created' && candidate.aggregateId === message.id
+    )
+    if (!event) throw new Error('message.created event missing')
+
+    const snapshotReady = Promise.withResolvers<void>()
+    const continueClassification = Promise.withResolvers<void>()
+    const inFlight = connection.db.transaction(
+      async (transaction) => {
+        // Establish the repeatable-read snapshot before the roster update commits.
+        await transaction
+          .select({ userId: workspaceMemberships.userId })
+          .from(workspaceMemberships)
+          .where(eq(workspaceMemberships.userId, reader.userId))
+        snapshotReady.resolve()
+        await continueClassification.promise
+        return classifyWorkspaceEventsForUser(transaction, workspaceId, reader.userId, [event])
+      },
+      { accessMode: 'read only', isolationLevel: 'repeatable read' }
+    )
+    try {
+      await snapshotReady.promise
+      await setChannelParticipants(
+        connection.db,
+        workspaceId,
+        channelId,
+        f.owner.principal,
+        [f.owner.principal],
+        await rosterVersion(channelId)
+      )
+    } finally {
+      continueClassification.resolve()
+    }
+    const snapshotDecision = await inFlight
+    expect(snapshotDecision?.map((delivery) => delivery.kind)).toEqual(['deliver'])
+    const freshDecision = await classifyWorkspaceEventsForUser(
+      connection.db,
+      workspaceId,
+      reader.userId,
+      [event]
+    )
+    expect(freshDecision?.map((delivery) => delivery.kind)).toEqual(['withheld'])
   })
 
   test('an unauthorized publication is neither unread nor the exposed frontier in read state, the account summary or the inbox; mark-read cannot run past it; a regrant does not revive it', async () => {
@@ -2327,8 +2511,8 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     )
     await expectSurfacesAgree(f, 'reader removed from the channel')
 
-    // Back in: ordinary messages are visible again. Both jobs stay hidden, because a publication
-    // is bound to the roster revision it was published under.
+    // Rejoining starts a new history window. Earlier messages and both publications stay hidden;
+    // only content written after rejoining becomes visible.
     await setChannelParticipants(
       connection.db,
       workspaceId,
@@ -2337,6 +2521,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       [f.owner.principal, { kind: 'user', userId: reader.userId }],
       await channelRevision()
     )
+    await note('lumen gamma after rejoin')
     await expectSurfacesAgree(f, 'reader back in the channel')
   })
 
@@ -2438,10 +2623,14 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       thirdRegistration.grantId
     )
     const walkPathTwo = await measureSurfaces(f)
-    // Growth is per publication a surface gates, never per ordinary message.
+    // Ordinary messages leave cost unchanged. These paths contain at most three publications,
+    // which fit in one walk batch and one unread page; page packing can make the later path cheaper.
+    const pathGateBudget =
+      (Math.ceil(3 / WALK_BATCH) + Math.ceil(3 / UNREAD_PUBLICATION_PAGE)) * STATEMENTS_PER_GATE + 4
     for (const surface of Object.keys(ordinaryFew) as (keyof typeof ordinaryFew)[]) {
       expect(hiddenMany[surface]).toBeGreaterThanOrEqual(ordinaryMany[surface])
-      expect(walkPathTwo[surface]).toBeGreaterThanOrEqual(walkPath[surface])
+      expect(walkPath[surface] - ordinaryMany[surface]).toBeLessThanOrEqual(pathGateBudget)
+      expect(walkPathTwo[surface] - ordinaryMany[surface]).toBeLessThanOrEqual(pathGateBudget)
     }
   })
 
@@ -2802,14 +2991,19 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const workspaceId = f.destination.id
     const channelId = f.channelA.id
     const t = await mixedThreads(f)
-    // The roster moves twice and ends with the reader listed. Every publication bound to the old
-    // revision is now hidden, and the reader keeps the ordinary thread.
+    // Change the audience while retaining the reader. This advances the roster revision and hides
+    // publications bound to the old revision without resetting the reader's join-point history.
+    const extraParticipant = await addDestinationMember(f)
     await setChannelParticipants(
       connection.db,
       workspaceId,
       channelId,
       f.owner.principal,
-      [f.owner.principal],
+      [
+        f.owner.principal,
+        { kind: 'user', userId: reader.userId },
+        { kind: 'user', userId: extraParticipant.userId },
+      ],
       await rosterVersion(channelId)
     )
     await setChannelParticipants(
@@ -3043,14 +3237,19 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         { artifact: null, artifactPolicy: 'require', channelId, summary: `lumen run ${index}` }
       )
     }
-    // The roster moves twice and ends with the reader listed. Each publication is bound to a
-    // revision that is no longer current, so all of them are hidden at once; the notes stay visible.
+    // Move the roster revision twice while retaining the reader, so the old publications are
+    // hidden and the ordinary notes remain within the reader's original history window.
+    const extraParticipant = await addDestinationMember(f)
     await setChannelParticipants(
       connection.db,
       workspaceId,
       channelId,
       f.owner.principal,
-      [f.owner.principal],
+      [
+        f.owner.principal,
+        { kind: 'user', userId: reader.userId },
+        { kind: 'user', userId: extraParticipant.userId },
+      ],
       await rosterVersion(channelId)
     )
     await setChannelParticipants(

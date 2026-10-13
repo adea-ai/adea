@@ -12,7 +12,7 @@ import {
   ArtifactReferenceGrantError,
   withArtifactReferenceGrantLocks,
 } from './artifact-reference-grants'
-import { createMessage, requireChannelAccess } from './conversations'
+import { createMessage, requireChannelAccess, requireGroupUserAdmission } from './conversations'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   decodeJobOutboundBinding,
@@ -29,6 +29,7 @@ import {
   createJobOutboundResultService,
   type JobOutboundAuthorizationContext,
   type JobOutboundAuthorize,
+  type JobOutboundFinalPublicationCheck,
   type JobOutboundPrepare,
   type JobOutboundPublishInput,
   type JobOutboundPublishResult,
@@ -266,12 +267,14 @@ export async function publishJobOutboundMessage<TPrepared = null>(
   service: JobOutboundResultService<AgentHqTransaction>,
   input: JobOutboundPublishInput,
   prepare?: JobOutboundPrepare<AgentHqTransaction, TPrepared>,
-  beforeWrite?: () => Promise<void>
+  beforeWrite?: () => Promise<void>,
+  finalCheck?: JobOutboundFinalPublicationCheck<AgentHqTransaction>
 ): Promise<JobOutboundPublishResult<TPrepared>> {
   return service.publish(
     { ...input, ...(beforeWrite ? { beforeWrite } : {}) },
     async ({ transaction }, decision) => writeJobOutboundPublication(transaction, decision),
-    prepare
+    prepare,
+    finalCheck
   )
 }
 
@@ -369,7 +372,16 @@ export async function completeTaskAndPublishOutboundResult(
         taskId,
         workspaceId,
       }),
-    seams.beforePublicationWrite
+    seams.beforePublicationWrite,
+    async (context) => {
+      await authorizeCompletionRequester(context, {
+        channelId: channel.id,
+        destinationWorkspaceId: channel.workspaceId,
+        principal,
+        taskId,
+        workspaceId,
+      })
+    }
   )
   if (!prepared) throw new Error('Task completion unavailable')
   return { publication: { decision, messageId }, task: prepared }
@@ -408,28 +420,43 @@ function canonicalOutboundRequest(request: JobOutboundCompletionRequest, actorUs
 
 /**
  * The caller's own authority for this job, checked inside the scope before the Task
- * completes. The caller must be the job's original actor or a current owner or admin of
- * its source workspace, and a current member of the destination workspace. The message
- * is authored as the original actor, so the publication cannot borrow a broader standing
- * than the caller holds. Any refusal throws, which rolls the completion back with it.
+ * completes and again after the publication judgment. The caller must be the job's original
+ * actor or a current owner or admin of its source workspace, and a current writer in the
+ * destination channel. The message remains authored as the original actor. Any refusal
+ * aborts the transaction, including the Task completion.
  */
 async function completeForPublication(
   context: JobOutboundAuthorizationContext<AgentHqTransaction>,
-  input: Readonly<{
-    channelId: string
-    command: TaskCommand
-    destinationWorkspaceId: string
-    principal: UserPrincipalRef
-    request: JobOutboundCompletionRequest
-    taskId: string
-    workspaceId: string
-  }>
+  input: CompletionRequesterInput &
+    Readonly<{
+      command: TaskCommand
+      request: JobOutboundCompletionRequest
+    }>
+) {
+  const { command, principal, request, taskId, workspaceId } = input
+  const job = await authorizeCompletionRequester(context, input)
+  return completeTask(context.transaction, workspaceId, taskId, principal, command, {
+    outboundRequest: canonicalOutboundRequest(request, job.originalActorUserId),
+  })
+}
+
+type CompletionRequesterInput = Readonly<{
+  channelId: string
+  destinationWorkspaceId: string
+  principal: UserPrincipalRef
+  taskId: string
+  workspaceId: string
+}>
+
+/** Recheck the requester's current source, destination, and group authority in this transaction. */
+async function authorizeCompletionRequester(
+  context: JobOutboundAuthorizationContext<AgentHqTransaction>,
+  input: CompletionRequesterInput
 ) {
   const { reads, transaction } = context
-  const { command, principal, request, taskId, workspaceId } = input
-  // The destination channel is locked first, before the Task row. createMessage takes the
-  // channel and then the Task rows it reopens, so a Task-first order deadlocks against a
-  // concurrent attempt on the same channel (observed in the server log).
+  const { principal, taskId, workspaceId } = input
+  // The destination channel is locked before the Task row. createMessage takes the
+  // channel and then the Task rows it reopens, so a Task-first order can deadlock.
   const audience = await reads.readAudience({
     channelId: input.channelId,
     forWrite: true,
@@ -448,10 +475,10 @@ async function completeForPublication(
   )
     throw new Error('Job outbound unavailable')
   // The requester must also pass the canonical channel-write policy for the destination
-  // channel: membership, project write, and participation in a participant-only channel.
+  // channel: membership, project write, and group admission.
   // The message is authored as the original actor, so without this check the requester
   // could publish into a channel the requester cannot reach. A refusal throws here, before
-  // the Task completes, and rolls the whole transaction back.
+  // publication is written. A refusal aborts the whole transaction.
   await requireChannelAccess(
     transaction,
     input.destinationWorkspaceId,
@@ -459,9 +486,17 @@ async function completeForPublication(
     principal,
     'write'
   )
-  return completeTask(transaction, workspaceId, taskId, principal, command, {
-    outboundRequest: canonicalOutboundRequest(request, job.originalActorUserId),
-  })
+  // readAudience(forWrite) already holds the channel row lock. Recheck the canonical
+  // participant admission under that lock. requireChannelAccess deliberately leaves this
+  // check to group writers that take their own channel fence.
+  if (audience.channelIsGroup)
+    await requireGroupUserAdmission(
+      transaction,
+      input.destinationWorkspaceId,
+      input.channelId,
+      principal.userId
+    )
+  return job
 }
 
 /**

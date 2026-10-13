@@ -209,6 +209,9 @@ the channel's project for `channelId`; the message's channel for every `messageI
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
 Channel, message, thread/reply and content references also require current channel audience access.
+A group message event must also lie within the subscriber's effective join-point history window (or
+an authorized earlier-history share). Current admission after a removal and rejoin does not make
+pre-join message events visible again; reply and thread-root ancestry use that same history window.
 A thread reply also requires its thread root to be visible to the subscriber under the same rules: a
 reply whose root is a job publication the subscriber is no longer authorized for is withheld, live and on
 replay, exactly as the publication itself is. The replies stay stored; they are delivered again when

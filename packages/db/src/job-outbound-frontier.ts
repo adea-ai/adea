@@ -121,14 +121,12 @@ async function walkVisibleFrom(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: groupHistory,
           })}
           and ${groupSummaryMessageAndThreadVisibleCondition({
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: groupHistory,
           })}
         ))`
@@ -199,7 +197,6 @@ export async function readVisibleTopLevelFrontiers(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: groupHistory,
         })}
         and ${groupSummaryMessageVisibleCondition({
@@ -364,7 +361,6 @@ export async function readHiddenUnreadCounts(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: scope.groupHistory,
         })}
         and ${groupSummaryMessageVisibleCondition({
@@ -445,7 +441,6 @@ export async function readHiddenUnreadMentionCounts(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: scope.groupHistory,
         })}
         and ${groupSummaryMessageVisibleCondition({

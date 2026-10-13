@@ -844,25 +844,23 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
     const database = {
       select: () => ({
         from: () => ({
-          where: () => ({
-            for: async () => {
-              referenceReads += 1
-              return referenceReads === 1
-                ? [
-                    {
-                      channelId,
-                      executionRef: null,
-                      id: candidateId,
-                      replyToMessageId: missingAncestorId,
-                      senderKind: 'user',
-                      senderSystemId: null,
-                      threadRootMessageId: null,
-                      workspaceId,
-                    },
-                  ]
-                : []
-            },
-          }),
+          where: async () => {
+            referenceReads += 1
+            return referenceReads === 1
+              ? [
+                  {
+                    channelId,
+                    executionRef: null,
+                    id: candidateId,
+                    replyToMessageId: missingAncestorId,
+                    senderKind: 'user',
+                    senderSystemId: null,
+                    threadRootMessageId: null,
+                    workspaceId,
+                  },
+                ]
+              : []
+          },
         }),
       }),
     } as unknown as AgentHqDatabase
@@ -1222,16 +1220,19 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       )?.map(({ kind }) => kind)
     ).toEqual(['deliver'])
 
-    await connection.db
-      .delete(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, f.destination.id),
-          eq(channelParticipants.channelId, f.channel.id),
-          eq(channelParticipants.principalKind, 'user'),
-          eq(channelParticipants.userId, f.recipient.principal.userId)
-        )
-      )
+    const [channelBeforeRevocation] = await connection.db
+      .select({ version: channels.version })
+      .from(channels)
+      .where(eq(channels.id, f.channel.id))
+      .limit(1)
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channel.id,
+      f.owner.principal,
+      [f.owner.principal],
+      channelBeforeRevocation!.version
+    )
     expect(
       await getContentRefForUser(
         connection.db,

@@ -203,7 +203,7 @@ async function requireGroupSender(
  * channel lock, with the same rule the fenced group post applies. Used before
  * the writes and again after them, so a lapse during a wait denies.
  */
-async function requireGroupUserAdmission(
+export async function requireGroupUserAdmission(
   database: Database,
   workspaceId: string,
   channelId: string,
@@ -1562,8 +1562,8 @@ export function listMessagesForUser(
   )
 }
 
-/** A group reply cannot reveal a referenced message outside the reader's history window. */
-async function filterGroupHistoryVisibleRows(
+/** Keep visible group history, require visible roots for thread replies, and redact hidden refs. */
+async function projectGroupHistoryVisibleRows(
   database: Database,
   workspaceId: string,
   channelId: string,
@@ -1577,9 +1577,18 @@ async function filterGroupHistoryVisibleRows(
     loadGroupSharingGrants(database, workspaceId, channelId),
   ])
   const admission = admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
+  const historyAllowed = (row: Pick<MessageRow, 'createdAt' | 'sequence'>) =>
+    decideGroupHistoryRead({
+      admission,
+      entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
+      groupId: channelId,
+      now,
+      sharingGrants,
+    }).action === 'allow'
+  const visibleRows = rows.filter((row) => row.channelId === channelId && historyAllowed(row))
   const referenceIds = [
     ...new Set(
-      rows
+      visibleRows
         .flatMap((row) => [row.threadRootMessageId, row.replyToMessageId])
         .filter((id): id is string => id !== null)
     ),
@@ -1591,30 +1600,48 @@ async function filterGroupHistoryVisibleRows(
           createdAt: messages.createdAt,
           id: messages.id,
           sequence: messages.sequence,
+          threadRootMessageId: messages.threadRootMessageId,
         })
         .from(messages)
         .where(and(eq(messages.workspaceId, workspaceId), inArray(messages.id, referenceIds)))
     : []
   const references = new Map(referenceRows.map((row) => [row.id, row]))
-  const historyAllowed = (row: Pick<MessageRow, 'createdAt' | 'sequence'>) =>
-    decideGroupHistoryRead({
-      admission,
-      entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
-      groupId: channelId,
-      now,
-      sharingGrants,
-    }).action === 'allow'
 
-  return rows.filter((row) => {
-    if (row.channelId !== channelId || !historyAllowed(row)) return false
-    for (const referenceId of [row.threadRootMessageId, row.replyToMessageId]) {
-      if (!referenceId) continue
-      const reference = references.get(referenceId)
-      if (!reference || reference.channelId !== channelId || !historyAllowed(reference))
-        return false
-    }
-    return true
+  const visibleReferenceId = (messageId: string | null, sequence: number) => {
+    if (!messageId) return null
+    const reference = references.get(messageId)
+    // Product writes can only refer to an earlier message. Besides rejecting stale, foreign,
+    // and pre-join links, this invariant breaks malformed cycles without traversing a chain.
+    if (
+      !reference ||
+      reference.channelId !== channelId ||
+      reference.sequence >= sequence ||
+      !historyAllowed(reference)
+    )
+      return null
+    return messageId
+  }
+
+  // Thread replies are visible only with their root. Redacting a hidden root id
+  // while retaining the reply body would disagree with search and read-state,
+  // which omit the whole thread when its root is outside the reader's history.
+  const visibleThreadRows = visibleRows.filter((row) => {
+    if (!row.threadRootMessageId) return true
+    const root = references.get(row.threadRootMessageId)
+    return Boolean(
+      root &&
+      root.channelId === channelId &&
+      root.sequence < row.sequence &&
+      root.threadRootMessageId === null &&
+      historyAllowed(root)
+    )
   })
+
+  return visibleThreadRows.map((row) => ({
+    ...row,
+    replyToMessageId: visibleReferenceId(row.replyToMessageId, row.sequence),
+    threadRootMessageId: visibleReferenceId(row.threadRootMessageId, row.sequence),
+  }))
 }
 
 async function listMessagesForUserInSnapshot(
@@ -1654,7 +1681,7 @@ async function listMessagesForUserInSnapshot(
   const jobVisibleRows = await filterVisibleMessageRows(database, page, principal.userId)
   const visibleRows =
     channel.kind === 'group'
-      ? await filterGroupHistoryVisibleRows(
+      ? await projectGroupHistoryVisibleRows(
           database,
           workspaceId,
           channelId,
@@ -1716,7 +1743,7 @@ async function getMessageForUserInSnapshot(
   // Check the target and every direct reply/thread reference before loading
   // message content, mentions, or artifact references.
   const now = options.now ?? new Date().toISOString()
-  const visible = await filterGroupHistoryVisibleRows(
+  const visible = await projectGroupHistoryVisibleRows(
     database,
     workspaceId,
     message.channelId,
@@ -1725,7 +1752,7 @@ async function getMessageForUserInSnapshot(
     now
   )
   if (!visible.length) throw new Error('Message unavailable')
-  return messageSummary(database, message)
+  return messageSummary(database, visible[0]!)
 }
 
 /**

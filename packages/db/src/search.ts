@@ -121,7 +121,6 @@ async function visibleMessageCandidates(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: groupHistory,
           })})`,
           gt(messages.sequence, after)
@@ -168,7 +167,6 @@ async function hasVisiblePrivateMessage(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: groupHistory,
         })})`
       )
@@ -207,7 +205,6 @@ async function hasVisiblePrivateMessage(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: groupHistory,
           })})`
         )

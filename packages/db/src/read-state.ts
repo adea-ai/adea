@@ -315,7 +315,6 @@ async function listReadStateForUserInSnapshot(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: historyAccess,
           })}
         )
@@ -333,7 +332,6 @@ async function listReadStateForUserInSnapshot(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: historyAccess,
         })}
       )`
@@ -349,14 +347,12 @@ async function listReadStateForUserInSnapshot(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: historyAccess,
           })}
           and ${groupSummaryMessageAndThreadVisibleCondition({
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access: historyAccess,
           })}
         )
@@ -644,14 +640,12 @@ async function latestSequence(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access,
           }),
           groupSummaryMessageAndThreadVisibleCondition({
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access,
           })
         )
@@ -665,7 +659,6 @@ async function latestSequence(
             channelId: sql`${messages.channelId}`,
             sequence: sql`${messages.sequence}`,
             threadRootMessageId: sql`${messages.threadRootMessageId}`,
-            replyToMessageId: sql`${messages.replyToMessageId}`,
             access,
           })
         )
@@ -852,7 +845,6 @@ export async function markThreadReadState(
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
           threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
           access: historyAccess,
         })
       : null
@@ -986,7 +978,6 @@ export async function markAllChannelsRead(
       channelId: sql`${messages.channelId}`,
       sequence: sql`${messages.sequence}`,
       threadRootMessageId: sql`${messages.threadRootMessageId}`,
-      replyToMessageId: sql`${messages.replyToMessageId}`,
       access: historyAccess,
     })
 

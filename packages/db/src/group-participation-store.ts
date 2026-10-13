@@ -36,7 +36,7 @@ import type {
   GroupTurnDecision,
 } from '@adea-ai/types'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
-import { and, asc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
