@@ -17,9 +17,6 @@ import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-grou
 import type { JSX } from 'solid-js'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 
-/** A custom accent is stored as lowercase `#rrggbb`. */
-const CUSTOM_ACCENT = /^#[0-9a-f]{6}$/
-
 const ACCENT_LABELS: Record<WorkspaceAccentId, string> = {
   amber: 'Amber',
   blue: 'Blue',
@@ -242,7 +239,12 @@ function AccentSwatches(props: {
       return { id, label: ACCENT_LABELS[id], fill }
     }),
   ]
-  const customValue = () => (CUSTOM_ACCENT.test(props.selected) ? props.selected : undefined)
+  // A custom accent is any stored accent that is not a preset id (a stored hex colour).
+  const customValue = () =>
+    isWorkspaceAccent(props.selected) &&
+    !(workspaceAccentIds as readonly string[]).includes(props.selected)
+      ? props.selected
+      : undefined
   let colorPicker: HTMLInputElement | undefined
   return (
     <div class="flex flex-wrap items-center gap-2">
@@ -289,9 +291,9 @@ function AccentSwatches(props: {
         onClick={() => colorPicker?.click()}
       >
         <Show when={customValue()}>
-          {(color) => (
+          {(hex) => (
             <svg aria-hidden="true" data-custom-accent-swatch="" class="size-3" viewBox="0 0 16 16">
-              <circle cx="8" cy="8" r="8" fill={color()} />
+              <circle cx="8" cy="8" r="8" fill={hex()} />
             </svg>
           )}
         </Show>
@@ -314,7 +316,7 @@ function AccentSwatches(props: {
 }
 
 /** A custom accent starts from the theme's blue until the person picks a colour. */
-function defaultCustomValue(appearance: 'light' | 'dark'): string {
+function defaultCustomValue(appearance: 'light' | 'dark'): string | undefined {
   const blue = accentPresetById('blue')
-  return (appearance === 'light' ? blue?.light : blue?.dark) ?? '#3b82f6'
+  return appearance === 'light' ? blue?.light : blue?.dark
 }
