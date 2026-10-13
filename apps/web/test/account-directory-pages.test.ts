@@ -29,7 +29,11 @@ import { QueryClient } from '@tanstack/solid-query'
 import { createRoot, createSignal } from 'solid-js'
 import { isServer as isServerSolid } from 'solid-js/web'
 
-import { createAccountDirectoryPages, createAccountInboxPages } from '../src/lib/account-directory'
+import {
+  createAccountDirectoryPages,
+  createAccountInboxPages,
+  emptyAccountListCopy,
+} from '../src/lib/account-directory'
 
 const tick = () => new Promise<void>((done) => setTimeout(done, 0))
 
@@ -934,3 +938,24 @@ if (isServer) {
     }
   })
 }
+
+test('an empty supplemental list claims no results only after every page was read', () => {
+  const copy = {
+    noun: 'Agent',
+    exhaustedSearch: 'No authorized Agent name matches this search.',
+    exhaustedEmpty: 'Agents from your other workspaces appear here.',
+  }
+  expect(emptyAccountListCopy({ ...copy, search: 'zzz', canLoadMore: false })).toBe(
+    copy.exhaustedSearch
+  )
+  expect(emptyAccountListCopy({ ...copy, search: '', canLoadMore: false })).toBe(
+    copy.exhaustedEmpty
+  )
+  // More pages remain: the loaded rows may simply have been filtered out.
+  expect(emptyAccountListCopy({ ...copy, search: 'zzz', canLoadMore: true })).toContain(
+    'in the results loaded so far'
+  )
+  expect(emptyAccountListCopy({ ...copy, search: '', canLoadMore: true })).toContain(
+    'in the results loaded so far'
+  )
+})

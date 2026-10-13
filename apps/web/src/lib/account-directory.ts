@@ -490,3 +490,23 @@ export function watchAccountIdentity(
     reconcileAccountCacheOwner(queryClient, id)
   })
 }
+
+/**
+ * An empty supplemental list is only "no results" once every page was read.
+ * While more pages exist the rows loaded so far may simply all be filtered out
+ * (search miss, or this workspace's own rows), so say so and keep paging.
+ */
+export function emptyAccountListCopy(input: {
+  search: string
+  canLoadMore: boolean
+  noun: string
+  exhaustedSearch: string
+  exhaustedEmpty: string
+}): string {
+  if (input.canLoadMore) {
+    return input.search
+      ? `No ${input.noun} matches in the results loaded so far. Load more to keep looking.`
+      : `No ${input.noun}s from other workspaces in the results loaded so far. Load more to keep looking.`
+  }
+  return input.search ? input.exhaustedSearch : input.exhaustedEmpty
+}

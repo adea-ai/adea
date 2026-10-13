@@ -34,11 +34,11 @@ export type AgentCustomizationInput = Readonly<{
 }>
 
 type Props = Readonly<{
-  /** Account-wide durable identities mounted in this existing Agents view. */
-  accountDirectory?: (context: {
-    agents: Accessor<readonly AgentSummary[]>
-    renderAgent: (agent: Accessor<AgentSummary>) => JSX.Element
-  }) => JSX.Element
+  /**
+   * Supplemental account-wide durable identities, mounted below this
+   * workspace's canonical roster in the existing Agents view.
+   */
+  accountDirectory?: (context: { agents: Accessor<readonly AgentSummary[]> }) => JSX.Element
   /** Lead setup status, placed inside the directory's padding under the header. */
   leadStatus?: JSX.Element
   agents: readonly AgentSummary[]
@@ -139,15 +139,10 @@ export function AgentRoster(props: Props) {
     />
   )
   // Mount the account directory once for this roster lifetime. Its local data
-  // and row renderers arrive as accessors, so refetches update the mounted
-  // directory without replacing its query observers or focused controls.
+  // arrives as an accessor, so refetches update the mounted directory without
+  // replacing its query observers or focused controls.
   const accountDirectoryContent = props.accountDirectory
-    ? untrack(() =>
-        props.accountDirectory!({
-          agents: () => props.agents,
-          renderAgent,
-        })
-      )
+    ? untrack(() => props.accountDirectory!({ agents: () => props.agents }))
     : undefined
 
   return (
@@ -167,13 +162,6 @@ export function AgentRoster(props: Props) {
       <Show when={props.leadStatus}>
         {(status) => <div class="conventional-surface-status">{status()}</div>}
       </Show>
-      {accountDirectoryContent ? (
-        accountDirectoryContent
-      ) : (
-        <div class="conventional-agent-grid">
-          <For each={agentRows()}>{(entry) => renderAgent(entry.item)}</For>
-        </div>
-      )}
       <Show when={creating()}>
         <AgentCreateForm
           busy={props.busy}
@@ -219,12 +207,16 @@ export function AgentRoster(props: Props) {
           />
         )}
       </Show>
-      <Show when={!props.agents.length && !props.accountDirectory}>
+      <div class="conventional-agent-grid">
+        <For each={agentRows()}>{(entry) => renderAgent(entry.item)}</For>
+      </div>
+      <Show when={!props.agents.length}>
         <WorkspaceEmpty
           title="No Agents yet"
           detail="Create a durable Agent identity, then start a direct conversation."
         />
       </Show>
+      {accountDirectoryContent}
     </section>
   )
 }
@@ -285,7 +277,10 @@ function AgentCustomizationForm(props: {
             value={props.agent.projectId ?? ''}
             options={[
               { value: '', label: 'Unassigned' },
-              ...props.projects.map((project) => ({ value: project.id, label: project.name })),
+              ...props.projects.map((project) => ({
+                value: project.id,
+                label: project.name,
+              })),
             ]}
           />
         </Label>

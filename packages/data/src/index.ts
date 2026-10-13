@@ -147,18 +147,16 @@ function currentConversationMutation(workspaceId: string, context?: Conversation
 }
 
 function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string) {
-  return async (
+  return (
     result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>,
     _variables?: unknown,
     context?: ConversationMutationContext
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
-    // Both the account summary and inbox project this workspace's unread state.
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary }),
-      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
-    ])
+    // The account summary and inbox project this workspace's unread state.
+    void invalidateAccountInbox(queryClient)
+    void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
   }
 }
 
@@ -296,10 +294,8 @@ function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) }),
-      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
-    ])
+    void invalidateAccountInbox(queryClient)
+    await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
   }
 }
 export const channelMutationOptions = {
@@ -371,12 +367,10 @@ function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, c
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
     const targetChannelId = channelId ?? result.message.channelId
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
-      }),
-      queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll }),
-    ])
+    void invalidateAccountInbox(queryClient)
+    await queryClient.invalidateQueries({
+      queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
+    })
   }
 }
 export const messageMutationOptions = {
@@ -767,12 +761,19 @@ export const agentMutationOptions = {
   }),
 }
 
-/** Agent writes change both their workspace roster and the account search. */
+/**
+ * Agent writes change both their workspace roster and the account search. Only
+ * the roster is awaited: the account list is supplemental, so a slow or failing
+ * account query must never hold a save open.
+ */
 async function invalidateAgentDirectory(queryClient: QueryClient, workspaceId: string) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) }),
-    queryClient.invalidateQueries({ queryKey: accountQueryKeys.directoryAll }),
-  ])
+  void queryClient.invalidateQueries({ queryKey: accountQueryKeys.directoryAll })
+  await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+}
+
+/** Fire and forget for the same reason: supplemental account rows never gate a write. */
+function invalidateAccountInbox(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll })
 }
 
 export const projectQueryOptions = {

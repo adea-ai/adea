@@ -948,24 +948,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return props.devSummary?.()
     },
     globalNav: {
-      agents: ({ agents, renderAgent }) => (
+      agents: ({ agents }) => (
         <AccountDirectoryAgents
           client={accountDirectoryClient()}
           workspaces={orderedWorkspaces()}
           searchState={agentDirectorySearchState}
           localAgents={agents}
-          renderLocalAgent={renderAgent}
           onOpenAgent={openDirectoryAgent}
         />
       ),
-      conversations: ({ channels, renderChannel }) => (
+      conversations: ({ channels }) => (
         <AccountConversationInbox
           client={accountDirectoryClient()}
-          activeWorkspaceId={() => props.activeWorkspace?.id}
           searchState={conversationInboxSearchState}
           workspaces={orderedWorkspaces()}
           localChannels={channels}
-          renderLocalChannel={renderChannel}
           onOpenConversation={openAccountConversation}
           selectedChannelId={selectedChannelId}
         />
@@ -1025,11 +1022,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             ? (inboxContext) => (
                 <AccountConversationInbox
                   client={accountDirectoryClient()}
-                  activeWorkspaceId={() => props.activeWorkspace?.id}
                   searchState={conversationInboxSearchState}
                   workspaces={orderedWorkspaces()}
                   localChannels={inboxContext.channels}
-                  renderLocalChannel={inboxContext.renderChannel}
                   onOpenConversation={openAccountConversation}
                   selectedChannelId={selectedChannelId}
                   onCloseSheet={context.closeSheet}

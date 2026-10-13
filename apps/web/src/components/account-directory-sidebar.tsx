@@ -17,6 +17,7 @@ import {
   accountWorkspaceLabel,
   directoryAgentStatus,
   directoryErrorCopy,
+  emptyAccountListCopy,
   inboxEntryLabel,
   inboxKindLabel,
   inboxUnreadModel,
@@ -30,7 +31,6 @@ import {
   createSignal,
   onCleanup,
   type Accessor,
-  type JSX,
 } from 'solid-js'
 import type { ChannelSummary, AgentSummary } from '@adea-ai/types'
 
@@ -93,19 +93,20 @@ export function AccountDirectoryAgents(props: {
   client: AccountDirectoryApiClient
   workspaces: readonly WorkspaceSummary[]
   searchState: AccountDirectorySearchState
+  /** This workspace's canonical Agents; they render in the roster above, not here. */
   localAgents: Accessor<readonly AgentSummary[]>
-  renderLocalAgent: (agent: Accessor<AgentSummary>) => JSX.Element
   onOpenAgent: (agent: AccountDirectoryAgent) => void
 }) {
   const { term, setTerm, includeArchived, setIncludeArchived } = props.searchState
   const search = useSearchInput(term)
   const baseInput = useBaseInput(search, includeArchived)
   const pages = createAccountDirectoryPages(props.client, { baseInput })
+  const localAgentIds = createMemo(() => new Set(props.localAgents().map((agent) => agent.id)))
+  // Supplemental only: the workspace's own Agents stay in the canonical roster.
   const visibleAgents = createMemo(() =>
-    matchingSearchRows(pages.rows(), search(), (agent) => agent.name)
-  )
-  const visibleLocalAgents = createMemo(() =>
-    matchingSearchRows(props.localAgents(), search(), (agent) => agent.name)
+    matchingSearchRows(pages.rows(), search(), (agent) => agent.name).filter(
+      (agent) => !localAgentIds().has(agent.id)
+    )
   )
   const [online, setOnline] = createSignal(true)
   const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -118,9 +119,6 @@ export function AccountDirectoryAgents(props: {
       window.removeEventListener('offline', updateOnlineStatus)
     })
   })
-  const localAgentsById = createMemo(
-    () => new Map(props.localAgents().map((agent) => [agent.id, agent]))
-  )
   const renderDirectoryAgent = (agent: AccountDirectoryAgent) => {
     const status = directoryAgentStatus(agent)
     const workspaceName = accountWorkspaceLabel(props.workspaces, agent.workspaceId)
@@ -147,7 +145,7 @@ export function AccountDirectoryAgents(props: {
       <header class="mb-3">
         <h2 class="text-base font-semibold">Across your workspaces</h2>
         <p class="text-muted-foreground text-sm">
-          Search and manage the same durable identities across every workspace.
+          Agents from your other workspaces. This workspace's Agents are listed above.
         </p>
       </header>
       <div class="mb-3 flex items-center gap-2">
@@ -190,50 +188,24 @@ export function AccountDirectoryAgents(props: {
       >
         <Show
           when={!pages.error()}
-          fallback={
-            <>
-              <AccountListError error={pages.error()} retry={pages.refresh} />
-              <div class="conventional-agent-grid">
-                <For each={visibleLocalAgents()}>
-                  {(agent) =>
-                    props.renderLocalAgent(() => localAgentsById().get(agent.id) ?? agent)
-                  }
-                </For>
-              </div>
-            </>
-          }
+          fallback={<AccountListError error={pages.error()} retry={pages.refresh} />}
         >
           <Show
             when={visibleAgents().length > 0}
             fallback={
-              <p class="text-muted-foreground py-3 text-sm">
-                {search()
-                  ? 'No authorized Agent name matches this search.'
-                  : 'No durable identities are available in your workspaces.'}
+              <p class="text-muted-foreground py-3 text-sm" role="status">
+                {emptyAccountListCopy({
+                  search: search(),
+                  canLoadMore: pages.canLoadMore(),
+                  noun: 'Agent',
+                  exhaustedSearch: 'No authorized Agent name matches this search.',
+                  exhaustedEmpty: 'Agents from your other workspaces appear here.',
+                })}
               </p>
             }
           >
             <div class="conventional-agent-grid">
-              <For each={visibleAgents()}>
-                {(agent) => {
-                  const localAgent = () => localAgentsById().get(agent.id)
-                  return (
-                    <Show when={localAgent()} fallback={renderDirectoryAgent(agent)}>
-                      {(currentAgent) => (
-                        <Show
-                          when={
-                            agent.lifecycleState === 'active' &&
-                            currentAgent().lifecycleState === 'active'
-                          }
-                          fallback={renderDirectoryAgent(agent)}
-                        >
-                          {props.renderLocalAgent(currentAgent)}
-                        </Show>
-                      )}
-                    </Show>
-                  )
-                }}
-              </For>
+              <For each={visibleAgents()}>{renderDirectoryAgent}</For>
             </div>
           </Show>
         </Show>
@@ -259,23 +231,25 @@ export function AccountDirectoryAgents(props: {
 export function AccountConversationInbox(props: {
   client: AccountDirectoryApiClient
   searchState: AccountDirectorySearchState
-  activeWorkspaceId: Accessor<string | undefined>
   workspaces: readonly WorkspaceSummary[]
   onOpenConversation: (entry: AccountConversationInboxEntry) => void
   selectedChannelId: Accessor<string | null | undefined>
   onCloseSheet?: () => void
+  /** This workspace's canonical conversations; they render in the section above, not here. */
   localChannels: Accessor<readonly ChannelSummary[]>
-  renderLocalChannel: (channel: Accessor<ChannelSummary>) => JSX.Element
 }) {
   const { term, setTerm, includeArchived, setIncludeArchived } = props.searchState
   const search = useSearchInput(term)
   const baseInput = useBaseInput(search, includeArchived)
   const pages = createAccountInboxPages(props.client, { baseInput })
-  const visibleConversations = createMemo(() =>
-    matchingSearchRows(pages.rows(), search(), (entry) => entry.title)
+  const localChannelIds = createMemo(
+    () => new Set(props.localChannels().map((channel) => channel.id))
   )
-  const visibleLocalChannels = createMemo(() =>
-    matchingSearchRows(props.localChannels(), search(), (channel) => channel.title)
+  // Supplemental only: the workspace's own conversations stay in the canonical list.
+  const visibleConversations = createMemo(() =>
+    matchingSearchRows(pages.rows(), search(), (entry) => entry.title).filter(
+      (entry) => !localChannelIds().has(entry.id)
+    )
   )
   const [online, setOnline] = createSignal(true)
   const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -288,9 +262,6 @@ export function AccountConversationInbox(props: {
       window.removeEventListener('offline', updateOnlineStatus)
     })
   })
-  const localChannelsById = createMemo(
-    () => new Map(props.localChannels().map((channel) => [channel.id, channel]))
-  )
   const content = () => (
     <div class="conventional-account-inbox" data-account-inbox="">
       <div class="mb-2 flex items-center gap-2">
@@ -342,78 +313,60 @@ export function AccountConversationInbox(props: {
       >
         <Show
           when={!pages.error()}
-          fallback={
-            <>
-              <AccountListError error={pages.error()} retry={pages.refresh} />
-              <div class="grid gap-1">
-                <For each={visibleLocalChannels()}>
-                  {(channel) =>
-                    props.renderLocalChannel(() => localChannelsById().get(channel.id) ?? channel)
-                  }
-                </For>
-              </div>
-            </>
-          }
+          fallback={<AccountListError error={pages.error()} retry={pages.refresh} />}
         >
           <Show
             when={visibleConversations().length > 0}
             fallback={
-              <p class="text-muted-foreground py-2 text-xs">
-                {search()
-                  ? 'No authorized conversation title matches this search.'
-                  : 'Conversations from your workspaces appear here.'}
+              <p class="text-muted-foreground py-2 text-xs" role="status">
+                {emptyAccountListCopy({
+                  search: search(),
+                  canLoadMore: pages.canLoadMore(),
+                  noun: 'conversation',
+                  exhaustedSearch: 'No authorized conversation title matches this search.',
+                  exhaustedEmpty: 'Conversations from your other workspaces appear here.',
+                })}
               </p>
             }
           >
             <div class="grid gap-1">
               <For each={visibleConversations()}>
                 {(entry) => {
-                  const localChannel = () =>
-                    entry.workspaceId === props.activeWorkspaceId()
-                      ? localChannelsById().get(entry.id)
-                      : undefined
                   const unread = () => inboxUnreadModel(entry)
                   return (
-                    <Show
-                      when={localChannel()}
-                      fallback={
-                        <SidebarNavButton
-                          type="button"
-                          class="min-h-10"
-                          data-selected={entry.id === props.selectedChannelId() ? '' : undefined}
-                          aria-current={entry.id === props.selectedChannelId() ? 'page' : undefined}
-                          aria-label={inboxEntryLabel(
-                            entry,
-                            accountWorkspaceLabel(props.workspaces, entry.workspaceId)
-                          )}
-                          onClick={() => {
-                            props.onOpenConversation(entry)
-                            props.onCloseSheet?.()
-                          }}
-                        >
-                          <span class="min-w-0 flex-1">
-                            <span class="block truncate">{entry.title}</span>
-                            <span class="text-muted-foreground block truncate text-xs">
-                              {accountWorkspaceLabel(props.workspaces, entry.workspaceId)} ·{' '}
-                              {inboxKindLabel(entry)}
-                              {entry.lifecycleState === 'archived' ? ' · Archived' : ''}
-                            </span>
-                          </span>
-                          <Show when={unread().mentions > 0}>
-                            <span class="conventional-unread-badge" aria-hidden="true">
-                              @{unreadBadgeText(unread().mentions)}
-                            </span>
-                          </Show>
-                          <Show when={unread().count > 0 || unread().unread}>
-                            <span class="conventional-unread-badge" aria-hidden="true">
-                              {unread().count > 0 ? unreadBadgeText(unread().count) : '•'}
-                            </span>
-                          </Show>
-                        </SidebarNavButton>
-                      }
+                    <SidebarNavButton
+                      type="button"
+                      class="min-h-10"
+                      data-selected={entry.id === props.selectedChannelId() ? '' : undefined}
+                      aria-current={entry.id === props.selectedChannelId() ? 'page' : undefined}
+                      aria-label={inboxEntryLabel(
+                        entry,
+                        accountWorkspaceLabel(props.workspaces, entry.workspaceId)
+                      )}
+                      onClick={() => {
+                        props.onOpenConversation(entry)
+                        props.onCloseSheet?.()
+                      }}
                     >
-                      {(channel) => props.renderLocalChannel(channel)}
-                    </Show>
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate">{entry.title}</span>
+                        <span class="text-muted-foreground block truncate text-xs">
+                          {accountWorkspaceLabel(props.workspaces, entry.workspaceId)} ·{' '}
+                          {inboxKindLabel(entry)}
+                          {entry.lifecycleState === 'archived' ? ' · Archived' : ''}
+                        </span>
+                      </span>
+                      <Show when={unread().mentions > 0}>
+                        <span class="conventional-unread-badge" aria-hidden="true">
+                          @{unreadBadgeText(unread().mentions)}
+                        </span>
+                      </Show>
+                      <Show when={unread().count > 0 || unread().unread}>
+                        <span class="conventional-unread-badge" aria-hidden="true">
+                          {unread().count > 0 ? unreadBadgeText(unread().count) : '•'}
+                        </span>
+                      </Show>
+                    </SidebarNavButton>
                   )
                 }}
               </For>

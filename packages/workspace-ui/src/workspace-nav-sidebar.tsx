@@ -91,7 +91,9 @@ import {
 // `conventional-workspace-shell.tsx`: Rolldown reported the ineffective
 // dynamic-import boundary in every build (see docs/decisions/0008).
 const EditProjectDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.EditProjectDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.EditProjectDialog,
+  }))
 )
 const RenameConversationDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({
@@ -131,16 +133,14 @@ export type WorkspaceNavHost = Readonly<{
   registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
 }>
 
-/** The workspace roster renderer used by one account-wide, paged Agents list. */
+/** This workspace's canonical Agents, so the supplemental account list can skip them. */
 export type AccountAgentRosterContext = Readonly<{
   agents: Accessor<readonly AgentSummary[]>
-  renderAgent: (agent: Accessor<AgentSummary>) => JSX.Element
 }>
 
-/** The local row renderer used by one account-wide, paged Conversations list. */
+/** This workspace's canonical conversations, so the supplemental account list can skip them. */
 export type AccountConversationInboxContext = Readonly<{
   channels: Accessor<readonly ChannelSummary[]>
-  renderChannel: (channel: Accessor<ChannelSummary>) => JSX.Element
 }>
 
 export function ConversationChannelRow(props: {
@@ -365,7 +365,6 @@ export function ConversationsSection(props: {
     ? untrack(() =>
         props.accountInbox!({
           channels: () => [...props.directChannels, ...props.groupChannels],
-          renderChannel: renderLocalChannel,
         })
       )
     : undefined
@@ -392,18 +391,11 @@ export function ConversationsSection(props: {
       }
     >
       <div class="conventional-sidebar__nav-nested">
-        {accountInboxContent ? (
-          accountInboxContent
-        ) : (
-          <>
-            <For each={directChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
-            <For each={groupChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
-          </>
-        )}
+        <For each={directChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
+        <For each={groupChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
       </div>
-      <Show
-        when={!props.directChannels.length && !props.groupChannels.length && !props.accountInbox}
-      >
+      {accountInboxContent}
+      <Show when={!props.directChannels.length && !props.groupChannels.length}>
         <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
           <MessageCircle aria-hidden="true" />
           Start with an Agent
@@ -475,7 +467,10 @@ type RenameTarget =
   | Readonly<{ kind: 'task'; task: TaskSummary }>
 
 type ConfirmTarget =
-  | Readonly<{ kind: 'archive-project' | 'delete-project'; project: ProjectSummary }>
+  | Readonly<{
+      kind: 'archive-project' | 'delete-project'
+      project: ProjectSummary
+    }>
   | Readonly<{ kind: 'archive-leaf'; target: NavLeafTarget; label: string }>
 
 /** The task a leaf target carries, if any: rename and archive act on it first. */
@@ -496,7 +491,9 @@ function targetTask(target: NavLeafTarget): TaskSummary | undefined {
 export function WorkspaceNavSidebar(props: Props) {
   // One stored width with the Dev sidebar; the toolbar and each contextual
   // sidebar inherit it from the shell root.
-  const sidebarWidth = createSidebarWidth({ fallbackRootSelector: '.conventional-workspace' })
+  const sidebarWidth = createSidebarWidth({
+    fallbackRootSelector: '.conventional-workspace',
+  })
   const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
   const [editingProject, setEditingProject] = createSignal<ProjectSummary | null>(null)
   const [renaming, setRenaming] = createSignal<RenameTarget | null>(null)
@@ -617,7 +614,11 @@ export function WorkspaceNavSidebar(props: Props) {
     // A fresh idempotency key per attempt: a retry after a failure is a new
     // request, while a network replay of this one stays a single create.
     createWorkspace
-      .mutateAsync({ idempotencyKey: createClientRequestId(), name, scene: 'home' })
+      .mutateAsync({
+        idempotencyKey: createClientRequestId(),
+        name,
+        scene: 'home',
+      })
       .then((result) => {
         setCreatingWorkspace(false)
         return props.host.onSwitchWorkspace(result.workspace)
