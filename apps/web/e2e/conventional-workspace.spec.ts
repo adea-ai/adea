@@ -2612,6 +2612,9 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     .getByRole('alertdialog', { name: 'Archive Research Agent' })
     .getByRole('button', { name: 'Cancel' })
     .click()
+  // The dialog returns focus to its trigger when it closes. Wait for that, or a slow
+  // machine presses Tab below and then has focus pulled back to "Archive Agent".
+  await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeHidden()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   for (const mode of ['light', 'dark']) {
     await page.evaluate((theme) => {
