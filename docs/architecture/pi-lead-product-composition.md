@@ -67,3 +67,90 @@ borrowed from a fixture. These settings are code-level deployment prerequisites;
 this change creates no signing key, trust entry, grant, or credential.
 
 The private reader constructs its response inside `withCurrentLeadTurnProduct`: canonical actor, audience, profile and message locks stay held through the final asynchronous service verification and response construction. A detached evidence snapshot must never be used for disclosure after those locks are released.
+
+## Proposed first foreign-Agent execution slice (#1178)
+
+This is a proposal for review before shared-contract edits. The foreign-Agent
+guard remains in force. Start with one enlisted source lead in one host group,
+one explicit human turn and one existing source-authorized execution destination.
+Use the canonical product adapters and upstream Pi-native execution; introduce
+no second conversation or memory engine.
+
+The current `workspaceId` is overloaded: it selects the service credential,
+immutable profile, model, execution correlation and publication scope. Replacing
+it with the Agent's source workspace would lose the host conversation boundary.
+Adding a source field only to profile lookup would leave host model/tool authority
+in place. The smallest complete slice must carry both bindings through the
+existing path, rather than enabling either partial substitution.
+
+| Binding           | Canonical owner and use                                                                                                                                                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Host conversation | Adea host workspace and its CP mapping, channel identity/version, original human, message identity/version, current audience and enlistment. Product reads, join-point history and publication remain host-bound.                                                      |
+| Source Agent      | Adea Agent identity and current home workspace, source CP workspace mapping and CP Agent identity, exact immutable profile ID/version/revision. Profile and model resolution, runtime workspace/tool authority and existing funding authorization remain source-bound. |
+| Native context    | One Pi-native context per host conversation plus qualified source Agent identity. Two groups enlisting the same Agent must not share native history, memory or session state. Execution/attempt identity stays bound to its immutable intent.                          |
+
+Adea must derive the source mapping from the locked canonical Agent/workspace
+rows, never from a browser selector or a claimed grant source. Preserve current
+host actor/audience/enlistment checks and lock ordering. Source mapping/profile
+changes must invalidate retained preparation rather than repin it. The trusted
+evidence digest must bind both workspace mappings, the qualified Agent and
+conversation/context identity as well as existing message/profile/model pins.
+Continue to accept only opaque references in public commands.
+
+CP must retain and compare both bindings across preparation, retry/restart,
+dispatch, continuation and publication. The private host product read keeps its
+host-scoped existing service credential; an enlistment or that credential cannot
+prove source execution authority. CP must independently check existing source
+principal/grants, exact source profile and source model selection, tool workspace
+and recorded payer authority before execution and again before a physical send.
+Explicit role references remain distinct and source-scoped; neither a missing
+source profile/model nor a denied requested selection may fall back to a host
+default. Missing existing source authority keeps execution blocked. This slice
+creates no credentials, grants, accounts or payer authority.
+
+Context input is limited to currently authorized post-join host history and
+explicit audience-aware shared summaries/resources. Do not copy the source
+Agent's private native history or pre-join host history into the group. Revoked
+host audience/enlistment or source execution authority must deny future reads
+and turns immediately. Retain independent job lifecycle; a late result is held
+when publication is no longer authorized. Publication must bind the host
+conversation and the retained source execution/attempt/session/model/actor and
+exact output digest. Keep CP publication verification independent of callbacks
+into Adea while Adea holds its publication transaction locks.
+
+Review the versioned evidence/admission/runtime/publication and public SDK
+compatibility surface together before implementation. Coordinate shared private
+reader/publication files with their cutover owners; #1222 and external Claude
+export/UI work are outside this source-authority slice.
+
+The acceptance proof needs a real disposable source workspace tool effect with
+both positive and denied cases: source profile/model preserved despite different
+host defaults; host authority cannot execute source tools; same-name Agents stay
+qualified; two host groups isolate native context; pre-join/private source history
+is absent; changed mappings/profile pins and revoked host/source authority deny
+fresh reads/dispatch; retry/restart retains both bindings; unauthorized late
+publication writes nothing while independent job state survives. Synthetic ports
+alone cannot qualify this slice. Remove the guard only after the complete dual
+binding path and physical-source proof are reviewed.
+
+## Disposable PostgreSQL checkpoint (2026-10-13)
+
+On published Adea head `5c32e220dac26b0aac6cf0487fe2a8957b02e937`, a fresh
+disposable PostgreSQL 18 instance bound only to loopback passed the canonical
+`bun run --cwd packages/db db:verify` runner: 52 migrations applied and an
+unchanged deterministic rerun. Existing databases were not modified.
+
+With `DATABASE_URL` pointing only to that disposable instance and the
+`react-server` condition, the following integration files passed:
+
+- `packages/db/tests/integration/lead-turn-product.test.ts`: 7 passed, 0 failed,
+  including foreign source propagation, distinct host-group context identity
+  and enlistment revocation.
+- `packages/db/tests/integration/group-channels.test.ts` and
+  `packages/db/tests/integration/lead-turns.test.ts`: 73 passed, 0 failed.
+
+Fresh focused reader/service-auth/runtime/SDK tests also passed 40 tests; the CP
+product/HTTP suite passed 13 on companion published head
+`bc1d84647d62babd5f8241bfcdd0b24087f815ff`. Those focused checks use synthetic
+ports. Database qualification does not establish source runtime/tool effects,
+live provider qualification or completed foreign-Agent execution acceptance.
