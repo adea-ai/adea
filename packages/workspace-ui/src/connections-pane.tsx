@@ -219,33 +219,37 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
                             : `No ready API key for ${row.displayName} is in this device’s vault yet.`
                         }
                       >
-                        <Input
-                          aria-label="Account name"
-                          maxLength={80}
-                          value={draftLabel()}
-                          placeholder="Work account"
-                          onInput={(event) => setDraftLabel(event.currentTarget.value)}
-                        />
-                        <NativeSelect
-                          aria-label="Account credential"
-                          value={draftCredential()}
-                          options={row.accountCredentials}
-                          onChange={(event) => setDraftCredential(event.currentTarget.value)}
-                        />
-                        <Button
-                          type="button"
-                          disabled={busy() || row.accountCredentials.length === 0}
-                          onClick={() => saveAccount(row)}
-                        >
-                          Save account
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => setAddingFor(undefined)}
-                        >
-                          Cancel
-                        </Button>
+                        <div class="flex flex-col gap-2">
+                          <Input
+                            aria-label="Account name"
+                            maxLength={80}
+                            value={draftLabel()}
+                            placeholder="Work account"
+                            onInput={(event) => setDraftLabel(event.currentTarget.value)}
+                          />
+                          <div class="flex flex-wrap items-center gap-2">
+                            <NativeSelect
+                              aria-label="Account credential"
+                              value={draftCredential()}
+                              options={row.accountCredentials}
+                              onChange={(event) => setDraftCredential(event.currentTarget.value)}
+                            />
+                            <Button
+                              type="button"
+                              disabled={busy() || row.accountCredentials.length === 0}
+                              onClick={() => saveAccount(row)}
+                            >
+                              Save account
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => setAddingFor(undefined)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
                       </SettingsRow>
                     </Show>
                   </>
