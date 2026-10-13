@@ -61,12 +61,6 @@ import {
   TreeRowActions,
   type TreeItemDescriptor,
 } from '@adea-ai/ui/components/composites/tree'
-import {
-  CommandDialog,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@adea-ai/ui/components/ui/command'
 import { VirtualWindow } from '@adea-ai/ui/components/layout/virtual-window'
 
 export type FilesPaneProps = Readonly<{
@@ -662,19 +656,38 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // onOpenFile path as tree selection. Bounded to 20 results.
   const [quickOpenOpen, setQuickOpenOpen] = createSignal(false)
   const [quickOpenQuery, setQuickOpenQuery] = createSignal('')
-  const [filesPaneElement, setFilesPaneElement] = createSignal<HTMLElement>()
   const loadedPaths = (): readonly string[] => flattenPaths(nodes())
   const quickOpenResults = (): readonly string[] => fuzzyQuickOpen(loadedPaths(), quickOpenQuery())
+
+  // A plain search box over a list of buttons: cmdk and the Kobalte dialog it
+  // sits in cost more bytes than the whole picker, for a non-modal list under
+  // the toolbar. Enter opens the top match; arrows move focus through results.
+  let quickOpenOpener: HTMLElement | null = null
+  const [quickOpenResultsElement, setQuickOpenResultsElement] = createSignal<HTMLUListElement>()
 
   function openQuickOpen(): void {
     setNotice(undefined)
     setQuickOpenQuery('')
+    quickOpenOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setQuickOpenOpen(true)
   }
 
   function closeQuickOpen(): void {
     setQuickOpenOpen(false)
     setQuickOpenQuery('')
+    quickOpenOpener?.focus()
+    quickOpenOpener = null
+  }
+
+  /** Move focus through the result buttons; `from` is -1 for the search box. */
+  function moveQuickOpenFocus(from: number, step: 1 | -1): void {
+    const buttons = [...(quickOpenResultsElement()?.querySelectorAll('button') ?? [])]
+    if (buttons.length === 0) return
+    const next = from + step
+    // Wrap between the search box (index -1) and the first/last result.
+    if (next < 0) buttons[buttons.length - 1]?.focus()
+    else if (next >= buttons.length) buttons[0]?.focus()
+    else buttons[next]?.focus()
   }
 
   function openQuickOpenResult(relativePath: string): void {
@@ -911,7 +924,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
 
   return (
     <section
-      ref={setFilesPaneElement}
       class="dev-files"
       aria-label="Files"
       onFocusIn={() => setUserFocusedRow(true)}
@@ -1025,43 +1037,67 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           <RefreshCw aria-hidden="true" />
         </ActionButton>
       </div>
-      <CommandDialog
-        open={quickOpenOpen()}
-        onOpenChange={(open: boolean) => {
-          if (!open) closeQuickOpen()
-        }}
-        container={filesPaneElement()}
-        label="Quick open"
-        modal={false}
-        shouldFilter={false}
-        loop
-        vimBindings={false}
-        overlayClassName="hidden"
-        class="absolute left-2 right-2 top-10 z-(--z-menu) flex max-h-3/5 w-auto max-w-none translate-x-0 translate-y-0 flex-col"
-      >
-        <CommandInput
-          class="min-w-0 flex-1"
-          placeholder="Jump to a file…"
-          value={quickOpenQuery()}
-          autofocus
-          onValueChange={(query) => setQuickOpenQuery(query)}
-        />
-        <CommandList class="min-h-0 overflow-y-auto" label="Matching files">
-          <For each={quickOpenResults()}>
-            {(path) => (
-              <CommandItem value={path} onSelect={() => openQuickOpenResult(path)}>
-                <FileIcon aria-hidden="true" class="dev-files__icon" />
-                <span class="dev-files__name">{path}</span>
-              </CommandItem>
-            )}
-          </For>
-        </CommandList>
-        <Show when={quickOpenResults().length === 0}>
-          <p class="dev-terminal-muted dev-files__quickopen-empty" role="status">
-            No loaded file matches. Expand more of the tree, then search again.
-          </p>
-        </Show>
-      </CommandDialog>
+      <Show when={quickOpenOpen()}>
+        <section
+          aria-label="Quick open"
+          class="absolute inset-x-2 top-10 z-(--z-menu) flex max-h-3/5 flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
+        >
+          <Input
+            aria-label="Quick open"
+            placeholder="Jump to a file…"
+            value={quickOpenQuery()}
+            ref={(element) => queueMicrotask(() => element.focus())}
+            onInput={(event) => setQuickOpenQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                moveQuickOpenFocus(-1, 1)
+              } else if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                moveQuickOpenFocus(0, -1)
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                const path = quickOpenResults()[0]
+                if (path !== undefined) openQuickOpenResult(path)
+              }
+            }}
+          />
+          <ul
+            ref={setQuickOpenResultsElement}
+            aria-label="Matching files"
+            class="m-0 min-h-0 list-none overflow-y-auto p-0"
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+              event.preventDefault()
+              const buttons = [...event.currentTarget.querySelectorAll('button')]
+              const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
+              moveQuickOpenFocus(at, event.key === 'ArrowDown' ? 1 : -1)
+            }}
+          >
+            <For each={quickOpenResults()}>
+              {(path) => (
+                <li>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="w-full justify-start"
+                    onClick={() => openQuickOpenResult(path)}
+                  >
+                    <FileIcon aria-hidden="true" class="dev-files__icon" />
+                    <span class="dev-files__name">{path}</span>
+                  </Button>
+                </li>
+              )}
+            </For>
+          </ul>
+          <Show when={quickOpenResults().length === 0}>
+            <p class="dev-terminal-muted dev-files__quickopen-empty" role="status">
+              No loaded file matches. Expand more of the tree, then search again.
+            </p>
+          </Show>
+        </section>
+      </Show>
       <Show
         when={runtimeReady()}
         fallback={

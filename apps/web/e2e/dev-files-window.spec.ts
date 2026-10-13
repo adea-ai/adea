@@ -167,39 +167,37 @@ test('focused tree rows stay mounted through keyboard open, and filter can clear
   expect((await readReport(page)).listPageCalls).toHaveLength(3)
 })
 
-test('Quick Open keeps fuzzy ordering, Command keyboard selection, file identity, and focus return', async ({
+test('Quick Open keeps fuzzy ordering, keyboard selection, file identity, and focus return', async ({
   page,
 }) => {
   await mountFilesPane(page)
   const opener = page.getByRole('button', { name: 'Quick open files' })
 
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Quick open' })
-  const input = dialog.getByRole('combobox', { name: 'Quick open' })
-  const list = dialog.getByRole('listbox', { name: 'Matching files' })
+  const dialog = page.getByRole('region', { name: 'Quick open' })
+  const input = dialog.getByRole('textbox', { name: 'Quick open' })
+  const list = dialog.getByRole('list', { name: 'Matching files' })
   await expect(dialog).toBeVisible()
   await expect(input).toBeFocused()
 
   await input.fill('file')
-  const options = list.getByRole('option')
+  const options = list.getByRole('button')
   await expect(options).toHaveCount(20)
-  const listId = await list.getAttribute('id')
-  const firstOptionId = await options.nth(0).getAttribute('id')
-  expect(listId).toBeTruthy()
-  expect(await input.getAttribute('aria-controls')).toBe(listId)
-  expect(await input.getAttribute('aria-activedescendant')).toBe(firstOptionId)
-  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
 
+  // Arrows move focus through the results and wrap back to the search box's
+  // neighbours at either end.
   await input.press('ArrowDown')
-  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true')
-  await input.press('ArrowUp')
-  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
-  await input.press('ArrowUp')
-  await expect(options.nth(19)).toHaveAttribute('aria-selected', 'true')
+  await expect(options.nth(0)).toBeFocused()
+  await options.nth(0).press('ArrowDown')
+  await expect(options.nth(1)).toBeFocused()
+  await options.nth(1).press('ArrowUp')
+  await expect(options.nth(0)).toBeFocused()
+  await options.nth(0).press('ArrowUp')
+  await expect(options.nth(19)).toBeFocused()
 
+  // Enter in the search box opens the top match.
   await input.fill('file-1199.txt')
-  const target = list.getByRole('option', { name: 'file-1199.txt' })
-  await expect(target).toHaveAttribute('aria-selected', 'true')
+  await expect(list.getByRole('button', { name: 'file-1199.txt' })).toBeVisible()
   await input.press('Enter')
   await expect(dialog).toBeHidden()
   await expect
@@ -221,8 +219,8 @@ test('Quick Open keeps fuzzy ordering, Command keyboard selection, file identity
   await expect(opener).toBeFocused()
 
   await opener.click()
-  const reopened = page.getByRole('dialog', { name: 'Quick open' })
-  const reopenedInput = reopened.getByRole('combobox', { name: 'Quick open' })
+  const reopened = page.getByRole('region', { name: 'Quick open' })
+  const reopenedInput = reopened.getByRole('textbox', { name: 'Quick open' })
   await reopenedInput.fill('no-loaded-file-matches')
   await expect(reopened.getByRole('status')).toHaveText(
     'No loaded file matches. Expand more of the tree, then search again.'
@@ -230,4 +228,18 @@ test('Quick Open keeps fuzzy ordering, Command keyboard selection, file identity
   await reopenedInput.press('Escape')
   await expect(reopened).toBeHidden()
   await expect(opener).toBeFocused()
+
+  // Clicking a result opens it too.
+  await opener.click()
+  await page
+    .getByRole('region', { name: 'Quick open' })
+    .getByRole('textbox', { name: 'Quick open' })
+    .fill('file-1198.txt')
+  await page
+    .getByRole('region', { name: 'Quick open' })
+    .getByRole('button', { name: 'file-1198.txt' })
+    .click()
+  await expect
+    .poll(async () => (await readReport(page)).openedFile?.relativePath)
+    .toBe('file-1198.txt')
 })
