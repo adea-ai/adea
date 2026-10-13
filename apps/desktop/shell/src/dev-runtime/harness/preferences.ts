@@ -53,6 +53,11 @@ export type HarnessPreferenceAuthority = Readonly<{
    * means nothing is launchable — the caller reports the typed gap.
    */
   resolveDefault(projectId: string | undefined): PreferenceResolution | undefined
+  /**
+   * True when the user disabled this installation for the project (or for the whole workspace).
+   * A disabled harness is never auto-launched, whichever default names it.
+   */
+  isDisabled(installationId: string, projectId: string | undefined): boolean
 }>
 
 export function createHarnessPreferenceAuthority(input: {
@@ -156,6 +161,14 @@ export function createHarnessPreferenceAuthority(input: {
         storedInScope().filter((record) =>
           projectId === undefined ? false : record.projectId !== projectId
         )
+      )
+    },
+    isDisabled(installationId, projectId) {
+      return storedInScope().some(
+        (record) =>
+          record.harnessInstallationId === installationId &&
+          !record.enabled &&
+          (record.projectId === undefined || record.projectId === projectId)
       )
     },
     resolveDefault(projectId) {
