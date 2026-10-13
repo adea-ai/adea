@@ -63,7 +63,9 @@ test('personal Home remains protected after renaming and changing its icon', asy
   await expect(settings.getByRole('button', { name: 'Delete workspace', exact: true })).toHaveCount(
     0
   )
-  await expect(settings).toContainText('Your personal workspace stays with your account')
+  await expect(settings).toContainText(
+    'Home can’t be archived or deleted. It stays with your account'
+  )
   const name = settings.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Personal studio')
   await name.blur()

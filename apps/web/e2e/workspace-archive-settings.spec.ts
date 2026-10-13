@@ -45,14 +45,39 @@ const reopenRow = (page: Page, name: string) =>
   page.getByRole('button', { name: `Reopen ${name}`, exact: true })
 const root = (page: Page) => page.locator('#harness-root')
 
+test('the archive confirmation names its consequences and the live member count before committing', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  await archiveButton(page).click()
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await expect(consequences).toContainText('Work that is already running is not cancelled.')
+  await expect(consequences).toContainText(
+    'Nothing is erased. Its history, links, jobs and artifacts are kept'
+  )
+  await expect(consequences).toContainText(
+    'Permanent deletion stays unavailable until cleanup is verified.'
+  )
+  await expect(root(page)).not.toHaveAttribute('data-archive-calls')
+  expect(errors).toEqual([])
+})
+
+test('an unreadable member list never invents a count', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': 'error' })
+  await archiveButton(page).click()
+  await expect(page.getByRole('list', { name: 'Archive consequences' })).toContainText(
+    'Every member loses access until you reopen it.'
+  )
+  expect(errors).toEqual([])
+})
+
 test('the owner archives an optional workspace, finds it in the archived list, and reopens it', async ({
   page,
 }) => {
   const errors = await openArchiveHarness(page)
   await archiveButton(page).click()
-  await expect(
-    page.getByText('Archive Settings harness? It is hidden from your workspace list.')
-  ).toBeVisible()
+  await expect(page.getByText('Archive Settings harness?', { exact: true })).toBeVisible()
   await archiveButton(page).click()
   await expect(archivedToast(page)).toBeVisible()
   await expect(reopenRow(page, 'Settings harness')).toBeVisible()
@@ -93,9 +118,7 @@ test('the confirmation keeps its captured target when the active workspace chang
   await page
     .locator('#switch-fixture-workspace')
     .evaluate((element) => (element as HTMLElement).click())
-  await expect(
-    page.getByText('Archive Settings harness? It is hidden from your workspace list.')
-  ).toBeVisible()
+  await expect(page.getByText('Archive Settings harness?', { exact: true })).toBeVisible()
   await archiveButton(page).click()
   await expect(archivedToast(page)).toBeVisible()
   await expect(root(page)).toHaveAttribute('data-archive-target', 'workspace-settings-e2e')

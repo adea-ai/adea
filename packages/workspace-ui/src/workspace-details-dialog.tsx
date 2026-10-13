@@ -266,7 +266,7 @@ export function WorkspaceDetailsDialog(props: {
                   </Show>
                   <Show when={props.workspace.isPersonal}>
                     <Text variant="caption" tone="muted" class="mt-4">
-                      Your personal workspace stays with your account.
+                      Home can’t be archived or deleted. It stays with your account.
                     </Text>
                   </Show>
                   <Show when={apiClient()}>

@@ -109,6 +109,18 @@ function archiveFixtureClient(): AgentHqApiClient {
     async listArchivedWorkspaces() {
       return { workspaces: archivedRows }
     },
+    async listWorkspaceMembers() {
+      const staged = harnessRoot().getAttribute('data-archive-members')
+      if (staged === 'error') throw new ApiClientError('Server error', 500)
+      const total = Math.max(1, Number(staged ?? 1))
+      return {
+        members: Array.from({ length: total }, (_, index) => ({
+          displayName: index === 0 ? 'Owner' : `Member ${index}`,
+          role: index === 0 ? ('owner' as const) : ('member' as const),
+          userId: `member-${index}`,
+        })),
+      }
+    },
     async reopenWorkspace(workspaceId: string) {
       countCall('data-reopen-calls')
       const row = archivedRows.find((candidate) => candidate.id === workspaceId)

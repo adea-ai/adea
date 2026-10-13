@@ -1,10 +1,13 @@
 import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
-import { useArchiveWorkspaceMutation } from '@adea-ai/data'
+import { useArchiveWorkspaceMutation, useWorkspaceMembersQuery } from '@adea-ai/data'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { toast } from '@adea-ai/ui/components/ui/toast'
-import { createSignal, Show } from 'solid-js'
+import { Text } from '@adea-ai/ui/components/ui/typography'
+import { createSignal, For, Show } from 'solid-js'
+
+import { archiveConsequences, type ArchiveMemberCount } from './workspace-archive-consequences'
 
 type ArchiveTarget = Readonly<{ id: string; name: string }>
 
@@ -22,8 +25,9 @@ function archiveFailureMessage(failure: unknown): string {
 /**
  * Archives an optional workspace for its owner. The confirmation captures the target by ID and name
  * when it opens, so a change to the active workspace while it is open cannot retarget the archive.
- * Archive hides the workspace and keeps its history and links; the server repeats the owner check and
- * refuses Home. Reopen lives in the durable archived-workspaces list, not in this row. Success is a
+ * Archive hides the workspace for all of its members and keeps its history and links; the
+ * confirmation lists those consequences, with the live member count, before the owner commits. The
+ * server repeats the owner check and refuses Home. Reopen lives in the durable archived-workspaces list, not in this row. Success is a
  * shared toast rather than a line in this panel: archive moves the shell off the workspace, which
  * unmounts this panel, and the toast outlives it.
  */
@@ -34,6 +38,14 @@ export function WorkspaceArchiveSettings(props: {
   const archive = useArchiveWorkspaceMutation(props.client)
   const [target, setTarget] = createSignal<ArchiveTarget | null>(null)
   const [error, setError] = createSignal<string | null>(null)
+  // Read only while the confirmation is open, for the captured target.
+  const members = useWorkspaceMembersQuery(props.client, () => target()?.id)
+  const memberCount = (): ArchiveMemberCount =>
+    members.data
+      ? { state: 'known', total: members.data.members.length }
+      : members.isError
+        ? { state: 'unavailable' }
+        : { state: 'loading' }
 
   function openConfirmation() {
     setError(null)
@@ -58,7 +70,7 @@ export function WorkspaceArchiveSettings(props: {
   return (
     <SettingsRow
       label="Archive workspace"
-      description="Hides this workspace from your list. Its history and links are kept."
+      description="Hides this workspace for all of its members. Its history and links are kept."
     >
       <div class="flex flex-col gap-2">
         <Show
@@ -71,10 +83,16 @@ export function WorkspaceArchiveSettings(props: {
         >
           {(captured) => (
             <>
-              <p>
-                Archive {captured().name}? It is hidden from your workspace list. Its history and
-                links are kept.
-              </p>
+              <p>Archive {captured().name}?</p>
+              <ul class="flex list-disc flex-col gap-1 ps-5" aria-label="Archive consequences">
+                <For each={archiveConsequences(memberCount())}>
+                  {(line) => (
+                    <li>
+                      <Text variant="label">{line}</Text>
+                    </li>
+                  )}
+                </For>
+              </ul>
               <div class="flex items-center gap-2">
                 <Button
                   disabled={archive.isPending}
