@@ -9,7 +9,6 @@ export {
   type ConversationSearchPage,
   type ConversationSearchRow,
 } from './conversation-search-model'
-export { ChatHistorySearch, type ChatHistorySearchProps } from './chat-history-search'
 export {
   exportTranscriptWindow,
   type TranscriptExport,

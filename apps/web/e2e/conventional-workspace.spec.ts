@@ -2600,10 +2600,23 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     expectedRevision: 0,
   })
 
+  // The saved form closes after its last request resolves. Reopening before that
+  // lets the closing form's height change move the section's scroll position
+  // underneath the click, so the dialog backdrop was captured at a different
+  // scroll offset from run to run.
+  await expect(form).toBeHidden()
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   await expect(page.getByText('Permanent deletion is unavailable')).toBeVisible()
-  await page.getByRole('button', { name: 'Archive Agent' }).click()
+  const archiveAgent = page.getByRole('button', { name: 'Archive Agent' })
+  // Pin the scrolled backdrop: reveal the button flush with the scrollport's
+  // bottom edge (what a click from the top would do) instead of leaving the
+  // offset to however far the reopen scrolled, then require it to hold.
+  const directory = page.locator('section.conventional-directory')
+  await archiveAgent.evaluate((element) => element.scrollIntoView({ block: 'end' }))
+  const pinnedScroll = await directory.evaluate((element) => element.scrollTop)
+  await archiveAgent.click()
   await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeVisible()
+  await expect.poll(() => directory.evaluate((element) => element.scrollTop)).toBe(pinnedScroll)
   await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
     animations: 'disabled',
   })
