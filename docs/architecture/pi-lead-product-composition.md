@@ -179,3 +179,20 @@ A PostgreSQL Agent-lock barrier reproduces an audience grant expiring after the
 host helper's earlier time snapshot; the source reader denies disclosure without
 renewing either grant. Source-to-host lock-order review and full lifecycle/physical
 source qualification remain outstanding.
+
+### Candidate shared-contract consumer
+
+`sourceLeadProductSnapshot` projects the locked canonical source product into the
+actual candidate shared host/source schema, keeping the original prompt and fixed
+intent-derived expiry. It uses the shared conversation+Agent context helper;
+missing candidate contracts fail closed. `isSourceLeadPublicationCurrent` compares
+trusted publication metadata to the same locked host/source product, exact retained
+profile/model/execution/attempt/session/preparation/dispatch pins and exact UTF8
+output digest. Audience, enlistment, source profile/mapping or deadline changes
+deny; a read or delivery never renews the intent lifetime.
+
+These are candidate in-process adapters, tested against the actual CP checkout's
+shared schemas. They create no authority or publication effect and are not wired
+to HTTP, the shared guarded reader or existing runtime/preparation/publication
+routes. Source-authorized destination configuration, production combined fences,
+delivery integration and disposable physical tool-effect proof remain outstanding.
