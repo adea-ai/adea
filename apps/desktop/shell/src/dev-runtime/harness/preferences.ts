@@ -101,6 +101,7 @@ export function createHarnessPreferenceAuthority(input: {
       sortKey: sortKeyFor(0),
       default: true,
       version: 1,
+      rootDefault: true,
     }
   }
 

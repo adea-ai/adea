@@ -13,6 +13,7 @@ import {
   INSTALLATION_STATE_LABELS,
   installationDisplayState,
   isGlobalDefault,
+  type HarnessDefaultSummary,
   type HarnessInventoryRow,
   type InstallationDisplayState,
   type HarnessStatusTone,
@@ -41,7 +42,14 @@ export function HarnessStatusPane(props: {
   busy?: boolean
   /** The last typed failure of a rescan or default change. */
   actionError?: string
-  onMakeDefault?: (installationId: string) => void
+  /** Which rule decides a new session's harness, from the backend-confirmed rows. */
+  defaultSummary?: HarnessDefaultSummary
+  /** Device first: every workspace without its own default uses this one. */
+  onMakeDeviceDefault?: (row: HarnessInventoryRow) => void
+  /** The quieter per-workspace override. */
+  onUseInWorkspace?: (row: HarnessInventoryRow) => void
+  /** Drops this workspace's override so it follows the device default again. */
+  onUseDeviceDefault?: () => void
   onRescan?: () => void
   onJumpToTerminal?: () => void
   onResume?: (run: HarnessRun) => void
@@ -50,8 +58,7 @@ export function HarnessStatusPane(props: {
   const globalDefault = () => props.preferences.find((preference) => isGlobalDefault(preference))
   const defaultLabel = (): string => {
     const preference = globalDefault()
-    const named = props.inventoryRows?.find((row) => row.isDefault)
-    if (named) return named.name
+    if (props.defaultSummary) return props.defaultSummary.name ?? 'No default set'
     if (!preference) return props.managedPi?.executableLabel ?? 'No default set'
     if (props.managedPi?.installationId === preference.harnessInstallationId) {
       return props.managedPi.executableLabel ?? 'Managed Pi'
@@ -106,7 +113,45 @@ export function HarnessStatusPane(props: {
           )}
         </Show>
       </p>
-      <p>Default harness: {defaultLabel()}</p>
+      <p>
+        Default harness: {defaultLabel()}
+        <Show when={props.defaultSummary?.source === 'device'}>
+          <span class="text-muted-foreground"> (device default)</span>
+        </Show>
+        <Show when={props.defaultSummary?.source === 'workspace'}>
+          <span class="text-muted-foreground"> (this workspace)</span>
+        </Show>
+        <Show when={props.defaultSummary?.source === 'fallback'}>
+          <span class="text-muted-foreground"> (until you choose a device default)</span>
+        </Show>
+      </p>
+      <Show when={props.defaultSummary?.source === 'workspace' && props.onUseDeviceDefault}>
+        <p class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="text-muted-foreground">
+            <Show
+              when={props.defaultSummary?.overriddenDeviceName}
+              fallback="This workspace has its own default."
+            >
+              {(name) => <>This workspace overrides your device default ({name()}).</>}
+            </Show>
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={props.busy}
+            onClick={() => props.onUseDeviceDefault?.()}
+          >
+            Use device default
+          </Button>
+        </p>
+      </Show>
+      <Show when={props.defaultSummary?.deviceDefaultMissing}>
+        <p role="status" class="text-xs">
+          Your device default is not installed and ready on this device, so new sessions cannot
+          start with it. Rescan, or choose another harness.
+        </p>
+      </Show>
       <Show when={status().terminalFallback}>
         <p>
           Structured transport unavailable; showing the terminal transcript projection.
@@ -170,24 +215,35 @@ export function HarnessStatusPane(props: {
                         <Badge variant="outline">{capabilityLabel(capability)}</Badge>
                       )}
                     </For>
-                    <Show
-                      when={row.isDefault}
-                      fallback={
-                        <Show when={props.onMakeDefault && row.canMakeDefault}>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={props.busy}
-                            aria-label={`Make ${row.name} the default harness`}
-                            onClick={() => props.onMakeDefault?.(row.installationId)}
-                          >
-                            Make default
-                          </Button>
-                        </Show>
-                      }
-                    >
-                      <Badge variant="secondary">default</Badge>
+                    <Show when={row.isDeviceDefault}>
+                      <Badge variant="secondary">Device default</Badge>
+                    </Show>
+                    <Show when={row.isWorkspaceDefault}>
+                      <Badge variant="secondary">This workspace</Badge>
+                    </Show>
+                    <Show when={props.onMakeDeviceDefault && row.canMakeDeviceDefault}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={props.busy}
+                        aria-label={`Make ${row.name} the device default harness`}
+                        onClick={() => props.onMakeDeviceDefault?.(row)}
+                      >
+                        Make device default
+                      </Button>
+                    </Show>
+                    <Show when={props.onUseInWorkspace && row.canUseInWorkspace}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={props.busy}
+                        aria-label={`Use ${row.name} for this workspace only`}
+                        onClick={() => props.onUseInWorkspace?.(row)}
+                      >
+                        Use for this workspace
+                      </Button>
                     </Show>
                   </span>
                 }
