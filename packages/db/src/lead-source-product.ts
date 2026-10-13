@@ -108,7 +108,26 @@ export async function withCurrentSourceLeadTurnProduct<T>(
         )
         if (!admissionInForce(enlistment, product.channelId, new Date().toISOString()))
           throw new Error('Lead turn unavailable')
-        return disclose(
+        // The host helper's earlier clock can precede waits on Agent/message
+        // locks. Re-read the original human's window after every awaited lock,
+        // immediately before disclosure, without refreshing the grant's expiry.
+        const actor = await loadGroupAdmission(
+          tx,
+          product.workspaceId,
+          product.channelId,
+          {
+            kind: 'user',
+            userId: product.actorUserId,
+          },
+          { forUpdate: true }
+        )
+        const disclosureAt = new Date().toISOString()
+        if (
+          !admissionInForce(actor, product.channelId, disclosureAt) ||
+          !admissionInForce(enlistment, product.channelId, disclosureAt)
+        )
+          throw new Error('Lead turn unavailable')
+        const result = await disclose(
           Object.freeze({
             ...product,
             sourceControlPlaneWorkspaceId: source.controlPlaneWorkspaceId,
@@ -116,6 +135,15 @@ export async function withCurrentSourceLeadTurnProduct<T>(
             enlistmentRevision: enlistment!.authorization.revision,
           })
         )
+        // A private response may await final service verification. Locked grant
+        // rows cannot be revoked concurrently, but their fixed expiry can lapse.
+        const acceptedAt = new Date().toISOString()
+        if (
+          !admissionInForce(actor, product.channelId, acceptedAt) ||
+          !admissionInForce(enlistment, product.channelId, acceptedAt)
+        )
+          throw new Error('Lead turn unavailable')
+        return result
       }
     )
   })

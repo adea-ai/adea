@@ -171,3 +171,11 @@ This reader creates no service credentials or source CP execution/model/tool/pay
 authority. Its consumer must independently verify existing service authority for
 both workspaces and current CP source authority. It is not wired to the HTTP
 endpoint or enabled execution; the foreign-Agent guard remains unchanged.
+
+Review repair: after the host helper's Agent/message lock waits, the source
+reader rereads the original human audience window and rechecks both audience and
+enlistment immediately before disclosure and after awaited final verification.
+A PostgreSQL Agent-lock barrier reproduces an audience grant expiring after the
+host helper's earlier time snapshot; the source reader denies disclosure without
+renewing either grant. Source-to-host lock-order review and full lifecycle/physical
+source qualification remain outstanding.

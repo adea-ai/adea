@@ -11,7 +11,7 @@ import {
   revokeGroupGrant,
 } from '../../src/group-channels'
 import { withCurrentSourceLeadTurnProduct } from '../../src/lead-source-product'
-import { workspaceMemberships, workspaces } from '../../src/schema'
+import { agents, groupAudienceGrants, workspaceMemberships, workspaces } from '../../src/schema'
 
 const databaseUrl = process.env.DATABASE_URL
 describe.skipIf(!databaseUrl)('canonical foreign source product', () => {
@@ -194,5 +194,65 @@ describe.skipIf(!databaseUrl)('canonical foreign source product', () => {
       release()
       await read
     }
+  })
+  test('an actor audience grant expiring while the read waits on the Agent lock denies disclosure', async () => {
+    const f = await fixture()
+    const expiresAt = new Date(Date.now() + 800).toISOString()
+    await connection.db
+      .update(groupAudienceGrants)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(groupAudienceGrants.workspaceId, f.host.id),
+          eq(groupAudienceGrants.channelId, f.channelId),
+          eq(groupAudienceGrants.userId, f.actor.principal.userId)
+        )
+      )
+    let locked!: () => void
+    let release!: () => void
+    const ready = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const blocker = connection.db.transaction(async (tx) => {
+      await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, f.lead.id)).for('update')
+      locked()
+      await held
+    })
+    await ready
+    let disclosed = false
+    const read = withCurrentSourceLeadTurnProduct(
+      connection.db,
+      f.source.controlPlaneWorkspaceId,
+      f.admitted.leadTurn.intentId,
+      async () => {
+        disclosed = true
+      }
+    )
+    try {
+      // Verify a real lock wait before expiry, then let the unchanged absolute
+      // grant deadline lapse. This is a DB barrier, not a synthetic product port.
+      let waiting = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const result = await connection.client<
+          Array<{ waiting: boolean }>
+        >`select exists(select 1 from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()) as waiting`
+        if (result[0]?.waiting) {
+          waiting = true
+          break
+        }
+        await Bun.sleep(5)
+      }
+      expect(waiting).toBe(true)
+      expect(Date.now()).toBeLessThan(Date.parse(expiresAt))
+      await Bun.sleep(Math.max(0, Date.parse(expiresAt) - Date.now()) + 20)
+    } finally {
+      release()
+      await blocker
+    }
+    await expect(read).rejects.toThrow('Lead turn unavailable')
+    expect(disclosed).toBe(false)
   })
 })
