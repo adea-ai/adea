@@ -647,9 +647,16 @@ test.describe('the account directory and inbox driven through their UI', () => {
     const rebasedPageTwo = (await (await rebasedPageTwoResponse).json()) as {
       agents: { id: string; name: string }[]
     }
-    expect(rebasedPageTwo.agents[0]?.name).toBe('Browser UI Reactivity Agent 24')
+    // The renamed Agent joins page one, which pushes page one's former last row
+    // onto page two. That row is the one the initial cursor pointed past, so the
+    // expectation holds whatever other Agents (such as a provisioned workspace
+    // lead) share the account.
+    const formerLastRow = (
+      JSON.parse(Buffer.from(initialPageTwoCursor!, 'base64url').toString()) as { name: string }
+    ).name
+    expect(rebasedPageTwo.agents[0]?.name).toBe(formerLastRow)
     await expect(teamAgentRow(boundaryName)).toBeVisible()
-    await expect(teamAgentRow('Browser UI Reactivity Agent 24')).toBeVisible()
+    await expect(teamAgentRow(formerLastRow)).toBeVisible()
   })
 
   test('a linked job opens the board and returns to the same conversation with its draft', async ({
@@ -712,6 +719,10 @@ test.describe('the account directory and inbox driven through their UI', () => {
 
     // Switching back restores the same account-wide row in the Conversations
     // section, with the one local copy left in its owner's workspace.
+    // A slow client used to judge the link before the persisted workspace
+    // restored, so the restored team workspace won over the requested Home.
+    const cdp = await context.newCDPSession(page)
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 8 })
     await page.goto(`/?workspace=${encodeURIComponent(homeWorkspaceId)}`)
     // The supplemental row names the owner workspace; the canonical row (and its
     // option buttons) in the owner workspace never does, so this waits for the
@@ -721,31 +732,8 @@ test.describe('the account directory and inbox driven through their UI', () => {
       .getByRole('button', {
         name: /Browser UI Journey Lane.*in Browser UI Journey Workspace/,
       })
-    await expect(globalConversationRow)
-      .toBeVisible()
-      .catch(async (error: unknown) => {
-        // Diagnostic: show where the app actually landed.
-        console.log('journey diag url', page.url())
-        console.log(
-          'journey diag sidebar',
-          JSON.stringify(
-            await page
-              .getByRole('region', { name: 'Conversations' })
-              .innerText()
-              .catch(() => 'no conversations region')
-          )
-        )
-        console.log(
-          'journey diag active',
-          JSON.stringify(
-            await page
-              .locator('[data-conventional-nav-item][data-active]')
-              .allInnerTexts()
-              .catch(() => [])
-          )
-        )
-        throw error
-      })
+    await expect(globalConversationRow).toBeVisible()
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
     await globalConversationRow.click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
 

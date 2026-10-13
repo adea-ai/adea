@@ -77,6 +77,7 @@ import {
   workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
+import { useWorkspacePersistence } from '@adea-ai/workspace-ui/use-workspace-persistence'
 import {
   devBreadcrumbs,
   type DevBreadcrumbSelection,
@@ -903,7 +904,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         : Promise.resolve(false)
     },
   })
+  // The persisted workspace selection restores on mount. Judging a link before
+  // that would call it "already there" against the bootstrap fallback, drop the
+  // param, and then lose to the restored selection of another workspace.
+  const persistenceReady = useWorkspacePersistence()
   createEffect(() => {
+    if (!persistenceReady()) return
     const requestedWorkspace = currentSearch().workspace
     if (!requestedWorkspace) {
       deepLinks.release()
