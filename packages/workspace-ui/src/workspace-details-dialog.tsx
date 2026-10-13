@@ -77,8 +77,11 @@ export function WorkspaceDetailsDialog(props: {
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
   onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
-  /** Takes the user into a workspace they just restored; omitted offers only Done. */
-  onOpenWorkspace?: (workspaceId: string) => void
+  /**
+   * Takes the user into a workspace they just restored, resolving true once it is open and false
+   * when it could not be opened yet; omitted offers only Done.
+   */
+  onOpenWorkspace?: (workspaceId: string) => Promise<boolean>
   workspaceOrder?: readonly WorkspaceSummary[]
   open: boolean
   /** The control to restore focus to on close; the shared dialog otherwise

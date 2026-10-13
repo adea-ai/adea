@@ -143,3 +143,11 @@ describe('failure copy', () => {
     expect(rejectedFileFailure('too_large')).toEqual(restoreFailure(failure('too_large')))
   })
 })
+
+describe('rejectedFileFailure', () => {
+  test('an unreadable file is its own refusal, not a bad export', () => {
+    const unreadable = rejectedFileFailure('unreadable')
+    expect(unreadable.message).toContain('couldn’t be read')
+    expect(unreadable.message).not.toBe(rejectedFileFailure('invalid').message)
+  })
+})

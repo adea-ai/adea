@@ -228,9 +228,25 @@ export function savePortableFile(fileName: string, text: string): void {
   }
 }
 
+/** Why a chosen file never reached the server. */
+export type RejectedFileReason = 'invalid' | 'too_large' | 'unreadable'
+
 /** The refusal shown for a file that was chosen but never sent. */
-export function rejectedFileFailure(reason: 'invalid' | 'too_large'): PortableFailure {
+export function rejectedFileFailure(reason: RejectedFileReason): PortableFailure {
+  if (reason === 'unreadable')
+    return {
+      message:
+        'This file couldn’t be read. Check that it still exists and isn’t open elsewhere, then choose it again.',
+      tone: 'destructive',
+    }
   return restoreFailure(
     new ApiClientError('', 0, reason === 'too_large' ? 'too_large' : 'invalid_document')
   )
+}
+
+/** Shown when the restore worked but the new workspace could not be opened yet. */
+export const OPEN_RESTORED_FAILURE: PortableFailure = {
+  message:
+    'The workspace was restored, but it couldn’t be opened yet. It will appear in your workspace list once the list reloads; try Open workspace again.',
+  tone: 'warning',
 }

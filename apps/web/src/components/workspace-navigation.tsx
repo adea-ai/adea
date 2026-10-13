@@ -431,8 +431,8 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
-  /** Opens a workspace the dialog just restored; the list query already holds it. */
-  onOpenWorkspace: (workspaceId: string) => void
+  /** Opens a workspace the dialog just restored; false leaves the dialog open to try again. */
+  onOpenWorkspace: (workspaceId: string) => Promise<boolean>
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
@@ -1761,12 +1761,18 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
           }}
-          onOpenWorkspace={(workspaceId) => {
-            const restored = orderedWorkspaces().find(({ id }) => id === workspaceId)
-            if (!restored) return
+          onOpenWorkspace={async (workspaceId) => {
+            const findRestored = (list: readonly WorkspaceSummary[] | undefined) =>
+              list?.find(({ id }) => id === workspaceId)
+            // The restore refreshes the list, but that refresh can fail on its own; ask again
+            // before giving up so the restored workspace is reachable without a reload.
+            const restored =
+              findRestored(orderedWorkspaces()) ??
+              findRestored((await workspaceList.refetch()).data)
+            if (!restored || !(await switchToWorkspace(restored))) return false
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
-            void switchToWorkspace(restored)
+            return true
           }}
           open
           services={props.services}

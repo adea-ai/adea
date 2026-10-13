@@ -124,6 +124,13 @@ test('restore shows what the file holds, then restores it and offers the new wor
   await expect(page.getByText('Design explorations', { exact: true })).toBeVisible()
   await expect(page.getByText('1 project', { exact: true })).toBeVisible()
   await expect(page.getByText('3 messages', { exact: true })).toBeVisible()
+  // The history promise is only for people who were in the conversation when it was exported.
+  await expect(
+    page.getByText('If you weren’t one of them, you won’t see that history automatically.', {
+      exact: false,
+    })
+  ).toBeVisible()
+  await expect(page.getByText('you both read', { exact: false })).toHaveCount(0)
   await restoreButton(page).click()
   await expect(page.getByText('is restored and you own it.', { exact: false })).toBeVisible()
   await expect(page.getByText('842 messages', { exact: true })).toBeVisible()
@@ -165,4 +172,87 @@ test('cancelling a chosen file returns to the picker', async ({ page }) => {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(chooseButton(page)).toBeVisible()
   await expect(root(page)).not.toHaveAttribute('data-import-calls', /.*/)
+})
+
+/**
+ * Holds the read of files whose name starts with `slow-` until `release()` runs, and fails the
+ * read of `broken.json`, so a late or failed read is reachable from a test.
+ */
+async function stageReads(page: Page) {
+  await page.evaluate(() => {
+    const original = File.prototype.text
+    const latch = Promise.withResolvers<void>()
+    Object.assign(window, { releaseSlowReads: () => latch.resolve() })
+    File.prototype.text = async function text(this: File) {
+      if (this.name.startsWith('slow-')) await latch.promise
+      if (this.name === 'broken.json') throw new DOMException('unreadable', 'NotReadableError')
+      return original.call(this)
+    }
+  })
+}
+const releaseSlowReads = (page: Page) =>
+  page.evaluate(() => (window as unknown as { releaseSlowReads(): void }).releaseSlowReads())
+
+test('choosing another file while one is still being read restores the later file only', async ({
+  page,
+}) => {
+  const first = exportFile('First workspace')
+  const second = exportFile('Second workspace')
+  await openHarness(page)
+  await stageReads(page)
+  await chooseFile(page, first, 'slow-first.json')
+  await expect(page.getByText('Reading file…')).toBeVisible()
+  await expect(restoreButton(page)).toHaveCount(0)
+  await chooseFile(page, second, 'second.json')
+  await expect(page.getByText('Second workspace', { exact: true })).toBeVisible()
+  // The first read finishing now must not replace the file that was chosen after it.
+  await releaseSlowReads(page)
+  await page.waitForTimeout(100)
+  await expect(page.getByText('Second workspace', { exact: true })).toBeVisible()
+  await expect(page.getByText('slow-first.json')).toHaveCount(0)
+  await restoreButton(page).click()
+  await expect(page.getByText('is restored and you own it.', { exact: false })).toBeVisible()
+  await expect(root(page)).toHaveAttribute('data-import-length', String(second.length))
+})
+
+test('cancelling while a file is being read stays cancelled when the read finishes', async ({
+  page,
+}) => {
+  await openHarness(page)
+  await stageReads(page)
+  await chooseFile(page, exportFile(), 'slow-file.json')
+  await expect(page.getByText('Reading file…')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(chooseButton(page)).toBeVisible()
+  await releaseSlowReads(page)
+  await page.waitForTimeout(100)
+  await expect(chooseButton(page)).toBeVisible()
+  await expect(restoreButton(page)).toHaveCount(0)
+  await expect(root(page)).not.toHaveAttribute('data-import-calls', /.*/)
+})
+
+test('a file the browser cannot read is reported and can be replaced', async ({ page }) => {
+  await openHarness(page)
+  await stageReads(page)
+  await chooseFile(page, exportFile(), 'broken.json')
+  await expect(page.getByText('This file couldn’t be read.', { exact: false })).toBeVisible()
+  await expect(chooseButton(page)).toBeVisible()
+  await chooseFile(page, exportFile('Recovered'), 'fine.json')
+  await expect(page.getByText('Recovered', { exact: true })).toBeVisible()
+})
+
+test('Open workspace says so when the restored workspace cannot be opened yet, and retries', async ({
+  page,
+}) => {
+  await openHarness(page, { 'data-open-failure': '' })
+  await chooseFile(page, exportFile())
+  await restoreButton(page).click()
+  const open = page.getByRole('button', { name: 'Open workspace', exact: true })
+  await open.click()
+  await expect(page.getByText('couldn’t be opened yet', { exact: false })).toBeVisible()
+  await expect(root(page)).not.toHaveAttribute('data-opened-workspace', /.*/)
+  await expect(open).toBeEnabled()
+  await open.click()
+  await expect(root(page)).toHaveAttribute('data-opened-workspace', 'restored-workspace')
+  await expect(page.getByText('couldn’t be opened yet', { exact: false })).toHaveCount(0)
 })
