@@ -2600,17 +2600,23 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     expectedRevision: 0,
   })
 
+  // The saved form closes after its last request resolves. Reopening before that
+  // lets the closing form's height change move the section's scroll position
+  // underneath the click, so the dialog backdrop was captured at a different
+  // scroll offset from run to run.
+  await expect(form).toBeHidden()
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   await expect(page.getByText('Permanent deletion is unavailable')).toBeVisible()
-  // Playwright scrolls the trigger into view before clicking, and where it lands
-  // depends on every earlier scroll (a cold run and a warm one differ by hundreds
-  // of pixels). Park the directory at its end first so the button is already in
-  // view and the screenshot's scroll offset is the same every run.
-  await page.locator('section.conventional-directory').evaluate((directory) => {
-    directory.scrollTop = directory.scrollHeight
-  })
-  await page.getByRole('button', { name: 'Archive Agent' }).click()
+  const archiveAgent = page.getByRole('button', { name: 'Archive Agent' })
+  // Pin the scrolled backdrop: reveal the button flush with the scrollport's
+  // bottom edge (what a click from the top would do) instead of leaving the
+  // offset to however far the reopen scrolled, then require it to hold.
+  const directory = page.locator('section.conventional-directory')
+  await archiveAgent.evaluate((element) => element.scrollIntoView({ block: 'end' }))
+  const pinnedScroll = await directory.evaluate((element) => element.scrollTop)
+  await archiveAgent.click()
   await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeVisible()
+  await expect.poll(() => directory.evaluate((element) => element.scrollTop)).toBe(pinnedScroll)
   await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
     animations: 'disabled',
   })
