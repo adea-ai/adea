@@ -29,6 +29,8 @@ function fakeDocker(
     run?: 'partial' | 'refused'
     // Throttles the pull of the canonical ECR Public reference the way a shared-runner registry does.
     throttleEcr?: boolean
+    // With throttleEcr, also fails the mirror with an unrelated error so only Docker Hub answers.
+    failMirror?: boolean
   } = {}
 ) {
   const present = new Set<string>()
@@ -45,6 +47,17 @@ function fakeDocker(
         return {
           status: 125,
           stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+          stdout: '',
+        }
+      if (
+        plan.throttleEcr &&
+        plan.failMirror &&
+        args.includes('--entrypoint') &&
+        args.at(-2)!.startsWith('mirror.gcr.io/')
+      )
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: manifest unknown',
           stdout: '',
         }
       if (plan.run !== 'refused') present.add(name)
@@ -185,6 +198,25 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     expect(images[0]).toStartWith('public.ecr.aws/docker/library/postgres:18-alpine@sha256:')
     expect(images[1]).toStartWith('mirror.gcr.io/library/postgres:18-alpine@sha256:')
     expect(images[1]!.split('@')[1]).toBe(images[0]!.split('@')[1])
+  })
+
+  test('a failing mirror does not hide Docker Hub for the sentinel', async () => {
+    const fake = fakeDocker({ throttleEcr: true, failMirror: true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    await runOwnedSmoke({
+      bounds: fastBounds,
+      childPath: '/not-used',
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    const images = fake.calls.filter((args) => args[0] === 'run').map((args) => args.at(-2))
+    expect(images).toHaveLength(3)
+    expect(images[2]).toStartWith('docker.io/library/postgres:18-alpine@sha256:')
   })
 
   test('a refused sentinel start still attempts the sentinel removal, and no child is spawned', async () => {

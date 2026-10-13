@@ -123,25 +123,33 @@ function attachRemoval(handle) {
   return () => process.off('exit', onExit)
 }
 
-// Runs `start(image)` against the digest-pinned capture image. Anonymous pulls from shared hosted
-// runners are throttled per registry (`toomanyrequests`), so a rate-limited start falls over to the
-// same digest on the other registries the main database uses (see docker-pull-backoff.mjs), then
-// retries with the same bounded backoff. A digest names the content, so a fallback cannot change
-// which image runs. Only a registry rate limit moves on: any other result, success or failure, is
-// returned at once, as is the last rate-limited one. `start` returns a spawnSync result; every
-// caller that starts a container from this image goes through here, so none pulls it bare.
 function limited(result) {
   return result.status !== 0 && isRegistryRateLimit(`${result.stdout}\n${result.stderr}`)
 }
 
+// Runs `start(image)` against the digest-pinned capture image. Anonymous pulls from shared hosted
+// runners are throttled per registry (`toomanyrequests`), so a rate-limited start falls over to the
+// same digest on the other registries the main database uses (see docker-pull-backoff.mjs), then
+// retries with the same bounded backoff. A digest names the content, so a fallback cannot change
+// which image runs. Only a registry rate limit on the canonical reference moves on; a failing fallback
+// is logged and the next registry is tried. `start` returns a spawnSync result; every
+// caller that starts a container from this image goes through here, so none pulls it bare.
 export function startFromCaptureImage(start, backoffMs = defaultPullBackoffMs) {
-  const candidates = [captureProvisioningImage, ...fallbackImages(captureProvisioningImage)]
+  const [canonical, ...fallbacks] = [
+    captureProvisioningImage,
+    ...fallbackImages(captureProvisioningImage),
+  ]
   let last
   for (let retry = 0; ; retry += 1) {
-    for (const image of candidates) {
+    last = start(canonical)
+    // Only a rate limit on the canonical reference moves on: any other outcome there is final.
+    if (last.error || !limited(last)) return last
+    console.warn(`Container registry rate-limited an image pull for ${canonical}.`)
+    for (const image of fallbacks) {
       last = start(image)
-      if (last.error || !limited(last)) return last
-      console.warn(`Container registry rate-limited an image pull for ${image}.`)
+      if (last.error || last.status === 0) return last
+      // A fallback that fails, rate-limited or not, must not hide the registries after it.
+      console.warn(`Starting from ${image} failed: ${last.stderr.trim() || `exit ${last.status}`}`)
     }
     if (retry >= backoffMs.length) return last
     console.warn(

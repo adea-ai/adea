@@ -31,6 +31,11 @@ case "$1" in
       ecr) case "$last" in public.ecr.aws/*) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;; esac ;;
       all) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
       fail) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+      mirror-fails)
+        case "$last" in
+          public.ecr.aws/*) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+          mirror.gcr.io/*) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+        esac ;;
     esac
     exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
@@ -223,6 +228,19 @@ describe('capture provisioning helper', () => {
     expect(images).toEqual([
       `public.ecr.aws/docker/library/postgres:18-alpine${digest}`,
       `mirror.gcr.io/library/postgres:18-alpine${digest}`,
+    ])
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('a failing mirror does not hide Docker Hub after ECR is rate-limited', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'mirror-fails' })
+    const { child, name } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const digest = '@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+    expect(runImages(log)).toEqual([
+      `public.ecr.aws/docker/library/postgres:18-alpine${digest}`,
+      `mirror.gcr.io/library/postgres:18-alpine${digest}`,
+      `docker.io/library/postgres:18-alpine${digest}`,
     ])
     expect(removals(log)).toEqual([`rm -f ${name}`])
   })
