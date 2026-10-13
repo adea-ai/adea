@@ -647,9 +647,16 @@ test.describe('the account directory and inbox driven through their UI', () => {
     const rebasedPageTwo = (await (await rebasedPageTwoResponse).json()) as {
       agents: { id: string; name: string }[]
     }
-    expect(rebasedPageTwo.agents[0]?.name).toBe('Browser UI Reactivity Agent 24')
+    // The renamed Agent joins page one, which pushes page one's former last row
+    // onto page two. That row is the one the initial cursor pointed past, so the
+    // expectation holds whatever other Agents (such as a provisioned workspace
+    // lead) share the account.
+    const formerLastRow = (
+      JSON.parse(Buffer.from(initialPageTwoCursor!, 'base64url').toString()) as { name: string }
+    ).name
+    expect(rebasedPageTwo.agents[0]?.name).toBe(formerLastRow)
     await expect(teamAgentRow(boundaryName)).toBeVisible()
-    await expect(teamAgentRow('Browser UI Reactivity Agent 24')).toBeVisible()
+    await expect(teamAgentRow(formerLastRow)).toBeVisible()
   })
 
   test('a linked job opens the board and returns to the same conversation with its draft', async ({
