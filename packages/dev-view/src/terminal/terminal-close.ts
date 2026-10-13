@@ -139,6 +139,64 @@ export async function createSessionTerminal(options: {
   }
 }
 
+/**
+ * A single-flight guard: `run` starts the task unless one is already in
+ * flight, and resolves `undefined` for the ignored call. The flag is set
+ * synchronously, so two picks in the same tick cannot both pass.
+ */
+export function createExclusiveRunner() {
+  let running = false
+  return {
+    running: () => running,
+    async run<T>(task: () => Promise<T>): Promise<T | undefined> {
+      if (running) return undefined
+      running = true
+      try {
+        return await task()
+      } finally {
+        running = false
+      }
+    },
+  }
+}
+
+export type OpenedTerminalOutcome =
+  | Readonly<{ status: 'attached'; terminal: TerminalRecord }>
+  | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
+  /** The context changed while the create was in flight; the new terminal was ended. */
+  | Readonly<{ status: 'discarded' }>
+  /** The context changed and the new terminal could not be ended; it is still running. */
+  | Readonly<{ status: 'orphaned'; terminal: TerminalRecord }>
+
+/**
+ * Create a runtime terminal and bind it only if the world it was requested in
+ * still holds. The create is an await, so the selected session, the layout
+ * and its pane capacity can all change before it resolves; `canAttach` is
+ * rechecked after the await, and a terminal that can no longer be shown is
+ * ended through `discard` instead of being left running without a pane.
+ */
+export async function openCreatedTerminal(options: {
+  create: () => ReturnType<typeof createSessionTerminal>
+  /** Re-evaluated after the create resolves: same session, room for the pane. */
+  canAttach: () => boolean
+  attach: (terminal: TerminalRecord) => void
+  discard: (terminal: TerminalRecord) => Promise<boolean>
+}): Promise<OpenedTerminalOutcome> {
+  const created = await options.create()
+  if (created.status !== 'ready') return created
+  if (options.canAttach()) {
+    options.attach(created.terminal)
+    return { status: 'attached', terminal: created.terminal }
+  }
+  let ended = false
+  try {
+    ended = await options.discard(created.terminal)
+  } catch {
+    ended = false
+  }
+  return ended ? { status: 'discarded' } : { status: 'orphaned', terminal: created.terminal }
+}
+
 /** Swap one leaf by id inside the center tree, keeping every other node —
  *  ratios, split ids and surviving leaves — untouched. Used to bind a fresh
  *  terminal record onto the placeholder's position. */

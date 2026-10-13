@@ -9,7 +9,9 @@ import type {
 
 import {
   TERMINAL_PLACEHOLDER_PREFIX,
+  createExclusiveRunner,
   createSessionTerminal,
+  openCreatedTerminal,
   isTerminalPlaceholderLeaf,
   replaceLeaf,
   terminateSessionTerminal,
@@ -291,5 +293,125 @@ describe('replaceLeaf', () => {
   test('leaves the tree unchanged when the id is absent', () => {
     const center = terminalLeaf()
     expect(replaceLeaf(center, 'missing', terminalLeaf({ id: 'fresh' }))).toBe(center)
+  })
+})
+
+const ready = async () => ({ status: 'ready' as const, terminal: record({ id: other }) })
+
+describe('openCreatedTerminal', () => {
+  test('binds the created terminal while the requesting view still holds', async () => {
+    const attached: string[] = []
+    const outcome = await openCreatedTerminal({
+      create: ready,
+      canAttach: () => true,
+      attach: (terminal) => attached.push(terminal.id),
+      discard: async () => {
+        throw new Error('must not end a terminal that was bound')
+      },
+    })
+    expect(outcome.status).toBe('attached')
+    expect(attached).toEqual([other])
+  })
+
+  test('a session switch during the create ends the new terminal instead of binding it', async () => {
+    let selected = session
+    const attached: string[] = []
+    const discarded: string[] = []
+    const outcome = await openCreatedTerminal({
+      create: async () => {
+        selected = 'another-session'
+        return ready()
+      },
+      canAttach: () => selected === session,
+      attach: (terminal) => attached.push(terminal.id),
+      discard: async (terminal) => {
+        discarded.push(terminal.id)
+        return true
+      },
+    })
+    expect(outcome.status).toBe('discarded')
+    expect(attached).toEqual([])
+    expect(discarded).toEqual([other])
+  })
+
+  test('a pane limit reached during the create ends the new terminal', async () => {
+    let panes = 7
+    const attached: string[] = []
+    const discarded: string[] = []
+    const outcome = await openCreatedTerminal({
+      create: async () => {
+        panes = 8
+        return ready()
+      },
+      canAttach: () => panes < 8,
+      attach: (terminal) => attached.push(terminal.id),
+      discard: async (terminal) => {
+        discarded.push(terminal.id)
+        return true
+      },
+    })
+    expect(outcome.status).toBe('discarded')
+    expect(attached).toEqual([])
+    expect(discarded).toEqual([other])
+  })
+
+  test('reports a terminal it could not end, so it is never left running silently', async () => {
+    for (const discard of [async () => false, async () => Promise.reject(new Error('down'))]) {
+      const outcome = await openCreatedTerminal({
+        create: ready,
+        canAttach: () => false,
+        attach: () => {},
+        discard,
+      })
+      expect(outcome).toEqual({ status: 'orphaned', terminal: record({ id: other }) })
+    }
+  })
+
+  test('passes a failed create through without attaching or ending anything', async () => {
+    const outcome = await openCreatedTerminal({
+      create: async () => ({ status: 'unavailable' as const, reason: 'unavailable' as const }),
+      canAttach: () => true,
+      attach: () => {
+        throw new Error('nothing to bind')
+      },
+      discard: async () => {
+        throw new Error('nothing to end')
+      },
+    })
+    expect(outcome).toEqual({ status: 'unavailable', reason: 'unavailable' })
+  })
+})
+
+describe('createExclusiveRunner', () => {
+  test('two overlapping picks start one create; a later pick runs after it settles', async () => {
+    const runner = createExclusiveRunner()
+    let creates = 0
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>()
+    const pick = () =>
+      runner.run(async () => {
+        creates += 1
+        await gate
+        return creates
+      })
+    const first = pick()
+    const second = pick()
+    expect(runner.running()).toBe(true)
+    release()
+    expect(await first).toBe(1)
+    expect(await second).toBeUndefined()
+    expect(creates).toBe(1)
+    expect(runner.running()).toBe(false)
+    release()
+    expect(await pick()).toBe(2)
+  })
+
+  test('releases after a task throws', async () => {
+    const runner = createExclusiveRunner()
+    await runner
+      .run(async () => {
+        throw new Error('boom')
+      })
+      .catch(() => undefined)
+    expect(runner.running()).toBe(false)
   })
 })

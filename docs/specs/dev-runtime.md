@@ -3157,6 +3157,13 @@ exit code still appears only from authenticated shell observations.
   `shellProfileId` (needs `dev.terminal.manage`) and opens it in a split beside
   the focused pane, and "Default for new terminals", a radio choice saved on this
   device. A terminal that is already running keeps its shell.
+- **Create races.** One "New terminal with" create runs at a time; a second pick
+  while it is in flight is ignored. After the create resolves, the pane is bound
+  only if the same session is still selected and the center still has room under
+  the pane limit (the "No terminal open" action also needs its placeholder to
+  still exist). Otherwise the new terminal is ended with `dev.terminal.terminate`
+  instead of being left running without a pane, and the announcement says so; if
+  it cannot be ended, the announcement says it is still running.
 - **Host.** `dev.terminal.create` honours `shellProfileId`: an advertised id
   starts that profile, omitting it starts the host default (the first
   advertised profile), and an id the host does not advertise is refused with
