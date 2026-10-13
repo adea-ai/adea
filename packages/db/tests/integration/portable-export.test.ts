@@ -15,6 +15,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { exportPortableWorkspace, readCompletePortableContent } from '../../src/portable-export'
 import { PortableExportError } from '../../src/portable-export-content'
 import {
+  ChannelParticipantOverflowError,
   createMessage,
   createProjectChannel,
   listChannelsForUser,
@@ -893,6 +894,62 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(outcome).toBe('too_large')
   })
 
+  test('a group whose authorization records outgrow the bound between pages is refused as too large', async () => {
+    const fixture = await seed('group-records-between-pages')
+    const groupId = fixture.channels.privateGroup.id
+    let grown = false
+    const outcome = await exportOutcome(
+      exportPortableWorkspace(db, {
+        hooks: {
+          beforeMessagePage: async ({ channelId }) => {
+            // The channel list was collected within the bound; the records grow before this page.
+            if (channelId !== groupId || grown) return
+            grown = true
+            await db.execute(sql`
+              insert into app.group_audience_grants
+                (workspace_id, channel_id, grant_id, revision, user_id, issued_at)
+              select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'between-' || n, 1,
+                ${fixture.member.principal.userId}::uuid, ${new Date().toISOString()}
+              from generate_series(1, ${PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1}) as n
+            `)
+          },
+        },
+        principal: fixture.owner.principal,
+        workspaceId: fixture.workspaceId,
+      })
+    )
+    expect(grown).toBe(true)
+    expect(outcome).toBe('too_large')
+  })
+
+  test('an oversized group is refused before the first authorization read loads its roster', async () => {
+    const fixture = await seed('group-bound-first')
+    const groupId = fixture.channels.privateGroup.id
+    await db.execute(sql`
+      insert into app.group_audience_grants
+        (workspace_id, channel_id, grant_id, revision, user_id, issued_at)
+      select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'first-' || n, 1,
+        ${fixture.member.principal.userId}::uuid, ${new Date().toISOString()}
+      from generate_series(1, 5) as n
+    `)
+    // Loading the roster reads the Agents the group enlists. Holding that table exclusively
+    // stalls any roster load, so only a bound that runs first can answer.
+    const outcome = await db.transaction(async (transaction) => {
+      await transaction.execute(sql`lock table app.agents in access exclusive mode`)
+      return Promise.race([
+        listMessagesForUser(db, fixture.workspaceId, groupId, fixture.owner.principal, {
+          authorizationRecordLimit: 3,
+        }).then(
+          () => 'served',
+          (error: unknown) =>
+            error instanceof ChannelParticipantOverflowError ? 'overflow' : 'error'
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve('stalled'), 3000)),
+      ])
+    })
+    expect(outcome).toBe('overflow')
+  })
+
   test('no export carries credentials, ciphertext, artifact locators, deleted text or invitations', async () => {
     const fixture = await seed('secrets')
     const documents = await Promise.all([
@@ -979,8 +1036,9 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       [importer.principal.userId, 'owner'],
     ])
 
-    // A restored group admits its participants afresh. The exporter, whose view the bundle is,
-    // reads the whole restored history; an Agent joins after it. No bundle grant is copied.
+    // A restored group admits its participants afresh. The importer is not a listed participant, so
+    // nobody reads the restored history: the exporter, whose id the unsigned envelope names, joins
+    // after it like an Agent does. No bundle grant is copied.
     const admissions = await db
       .select()
       .from(groupAdmissions)
@@ -995,7 +1053,11 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
         .toSorted()
     ).toEqual(
       [
-        [fixture.owner.principal.userId, 0, `restore:audience:${fixture.owner.principal.userId}`],
+        [
+          fixture.owner.principal.userId,
+          groupFrontier!.sequence + 1,
+          `restore:audience:${fixture.owner.principal.userId}`,
+        ],
         [fixture.agentA.id, groupFrontier!.sequence + 1, `restore:enlistment:${fixture.agentA.id}`],
       ].toSorted()
     )
@@ -1042,6 +1104,65 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       .from(temporaryUserSessions)
       .where(eq(temporaryUserSessions.credentialDigest, `importer-${run}-restore`))
     expect(sessions).toHaveLength(1)
+  })
+
+  test('an edited exportedBy never moves a restored join point; only a listed importer reads history', async () => {
+    const fixture = await seed('restore-exported-by')
+    const bundle = await exportPortableWorkspace(db, {
+      principal: fixture.owner.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    // `exportedBy` sits outside the digest, so a file can name any listed participant there and
+    // stay valid. Naming one must not hand them the restored history.
+    const edited = {
+      ...bundle,
+      exportedBy: { role: 'owner' as const, userId: fixture.owner.principal.userId },
+    }
+    expect(edited.contentDigest).toEqual(bundle.contentDigest)
+    await deleteWorkspace(fixture.workspaceId)
+    const outsiderRestore = await importPortableWorkspace(db, {
+      bundle: edited,
+      importer: fixture.outsider.principal,
+    })
+    created.push(outsiderRestore.workspaceId)
+    const readJoinPoints = async () =>
+      (
+        await db
+          .select()
+          .from(groupAdmissions)
+          .where(eq(groupAdmissions.channelId, fixture.channels.privateGroup.id))
+      ).map((row) => [row.userId ?? row.agentId, row.joinedSequence])
+    const [frontier] = await db
+      .select({ sequence: sql<number>`max(${messages.sequence})::int` })
+      .from(messages)
+      .where(eq(messages.channelId, fixture.channels.privateGroup.id))
+    for (const [, joinedSequence] of await readJoinPoints())
+      expect(joinedSequence).toBe(frontier!.sequence + 1)
+
+    // A listed importer reads the history they already hold: the self-restore join point is 0.
+    await deleteWorkspace(fixture.workspaceId)
+    const ownerRestore = await importPortableWorkspace(db, {
+      bundle,
+      importer: fixture.owner.principal,
+    })
+    created.push(ownerRestore.workspaceId)
+    expect(Object.fromEntries(await readJoinPoints())[fixture.owner.principal.userId]).toBe(0)
+  })
+
+  test('a complete read refuses a group whose roster records exceed the bound before loading the roster', async () => {
+    const fixture = await seed('complete-roster-bound')
+    await db.execute(sql`
+      insert into app.group_audience_grants
+        (workspace_id, channel_id, grant_id, revision, user_id, issued_at)
+      select ${fixture.workspaceId}::uuid, ${fixture.channels.privateGroup.id}::uuid,
+        'roster-bound-' || n, 1, ${fixture.member.principal.userId}::uuid,
+        ${new Date().toISOString()}
+      from generate_series(1, ${PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1}) as n
+    `)
+    const error = await db
+      .transaction((transaction) => readCompletePortableContent(transaction, fixture.workspaceId))
+      .catch((caught: unknown) => caught)
+    expect((error as PortableExportError).code).toBe('too_large')
   })
 
   test('restore verifies display-name snapshots without overwriting destination identities', async () => {

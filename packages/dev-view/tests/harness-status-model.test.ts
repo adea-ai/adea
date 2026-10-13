@@ -17,6 +17,7 @@ import {
   INSTALLATION_STATE_LABELS,
   isGlobalDefault,
   selectActiveRun,
+  storedWorkspaceDefault,
   summarizeHarnessDefault,
 } from '../src/agents/harness-status-model'
 
@@ -392,6 +393,72 @@ describe('summarizeHarnessDefault', () => {
       source: 'none',
       deviceDefaultMissing: true,
     })
+  })
+
+  test('a device default the backend marks ineligible is missing even when it looks ready', () => {
+    const blocked = entry({
+      eligibility: {
+        eligible: false,
+        blockers: [{ code: 'incompatible', message: 'Codex 0.1 is too old' }],
+      },
+    })
+    expect(summary([claude, blocked], [], 'codex')).toEqual({
+      source: 'none',
+      deviceDefaultMissing: true,
+    })
+    // Another installation of the same family that is eligible wins.
+    expect(summary([blocked, entry({ id: 'inst-codex-2' })], [], 'codex')).toMatchObject({
+      source: 'device',
+      deviceDefaultMissing: false,
+    })
+  })
+
+  test('a workspace default that is ineligible is flagged unavailable, never replaced', () => {
+    const blocked = entry({
+      id: 'inst-claude',
+      family: 'claude-code',
+      displayName: 'Claude Code',
+      eligibility: { eligible: false, blockers: [{ code: 'auth_required', message: 'Sign in' }] },
+    })
+    expect(
+      summary(
+        [blocked, codex],
+        [preference({ harnessInstallationId: 'inst-claude', default: true })],
+        'codex'
+      )
+    ).toMatchObject({
+      source: 'workspace',
+      name: 'Claude Code',
+      overriddenDeviceName: 'Codex',
+      workspaceOverrideUnavailable: true,
+    })
+  })
+
+  test('a workspace default whose installation is gone stays the workspace default', () => {
+    const gone = summary(
+      [codex],
+      [preference({ harnessInstallationId: 'inst-gone', default: true })],
+      'codex'
+    )
+    expect(gone).toEqual({
+      source: 'workspace',
+      overriddenDeviceName: 'Codex',
+      deviceDefaultMissing: false,
+      workspaceOverrideUnavailable: true,
+    })
+    expect(
+      storedWorkspaceDefault([preference({ harnessInstallationId: 'inst-gone', default: true })])
+    ).toMatchObject({
+      harnessInstallationId: 'inst-gone',
+    })
+    // The synthesized managed-Pi root default and project defaults are not it.
+    expect(
+      storedWorkspaceDefault([
+        preference({ default: true, rootDefault: true }),
+        preference({ default: true, projectId: 'project-1' }),
+        preference({ default: true, enabled: false }),
+      ])
+    ).toBeUndefined()
   })
 })
 

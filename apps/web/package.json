@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/web",
-  "version": "0.90.0",
+  "version": "0.91.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -42,7 +42,7 @@
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.130.0",
+    "@adea-ai/ui": "0.130.1",
     "@adea-ai/workspace-nav": "workspace:*",
     "@adea-ai/workspace-ui": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
