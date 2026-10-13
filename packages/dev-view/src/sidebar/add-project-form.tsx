@@ -331,10 +331,8 @@ export function AddProjectForm(props: AddProjectFormProps) {
                     label={
                       <>
                         <span>{row.entry.name}</span>
-                        <Text variant="caption" tone="muted" class="ms-auto">
-                          {row.entry.packageManager}
-                        </Text>
                         <Show when={row.duplicate}>
+                          {' '}
                           <Badge
                             size="sm"
                             variant="warning"
@@ -345,6 +343,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
                         </Show>
                       </>
                     }
+                    description={row.entry.packageManager}
                     onChange={(checked: boolean) => toggleConfirmed(row.entry.relativeDir, checked)}
                   />
                 </div>
