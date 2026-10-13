@@ -196,12 +196,9 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
         {/* The heading's actions stay visible: grouping and creating a
             workspace are primary affordances, not hover extras. */}
         <div class="flex min-w-0 items-center gap-1 py-1 ps-2 pe-1">
-          <h2
-            id={headingId}
-            class="min-w-0 flex-1 truncate text-2xs font-medium tracking-wide text-sidebar-muted-foreground uppercase"
-          >
+          <Text as="h2" variant="overline" id={headingId} class="min-w-0 flex-1">
             Workspaces
-          </h2>
+          </Text>
           <span class="flex shrink-0 items-center gap-0.5" data-slot="workspace-nav-actions">
             <DropdownMenu>
               {/* The current grouping is visible text, not only a tooltip. */}

@@ -82,10 +82,19 @@ test('personal Home remains protected after renaming and changing its icon', asy
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
 })
 
-test('personal and additional workspaces move in the same list and a failed order stays reviewable', async ({
+test('personal Home stays first and cannot be moved', async ({ page }) => {
+  const settings = await openFixture(page, 'data-personal')
+  await expect(settings).toContainText('Position 1 of 2')
+  await expect(settings).toContainText('Home always stays first')
+  await expect(settings.getByRole('button', { name: 'Move up', exact: true })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Move down', exact: true })).toBeDisabled()
+  await expect(page.locator('#harness-root')).not.toHaveAttribute('data-reorder-calls')
+})
+
+test('additional workspaces move in the list and a failed order stays reviewable', async ({
   page,
 }) => {
-  const settings = await openFixture(page, 'data-personal data-reorder-failure')
+  const settings = await openFixture(page, 'data-reorder-failure')
   await expect(settings.getByRole('button', { name: 'Move up', exact: true })).toBeDisabled()
   await settings.getByRole('button', { name: 'Move down', exact: true }).click()
   await expect(settings.getByRole('alert')).toContainText('Workspace order could not be saved')

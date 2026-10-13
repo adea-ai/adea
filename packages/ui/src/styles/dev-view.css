@@ -337,14 +337,10 @@
   border-block-end: 1px solid var(--border);
 }
 
-/* The panel title carries the shared dev-pane title role (the same size and
-   weight as every other dev section title), not the heading default. */
-.dev-utility-panel__heading h2 {
-  margin: 0;
+/* The panel title is a shared Heading; the host only truncates it. */
+[data-utility-panel-title] {
   overflow: hidden;
   font-family: var(--font-ui, var(--font-sans));
-  font-size: var(--text-xs);
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -367,11 +363,6 @@
   .dev-utility__selector-label {
     display: none;
   }
-}
-
-.dev-utility-panel h2 {
-  margin: 0;
-  font-size: var(--text-sm);
 }
 
 .dev-utility-panel p {
