@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
+import type { HarnessRun, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
-import { buildHistoryTurns, formatRelativeTime } from '../src/history/turns-model'
+import { buildHistoryTurns, formatRelativeTime, newestRunActive } from '../src/history/turns-model'
 
 function event(seq: number, overrides: Partial<RuntimeEvent>): RuntimeEvent {
   return {
@@ -117,5 +117,25 @@ describe('formatRelativeTime', () => {
     ['not a date', ''],
   ])('%s -> %s', (iso, expected) => {
     expect(formatRelativeTime(iso, now)).toBe(expected)
+  })
+})
+
+const run = (generation: number, version: number, state: string) =>
+  ({ generation, version, state }) as unknown as HarnessRun
+
+describe('newestRunActive', () => {
+  test('a later generation wins even when an older generation has a higher version', () => {
+    expect(newestRunActive([run(1, 9, 'completed'), run(2, 1, 'working')])).toBe(true)
+    expect(newestRunActive([run(2, 1, 'working'), run(1, 9, 'completed')])).toBe(true)
+    expect(newestRunActive([run(1, 1, 'working'), run(2, 3, 'completed')])).toBe(false)
+  })
+
+  test('within one generation the higher version wins', () => {
+    expect(newestRunActive([run(2, 1, 'working'), run(2, 2, 'completed')])).toBe(false)
+    expect(newestRunActive([run(2, 2, 'awaiting_approval'), run(2, 1, 'completed')])).toBe(true)
+  })
+
+  test('no runs is not active', () => {
+    expect(newestRunActive([])).toBe(false)
   })
 })

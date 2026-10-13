@@ -5,7 +5,7 @@
 //
 // Text goes through the same redaction and control-character boundary as the
 // live transcript and history search (`redactSearchText`).
-import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
+import type { HarnessRun, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import { redactSearchText } from '../chat/search/conversation-search-model'
 import type { ConversationSearchJump } from '../chat/search/conversation-search-model'
@@ -67,6 +67,30 @@ function resultFailed(event: RuntimeEvent): boolean {
   if (payload.isError === true || payload.is_error === true) return true
   const status = payload.status ?? payload.outcome
   return status === 'failed' || status === 'error'
+}
+
+const ACTIVE_RUN_STATES: ReadonlySet<string> = new Set([
+  'working',
+  'awaiting_input',
+  'awaiting_approval',
+])
+
+/**
+ * Whether the session's newest harness run is still going. A later generation
+ * always supersedes an earlier one: `version` only counts revisions within one
+ * generation, so an older generation with a higher version must not win.
+ */
+export function newestRunActive(runs: readonly HarnessRun[]): boolean {
+  let newest: HarnessRun | undefined
+  for (const run of runs) {
+    if (
+      !newest ||
+      run.generation > newest.generation ||
+      (run.generation === newest.generation && run.version > newest.version)
+    )
+      newest = run
+  }
+  return newest !== undefined && ACTIVE_RUN_STATES.has(newest.state)
 }
 
 export function buildHistoryTurns(
