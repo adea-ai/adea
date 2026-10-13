@@ -157,21 +157,6 @@
   font-size: var(--text-xs);
 }
 
-.dev-chat__composer-controls select {
-  min-height: 2rem;
-  max-width: 14rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: inherit;
-  background: var(--background);
-  padding-inline: 0.5rem;
-}
-
-.dev-chat__question input:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-
 .dev-chat__empty {
   margin: auto;
   color: var(--muted-foreground);
