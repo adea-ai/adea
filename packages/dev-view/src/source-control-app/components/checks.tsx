@@ -221,7 +221,12 @@ export function ChecksView(props: {
                 summary().skipped ? `${summary().skipped} skipped` : '',
               ]
                 .filter(Boolean)
-                .join(', ') || 'No checks'}
+                .join(', ') ||
+                (checks.error
+                  ? 'Checks unavailable'
+                  : checks.loading
+                    ? 'Loading checks…'
+                    : 'No checks')}
             </Heading>
             <span class="dev-scm-caption">
               On <span class="dev-scm-mono">{shortSha(sha())}</span>
@@ -264,11 +269,13 @@ export function ChecksView(props: {
           <StateMessage title="Checks could not be loaded" description={errorText(checks.error)} />
         </Show>
         <Show
-          when={!checks.loading || checks()}
+          when={!checks.error && (!checks.loading || checks())}
           fallback={
-            <p class="dev-scm-caption" role="status">
-              Loading checks…
-            </p>
+            <Show when={!checks.error && checks.loading}>
+              <p class="dev-scm-caption" role="status">
+                Loading checks…
+              </p>
+            </Show>
           }
         >
           <Show

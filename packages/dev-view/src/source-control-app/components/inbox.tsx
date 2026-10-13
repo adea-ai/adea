@@ -224,7 +224,7 @@ export function ProjectInbox(props: {
   const meta = () => props.state.repoMeta().get(props.project.repoId)
   const open = () => props.state.openPulls(props.project.repoId)
 
-  const [history] = createReadResource(
+  const [history, { refetch: refetchHistory }] = createReadResource(
     () =>
       scope() === 'merged' || scope() === 'closed'
         ? { repoId: props.project.repoId, state: scope() }
@@ -353,16 +353,29 @@ export function ProjectInbox(props: {
           }
           fallback={<LoadingRows label="Loading pull requests" />}
         >
-          <Show when={history.error}>
+          <Show when={history.error && (scope() === 'merged' || scope() === 'closed')}>
             <StateMessage
               title="Pull requests could not be loaded"
               description={errorText(history.error)}
-            />
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void refetchHistory()}
+              >
+                Try again
+              </Button>
+            </StateMessage>
           </Show>
           <Show
             when={listed().length > 0}
             fallback={
-              <Show when={!entry()?.error}>
+              <Show
+                when={
+                  scope() === 'merged' || scope() === 'closed' ? !history.error : !entry()?.error
+                }
+              >
                 <StateMessage
                   title={
                     filter().text ||
