@@ -691,31 +691,31 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   // Like a popover: a pointer press, focus move or Escape anywhere else
   // dismisses it. The opener counts as inside so pressing it again refocuses
   // the search box instead of closing and reopening.
+  const insideQuickOpen = (target: EventTarget | null): boolean =>
+    target instanceof Element &&
+    (quickOpenPanel()?.contains(target) === true ||
+      target.closest('[data-quick-open-opener]') !== null)
+  const dismissQuickOpenOutside = (event: Event): void => {
+    if (!insideQuickOpen(event.target)) closeQuickOpen(false)
+  }
+  const dismissQuickOpenOnEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return
+    const active = document.activeElement
+    // Escape from inside the panel (or with nothing focused) returns focus to
+    // the opener; from anywhere else it only dismisses.
+    closeQuickOpen(
+      active === null || active === document.body || quickOpenPanel()?.contains(active) === true
+    )
+  }
   createEffect(() => {
     if (!quickOpenOpen()) return
-    const inside = (target: EventTarget | null): boolean =>
-      target instanceof Element &&
-      (quickOpenPanel()?.contains(target) === true ||
-        target.closest('[data-quick-open-opener]') !== null)
-    const onOutside = (event: Event): void => {
-      if (!inside(event.target)) closeQuickOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      const active = document.activeElement
-      // Escape from inside the panel (or with nothing focused) returns focus
-      // to the opener; from anywhere else it only dismisses.
-      closeQuickOpen(
-        active === null || active === document.body || quickOpenPanel()?.contains(active) === true
-      )
-    }
-    document.addEventListener('pointerdown', onOutside, true)
-    document.addEventListener('focusin', onOutside)
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('pointerdown', dismissQuickOpenOutside, true)
+    document.addEventListener('focusin', dismissQuickOpenOutside)
+    document.addEventListener('keydown', dismissQuickOpenOnEscape)
     onCleanup(() => {
-      document.removeEventListener('pointerdown', onOutside, true)
-      document.removeEventListener('focusin', onOutside)
-      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('pointerdown', dismissQuickOpenOutside, true)
+      document.removeEventListener('focusin', dismissQuickOpenOutside)
+      document.removeEventListener('keydown', dismissQuickOpenOnEscape)
     })
   })
 
