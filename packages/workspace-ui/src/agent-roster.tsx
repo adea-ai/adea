@@ -6,6 +6,7 @@ import { AgentStatus } from './agent-status'
 import { agentProfileActionNotice } from './agent-profile-notice'
 import { agentProfileStateNotice } from './agent-profile-state'
 import { keyedRows } from './keyed-rows'
+import { createClientRequestId } from './request-id'
 import { WorkspaceEmpty } from './workspace-states'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { PropertyList, PropertyTerm, PropertyValue } from '@adea-ai/ui/components/composites/stat'
@@ -22,6 +23,9 @@ import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+
+/** `requestId` stays the same across retries of one deliberate action, so a lost response cannot fork the topic. */
+export type NewConversationRequest = Readonly<{ requestId: string; title: string }>
 
 export type AgentCustomizationInput = Readonly<{
   avatarRef: string | null
@@ -53,6 +57,8 @@ type Props = Readonly<{
   ) => Promise<void>
   onArchive: (agentId: string) => Promise<void>
   onMessage: (agentId: string) => Promise<void>
+  /** Start a distinct topic with this Agent; the server commits one conversation per call. */
+  onNewConversation: (agentId: string, topic: NewConversationRequest) => Promise<void>
   onUpdate: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
   projects: readonly ProjectSummary[]
 }>
@@ -61,9 +67,14 @@ function AgentRosterCard(props: {
   agent: Accessor<AgentSummary>
   projectById: Accessor<ReadonlyMap<string, ProjectSummary>>
   onMessage: (agent: AgentSummary) => void
+  onNewConversation: (agent: AgentSummary, topic: NewConversationRequest) => Promise<void>
   onCustomize: (agent: AgentSummary) => void
 }) {
   const agent = () => props.agent()
+  const [naming, setNaming] = createSignal(false)
+  const [starting, setStarting] = createSignal(false)
+  const [startError, setStartError] = createSignal<string | null>(null)
+  let pendingRequestId: string | undefined
   return (
     <article>
       <Card>
@@ -104,6 +115,63 @@ function AgentRosterCard(props: {
               <MessageCircle aria-hidden="true" />
               Open conversation
             </Button>
+            <Show
+              when={naming()}
+              fallback={
+                <Button type="button" variant="outline" onClick={() => setNaming(true)}>
+                  <Plus aria-hidden="true" />
+                  New conversation
+                </Button>
+              }
+            >
+              <form
+                class="grid gap-2"
+                onSubmit={async (event) => {
+                  event.preventDefault()
+                  const title = String(new FormData(event.currentTarget).get('topic') ?? '').trim()
+                  if (!title || starting()) return
+                  setStarting(true)
+                  setStartError(null)
+                  try {
+                    pendingRequestId ??= createClientRequestId()
+                    await props.onNewConversation(agent(), { requestId: pendingRequestId, title })
+                    pendingRequestId = undefined
+                    setNaming(false)
+                  } catch {
+                    setStartError('The conversation could not be started. Try again.')
+                  } finally {
+                    setStarting(false)
+                  }
+                }}
+              >
+                <Label for={`new-topic-${agent().id}`}>Topic for {agent().name}</Label>
+                <Input
+                  id={`new-topic-${agent().id}`}
+                  name="topic"
+                  maxLength={120}
+                  required
+                  autofocus
+                  placeholder="What is this conversation about?"
+                />
+                <Show when={startError()}>{(message) => <p role="alert">{message()}</p>}</Show>
+                <div class="flex gap-2">
+                  <Button type="submit" disabled={starting()}>
+                    {starting() ? 'Starting…' : 'Start conversation'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={starting()}
+                    onClick={() => {
+                      setNaming(false)
+                      setStartError(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Show>
             <Button type="button" variant="outline" onClick={() => props.onCustomize(agent())}>
               <Pencil aria-hidden="true" />
               Customize
@@ -135,6 +203,7 @@ export function AgentRoster(props: Props) {
       agent={agent}
       projectById={projectById}
       onMessage={(current) => void props.onMessage(current.id)}
+      onNewConversation={(current, topic) => props.onNewConversation(current.id, topic)}
       onCustomize={setEditingAgent}
     />
   )

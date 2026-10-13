@@ -1263,6 +1263,14 @@ export function useCreateDirectChannelMutation(
     channelMutationOptions.direct(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
+export function useCreateDirectTopicMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.directTopic(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
 export function useCreateGroupChannelMutation(
   client: AgentHqApiClient,
   workspaceId: MaybeAccessor<string>
