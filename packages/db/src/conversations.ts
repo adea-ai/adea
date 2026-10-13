@@ -316,7 +316,8 @@ function channelSummaryFromRefs(
   })
 }
 
-async function groupParticipantsInForce(
+/** A group's participants: the admissions still in force under their live grants. */
+export async function groupParticipantsInForce(
   database: Database,
   row: ChannelRow
 ): Promise<ConversationParticipantRef[]> {

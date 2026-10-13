@@ -21,7 +21,6 @@ import {
   agents,
   channelParticipants,
   channels,
-  projects,
   temporaryUserSessions,
   users,
   workspaces,
@@ -77,7 +76,7 @@ const emptyTrace = (): QueryTrace => ({
 })
 
 const CHANNELS_FROM = /\bfrom\s+"app"\."channels"/iu
-const CHANNEL_ID_SNAPSHOT = /^\s*select\s+"id"\s+from\s+"app"\."channels"/iu
+const CHANNEL_ID_SNAPSHOT = /^\s*select\s+"id"(?:,\s*"kind")?\s+from\s+"app"\."channels"/iu
 const PARTICIPANTS_FROM = /\bfrom\s+"app"\."channel_participants"/iu
 const UUID_VALUE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 const PARTICIPANT_COUNT_QUERY = /\bcount\s*\(\s*\*\s*\)/iu
@@ -107,7 +106,6 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
   const testUserIds: string[] = []
   let visibleControlChannelId: string
   let hiddenControlChannelId: string
-  let fixtureProjectId: string
   let agentIds: string[] = []
   let trace = emptyTrace()
   let traceEnabled = true
@@ -172,13 +170,6 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       owner: owner.principal,
     })
     workspaceId = created.workspace.id
-    // These bounds fixtures model ordinary project/participant readers. Canonical groups
-    // now require admissions; separate isolation proofs exercise real group grants.
-    const [project] = await db
-      .insert(projects)
-      .values({ workspaceId, name: 'Bounds fixture', iconKey: 'planning' })
-      .returning({ id: projects.id })
-    fixtureProjectId = project!.id
 
     const agentsCreated = await db
       .insert(agents)
@@ -187,7 +178,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
           name: `Channel participant ${index}`,
           profileId: 'profile.channel-bounds',
           profileVersion: '1.0.0',
-          workspaceId: workspaceId!,
+          workspaceId,
         }))
       )
       .returning({ id: agents.id })
@@ -199,8 +190,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       {
         id: visibleControlChannelId,
         idempotencyKey: `portable-channel-visible-${run}`,
-        kind: 'project',
-        projectId: fixtureProjectId,
+        agentId: agentIds[0]!,
+        kind: 'direct_agent',
         sortOrder: 100,
         title: 'Visible control channel',
         visibility: 'workspace',
@@ -209,8 +200,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       {
         id: hiddenControlChannelId,
         idempotencyKey: `portable-channel-hidden-${run}`,
-        kind: 'project',
-        projectId: fixtureProjectId,
+        agentId: agentIds[0]!,
+        kind: 'direct_agent',
         sortOrder: 0,
         title: 'Hidden participant-only control channel',
         visibility: 'participants',
@@ -223,7 +214,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
           agentId,
           channelId,
           principalKind: 'agent' as const,
-          workspaceId: workspaceId!,
+          workspaceId,
         }))
       )
     )
@@ -234,7 +225,6 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     try {
       if (workspaceId) {
         await db.delete(channels).where(eq(channels.workspaceId, workspaceId))
-        await db.delete(projects).where(eq(projects.workspaceId, workspaceId))
         await db.delete(agents).where(eq(agents.workspaceId, workspaceId))
         await db
           .delete(workspaceMemberships)
@@ -286,11 +276,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
         .where(eq(agents.id, agentId))
       const materialized: { nameJsonBytes: number; roleSummaryJsonBytes: number }[] = []
       const outcome = await exportPortableWorkspace(db, {
-        hooks: {
-          afterAgentPage: (page) => {
-            materialized.push(page)
-          },
-        },
+        hooks: { afterAgentPage: (page) => materialized.push(page) },
         principal: { kind: 'user', userId: ownerUserId! },
         workspaceId: workspaceId!,
       }).then(
@@ -322,11 +308,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
         .where(eq(agents.id, agentId))
       const materialized: { nameJsonBytes: number; roleSummaryJsonBytes: number }[] = []
       const outcome = await exportPortableWorkspace(db, {
-        hooks: {
-          afterAgentPage: (page) => {
-            materialized.push(page)
-          },
-        },
+        hooks: { afterAgentPage: (page) => materialized.push(page) },
         principal: { kind: 'user', userId: ownerUserId! },
         workspaceId: workspaceId!,
       }).then(
@@ -402,8 +384,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     const baselineRows = Array.from({ length: CHANNEL_PAGE_SIZE + 44 }, (_, index) => ({
       id: randomUUID(),
       idempotencyKey: `portable-channel-page-baseline-${run}-${index}`,
-      kind: 'project' as const,
-      projectId: fixtureProjectId,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent' as const,
       sortOrder: 1_000 + index,
       title: `Baseline channel ${index}`,
       visibility: 'workspace' as const,
@@ -495,8 +477,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     const hiddenRows = Array.from({ length: HIDDEN_CHANNELS - 1 }, (_, index) => ({
       id: randomUUID(),
       idempotencyKey: `portable-channel-hidden-scale-${run}-${index}`,
-      kind: 'project' as const,
-      projectId: fixtureProjectId,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent' as const,
       sortOrder: index + 1,
       title: `Hidden scale channel ${index}`,
       visibility: 'participants' as const,
@@ -518,8 +500,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     const visibleRows = Array.from({ length: visibleToAdd }, (_, index) => ({
       id: heavyVisibleIds[index] ?? randomUUID(),
       idempotencyKey: `portable-channel-visible-scale-${run}-${index}`,
-      kind: 'project' as const,
-      projectId: fixtureProjectId,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent' as const,
       sortOrder: HIDDEN_CHANNELS + index,
       title: `Visible scale channel ${index}`,
       visibility: 'workspace' as const,
@@ -646,8 +628,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     await db.insert(channels).values({
       id: overflowId,
       idempotencyKey: `portable-channel-visible-overflow-${run}`,
-      kind: 'project',
-      projectId: fixtureProjectId,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent',
       sortOrder: HIDDEN_CHANNELS + visibleToAdd,
       title: 'Visible overflow channel',
       visibility: 'workspace',
@@ -704,8 +686,8 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     await db.insert(channels).values({
       id: boundaryChannelId,
       idempotencyKey: `portable-channel-participant-bound-${run}`,
-      kind: 'project',
-      projectId: fixtureProjectId,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent',
       sortOrder: 0,
       title: 'Participant boundary channel',
       visibility: 'workspace',

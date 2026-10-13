@@ -8,7 +8,7 @@ import {
   type PortableWorkspaceExport,
   validatePortableWorkspaceExport,
 } from '@adea-ai/types/portable-export'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { type AgentHqDatabase, createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -21,6 +21,7 @@ import {
   listMessagesForUser,
 } from '../../src/conversations'
 import { archiveProject, createProject } from '../../src/projects'
+import { admitGroupMember, withdrawGroupUser } from '../fixtures/group-standing'
 import { createTask } from '../../src/tasks'
 import { importPortableWorkspace } from '../../src/portable-import'
 import { PortableImportError } from '../../src/portable-import-guards'
@@ -32,6 +33,8 @@ import {
   channels,
   contentRefs,
   contentReplicas,
+  groupAdmissions,
+  groupAudienceGrants,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -205,13 +208,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       (
         await db
           .insert(channels)
-          .values({
-            kind: 'project',
-            projectId: projectA!.id,
-            visibility: 'workspace',
-            workspaceId,
-            ...values,
-          })
+          .values({ kind: 'group', visibility: 'workspace', workspaceId, ...values })
           .returning()
       )[0]!
     const general = await channel({
@@ -246,20 +243,27 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       agentId: agentA!.id,
       idempotencyKey: 'topic-direct',
       kind: 'direct_agent',
-      projectId: null,
       sortOrder: 4,
       title: 'Direct',
       visibility: 'participants',
     })
+    await admitGroupMember(db, {
+      channelId: privateGroup.id,
+      member: { userId: owner.principal.userId },
+      workspaceId,
+    })
+    await admitGroupMember(db, {
+      channelId: privateGroup.id,
+      member: { agentId: agentA!.id },
+      workspaceId,
+    })
     await db.insert(channelParticipants).values([
       {
-        channelId: privateGroup.id,
+        channelId: direct.id,
         principalKind: 'user',
         userId: owner.principal.userId,
         workspaceId,
       },
-      { agentId: agentA!.id, channelId: privateGroup.id, principalKind: 'agent', workspaceId },
-      { channelId: direct.id, principalKind: 'user', userId: owner.principal.userId, workspaceId },
     ])
 
     const message = async (
@@ -644,23 +648,18 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       hooks: {
         beforeStep: async ({ name }) => {
           if (name === 'projects') {
-            await db.insert(channelParticipants).values({
+            await admitGroupMember(db, {
               channelId: fixture.channels.privateGroup.id,
-              principalKind: 'user',
-              userId: fixture.member.principal.userId,
+              member: { userId: fixture.member.principal.userId },
               workspaceId: fixture.workspaceId,
             })
             grantedAfterSnapshot = true
           }
           if (name === 'final') {
-            await db
-              .delete(channelParticipants)
-              .where(
-                and(
-                  eq(channelParticipants.channelId, fixture.channels.privateGroup.id),
-                  eq(channelParticipants.userId, fixture.member.principal.userId)
-                )
-              )
+            await withdrawGroupUser(db, {
+              channelId: fixture.channels.privateGroup.id,
+              userId: fixture.member.principal.userId,
+            })
             revokedBeforeFinalCheck = true
           }
         },
@@ -729,10 +728,9 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
 
   test('withdraws a participants-only channel from a participant once they are removed', async () => {
     const fixture = await seed('participant')
-    await db.insert(channelParticipants).values({
+    await admitGroupMember(db, {
       channelId: fixture.channels.privateGroup.id,
-      principalKind: 'user',
-      userId: fixture.member.principal.userId,
+      member: { userId: fixture.member.principal.userId },
       workspaceId: fixture.workspaceId,
     })
     const joined = await exportPortableWorkspace(db, {
@@ -744,14 +742,10 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     )
     expect(JSON.stringify(joined)).toContain(canary.privateText)
 
-    await db
-      .delete(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.channelId, fixture.channels.privateGroup.id),
-          eq(channelParticipants.userId, fixture.member.principal.userId)
-        )
-      )
+    await withdrawGroupUser(db, {
+      channelId: fixture.channels.privateGroup.id,
+      userId: fixture.member.principal.userId,
+    })
     const removed = await exportPortableWorkspace(db, {
       principal: fixture.member.principal,
       workspaceId: fixture.workspaceId,
@@ -760,6 +754,91 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       fixture.channels.privateGroup.id
     )
     expect(JSON.stringify(removed)).not.toContain(canary.privateText)
+  })
+
+  test('a group member who joined after earlier history never receives it, and the founder does', async () => {
+    const fixture = await seed('join-point')
+    const groupId = fixture.channels.privateGroup.id
+    const [frontier] = await db
+      .select({ sequence: sql<number>`max(${messages.sequence})::int` })
+      .from(messages)
+      .where(eq(messages.channelId, groupId))
+    await admitGroupMember(db, {
+      channelId: groupId,
+      joinedSequence: frontier!.sequence + 1,
+      member: { userId: fixture.member.principal.userId },
+      workspaceId: fixture.workspaceId,
+    })
+    const afterJoin = 'Said after the member joined'
+    await db.insert(messages).values({
+      bodyText: afterJoin,
+      channelId: groupId,
+      createPayloadHash: 'c'.repeat(64),
+      idempotencyKey: `after-join-${run}`,
+      senderKind: 'user',
+      senderUserId: fixture.owner.principal.userId,
+      workspaceId: fixture.workspaceId,
+    })
+
+    const founder = await exportPortableWorkspace(db, {
+      principal: fixture.owner.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    const joiner = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    expect(JSON.stringify(founder)).toContain(canary.privateText)
+    expect(JSON.stringify(founder)).toContain(afterJoin)
+    // The channel is theirs, but the history before their join point stays unshared.
+    expect(joiner.content.channels.map((channel) => channel.channelId)).toContain(groupId)
+    expect(JSON.stringify(joiner)).toContain(afterJoin)
+    expect(JSON.stringify(joiner)).not.toContain(canary.privateText)
+    // The export is exactly what the product reader serves that member.
+    const served = await listMessagesForUser(
+      db,
+      fixture.workspaceId,
+      groupId,
+      fixture.member.principal,
+      { limit: 100 }
+    )
+    expect(
+      joiner.content.messages
+        .filter((message) => message.channelId === groupId)
+        .map((message) => message.messageId)
+        .toSorted()
+    ).toEqual(served.messages.map((message) => message.id).toSorted())
+  })
+
+  test('a group whose audience grant is revoked leaves the member export', async () => {
+    const fixture = await seed('grant-revoked')
+    const groupId = fixture.channels.privateGroup.id
+    await admitGroupMember(db, {
+      channelId: groupId,
+      member: { userId: fixture.member.principal.userId },
+      workspaceId: fixture.workspaceId,
+    })
+    const before = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    expect(before.content.channels.map((channel) => channel.channelId)).toContain(groupId)
+
+    await db
+      .update(groupAudienceGrants)
+      .set({ revokedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(groupAudienceGrants.channelId, groupId),
+          eq(groupAudienceGrants.userId, fixture.member.principal.userId)
+        )
+      )
+    const after = await exportPortableWorkspace(db, {
+      principal: fixture.member.principal,
+      workspaceId: fixture.workspaceId,
+    })
+    expect(after.content.channels.map((channel) => channel.channelId)).not.toContain(groupId)
+    expect(JSON.stringify(after)).not.toContain(canary.privateText)
   })
 
   test('no export carries credentials, ciphertext, artifact locators, deleted text or invitations', async () => {
@@ -847,6 +926,27 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     expect(memberships.map((row) => [row.userId, row.role])).toEqual([
       [importer.principal.userId, 'owner'],
     ])
+
+    // A restored group admits its participants afresh. The exporter, whose view the bundle is,
+    // reads the whole restored history; an Agent joins after it. No bundle grant is copied.
+    const admissions = await db
+      .select()
+      .from(groupAdmissions)
+      .where(eq(groupAdmissions.channelId, fixture.channels.privateGroup.id))
+    const [groupFrontier] = await db
+      .select({ sequence: sql<number>`max(${messages.sequence})::int` })
+      .from(messages)
+      .where(eq(messages.channelId, fixture.channels.privateGroup.id))
+    expect(
+      admissions
+        .map((row) => [row.userId ?? row.agentId, row.joinedSequence, row.authGrantId])
+        .toSorted()
+    ).toEqual(
+      [
+        [fixture.owner.principal.userId, 0, `restore:audience:${fixture.owner.principal.userId}`],
+        [fixture.agentA.id, groupFrontier!.sequence + 1, `restore:enlistment:${fixture.agentA.id}`],
+      ].toSorted()
+    )
 
     // Residency: bodies, ciphertext, artifacts and invitations do not enter the
     // destination; content refs stay local-only and report no body.
@@ -1171,7 +1271,7 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
     }
   })
 
-  test('an encoded job binding never leaves through a system sender or a linked runtime reference', async () => {
+  test('a job publication the readers withhold, and its encoded binding, never leave in an export', async () => {
     const fixture = await seed('binding')
     const binding = `job-outbound:v1:${run}:${randomBytes(16).toString('base64url')}`
     await db.insert(messages).values({
@@ -1203,11 +1303,10 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       expect(serialized).not.toContain(binding)
       expect(serialized).not.toContain(run + ':')
     }
-    const publication = owner.content.messages.find(
-      (message) => message.body.kind === 'text' && message.body.text === 'Publication body text'
-    )
-    // Malformed encoded publications are withheld by the canonical reader, not relabelled as ordinary system messages.
-    expect(publication).toBeUndefined()
+    // The product readers withhold a publication that no authorized job backs, for every
+    // requester; the export reads through them, so the publication is absent, not rewritten.
+    for (const document of [owner, member])
+      expect(JSON.stringify(document)).not.toContain('Publication body text')
   })
 
   test('refuses a workspace above the portable bound instead of truncating it', async () => {

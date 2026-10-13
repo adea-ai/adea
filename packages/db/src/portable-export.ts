@@ -39,6 +39,7 @@ import {
 import {
   CHANNEL_SUMMARY_PAGE_SIZE,
   ChannelParticipantOverflowError,
+  groupParticipantsInForce,
   listChannelIdsForUser,
   listChannelsForUserPage,
   listMessagesForUser,
@@ -545,6 +546,12 @@ async function readCompleteInputs(
     : []
   bounded(participantRows, 'channel participants')
   const participantsByChannel = groupBy(participantRows, (row) => row.channelId)
+  // A group's audience is its admissions in force, the rule the product reader applies, not the
+  // legacy participant rows. Reading it here makes a restore verify the admissions it wrote.
+  const groupParticipants = new Map<string, ConversationParticipantRef[]>()
+  for (const row of channelRows)
+    if (row.kind === 'group')
+      groupParticipants.set(row.id, await groupParticipantsInForce(transaction, row))
   const channelSummaries: ChannelSummary[] = channelRows.map((row) => ({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: iso(row.createdAt),
@@ -552,14 +559,17 @@ async function readCompleteInputs(
     isPrimaryProjectChannel: row.isPrimaryProjectChannel,
     kind: row.kind,
     lifecycleState: row.lifecycleState,
-    participants: (participantsByChannel.get(row.id) ?? []).flatMap(
-      (participant): ConversationParticipantRef[] =>
-        participant.principalKind === 'user' && participant.userId
-          ? [{ kind: 'user', userId: participant.userId }]
-          : participant.agentId
-            ? [{ agentId: participant.agentId, kind: 'agent' }]
-            : []
-    ),
+    participants:
+      row.kind === 'group'
+        ? (groupParticipants.get(row.id) ?? [])
+        : (participantsByChannel.get(row.id) ?? []).flatMap(
+            (participant): ConversationParticipantRef[] =>
+              participant.principalKind === 'user' && participant.userId
+                ? [{ kind: 'user', userId: participant.userId }]
+                : participant.agentId
+                  ? [{ agentId: participant.agentId, kind: 'agent' }]
+                  : []
+          ),
     ...(row.projectId ? { projectId: row.projectId } : {}),
     sortOrder: row.sortOrder,
     ...(row.taskId ? { taskId: row.taskId } : {}),

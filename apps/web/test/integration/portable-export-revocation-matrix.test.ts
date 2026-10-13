@@ -17,8 +17,8 @@
 // member who is neither listed on the members-only project nor a group participant receives none of
 // those records or references.
 //
-// Pre-join content (#1232) and withheld job publication (#1237) are not covered here. Their
-// regressions depend on those PRs landing on main.
+// Pre-join group history (#1232) is covered by the frontier-admission control below; withheld job
+// publications are covered in the database export tests.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -41,6 +41,7 @@ import {
   createWorkspaceWithOwner,
   type DatabaseConnection,
   getChannelForUser,
+  groupAdmissions,
   listChannelsForUser,
   listMessagesForUser,
   messages,
@@ -60,7 +61,7 @@ import {
   workspaces,
 } from '@adea-ai/db'
 import type { PortableWorkspaceExport } from '@adea-ai/types'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { portableWorkspaceExportResponse } from '../../src/server/portable-workspace-request'
 import type { WorkspacePrincipalResolution } from '../../src/server/workspace-principal'
@@ -298,6 +299,28 @@ async function setParticipants(fixture: Fixture, change: (current: Participants)
   )
 }
 
+/**
+ * Add the reader to the group. The roster write admits a newcomer at the frontier, so the
+ * admission is moved to the start of history to read the seeded messages; `joinedSequence`
+ * defaults to the roster write's own join point.
+ */
+async function joinGroup(reader: Session, joinedSequence?: number) {
+  await setParticipants(world.group, (current) => [
+    ...current,
+    { kind: 'user', userId: reader.principal.userId },
+  ])
+  if (joinedSequence === undefined) return
+  await connection.db
+    .update(groupAdmissions)
+    .set({ joinedSequence })
+    .where(
+      and(
+        eq(groupAdmissions.channelId, world.group.channelId),
+        eq(groupAdmissions.userId, reader.principal.userId)
+      )
+    )
+}
+
 function withoutReader(reader: Session) {
   return (current: Participants) =>
     current.filter(
@@ -307,10 +330,7 @@ function withoutReader(reader: Session) {
 
 async function revokedFromGroup(kind: 'membership' | 'participant', point: Point) {
   const reader = await member(`${kind}-${point}`)
-  await setParticipants(world.group, (current) => [
-    ...current,
-    { kind: 'user', userId: reader.principal.userId },
-  ])
+  await joinGroup(reader, 0)
   try {
     const response = await exportPaused(
       reader,
@@ -652,10 +672,7 @@ describe('revocation matrix: controls and hidden references', () => {
     'control: unchanged group participation serves every message and the content reference',
     async () => {
       const reader = await member('control-group')
-      await setParticipants(world.group, (current) => [
-        ...current,
-        { kind: 'user', userId: reader.principal.userId },
-      ])
+      await joinGroup(reader, 0)
       try {
         const { bundle, text } = await bundleOf(
           await exportPaused(
@@ -668,6 +685,31 @@ describe('revocation matrix: controls and hidden references', () => {
         )
         expect(channelMessages(bundle, world.group.channelId)).toHaveLength(MESSAGES)
         expect(text).toContain(world.group.refId)
+      } finally {
+        await setParticipants(world.group, withoutReader(reader))
+      }
+    },
+    SCENARIO_TIMEOUT
+  )
+
+  test(
+    'a participant admitted at the frontier receives none of the group history before the join point',
+    async () => {
+      const reader = await member('control-group-late')
+      await joinGroup(reader)
+      try {
+        const { bundle, text } = await bundleOf(
+          await exportPaused(
+            reader,
+            world.workspaceId,
+            'between-pages',
+            world.group.channelId,
+            async () => {}
+          )
+        )
+        expect(channelMessages(bundle, world.group.channelId)).toHaveLength(0)
+        for (const secret of [world.group.marker, world.group.refId])
+          expect(text).not.toContain(secret)
       } finally {
         await setParticipants(world.group, withoutReader(reader))
       }

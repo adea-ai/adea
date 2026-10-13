@@ -13,6 +13,8 @@
 //   never applied, and no membership is restored for any other person;
 // - every user a record names must already exist in the destination, so an
 //   import never creates an identity;
+// - group grants, admissions and join points are authority and are written afresh for the
+//   restored participants (see the group block below), never copied from the bundle;
 // - no credential, session, invitation, runtime key or synchronized key material
 //   is accepted (the contract refuses unknown fields) or created.
 //
@@ -44,6 +46,9 @@ import {
   channelParticipants,
   channels,
   contentRefs,
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
   messageMentions,
   messages,
   projectMembers,
@@ -460,6 +465,86 @@ export async function importPortableWorkspace(
         }))
       )
     )
+
+    // A group's audience is its admissions under live grants, not its participant rows. Admit each
+    // restored participant afresh, since neither grants nor join points travel in a bundle. The
+    // importer and the person who exported the bundle, whose view it is, read the whole restored
+    // history. Everyone else joins after it, so a later joiner never gains the history the source kept from them, and the history a
+    // source member could read only through a sharing grant stays unshared.
+    const groupChannels = content.channels.filter((channel) => channel.kind === 'group')
+    if (groupChannels.length) {
+      const frontierRows = await transaction
+        .select({ channelId: messages.channelId, frontier: max(messages.sequence) })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.workspaceId, workspaceId),
+            inArray(
+              messages.channelId,
+              groupChannels.map((channel) => channel.channelId)
+            )
+          )
+        )
+        .groupBy(messages.channelId)
+      // A join point is the first sequence the member reads, so a later joiner starts one past
+      // the newest restored message.
+      const frontiers = new Map(
+        frontierRows.map((row) => [row.channelId, row.frontier === null ? 0 : row.frontier + 1])
+      )
+      const issuedAt = importedAt.toISOString()
+      const audienceGrants: (typeof groupAudienceGrants.$inferInsert)[] = []
+      const enlistmentGrants: (typeof groupEnlistmentGrants.$inferInsert)[] = []
+      const admissions: (typeof groupAdmissions.$inferInsert)[] = []
+      for (const channel of groupChannels)
+        for (const participant of channel.participants) {
+          const grantId =
+            participant.kind === 'user'
+              ? `restore:audience:${participant.userId}`
+              : `restore:enlistment:${participant.agentId}`
+          if (participant.kind === 'user')
+            audienceGrants.push({
+              channelId: channel.channelId,
+              grantId,
+              issuedAt,
+              revision: 1,
+              userId: participant.userId,
+              workspaceId,
+            })
+          else
+            enlistmentGrants.push({
+              agentId: participant.agentId,
+              channelId: channel.channelId,
+              grantId,
+              issuedAt,
+              revision: 1,
+              workspaceId,
+            })
+          admissions.push({
+            agentId: participant.kind === 'agent' ? participant.agentId : null,
+            authGrantId: grantId,
+            authGroupId: channel.channelId,
+            authRevision: 1,
+            channelId: channel.channelId,
+            joinedAt: issuedAt,
+            joinedSequence:
+              participant.kind === 'user' &&
+              (participant.userId === input.importer.userId ||
+                participant.userId === document.exportedBy.userId)
+                ? 0
+                : (frontiers.get(channel.channelId) ?? 0),
+            principalKind: participant.kind,
+            userId: participant.kind === 'user' ? participant.userId : null,
+            workspaceId,
+          })
+        }
+      await insertBatched(audienceGrants, (batch) =>
+        transaction.insert(groupAudienceGrants).values(batch)
+      )
+      await insertBatched(enlistmentGrants, (batch) =>
+        transaction.insert(groupEnlistmentGrants).values(batch)
+      )
+      await insertBatched(admissions, (batch) => transaction.insert(groupAdmissions).values(batch))
+    }
 
     // The same derivation as a live message write: the newest top-level,
     // undeleted message per channel. The channel's own timestamp is kept.

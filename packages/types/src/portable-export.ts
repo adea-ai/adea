@@ -132,7 +132,7 @@ export const PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS: readonly PortableExportExclus
       authority: 'workspace',
       class: 'authority_grants',
       reason:
-        'Workspace memberships and roles are authority, not content, and are never exported. The importer becomes the owner of the restored workspace. Project member lists travel as listed but confer no access until a workspace membership exists.',
+        'Workspace memberships and roles are authority, not content, and are never exported. The importer becomes the owner of the restored workspace. Project member lists travel as listed but confer no access until a workspace membership exists. Group audience, enlistment and sharing grants and group admissions with their join points are authority too: a group travels with the participants in force and the history its requester could read, and a restore admits those participants afresh.',
       treatment: 'excluded',
     },
     {
