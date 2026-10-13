@@ -317,6 +317,6 @@ function AccentSwatches(props: {
 
 /** A custom accent starts from the theme's blue until the person picks a colour. */
 function defaultCustomValue(appearance: 'light' | 'dark'): string | undefined {
-  const blue = accentPresetById('blue')
+  const blue = accentPresets.find((entry) => entry.id === 'blue')
   return appearance === 'light' ? blue?.light : blue?.dark
 }
