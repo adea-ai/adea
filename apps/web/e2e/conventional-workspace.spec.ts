@@ -294,7 +294,9 @@ const channels = [
     lifecycleState: 'active',
     participants: [user, agentPrincipal],
     sortOrder: 2,
-    title: 'Research Agent',
+    // The server's default direct title. The sidebar labels that lane with the
+    // Agent's name; any other title reads "<Agent> · <title>" (#1294).
+    title: 'Direct conversation',
     updatedAt: timestamp,
     version: 1,
     visibility: 'participants',
@@ -1011,6 +1013,9 @@ test('renders empty and populated Project-first workspace states', async ({ page
   await page.goto('/')
   await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
   await expect(workspaceNav(page).getByText('No projects yet.')).toBeVisible()
+  // The account-wide lists are served empty, so the supplemental block renders
+  // nothing (a loading or error block would bake into the capture).
+  await expect(workspaceNav(page).getByText('Across your workspaces')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-empty-light.png', { animations: 'disabled' })
 
   await page.unrouteAll({ behavior: 'wait' })
