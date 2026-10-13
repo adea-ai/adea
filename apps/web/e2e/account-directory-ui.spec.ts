@@ -713,13 +713,39 @@ test.describe('the account directory and inbox driven through their UI', () => {
     // Switching back restores the same account-wide row in the Conversations
     // section, with the one local copy left in its owner's workspace.
     await page.goto(`/?workspace=${encodeURIComponent(homeWorkspaceId)}`)
+    // The supplemental row names the owner workspace; the canonical row (and its
+    // option buttons) in the owner workspace never does, so this waits for the
+    // switch to Home instead of matching a stale canonical copy.
     const globalConversationRow = page
       .getByRole('region', { name: 'Conversations' })
       .getByRole('button', {
-        name: /Browser UI Journey Lane/,
-        exact: true,
+        name: /Browser UI Journey Lane.*in Browser UI Journey Workspace/,
       })
-    await expect(globalConversationRow).toBeVisible()
+    await expect(globalConversationRow)
+      .toBeVisible()
+      .catch(async (error: unknown) => {
+        // Diagnostic: show where the app actually landed.
+        console.log('journey diag url', page.url())
+        console.log(
+          'journey diag sidebar',
+          JSON.stringify(
+            await page
+              .getByRole('region', { name: 'Conversations' })
+              .innerText()
+              .catch(() => 'no conversations region')
+          )
+        )
+        console.log(
+          'journey diag active',
+          JSON.stringify(
+            await page
+              .locator('[data-conventional-nav-item][data-active]')
+              .allInnerTexts()
+              .catch(() => [])
+          )
+        )
+        throw error
+      })
     await globalConversationRow.click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
 
