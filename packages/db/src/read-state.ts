@@ -3,7 +3,7 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
@@ -321,6 +321,23 @@ async function listReadStateForUserInSnapshot(
         )
       )`
     : sql`true`
+  // Earlier-summary sharing may expose unread aggregates without allowing the
+  // reader to see earlier messages or use their sequences as a read frontier.
+  const aggregateVisibleSummaryTopLevel = groupChannelIds.length
+    ? sql`(
+        ${messages.channelId} not in (${sql.join(
+          groupChannelIds.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})
+        or ${groupSummaryMessageAndThreadVisibleCondition({
+          channelId: sql`${messages.channelId}`,
+          sequence: sql`${messages.sequence}`,
+          threadRootMessageId: sql`${messages.threadRootMessageId}`,
+          replyToMessageId: sql`${messages.replyToMessageId}`,
+          access: historyAccess,
+        })}
+      )`
+    : sql`true`
   const visibleGroupThreadAggregate = groupChannelIds.length
     ? sql`(
         ${messages.channelId} not in (${sql.join(
@@ -352,6 +369,17 @@ async function listReadStateForUserInSnapshot(
       and ${messages.threadRootMessageId} is null
       and ${messages.deletedAt} is null
       and (${channels.kind} <> 'group' or ${visibleSummaryTopLevel})
+  ), 0)`.mapWith(Number)
+  // This private frontier keeps the conditional aggregate query useful for
+  // summary-only readers whose earlier messages are outside the visible
+  // history frontier. It is never returned as a message sequence.
+  const latestAggregateTopLevel = sql<number>`coalesce((
+    select max(${messages.sequence}) from ${messages}
+    where ${messages.workspaceId} = ${workspaceId}
+      and ${messages.channelId} = ${channels.id}
+      and ${messages.threadRootMessageId} is null
+      and ${messages.deletedAt} is null
+      and (${channels.kind} <> 'group' or ${aggregateVisibleSummaryTopLevel})
   ), 0)`.mapWith(Number)
   const threadRoot = alias(messages, 'read_state_thread_root')
   const [channelRows, threadRows] = await Promise.all([
@@ -387,14 +415,14 @@ async function listReadStateForUserInSnapshot(
         // taken: a channel whose frontier is not past its read mark is 0
         // without touching messages.
         topLevelUnreadCount:
-          sql<number>`case when ${latestVisibleTopLevel} > ${channelReadFrontier} then (
+          sql<number>`case when ${latestAggregateTopLevel} > ${channelReadFrontier} then (
           select count(*) from ${messages}
           where ${messages.workspaceId} = ${workspaceId}
             and ${messages.channelId} = ${channels.id}
             and ${messages.threadRootMessageId} is null
             and ${messages.deletedAt} is null
             and ${messages.sequence} > ${channelReadFrontier}
-            and (${channels.kind} <> 'group' or ${visibleSummaryTopLevel})
+            and (${channels.kind} <> 'group' or ${aggregateVisibleSummaryTopLevel})
         ) else 0 end`.mapWith(Number),
         updatedAt: channelReadStates.updatedAt,
       })

@@ -1562,6 +1562,61 @@ export function listMessagesForUser(
   )
 }
 
+/** A group reply cannot reveal a referenced message outside the reader's history window. */
+async function filterGroupHistoryVisibleRows(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  rows: readonly MessageRow[],
+  now: string
+): Promise<MessageRow[]> {
+  if (!rows.length) return []
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(database, workspaceId, channelId),
+    loadGroupSharingGrants(database, workspaceId, channelId),
+  ])
+  const admission = admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
+  const referenceIds = [
+    ...new Set(
+      rows
+        .flatMap((row) => [row.threadRootMessageId, row.replyToMessageId])
+        .filter((id): id is string => id !== null)
+    ),
+  ]
+  const referenceRows = referenceIds.length
+    ? await database
+        .select({
+          channelId: messages.channelId,
+          createdAt: messages.createdAt,
+          id: messages.id,
+          sequence: messages.sequence,
+        })
+        .from(messages)
+        .where(and(eq(messages.workspaceId, workspaceId), inArray(messages.id, referenceIds)))
+    : []
+  const references = new Map(referenceRows.map((row) => [row.id, row]))
+  const historyAllowed = (row: Pick<MessageRow, 'createdAt' | 'sequence'>) =>
+    decideGroupHistoryRead({
+      admission,
+      entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
+      groupId: channelId,
+      now,
+      sharingGrants,
+    }).action === 'allow'
+
+  return rows.filter((row) => {
+    if (row.channelId !== channelId || !historyAllowed(row)) return false
+    for (const referenceId of [row.threadRootMessageId, row.replyToMessageId]) {
+      if (!referenceId) continue
+      const reference = references.get(referenceId)
+      if (!reference || reference.channelId !== channelId || !historyAllowed(reference))
+        return false
+    }
+    return true
+  })
+}
+
 async function listMessagesForUserInSnapshot(
   database: Database,
   workspaceId: string,
@@ -1596,7 +1651,18 @@ async function listMessagesForUserInSnapshot(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
-  const visibleRows = await filterVisibleMessageRows(database, page, principal.userId)
+  const jobVisibleRows = await filterVisibleMessageRows(database, page, principal.userId)
+  const visibleRows =
+    channel.kind === 'group'
+      ? await filterGroupHistoryVisibleRows(
+          database,
+          workspaceId,
+          channelId,
+          principal,
+          jobVisibleRows,
+          options.now ?? new Date().toISOString()
+        )
+      : jobVisibleRows
   const reads = await readMessageChildReads(
     database,
     workspaceId,
@@ -1611,30 +1677,11 @@ async function listMessagesForUserInSnapshot(
       ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
     })
   // Shared authorized read boundary for groups: join-point and live-grant
-  // filtering applies to every consumer of this function, not just the
-  // message routes. Hidden earlier entries can shorten a page; clients keep
-  // paging with `nextAfterSequence` until it is absent.
-  const now = options.now ?? new Date().toISOString()
-  const [roster, sharingGrants] = await Promise.all([
-    loadGroupRoster(database, workspaceId, channelId),
-    loadGroupSharingGrants(database, workspaceId, channelId),
-  ])
-  const admission = admissionForParticipant(roster, {
-    kind: 'user',
-    userId: principal.userId,
-  })
-  const visible = summaries.filter(
-    (message) =>
-      decideGroupHistoryRead({
-        admission,
-        entry: { occurredAt: message.createdAt, sequence: message.sequence },
-        groupId: channelId,
-        now,
-        sharingGrants,
-      }).action === 'allow'
-  )
+  // filtering applies before child reads so a hidden reply cannot expose its
+  // body, mentions, or artifact references. Hidden entries can shorten a page;
+  // clients keep paging with `nextAfterSequence` until it is absent.
   return Object.freeze({
-    messages: Object.freeze(visible),
+    messages: Object.freeze(summaries),
     ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
   })
 }
@@ -1665,24 +1712,20 @@ async function getMessageForUserInSnapshot(
   // indistinguishable from a missing message.
   if ((await filterVisibleMessageRows(database, [message], principal.userId)).length === 0)
     throw new Error('Message unavailable')
-  const summary = await messageSummary(database, message)
-  if (channel.kind !== 'group') return summary
-  // Shared authorized read boundary for groups: a denied entry answers
-  // exactly like a missing one, so the gate is not a history oracle.
+  if (channel.kind !== 'group') return messageSummary(database, message)
+  // Check the target and every direct reply/thread reference before loading
+  // message content, mentions, or artifact references.
   const now = options.now ?? new Date().toISOString()
-  const [roster, sharingGrants] = await Promise.all([
-    loadGroupRoster(database, workspaceId, message.channelId),
-    loadGroupSharingGrants(database, workspaceId, message.channelId),
-  ])
-  const decision = decideGroupHistoryRead({
-    admission: admissionForParticipant(roster, { kind: 'user', userId: principal.userId }),
-    entry: { occurredAt: summary.createdAt, sequence: summary.sequence },
-    groupId: message.channelId,
-    now,
-    sharingGrants,
-  })
-  if (decision.action !== 'allow') throw new Error('Message unavailable')
-  return summary
+  const visible = await filterGroupHistoryVisibleRows(
+    database,
+    workspaceId,
+    message.channelId,
+    principal,
+    [message],
+    now
+  )
+  if (!visible.length) throw new Error('Message unavailable')
+  return messageSummary(database, message)
 }
 
 /**

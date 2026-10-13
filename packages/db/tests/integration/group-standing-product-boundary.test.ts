@@ -245,6 +245,62 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
     expect(saved).toEqual([{ lastReadSequence: visible.sequence }])
   })
 
+  test('earlier-summary counts survive an empty visible frontier and a read mark', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Summary-only with no visible messages')
+    const [historical] = await db()
+      .select({ sequence: messages.sequence })
+      .from(messages)
+      .where(eq(messages.id, group.messageId))
+    expect(historical).toBeDefined()
+
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: historical!.sequence + 1 })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    await db().insert(groupSharingGrants).values({
+      channelId: group.channelId,
+      expiresAt: null,
+      grantId: 'gra_summary_only_empty_member',
+      issuedAt: new Date().toISOString(),
+      principalKind: 'user',
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_summary',
+      userId: f.member.userId,
+      workspaceId: f.workspace.id,
+    })
+
+    const visible = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(visible.messages).toEqual([])
+    const beforeRead = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(beforeRead).toMatchObject({ latestTopLevelSequence: 0, topLevelUnreadCount: 1 })
+
+    await markChannelReadState(
+      db(),
+      f.workspace.id,
+      group.channelId,
+      f.member,
+      'read',
+      historical!.sequence + 99
+    )
+    const afterRead = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(afterRead).toMatchObject({
+      lastReadSequence: 0,
+      latestTopLevelSequence: 0,
+      topLevelUnreadCount: 1,
+    })
+  })
+
   test('earlier-history access exposes messages without granting earlier summary counts', async () => {
     const f = await fixture()
     const group = await groupWithAudience(f, 'History-only summary boundary')
@@ -312,6 +368,46 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
       threadUnreadCount: 0,
       threads: [],
     })
+  })
+
+  test('post-join rootless reply to hidden history is withheld from group conversation reads', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Rootless reply visibility')
+    const hiddenRoot = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'pre-join root hidden from member',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const reply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'post-join reply must not reveal the hidden root',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenRoot.id,
+      sender: f.owner,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: reply.sequence })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    expect(reply.replyToMessageId).toBe(hiddenRoot.id)
+    expect(reply.threadRootMessageId).toBeUndefined()
+
+    const history = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(history.messages.map((message) => message.id)).not.toContain(reply.id)
+    await expect(getMessageForUser(db(), f.workspace.id, reply.id, f.member)).rejects.toThrow(
+      'Message unavailable'
+    )
+
+    await expect(getMessageForUser(db(), f.workspace.id, reply.id, f.owner)).resolves.toMatchObject(
+      {
+        bodyText: 'post-join reply must not reveal the hidden root',
+        replyToMessageId: hiddenRoot.id,
+      }
+    )
   })
 
   test('mutations hide pre-join targets before checking their versions', async () => {
