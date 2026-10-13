@@ -99,14 +99,30 @@ export function WorkspaceDetailsDialog(props: {
     })[section()]
   const [moving, setMoving] = createSignal(false)
   const [orderError, setOrderError] = createSignal('')
+  // Home always leads the sidebar, so it is the fixed first slot of this order.
+  const orderedWorkspaces = () => {
+    const order = props.workspaceOrder ?? []
+    return [
+      ...order.filter(({ isPersonal }) => isPersonal),
+      ...order.filter(({ isPersonal }) => !isPersonal),
+    ]
+  }
+  const firstMovableIndex = () => orderedWorkspaces().filter(({ isPersonal }) => isPersonal).length
   const workspacePosition = () =>
-    props.workspaceOrder?.findIndex((workspace) => workspace.id === props.workspace.id) ?? -1
+    orderedWorkspaces().findIndex((workspace) => workspace.id === props.workspace.id)
+  const canMove = (direction: -1 | 1) => {
+    const next = workspacePosition() + direction
+    return (
+      !props.workspace.isPersonal &&
+      next >= firstMovableIndex() &&
+      next < orderedWorkspaces().length
+    )
+  }
   const moveWorkspace = async (direction: -1 | 1) => {
-    if (moving() || !props.onReorderWorkspaces || !props.workspaceOrder) return
-    const ids = props.workspaceOrder.map((workspace) => workspace.id)
+    if (moving() || !props.onReorderWorkspaces || !canMove(direction)) return
+    const ids = orderedWorkspaces().map((workspace) => workspace.id)
     const position = workspacePosition()
     const next = position + direction
-    if (position < 0 || next < 0 || next >= ids.length) return
     ;[ids[position], ids[next]] = [ids[next]!, ids[position]!]
     setMoving(true)
     setOrderError('')
@@ -212,20 +228,21 @@ export function WorkspaceDetailsDialog(props: {
                     <SettingsRow label="Workspace order">
                       <div class="flex flex-col gap-2">
                         <p role="status" aria-label="Workspace order position">
-                          Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
+                          Position {workspacePosition() + 1} of {orderedWorkspaces().length}
                         </p>
+                        <Show when={props.workspace.isPersonal}>
+                          <p class="conventional-settings-note">
+                            Home always stays first. Your other workspaces can be reordered below
+                            it.
+                          </p>
+                        </Show>
                         <div class="flex items-center gap-2">
                           <For each={[-1, 1] as const}>
                             {(direction) => (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={
-                                  moving() ||
-                                  workspacePosition() + direction < 0 ||
-                                  workspacePosition() + direction >=
-                                    (props.workspaceOrder?.length ?? 0)
-                                }
+                                disabled={moving() || !canMove(direction)}
                                 onClick={() => void moveWorkspace(direction)}
                               >
                                 Move {direction === -1 ? 'up' : 'down'}
