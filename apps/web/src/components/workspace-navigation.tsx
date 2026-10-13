@@ -6,6 +6,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   Show,
   type Accessor,
@@ -86,6 +87,7 @@ import {
 import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
 import { conversationOpenPatch, watchAccountIdentity } from '../lib/account-directory'
+import { createRestoredWorkspaceOpener } from '../lib/open-restored-workspace'
 import { createDeepLinkAttempts } from '../lib/workspace-deep-link'
 import {
   legacyDirectoryIntentRouteKey,
@@ -858,7 +860,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   }
   const switchToWorkspace = (
     workspace: WorkspaceSummary,
-    options: Readonly<{ fromDeepLink?: boolean }> = {}
+    options: Readonly<{ fromDeepLink?: boolean; isCurrent?: () => boolean }> = {}
   ) => {
     if (!options.fromDeepLink) setLegacyDirectoryIntent(undefined)
     if (workspace.id === props.activeWorkspace?.id) return Promise.resolve(false)
@@ -866,6 +868,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     setSwitchingWorkspaceId(workspace.id)
     return Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
       .then(() => {
+        // The person may have walked away while the switch was authorised.
+        if (options.isCurrent && !options.isCurrent()) return false
         workspaceStore.getState().switchWorkspace(workspace.id)
         // The scene is a router fact: this navigation is the single write.
         void setScene(workspace.scene)
@@ -1129,6 +1133,21 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [hashWorkspaceSettingsOpen, setHashWorkspaceSettingsOpen] = createSignal(false)
   const workspaceSettingsOpen = () =>
     globalPanel() === 'workspace-settings' || hashWorkspaceSettingsOpen()
+  // Opens the workspace a restore created; retired whenever the dialog closes.
+  const restoredWorkspaceOpener = createRestoredWorkspaceOpener<WorkspaceSummary>({
+    loaded: () => orderedWorkspaces(),
+    refetch: async () => (await workspaceList.refetch()).data,
+    switchTo: (workspace, isCurrent) => switchToWorkspace(workspace, { isCurrent }),
+    onOpened: () => {
+      setHashWorkspaceSettingsOpen(false)
+      workspaceStore.getState().setGlobalPanel(null)
+    },
+  })
+  createEffect(
+    on(workspaceSettingsOpen, (isOpen) => {
+      if (!isOpen) restoredWorkspaceOpener.cancel()
+    })
+  )
 
   createEffect(() => {
     const activeWorkspace = props.activeWorkspace
@@ -1761,18 +1780,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
           }}
-          onOpenWorkspace={async (workspaceId) => {
-            const findRestored = (list: readonly WorkspaceSummary[] | undefined) =>
-              list?.find(({ id }) => id === workspaceId)
-            // The restore refreshes the list, but that refresh can fail on its own; ask again
-            // before giving up so the restored workspace is reachable without a reload.
-            const restored =
-              findRestored(orderedWorkspaces()) ??
-              findRestored((await workspaceList.refetch()).data)
-            if (!restored || !(await switchToWorkspace(restored))) return false
-            setHashWorkspaceSettingsOpen(false)
-            workspaceStore.getState().setGlobalPanel(null)
-            return true
+          onOpenWorkspace={(workspaceId) => {
+            const owner = props.activeWorkspace?.id
+            return restoredWorkspaceOpener.open(
+              workspaceId,
+              () => workspaceSettingsOpen() && props.activeWorkspace?.id === owner
+            )
           }}
           open
           services={props.services}
