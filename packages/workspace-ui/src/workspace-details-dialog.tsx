@@ -24,6 +24,7 @@ import {
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
 import { WorkspaceArchiveSettings } from './workspace-archive-settings'
 import { WorkspaceArchivedSettings } from './workspace-archived-settings'
+import { WorkspaceExportSettings, WorkspaceRestoreSettings } from './workspace-portable-settings'
 
 const sectionIcons = {
   general: Settings2,
@@ -76,6 +77,8 @@ export function WorkspaceDetailsDialog(props: {
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
   onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
+  /** Takes the user into a workspace they just restored; omitted offers only Done. */
+  onOpenWorkspace?: (workspaceId: string) => void
   workspaceOrder?: readonly WorkspaceSummary[]
   open: boolean
   /** The control to restore focus to on close; the shared dialog otherwise
@@ -262,6 +265,19 @@ export function WorkspaceDetailsDialog(props: {
                     <Text variant="caption" tone="muted" class="mt-4">
                       Your personal workspace stays with your account.
                     </Text>
+                  </Show>
+                  <Show when={apiClient()}>
+                    {(client) => (
+                      <>
+                        <WorkspaceExportSettings client={client()} workspace={props.workspace} />
+                        <WorkspaceRestoreSettings
+                          client={client()}
+                          {...(props.onOpenWorkspace
+                            ? { onOpenWorkspace: props.onOpenWorkspace }
+                            : {})}
+                        />
+                      </>
+                    )}
                   </Show>
                   <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
                     <SettingsRow

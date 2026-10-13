@@ -431,6 +431,8 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
+  /** Opens a workspace the dialog just restored; the list query already holds it. */
+  onOpenWorkspace: (workspaceId: string) => void
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
@@ -446,6 +448,7 @@ function WorkspaceDetailsOverlay(props: {
       }}
       client={props.client}
       onClose={props.onClose}
+      onOpenWorkspace={props.onOpenWorkspace}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
@@ -1757,6 +1760,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
+          }}
+          onOpenWorkspace={(workspaceId) => {
+            const restored = orderedWorkspaces().find(({ id }) => id === workspaceId)
+            if (!restored) return
+            setHashWorkspaceSettingsOpen(false)
+            workspaceStore.getState().setGlobalPanel(null)
+            void switchToWorkspace(restored)
           }}
           open
           services={props.services}
