@@ -6,24 +6,36 @@ on:
     # draft, so firing here ran the full lane on a draft and again (cancelled)
     # at ready. ready_for_review + synchronize are the moments that count.
     types: [synchronize, ready_for_review]
-    paths:
-      - 'apps/web/**'
-      - 'packages/**'
-      - 'scripts/**'
-      - 'bun.lock'
-      - 'package.json'
-      - 'compose.yml'
-      - 'infra/postgres/**'
-      - '.github/workflows/tanstack-start.yml'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: start-host-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+# The host lane always triggers on a pull request and ends in `Host gate`, a
+# required check. A workflow-level path filter never reports on a pull request
+# that touches none of its paths, which a required check cannot tolerate, so
+# scripts/ci-lane-selection.mjs decides applicability inside the run instead.
 jobs:
-  verify:
+  changes:
+    name: Host changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      applicable: ${{ steps.select.outputs.applicable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Select whether the host lane applies
+        id: select
+        run: node scripts/ci-lane-selection.mjs host
+
+  verify:
+    needs: changes
+    if: needs.changes.outputs.applicable == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -71,3 +83,35 @@ jobs:
             apps/web/start/.checks/local-*/worker-*.log
           include-hidden-files: true
           retention-days: 14
+
+  # The required check: a pass when the change touches none of the host lane's
+  # inputs or the lane passed, a failure when the lane failed or was cancelled.
+  # While the lane runs the gate has not reported, so the merge stays blocked.
+  gate:
+    name: Host gate
+    needs: [changes, verify]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate the host result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          APPLICABLE: ${{ needs.changes.outputs.applicable }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          set -euo pipefail
+          echo "changes=$CHANGES_RESULT applicable=$APPLICABLE verify=$VERIFY_RESULT"
+          if [ "$CHANGES_RESULT" != 'success' ]; then
+            echo "::error::Change detection did not succeed, so the host result is unknown."
+            exit 1
+          fi
+          if [ "$APPLICABLE" != 'true' ]; then
+            echo "PASS: the change touches none of the host lane's inputs."
+            exit 0
+          fi
+          if [ "$VERIFY_RESULT" != 'success' ]; then
+            echo "::error::The host lane did not pass ($VERIFY_RESULT)."
+            exit 1
+          fi
+          echo "PASS: the host lane passed."

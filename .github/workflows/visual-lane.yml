@@ -3,8 +3,14 @@ name: Workspace visual lane
 # Pixel regression gates for apps/web/e2e/conventional-workspace.spec.ts and
 # apps/web/e2e/chat-view-visual.spec.ts.
 #
-# The two pixel suites sample by pull-request parity (#956): a PR runs one of
-# the two, consecutive PRs alternate, and a dispatch refresh runs both.
+# A pull request runs every pixel suite its change can affect (see
+# scripts/ci-lane-selection.mjs): a suite is skipped only when the change is
+# limited to the other suite's own spec and baselines. A dispatch refresh runs
+# both. The lane always triggers on a pull request and ends in the `Visual gate`
+# job, which is a required check: it fails when the visual job failed, and it
+# stays unfinished until the visual job finishes, so a pull request cannot merge
+# while the pixel result is failed or pending. A pull request that touches none of
+# the lane's inputs reports a passing gate without allocating the container.
 #
 # The committed `-linux` baselines were rendered by the pinned Playwright
 # container's own Chromium build, so the lane runs inside that same image: a
@@ -40,13 +46,6 @@ on:
     # draft, so firing here ran the full lane on a draft and again (cancelled)
     # at ready. ready_for_review + synchronize are the moments that count.
     types: [synchronize, ready_for_review]
-    paths:
-      - 'apps/web/**'
-      - 'packages/**'
-      - 'scripts/**'
-      - 'bun.lock'
-      - 'package.json'
-      - '.github/workflows/visual-lane.yml'
   workflow_dispatch:
     inputs:
       update-snapshots:
@@ -67,10 +66,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  visual:
-    name: Visual workspace
+  changes:
+    name: Visual changes
     # A draft pull request cannot merge, so it allocates no runner.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      applicable: ${{ steps.select.outputs.applicable }}
+      workspace: ${{ steps.select.outputs.workspace }}
+      chat: ${{ steps.select.outputs.chat }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Select the visual suites this change affects
+        id: select
+        run: node scripts/ci-lane-selection.mjs visual
+
+  visual:
+    name: Visual workspace
+    needs: changes
+    if: needs.changes.outputs.applicable == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -252,20 +272,20 @@ jobs:
         # softens it; the pull_request path keeps failing hard.
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs['update-snapshots'] }}
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_WORKSPACE: ${{ needs.changes.outputs.workspace }}
+          RUN_CHAT: ${{ needs.changes.outputs.chat }}
         run: |
-          set -euo pipefail
-          # Sampled split (#956): the two pixel suites alternate by pull-request
-          # parity, so each pass pays roughly half the test wall (~90s) while
-          # both suites still gate across consecutive PRs. A regression in the
-          # suite a PR skips is caught by the next PR's run of that suite.
-          # Dispatches (baseline refreshes) always run both.
-          if [[ -z "${PR_NUMBER:-}" || $((PR_NUMBER % 2)) -eq 0 ]]; then
-            bun run test:e2e:visual
+          set -uo pipefail
+          # Every suite the change can affect runs, and one failing suite does
+          # not hide the other: both results land in the same log.
+          status=0
+          if [[ "$RUN_WORKSPACE" == 'true' ]]; then
+            bun run test:e2e:visual || status=1
           fi
-          if [[ -z "${PR_NUMBER:-}" || $((PR_NUMBER % 2)) -eq 1 ]]; then
-            bun run test:e2e:visual:chat
+          if [[ "$RUN_CHAT" == 'true' ]]; then
+            bun run test:e2e:visual:chat || status=1
           fi
+          exit "$status"
 
       - name: Regenerate -linux baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
@@ -302,3 +322,36 @@ jobs:
             playwright-report/
           if-no-files-found: ignore
           retention-days: 14
+
+  # The required check. It always reports on a ready pull request: a pass when
+  # the change touches none of the lane's inputs or the visual job passed, a
+  # failure when the visual job failed or was cancelled. While the visual job
+  # runs the gate has not reported, so the merge stays blocked.
+  gate:
+    name: Visual gate
+    needs: [changes, visual]
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate the visual result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          APPLICABLE: ${{ needs.changes.outputs.applicable }}
+          VISUAL_RESULT: ${{ needs.visual.result }}
+        run: |
+          set -euo pipefail
+          echo "changes=$CHANGES_RESULT applicable=$APPLICABLE visual=$VISUAL_RESULT"
+          if [[ "$CHANGES_RESULT" != 'success' ]]; then
+            echo "::error::Change detection did not succeed, so the visual result is unknown."
+            exit 1
+          fi
+          if [[ "$APPLICABLE" != 'true' ]]; then
+            echo "PASS: the change touches none of the visual lane's inputs."
+            exit 0
+          fi
+          if [[ "$VISUAL_RESULT" != 'success' ]]; then
+            echo "::error::The visual regression lane did not pass (${VISUAL_RESULT})."
+            exit 1
+          fi
+          echo "PASS: the visual regression lane passed."
