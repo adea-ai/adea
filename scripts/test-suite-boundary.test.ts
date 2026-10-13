@@ -13,6 +13,17 @@ const desktopPackageJson = JSON.parse(
 ) as { version: string }
 
 describe('test suite boundaries', () => {
+  test('builds the data consumer state dependency before integration route-flow tests', () => {
+    const runner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
+    const routeFlow = runner.slice(runner.indexOf('if (plan.routeFiles.length > 0)'))
+    const stateBuild = routeFlow.indexOf(
+      "run('bun', ['run', '--cwd', 'packages/state', 'build'], process.env)"
+    )
+    const routeTests = routeFlow.indexOf('...plan.routeFiles.map((file) => resolve(root, file))')
+    expect(stateBuild).toBeGreaterThanOrEqual(0)
+    expect(routeTests).toBeGreaterThan(stateBuild)
+  })
+
   test('installs locked Playwright before downloading browsers for the Start host', () => {
     const workflow = Bun.YAML.parse(
       readFileSync(resolve(root, '.github/workflows/tanstack-start.yml'), 'utf8')
