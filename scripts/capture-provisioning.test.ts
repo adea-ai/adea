@@ -23,7 +23,16 @@ const dockerShim = `#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 case "$1" in
   info) exit 0 ;;
-  run) exit 0 ;;
+  run)
+    # SHIM_RUN throttles the image pull the way a shared-runner registry does: "ecr" only on the
+    # canonical ECR Public reference, "all" on every registry, "fail" with an unrelated error.
+    for last; do :; done
+    case "$SHIM_RUN" in
+      ecr) case "$last" in public.ecr.aws/*) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;; esac ;;
+      all) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+      fail) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+    esac
+    exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
   exec) exit 0 ;;
   rm)
@@ -47,7 +56,7 @@ if (mode === 'no-ready') {
   setInterval(() => {}, 1000)
   await new Promise(() => {})
 }
-const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500 })
+const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500, backoffMs: [10, 10] })
 if (!handle) { console.log('NULL'); process.exit(3) }
 console.log('READY ' + handle.containerName)
 if (mode === 'normal') { handle.stop(); process.exit(0) }
@@ -198,7 +207,54 @@ async function startChild(
   }
 }
 
+function runImages(log: string) {
+  return calls(log)
+    .filter((line) => line.startsWith('run '))
+    .map((line) => line.split(' ').at(-1))
+}
+
 describe('capture provisioning helper', () => {
+  test('a rate-limited ECR pull falls over to the same digest on the mirror and removes that container', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'ecr' })
+    const { child, name } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const images = runImages(log)
+    const digest = '@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+    expect(images).toEqual([
+      `public.ecr.aws/docker/library/postgres:18-alpine${digest}`,
+      `mirror.gcr.io/library/postgres:18-alpine${digest}`,
+    ])
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('registries that stay rate-limited fail the start after bounded retries and nothing leaks', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'all' })
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    expect(await new Response(child.stderr).text()).toContain('toomanyrequests')
+    // Three registries on the first pass and again after each of the two retries.
+    expect(runImages(log)).toHaveLength(9)
+    const removed = removals(log)
+    expect(removed).toHaveLength(1)
+    expect(removed[0]).toMatch(/^rm -f adea-capture-prov-[0-9a-f]+$/)
+  })
+
+  test('an unrelated start failure is not retried or sent to another registry', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'fail' })
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    expect(await new Response(child.stderr).text()).toContain('manifest unknown')
+    expect(runImages(log)).toHaveLength(1)
+  })
+
   test('a normal exit removes exactly the container this invocation created', async () => {
     const { environment, log } = environmentFor('ok')
     const { child, name } = await startChild('normal', environment)
