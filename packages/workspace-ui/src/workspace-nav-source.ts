@@ -223,6 +223,7 @@ export function buildWorkspaceNavSource(input: WorkspaceNavSourceInput): Workspa
       logo: workspace.logo,
       accent: workspace.accent,
       sortOrder: workspace.sortOrder,
+      ...(workspace.isPersonal ? { isHome: true } : {}),
       summary: {
         running: dev?.running ?? 0,
         needsYou: needsInput,
