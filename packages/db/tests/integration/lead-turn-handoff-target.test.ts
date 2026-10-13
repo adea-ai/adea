@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import { ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createDirectAgentTopic } from '../../src/conversations'
+import { createDirectAgentTopic, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createLeadTurn, getLatestLeadTurnForTarget } from '../../src/lead-turns'
 import { leadTurnIntents } from '../../src/schema/lead-turns'
@@ -415,4 +415,144 @@ describe.skipIf(!connectionUrl)('lead-turn structured handoff target', () => {
     expect(leadTurn.handoffTarget).toBeUndefined()
     expect(leadTurn.state).toBe('blocked')
   })
+
+  test('task UUID casing preserves same-key replay and fresh-key target recovery', async () => {
+    const f = await fixture()
+    const target = f.target('target-session-a', 3)
+    const key = crypto.randomUUID()
+    const post = (taskId: string, idempotencyKey = key) =>
+      createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        f.owner.principal,
+        {
+          bodyText: 'Requesting lead coordination.',
+          idempotencyKey,
+          handoffTarget: { ...target, taskId },
+        },
+        { hostMediated: true }
+      )
+    const first = await post(target.taskId.toUpperCase())
+    expect((await post(target.taskId.toUpperCase())).leadTurn.intentId).toBe(
+      first.leadTurn.intentId
+    )
+    expect((await post(target.taskId)).leadTurn.intentId).toBe(first.leadTurn.intentId)
+    expect((await post(target.taskId.toUpperCase(), crypto.randomUUID())).leadTurn.intentId).toBe(
+      first.leadTurn.intentId
+    )
+    expect(first.leadTurn.handoffTarget?.taskId).toBe(target.taskId)
+  })
+
+  for (const retained of [false, true]) {
+    test(`a plain-message key rejects targeted admission with retained destination: ${retained}`, async () => {
+      const f = await fixture()
+      const key = crypto.randomUUID()
+      const plain = await createMessage(
+        connection.db,
+        f.workspace.id,
+        f.topic.id,
+        f.owner.principal,
+        {
+          bodyText: 'Requesting lead coordination.',
+          idempotencyKey: key,
+          sender: f.owner.principal,
+        }
+      )
+      if (retained) await f.admit('target-session-a', 3)
+      await expect(
+        createLeadTurn(
+          connection.db,
+          f.workspace.id,
+          f.topic.id,
+          f.owner.principal,
+          {
+            bodyText: 'Requesting lead coordination.',
+            idempotencyKey: key,
+            handoffTarget: f.target('target-session-a', 3),
+          },
+          { hostMediated: true }
+        )
+      ).rejects.toThrow('Message idempotency conflict')
+      const rows = await connection.db
+        .select({ id: leadTurnIntents.id })
+        .from(leadTurnIntents)
+        .where(
+          and(
+            eq(leadTurnIntents.workspaceId, f.workspace.id),
+            eq(leadTurnIntents.channelId, f.topic.id)
+          )
+        )
+      expect(rows).toHaveLength(retained ? 1 : 0)
+      expect(
+        (
+          await createMessage(connection.db, f.workspace.id, f.topic.id, f.owner.principal, {
+            bodyText: 'Requesting lead coordination.',
+            idempotencyKey: key,
+            sender: f.owner.principal,
+          })
+        ).id
+      ).toBe(plain.id)
+    })
+  }
+
+  for (const change of [
+    'session',
+    'task',
+    'generation',
+    'add-target',
+    'remove-target',
+    'retained-destination',
+  ] as const) {
+    test(`the same message key rejects a changed handoff target: ${change}`, async () => {
+      const f = await fixture()
+      const original = change === 'add-target' ? undefined : f.target('target-session-a', 3)
+      let changed = original && { ...original }
+      if (change === 'session' || change === 'retained-destination')
+        changed = f.target('target-session-b', 3)
+      if (change === 'generation') changed = f.target('target-session-a', 4)
+      if (change === 'add-target') changed = f.target('target-session-a', 3)
+      if (change === 'remove-target') changed = undefined
+      if (change === 'task') {
+        const other = await createTask(
+          connection.db,
+          f.workspace.id,
+          f.owner.principal,
+          { objective: 'Other', title: 'Other' },
+          { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+        )
+        changed = { ...f.target('target-session-a', 3), taskId: other.id }
+      }
+      const key = crypto.randomUUID()
+      const post = (handoffTarget: typeof original, idempotencyKey = key) =>
+        createLeadTurn(
+          connection.db,
+          f.workspace.id,
+          f.topic.id,
+          f.owner.principal,
+          {
+            // Keep the message payload identical: only the intent target changes.
+            bodyText: 'Requesting lead coordination.',
+            idempotencyKey,
+            ...(handoffTarget ? { handoffTarget } : {}),
+          },
+          { hostMediated: true }
+        )
+      const first = await post(original)
+      const replay = await post(original)
+      expect(replay.leadTurn.intentId).toBe(first.leadTurn.intentId)
+      if (change === 'retained-destination') await post(changed, crypto.randomUUID())
+      await expect(post(changed)).rejects.toThrow('Lead turn target mismatch')
+      const rows = await connection.db
+        .select({ id: leadTurnIntents.id })
+        .from(leadTurnIntents)
+        .where(
+          and(
+            eq(leadTurnIntents.workspaceId, f.workspace.id),
+            eq(leadTurnIntents.channelId, f.topic.id)
+          )
+        )
+      expect(rows).toHaveLength(change === 'retained-destination' ? 2 : 1)
+    })
+  }
 })

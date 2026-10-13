@@ -69,7 +69,11 @@ export function parseHandoffTarget(value: unknown): HandoffTarget | undefined {
     expectedGeneration < 0
   )
     throw new Error('Invalid lead turn')
-  return { runtimeSessionId: runtimeSessionId.trim(), taskId, expectedGeneration }
+  return {
+    runtimeSessionId: runtimeSessionId.trim(),
+    taskId: taskId.toLowerCase(),
+    expectedGeneration,
+  }
 }
 
 function receipt(intent: Intent) {
@@ -267,6 +271,30 @@ export async function createLeadTurn(
     // task, and it is stamped on the intent so later reads can tell a
     // retargeted or phantom task from the admitted one.
     if (handoffTarget) await requireVisibleTask(tx, workspaceId, handoffTarget.taskId, principal)
+    // A message key already belongs to its immutable target, even when the
+    // newly requested target has another recoverable intent of its own.
+    // Check before target recovery can return that unrelated receipt.
+    const [keyed] = await tx
+      .select({ messageId: messages.id, intent: leadTurnIntents })
+      .from(messages)
+      .leftJoin(leadTurnIntents, eq(leadTurnIntents.messageId, messages.id))
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          eq(messages.channelId, channelId),
+          eq(messages.idempotencyKey, input.idempotencyKey.trim())
+        )
+      )
+      .limit(1)
+    // A plain message owns its key too; target recovery cannot adopt it.
+    if (keyed && !keyed.intent) throw new Error('Message idempotency conflict')
+    if (
+      keyed?.intent &&
+      (keyed.intent.handoffTargetSessionId !== (handoffTarget?.runtimeSessionId ?? null) ||
+        keyed.intent.handoffTargetTaskId !== (handoffTarget?.taskId ?? null) ||
+        keyed.intent.handoffTargetGeneration !== (handoffTarget?.expectedGeneration ?? null))
+    )
+      throw new Error('Lead turn target mismatch')
     // Canonical recovery before another admission: a retained intent for the
     // exact target context dedupes reload/eviction retries without any
     // client-held request identity. The COMPLETE retained target must match:

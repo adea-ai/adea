@@ -34,6 +34,20 @@ describe('parseHandoffTarget', () => {
     ).toBe('session-1')
   })
 
+  test('canonicalizes task UUID casing without changing session identity', () => {
+    expect(
+      parseHandoffTarget({
+        runtimeSessionId: 'Session-A',
+        taskId: 'ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF',
+        expectedGeneration: 0,
+      })
+    ).toEqual({
+      runtimeSessionId: 'Session-A',
+      taskId: 'abcdefab-cdef-4abc-8def-abcdefabcdef',
+      expectedGeneration: 0,
+    })
+  })
+
   test('rejects non-objects, arrays, and unknown keys', () => {
     for (const value of [null, 42, 'session-1', ['session-1'], { runtimeSessionId: 's' }])
       expect(() => parseHandoffTarget(value)).toThrow('Invalid lead turn')
