@@ -412,7 +412,10 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // chunk the panes share with it: 178,335 raw / 61,542 gzip against the
     // same build of main's 178,006 / 60,882 (102 bytes over 60 KiB gzip).
     // Gzip ratchets to the next whole KiB; raw keeps its cap.
-    devUtilityPanes: { rawBytes: 176 * 1024, gzipBytes: 61 * 1024 },
+    // Repository registry on library Collapsible, Item and Alert (#1317, #1318
+    // harness pane): the shared utility open route measures 181,693 raw,
+    // 1,469 bytes over the 176 KiB cap. Raw ratchets to 181 KiB (~2% headroom).
+    devUtilityPanes: { rawBytes: 181 * 1024, gzipBytes: 61 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
