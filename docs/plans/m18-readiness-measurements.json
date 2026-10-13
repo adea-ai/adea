@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "issue": 1224,
-  "inventorySha256": "182dcbcb160f022eb5c1f0f5ca49c62cee659796411c8a709feebfeda67eccab",
+  "inventorySha256": "1853165573ee59047fb2ef0b70285fdc25b3a4cdc782dbc80afdbb51cd645bbc",
   "revisions": {
     "main": "449568904e99718cf52e63fadad6dac58db7e277",
     "pr-1227": "065590ae673ad44b958cb297e79eb086118549d7",

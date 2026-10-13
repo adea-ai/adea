@@ -21,7 +21,7 @@ import {
   defaultThemeSelection,
   type ThemeContextValue,
   type ThemeSelection,
-} from '@adea-ai/ui/components/theme'
+} from '@adea-ai/ui/components/theme/lazy'
 import {
   adeaV2Codec,
   appearanceSchema,

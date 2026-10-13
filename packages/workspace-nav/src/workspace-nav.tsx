@@ -1,6 +1,6 @@
 import '@adea-ai/app-ui/workspace-nav.css'
 
-import { useOptionalTheme } from '@adea-ai/ui/components/theme'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'

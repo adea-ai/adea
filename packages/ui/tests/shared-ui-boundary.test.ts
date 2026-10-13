@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const source = (path: string) => readFileSync(join(import.meta.dir, '../src', path), 'utf8')
@@ -10,7 +10,7 @@ describe('private application UI boundary', () => {
   test('delegates mode selection and roving focus to the published controlled toggle', () => {
     const toggle = source('components/theme-toggle.tsx')
     expect(toggle).toContain(
-      "import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme'"
+      "import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme/lazy'"
     )
     expect(toggle).toContain('mode={theme.selection().appearance}')
     expect(toggle).toContain('theme.setSelection({ appearance })')
@@ -27,7 +27,7 @@ describe('private application UI boundary', () => {
     ]
     for (const path of consumers) {
       const code = repositoryFile(path)
-      expect(code).toContain("from '@adea-ai/ui/components/theme'")
+      expect(code).toContain("from '@adea-ai/ui/components/theme/lazy'")
       expect(code).not.toContain('components/theme-provider')
     }
     // The host view keeps only the V2 seam the appearance editor writes through.
@@ -43,6 +43,35 @@ describe('private application UI boundary', () => {
     }
     expect(host).not.toContain('export function useOptionalTheme')
     expect(source('components/workspace-accent.ts')).not.toContain('variantId')
+  })
+
+  test('no module reaches the themes catalogue from the start-up path', () => {
+    const root = join(import.meta.dir, '../../..')
+    const files = [
+      'apps/web/src',
+      'packages/ui/src',
+      'packages/workspace-nav/src',
+      'packages/workspace-ui/src',
+    ]
+      .flatMap((directory) =>
+        (readdirSync(join(root, directory), { recursive: true }) as string[]).map((entry) =>
+          join(directory, entry)
+        )
+      )
+      .filter((path) => /\.tsx?$/.test(path))
+    expect(files.length).toBeGreaterThan(50)
+    for (const path of files) {
+      const code = repositoryFile(path)
+      // The eager entry imports the 34-theme catalogue; the lazy one is the same context.
+      expect(code, path).not.toMatch(/from '@adea-ai\/ui\/components\/theme'/)
+      // `variantFromRecord` and `accents` are defined in lib/themes.ts beside the table, and a
+      // bundler places a module whole: importing either from a start-up module drags it in.
+      for (const [, names] of code.matchAll(
+        /import\s*\{([^}]*)\}\s*from '@adea-ai\/ui\/lib\/themes'/g
+      )) {
+        expect(names, path).not.toMatch(/\b(?:variantFromRecord|accents)\b/)
+      }
+    }
   })
 
   test('loads the shared layers before the private host layers', () => {

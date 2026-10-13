@@ -229,7 +229,7 @@
           "packages/ui/tests/appearance-contrast.test.ts",
           "packages/ui/tests/custom-theme-library.test.ts"
         ],
-        "command": "bun test --conditions=browser --conditions=development packages/ui/tests/appearance-contrast.test.ts packages/ui/tests/custom-theme-library.test.ts",
+        "command": "bun test --conditions=browser packages/ui/tests/appearance-contrast.test.ts packages/ui/tests/custom-theme-library.test.ts",
         "limit": "covers presets and editor roles only; does not scan every rendered text pair"
       }
     },

@@ -129,14 +129,16 @@ migration, and the boot script rendered from the same schema),
 `custom-theme-library.ts` (imported themes and their own recovery key), and
 `appearance-host.tsx` (the provider configuration plus the V2 `update`/`preview`
 seam the appearance editor writes through). Shell code reads the shared context
-(`useOptionalTheme` from `@adea-ai/ui/components/theme`), and a workspace accent
+(`useOptionalTheme` from `@adea-ai/ui/components/theme/lazy`), and a workspace accent
 is derived by its `accentRolesFor`. The mode selector uses the published
 controlled `ThemeModeToggle`, driven by the shared selection. The pre-paint script resolves the saved theme attribute
 without embedding palette data. Native surface capability and reduced
 transparency are provider options. Unknown or removed catalogue IDs resolve to
 the default of the same appearance and the original stored record is preserved.
-The package's tests run with the `browser` and `development` conditions so the
-published sources resolve the way the application resolves them.
+The shell imports the provider from the published lazy entry
+(`@adea-ai/ui/components/theme/lazy`) so the 34-theme catalogue is a chunk of its
+own rather than part of start-up; `theme-registry.ts` and
+`imported-theme-variant.ts` exist to keep it there (ADR 0014).
 
 The unused AccountDrawer, SceneSettings, and OnScreenControls copies and their test-only harnesses are removed. The global account menu composes the published AccountMenu. The external Agent Sim scene engine owns its live scene settings and movement controls and depends on published UI, not this private package. The app retains its `data-agent-hq-on-screen-controls` viewport positioning hook for that engine. Do not restore these unused copies or add generic controls to the host adapter package.
 

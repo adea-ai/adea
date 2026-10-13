@@ -1,4 +1,4 @@
-import { useOptionalTheme } from '@adea-ai/ui/components/theme'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EntityIcon } from '@adea-ai/ui/components/ui/entity-icon'
 import { createEffect, createSignal } from 'solid-js'
 import { Box, House } from 'lucide-solid'

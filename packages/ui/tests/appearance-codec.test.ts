@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { createVersionedPersistence, defaultThemeSelection } from '@adea-ai/ui/components/theme'
+import {
+  createVersionedPersistence,
+  defaultThemeSelection,
+} from '@adea-ai/ui/components/theme/lazy'
 import { REDUCED_TRANSPARENCY_QUERY } from '@adea-ai/ui/lib/theme-surface'
 
 import {

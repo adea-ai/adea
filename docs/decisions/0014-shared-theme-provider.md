@@ -28,7 +28,7 @@ rendered from a storage schema. Cortana's props and stored bytes are unchanged.
 
 ## Decision
 
-Adea runs the published provider, pinned to an exact `@adea-ai/ui` version in
+Adea runs the published provider (its lazy entry, see Consequences), pinned to an exact `@adea-ai/ui` version in
 every manifest that depends on it. Reusable behaviour lives there; Adea keeps
 only what is product schema or product capability, in three modules in
 `packages/ui/src/components`:
@@ -90,11 +90,26 @@ Cortana and Adea share one document contract. Adea inherits the published
 package's release cadence for theming changes and must bump the pinned version
 deliberately.
 
-The published package's per-subpath `dist` output exposes only the exports its
-own entries use, so a few helpers that its type declarations list are absent at
-runtime when a tool resolves `import` instead of the `solid` or `development`
-condition. The application resolves the source, so builds are unaffected;
-`packages/ui` and `packages/dev-view` run their unit tests with
-`--conditions=browser --conditions=development` so tests resolve the way the
-application does. The package should export what it declares; until it does,
-the test script is the guard.
+The shell imports the provider from the published lazy entry,
+`@adea-ai/ui/components/theme/lazy`, and so does every consumer of the shared
+context (`useOptionalTheme`, `ThemeModeToggle`, the codec's persistence helpers):
+the lazy and eager entries share one context object (a registered global symbol),
+but importing the eager entry anywhere in the start-up graph would bring the whole
+34-theme catalogue back. Until the catalogue loads, `useTheme().themes` and
+`allThemes()` list only the default pair, `variant()` is the default of the
+appearance, and the document keeps what `themeScript` and `theme-variants.css`
+painted. The provider fetches the catalogue itself when the saved or previewed
+selection names a theme beyond the default pair; the appearance editor also calls
+`loadCatalogue()` when it mounts. A saved imported theme is not a catalogue theme:
+it resolves at once from the library and pre-paints from its stored flat tokens.
+
+Two host rules keep the catalogue out of the start-up chunk, because a bundler
+places a module whole. `themeRegistry` (the one reader of `builtinThemes`) lives in
+`theme-registry.ts`, imported only by the lazy appearance editor, not in
+`custom-theme-library.ts`; and the start-up code imports nothing defined in
+`@adea-ai/ui/lib/themes` beside the table: not `accents` (read
+`@adea-ai/ui/lib/accent-presets`) and not `variantFromRecord`, whose projection
+`imported-theme-variant.ts` carries (pinned to the published function by a test)
+until the shared package exports it from a module of its own. The bundle gate
+(`scripts/client-bundle-budgets.mjs`) fails if a catalogue display name appears in
+the start-up closure, and a boundary test fails on the imports above.

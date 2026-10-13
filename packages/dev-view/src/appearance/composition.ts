@@ -9,7 +9,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { resolveVariant, type ThemeVariant } from '@adea-ai/ui/lib/themes'
-import { themeRegistry } from '@adea-ai/app-ui/components/custom-theme-library'
+import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
 import type { AppearancePreferencesV2 } from '@adea-ai/app-ui/components/appearance-codec'
 
 /**

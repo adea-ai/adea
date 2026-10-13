@@ -1,5 +1,5 @@
 import { getAccent } from '@adea-ai/themes'
-import type { ThemeContextValue } from '@adea-ai/ui/components/theme'
+import type { ThemeContextValue } from '@adea-ai/ui/components/theme/lazy'
 import {
   ACCENT_PAINT_PROPERTIES,
   paintAccentRoles,

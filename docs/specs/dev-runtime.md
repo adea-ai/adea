@@ -1664,7 +1664,11 @@ Payload hints and run completion cannot authorize grouping or hide an action.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
-exact version). Every editor projection clears the host's 4.5:1 syntax floor
+exact version) through its lazy entry, so the catalogue is not in the start-up
+chunk: the default pair, imported themes and every accent need no import, a saved
+or previewed catalogue theme paints from the stylesheet and keeps `variant()` on the
+appearance default until the provider's own fetch of the catalogue resolves, and the
+appearance editor loads it when it mounts. Every editor projection clears the host's 4.5:1 syntax floor
 (`editorRoles: 'floor'`). A removed or unknown stored ID resolves to the
 appearance default without deleting the stored preference.
 Solid destructive actions carry a separate fill/foreground pair from the

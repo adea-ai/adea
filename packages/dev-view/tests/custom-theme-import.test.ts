@@ -4,9 +4,9 @@ import {
   CUSTOM_THEME_LIBRARY_STORAGE_KEY,
   removeCustomTheme,
   setCustomThemes,
-  themeRegistry,
   type CustomThemeStored,
 } from '@adea-ai/app-ui/components/custom-theme-library'
+import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
 import { importCustomTheme } from '../src/appearance/custom-theme-import'
 
 function memoryStorage(): Storage {
