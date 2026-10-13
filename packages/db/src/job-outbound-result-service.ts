@@ -265,12 +265,23 @@ export function createJobOutboundResultService<TTransaction>(
           })
         }
         const first = await judge()
-        if (first.action !== 'publish') return { decision: first, messageId: null, prepared }
+        if (first.action !== 'publish') {
+          // `prepare` may have completed a Task under the requester's current authority.
+          // A held publication suppresses only the outbound message; it does not undo that
+          // already-authorized completion. Requester authority is renewed only if a message
+          // will actually be written below.
+          return { decision: first, messageId: null, prepared }
+        }
         // The seam may park for any time. The decision is judged again at the write instant, so a
         // grant that lapsed while the write waited holds the publication rather than committing it.
         await input.beforeWrite?.()
         const decision = await judge()
-        if (decision.action !== 'publish') return { decision, messageId: null, prepared }
+        if (decision.action !== 'publish') {
+          // As above, a hold after the Task transition commits the completion without a
+          // publication. The final requester check is a write-boundary check, so it applies
+          // only when the second judgment still permits that write.
+          return { decision, messageId: null, prepared }
+        }
         // Completion requests can be made by an administrator other than the job's original
         // actor. Recheck that requester's authority after the final publication judgment and
         // before the write; the publication binding intentionally remains attributed to the

@@ -435,6 +435,9 @@ async function completeForPublication(
 ) {
   const { command, principal, request, taskId, workspaceId } = input
   const job = await authorizeCompletionRequester(context, input)
+  // Completion authority is evaluated immediately before this Task transition. If the later
+  // publication judgment holds, that authorized completion still commits without a message;
+  // a second requester check is required only when a canonical message will be written.
   return completeTask(context.transaction, workspaceId, taskId, principal, command, {
     outboundRequest: canonicalOutboundRequest(request, job.originalActorUserId),
   })

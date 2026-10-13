@@ -1387,6 +1387,59 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
   }, 30_000)
 
+  test("a held publication keeps an authorized completion when the requester's admission expires afterward", async () => {
+    const f = await fixture({ complete: false })
+    const requester = await newUser(f, { destination: 'member', source: 'admin' })
+    await joinChannel(f, requester.userId)
+    expect(requester.userId).not.toBe(f.owner.principal.userId)
+
+    const reg = await registeredArtifact(f)
+    const expiresAt = new Date(Date.now() + 2_000).toISOString()
+    const [groupGrant] = await connection.db
+      .update(schema.groupAudienceGrants)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(schema.groupAudienceGrants.channelId, f.channelA.id),
+          eq(schema.groupAudienceGrants.userId, requester.userId)
+        )
+      )
+      .returning({ id: schema.groupAudienceGrants.id })
+    expect(groupGrant).toBeDefined()
+    const [artifactGrant] = await connection.db
+      .update(schema.artifactReferenceGrants)
+      .set({ expiresAt })
+      .where(eq(schema.artifactReferenceGrants.grantId, reg.grantId))
+      .returning({ grantId: schema.artifactReferenceGrants.grantId })
+    expect(artifactGrant).toBeDefined()
+
+    const key = crypto.randomUUID()
+    const seam = { enteredMs: 0, expiredMs: 0 }
+    const held = await completeJob(f, key, outboundRequest(f, { artifact: artifactRef(reg) }), {
+      actor: requester,
+      seams: {
+        beforePublicationWrite: async () => {
+          seam.enteredMs = Date.now()
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.max(0, Date.parse(expiresAt) + 150 - Date.now()))
+          )
+          seam.expiredMs = Date.now()
+        },
+      },
+    })
+
+    expect(seam.enteredMs).toBeGreaterThan(0)
+    expect(seam.enteredMs).toBeLessThan(Date.parse(expiresAt))
+    expect(seam.expiredMs).toBeGreaterThanOrEqual(Date.parse(expiresAt))
+    expect(held.publication).toMatchObject({
+      decision: { action: 'hold', gate: 'artifact', reason: 'grant_expired' },
+      messageId: null,
+    })
+    expect(held.task.lifecycleState).toBe('completed')
+    expect(await reservations(f, key)).toHaveLength(1)
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+  }, 30_000)
+
   test('a source admin who is not a member of the destination is refused; the completion rolls back', async () => {
     const f = await fixture({ complete: false })
     const admin = await newUser(f, { destination: null, source: 'admin' })
