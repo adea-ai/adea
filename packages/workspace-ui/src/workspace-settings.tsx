@@ -51,6 +51,7 @@ import {
 } from './settings-section'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const sectionIcons = {
   account: UserRound,
@@ -342,7 +343,9 @@ export function WorkspaceSettingsDialog(props: {
                       aria-hidden="true"
                     />
                     <div>
-                      <h3>{settingsSectionLabels[panelSection]}</h3>
+                      <Heading as="h3" size="card">
+                        {settingsSectionLabels[panelSection]}
+                      </Heading>
                       <p>{sectionDescriptions[panelSection]}</p>
                     </div>
                   </header>

@@ -4,6 +4,7 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import {
   SideRail,
   SideRailContent,
@@ -239,7 +240,9 @@ export function SharedDevUtilityHost(props: {
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <h2 id="dev-utility-heading-right">{title()}</h2>
+          <Heading as="h2" size="subsection" id="dev-utility-heading-right" data-utility-panel-title="">
+            {title()}
+          </Heading>
           <ActionButton
             type="button"
             variant="ghost"

@@ -31,6 +31,7 @@ import {
   workspaceSettingsSectionFromHash,
 } from './workspace-settings-section'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -523,7 +524,9 @@ export function ConventionalWorkspaceShell(props: {
                 <section class="conventional-session-notice" role="alert">
                   <AlertTriangle aria-hidden="true" />
                   <div>
-                    <h2>Your previous session wasn&apos;t recognized</h2>
+                    <Heading as="h2" size="subsection">
+                      Your previous session wasn&apos;t recognized
+                    </Heading>
                     <p>
                       You&apos;re in a new temporary workspace, so earlier tasks and conversations
                       aren&apos;t visible here. Choose your previous workspace under Workspaces in

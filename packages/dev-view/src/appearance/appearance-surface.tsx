@@ -21,6 +21,7 @@ import { mirrorWindowSurface } from './window-surface'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
 
@@ -304,7 +305,9 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
             <header class="conventional-settings-section-header">
               <MonitorCog aria-hidden="true" />
               <div>
-                <h3>Appearance</h3>
+                <Heading as="h3" size="card">
+                  Appearance
+                </Heading>
                 <p>
                   Changes preview immediately. Save keeps them; leaving this section without saving
                   restores your previous appearance.

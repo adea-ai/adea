@@ -2,6 +2,7 @@ import { createSignal, Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 import {
   describeWorkspaceCreationContext,
@@ -33,7 +34,9 @@ export function WorkspaceEmpty(props: {
       class="flex min-h-screen flex-col items-center justify-center gap-4"
       aria-label="No workspaces"
     >
-      <h1>No workspaces yet</h1>
+      <Heading as="h1" size="display">
+        No workspaces yet
+      </Heading>
       <p>Create a workspace to start fresh.</p>
       <p>{describeWorkspaceCreationContext(props.creationContext)}</p>
       <Label for="empty-new-workspace">New workspace name</Label>

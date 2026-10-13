@@ -172,7 +172,7 @@ test('appearance font roles change computed typography in Resources and Permissi
   // closed — dismissal is the sheet's own close affordance.
   await page.getByRole('button', { name: 'Close runtime resources' }).click()
   const permissions = await openPermissions(page)
-  const permissionTitle = permissions.locator('.dev-permissions__title').first()
+  const permissionTitle = permissions.getByRole('heading', { level: 4 }).first()
   const permissionPurpose = permissions.locator('.dev-permissions__purpose').first()
   await expect(permissionTitle).toHaveCSS('font-size', '28px')
   await expect(permissionTitle).toHaveCSS('font-family', /Space Grotesk/)

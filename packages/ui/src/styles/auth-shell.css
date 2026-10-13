@@ -40,12 +40,8 @@
   text-transform: uppercase;
 }
 
-.auth-title {
+[data-auth-title] {
   max-width: 13ch;
-  margin: 0;
-  font-size: clamp(2rem, 7vw, 3.5rem);
-  line-height: 1;
-  letter-spacing: -0.04em;
 }
 
 .auth-introduction {

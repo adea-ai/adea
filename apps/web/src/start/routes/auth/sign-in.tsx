@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/solid-router'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 import { SignInForm } from '../../../components/sign-in-form'
 import { normalizeDesktopAuthorizationReturnTo } from '../../../lib/desktop-auth-navigation'
@@ -26,9 +27,9 @@ function SignInPage() {
     <main class="auth-shell">
       <section class="auth-panel" aria-labelledby="browser-auth-title">
         <p class="auth-eyebrow">{desktopFlow() ? 'Adea desktop' : 'Adea workspace'}</p>
-        <h1 class="auth-title" id="browser-auth-title">
+        <Heading as="h1" size="display" data-auth-title id="browser-auth-title">
           {desktopFlow() ? 'Connect this desktop' : 'Save your workspace'}
-        </h1>
+        </Heading>
         <p class="auth-introduction">
           {desktopFlow()
             ? 'Sign in here, then Adea will securely return you to the desktop app.'

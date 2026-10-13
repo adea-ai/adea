@@ -42,16 +42,14 @@
   min-width: 0;
 }
 
-.dev-chat__heading h2,
 .dev-chat__heading p,
 .dev-chat__notice p,
 .dev-chat__composer p {
   margin: 0;
 }
 
-.dev-chat__heading h2 {
+[data-chat-title] {
   overflow: hidden;
-  font-size: var(--text-base);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

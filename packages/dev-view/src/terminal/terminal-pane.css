@@ -188,24 +188,6 @@
   font-size: var(--text-xs);
 }
 
-/* Multiline paste confirmation, shared by the surface and the compose editor. */
-.dev-terminal-paste-confirm {
-  position: absolute;
-  inset-inline: 0.5rem;
-  bottom: 0.5rem;
-  z-index: var(--z-dialog, 180);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--background);
-  box-shadow: var(--shadow-md);
-  font-size: var(--text-xs);
-}
-
 .dev-terminal-editor {
   display: flex;
   flex: none;
@@ -289,11 +271,6 @@
   background: var(--background);
   box-shadow: var(--shadow-xl);
   overflow-y: auto;
-}
-
-.dev-terminal-shell-chooser h2 {
-  margin: 0;
-  font-size: var(--text-sm);
 }
 
 .dev-terminal-shell-chooser p {

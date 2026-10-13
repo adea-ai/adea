@@ -1,5 +1,5 @@
 import type { AgentSummary, ProjectSummary } from '@adea-ai/types'
-import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
+import { Bot, MessageCircle, Pencil, Plus, X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show, type JSX } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
@@ -9,6 +9,17 @@ import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { PropertyList, PropertyTerm, PropertyValue } from '@adea-ai/ui/components/composites/stat'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
@@ -22,6 +33,7 @@ import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export type AgentCustomizationInput = Readonly<{
   avatarRef: string | null
@@ -73,7 +85,9 @@ export function AgentRoster(props: Props) {
       <header class="conventional-surface-header">
         <div>
           <span>Durable identities</span>
-          <h1 id="agent-roster-title">Agents</h1>
+          <Heading as="h1" size="title" id="agent-roster-title">
+            Agents
+          </Heading>
           <p>Status reflects configuration only. Runtime availability arrives later.</p>
         </div>
         <Button type="button" onClick={() => setCreating(true)}>
@@ -211,7 +225,6 @@ function AgentCustomizationForm(props: {
   onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
   projects: readonly ProjectSummary[]
 }) {
-  const [archiveConfirmation, setArchiveConfirmation] = createSignal(false)
   return (
     <form
       class="conventional-inline-form conventional-agent-customization"
@@ -231,7 +244,9 @@ function AgentCustomizationForm(props: {
     >
       <div class="conventional-inline-form__header">
         <div>
-          <h2>Customize {props.agent.name}</h2>
+          <Heading as="h2" size="card">
+            Customize {props.agent.name}
+          </Heading>
           <p>Stable identity · {props.agent.id}</p>
         </div>
         <ActionButton
@@ -296,41 +311,34 @@ function AgentCustomizationForm(props: {
         <Button type="submit" disabled={props.busy}>
           {props.busy ? 'Saving…' : 'Save changes'}
         </Button>
-        <Show
-          when={archiveConfirmation()}
-          fallback={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={props.busy}
-              onClick={() => setArchiveConfirmation(true)}
-            >
-              Archive Agent
-            </Button>
-          }
-        >
-          <div
-            class="conventional-destructive-confirmation"
-            role="alertdialog"
-            aria-label={`Archive ${props.agent.name}`}
-          >
-            <ShieldAlert aria-hidden="true" />
-            <p>
-              Archive this Agent? Durable conversations and history remain linked to its stable
-              identity.
-            </p>
-            <Button
-              type="button"
-              disabled={props.busy}
-              onClick={() => void props.onArchive(props.agent)}
-            >
-              Confirm archive
-            </Button>
-            <Button type="button" onClick={() => setArchiveConfirmation(false)}>
-              Cancel
-            </Button>
-          </div>
-        </Show>
+        <AlertDialog>
+          <AlertDialogTrigger as={Button} type="button" variant="outline" disabled={props.busy}>
+            Archive Agent
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{`Archive ${props.agent.name}`}</AlertDialogTitle>
+              <AlertDialogDescription>
+                Archive this Agent? Durable conversations and history remain linked to its stable
+                identity.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel as={Button} type="button" variant="outline">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                as={Button}
+                type="button"
+                variant="destructive"
+                disabled={props.busy}
+                onClick={() => void props.onArchive(props.agent)}
+              >
+                Confirm archive
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       <p class="conventional-agent-delete-note">
         Permanent deletion is unavailable because it would break durable identity and conversation
@@ -361,7 +369,9 @@ function AgentCreateForm(props: {
       }}
     >
       <div class="conventional-inline-form__header">
-        <h2>Create Agent</h2>
+        <Heading as="h2" size="card">
+          Create Agent
+        </Heading>
         <ActionButton
           type="button"
           aria-label="Cancel Agent creation"

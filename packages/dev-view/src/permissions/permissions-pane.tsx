@@ -11,6 +11,7 @@
  */
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { RefreshCw } from 'lucide-solid'
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 
@@ -174,9 +175,14 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
             role="group"
             aria-labelledby={`dev-permissions-${group.id}`}
           >
-            <h3 class="dev-permissions__group-heading" id={`dev-permissions-${group.id}`}>
+            <Text
+              as="h3"
+              variant="overline"
+              data-permissions-group-heading=""
+              id={`dev-permissions-${group.id}`}
+            >
               {group.heading}
-            </h3>
+            </Text>
             <For each={group.rows}>
               {(row) => {
                 const presentation = () => presentPermission(row.report)
@@ -186,7 +192,9 @@ export function PermissionsPane(props: { service?: MacPermissionsPageService }) 
                   <div class="dev-permissions__row" data-permission={row.meta.id}>
                     <div class="dev-permissions__identity">
                       <div class="dev-permissions__title-line">
-                        <h4 class="dev-permissions__title">{row.meta.title}</h4>
+                        <Heading as="h4" size="subsection">
+                          {row.meta.title}
+                        </Heading>
                         <StatusChip
                           data-permissions-status=""
                           tone={PERMISSION_CHIP_TONE[presentation().tone]}
