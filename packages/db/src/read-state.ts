@@ -3,7 +3,8 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
@@ -26,6 +27,8 @@ import {
   visibleProjectCondition,
 } from './project-access'
 import { appendWorkspaceEvent, inReadSnapshot } from './transactions'
+import { readHiddenUnreadCounts, readVisibleTopLevelFrontiers } from './job-outbound-frontier'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import {
   channelReadStates,
   channels,
@@ -246,15 +249,19 @@ async function requireChannel(
  * two indexed reads, one canonical group admission/grant lookup, then two
  * aggregates issued together. A root call also uses one read-only snapshot.
  *
- * - Channels. Each accessible channel with its read state row. The newest live
- *   top-level sequence is `channels.latest_message_sequence`, which message
- *   create and delete maintain in their own transactions. The top-level unread
- *   count is only computed when that frontier is past the read frontier, and
- *   then it is an index range scan over the unread messages alone, so a read
- *   channel costs no message access at all.
+ * - Channels. Each accessible channel with its read state row. The stored newest
+ *   live top-level sequence is `channels.latest_message_sequence`, which message
+ *   create and delete maintain in their own transactions. The exposed frontier
+ *   is the newest one the reader can see, and the top-level unread count drops
+ *   job publications the reader is not authorized for (#1217, see
+ *   job-outbound-frontier). The top-level unread count is only computed when the
+ *   stored frontier is past the read frontier, and then it is an index range scan
+ *   over the unread messages alone, so a read channel costs no message access.
  * - Threads. One row per thread root with at least one live reply, grouped by
  *   (channel, thread root) with that user's thread read state, carrying the
- *   newest reply sequence and the replies past the thread's read frontier.
+ *   newest reply sequence and the replies past the thread's read frontier. A thread
+ *   whose root the reader cannot currently see (a job publication) is left out
+ *   whole, with its unread count; its replies and watermark are kept, not reset.
  *
  * This used to load every live message of every accessible channel into the
  * application and count there, on every GET and after every mark.
@@ -295,6 +302,25 @@ async function listReadStateForUserInSnapshot(
     sequence: sql`${messages.sequence}`,
     access: historyAccess,
   })
+  const topMessage = alias(messages, 'top_message')
+  const visibleSummaryTopLevel = groupChannelIds.length
+    ? sql`(
+        ${messages.channelId} not in (${sql.join(
+          groupChannelIds.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )})
+        or (
+          ${visibleSummaryMessage}
+          and ${groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access: historyAccess,
+          })}
+        )
+      )`
+    : sql`true`
   const visibleGroupThreadAggregate = groupChannelIds.length
     ? sql`(
         ${messages.channelId} not in (${sql.join(
@@ -325,16 +351,38 @@ async function listReadStateForUserInSnapshot(
       and ${messages.channelId} = ${channels.id}
       and ${messages.threadRootMessageId} is null
       and ${messages.deletedAt} is null
-      and (${channels.kind} <> 'group' or ${visibleSummaryMessage})
+      and (${channels.kind} <> 'group' or ${visibleSummaryTopLevel})
   ), 0)`.mapWith(Number)
+  const threadRoot = alias(messages, 'read_state_thread_root')
   const [channelRows, threadRows] = await Promise.all([
     database
       .select({
         channelId: channels.id,
+        // The stored frontier message, joined here so the frontier costs no extra read.
+        hasUnreadPublication: sql<boolean>`exists (
+          select 1 from ${messages} as publication
+          where publication.channel_id = ${channels.id}
+            and publication.workspace_id = ${channels.workspaceId}
+            and publication.thread_root_message_id is null
+            and publication.deleted_at is null
+            and (
+              publication.reply_to_message_id is not null
+              or (
+                publication.sender_kind = 'system'
+                and publication.sender_system_id like 'job-outbound:v1:%'
+              )
+            )
+            and publication.sequence > ${channelReadFrontier}
+        )`.mapWith(Boolean),
         lastReadSequence: channelReadStates.lastReadSequence,
         latestTopLevelSequence: latestVisibleTopLevel,
         manuallyUnread: channelReadStates.manuallyUnread,
         readAt: channelReadStates.readAt,
+        topExecutionRef: topMessage.executionRef,
+        topId: topMessage.id,
+        topReplyToMessageId: topMessage.replyToMessageId,
+        topSenderKind: topMessage.senderKind,
+        topSenderSystemId: topMessage.senderSystemId,
         // Scalar subqueries in a CASE branch run only when the branch is
         // taken: a channel whose frontier is not past its read mark is 0
         // without touching messages.
@@ -346,7 +394,7 @@ async function listReadStateForUserInSnapshot(
             and ${messages.threadRootMessageId} is null
             and ${messages.deletedAt} is null
             and ${messages.sequence} > ${channelReadFrontier}
-            and (${channels.kind} <> 'group' or ${visibleSummaryMessage})
+            and (${channels.kind} <> 'group' or ${visibleSummaryTopLevel})
         ) else 0 end`.mapWith(Number),
         updatedAt: channelReadStates.updatedAt,
       })
@@ -359,6 +407,16 @@ async function listReadStateForUserInSnapshot(
           eq(channelReadStates.channelId, channels.id)
         )
       )
+      .leftJoin(
+        topMessage,
+        and(
+          eq(topMessage.channelId, channels.id),
+          eq(topMessage.workspaceId, workspaceId),
+          eq(topMessage.sequence, latestVisibleTopLevel),
+          isNull(topMessage.threadRootMessageId),
+          isNull(topMessage.deletedAt)
+        )
+      )
       .where(accessibleChannelCondition(workspaceId, principal, scope, inForce))
       .orderBy(asc(channels.id)),
     database
@@ -368,6 +426,11 @@ async function listReadStateForUserInSnapshot(
         latestSequence: sql<number>`max(${messages.sequence})`.mapWith(Number),
         manuallyUnread: threadReadStates.manuallyUnread,
         readAt: threadReadStates.readAt,
+        rootExecutionRef: threadRoot.executionRef,
+        rootId: threadRoot.id,
+        rootReplyToMessageId: threadRoot.replyToMessageId,
+        rootSenderKind: threadRoot.senderKind,
+        rootSenderSystemId: threadRoot.senderSystemId,
         threadRootMessageId: sql<string>`${messages.threadRootMessageId}`,
         unreadCount:
           sql<number>`count(*) filter (where ${messages.sequence} > ${threadReadFrontier})`.mapWith(
@@ -376,6 +439,16 @@ async function listReadStateForUserInSnapshot(
         updatedAt: threadReadStates.updatedAt,
       })
       .from(messages)
+      .innerJoin(
+        threadRoot,
+        and(
+          eq(threadRoot.id, messages.threadRootMessageId),
+          eq(threadRoot.workspaceId, messages.workspaceId),
+          eq(threadRoot.channelId, messages.channelId),
+          isNull(threadRoot.threadRootMessageId),
+          isNull(threadRoot.deletedAt)
+        )
+      )
       .leftJoin(
         threadReadStates,
         and(
@@ -401,6 +474,11 @@ async function listReadStateForUserInSnapshot(
       .groupBy(
         messages.channelId,
         messages.threadRootMessageId,
+        threadRoot.executionRef,
+        threadRoot.id,
+        threadRoot.replyToMessageId,
+        threadRoot.senderKind,
+        threadRoot.senderSystemId,
         threadReadStates.lastReadSequence,
         threadReadStates.manuallyUnread,
         threadReadStates.readAt,
@@ -409,8 +487,68 @@ async function listReadStateForUserInSnapshot(
   ])
   if (!channelRows.length) return Object.freeze([])
 
+  // Job publications count only while the reader is authorized for them. The exposed
+  // frontier is the newest message the reader can see, and unread counts drop publications
+  // the reader may no longer see. See job-outbound-frontier for the bounds.
+  // A channel with no publication past its watermark needs no publication read: the joined
+  // frontier message is ordinary, so the common case costs no statement here at all.
+  const frontiers = await readVisibleTopLevelFrontiers(
+    database,
+    principal,
+    channelRows.map((row) => ({
+      channelId: row.channelId,
+      latestSequence: row.latestTopLevelSequence,
+      top:
+        row.latestTopLevelSequence > 0
+          ? row.topId
+            ? {
+                executionRef: row.topExecutionRef,
+                id: row.topId,
+                replyToMessageId: row.topReplyToMessageId,
+                sequence: row.latestTopLevelSequence,
+                senderKind: row.topSenderKind!,
+                senderSystemId: row.topSenderSystemId,
+                threadRootMessageId: null,
+              }
+            : null
+          : undefined,
+      workspaceId,
+      topIsGroupVisible: historyAccess.has(row.channelId),
+    })),
+    historyAccess
+  )
+  const publicationChannelIds = channelRows
+    .filter((row) => row.hasUnreadPublication)
+    .map((row) => row.channelId)
+  const hiddenByChannel = publicationChannelIds.length
+    ? await readHiddenUnreadCounts(database, principal, {
+        channelIds: publicationChannelIds,
+        groupHistory: historyAccess,
+        workspaceIds: [workspaceId],
+      })
+    : new Map<string, number>()
+
+  // A thread is shown, and counted, only while its root is visible to the reader. A hidden root
+  // leaves the thread out whole: its replies stay stored and its watermark is not touched.
+  const visibleThreadRoots = new Set(
+    (
+      await filterVisibleMessageRows(
+        database,
+        threadRows.map((row) => ({
+          executionRef: row.rootExecutionRef,
+          id: row.rootId,
+          replyToMessageId: row.rootReplyToMessageId,
+          senderKind: row.rootSenderKind,
+          senderSystemId: row.rootSenderSystemId,
+          threadRootMessageId: null,
+        })),
+        principal.userId
+      )
+    ).map((row) => row.id)
+  )
   const threadsByChannel = new Map<string, ThreadReadStateSummary[]>()
   for (const row of threadRows) {
+    if (!visibleThreadRoots.has(row.threadRootMessageId)) continue
     const thread: ThreadReadStateSummary = Object.freeze({
       lastReadSequence: Math.min(row.lastReadSequence ?? 0, row.latestSequence),
       latestSequence: row.latestSequence,
@@ -437,16 +575,20 @@ async function listReadStateForUserInSnapshot(
         0
       )
       const manuallyUnread = row.manuallyUnread ?? false
+      const topLevelUnreadCount = Math.max(
+        0,
+        row.topLevelUnreadCount - (hiddenByChannel.get(row.channelId) ?? 0)
+      )
       return Object.freeze({
         channelId: row.channelId,
-        lastReadSequence: Math.min(row.lastReadSequence ?? 0, row.latestTopLevelSequence),
-        latestTopLevelSequence: row.latestTopLevelSequence,
+        latestTopLevelSequence: frontiers.get(row.channelId) ?? 0,
+        lastReadSequence: Math.min(row.lastReadSequence ?? 0, frontiers.get(row.channelId) ?? 0),
         manuallyUnread,
         ...(row.readAt ? { readAt: row.readAt.toISOString() } : {}),
         threadUnreadCount,
         threads: Object.freeze(threads),
-        topLevelUnreadCount: row.topLevelUnreadCount,
-        unread: manuallyUnread || row.topLevelUnreadCount > 0 || threadUnreadCount > 0,
+        topLevelUnreadCount,
+        unread: manuallyUnread || topLevelUnreadCount > 0 || threadUnreadCount > 0,
         ...(row.updatedAt ? { updatedAt: row.updatedAt.toISOString() } : {}),
         workspaceId,
       })
@@ -454,6 +596,7 @@ async function listReadStateForUserInSnapshot(
   )
 }
 
+/** The newest group-authorized sequence in one thread, or at channel top level. */
 async function latestSequence(
   database: Database,
   workspaceId: string,
@@ -465,38 +608,76 @@ async function latestSequence(
     historyScope?: 'history' | 'summary'
   }> = {}
 ) {
-  const visibleGroupMessage = options.group
-    ? options.historyScope === 'history'
-      ? groupHistoryMessageAndThreadVisibleCondition({
-          channelId: sql`${messages.channelId}`,
-          sequence: sql`${messages.sequence}`,
-          threadRootMessageId: sql`${messages.threadRootMessageId}`,
-          replyToMessageId: sql`${messages.replyToMessageId}`,
-          access: options.historyAccess ?? new Map(),
-        })
-      : groupSummaryMessageVisibleCondition({
-          channelId: sql`${messages.channelId}`,
-          sequence: sql`${messages.sequence}`,
-          access: options.historyAccess ?? new Map(),
-        })
+  const access = options.historyAccess ?? new Map()
+  const groupVisible = options.group
+    ? threadRootMessageId
+      ? and(
+          groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access,
+          }),
+          groupSummaryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access,
+          })
+        )
+      : and(
+          groupSummaryMessageVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            access,
+          }),
+          groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access,
+          })
+        )
     : null
   const rows = await database
-    .select({ sequence: messages.sequence })
+    .select({ latest: sql<number>`coalesce(max(${messages.sequence}), 0)`.mapWith(Number) })
     .from(messages)
     .where(
       and(
         eq(messages.workspaceId, workspaceId),
         eq(messages.channelId, channelId),
         isNull(messages.deletedAt),
-        ...(visibleGroupMessage ? [visibleGroupMessage] : []),
         threadRootMessageId
           ? eq(messages.threadRootMessageId, threadRootMessageId)
-          : isNull(messages.threadRootMessageId)
+          : isNull(messages.threadRootMessageId),
+        ...(groupVisible ? [groupVisible] : [])
       )
     )
-    .orderBy(desc(messages.sequence))
-    .limit(1)
-  return rows[0]?.sequence ?? 0
+  return rows[0]?.latest ?? 0
+}
+
+/** A user's newest currently visible top-level message, capped by live group history. */
+async function visibleChannelLatest(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  historyAccess: ReadonlyMap<string, GroupHistoryAccess>
+) {
+  const latest = await latestSequence(database, workspaceId, channelId, undefined, {
+    group: historyAccess.has(channelId),
+    historyAccess,
+  })
+  const frontiers = await readVisibleTopLevelFrontiers(
+    database,
+    principal,
+    [{ channelId, latestSequence: latest, workspaceId }],
+    historyAccess
+  )
+  return frontiers.get(channelId) ?? 0
 }
 
 async function writeChannelState(
@@ -584,10 +765,13 @@ export async function markChannelReadState(
           workspaceId
         )
       : new Map()
-    const latest = await latestSequence(transaction, workspaceId, channelId, undefined, {
-      group: isGroup,
-      historyAccess,
-    })
+    const latest = await visibleChannelLatest(
+      transaction,
+      workspaceId,
+      channelId,
+      principal,
+      historyAccess
+    )
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
@@ -645,7 +829,7 @@ export async function markThreadReadState(
         })
       : null
     const [root] = await transaction
-      .select({ id: messages.id })
+      .select()
       .from(messages)
       .where(
         and(
@@ -657,12 +841,16 @@ export async function markThreadReadState(
         )
       )
       .limit(1)
+    // A thread whose root the reader cannot see is unavailable, as a missing root is. Its
+    // watermark is not written, so its replies are still unread when the root returns.
     if (!root) throw new Error('Read state unavailable')
     const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId, {
       group: isGroup,
       historyAccess,
       historyScope: 'history',
     })
+    if ((await filterVisibleMessageRows(transaction, [root], principal.userId)).length === 0)
+      throw new Error('Read state unavailable')
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
@@ -838,6 +1026,16 @@ export async function markAllChannelsRead(
             )
           ),
       ])
+    const visibleChannelFrontiers = await readVisibleTopLevelFrontiers(
+      transaction,
+      principal,
+      channelFrontiers.map((row) => ({
+        channelId: row.channelId,
+        latestSequence: row.latest,
+        workspaceId,
+      })),
+      historyAccess
+    )
 
     const existingChannelById = new Map(existingChannels.map((row) => [row.channelId, row]))
     const existingThreadByRoot = new Map(
@@ -848,7 +1046,7 @@ export async function markAllChannelsRead(
     const threadWrites: (typeof threadReadStates.$inferInsert)[] = []
 
     for (const channelId of channelIds) {
-      const latest = channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0
+      const latest = visibleChannelFrontiers.get(channelId) ?? 0
       const existing = existingChannelById.get(channelId)
       // The current visible window is the cap, even if a stale persisted
       // frontier was written before the participant's history narrowed.
@@ -872,8 +1070,29 @@ export async function markAllChannelsRead(
       })
     }
 
+    // Mark-all does not run past a thread whose root the reader cannot see: its watermark stays,
+    // so its replies are unread again when the root is visible.
+    const threadRootRows = await transaction
+      .select()
+      .from(messages)
+      .where(
+        and(
+          inArray(
+            messages.id,
+            threadFrontiers.flatMap((row) =>
+              row.threadRootMessageId ? [row.threadRootMessageId] : []
+            )
+          ),
+          isNull(messages.threadRootMessageId)
+        )
+      )
+    const visibleThreadRoots = new Set(
+      (await filterVisibleMessageRows(transaction, threadRootRows, principal.userId)).map(
+        (row) => row.id
+      )
+    )
     for (const row of threadFrontiers) {
-      if (!row.threadRootMessageId) continue
+      if (!row.threadRootMessageId || !visibleThreadRoots.has(row.threadRootMessageId)) continue
       const existing = existingThreadByRoot.get(row.threadRootMessageId)
       // Hidden roots have no visible thread frontier to advance or retain.
       const targetThreadSequence = row.latest ?? 0
@@ -901,7 +1120,7 @@ export async function markAllChannelsRead(
       .filter((channelId) => historyAccess.has(channelId))
       .map((channelId) => ({
         channelId,
-        latest: channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0,
+        latest: visibleChannelFrontiers.get(channelId) ?? 0,
       }))
     const groupThreadCaps = threadFrontiers.filter((row) => historyAccess.has(row.channelId))
     const channelFrontierWrite = groupChannelCaps.length

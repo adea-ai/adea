@@ -1,20 +1,21 @@
 import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } from '@adea-ai/types'
-import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm'
+import { and, asc, eq, gt, ilike, inArray, isNotNull, isNull, not, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { decideGroupHistoryRead } from './group-participation-policy'
+import { JOB_OUTBOUND_SENDER_PREFIX } from './job-outbound-binding'
 import {
-  admissionForParticipant,
-  loadGroupRoster,
-  loadGroupSharingGrants,
+  groupHistoryAccessByUser,
+  groupHistoryMessageAndThreadVisibleCondition,
 } from './group-participation-store'
+import type { GroupHistoryAccess } from './group-participation-store'
 import {
   requireProjectAccessScope,
   visibleProjectCondition,
   visibleTaskCondition,
 } from './project-access'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import { listAccessibleChannelIds } from './read-state'
-import { searchPageWindow } from './search-paging'
+import { SEARCH_CANDIDATE_LIMIT, searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, projects, tasks } from './schema'
 import { inReadSnapshot } from './transactions'
 
@@ -39,6 +40,187 @@ function compare(left: WorkspaceSearchResult, right: WorkspaceSearchResult) {
     left.kind.localeCompare(right.kind) ||
     left.id.localeCompare(right.id)
   )
+}
+
+/** Raw message rows read per page of a search; the scan stops at SEARCH_CANDIDATE_LIMIT rows in all. */
+const SEARCH_MESSAGE_PAGE = 100
+/** The smallest page, so a small window still reads past a few hidden matches in one page. */
+const SEARCH_MIN_PAGE = 25
+
+/** The message fields a search result needs, plus the sequence the scan pages on. */
+const messageCandidateFields = {
+  bodyText: messages.bodyText,
+  channelId: messages.channelId,
+  channelTitle: channels.title,
+  executionRef: messages.executionRef,
+  id: messages.id,
+  projectId: channels.projectId,
+  senderKind: messages.senderKind,
+  senderSystemId: messages.senderSystemId,
+  sequence: messages.sequence,
+  taskId: messages.taskId,
+  replyToMessageId: messages.replyToMessageId,
+  threadRootMessageId: messages.threadRootMessageId,
+}
+
+/** Whether a message row is a job publication, by its system sender, in SQL. */
+const publicationRowCondition = sql`(${messages.senderKind} = 'system' and ${messages.senderSystemId} like ${`${JOB_OUTBOUND_SENDER_PREFIX}%`})`
+
+type MessageCandidate = Readonly<{
+  bodyText: string | null
+  channelId: string
+  channelTitle: string
+  executionRef: string | null
+  id: string
+  projectId: string | null
+  senderKind: string
+  senderSystemId: string | null
+  sequence: number
+  taskId: string | null
+  replyToMessageId: string | null
+  threadRootMessageId: string | null
+}>
+
+/**
+ * The first `needed` matching messages the reader may see, in sequence order. Pages of raw rows
+ * are read in keyset order and gated in one bulk pass each. The raw rows scanned are capped at
+ * SEARCH_CANDIDATE_LIMIT, so a long run of hidden matches costs its pages, not an unbounded read.
+ */
+async function visibleMessageCandidates(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  channelIds: readonly string[],
+  like: string,
+  needed: number,
+  groupHistory: ReadonlyMap<string, GroupHistoryAccess>
+) {
+  const visible: MessageCandidate[] = []
+  if (!channelIds.length) return visible
+  let after = 0
+  let scanned = 0
+  while (visible.length < needed && scanned < SEARCH_CANDIDATE_LIMIT) {
+    // A page is never smaller than a small window, so hidden matches are read past in a few pages.
+    const pageSize = Math.min(
+      SEARCH_MESSAGE_PAGE,
+      Math.max(needed - visible.length, SEARCH_MIN_PAGE),
+      SEARCH_CANDIDATE_LIMIT - scanned
+    )
+    const page: MessageCandidate[] = await database
+      .select(messageCandidateFields)
+      .from(messages)
+      .innerJoin(channels, eq(channels.id, messages.channelId))
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          inArray(messages.channelId, [...channelIds]),
+          isNull(messages.deletedAt),
+          isNotNull(messages.bodyText),
+          ilike(messages.bodyText, like),
+          sql`(${channels.kind} <> 'group' or ${groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access: groupHistory,
+          })})`,
+          gt(messages.sequence, after)
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(pageSize)
+    if (!page.length) break
+    scanned += page.length
+    after = page.at(-1)!.sequence
+    visible.push(...(await filterVisibleMessageRows(database, page, principal.userId)))
+    if (page.length < pageSize) break
+  }
+  return visible.slice(0, needed)
+}
+
+/**
+ * Whether the reader can see any message with encrypted content in the searched channels. A
+ * top-level message is visible with its channel, so one indexed probe settles it. Replies and job
+ * publications are gated, a page at a time, until one is visible or the scan budget is spent.
+ */
+async function hasVisiblePrivateMessage(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  channelIds: readonly string[],
+  groupHistory: ReadonlyMap<string, GroupHistoryAccess>
+): Promise<boolean> {
+  if (!channelIds.length) return false
+  const ordinary = await database
+    .select({ id: messages.id })
+    .from(messages)
+    .innerJoin(channels, eq(channels.id, messages.channelId))
+    .where(
+      and(
+        eq(messages.workspaceId, workspaceId),
+        inArray(messages.channelId, [...channelIds]),
+        isNull(messages.deletedAt),
+        isNotNull(messages.bodyContentRefId),
+        isNull(messages.threadRootMessageId),
+        isNull(messages.replyToMessageId),
+        not(publicationRowCondition),
+        sql`(${channels.kind} <> 'group' or ${groupHistoryMessageAndThreadVisibleCondition({
+          channelId: sql`${messages.channelId}`,
+          sequence: sql`${messages.sequence}`,
+          threadRootMessageId: sql`${messages.threadRootMessageId}`,
+          replyToMessageId: sql`${messages.replyToMessageId}`,
+          access: groupHistory,
+        })})`
+      )
+    )
+    .limit(1)
+  if (ordinary.length) return true
+  let after = 0
+  let scanned = 0
+  while (scanned < SEARCH_CANDIDATE_LIMIT) {
+    const pageSize = Math.min(SEARCH_MESSAGE_PAGE, SEARCH_CANDIDATE_LIMIT - scanned)
+    const page = await database
+      .select({
+        executionRef: messages.executionRef,
+        id: messages.id,
+        replyToMessageId: messages.replyToMessageId,
+        senderKind: messages.senderKind,
+        senderSystemId: messages.senderSystemId,
+        sequence: messages.sequence,
+        threadRootMessageId: messages.threadRootMessageId,
+      })
+      .from(messages)
+      .innerJoin(channels, eq(channels.id, messages.channelId))
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          inArray(messages.channelId, [...channelIds]),
+          isNull(messages.deletedAt),
+          isNotNull(messages.bodyContentRefId),
+          gt(messages.sequence, after),
+          or(
+            isNotNull(messages.threadRootMessageId),
+            isNotNull(messages.replyToMessageId),
+            publicationRowCondition
+          ),
+          sql`(${channels.kind} <> 'group' or ${groupHistoryMessageAndThreadVisibleCondition({
+            channelId: sql`${messages.channelId}`,
+            sequence: sql`${messages.sequence}`,
+            threadRootMessageId: sql`${messages.threadRootMessageId}`,
+            replyToMessageId: sql`${messages.replyToMessageId}`,
+            access: groupHistory,
+          })})`
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(pageSize)
+    if (!page.length) return false
+    scanned += page.length
+    after = page.at(-1)!.sequence
+    if ((await filterVisibleMessageRows(database, page, principal.userId)).length > 0) return true
+    if (page.length < pageSize) return false
+  }
+  return false
 }
 
 export function searchWorkspaceForUser(
@@ -83,174 +265,109 @@ async function searchWorkspaceForUserInSnapshot(
   const scopedChannelIds = options.channelId ? [options.channelId] : allowedChannelIds
   const like = pattern(normalized)
 
-  const [projectRows, channelRows, agentRows, taskRows, artifactRows, messageRows, privateRows] =
-    await Promise.all([
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({ id: projects.id, label: projects.name })
-            .from(projects)
-            .where(
-              and(
-                eq(projects.workspaceId, workspaceId),
-                eq(projects.lifecycleState, 'active'),
-                visibleProjectCondition(projects.id, scope),
-                or(ilike(projects.name, like), ilike(projects.iconKey, like))
-              )
+  const [projectRows, channelRows, agentRows, taskRows, artifactRows] = await Promise.all([
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({ id: projects.id, label: projects.name })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.workspaceId, workspaceId),
+              eq(projects.lifecycleState, 'active'),
+              visibleProjectCondition(projects.id, scope),
+              or(ilike(projects.name, like), ilike(projects.iconKey, like))
             )
-            .orderBy(asc(projects.name), asc(projects.id))
-            .limit(candidateLimit),
-      options.channelId || !allowedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({ id: channels.id, label: channels.title, projectId: channels.projectId })
-            .from(channels)
-            .where(
-              and(
-                eq(channels.workspaceId, workspaceId),
-                inArray(channels.id, allowedChannelIds),
-                ilike(channels.title, like)
-              )
+          )
+          .orderBy(asc(projects.name), asc(projects.id))
+          .limit(candidateLimit),
+    options.channelId || !allowedChannelIds.length
+      ? Promise.resolve([])
+      : database
+          .select({ id: channels.id, label: channels.title, projectId: channels.projectId })
+          .from(channels)
+          .where(
+            and(
+              eq(channels.workspaceId, workspaceId),
+              inArray(channels.id, allowedChannelIds),
+              ilike(channels.title, like)
             )
-            .orderBy(asc(channels.title), asc(channels.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({ id: agents.id, label: agents.name, roleSummary: agents.roleSummary })
-            .from(agents)
-            .where(
-              and(
-                eq(agents.workspaceId, workspaceId),
-                eq(agents.lifecycleState, 'active'),
-                or(ilike(agents.name, like), ilike(agents.roleSummary, like))
-              )
+          )
+          .orderBy(asc(channels.title), asc(channels.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({ id: agents.id, label: agents.name, roleSummary: agents.roleSummary })
+          .from(agents)
+          .where(
+            and(
+              eq(agents.workspaceId, workspaceId),
+              eq(agents.lifecycleState, 'active'),
+              or(ilike(agents.name, like), ilike(agents.roleSummary, like))
             )
-            .orderBy(asc(agents.name), asc(agents.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({
-              channelId: tasks.channelId,
-              id: tasks.id,
-              label: tasks.title,
-              objective: tasks.objective,
-              projectId: tasks.projectId,
-            })
-            .from(tasks)
-            .where(
-              and(
-                eq(tasks.workspaceId, workspaceId),
-                visibleProjectCondition(tasks.projectId, scope),
-                or(ilike(tasks.title, like), ilike(tasks.objective, like))
-              )
-            )
-            .orderBy(asc(tasks.title), asc(tasks.id))
-            .limit(candidateLimit),
-      options.channelId
-        ? Promise.resolve([])
-        : database
-            .select({
-              id: artifacts.id,
-              label: artifacts.filename,
-              mediaType: artifacts.mediaType,
-              taskId: artifacts.taskId,
-            })
-            .from(artifacts)
-            .where(
-              and(
-                eq(artifacts.workspaceId, workspaceId),
-                eq(artifacts.deletionState, 'active'),
-                visibleTaskCondition(database, artifacts.taskId, scope),
-                or(ilike(artifacts.filename, like), ilike(artifacts.mediaType, like))
-              )
-            )
-            .orderBy(asc(artifacts.filename), asc(artifacts.id))
-            .limit(candidateLimit),
-      !scopedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({
-              bodyText: messages.bodyText,
-              channelId: messages.channelId,
-              channelKind: channels.kind,
-              channelTitle: channels.title,
-              createdAt: messages.createdAt,
-              id: messages.id,
-              projectId: channels.projectId,
-              sequence: messages.sequence,
-              taskId: messages.taskId,
-              threadRootMessageId: messages.threadRootMessageId,
-            })
-            .from(messages)
-            .innerJoin(channels, eq(channels.id, messages.channelId))
-            .where(
-              and(
-                eq(messages.workspaceId, workspaceId),
-                inArray(messages.channelId, scopedChannelIds),
-                isNull(messages.deletedAt),
-                isNotNull(messages.bodyText),
-                ilike(messages.bodyText, like)
-              )
-            )
-            .orderBy(asc(messages.sequence), asc(messages.id))
-            .limit(candidateLimit),
-      !scopedChannelIds.length
-        ? Promise.resolve([])
-        : database
-            .select({ id: messages.id })
-            .from(messages)
-            .where(
-              and(
-                eq(messages.workspaceId, workspaceId),
-                inArray(messages.channelId, scopedChannelIds),
-                isNull(messages.deletedAt),
-                isNotNull(messages.bodyContentRefId)
-              )
-            )
-            .limit(1),
-    ])
-
-  // Shared authorized read boundary for group snippets: message bodies in
-  // group channels pass their reader's join point and live grants, exactly
-  // like the message reads. Every other surface keeps its existing scope.
-  let visibleMessageRows = messageRows
-  const groupMessageRows = messageRows.filter((row) => row.channelKind === 'group')
-  if (groupMessageRows.length > 0) {
-    const now = options.now ?? new Date().toISOString()
-    const participant = { kind: 'user' as const, userId: principal.userId }
-    const byChannel = new Map<string, typeof groupMessageRows>()
-    for (const row of groupMessageRows) {
-      const rows = byChannel.get(row.channelId) ?? []
-      rows.push(row)
-      byChannel.set(row.channelId, rows)
-    }
-    const allowedIds = new Set<string>()
-    await Promise.all(
-      [...byChannel].map(async ([channelId, rows]) => {
-        const [roster, sharingGrants] = await Promise.all([
-          loadGroupRoster(database, workspaceId, channelId),
-          loadGroupSharingGrants(database, workspaceId, channelId),
-        ])
-        const admission = admissionForParticipant(roster, participant)
-        for (const row of rows) {
-          const decision = decideGroupHistoryRead({
-            admission,
-            entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
-            groupId: channelId,
-            now,
-            sharingGrants,
+          )
+          .orderBy(asc(agents.name), asc(agents.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({
+            channelId: tasks.channelId,
+            id: tasks.id,
+            label: tasks.title,
+            objective: tasks.objective,
+            projectId: tasks.projectId,
           })
-          if (decision.action === 'allow') allowedIds.add(row.id)
-        }
-      })
-    )
-    visibleMessageRows = messageRows.filter(
-      (row) => row.channelKind !== 'group' || allowedIds.has(row.id)
-    )
-  }
-
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.workspaceId, workspaceId),
+              visibleProjectCondition(tasks.projectId, scope),
+              or(ilike(tasks.title, like), ilike(tasks.objective, like))
+            )
+          )
+          .orderBy(asc(tasks.title), asc(tasks.id))
+          .limit(candidateLimit),
+    options.channelId
+      ? Promise.resolve([])
+      : database
+          .select({
+            id: artifacts.id,
+            label: artifacts.filename,
+            mediaType: artifacts.mediaType,
+            taskId: artifacts.taskId,
+          })
+          .from(artifacts)
+          .where(
+            and(
+              eq(artifacts.workspaceId, workspaceId),
+              eq(artifacts.deletionState, 'active'),
+              visibleTaskCondition(database, artifacts.taskId, scope),
+              or(ilike(artifacts.filename, like), ilike(artifacts.mediaType, like))
+            )
+          )
+          .orderBy(asc(artifacts.filename), asc(artifacts.id))
+          .limit(candidateLimit),
+  ])
+  const now = options.now ?? new Date().toISOString()
+  const groupHistory = await groupHistoryAccessByUser(database, principal.userId, now, workspaceId)
+  const visibleMessageRows = await visibleMessageCandidates(
+    database,
+    workspaceId,
+    principal,
+    scopedChannelIds,
+    like,
+    offset + limit + 1,
+    groupHistory
+  )
+  const privateResultsUnavailable = await hasVisiblePrivateMessage(
+    database,
+    workspaceId,
+    principal,
+    scopedChannelIds,
+    groupHistory
+  )
   const results: WorkspaceSearchResult[] = [
     ...projectRows.map((row) => ({
       id: row.id,
@@ -310,7 +427,7 @@ async function searchWorkspaceForUserInSnapshot(
     searchPageWindow({ limit, offset, resultCount: results.length }).nextOffset !== undefined
   return Object.freeze({
     ...(hasMore ? { nextOffset: offset + limit } : {}),
-    privateResultsUnavailable: privateRows.length > 0,
+    privateResultsUnavailable,
     results: Object.freeze(page),
   })
 }

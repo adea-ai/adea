@@ -11,6 +11,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import type { WorkspaceEventView } from './event-log'
 import { groupChannelIdsInForce, userChannelVisibility } from './group-participation-store'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import { resolveProjectAccessScope } from './project-access'
 import { artifacts, channels, contentRefs, messages, tasks } from './schema'
 import { inReadSnapshot } from './transactions'
@@ -144,7 +145,16 @@ async function classifyWorkspaceEventsForUserInSnapshot(
       : [],
     messageIds.size
       ? database
-          .select({ id: messages.id, projectId: channels.projectId, canReadChannel })
+          .select({
+            id: messages.id,
+            executionRef: messages.executionRef,
+            projectId: channels.projectId,
+            replyToMessageId: messages.replyToMessageId,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
+            canReadChannel,
+          })
           .from(messages)
           .innerJoin(
             channels,
@@ -171,9 +181,15 @@ async function classifyWorkspaceEventsForUserInSnapshot(
       ? database
           .select({
             channelProjectId: channels.projectId,
+            contentRefMessageId: contentRefs.messageId,
+            executionRef: messages.executionRef,
             id: contentRefs.id,
             taskProjectId: tasks.projectId,
-            messageId: contentRefs.messageId,
+            messageId: messages.id,
+            replyToMessageId: messages.replyToMessageId,
+            senderKind: messages.senderKind,
+            senderSystemId: messages.senderSystemId,
+            threadRootMessageId: messages.threadRootMessageId,
             canReadChannel,
           })
           .from(contentRefs)
@@ -205,9 +221,43 @@ async function classifyWorkspaceEventsForUserInSnapshot(
     contentRows.map((row) => [row.id, [row.taskProjectId, row.channelProjectId]])
   )
   const readableChannels = new Map(channelRows.map((row) => [row.id, row.canReadChannel]))
-  const readableMessages = new Map(messageRows.map((row) => [row.id, row.canReadChannel]))
+  // A job publication is readable only while the subscriber is currently authorized for it, and a
+  // reply only while its thread root is: the same gates history applies. Channel audience alone
+  // admits neither.
+  const contentMessageCandidates = contentRows.flatMap((row) =>
+    row.contentRefMessageId && row.messageId && row.senderKind
+      ? [
+          {
+            executionRef: row.executionRef,
+            id: row.messageId,
+            replyToMessageId: row.replyToMessageId,
+            senderKind: row.senderKind,
+            senderSystemId: row.senderSystemId,
+            threadRootMessageId: row.threadRootMessageId,
+          },
+        ]
+      : []
+  )
+  const allMessageCandidates = new Map(
+    [...messageRows, ...contentMessageCandidates].map((row) => [row.id, row])
+  )
+  const visibleMessageIds = new Set(
+    (await filterVisibleMessageRows(database, [...allMessageCandidates.values()], userId)).map(
+      (row) => row.id
+    )
+  )
+  const readableMessages = new Map(
+    messageRows.map((row) => [row.id, row.canReadChannel && visibleMessageIds.has(row.id)])
+  )
   const readableContent = new Map(
-    contentRows.map((row) => [row.id, !row.messageId || row.canReadChannel])
+    contentRows.map((row) => [
+      row.id,
+      !row.contentRefMessageId ||
+        (Boolean(row.messageId) &&
+          Boolean(row.senderKind) &&
+          row.canReadChannel &&
+          visibleMessageIds.has(row.messageId!)),
+    ])
   )
 
   return events.map((event, index): WorkspaceEventDelivery => {

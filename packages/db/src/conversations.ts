@@ -30,6 +30,8 @@ import {
   requireProjectWrite,
   visibleProjectCondition,
 } from './project-access'
+import { isJobOutboundSenderValue } from './job-outbound-binding'
+import { filterVisibleMessageRows, JOB_OUTBOUND_HISTORY_SYSTEM_ID } from './job-outbound-read'
 import { reopenTasksForChannelMessage } from './tasks'
 import { appendWorkspaceEvent, inReadSnapshot } from './transactions'
 import {
@@ -305,19 +307,16 @@ async function requireChannel(
   database: Database,
   workspaceId: string,
   channelId: string,
-  includeArchived = false
+  options: Readonly<{ forUpdate?: boolean; includeArchived?: boolean }> = {}
 ) {
-  const [channel] = await database
-    .select()
-    .from(channels)
-    .where(
-      and(
-        eq(channels.id, channelId),
-        eq(channels.workspaceId, workspaceId),
-        ...(includeArchived ? [] : [eq(channels.lifecycleState, 'active')])
-      )
-    )
-    .limit(1)
+  const condition = and(
+    eq(channels.id, channelId),
+    eq(channels.workspaceId, workspaceId),
+    ...(options.includeArchived ? [] : [eq(channels.lifecycleState, 'active')])
+  )
+  const [channel] = options.forUpdate
+    ? await database.select().from(channels).where(condition).limit(1).for('update')
+    : await database.select().from(channels).where(condition).limit(1)
   if (!channel) throw new Error('Channel unavailable')
   return channel
 }
@@ -327,7 +326,7 @@ async function requireChannel(
  * channel of a hidden project is answered like a missing one; a viewer of a
  * members-only project reads but cannot write (`Project read-only`).
  */
-async function requireChannelAccess(
+export async function requireChannelAccess(
   database: Database,
   workspaceId: string,
   channelId: string,
@@ -342,7 +341,7 @@ async function requireChannelAccess(
     principal,
     'Channel unavailable'
   )
-  const channel = await requireChannel(database, workspaceId, channelId, includeArchived)
+  const channel = await requireChannel(database, workspaceId, channelId, { includeArchived })
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
@@ -950,7 +949,9 @@ export async function setChannelParticipants(
 ) {
   return database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
-    const channel = await requireChannel(transaction, workspaceId, channelId)
+    // Readers acquire the channel before participant rows. Take the same lock first so a
+    // roster replacement cannot hold participants while waiting for a history-reader's channel.
+    const channel = await requireChannel(transaction, workspaceId, channelId, { forUpdate: true })
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
@@ -1189,7 +1190,14 @@ function messageSummaryFrom(row: MessageRow, reads: MessageChildReads): MessageS
   let sender: MessageSenderRef
   if (row.senderKind === 'user') sender = { kind: 'user', userId: row.senderUserId! }
   else if (row.senderKind === 'agent') sender = { agentId: row.senderAgentId!, kind: 'agent' }
-  else sender = { kind: 'system', systemId: row.senderSystemId! }
+  else
+    sender = {
+      kind: 'system',
+      // A job publication's system value encodes its binding; history shows only a label.
+      systemId: isJobOutboundSenderValue(row.senderSystemId)
+        ? JOB_OUTBOUND_HISTORY_SYSTEM_ID
+        : row.senderSystemId!,
+    }
   return Object.freeze({
     artifactIds: Object.freeze([...artifactIds]),
     ...(!row.deletedAt && row.bodyContentRefId ? { bodyContentRefId: row.bodyContentRefId } : {}),
@@ -1427,11 +1435,18 @@ async function createMessageWithTextPolicy(
       reply = await requireMessage(transaction, workspaceId, input.replyToMessageId)
       if (reply.channelId !== channelId || reply.deletedAt)
         throw new Error('Message reply conflict')
+      // `replyToMessageId` may be supplied without a thread root. It still names a message, so
+      // creation must not disclose or link to a publication the writer can no longer see.
+      if (!(await filterVisibleMessageRows(transaction, [reply], principal.userId)).length)
+        throw new Error('Message unavailable')
     }
     if (input.threadRootMessageId) {
       const root = await requireMessage(transaction, workspaceId, input.threadRootMessageId)
       if (root.channelId !== channelId || root.threadRootMessageId)
         throw new Error('Message thread conflict')
+      // A writer cannot join a thread they cannot see; it is refused as a missing message.
+      if (!(await filterVisibleMessageRows(transaction, [root], principal.userId)).length)
+        throw new Error('Message unavailable')
       if (reply && (reply.threadRootMessageId ?? reply.id) !== root.id)
         throw new Error('Message thread conflict')
     }
@@ -1509,13 +1524,17 @@ async function createMessageWithTextPolicy(
         .values(
           artifactIds.map((artifactId) => ({ artifactId, messageId: created.id, workspaceId }))
         )
+    // A job publication is written by the system. Its event names no acting user: the
+    // original actor is in the binding, which only publication delivery reads.
+    const jobPublication =
+      input.sender.kind === 'system' && isJobOutboundSenderValue(input.sender.systemId.trim())
     await appendWorkspaceEvent(transaction, {
       eventType: 'message.created',
       payload: {
-        actorUserId: principal.userId,
         channelId,
         messageId: created.id,
         sequence: created.sequence,
+        ...(jobPublication ? {} : { actorUserId: principal.userId }),
       },
       workspaceId,
     })
@@ -1577,12 +1596,13 @@ async function listMessagesForUserInSnapshot(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
+  const visibleRows = await filterVisibleMessageRows(database, page, principal.userId)
   const reads = await readMessageChildReads(
     database,
     workspaceId,
-    page.map((row) => row.id)
+    visibleRows.map((row) => row.id)
   )
-  const summaries = page.map((row) =>
+  const summaries = visibleRows.map((row) =>
     messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
   )
   if (channel.kind !== 'group')
@@ -1641,6 +1661,10 @@ async function getMessageForUserInSnapshot(
   await requireMembership(database, workspaceId, principal)
   const message = await requireMessage(database, workspaceId, messageId)
   const channel = await requireChannelAccess(database, workspaceId, message.channelId, principal)
+  // A publication the reader is no longer authorized for, and a reply in such a thread, are
+  // indistinguishable from a missing message.
+  if ((await filterVisibleMessageRows(database, [message], principal.userId)).length === 0)
+    throw new Error('Message unavailable')
   const summary = await messageSummary(database, message)
   if (channel.kind !== 'group') return summary
   // Shared authorized read boundary for groups: a denied entry answers
@@ -1763,6 +1787,9 @@ export async function editMessage(
       await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
       await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
     }
+    // A message the writer cannot see is unavailable to change, before any version check can tell.
+    if ((await filterVisibleMessageRows(transaction, [message], principal.userId)).length === 0)
+      throw new Error('Message unavailable')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
@@ -1818,6 +1845,9 @@ export async function deleteMessage(
       await requireGroupMutationStanding(transaction, workspaceId, channel.id, principal)
       await requireGroupMessageHistory(transaction, workspaceId, channel.id, message, principal)
     }
+    // A message the writer cannot see is unavailable to change, before any version check can tell.
+    if ((await filterVisibleMessageRows(transaction, [message], principal.userId)).length === 0)
+      throw new Error('Message unavailable')
     if (message.deletedAt) throw new Error('Message unavailable')
     if (message.version !== expectedVersion) throw new Error('Message version conflict')
     const now = new Date()

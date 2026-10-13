@@ -9,8 +9,12 @@ import {
   type ArtifactReferenceRetrievalInput,
   type UserPrincipalRef,
 } from '@adea-ai/types'
+import { and, eq, inArray } from 'drizzle-orm'
+
 import { getArtifactForUser } from './artifacts'
 import type { AgentHqDatabase } from './connection'
+import { resolveProjectAccessScopes } from './project-access'
+import { artifacts, tasks } from './schema'
 
 /**
  * Artifact-reference authorization policy for M15.03 (#1180).
@@ -68,6 +72,79 @@ export async function readArtifactReferenceEvidence(
     version: summary.version,
     workspaceId: summary.workspaceId,
   })
+}
+
+/** One evidence read: the artifact, in its workspace, as one reader. */
+export type ArtifactEvidenceRequest = Readonly<{
+  artifactId: string
+  principalUserId: string
+  workspaceId: string
+}>
+
+/** The key an evidence batch result is stored under. */
+export function artifactEvidenceKey(request: ArtifactEvidenceRequest): string {
+  return `${request.workspaceId}\u0000${request.principalUserId}\u0000${request.artifactId}`
+}
+
+/**
+ * `readArtifactReferenceEvidence` for many requests, in two reads per workspace. The rules are
+ * the same as the single read: the reader needs a membership in the artifact's workspace, a
+ * task in a project the reader cannot see hides its artifact, and a deleted artifact has no
+ * evidence. A request with no evidence has no entry, which the policy treats as unavailable.
+ */
+export async function readArtifactReferenceEvidenceBatch(
+  database: AgentHqDatabase,
+  requests: readonly ArtifactEvidenceRequest[]
+): Promise<ReadonlyMap<string, ArtifactReferenceEvidence>> {
+  const evidence = new Map<string, ArtifactReferenceEvidence>()
+  const groups = new Map<string, ArtifactEvidenceRequest[]>()
+  for (const request of requests) {
+    const group = groups.get(request.workspaceId)
+    if (group) group.push(request)
+    else groups.set(request.workspaceId, [request])
+  }
+  for (const [workspaceId, group] of groups) {
+    const scopes = await resolveProjectAccessScopes(
+      database,
+      workspaceId,
+      group.map((request) => request.principalUserId)
+    )
+    const rows = await database
+      .select({ artifact: artifacts, projectId: tasks.projectId })
+      .from(artifacts)
+      .leftJoin(tasks, eq(tasks.id, artifacts.taskId))
+      .where(
+        and(
+          eq(artifacts.workspaceId, workspaceId),
+          inArray(
+            artifacts.id,
+            group.map((request) => request.artifactId)
+          ),
+          eq(artifacts.deletionState, 'active')
+        )
+      )
+    const rowById = new Map(rows.map((row) => [row.artifact.id, row]))
+    for (const request of group) {
+      const scope = scopes.get(request.principalUserId)
+      const row = rowById.get(request.artifactId)
+      if (!scope || !row) continue
+      if (row.artifact.taskId && row.projectId && scope.hiddenProjectIds.includes(row.projectId))
+        continue
+      evidence.set(
+        artifactEvidenceKey(request),
+        Object.freeze({
+          availability: row.artifact.availability,
+          checksumSha256: row.artifact.checksumSha256,
+          deletionState: row.artifact.deletionState,
+          id: row.artifact.id,
+          sensitivity: row.artifact.sensitivity,
+          version: row.artifact.version,
+          workspaceId: row.artifact.workspaceId,
+        })
+      )
+    }
+  }
+  return evidence
 }
 
 function parseTimestamp(value: string): number | null {

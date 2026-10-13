@@ -3,7 +3,9 @@ import { and, eq, inArray, isNull, notInArray, or, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { filterVisibleMessageRows } from './job-outbound-read'
 import {
+  channelParticipants,
   channels,
   contentRefs,
   messages,
@@ -41,43 +43,72 @@ export type ProjectAccessScope = Readonly<{
   userId: string
 }>
 
+/**
+ * The scopes of several members of one workspace, in two indexed reads whatever their
+ * number. A user with no membership in the workspace has no entry, which is no access.
+ */
+export async function resolveProjectAccessScopes(
+  database: Database,
+  workspaceId: string,
+  userIds: readonly string[]
+): Promise<ReadonlyMap<string, ProjectAccessScope>> {
+  const ids = [...new Set(userIds)]
+  const scopes = new Map<string, ProjectAccessScope>()
+  if (!ids.length) return scopes
+  const memberships = await database
+    .select({ role: workspaceMemberships.role, userId: workspaceMemberships.userId })
+    .from(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        inArray(workspaceMemberships.userId, ids)
+      )
+    )
+  if (!memberships.length) return scopes
+  // Each members-only project appears once per listed member among `ids`, or once with no
+  // member when none of them is listed. A project is hidden to a user unless listed.
+  const rows = await database
+    .select({
+      id: projects.id,
+      memberRole: projectMembers.role,
+      memberUserId: projectMembers.userId,
+    })
+    .from(projects)
+    .leftJoin(
+      projectMembers,
+      and(eq(projectMembers.projectId, projects.id), inArray(projectMembers.userId, ids))
+    )
+    .where(and(eq(projects.workspaceId, workspaceId), eq(projects.visibility, 'members')))
+  const membersOnlyProjectIds = new Set(rows.map((row) => row.id))
+  for (const membership of memberships) {
+    const privileged = membership.role === 'owner' || membership.role === 'admin'
+    const memberRoles = new Map<string, ProjectMemberRole>()
+    for (const row of rows)
+      if (row.memberUserId === membership.userId && row.memberRole)
+        memberRoles.set(row.id, row.memberRole)
+    scopes.set(
+      membership.userId,
+      Object.freeze({
+        hiddenProjectIds: Object.freeze(
+          privileged ? [] : [...membersOnlyProjectIds].filter((id) => !memberRoles.has(id))
+        ),
+        memberRoles,
+        membersOnlyProjectIds,
+        privileged,
+        role: membership.role,
+        userId: membership.userId,
+      })
+    )
+  }
+  return scopes
+}
+
 export async function resolveProjectAccessScope(
   database: Database,
   workspaceId: string,
   userId: string
 ): Promise<ProjectAccessScope | null> {
-  const [membership] = await database
-    .select({ role: workspaceMemberships.role })
-    .from(workspaceMemberships)
-    .where(
-      and(
-        eq(workspaceMemberships.workspaceId, workspaceId),
-        eq(workspaceMemberships.userId, userId)
-      )
-    )
-    .limit(1)
-  if (!membership) return null
-  const rows = await database
-    .select({ id: projects.id, role: projectMembers.role })
-    .from(projects)
-    .leftJoin(
-      projectMembers,
-      and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, userId))
-    )
-    .where(and(eq(projects.workspaceId, workspaceId), eq(projects.visibility, 'members')))
-  const privileged = membership.role === 'owner' || membership.role === 'admin'
-  const memberRoles = new Map<string, ProjectMemberRole>()
-  for (const row of rows) if (row.role) memberRoles.set(row.id, row.role)
-  return Object.freeze({
-    hiddenProjectIds: Object.freeze(
-      privileged ? [] : rows.filter((row) => !row.role).map((row) => row.id)
-    ),
-    memberRoles,
-    membersOnlyProjectIds: new Set(rows.map((row) => row.id)),
-    privileged,
-    role: membership.role,
-    userId,
-  })
+  return (await resolveProjectAccessScopes(database, workspaceId, [userId])).get(userId) ?? null
 }
 
 /** Resolve the scope or fail with the module's indistinguishable error. */
@@ -201,15 +232,79 @@ export async function isContentRefVisible(
 ): Promise<boolean> {
   const scope = await resolveProjectAccessScope(database, workspaceId, userId)
   if (!scope) return false
-  if (!scope.hiddenProjectIds.length) return true
-  const [row] = await database
-    .select({ channelProjectId: channels.projectId, taskProjectId: tasks.projectId })
+  const [contentRef] = await database
+    .select({ messageId: contentRefs.messageId, taskId: contentRefs.taskId })
     .from(contentRefs)
-    .leftJoin(tasks, eq(tasks.id, contentRefs.taskId))
-    .leftJoin(messages, eq(messages.id, contentRefs.messageId))
-    .leftJoin(channels, eq(channels.id, messages.channelId))
     .where(and(eq(contentRefs.id, contentRefId), eq(contentRefs.workspaceId, workspaceId)))
     .limit(1)
-  if (!row) return true
-  return canReadProject(scope, row.taskProjectId) && canReadProject(scope, row.channelProjectId)
+    .for('share')
+  if (!contentRef) return false
+
+  let taskProjectId: string | null = null
+  if (contentRef.taskId) {
+    const [task] = await database
+      .select({ projectId: tasks.projectId })
+      .from(tasks)
+      .where(and(eq(tasks.id, contentRef.taskId), eq(tasks.workspaceId, workspaceId)))
+      .limit(1)
+      .for('share')
+    if (!task) return false
+    taskProjectId = task.projectId
+  }
+  if (!canReadProject(scope, taskProjectId)) return false
+  if (!contentRef.messageId) return true
+
+  const [message] = await database
+    .select({
+      channelId: messages.channelId,
+      executionRef: messages.executionRef,
+      id: messages.id,
+      replyToMessageId: messages.replyToMessageId,
+      senderKind: messages.senderKind,
+      senderSystemId: messages.senderSystemId,
+      threadRootMessageId: messages.threadRootMessageId,
+    })
+    .from(messages)
+    .where(and(eq(messages.id, contentRef.messageId), eq(messages.workspaceId, workspaceId)))
+    .limit(1)
+    .for('share')
+  if (!message) return false
+
+  const [channel] = await database
+    .select({
+      id: channels.id,
+      lifecycleState: channels.lifecycleState,
+      projectId: channels.projectId,
+      visibility: channels.visibility,
+    })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.id, message.channelId),
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.lifecycleState, 'active')
+      )
+    )
+    .limit(1)
+    .for('share')
+  if (!channel || !canReadProject(scope, channel.projectId)) return false
+  if (channel.visibility === 'participants') {
+    const [participant] = await database
+      .select({ id: channelParticipants.id })
+      .from(channelParticipants)
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channel.id),
+          eq(channelParticipants.principalKind, 'user'),
+          eq(channelParticipants.userId, userId)
+        )
+      )
+      .limit(1)
+      .for('share')
+    if (!participant) return false
+  }
+
+  const visibleMessages = await filterVisibleMessageRows(database, [message], userId)
+  return visibleMessages.length === 1
 }
