@@ -123,53 +123,66 @@ function attachRemoval(handle) {
   return () => process.off('exit', onExit)
 }
 
-// Runs the throwaway container from the digest-pinned image. Anonymous pulls from shared hosted
+// Runs `start(image)` against the digest-pinned capture image. Anonymous pulls from shared hosted
 // runners are throttled per registry (`toomanyrequests`), so a rate-limited start falls over to the
 // same digest on the other registries the main database uses (see docker-pull-backoff.mjs), then
 // retries with the same bounded backoff. A digest names the content, so a fallback cannot change
-// which image runs. Only a registry rate limit moves on: any other failure throws at once. The
-// container name is fixed up front, so every attempt is removed by the same cleanup, and a start
-// that fails before the container exists leaves nothing to remove.
-function runCaptureContainer(name, password, backoffMs) {
-  const start = (image) =>
-    spawnSync(
-      'docker',
-      [
-        'run',
-        '-d',
-        '--rm',
-        // Loopback-only ephemeral host port: a plain `-P` publishes the port on
-        // every host interface, which would put the throwaway instance on the
-        // LAN. The mapping is read back below instead of guessing a port.
-        '-p',
-        '127.0.0.1::5432',
-        '--name',
-        name,
-        '-e',
-        `POSTGRES_PASSWORD=${password}`,
-        image,
-      ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 }
-    )
+// which image runs. Only a registry rate limit moves on: any other result, success or failure, is
+// returned at once, as is the last rate-limited one. `start` returns a spawnSync result; every
+// caller that starts a container from this image goes through here, so none pulls it bare.
+function limited(result) {
+  return result.status !== 0 && isRegistryRateLimit(`${result.stdout}\n${result.stderr}`)
+}
+
+export function startFromCaptureImage(start, backoffMs = defaultPullBackoffMs) {
   const candidates = [captureProvisioningImage, ...fallbackImages(captureProvisioningImage)]
   let last
   for (let retry = 0; ; retry += 1) {
     for (const image of candidates) {
       last = start(image)
-      if (last.error) throw last.error
-      if (last.status === 0) return
-      if (!isRegistryRateLimit(`${last.stdout}\n${last.stderr}`)) break
+      if (last.error || !limited(last)) return last
       console.warn(`Container registry rate-limited an image pull for ${image}.`)
     }
-    if (!isRegistryRateLimit(`${last.stdout}\n${last.stderr}`) || retry >= backoffMs.length) break
+    if (retry >= backoffMs.length) return last
     console.warn(
-      `Container registries rate-limited the capture provisioning pull; retry ${retry + 1} of ${backoffMs.length} in ${backoffMs[retry] / 1000}s.`
+      `Container registries rate-limited the capture image pull; retry ${retry + 1} of ${backoffMs.length} in ${backoffMs[retry] / 1000}s.`
     )
     sleepSync(backoffMs[retry])
   }
-  throw new Error(
-    `starting the throwaway capture provisioning container (${captureProvisioningImage}) failed: ${last.stderr.trim() || `exit code ${last.status}`}`
+}
+
+// Runs the throwaway container. The container name is fixed up front, so every attempt is removed by
+// the same cleanup, and a start that fails before the container exists leaves nothing to remove.
+function runCaptureContainer(name, password, backoffMs) {
+  const result = startFromCaptureImage(
+    (image) =>
+      spawnSync(
+        'docker',
+        [
+          'run',
+          '-d',
+          '--rm',
+          // Loopback-only ephemeral host port: a plain `-P` publishes the port on
+          // every host interface, which would put the throwaway instance on the
+          // LAN. The mapping is read back below instead of guessing a port.
+          '-p',
+          '127.0.0.1::5432',
+          '--name',
+          name,
+          '-e',
+          `POSTGRES_PASSWORD=${password}`,
+          image,
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 }
+      ),
+    backoffMs
   )
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(
+      `starting the throwaway capture provisioning container (${captureProvisioningImage}) failed: ${result.stderr.trim() || `exit code ${result.status}`}`
+    )
+  }
 }
 
 /**

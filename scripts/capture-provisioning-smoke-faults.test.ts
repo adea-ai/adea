@@ -27,6 +27,8 @@ function fakeDocker(
     inspectFails?: (name: string) => boolean
     removeFails?: (name: string) => boolean
     run?: 'partial' | 'refused'
+    // Throttles the pull of the canonical ECR Public reference the way a shared-runner registry does.
+    throttleEcr?: boolean
   } = {}
 ) {
   const present = new Set<string>()
@@ -35,6 +37,16 @@ function fakeDocker(
     calls.push(args)
     if (args[0] === 'run') {
       const name = args[args.indexOf('--name') + 1]!
+      if (
+        plan.throttleEcr &&
+        args.includes('--entrypoint') &&
+        args.at(-2)!.startsWith('public.ecr.aws/')
+      )
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+          stdout: '',
+        }
       if (plan.run !== 'refused') present.add(name)
       if (plan.run)
         return { status: 125, stderr: `the daemon failed the start (${plan.run})`, stdout: '' }
@@ -152,6 +164,27 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     })
     expect(fake.present.size).toBe(0)
     expect(removalsOf(fake.calls)).toEqual([owned, observed.sentinel])
+  })
+
+  test('a rate-limited sentinel pull falls over to the same digest on the mirror', async () => {
+    const fake = fakeDocker({ throttleEcr: true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    await runOwnedSmoke({
+      bounds: fastBounds,
+      childPath: '/not-used',
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    const images = fake.calls.filter((args) => args[0] === 'run').map((args) => args.at(-2))
+    expect(images).toHaveLength(2)
+    expect(images[0]).toStartWith('public.ecr.aws/docker/library/postgres:18-alpine@sha256:')
+    expect(images[1]).toStartWith('mirror.gcr.io/library/postgres:18-alpine@sha256:')
+    expect(images[1]!.split('@')[1]).toBe(images[0]!.split('@')[1])
   })
 
   test('a refused sentinel start still attempts the sentinel removal, and no child is spawned', async () => {
