@@ -154,3 +154,20 @@ product/HTTP suite passed 13 on companion published head
 `bc1d84647d62babd5f8241bfcdd0b24087f815ff`. Those focused checks use synthetic
 ports. Database qualification does not establish source runtime/tool effects,
 live provider qualification or completed foreign-Agent execution acceptance.
+
+### Additive canonical source reader checkpoint
+
+`withCurrentSourceLeadTurnProduct` is a candidate in-process reader, separate
+from the guarded HTTP endpoint. It resolves the exact source CP selector and
+canonical intent, requires the original actor's current `runtime.invoke` in the
+source workspace, and holds source membership/mapping locks before entering the
+existing locked host product reader. Current host actor, audience, message,
+profile and enlistment remain required. Disclosure retains both workspace
+mappings, the exact qualified Agent and the effective enlistment ID/revision.
+Source role loss, pending deletion, host enlistment revocation and a wrong host
+selector deny; asynchronous disclosure holds source revocation/mapping locks.
+
+This reader creates no service credentials or source CP execution/model/tool/payer
+authority. Its consumer must independently verify existing service authority for
+both workspaces and current CP source authority. It is not wired to the HTTP
+endpoint or enabled execution; the foreign-Agent guard remains unchanged.

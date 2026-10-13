@@ -453,3 +453,7 @@ export {
 export * from './lead-model-selections'
 
 export { withWorkspaceManagementAuthority } from './management-workspace-authority'
+export {
+  withCurrentSourceLeadTurnProduct,
+  type CurrentSourceLeadTurnProduct,
+} from './lead-source-product'
