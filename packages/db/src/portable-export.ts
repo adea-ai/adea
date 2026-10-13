@@ -557,7 +557,12 @@ async function readCompleteInputs(
   const groupParticipants = new Map<string, ConversationParticipantRef[]>()
   for (const row of channelRows)
     if (row.kind === 'group')
-      groupParticipants.set(row.id, await groupParticipantsInForce(transaction, row))
+      groupParticipants.set(
+        row.id,
+        await groupParticipantsInForce(transaction, row, {
+          authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+        }).catch(rethrowOverflowAsTooLarge)
+      )
   const channelSummaries: ChannelSummary[] = channelRows.map((row) => ({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: iso(row.createdAt),

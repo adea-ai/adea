@@ -5609,7 +5609,10 @@ default. The project and workspace defaults are `HarnessPreference` records
 (`default: true`, scoped to the active account, workspace and runtime node);
 setting one through `dev.harness.preferenceUpdate` is the per-workspace
 override, and clearing it (`default: false`) returns the workspace to the
-device default.
+device default. A stored preference outlives its installation: when the
+installation is uninstalled or lost in a rescan the record stays listed and
+`preferenceUpdate` still accepts a patch that does not set `default: true`
+(clear or disable); making a missing installation the default is `not_found`.
 
 `dev.harness.deviceDefault` (`dev.harness.read`) and
 `dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
@@ -5623,9 +5626,15 @@ managed-Pi root default is not synthesized into `dev.harness.preferences`.
 
 `dev.session.launchDefault` resolves the device default family to a
 launch-eligible installation in the active workspace (scanning once when the
-workspace was never scanned). A family that is not installed or not eligible
-refuses `capability_unavailable` with remediation `dev.harness.inventoryRefresh`;
-it never launches a different harness.
+workspace was never scanned). An installation the user disabled never
+qualifies, and the workspace's own account for the family is resolved first: a
+delivered account satisfies a missing native login when the launch attaches a
+terminal, the same rule the launch itself applies. The session is read again
+after any scan, so one archived or transferred meanwhile launches nothing
+(`stale_generation` or `invalid_state`), and a default that changed meanwhile
+refuses `invalid_state` (retryable). A family that is not installed or not
+eligible refuses `capability_unavailable` with remediation
+`dev.harness.inventoryRefresh`; it never launches a different harness.
 
 ### Runtime activity
 
