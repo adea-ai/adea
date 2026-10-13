@@ -23,7 +23,16 @@ const dockerShim = `#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 case "$1" in
   info) exit 0 ;;
-  run) exit 0 ;;
+  run)
+    case "$SHIM_RUN:$*" in
+      ecr-limited:*public.ecr.aws*|ecr-limited-mirror-broken:*public.ecr.aws*)
+        echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+      ecr-limited-mirror-broken:*mirror.gcr.io*)
+        echo "docker: Error response from daemon: unexpected mirror failure" >&2; exit 125 ;;
+      ecr-broken:*public.ecr.aws*)
+        echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+    esac
+    exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
   exec) exit 0 ;;
   rm)
@@ -47,7 +56,7 @@ if (mode === 'no-ready') {
   setInterval(() => {}, 1000)
   await new Promise(() => {})
 }
-const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500 })
+const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500, pullBackoffMs: [], sleep() {} })
 if (!handle) { console.log('NULL'); process.exit(3) }
 console.log('READY ' + handle.containerName)
 if (mode === 'normal') { handle.stop(); process.exit(0) }
@@ -171,6 +180,10 @@ function calls(log: string) {
   return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []
 }
 
+function runCalls(log: string) {
+  return calls(log).filter((line) => line.startsWith('run '))
+}
+
 function removals(log: string) {
   return calls(log).filter((line) => line.startsWith('rm '))
 }
@@ -199,6 +212,40 @@ async function startChild(
 }
 
 describe('capture provisioning helper', () => {
+  test('a rate-limited registry pull falls over to the same digest on a mirror', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'ecr-limited' })
+    const { child } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const images = runCalls(log).map((line) => line.split(' ').at(-1))
+    expect(images).toHaveLength(2)
+    expect(images[0]).toMatch(/^public\.ecr\.aws\/docker\/library\/postgres:18-alpine@sha256:/)
+    expect(images[1]).toBe(images[0]!.replace('public.ecr.aws/docker/', 'mirror.gcr.io/'))
+  })
+
+  test('a rate limit followed by an ordinary mirror failure still reaches Docker Hub', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'ecr-limited-mirror-broken' })
+    const { child } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const images = runCalls(log).map((line) => line.split(' ').at(-1)!)
+    expect(images.map((image) => image.split('/')[0])).toEqual([
+      'public.ecr.aws',
+      'mirror.gcr.io',
+      'docker.io',
+    ])
+  })
+
+  test('an ordinary failure of the canonical image is not retried on a mirror', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'ecr-broken' })
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).not.toBe(0)
+    expect(await new Response(child.stderr).text()).toContain('manifest unknown')
+    expect(runCalls(log)).toHaveLength(1)
+  })
+
   test('a normal exit removes exactly the container this invocation created', async () => {
     const { environment, log } = environmentFor('ok')
     const { child, name } = await startChild('normal', environment)
