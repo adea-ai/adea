@@ -1388,6 +1388,43 @@ project/session sidebar uses that same owner and shelf. These surfaces continue
 to use the published shared navigation and its existing domain renderers for
 general project, room, and session navigation.
 
+#### History pane
+
+The right-sidebar History tab (`DevUtilityPane` `history`, capability
+`dev.session.read`) answers "what did I ask last, and what did the agent say".
+It is bound to the one canonical session of the utility context; there is no
+cross-session search and no second store.
+
+- **Data.** `SessionHistorySection` reads `dev.session.get` and `dev.harness.runs`
+  through the captured utility fence, then opens a read-direction
+  `runtime-events-v1` stream through `openRuntimeEventStream` (the same opener
+  Chat uses for its transcript) bound to the session generation. It folds frames
+  into the bounded transcript accumulator (1,000 events) and closes the stream
+  when the pane unmounts or the context changes.
+- **Turns tab.** One row per `turn.user_input`, newest first, from
+  `buildHistoryTurns`: the redacted prompt, a short summary of the reply
+  (`turn.result` summary, else the latest `turn.assistant_message`), the tool-call
+  count (`tool.requested`), generation and relative time. State is `Done` and
+  `Failed` only from the reply event itself (`isError`, or `status`
+  `failed`/`error`), `Working` only for the newest prompt while the newest
+  `HarnessRun` is working or awaiting input/approval, and otherwise
+  `No reply recorded`; nothing is inferred from silence. A row expands in place to
+  the full redacted prompt and reply.
+- **Search.** The search field filters the same retained window through
+  `searchConversationHistory` with `matchOn: 'preview'`, so it matches prompts,
+  replies, tool names, approvals, questions and statuses and never the session
+  title. Results page 100 at a time; "Load more" extends the list from the
+  previous cursor. Matches are highlighted. A result's Jump button appears only
+  where the host can reveal an event (Chat supplies `onJump`; Dev shows none).
+- **Runs tab.** The existing `RunHistoryPane` for the session.
+- **Truthful states.** A `terminal_fallback` projection has no structured feed, so
+  the Turns tab says so instead of showing an empty list; a window that retention
+  dropped older events from says "Showing the latest events only"; an unreadable
+  feed offers Try again.
+- **Redaction.** Prompt and reply text pass `redactSearchText` (secrets, private
+  paths, control characters, bounded length), and `credential`-classified events
+  are skipped.
+
 Archive command construction, pagination, and response validation load on demand;
 the shell owner retains shelf state, request revisions, and context fences.
 A pending load MUST capture existing authority before runtime readiness or code
@@ -5609,7 +5646,10 @@ default. The project and workspace defaults are `HarnessPreference` records
 (`default: true`, scoped to the active account, workspace and runtime node);
 setting one through `dev.harness.preferenceUpdate` is the per-workspace
 override, and clearing it (`default: false`) returns the workspace to the
-device default.
+device default. A stored preference outlives its installation: when the
+installation is uninstalled or lost in a rescan the record stays listed and
+`preferenceUpdate` still accepts a patch that does not set `default: true`
+(clear or disable); making a missing installation the default is `not_found`.
 
 `dev.harness.deviceDefault` (`dev.harness.read`) and
 `dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
@@ -5623,9 +5663,15 @@ managed-Pi root default is not synthesized into `dev.harness.preferences`.
 
 `dev.session.launchDefault` resolves the device default family to a
 launch-eligible installation in the active workspace (scanning once when the
-workspace was never scanned). A family that is not installed or not eligible
-refuses `capability_unavailable` with remediation `dev.harness.inventoryRefresh`;
-it never launches a different harness.
+workspace was never scanned). An installation the user disabled never
+qualifies, and the workspace's own account for the family is resolved first: a
+delivered account satisfies a missing native login when the launch attaches a
+terminal, the same rule the launch itself applies. The session is read again
+after any scan, so one archived or transferred meanwhile launches nothing
+(`stale_generation` or `invalid_state`), and a default that changed meanwhile
+refuses `invalid_state` (retryable). A family that is not installed or not
+eligible refuses `capability_unavailable` with remediation
+`dev.harness.inventoryRefresh`; it never launches a different harness.
 
 ### Runtime activity
 

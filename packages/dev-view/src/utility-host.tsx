@@ -40,8 +40,10 @@ const HarnessStatusSection = lazy(() =>
     default: module.HarnessStatusSection,
   }))
 )
-const RunHistorySection = lazy(() =>
-  import('./history/run-history-section').then((module) => ({ default: module.RunHistorySection }))
+const SessionHistorySection = lazy(() =>
+  import('./history/session-history-section').then((module) => ({
+    default: module.SessionHistorySection,
+  }))
 )
 
 const paneCapabilities: Partial<Record<DevUtilityPane, DevCapability>> = {
@@ -184,7 +186,7 @@ export function SharedDevUtilityHost(props: {
           />
         }
       >
-        <RunHistorySection context={context} />
+        <SessionHistorySection context={context} />
       </Suspense>
     ) : (
       <ProviderState

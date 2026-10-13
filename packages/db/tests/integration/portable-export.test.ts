@@ -15,6 +15,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { exportPortableWorkspace, readCompletePortableContent } from '../../src/portable-export'
 import { PortableExportError } from '../../src/portable-export-content'
 import {
+  ChannelParticipantOverflowError,
   createMessage,
   createProjectChannel,
   listChannelsForUser,
@@ -891,6 +892,62 @@ describe.skipIf(!connectionUrl)('portable workspace export and import', () => {
       })
     )
     expect(outcome).toBe('too_large')
+  })
+
+  test('a group whose authorization records outgrow the bound between pages is refused as too large', async () => {
+    const fixture = await seed('group-records-between-pages')
+    const groupId = fixture.channels.privateGroup.id
+    let grown = false
+    const outcome = await exportOutcome(
+      exportPortableWorkspace(db, {
+        hooks: {
+          beforeMessagePage: async ({ channelId }) => {
+            // The channel list was collected within the bound; the records grow before this page.
+            if (channelId !== groupId || grown) return
+            grown = true
+            await db.execute(sql`
+              insert into app.group_audience_grants
+                (workspace_id, channel_id, grant_id, revision, user_id, issued_at)
+              select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'between-' || n, 1,
+                ${fixture.member.principal.userId}::uuid, ${new Date().toISOString()}
+              from generate_series(1, ${PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1}) as n
+            `)
+          },
+        },
+        principal: fixture.owner.principal,
+        workspaceId: fixture.workspaceId,
+      })
+    )
+    expect(grown).toBe(true)
+    expect(outcome).toBe('too_large')
+  })
+
+  test('an oversized group is refused before the first authorization read loads its roster', async () => {
+    const fixture = await seed('group-bound-first')
+    const groupId = fixture.channels.privateGroup.id
+    await db.execute(sql`
+      insert into app.group_audience_grants
+        (workspace_id, channel_id, grant_id, revision, user_id, issued_at)
+      select ${fixture.workspaceId}::uuid, ${groupId}::uuid, 'first-' || n, 1,
+        ${fixture.member.principal.userId}::uuid, ${new Date().toISOString()}
+      from generate_series(1, 5) as n
+    `)
+    // Loading the roster reads the Agents the group enlists. Holding that table exclusively
+    // stalls any roster load, so only a bound that runs first can answer.
+    const outcome = await db.transaction(async (transaction) => {
+      await transaction.execute(sql`lock table app.agents in access exclusive mode`)
+      return Promise.race([
+        listMessagesForUser(db, fixture.workspaceId, groupId, fixture.owner.principal, {
+          authorizationRecordLimit: 3,
+        }).then(
+          () => 'served',
+          (error: unknown) =>
+            error instanceof ChannelParticipantOverflowError ? 'overflow' : 'error'
+        ),
+        new Promise<string>((resolve) => setTimeout(() => resolve('stalled'), 3000)),
+      ])
+    })
+    expect(outcome).toBe('overflow')
   })
 
   test('no export carries credentials, ciphertext, artifact locators, deleted text or invitations', async () => {
