@@ -11,12 +11,12 @@ import {
   TERMINAL_PLACEHOLDER_PREFIX,
   createExclusiveRunner,
   createSessionTerminal,
-  openCreatedTerminal,
   isTerminalPlaceholderLeaf,
   replaceLeaf,
   terminateSessionTerminal,
   terminatesOnLastClose,
 } from '../src/terminal/terminal-close'
+import { openCreatedTerminal } from '../src/terminal/open-terminal'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
