@@ -92,6 +92,34 @@ describe('searchConversationHistory', () => {
     expect(prompt?.jump).toMatchObject({ runtimeSessionId: session.id, eventId: 'event-1' })
   })
 
+  test('matchOn preview ignores the session title and kind', () => {
+    const input = {
+      sessions: [{ ...session, displayName: 'Deploy planning' }],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({ payload: { text: 'write the release notes' } }),
+            event({
+              eventId: 'event-2',
+              sourceEventId: 'source-2',
+              seq: '2',
+              payload: { text: 'deploy the staging build' },
+            }),
+          ],
+        ],
+      ]),
+      limit: 10,
+    }
+    expect(searchConversationHistory({ ...input, query: 'deploy' }).totalMatches).toBe(2)
+    const scoped = searchConversationHistory({ ...input, query: 'deploy', matchOn: 'preview' })
+    expect(scoped.items.map((item) => item.preview)).toEqual(['deploy the staging build'])
+    expect(
+      searchConversationHistory({ ...input, query: 'prompt', matchOn: 'preview' }).totalMatches
+    ).toBe(0)
+  })
+
   test('paginates with an opaque bounded cursor and virtualizes a result window', () => {
     const page = searchConversationHistory({
       sessions: [session],
