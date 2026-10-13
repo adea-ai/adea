@@ -22,6 +22,20 @@ decision or authority.
 - Keep draft auto-merge off. Never force-push over others or push unreviewed work
   to an auto-merge head.
 
+## Refreshing the generated core
+
+Sync the latest official Code Foundry core first, then add repository guidance
+outside its managed blocks. Keep every generated block and its markers intact.
+For an AGENTS-only task, preview `sync --target PATH --dry-run` in a disposable
+repository copy, then run the exported `syncRepository` with
+`configureHooks: false` there and bring back only `AGENTS.md`. The normal sync
+also generates CI/config files; those belong to a separately scoped update.
+
+The core here was verified against official Code Foundry v1.47.3, source commit
+`f016be30c4f3b3573d9564c070c9e791f84154e0`. Both the disposable sync and the
+configuration-rendered baseline matched all 15 existing managed blocks exactly.
+This core verification does not change the repository's CI runtime pin.
+
 ## Adea repository map
 
 Adea's web app uses Solid, TanStack Start and Vite. Start with the existing
