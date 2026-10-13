@@ -30,7 +30,7 @@ import {
   PORTABLE_EXTERNAL_DOMAIN_CLASSES,
   validatePortableWorkspaceExport,
   type PortableWorkspaceExport,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
 import { eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 

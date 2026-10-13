@@ -26,12 +26,12 @@ import { createHash } from 'node:crypto'
 
 import {
   canonicalPortableJson,
-  type PortableExportExclusion,
   PORTABLE_EXTERNAL_DOMAIN_CLASSES,
+  type PortableExportExclusion,
   type PortableWorkspaceExportContent,
   type PortableWorkspaceExport,
-  type UserPrincipalRef,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
+import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, inArray, max, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'

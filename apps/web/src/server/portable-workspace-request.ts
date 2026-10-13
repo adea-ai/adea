@@ -11,8 +11,8 @@ import {
 import {
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   portableJsonUtf8ByteLength,
-  type UserPrincipalRef,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
+import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { isConversationUuid } from './conversation-request'
 import { withDesktopWorkspaceCors } from './desktop-workspace'

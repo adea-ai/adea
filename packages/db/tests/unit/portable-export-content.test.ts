@@ -4,7 +4,7 @@ import {
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   validatePortableWorkspaceExport,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
 
 import {
   bounded,

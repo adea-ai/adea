@@ -7,7 +7,7 @@ import {
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   type PortableWorkspaceExport,
   validatePortableWorkspaceExport,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
 import { and, eq } from 'drizzle-orm'
 
 import { type AgentHqDatabase, createDatabase, type DatabaseConnection } from '../../src/connection'

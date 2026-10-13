@@ -17,9 +17,7 @@ import {
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   portableJsonUtf8ByteLength,
-  type ChannelSummary,
-  type ConversationParticipantRef,
-  type MessageSummary,
+  validatePortableWorkspaceExport,
   type PortableAgent,
   type PortableChannel,
   type PortableContentRef,
@@ -33,7 +31,11 @@ import {
   type PortableWorkspace,
   type PortableWorkspaceExport,
   type PortableWorkspaceExportContent,
-  validatePortableWorkspaceExport,
+} from '@adea-ai/types/portable-export'
+import type {
+  ChannelSummary,
+  ConversationParticipantRef,
+  MessageSummary,
 } from '@adea-ai/types'
 
 import type {

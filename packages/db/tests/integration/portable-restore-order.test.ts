@@ -17,7 +17,10 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { validatePortableWorkspaceExport, type PortableWorkspaceExport } from '@adea-ai/types'
+import {
+  validatePortableWorkspaceExport,
+  type PortableWorkspaceExport,
+} from '@adea-ai/types/portable-export'
 import { eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 

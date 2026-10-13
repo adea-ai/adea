@@ -34,7 +34,10 @@ import {
   workspaceMemberships,
   workspaces,
 } from '@adea-ai/db'
-import { type PortableWorkspaceExport, validatePortableWorkspaceExport } from '@adea-ai/types'
+import {
+  type PortableWorkspaceExport,
+  validatePortableWorkspaceExport,
+} from '@adea-ai/types/portable-export'
 
 import {
   PORTABLE_API_MAX_BYTES,

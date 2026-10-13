@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS } from '@adea-ai/types'
+import { PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS } from '@adea-ai/types/portable-export'
 import type {
   ChannelSummary,
   ConversationParticipantRef,

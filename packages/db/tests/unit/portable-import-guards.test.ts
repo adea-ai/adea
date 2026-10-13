@@ -5,7 +5,7 @@ import {
   PORTABLE_WORKSPACE_EXPORT_FORMAT,
   type PortableWorkspaceExport,
   type PortableWorkspaceExportContent,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
 
 import { portableContentDigest } from '../../src/portable-export-content'
 import { importPortableWorkspace } from '../../src/portable-import'

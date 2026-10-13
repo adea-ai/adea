@@ -10,7 +10,7 @@ import {
   type PortableWorkspaceExport,
   type PortableWorkspaceExportIssue,
   validatePortableWorkspaceExport,
-} from '../src/portable-export'
+} from '@adea-ai/types/portable-export'
 
 const at = '2026-10-01T10:00:00.000Z'
 const later = '2026-10-01T10:05:00.000Z'

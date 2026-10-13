@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getTableName, is } from 'drizzle-orm'
 import { PgTable } from 'drizzle-orm/pg-core'
 
-import { PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS } from '@adea-ai/types'
+import { PORTABLE_WORKSPACE_EXPORT_EXCLUSIONS } from '@adea-ai/types/portable-export'
 
 import * as schema from '../../src/schema'
 

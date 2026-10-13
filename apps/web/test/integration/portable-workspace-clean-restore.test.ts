@@ -39,7 +39,10 @@ import {
   workspaces,
   portableContentDigest,
 } from '@adea-ai/db'
-import { type PortableWorkspaceExport, validatePortableWorkspaceExport } from '@adea-ai/types'
+import {
+  type PortableWorkspaceExport,
+  validatePortableWorkspaceExport,
+} from '@adea-ai/types/portable-export'
 import { eq } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 

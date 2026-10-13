@@ -19,12 +19,14 @@ import {
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
   portableJsonUtf8ByteLength,
-  type ChannelSummary,
-  type ConversationParticipantRef,
-  type MessageSummary,
   type PortableWorkspaceExport,
   type PortableWorkspaceExportContent,
-  type UserPrincipalRef,
+} from '@adea-ai/types/portable-export'
+import type {
+  ChannelSummary,
+  ConversationParticipantRef,
+  MessageSummary,
+  UserPrincipalRef,
 } from '@adea-ai/types'
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 

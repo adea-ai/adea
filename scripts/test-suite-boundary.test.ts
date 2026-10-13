@@ -40,10 +40,18 @@ describe('test suite boundaries', () => {
     expect(localValidation).toContain('features: validation,release')
     const localRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
     expect(localRunner).toContain(
-      "const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'"
+      "import {\n  captureProvisioningDatabaseUrlVariable,\n  startCaptureProvisioning,\n} from './capture-provisioning.mjs'"
     )
+    expect(localRunner).toContain('captureProvisioning = startCaptureProvisioning((handle) => {')
     expect(localRunner).toContain(
       'environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl'
+    )
+    const captureProvisioning = readFileSync(
+      resolve(root, 'scripts/capture-provisioning.mjs'),
+      'utf8'
+    )
+    expect(captureProvisioning).toContain(
+      "export const captureProvisioningDatabaseUrlVariable = 'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL'"
     )
     const integrationRunner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
     expect(integrationRunner).toContain('DATABASE_MIGRATION_URL')

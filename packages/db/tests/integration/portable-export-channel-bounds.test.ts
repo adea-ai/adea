@@ -4,8 +4,8 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import {
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
-  type ChannelSummary,
-} from '@adea-ai/types'
+} from '@adea-ai/types/portable-export'
+import type { ChannelSummary } from '@adea-ai/types'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'

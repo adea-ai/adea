@@ -4,11 +4,11 @@
 // satisfy the version-1 contract and must hash to its own content digest. The importer
 // relies on them, and the unit lane measures them.
 
-import {
-  type PortableWorkspaceExport,
-  type PortableWorkspaceExportIssue,
-  validatePortableWorkspaceExport,
-} from '@adea-ai/types'
+import { validatePortableWorkspaceExport } from '@adea-ai/types/portable-export'
+import type {
+  PortableWorkspaceExport,
+  PortableWorkspaceExportIssue,
+} from '@adea-ai/types/portable-export'
 
 import { portableContentDigest } from './portable-export-content'
 
