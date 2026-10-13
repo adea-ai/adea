@@ -227,8 +227,15 @@ read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes
-with them. `workspace.member_*` events fall in the `workspace` family and refresh the member and
-invitation queries under the workspace prefix.
+with them; they also refresh the account-wide inbox, whose rows include visible project channels.
+Agent-family events refresh both workspace Agent queries and the account-wide directory. Channel,
+message and thread events refresh the account-wide inbox because channel membership, titles,
+recency and unread state are projected there. A detected sequence gap or `resync_required` refreshes
+both account page families along with the workspace scope. These are prefix invalidations: each
+mounted directory/inbox walk rebuilds successor cursors from refreshed predecessors, preserving its
+loaded depth unless the refreshed results are exhausted. Its search and action controls stay
+mounted and retain focus while the keyset pages rebase. `workspace.member_*` events fall in the
+`workspace` family and refresh the member and invitation queries under the workspace prefix.
 
 ## Verifying it locally
 

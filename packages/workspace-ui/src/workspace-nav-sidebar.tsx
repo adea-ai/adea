@@ -37,6 +37,7 @@ import {
   lazy,
   onCleanup,
   onMount,
+  untrack,
   Show,
   Suspense,
   type Accessor,
@@ -90,7 +91,9 @@ import {
 // `conventional-workspace-shell.tsx`: Rolldown reported the ineffective
 // dynamic-import boundary in every build (see docs/decisions/0008).
 const EditProjectDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.EditProjectDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.EditProjectDialog,
+  }))
 )
 const RenameConversationDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({
@@ -117,6 +120,11 @@ export type WorkspaceNavHost = Readonly<{
   onOpenWorkspaceSettings?: () => void
   /** The desktop cross-workspace Dev summary, when the host has one (ADR 0011). */
   devSummary?: readonly DevWorkspaceSummary[]
+  /** Account-wide results mounted inside the existing Agents and Conversations surfaces. */
+  globalNav?: Readonly<{
+    agents?: (context: AccountAgentRosterContext) => JSX.Element
+    conversations?: (context: AccountConversationInboxContext) => JSX.Element
+  }>
   /**
    * Hand the top bar this sidebar's Workspace › Project › Leaf path while it is
    * mounted. Returns the unregister call; a later registration wins, so a
@@ -125,17 +133,27 @@ export type WorkspaceNavHost = Readonly<{
   registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
 }>
 
+/** This workspace's canonical Agents, so the supplemental account list can skip them. */
+export type AccountAgentRosterContext = Readonly<{
+  agents: Accessor<readonly AgentSummary[]>
+}>
+
+/** This workspace's canonical conversations, so the supplemental account list can skip them. */
+export type AccountConversationInboxContext = Readonly<{
+  channels: Accessor<readonly ChannelSummary[]>
+}>
+
 export function ConversationChannelRow(props: {
-  channel: ChannelSummary
-  icon: JSX.Element
-  label: string
+  channel: Accessor<ChannelSummary>
+  icon: Accessor<JSX.Element>
+  label: Accessor<string>
   onArchive: (channel: ChannelSummary) => void
   onCopyLink: (channel: ChannelSummary) => void
   onIntent?: () => void
   onRename: (channel: ChannelSummary) => void
   onSelect: () => void
-  selected: boolean
-  unread: JSX.Element
+  selected: Accessor<boolean>
+  unread: Accessor<JSX.Element>
   /** Row menus mount inside the mobile sheet so they stay in its a11y tree. */
   portalMount?: HTMLElement
   /**
@@ -148,8 +166,8 @@ export function ConversationChannelRow(props: {
   touchTarget?: 'comfortable'
 }) {
   const optionsTooltip = () =>
-    props.tooltips === false ? undefined : `Conversation options for ${props.label}`
-  const deleteTooltip = () => (props.tooltips === false ? undefined : `Delete ${props.label}`)
+    props.tooltips === false ? undefined : `Conversation options for ${props.label()}`
+  const deleteTooltip = () => (props.tooltips === false ? undefined : `Delete ${props.label()}`)
   return (
     <SidebarNavRow
       actions={
@@ -161,7 +179,7 @@ export function ConversationChannelRow(props: {
               size="icon-md"
               touchTarget={props.touchTarget}
               tooltip={optionsTooltip()}
-              aria-label={`Conversation options for ${props.label}`}
+              aria-label={`Conversation options for ${props.label()}`}
             >
               <EllipsisVertical aria-hidden="true" />
             </DropdownMenuTrigger>
@@ -172,10 +190,10 @@ export function ConversationChannelRow(props: {
               portalMount={props.portalMount}
               class="max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
             >
-              <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
+              <DropdownMenuItem onSelect={() => props.onRename(props.channel())}>
                 Rename
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
+              <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel())}>
                 <Link2 aria-hidden="true" />
                 Copy link
               </DropdownMenuItem>
@@ -187,8 +205,8 @@ export function ConversationChannelRow(props: {
             size="icon-md"
             touchTarget={props.touchTarget}
             tooltip={deleteTooltip()}
-            aria-label={`Delete ${props.label}`}
-            onClick={() => props.onArchive(props.channel)}
+            aria-label={`Delete ${props.label()}`}
+            onClick={() => props.onArchive(props.channel())}
           >
             <X aria-hidden="true" />
           </ActionButton>
@@ -198,15 +216,15 @@ export function ConversationChannelRow(props: {
       <SidebarNavItem
         as="button"
         type="button"
-        active={props.selected}
-        trailing={props.unread}
+        active={props.selected()}
+        trailing={props.unread()}
         data-conventional-nav-item=""
         onClick={() => props.onSelect()}
         onPointerEnter={() => props.onIntent?.()}
         onFocus={() => props.onIntent?.()}
       >
-        {props.icon}
-        <SidebarNavLabel>{props.label}</SidebarNavLabel>
+        {props.icon()}
+        <SidebarNavLabel>{props.label()}</SidebarNavLabel>
       </SidebarNavItem>
     </SidebarNavRow>
   )
@@ -268,6 +286,7 @@ export function ConversationsSection(props: {
   createDisabled?: boolean
   directChannels: readonly ChannelSummary[]
   groupChannels: readonly ChannelSummary[]
+  accountInbox?: (context: AccountConversationInboxContext) => JSX.Element
   readState: readonly ChannelReadStateSummary[]
   selectedChannelId: string | null
   onArchive: (channel: ChannelSummary) => void
@@ -307,23 +326,48 @@ export function ConversationsSection(props: {
     ) : null
   }
   // `label` is a getter so a row renames when the agent list settles.
-  const row = (channel: ChannelSummary, icon: JSX.Element, label: () => string) => (
+  const row = (
+    channel: Accessor<ChannelSummary>,
+    icon: Accessor<JSX.Element>,
+    label: Accessor<string>
+  ) => (
     <ConversationChannelRow
       channel={channel}
       icon={icon}
-      label={label()}
+      label={label}
       onArchive={props.onArchive}
       onCopyLink={props.onCopyLink}
       onRename={props.onRename}
-      onIntent={() => props.onIntent?.(channel.id)}
-      onSelect={() => props.onSelect(channel.id)}
-      selected={channel.id === props.selectedChannelId}
-      unread={unreadBadge(channel.id)}
+      onIntent={() => props.onIntent?.(channel().id)}
+      onSelect={() => props.onSelect(channel().id)}
+      selected={() => channel().id === props.selectedChannelId}
+      unread={() => unreadBadge(channel().id)}
       portalMount={props.portalMount}
       tooltips={props.tooltips}
       touchTarget={props.touchTarget}
     />
   )
+  const renderLocalChannel = (channel: Accessor<ChannelSummary>) =>
+    row(
+      channel,
+      () =>
+        channel().kind === 'direct_agent' ? (
+          <Bot aria-hidden="true" />
+        ) : (
+          <Users aria-hidden="true" />
+        ),
+      () =>
+        channel().kind === 'direct_agent'
+          ? (agentById().get(channel().agentId ?? '')?.name ?? 'Agent')
+          : channel().title
+    )
+  const accountInboxContent = props.accountInbox
+    ? untrack(() =>
+        props.accountInbox!({
+          channels: () => [...props.directChannels, ...props.groupChannels],
+        })
+      )
+    : undefined
   return (
     <SidebarNavSection
       label="Conversations"
@@ -347,19 +391,10 @@ export function ConversationsSection(props: {
       }
     >
       <div class="conventional-sidebar__nav-nested">
-        <For each={directChannelRows()}>
-          {(entry) =>
-            row(entry.item(), <Bot aria-hidden="true" />, () =>
-              entry.item().agentId
-                ? (agentById().get(entry.item().agentId!)?.name ?? 'Agent')
-                : 'Agent'
-            )
-          }
-        </For>
-        <For each={groupChannelRows()}>
-          {(entry) => row(entry.item(), <Users aria-hidden="true" />, () => entry.item().title)}
-        </For>
+        <For each={directChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
+        <For each={groupChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
       </div>
+      {accountInboxContent}
       <Show when={!props.directChannels.length && !props.groupChannels.length}>
         <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
           <MessageCircle aria-hidden="true" />
@@ -432,7 +467,10 @@ type RenameTarget =
   | Readonly<{ kind: 'task'; task: TaskSummary }>
 
 type ConfirmTarget =
-  | Readonly<{ kind: 'archive-project' | 'delete-project'; project: ProjectSummary }>
+  | Readonly<{
+      kind: 'archive-project' | 'delete-project'
+      project: ProjectSummary
+    }>
   | Readonly<{ kind: 'archive-leaf'; target: NavLeafTarget; label: string }>
 
 /** The task a leaf target carries, if any: rename and archive act on it first. */
@@ -453,7 +491,9 @@ function targetTask(target: NavLeafTarget): TaskSummary | undefined {
 export function WorkspaceNavSidebar(props: Props) {
   // One stored width with the Dev sidebar; the toolbar and each contextual
   // sidebar inherit it from the shell root.
-  const sidebarWidth = createSidebarWidth({ fallbackRootSelector: '.conventional-workspace' })
+  const sidebarWidth = createSidebarWidth({
+    fallbackRootSelector: '.conventional-workspace',
+  })
   const [isNarrowViewport, setIsNarrowViewport] = createSignal(false)
   const [editingProject, setEditingProject] = createSignal<ProjectSummary | null>(null)
   const [renaming, setRenaming] = createSignal<RenameTarget | null>(null)
@@ -574,7 +614,11 @@ export function WorkspaceNavSidebar(props: Props) {
     // A fresh idempotency key per attempt: a retry after a failure is a new
     // request, while a network replay of this one stays a single create.
     createWorkspace
-      .mutateAsync({ idempotencyKey: createClientRequestId(), name, scene: 'home' })
+      .mutateAsync({
+        idempotencyKey: createClientRequestId(),
+        name,
+        scene: 'home',
+      })
       .then((result) => {
         setCreatingWorkspace(false)
         return props.host.onSwitchWorkspace(result.workspace)
@@ -731,6 +775,7 @@ export function WorkspaceNavSidebar(props: Props) {
         conversations={
           <ConversationsSection
             agents={props.agents}
+            accountInbox={props.host.globalNav?.conversations}
             createDisabled={props.workspaceReady === false}
             directChannels={props.navigation.directAgentChannels}
             groupChannels={props.navigation.groupChannels}
