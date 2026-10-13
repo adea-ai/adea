@@ -25,7 +25,11 @@
 import { randomUUID } from 'node:crypto'
 
 import type { AuthorityAudit } from '../audit'
-import { createRuntimeConnectionInventory } from '../discovery/inventory'
+import {
+  createRuntimeConnectionInventory,
+  type RuntimeConnectionSnapshot,
+} from '../discovery/inventory'
+import type { HarnessDiscoverySource } from '../discovery/types'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type {
@@ -38,6 +42,7 @@ import type {
   HarnessPreferenceMutableFields,
   HarnessRun,
   HarnessRunState,
+  RuntimeConnectionInventorySnapshot,
   ManagedPiStatus,
   MemoryProposalReceipt,
   RuntimeEvent,
@@ -57,6 +62,7 @@ import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
 import { createSessionEventLog, type SessionEventLog } from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
+import { createHarnessDeviceDefaultAuthority } from './device-default'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
 import { createRunHistoryStore, type RunHistoryStore } from './runs'
 import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, canTransitionRun, runEventKind } from './status'
@@ -85,6 +91,12 @@ export type HarnessRuntimeInput = {
   managedPiArchiveResolver?: (version: string) => Promise<Uint8Array | null>
   /** Overrides the ACP lane driver (tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /**
+   * Discovery sources the explicit rescan (`dev.harness.inventoryRefresh`)
+   * runs. Absent, the inventory is read-only: a rescan reports the stored
+   * observation and never probes the machine.
+   */
+  discoverySources?: readonly HarnessDiscoverySource[]
   /**
    * #400 residue: guarded PTY prompt delivery (the terminal runtime's input
    * authority). Absent on hosts without a terminal runtime — delivery then
@@ -260,13 +272,19 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     driver: input.acpDriver ?? fallbackAcpDriver(),
     ...(input.audit ? { audit: input.audit } : {}),
   })
-  // The M10 #30 inventory read is store-backed: read() never probes.
-  const inventory = createRuntimeConnectionInventory({ dataDir: input.dataDir, sources: [] })
+  // The M10 #30 inventory read is store-backed: read() never probes; only the
+  // explicit rescan (`dev.harness.inventoryRefresh`) runs the sources.
+  const inventory = createRuntimeConnectionInventory({
+    dataDir: input.dataDir,
+    sources: input.discoverySources ?? [],
+  })
   const runs = createRunHistoryStore({ dataDir: input.dataDir, scope: input.scope })
   const events = createSessionEventLog({ dataDir: input.dataDir, scope: input.scope })
+  const deviceDefault = createHarnessDeviceDefaultAuthority({ dataDir: input.dataDir })
   const preferences = createHarnessPreferenceAuthority({
     dataDir: input.dataDir,
     scope: input.scope,
+    deviceDefaultActive: () => deviceDefault.read().family !== undefined,
     // The root default anchors to the READY managed installation only; a
     // clean desktop without it has no auto-launch candidate at all.
     managedInstallationId: () => {
@@ -1022,7 +1040,97 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     }
   }
 
+  /** The wire snapshot: entries without the per-read freshness, which the
+   *  snapshot carries as a parallel list (decoder invariant). */
+  function inventorySnapshot(
+    snapshot: RuntimeConnectionSnapshot
+  ): RuntimeConnectionInventorySnapshot {
+    return {
+      scope: input.scope,
+      items: snapshot.connections.map(({ freshness: _freshness, ...entry }) => ({
+        ...entry,
+        scope: input.scope,
+      })),
+      freshness: snapshot.connections.map((entry) => entry.freshness),
+      observedAt: snapshot.observedAt,
+    }
+  }
+
+  let rescan: Promise<RuntimeConnectionSnapshot> | undefined
+  // Overlapping rescans share one probe pass instead of racing the store.
+  function runRescan(): Promise<RuntimeConnectionSnapshot> {
+    rescan ??= inventory.discover(input.scope).finally(() => {
+      rescan = undefined
+    })
+    return rescan
+  }
+
+  /** The launch-eligible installation of `family` in this scope: the ready
+   * managed Pi for `pi`, else a discovered installation. A scope that was
+   * never scanned has an empty inventory, so one scan runs before giving up. */
+  async function installationForFamily(family: string): Promise<string | undefined> {
+    const find = (): string | undefined => {
+      const managed = managedPi.status()
+      if (family === 'pi' && managed.state === 'ready' && managed.installationId) {
+        return managed.installationId
+      }
+      return inventory
+        .read(input.scope)
+        .connections.find((entry) => entry.family === family && entry.eligibility.eligible)?.id
+    }
+    const known = find()
+    if (known !== undefined || (input.discoverySources?.length ?? 0) === 0) return known
+    await runRescan()
+    return find()
+  }
+
   const providers: Partial<Record<DevOperation, ProviderHandler>> = {
+    // ── Device-wide default harness (a family, shared by every workspace) ──
+    'dev.harness.deviceDefault': (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.harness.deviceDefault'].request(command.body)
+      return { ...deviceDefault.read(), observedAt: iso() }
+    },
+    'dev.harness.deviceDefaultUpdate': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.harness.deviceDefaultUpdate'].request(command.body)
+      const family = typeof body.family === 'string' ? (body.family as string) : undefined
+      if (family !== undefined && !harnessFamilySpec(family)) {
+        throw devError('invalid_state', `unknown harness family: ${family}`)
+      }
+      const current = deviceDefault.read()
+      if (current.version !== (body.expectedVersion as number)) {
+        throw {
+          code: 'stale_version',
+          retryable: false,
+          message: `device default moved on: version ${current.version}`,
+          currentVersion: current.version,
+        } satisfies DevError
+      }
+      const next = deviceDefault.write(family)
+      publish('deviceDefault.updated', family !== undefined ? { family } : {})
+      return { ...next, observedAt: iso() }
+    },
+
+    // ── M10 #30: machine-wide harness inventory ───────────────────────────
+    'dev.harness.inventory': (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.harness.inventory'].request(command.body)
+      return inventorySnapshot(inventory.read(input.scope))
+    },
+    'dev.harness.inventoryRefresh': async (command) => {
+      requireScope(command)
+      devOperationDecoders['dev.harness.inventoryRefresh'].request(command.body)
+      // Without sources there is nothing to probe, and a pass would replace
+      // the stored observation with an empty one: report what is stored.
+      if ((input.discoverySources?.length ?? 0) === 0) {
+        return inventorySnapshot(inventory.read(input.scope))
+      }
+      const snapshot = await runRescan()
+      publish('inventory.refreshed', { connections: snapshot.connections.length })
+      return inventorySnapshot(snapshot)
+    },
+
     // ── #31: managed Pi installation lifecycle ────────────────────────────
     'dev.harness.managedPiStatus': (command) => {
       requireScope(command)
@@ -1326,7 +1434,11 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       // something else); with NO explicit default and no ready managed Pi the
       // typed gap carries the install remediation.
       const resolution = preferences.resolveDefault(session.projectId)
-      if (!resolution) {
+      // Neither a project nor a workspace default: the device-wide family
+      // default decides. A family that is not installed or not eligible here
+      // refuses typed; it never launches a different harness.
+      const deviceFamily = resolution ? undefined : deviceDefault.read().family
+      if (!resolution && deviceFamily === undefined) {
         throw {
           code: 'capability_unavailable',
           retryable: true,
@@ -1336,10 +1448,23 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         } satisfies DevError
       }
       const installationId =
-        resolution.kind === 'root_default'
-          ? managedPi.status().installationId
-          : resolution.preference.harnessInstallationId
+        deviceFamily !== undefined
+          ? await installationForFamily(deviceFamily)
+          : resolution?.kind === 'root_default'
+            ? managedPi.status().installationId
+            : resolution?.kind === 'preference'
+              ? resolution.preference.harnessInstallationId
+              : undefined
       if (!installationId) {
+        if (deviceFamily !== undefined) {
+          throw {
+            code: 'capability_unavailable',
+            retryable: true,
+            message: `the device default (${harnessFamilySpec(deviceFamily)?.displayName ?? deviceFamily}) is not installed and ready on this device`,
+            remediation: { action: 'dev.harness.inventoryRefresh' },
+            observedAt: iso(),
+          } satisfies DevError
+        }
         throw {
           code: 'capability_unavailable',
           retryable: true,
@@ -1357,7 +1482,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         // own default (no modelId at all).
         ...((typeof body.modelId === 'string'
           ? { modelId: body.modelId as string }
-          : resolution.kind === 'preference' && resolution.preference.modelId !== undefined
+          : resolution?.kind === 'preference' && resolution.preference.modelId !== undefined
             ? { modelId: resolution.preference.modelId }
             : {}) as { modelId?: string }),
         ...(typeof body.initialPrompt === 'string' ? { initialPrompt: body.initialPrompt } : {}),

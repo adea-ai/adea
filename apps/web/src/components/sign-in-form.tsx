@@ -1,7 +1,9 @@
 import { createSignal, onMount, Show } from 'solid-js'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { FormField } from '@adea-ai/ui/components/ui/field'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
+import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -93,62 +95,63 @@ export function SignInForm(props: { returnTo: string }) {
 
   return (
     <>
-      <div class="browser-auth-mode" aria-label="Choose authentication mode">
-        <Button
-          type="button"
-          aria-pressed={mode() === 'sign-in'}
-          onClick={() => changeMode('sign-in')}
-        >
+      <ToggleGroup
+        attached
+        class="w-full"
+        aria-label="Choose authentication mode"
+        value={mode()}
+        onChange={(value: string | null) => {
+          if (value === 'sign-in' || value === 'sign-up') changeMode(value)
+        }}
+      >
+        <ToggleGroupItem class="flex-1" variant="outline" size="lg" value="sign-in">
           Sign in
-        </Button>
-        <Button
-          type="button"
-          aria-pressed={mode() === 'sign-up'}
-          onClick={() => changeMode('sign-up')}
-        >
+        </ToggleGroupItem>
+        <ToggleGroupItem class="flex-1" variant="outline" size="lg" value="sign-up">
           Create account
-        </Button>
-      </div>
+        </ToggleGroupItem>
+      </ToggleGroup>
 
-      <form class="browser-auth-form" onSubmit={submit}>
+      <form class="mt-5 grid gap-4" onSubmit={submit}>
         <Show when={mode() === 'sign-up'}>
-          <Label for="name">
-            Display name
-            <Input id="name" name="name" autocomplete="name" required disabled={pending()} />
-          </Label>
+          <FormField label="Display name" controlId="name">
+            <Input name="name" autocomplete="name" required disabled={pending()} size="lg" />
+          </FormField>
         </Show>
 
-        <Label for="email">
-          Email
+        <FormField label="Email" controlId="email">
           <Input
-            id="email"
             name="email"
             type="email"
             autocomplete="email"
             inputmode="email"
             required
             disabled={pending()}
+            size="lg"
           />
-        </Label>
+        </FormField>
 
-        <Label for="password">
-          Password
+        <FormField label="Password" controlId="password">
           <Input
-            id="password"
             name="password"
             type="password"
             autocomplete={mode() === 'sign-up' ? 'new-password' : 'current-password'}
             minLength={8}
             required
             disabled={pending()}
+            size="lg"
           />
-        </Label>
+        </FormField>
 
-        <p class="browser-auth-error" role="status" aria-live="polite">
-          {error()}
-        </p>
+        <div role="status" aria-live="polite">
+          <Show when={error()}>
+            <Alert variant="destructive" role="presentation">
+              <AlertDescription>{error()}</AlertDescription>
+            </Alert>
+          </Show>
+        </div>
 
-        <Button type="submit" disabled={pending()}>
+        <Button type="submit" size="lg" disabled={pending()}>
           {pending()
             ? mode() === 'sign-up'
               ? 'Creating account…'

@@ -31,11 +31,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@adea-ai/ui/components/ui/card'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { FormField } from '@adea-ai/ui/components/ui/field'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
-import { Heading } from '@adea-ai/ui/components/ui/typography'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 /** `requestId` stays the same across retries of one deliberate action, so a lost response cannot fork the topic. */
 export type NewConversationRequest = Readonly<{ requestId: string; title: string }>
@@ -321,7 +323,7 @@ function AgentCustomizationForm(props: {
 }) {
   return (
     <form
-      class="conventional-inline-form conventional-agent-customization"
+      class="conventional-agent-form conventional-agent-customization"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
@@ -336,111 +338,128 @@ function AgentCustomizationForm(props: {
         })
       }}
     >
-      <div class="conventional-inline-form__header">
-        <div>
-          <Heading as="h2" size="card">
-            Customize {props.agent.name}
-          </Heading>
-          <p>Stable identity · {props.agent.id}</p>
-        </div>
-        <ActionButton
-          type="button"
-          aria-label="Close Agent customization"
-          tooltip="Close Agent customization"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => props.onCancel()}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <AgentStatus agent={props.agent} />
-      <div class="conventional-form-grid">
-        <Label>
-          Name
-          <Input name="name" required maxLength={120} value={props.agent.name} />
-        </Label>
-        <Label>
-          Project
-          <NativeSelect
-            name="projectId"
-            value={props.agent.projectId ?? ''}
-            options={[
-              { value: '', label: 'Unassigned' },
-              ...props.projects.map((project) => ({
-                value: project.id,
-                label: project.name,
-              })),
-            ]}
-          />
-        </Label>
-        <Label class="col-span-full">
-          Role or persona
-          <Textarea
-            name="roleSummary"
-            rows={3}
-            maxLength={500}
-            value={props.agent.roleSummary ?? ''}
-          />
-        </Label>
-        <Label>
-          Avatar reference
-          <Input
-            name="avatarRef"
-            maxLength={500}
-            value={props.agent.avatarRef ?? ''}
-            placeholder="Optional stable asset reference"
-          />
-        </Label>
-        <Label>
-          Character reference
-          <Input
-            name="characterRef"
-            maxLength={500}
-            value={props.agent.characterRef ?? ''}
-            placeholder="Optional character reference"
-          />
-        </Label>
-        <AgentProfileFields profile={props.agent.profile} />
-      </div>
-      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <div class="conventional-agent-customization__actions">
-        <Button type="submit" disabled={props.busy}>
-          {props.busy ? 'Saving…' : 'Save changes'}
-        </Button>
-        <AlertDialog>
-          <AlertDialogTrigger as={Button} type="button" variant="outline" disabled={props.busy}>
-            Archive Agent
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{`Archive ${props.agent.name}`}</AlertDialogTitle>
-              <AlertDialogDescription>
-                Archive this Agent? Durable conversations and history remain linked to its stable
-                identity.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel as={Button} type="button" variant="outline">
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                as={Button}
-                type="button"
-                variant="destructive"
-                disabled={props.busy}
-                onClick={() => void props.onArchive(props.agent)}
-              >
-                Confirm archive
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-      <p class="conventional-agent-delete-note">
-        Permanent deletion is unavailable because it would break durable identity and conversation
-        references.
-      </p>
+      <Card>
+        <CardHeader>
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <Heading as="h2" size="card">
+                Customize {props.agent.name}
+              </Heading>
+              <Text as="p" variant="caption" tone="muted">
+                Stable identity · {props.agent.id}
+              </Text>
+            </div>
+            <ActionButton
+              type="button"
+              aria-label="Close Agent customization"
+              tooltip="Close Agent customization"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => props.onCancel()}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div class="flex flex-col gap-4">
+            <AgentStatus agent={props.agent} />
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FormField label="Name">
+                <Input name="name" required maxLength={120} value={props.agent.name} />
+              </FormField>
+              <FormField label="Project">
+                <NativeSelect
+                  class="w-full"
+                  name="projectId"
+                  value={props.agent.projectId ?? ''}
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...props.projects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    })),
+                  ]}
+                />
+              </FormField>
+              <FormField class="col-span-full" label="Role or persona">
+                <Textarea
+                  name="roleSummary"
+                  rows={3}
+                  maxLength={500}
+                  value={props.agent.roleSummary ?? ''}
+                />
+              </FormField>
+              <FormField label="Avatar reference">
+                <Input
+                  name="avatarRef"
+                  maxLength={500}
+                  value={props.agent.avatarRef ?? ''}
+                  placeholder="Optional stable asset reference"
+                />
+              </FormField>
+              <FormField label="Character reference">
+                <Input
+                  name="characterRef"
+                  maxLength={500}
+                  value={props.agent.characterRef ?? ''}
+                  placeholder="Optional character reference"
+                />
+              </FormField>
+              <AgentProfileFields profile={props.agent.profile} />
+            </div>
+            <Show when={props.error}>
+              {(error) => (
+                <Alert variant="destructive">
+                  <AlertDescription>{error()}</AlertDescription>
+                </Alert>
+              )}
+            </Show>
+            <div class="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={props.busy}>
+                {props.busy ? 'Saving…' : 'Save changes'}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  as={Button}
+                  type="button"
+                  variant="outline"
+                  disabled={props.busy}
+                >
+                  Archive Agent
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{`Archive ${props.agent.name}`}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Archive this Agent? Durable conversations and history remain linked to its
+                      stable identity.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel as={Button} type="button" variant="outline">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      as={Button}
+                      type="button"
+                      variant="destructive"
+                      disabled={props.busy}
+                      onClick={() => void props.onArchive(props.agent)}
+                    >
+                      Confirm archive
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+            <Text as="p" variant="caption" tone="muted">
+              Permanent deletion is unavailable because it would break durable identity and
+              conversation references.
+            </Text>
+          </div>
+        </CardContent>
+      </Card>
     </form>
   )
 }
@@ -453,7 +472,7 @@ function AgentCreateForm(props: {
 }) {
   return (
     <form
-      class="conventional-inline-form"
+      class="conventional-agent-form"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
@@ -465,34 +484,46 @@ function AgentCreateForm(props: {
         })
       }}
     >
-      <div class="conventional-inline-form__header">
-        <Heading as="h2" size="card">
-          Create Agent
-        </Heading>
-        <ActionButton
-          type="button"
-          aria-label="Cancel Agent creation"
-          tooltip="Cancel Agent creation"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => props.onCancel()}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <Label>
-        Name
-        <Input name="name" required maxLength={120} />
-      </Label>
-      <Label>
-        Role or persona
-        <Textarea name="roleSummary" rows={2} maxLength={500} />
-      </Label>
-      <AgentProfileFields />
-      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <Button type="submit" disabled={props.busy}>
-        {props.busy ? 'Creating…' : 'Create Agent'}
-      </Button>
+      <Card>
+        <CardHeader>
+          <div class="flex items-start justify-between gap-2">
+            <Heading as="h2" size="card">
+              Create Agent
+            </Heading>
+            <ActionButton
+              type="button"
+              aria-label="Cancel Agent creation"
+              tooltip="Cancel Agent creation"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => props.onCancel()}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div class="flex flex-col gap-4">
+            <FormField label="Name">
+              <Input name="name" required maxLength={120} />
+            </FormField>
+            <FormField label="Role or persona">
+              <Textarea name="roleSummary" rows={2} maxLength={500} />
+            </FormField>
+            <AgentProfileFields />
+            <Show when={props.error}>
+              {(error) => (
+                <Alert variant="destructive">
+                  <AlertDescription>{error()}</AlertDescription>
+                </Alert>
+              )}
+            </Show>
+            <Button type="submit" disabled={props.busy}>
+              {props.busy ? 'Creating…' : 'Create Agent'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </form>
   )
 }
@@ -502,17 +533,15 @@ function AgentProfileFields(props: { profile?: AgentSummary['profile'] }) {
   const version = props.profile?.version ?? ''
   return (
     <>
-      <Label>
-        Profile ID
+      <FormField label="Profile ID">
         <Input name="profileId" required placeholder="prf_…" maxLength={30} value={id} />
-      </Label>
-      <Label>
-        Profile version ID
+      </FormField>
+      <FormField label="Profile version ID">
         <Input name="profileVersion" required placeholder="pfv_…" maxLength={30} value={version} />
-      </Label>
-      <p class="conventional-settings-note col-span-full">
+      </FormField>
+      <Text as="p" variant="caption" tone="muted" class="col-span-full">
         Published, approved IDs: Workspace settings › Skills. Future submissions.
-      </p>
+      </Text>
     </>
   )
 }

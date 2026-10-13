@@ -115,6 +115,34 @@ describe('dev.harness command bodies', () => {
     expect(() => decodeDevCommand(command('dev.harness.managedPiInstall', {}))).not.toThrow()
   })
 
+  test('the device default takes an optional family and a version fence', () => {
+    expect(() => decodeDevCommand(command('dev.harness.deviceDefault', {}))).not.toThrow()
+    expect(() =>
+      decodeDevCommand(
+        command('dev.harness.deviceDefaultUpdate', { family: 'codex', expectedVersion: 0 })
+      )
+    ).not.toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.harness.deviceDefaultUpdate', { expectedVersion: 3 }))
+    ).not.toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.harness.deviceDefaultUpdate', { family: 'codex' }))
+    ).toThrow()
+    expect(() =>
+      decodeDevCommand(
+        command('dev.harness.deviceDefaultUpdate', { family: '', expectedVersion: 0 })
+      )
+    ).toThrow()
+  })
+
+  test('the inventory read and rescan take an empty body', () => {
+    expect(() => decodeDevCommand(command('dev.harness.inventory', {}))).not.toThrow()
+    expect(() => decodeDevCommand(command('dev.harness.inventoryRefresh', {}))).not.toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.harness.inventoryRefresh', { force: true }))
+    ).toThrow()
+  })
+
   test('acpConnect requires the runtime_session resource binding', () => {
     const decoded = decodeDevCommand(
       command('dev.harness.acpConnect', {
@@ -250,6 +278,41 @@ describe('dev.harness command bodies', () => {
 })
 
 describe('dev.harness success replies', () => {
+  test('the device default reply decodes with and without a family', () => {
+    expect(() =>
+      decodeDevReply(reply('dev.harness.deviceDefault', { version: 0, observedAt: now }))
+    ).not.toThrow()
+    expect(() =>
+      decodeDevReply(
+        reply('dev.harness.deviceDefaultUpdate', { family: 'codex', version: 1, observedAt: now })
+      )
+    ).not.toThrow()
+    expect(() =>
+      decodeDevReply(
+        reply('dev.harness.deviceDefault', {
+          family: 'codex',
+          version: 1,
+          observedAt: now,
+          extra: 1,
+        })
+      )
+    ).toThrow()
+  })
+
+  test('the inventory replies decode as an empty snapshot and reject drift', () => {
+    const snapshot = {
+      scope: command('dev.harness.inventory', {}).scope,
+      items: [],
+      freshness: [],
+      observedAt: now,
+    }
+    expect(() => decodeDevReply(reply('dev.harness.inventory', snapshot))).not.toThrow()
+    expect(() => decodeDevReply(reply('dev.harness.inventoryRefresh', snapshot))).not.toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.harness.inventory', { ...snapshot, freshness: ['fresh'] }))
+    ).toThrow()
+  })
+
   test('managedPiStatus decodes strictly, including the failed state', () => {
     expect(() =>
       decodeDevReply(reply('dev.harness.managedPiStatus', managedPiStatus))
@@ -470,6 +533,10 @@ describe('dev.harness request decoders', () => {
       'dev.harness.acpClose',
       'dev.harness.acpConnect',
       'dev.harness.acpConnections',
+      'dev.harness.deviceDefault',
+      'dev.harness.deviceDefaultUpdate',
+      'dev.harness.inventory',
+      'dev.harness.inventoryRefresh',
       'dev.harness.managedPiInstall',
       'dev.harness.managedPiStatus',
       'dev.harness.runs',

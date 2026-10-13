@@ -1215,6 +1215,16 @@ export type HarnessPreference = Readonly<{
   version: number
 }>
 
+/** The device-wide default harness: a harness FAMILY (an installation id is
+ * bound to one workspace scope, a family is not), shared by every workspace
+ * on this device. A workspace's own default (`HarnessPreference.default`)
+ * overrides it. `family` is absent when none is set. */
+export type HarnessDeviceDefault = Readonly<{
+  family?: string
+  version: number
+  observedAt: string
+}>
+
 /** The mutable patch for `dev.harness.preferenceUpdate`. Clearing the
  * preferred profile/model is a whole-record reset (`preferenceReset`). */
 export type HarnessPreferenceMutableFields = Readonly<{
@@ -4107,6 +4117,14 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.version, `${path}.version`, 1)
     return value
   }
+  if (name === 'HarnessDeviceDefault') {
+    const item = record(value, path)
+    exactKeys(item, ['version', 'observedAt'], ['family'], path)
+    if (item.family !== undefined) stringValue(item.family, `${path}.family`, 1, 64)
+    integerValue(item.version, `${path}.version`, 0)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
   if (name === 'HarnessPreferenceMutableFields') {
     const item = record(value, path)
     exactKeys(item, [], ['enabled', 'default', 'sortKey', 'agentProfileId', 'modelId'], path)
@@ -4731,6 +4749,12 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       value,
       'reply.value'
     ),
+  // Machine-wide harness inventory: the stored read, and the explicit rescan.
+  'dev.harness.deviceDefault': (value) => namedType('HarnessDeviceDefault', value, 'reply.value'),
+  'dev.harness.deviceDefaultUpdate': (value) =>
+    namedType('HarnessDeviceDefault', value, 'reply.value'),
+  'dev.harness.inventory': (value) => decodeRuntimeConnectionInventorySnapshot(value),
+  'dev.harness.inventoryRefresh': (value) => decodeRuntimeConnectionInventorySnapshot(value),
   'dev.harness.managedPiInstall': (value) => decodeManagedPiStatus(value),
   'dev.harness.managedPiStatus': (value) => decodeManagedPiStatus(value),
   'dev.harness.runs': (value) =>

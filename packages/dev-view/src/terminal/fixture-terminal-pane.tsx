@@ -148,6 +148,8 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
             aria-label="Search terminal"
             ref={setSearchInput}
             type="search"
+            size="sm"
+            class="flex-1"
             value={query()}
             onKeyDown={onSearchKeyDown}
             onInput={(event) => setQuery(event.currentTarget.value)}
@@ -155,7 +157,13 @@ export function FixtureTerminalPane(props: FixtureTerminalPaneProps) {
           <span class="dev-terminal-search-count">
             {searchMatches()} {searchMatches() === 1 ? 'match' : 'matches'}
           </span>
-          <Button type="button" aria-label="Close search" onClick={() => setSearchOpen(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Close search"
+            onClick={() => setSearchOpen(false)}
+          >
             Close
           </Button>
         </div>
