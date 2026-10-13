@@ -156,7 +156,16 @@ export const CLIENT_BUNDLE_BUDGETS = {
   // workspace startup chunk carries the new directory/inbox routes and
   // client, measured 750,589 raw locally (2026-10-09, CI 750,727); raw
   // ratchets to 748 KiB and gzip to 245 KiB (~2% each).
-  startup: { rawBytes: 748 * 1024, gzipBytes: 245 * 1024 },
+  // Re-measured for the account results embedded in the Agents and
+  // Conversations surfaces (2026-10-13): the directory/inbox client now
+  // mounts beside the canonical sidebar lists instead of its own page. Its
+  // components load lazily, which kept startup at 767,589 raw locally
+  // (786,242 when imported eagerly); raw ratchets to 756 KiB, gzip unchanged.
+  // Re-measured for the Heading/Text/AlertDialog migration (2026-10-13): the
+  // startup chunk now carries the published typography roles instead of
+  // per-surface heading CSS, measuring 250,941 gzip locally and in CI (29 bytes
+  // over the old cap); gzip ratchets to 250 KiB (~2% headroom).
+  startup: { rawBytes: 756 * 1024, gzipBytes: 250 * 1024 },
   views: {
     // Re-measured for the shared workspace sidebar (2026-10-01, #861): the
     // Virtual view composes the shared WorkspaceSidebar (now

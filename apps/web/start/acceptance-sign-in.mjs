@@ -39,7 +39,7 @@ try {
     await page.waitForLoadState('domcontentloaded')
     const url = new URL(page.url())
     const heading = await page
-      .locator('h1.auth-title')
+      .locator('h1[data-auth-title]')
       .first()
       .textContent()
       .catch(() => null)

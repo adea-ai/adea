@@ -49,9 +49,9 @@ const specs = [
   // routes: real HTTP against the app server and the real database, no route
   // mocks. See the spec header for the coverage-class split it complements.
   'apps/web/e2e/account-directory-auth.spec.ts',
-  // The UI-operating sibling: search, the archive scope, the linked-job round
-  // trip and reconnect convergence, driven through the real directory and
-  // inbox surfaces instead of fetching their APIs from the page.
+  // The UI-operating sibling: account results embedded in existing sidebar
+  // surfaces, the linked-job round trip and reconnect convergence, driven
+  // through the real workspace-navigation host.
   'apps/web/e2e/account-directory-ui.spec.ts',
   // Cross-product session journeys (#1223): chat continuity and
   // workspace/project placement over real app routes with isolated
@@ -61,6 +61,9 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Several conversations with one Agent (Pi Durable REQ 060): New conversation starts a
+  // distinct named topic beside the default lane, over real routes with no mocks.
+  'apps/web/e2e/agent-topics.spec.ts',
   // Lead model-role choices (#1211): the requested-reference picker, composer carry-through and
   // the mismatch refusal, mounted over module-only fixtures that need no host inputs. The
   // connected CP journey is deliberately absent: it is the opt-in PI_ROLE_CONNECTED_PROOF lane

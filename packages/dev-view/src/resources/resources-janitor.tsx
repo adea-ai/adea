@@ -33,6 +33,7 @@ import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 import { commandError } from './resources-stop-dialog'
 import { sectionExpanded, toggleSection } from './resources-preview'
@@ -72,14 +73,16 @@ function SectionRows(props: {
     listPreview(props.section.items, sectionExpanded(`janitor:${props.section.id}`))
   return (
     <section class="dev-resources__group" aria-label={props.section.title}>
-      <h3 class="dev-resources__group-header">
-        <span class="dev-resources__group-title">{props.section.title}</span>
+      <div class="dev-resources__group-header">
+        <Text as="h3" variant="overline">
+          {props.section.title}
+        </Text>
         <span class="dev-resources__row-detail">
           {props.section.items.length} {props.section.items.length === 1 ? 'item' : 'items'}
         </span>
         <span class="dev-resources__spacer" />
         <span class="dev-resources__row-detail">{formatSize(props.section.totalBytes)}</span>
-      </h3>
+      </div>
       <ul class="dev-resources__list">
         <For each={preview().visible}>
           {(item) => (

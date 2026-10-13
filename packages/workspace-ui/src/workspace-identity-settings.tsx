@@ -242,7 +242,7 @@ function AccentSwatches(props: {
       aria-label="Workspace accent"
       value={props.selected}
       disabled={props.disabled}
-      class="grid-cols-4"
+      class="grid-cols-7"
       data-accent-grid=""
       onChange={(value) => props.onSelect(value)}
     >

@@ -19,6 +19,7 @@ import {
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { PanelRightClose, PanelRightOpen } from 'lucide-solid'
 import {
   Match,
@@ -229,9 +230,9 @@ export function PullRequestDetail(props: {
                 fallback={
                   <div class="dev-scm-header__row dev-scm-header__row--compact">
                     {stateChip()}
-                    <h1 class="dev-scm-pr__title dev-scm-pr__title--compact dev-scm-truncate">
+                    <Heading as="h1" size="subsection" data-scm-pr-title="compact">
                       {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
-                    </h1>
+                    </Heading>
                     <Badge size="sm" variant="outline">
                       <span class="dev-scm-mono">{current().headRef}</span>
                     </Badge>
@@ -254,9 +255,9 @@ export function PullRequestDetail(props: {
                   <span>{prRef(current())}</span>
                 </div>
                 <div class="dev-scm-header__row">
-                  <h1 class="dev-scm-pr__title">
+                  <Heading as="h1" size="section" data-scm-pr-title>
                     {current().title} <span class="dev-scm-pr__number">{prRef(current())}</span>
-                  </h1>
+                  </Heading>
                 </div>
                 <div class="dev-scm-header__row">
                   {stateChip()}

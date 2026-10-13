@@ -1252,7 +1252,7 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
 }) => {
   const { pane, annotate, surface } = await mountAnnotateSurface(page)
   const uiRow = pane.locator('.dev-browser__row').first()
-  await expect(uiRow).toHaveCSS('font-size', '12.8px')
+  await expect(uiRow).toHaveCSS('font-size', '12px')
 
   const settings = {
     ui: { family: 'space-grotesk', size: 28 },
@@ -1261,7 +1261,7 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
   } as const
   await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), settings)
   await expectFontLoaded(page, 'Space Grotesk')
-  await expect(uiRow).toHaveCSS('font-size', '25.6px')
+  await expect(uiRow).toHaveCSS('font-size', '24px')
   await expect(uiRow).toHaveCSS('font-family', /Space Grotesk/)
 
   const selector = pane.getByRole('textbox', { name: 'CSS selector' })
@@ -1289,7 +1289,7 @@ test('BrowserPane and ResourcesPane project the shared UI, Content, and Code fon
   const smallerCodeSettings = { ...settings, code: { family: 'jetbrains-mono', size: 12 } } as const
   await page.evaluate((fonts) => window.browserPaneHarness.setFonts(fonts), smallerCodeSettings)
   await expect(inspection).toHaveCSS('font-size', '12px')
-  await expect(uiRow).toHaveCSS('font-size', '25.6px')
+  await expect(uiRow).toHaveCSS('font-size', '24px')
   await expect(annotation).toHaveCSS('font-size', '18px')
 
   await page.evaluate(() => window.browserPaneHarness.resetFonts())
