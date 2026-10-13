@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 
 import { captureProvisioningImage } from '../capture-provisioning.mjs'
+import { fallbackImages, isRegistryRateLimit } from '../docker-pull-backoff.mjs'
 
 export const smokeBounds = Object.freeze({
   dockerCommandMs: 60_000,
@@ -161,15 +162,21 @@ export async function runOwnedSmoke({
     throw new Error(`removing ${name} failed: ${failureText(result)}`)
   }
   const startSentinel = () => {
-    const result = docker(
-      ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', captureProvisioningImage, '600'],
-      bounds.startSentinelMs
-    )
+    // A rate-limited registry pull falls over to the same digest on the other registries; any other
+    // failure of the canonical image is final, and a failing mirror only moves on to the next one.
+    let result
+    for (const image of [captureProvisioningImage, ...fallbackImages(captureProvisioningImage)]) {
+      result = docker(
+        ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', image, '600'],
+        bounds.startSentinelMs
+      )
+      if (result.error) break
+      if (result.status === 0) return
+      if (image === captureProvisioningImage && !isRegistryRateLimit(failureText(result))) break
+    }
     if (result.error)
       throw new Error(`starting the sentinel container failed: ${result.error.message}`)
-    if (result.status !== 0) {
-      throw new Error(`starting the sentinel container failed: ${failureText(result)}`)
-    }
+    throw new Error(`starting the sentinel container failed: ${failureText(result)}`)
   }
 
   try {
