@@ -15,6 +15,7 @@ import {
 } from '../../src/artifact-reference-grants'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createContentRef } from '../../src/content-refs'
+import { upsertContentReplica } from '../../src/content-replicas'
 import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
@@ -22,7 +23,7 @@ import {
   type MigrationSnapshotCaptureIdentityInput,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { migrationSnapshotFamilies } from '@adea-ai/types'
+import { migrationSnapshotFamilies, type MigrationSnapshotDocument } from '@adea-ai/types'
 import {
   captureLegacyMigrationSnapshot,
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
@@ -129,6 +130,10 @@ type Fixture = {
   workspaceId: string
   audienceWorkspaceId: string
   artifactId: string
+  contentRefId: string
+  replicaId: string
+  contentDigest: string
+  taskId: string
   owner: Principal
   audienceOwner: Principal
   collaborator: Principal
@@ -237,16 +242,28 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     workspaceId,
   })
 
-  await createContentRef(connection.db, workspaceId, owner, {
+  const contentDigest = 'd'.repeat(64)
+  const contentRef = await createContentRef(connection.db, workspaceId, owner, {
     availability: 'available',
     contentType: 'task_input',
-    digestSha256: 'c'.repeat(64),
+    digestSha256: contentDigest,
     id: crypto.randomUUID(),
     keyVersion: 1,
     schemaVersion: 1,
     sensitivity: 'restricted',
     storagePolicy: 'local_authority',
-    synchronizationPolicy: 'local_only',
+    synchronizationPolicy: 'agent_hq_e2ee_sync',
+    taskId,
+  })
+  const replica = await upsertContentReplica(connection.db, workspaceId, contentRef.id, owner, {
+    availability: 'available',
+    ciphertext: Buffer.from('rehearsal encrypted replica payload').toString('base64url'),
+    digestSha256: contentDigest,
+    keyEpochId: crypto.randomUUID(),
+    nonce: 'R'.repeat(16),
+    replicaKind: 'agent_hq_e2ee_sync',
+    revision: 1,
+    schemaVersion: 1,
   })
 
   // Created before cutover: the artifact must survive the expansion unchanged.
@@ -265,6 +282,10 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     workspaceId,
     audienceWorkspaceId: audience.id,
     artifactId: artifact.id,
+    contentRefId: contentRef.id,
+    replicaId: replica.contentReplica.id,
+    contentDigest,
+    taskId,
     owner,
     audienceOwner,
     collaborator,
@@ -363,6 +384,43 @@ async function tablePresent(connection: DatabaseConnection, name: string): Promi
     sql`select to_regclass(${name}) is not null as present`
   )
   return rows[0]?.present === true
+}
+
+/** Exact, bounded evidence for the task-linked ref and its physical replica. */
+function assertContentEvidence(document: MigrationSnapshotDocument, fixture: Fixture): void {
+  const refs = (document.sections.contentRefs?.records ?? []).filter(
+    (row) => row.workspaceId === fixture.workspaceId
+  )
+  const replicas = (document.sections.contentReplicas?.records ?? []).filter(
+    (row) => row.workspaceId === fixture.workspaceId
+  )
+  expect(refs).toEqual([
+    {
+      availability: 'available',
+      contentRefId: fixture.contentRefId,
+      digestSha256: fixture.contentDigest,
+      family: 'contentRefs',
+      keyVersion: 1,
+      messageId: null,
+      revision: 1,
+      taskId: fixture.taskId,
+      workspaceId: fixture.workspaceId,
+    },
+  ])
+  expect(replicas).toEqual([
+    {
+      availability: 'available',
+      contentRefId: fixture.contentRefId,
+      deleted: false,
+      digestSha256: fixture.contentDigest,
+      family: 'contentReplicas',
+      replicaId: fixture.replicaId,
+      replicaKind: 'agent_hq_e2ee_sync',
+      revision: 1,
+      schemaVersion: 1,
+      workspaceId: fixture.workspaceId,
+    },
+  ])
 }
 
 async function grantRowCount(connection: DatabaseConnection, grantId: string): Promise<number> {
@@ -565,7 +623,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   }, 300_000)
 
   test('on the same populated pre-0046 database, the legacy capture equals the canonical typed capture', async () => {
-    const { before, typedBefore } = await runScenario()
+    const { before, typedBefore, fixture } = await runScenario()
+    assertContentEvidence(before.document, fixture)
+    assertContentEvidence(typedBefore.document, fixture)
     expect(before.document.sections).toEqual(typedBefore.document.sections)
     expect(Object.keys(before.document.sections).toSorted()).toEqual(
       [...COMPARED_FAMILIES].toSorted()
@@ -573,8 +633,20 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   })
 
   test('the cutover applies the remaining journal entry and changes no captured record', async () => {
-    const { cutover, journalLength, cutoverComparison, baselineReads, afterReads } =
-      await runScenario()
+    const {
+      cutover,
+      journalLength,
+      cutoverComparison,
+      baselineReads,
+      afterReads,
+      before,
+      after,
+      again,
+      fixture,
+    } = await runScenario()
+    assertContentEvidence(before.document, fixture)
+    assertContentEvidence(after.document, fixture)
+    assertContentEvidence(again.document, fixture)
     expect(cutover.applied).toBe(journalLength)
     expect(cutover.grantsTablePresent).toBe(true)
     expect(cutover.artifactRows).toBe(1)
@@ -619,8 +691,26 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   }, 300_000)
 
   test('repeating the migration and capture is idempotent', async () => {
-    const { repeat, journalLength, repeatComparison, repeatReads, afterReads, again, after } =
-      await runScenario()
+    const {
+      repeat,
+      journalLength,
+      repeatComparison,
+      repeatReads,
+      afterReads,
+      again,
+      after,
+      before,
+      fixture,
+    } = await runScenario()
+    assertContentEvidence(before.document, fixture)
+    assertContentEvidence(after.document, fixture)
+    assertContentEvidence(again.document, fixture)
+    expect(after.document.sections.contentRefs).toEqual(before.document.sections.contentRefs)
+    expect(again.document.sections.contentRefs).toEqual(after.document.sections.contentRefs)
+    expect(after.document.sections.contentReplicas).toEqual(
+      before.document.sections.contentReplicas
+    )
+    expect(again.document.sections.contentReplicas).toEqual(after.document.sections.contentReplicas)
     expect(repeat.applied).toBe(journalLength)
     expect(repeat.artifactRows).toBe(1)
     expect(repeatComparison.findings.map((finding) => finding.family).toSorted()).toEqual(
