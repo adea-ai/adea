@@ -1,12 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 
-import {
-  defaultPullBackoffMs,
-  fallbackImages,
-  isRegistryRateLimit,
-} from './docker-pull-backoff.mjs'
-
 // The migration-snapshot capture proofs build a disposable PostgreSQL scratch
 // database per run: a capture inventories the whole app schema and the
 // comparator refuses unbounded shared state. Creating and dropping that
@@ -119,37 +113,6 @@ function attachRemoval(handle) {
   return () => process.off('exit', onExit)
 }
 
-const blockingSleep = (milliseconds) =>
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
-
-// Starts the container from the canonical image. When that pull is rate limited by the registry
-// (`toomanyrequests`), the same digest is tried on the other registries before any backoff, and a
-// failure of one fallback only moves on to the next. A canonical failure that is not a rate limit is
-// final, so real errors are neither delayed nor hidden.
-function runContainer(argsFor, image, { pullBackoffMs, sleep }) {
-  const candidates = [image, ...fallbackImages(image)]
-  for (let retry = 0; ; retry += 1) {
-    let failure
-    for (const candidate of candidates) {
-      try {
-        return dockerCaptureRun(
-          argsFor(candidate),
-          `starting the throwaway capture provisioning container (${candidate})`,
-          120_000
-        )
-      } catch (error) {
-        if (candidate === image && !isRegistryRateLimit(String(error?.message))) throw error
-        failure = error
-        console.warn(
-          `Container registry rate-limited an image pull; ${candidate === image ? 'trying a mirror' : `${candidate} failed, trying the next registry`}.`
-        )
-      }
-    }
-    if (retry >= pullBackoffMs.length) throw failure
-    sleep(pullBackoffMs[retry])
-  }
-}
-
 /**
  * Starts the throwaway instance, or returns null when Docker is unavailable.
  * `register` receives the handle before the container exists, so a timeout or
@@ -162,12 +125,7 @@ function runContainer(argsFor, image, { pullBackoffMs, sleep }) {
  */
 export function startCaptureProvisioning(
   register = () => {},
-  {
-    removalTimeoutMs = defaultRemovalTimeoutMs,
-    image = captureProvisioningImage,
-    pullBackoffMs = defaultPullBackoffMs,
-    sleep = blockingSleep,
-  } = {}
+  { removalTimeoutMs = defaultRemovalTimeoutMs } = {}
 ) {
   if (!dockerDaemonAvailable()) return null
   // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
@@ -187,8 +145,8 @@ export function startCaptureProvisioning(
   const detachExit = attachRemoval(handle)
   register(handle)
   try {
-    runContainer(
-      (reference) => [
+    dockerCaptureRun(
+      [
         'run',
         '-d',
         '--rm',
@@ -201,10 +159,10 @@ export function startCaptureProvisioning(
         name,
         '-e',
         `POSTGRES_PASSWORD=${password}`,
-        reference,
+        captureProvisioningImage,
       ],
-      image,
-      { pullBackoffMs, sleep }
+      `starting the throwaway capture provisioning container (${captureProvisioningImage})`,
+      120_000
     )
     // Read the loopback ephemeral host port mapping back instead of guessing
     // one. The image's default POSTGRES_USER (postgres, superuser) owns the
