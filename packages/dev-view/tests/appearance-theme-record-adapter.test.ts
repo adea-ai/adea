@@ -12,10 +12,10 @@ import {
 } from '../src/appearance/theme-record-adapter'
 import {
   setCustomThemes,
-  themeRegistry,
   flatVariantTokens,
   type StoredThemeVariant,
 } from '@adea-ai/app-ui/components/custom-theme-library'
+import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
 import { accentRolesForSelection, builtinThemes, themeRecords } from '@adea-ai/ui/lib/themes'
 
 const byId = (id: string) => builtinThemes.find((theme) => theme.id === id)!

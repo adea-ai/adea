@@ -24,7 +24,7 @@ import {
   useOptionalTheme as useOptionalUiTheme,
   type ThemeContextValue as UiThemeContextValue,
   type ThemeProviderProps as UiThemeProviderProps,
-} from '@adea-ai/ui/components/theme'
+} from '@adea-ai/ui/components/theme/lazy'
 import { defaultPreferenceStorage } from '@adea-ai/ui/lib/preference-store'
 import { tokensAsHex } from '@adea-ai/ui/lib/themes'
 

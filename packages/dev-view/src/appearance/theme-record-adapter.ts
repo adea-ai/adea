@@ -22,8 +22,8 @@ import { APPEARANCE_ACCENT_CONTRAST_FLOOR } from '@adea-ai/app-ui/components/app
 import {
   customThemeVariants,
   storedVariantRecord,
-  themeRegistry,
 } from '@adea-ai/app-ui/components/custom-theme-library'
+import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
 
 /** The published blue preset is the host's default custom accent. */
 export const DEFAULT_CUSTOM_ACCENT = getAccent('blue')?.light ?? adeaLight.colors.accent

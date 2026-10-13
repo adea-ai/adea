@@ -4,10 +4,10 @@ import {
   type WorkspaceSummary,
   type WorkspaceUpdate,
 } from '@adea-ai/types'
-import { accents } from '@adea-ai/ui/lib/themes'
+import { accentPresets } from '@adea-ai/ui/lib/accent-presets'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { useOptionalTheme } from '@adea-ai/ui/components/theme'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -220,7 +220,7 @@ function AccentSwatches(props: {
       fill: <span class="block size-full rounded-full bg-primary" />,
     },
     ...workspaceAccentIds.map((id) => {
-      const preset = accents.find((entry) => entry.id === id)
+      const preset = accentPresets.find((entry) => entry.id === id)
       const fill: JSX.Element = preset ? (
         <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
           <circle

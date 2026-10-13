@@ -1,4 +1,4 @@
-import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme'
+import { ThemeModeToggle, useTheme } from '@adea-ai/ui/components/theme/lazy'
 
 /** The shared mode selector, controlled by the shared provider's persisted selection. */
 export function ThemeToggle() {

@@ -66,7 +66,7 @@ import type {
   WorkspaceDeepLink,
   WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
-import { useOptionalTheme } from '@adea-ai/ui/components/theme'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
   enabledWorkspaceApps,

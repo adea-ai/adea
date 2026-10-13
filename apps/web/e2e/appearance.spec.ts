@@ -511,6 +511,62 @@ test.describe('App Library navigation', () => {
   })
 })
 
+test('a saved catalogue theme paints from the stylesheet and never flashes while the catalogue loads', async ({
+  page,
+}) => {
+  const saved = JSON.stringify({
+    version: 2,
+    mode: 'dark',
+    lightThemeId: 'adea-light',
+    darkThemeId: 'catppuccin-mocha',
+    terminalThemeId: 'theme',
+    accent: 'violet',
+    surface: 'opaque',
+    reduceTransparency: false,
+  })
+  await page.addInitScript((payload) => {
+    if (sessionStorage.getItem('saved-theme-seeded') === '1') return
+    sessionStorage.setItem('saved-theme-seeded', '1')
+    localStorage.removeItem('theme')
+    localStorage.setItem('appearance', payload)
+    // Every frame from the first one records what the page is painted with, so a
+    // frame on the default theme while the catalogue is in flight is a failure.
+    const frames: string[] = []
+    ;(window as unknown as { themeFrames: string[] }).themeFrames = frames
+    const record = () => {
+      const root = document.documentElement
+      if (root.dataset.theme) {
+        frames.push(
+          `${root.dataset.theme}|${getComputedStyle(root).getPropertyValue('--background').trim()}`
+        )
+      }
+      requestAnimationFrame(record)
+    }
+    requestAnimationFrame(record)
+  }, saved)
+  const catalogueRequests: string[] = []
+  page.on('request', (request) => {
+    if (/theme-catalogue/.test(request.url())) catalogueRequests.push(request.url())
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'catppuccin-mocha')
+  // The provider fetches the catalogue itself, because the saved selection names a theme
+  // beyond the default pair; nothing else needs to open for it to arrive.
+  await expect.poll(() => catalogueRequests.length).toBeGreaterThan(0)
+  await page.waitForTimeout(500)
+  const frames = await page.evaluate(
+    () => (window as unknown as { themeFrames: string[] }).themeFrames
+  )
+  expect(frames.length).toBeGreaterThan(0)
+  expect(new Set(frames).size).toBe(1)
+  expect(await page.evaluate(() => localStorage.getItem('appearance'))).toBe(saved)
+  // The stylesheet is the palette: the provider adds no catalogue token inline.
+  expect(
+    await page.evaluate(() => document.documentElement.style.getPropertyValue('--card').trim())
+  ).toBe('')
+})
+
 test('a corrupt stored appearance quarantines into the recovery envelope and survives a save', async ({
   page,
 }) => {

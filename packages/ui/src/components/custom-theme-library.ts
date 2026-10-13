@@ -12,12 +12,10 @@ import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/themes'
 
 import { contrastRatio } from '@adea-ai/ui/lib/accent-roles'
 import { quarantineRecord, readVersionedRecord } from '@adea-ai/ui/lib/preference-store'
-import {
-  builtinThemes,
-  themeRecordById,
-  variantFromRecord,
-  type ThemeVariant as UiThemeVariant,
-} from '@adea-ai/ui/lib/themes'
+import { defaultVariantFor } from '@adea-ai/ui/lib/theme-defaults'
+import type { ThemeVariant as UiThemeVariant } from '@adea-ai/ui/lib/themes'
+
+import { importedVariantFromRecord } from './imported-theme-variant'
 
 /**
  * The custom theme library: themes the user imported from a file, stored in
@@ -347,11 +345,12 @@ export function toUiVariant(stored: CustomThemeStored): UiThemeVariant {
   const { variant } = stored
   let base: UiThemeVariant
   try {
-    base = variantFromRecord(storedVariantRecord(variant))
+    base = importedVariantFromRecord(storedVariantRecord(variant))
   } catch {
-    const fallback = themeRecordById(variant.appearance === 'dark' ? 'adea-dark' : 'adea-light')!
+    // The shipped default of the appearance: the provider's own start-up data, so the
+    // shell never imports the themes catalogue to repair an import.
     base = {
-      ...variantFromRecord(fallback),
+      ...defaultVariantFor(variant.appearance),
       id: variant.id,
       family: variant.familyId,
       familyLabel: variant.familyName,
@@ -412,12 +411,6 @@ export function customUiVariants(): readonly UiThemeVariant[] {
   const state = library()
   state.uiVariants ??= Object.freeze(state.themes.map(toUiVariant))
   return state.uiVariants
-}
-
-/** Every selectable theme: the catalogue first, then imported themes. */
-export function themeRegistry(): readonly UiThemeVariant[] {
-  const custom = customUiVariants()
-  return custom.length > 0 ? [...builtinThemes, ...custom] : builtinThemes
 }
 
 export function subscribeCustomThemes(listener: () => void): () => void {

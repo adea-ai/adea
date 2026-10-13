@@ -16,7 +16,7 @@ import {
   type ThemeSelection,
   type ThemeStorageSchema,
   type VersionedCodec,
-} from '@adea-ai/ui/components/theme'
+} from '@adea-ai/ui/components/theme/lazy'
 import { colorToHex, parseColor } from '@adea-ai/ui/lib/accent-roles'
 import {
   DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,

@@ -68,6 +68,10 @@ export function AppearanceControl(props: AppearanceControlProps) {
 function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const appearance = useTheme()
   const editor = createAppearanceEditor()
+  // The shell starts without the 34-theme catalogue (ADR 0014). A draft of a
+  // catalogue theme previews once it has loaded, so fetch it when the editor opens
+  // instead of on the first click. Idempotent; a failure leaves the default pair.
+  onMount(() => void appearance.loadCatalogue?.())
   // Mirror the glass choice to the native window whenever it changes (the
   // desktop host registers the transport; everywhere else this is a no-op).
   // The mirror is idempotent, so firing on the restored draft is harmless.
