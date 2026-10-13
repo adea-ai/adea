@@ -5,9 +5,10 @@ import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Check, Download, FileText, Upload, X } from 'lucide-solid'
+import { Check, X } from 'lucide-solid'
 import { createSignal, For, type JSX, Show } from 'solid-js'
 
+import { Download, FileText, Upload } from './workspace-portable-icons'
 import {
   countPortableRecords,
   describePortableFile,
