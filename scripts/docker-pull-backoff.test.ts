@@ -7,15 +7,30 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'bun:test'
 import {
   captureCommand,
+  composeImageVariable,
+  composePostgresImage,
   defaultPullBackoffMs,
+  ensureImage,
+  fallbackImages,
   isRegistryRateLimit,
   runWithPullBackoff,
+  runWithPullFallback,
+  withComposeImage,
 } from './docker-pull-backoff.mjs'
 
 // Verbatim signature from the failed Host CI compose pull.
 const rateLimited = { status: 1, stdout: '', stderr: 'postgres toomanyrequests: Rate exceeded' }
 const succeeded = { status: 0, stdout: 'Container postgres Healthy', stderr: '' }
 const permanent = { status: 1, stdout: '', stderr: 'manifest unknown' }
+const ecrDataLimit = {
+  status: 1,
+  stdout: '',
+  stderr: 'postgres Error toomanyrequests: Data limit exceeded',
+}
+const canonicalImage =
+  'public.ecr.aws/docker/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
+const integrationRunner = fileURLToPath(new URL('./test-integration.mjs', import.meta.url))
 const e2eSetup = fileURLToPath(new URL('./e2e-setup.mjs', import.meta.url))
 const testLocal = fileURLToPath(new URL('../apps/web/start/test-local.mjs', import.meta.url))
 
@@ -155,19 +170,172 @@ test('returns a real permanent child failure without retrying', async () => {
   })
 })
 
-test('both Postgres entrypoints start the database through the pull-backoff helper', async () => {
-  for (const path of [testLocal, e2eSetup]) {
+test('every Postgres entrypoint starts the database through the pull-fallback helper', async () => {
+  for (const path of [testLocal, e2eSetup, integrationRunner]) {
     const source = await readFile(path, 'utf8')
     assert.match(
       source,
-      /import \{[^}]*\brunWithPullBackoff\b[^}]*\} from '[\w./-]*docker-pull-backoff\.mjs'/,
+      /import \{[^}]*\brunWithPullFallback\b[^}]*\} from '[\w./-]*docker-pull-backoff\.mjs'/,
       path
     )
-    assert.match(source, /await runWithPullBackoff\(/, path)
+    assert.match(source, /await runWithPullFallback\(/, path)
     assert.match(source, /await composeUpPostgres\(\)/, path)
-    // A bare `up` through run() would bypass the backoff.
+    // A bare `up` through run() would bypass the fallback and the backoff.
     assert.doesNotMatch(source, /run\(\s*'docker',\s*\[[^\]]*'up'/, path)
   }
+})
+
+test('compose.yml takes the Postgres image from the override with a digest-pinned default', async () => {
+  const image = composePostgresImage(repositoryRoot)
+  assert.match(image, /^public\.ecr\.aws\/docker\/library\/postgres:[\w.-]+@sha256:[0-9a-f]{64}$/)
+  const compose = await readFile(join(repositoryRoot, 'compose.yml'), 'utf8')
+  assert.ok(compose.includes(`\${${composeImageVariable}:-${image}}`))
+})
+
+test('derives the same digest on the fallback registries and none for other images', () => {
+  assert.deepEqual(fallbackImages(canonicalImage), [
+    'mirror.gcr.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2',
+    'docker.io/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2',
+  ])
+  assert.deepEqual(fallbackImages('mcr.microsoft.com/playwright:v1.63.0-noble'), [])
+})
+
+test('selects a fallback image only when one is given', () => {
+  const env = { PATH: '/bin' }
+  assert.equal(withComposeImage(env, undefined), env)
+  assert.deepEqual(withComposeImage(env, 'mirror.gcr.io/library/postgres:18-alpine'), {
+    PATH: '/bin',
+    [composeImageVariable]: 'mirror.gcr.io/library/postgres:18-alpine',
+  })
+})
+
+function fallbackHarness(attempts: Record<string, Result[]>, pulls: Record<string, Result> = {}) {
+  const attempted: (string | undefined)[] = []
+  const pulled: string[] = []
+  const messages: string[] = []
+  const { delays, sleep } = recordingSleep()
+  const counts: Record<string, number> = {}
+  return {
+    attempted,
+    pulled,
+    messages,
+    delays,
+    run: () =>
+      runWithPullFallback(
+        (image) => {
+          attempted.push(image)
+          const key = image ?? 'canonical'
+          const results = attempts[key] ?? [ecrDataLimit]
+          counts[key] = (counts[key] ?? 0) + 1
+          return results[Math.min(counts[key] - 1, results.length - 1)]
+        },
+        canonicalImage,
+        {
+          sleep,
+          log: (message: string) => messages.push(message),
+          pull: async (reference: string) => {
+            pulled.push(reference)
+            return pulls[reference] ?? { status: 0, stdout: '', stderr: '' }
+          },
+        }
+      ),
+  }
+}
+
+const mirror = fallbackImages(canonicalImage)[0]!
+const hub = fallbackImages(canonicalImage)[1]!
+
+test('does not touch another registry when the canonical pull succeeds', async () => {
+  const harness = fallbackHarness({ canonical: [succeeded] })
+  assert.equal(await harness.run(), succeeded)
+  assert.deepEqual(harness.attempted, [undefined])
+  assert.deepEqual(harness.pulled, [])
+})
+
+test('returns a permanent canonical failure without trying a fallback', async () => {
+  const harness = fallbackHarness({ canonical: [permanent] })
+  assert.equal(await harness.run(), permanent)
+  assert.deepEqual(harness.pulled, [])
+  assert.deepEqual(harness.delays, [])
+})
+
+test('falls over to the mirror registry on a rate limit, without backing off', async () => {
+  const harness = fallbackHarness({ canonical: [ecrDataLimit], [mirror]: [succeeded] })
+  assert.equal(await harness.run(), succeeded)
+  assert.deepEqual(harness.attempted, [undefined, mirror])
+  assert.deepEqual(harness.pulled, [mirror])
+  assert.deepEqual(harness.delays, [])
+})
+
+test('skips a fallback that cannot be pulled and tries the next one', async () => {
+  const harness = fallbackHarness(
+    { canonical: [ecrDataLimit], [hub]: [succeeded] },
+    { [mirror]: { status: 1, stdout: '', stderr: 'manifest unknown' } }
+  )
+  assert.equal(await harness.run(), succeeded)
+  assert.deepEqual(harness.attempted, [undefined, hub])
+  assert.deepEqual(harness.pulled, [mirror, hub])
+  assert.ok(harness.messages.some((message) => /manifest unknown/.test(message)))
+})
+
+test('returns a real failure from a fallback instead of masking it', async () => {
+  const harness = fallbackHarness({ canonical: [ecrDataLimit], [mirror]: [permanent] })
+  assert.equal(await harness.run(), permanent)
+  assert.deepEqual(harness.pulled, [mirror])
+})
+
+test('backs off and retries every registry when all of them are rate limited', async () => {
+  const harness = fallbackHarness({ canonical: [ecrDataLimit, ecrDataLimit, succeeded] })
+  assert.equal(await harness.run(), succeeded)
+  assert.deepEqual(harness.attempted, [undefined, mirror, hub, undefined, mirror, hub, undefined])
+  assert.deepEqual(harness.delays, defaultPullBackoffMs.slice(0, 2))
+})
+
+test('bounds persistent rate limits across every registry', async () => {
+  const harness = fallbackHarness({})
+  assert.equal(await harness.run(), ecrDataLimit)
+  assert.equal(harness.attempted.length, 3 * (defaultPullBackoffMs.length + 1))
+  assert.deepEqual(harness.delays, defaultPullBackoffMs)
+})
+
+test('ensures an image without pulling when it is already local', async () => {
+  const pulled: string[] = []
+  const found = await ensureImage(canonicalImage, {
+    inspect: async () => ({ status: 0 }),
+    pull: async (reference: string) => (pulled.push(reference), succeeded),
+    log: () => {},
+  })
+  assert.equal(found.image, canonicalImage)
+  assert.equal(found.result.status, 0)
+  assert.deepEqual(pulled, [])
+})
+
+test('ensures an image from a fallback registry and reports the reference now local', async () => {
+  const pulled: string[] = []
+  const { sleep } = recordingSleep()
+  const found = await ensureImage(canonicalImage, {
+    inspect: async () => ({ status: 1 }),
+    pull: async (reference: string) => {
+      pulled.push(reference)
+      return reference === canonicalImage ? ecrDataLimit : succeeded
+    },
+    sleep,
+    log: () => {},
+  })
+  assert.equal(found.result.status, 0)
+  assert.equal(found.image, mirror)
+  assert.deepEqual(pulled, [canonicalImage, mirror])
+})
+
+test('reports an image that no registry could provide', async () => {
+  const { sleep } = recordingSleep()
+  const found = await ensureImage(canonicalImage, {
+    inspect: async () => ({ status: 1 }),
+    pull: async () => ecrDataLimit,
+    sleep,
+    log: () => {},
+  })
+  assert.notEqual(found.result.status, 0)
 })
 
 test('e2e setup surfaces a permanent docker failure once, with its output', async () => {

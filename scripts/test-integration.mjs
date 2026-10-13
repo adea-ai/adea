@@ -2,6 +2,13 @@ import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import {
+  captureCommand,
+  composePostgresImage,
+  ensureImage,
+  runWithPullFallback,
+  withComposeImage,
+} from './docker-pull-backoff.mjs'
+import {
   discoverIntegrationInventory,
   parseIntegrationShard,
   planIntegrationRun,
@@ -51,6 +58,26 @@ function run(command, args, environment, cwd = root) {
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}`)
+  }
+}
+
+// A bare `compose up` would fail the lane on the shared registry's anonymous pull limit, so the
+// start goes through the same fallback and backoff as the E2E setup. Output is echoed once each
+// attempt settles so a rate-limited attempt stays visible in the log.
+async function composeUpPostgres() {
+  const args = ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres']
+  const result = await runWithPullFallback(async (image) => {
+    const attempt = await captureCommand('docker', args, {
+      cwd: root,
+      env: withComposeImage(process.env, image),
+    })
+    if (attempt.stdout) process.stdout.write(attempt.stdout)
+    if (attempt.stderr) process.stderr.write(attempt.stderr)
+    return attempt
+  }, composePostgresImage(root))
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`docker ${args.join(' ')} failed with exit code ${result.status}`)
   }
 }
 
@@ -106,8 +133,18 @@ function dockerCaptureRun(args, what, timeoutMs) {
   return result.stdout.trim()
 }
 
-function startCaptureProvisioning() {
+async function startCaptureProvisioning() {
   if (!dockerDaemonAvailable()) return null
+  // Pull before the removal handle exists: a failed pull leaves no container behind. The run below
+  // then uses the reference that is now local, which may be a fallback registry's copy of the
+  // same digest.
+  const pulled = await ensureImage(captureProvisioningImage)
+  if (pulled.result.status !== 0) {
+    throw new Error(
+      `pulling the throwaway capture provisioning image (${captureProvisioningImage}) failed with exit code ${pulled.result.status}`
+    )
+  }
+  const image = pulled.image
   // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
   const password = randomBytes(24).toString('hex')
   const name = `adea-capture-prov-${randomBytes(6).toString('hex')}`
@@ -137,9 +174,9 @@ function startCaptureProvisioning() {
       name,
       '-e',
       `POSTGRES_PASSWORD=${password}`,
-      captureProvisioningImage,
+      image,
     ],
-    `starting the throwaway capture provisioning container (${captureProvisioningImage})`,
+    `starting the throwaway capture provisioning container (${image})`,
     120_000
   )
   try {
@@ -214,11 +251,7 @@ try {
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
-    run(
-      'docker',
-      ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres'],
-      process.env
-    )
+    await composeUpPostgres()
     startedLocalPostgres = true
   }
 
@@ -242,7 +275,7 @@ try {
   // (see startCaptureProvisioning). Without docker the proofs skip cleanly;
   // with docker a failed provisioning fails the lane instead of silently
   // shrinking the coverage the capture file exists to prove.
-  captureProvisioning = startCaptureProvisioning()
+  captureProvisioning = await startCaptureProvisioning()
   if (captureProvisioning) {
     environment[captureProvisioningDatabaseUrlVariable] = captureProvisioning.databaseUrl
   } else {
