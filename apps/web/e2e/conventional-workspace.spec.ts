@@ -2602,6 +2602,13 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   await expect(page.getByText('Permanent deletion is unavailable')).toBeVisible()
+  // Playwright scrolls the trigger into view before clicking, and where it lands
+  // depends on every earlier scroll (a cold run and a warm one differ by hundreds
+  // of pixels). Park the directory at its end first so the button is already in
+  // view and the screenshot's scroll offset is the same every run.
+  await page.locator('section.conventional-directory').evaluate((directory) => {
+    directory.scrollTop = directory.scrollHeight
+  })
   await page.getByRole('button', { name: 'Archive Agent' }).click()
   await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
