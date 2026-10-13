@@ -8,12 +8,9 @@
  * accepted preference IDs.
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
-import {
-  resolveThemeVariant,
-  themeRegistry,
-  type AppearancePreferencesV2,
-  type ThemeVariant,
-} from '@adea-ai/app-ui/components/appearance'
+import { resolveVariant, type ThemeVariant } from '@adea-ai/ui/lib/themes'
+import { themeRegistry } from '@adea-ai/app-ui/components/custom-theme-library'
+import type { AppearancePreferencesV2 } from '@adea-ai/app-ui/components/appearance-codec'
 
 /**
  * The variants behind the mode miniatures: resolved per appearance from the
@@ -26,7 +23,7 @@ export function draftVariants(preferences: AppearancePreferencesV2): {
 } {
   const registry = themeRegistry()
   return {
-    light: resolveThemeVariant(registry, preferences, 'light'),
-    dark: resolveThemeVariant(registry, preferences, 'dark'),
+    light: resolveVariant(registry, preferences.lightThemeId, 'light'),
+    dark: resolveVariant(registry, preferences.darkThemeId, 'dark'),
   }
 }

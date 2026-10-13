@@ -8,9 +8,6 @@
   /* Brand marks use the published theme-invariant contrast pair. */
   --workspace-logo-surface: var(--scrim);
   --workspace-logo-foreground: var(--scrim-foreground);
-  --surface-alpha: 1;
-  --surface-frost: 0.92;
-  --surface-translucent: 0.8;
 
   /* The Agent Sim scene layer. It sits BELOW every chrome layer on the
    * published scale so the engine's own on-screen controls (which carry
@@ -28,32 +25,6 @@
    * `.virtual-view-engine` consumes this token to become one stacking
    * context, confining the pack's internal z-indexes to the scene layer. */
   --z-agent-sim: 5;
-}
-
-/* Surface glass amounts. The provider resolves the effective surface and the
-   reduced-transparency policy; this media query is the OS-level backstop so a
-   frost amount can never outlive a system Reduce Transparency setting. */
-@media (prefers-reduced-transparency: reduce) {
-  :root {
-    --surface-alpha: 1;
-  }
-}
-
-/* Tokenized frost: while the resolved surface asks for glass, elevated
-   dialogs go translucent and blur the content behind them. The opaque
-   default and both reduced-transparency paths resolve --surface-alpha to 1
-   and never match this selector, so frost only ever applies when the user
-   chose it and the platform can honor it. Native window vibrancy (the
-   desktop's translucent surface) remains shell work; this is the tokenized
-   frost the appearance preferences promise everywhere else. */
-/* Modal dialogs only: sheets carry data-variant and keep their own bands. */
-[data-surface='frosted'] [role='dialog']:not([data-variant]) {
-  background-color: color-mix(
-    in srgb,
-    var(--background) calc(var(--surface-alpha) * 100%),
-    transparent
-  );
-  backdrop-filter: blur(1.25rem) saturate(140%);
 }
 
 /* Layered overlay surfaces. The catalogue exposes an elevation ladder

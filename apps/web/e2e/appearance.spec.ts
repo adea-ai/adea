@@ -206,12 +206,12 @@ test.describe('appearance', () => {
 
     await modeGroup(panel).getByText('Light', { exact: true }).click()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
-    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light')
 
     await panel.getByRole('button', { name: 'Save' }).click()
     await page.reload()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
-    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light')
   })
 
   test('the mode cards render live miniatures, with System split light/dark', async ({ page }) => {
@@ -222,7 +222,7 @@ test.describe('appearance', () => {
     await expect(mode.locator('[data-theme-miniature]')).toHaveCount(4)
     await mode.getByText('Light', { exact: true }).click()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
-    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', 'light')
   })
 
   test('Escape reverts the draft: leaving the section without saving keeps the old appearance', async ({
@@ -243,7 +243,7 @@ test.describe('appearance', () => {
     const accent = accentGroup(panel)
 
     await accent.getByRole('radio', { name: 'Blue', exact: true }).press('Space')
-    await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'blue')
     await expect(
       editor(panel).getByText('Blue · Controls, glyphs, selections, code, and activity.')
     ).toBeVisible()
@@ -265,7 +265,7 @@ test.describe('appearance', () => {
     // accents — so the picker offers no separate "Theme default" entry, and
     // the default selection is an accent override like any other preset.
     await accent.getByRole('radio', { name: 'Violet', exact: true }).press('Space')
-    await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'violet')
     await expect(
       editor(panel).getByText('Violet · Controls, glyphs, selections, code, and activity.')
     ).toBeVisible()

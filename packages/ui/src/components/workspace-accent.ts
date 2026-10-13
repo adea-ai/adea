@@ -1,30 +1,33 @@
-import { accentPresetById, deriveAccentRoles, themeRegistry, type AccentRoles } from './appearance'
+import { getAccent } from '@adea-ai/themes'
+import {
+  ACCENT_PAINT_PROPERTIES,
+  paintAccentRoles,
+  type AccentRoles,
+} from '@adea-ai/ui/lib/accent-roles'
+import { accentRolesForSelection } from '@adea-ai/ui/lib/themes'
+
+import { APPEARANCE_ACCENT_CONTRAST_FLOOR } from './appearance-codec'
+import { themeRegistry } from './custom-theme-library'
 
 /**
  * The accent roles a workspace paints over the active theme variant, or
  * `undefined` when the workspace keeps the theme's own accent (or the variant
  * is unknown). Values come from the theme catalogue through the same
- * contrast-gated derivation the appearance editor uses; nothing is authored
- * here.
+ * contrast-gated derivation the document uses; nothing is authored here.
  */
 export function workspaceAccentRoles(
   accent: string | null,
   variantId: string
 ): AccentRoles | undefined {
-  if (accent === null || !accentPresetById(accent)) return undefined
+  if (accent === null || !getAccent(accent)) return undefined
   const variant = themeRegistry().find(({ id }) => id === variantId)
   if (!variant) return undefined
-  const roles = deriveAccentRoles(accent, variant)
-  return roles.overrides ? roles : undefined
+  return accentRolesForSelection(accent, variant.appearance, undefined, {
+    background: variant.colors.background,
+    floor: APPEARANCE_ACCENT_CONTRAST_FLOOR,
+    variantId: variant.id,
+  })
 }
-
-const ROLE_PROPERTIES = [
-  '--primary',
-  '--primary-foreground',
-  '--primary-hover',
-  '--primary-subtle',
-  '--ring',
-] as const
 
 /**
  * Scope a workspace accent to one element and its descendants by overriding
@@ -37,20 +40,7 @@ export function paintWorkspaceAccent(
   accent: string | null,
   variantId: string
 ): void {
-  const roles = workspaceAccentRoles(accent, variantId)
-  if (!roles) {
-    for (const property of ROLE_PROPERTIES) element.style.removeProperty(property)
-    return
-  }
-  element.style.setProperty('--primary', roles.primary)
-  element.style.setProperty('--primary-foreground', roles.onPrimary)
-  element.style.setProperty('--primary-hover', roles.strong)
-  // The tint follows the same mix the published accent blocks use.
-  element.style.setProperty(
-    '--primary-subtle',
-    `color-mix(in oklch, ${roles.primary} 16%, transparent)`
-  )
-  element.style.setProperty('--ring', roles.ring)
+  paintAccentRoles(element, workspaceAccentRoles(accent, variantId))
 }
 
 /**
@@ -67,7 +57,7 @@ export function paintAppearanceAccent(element: HTMLElement): void {
   const root = getComputedStyle(
     element.ownerDocument.documentElement ?? globalThis.document.documentElement
   )
-  for (const property of ROLE_PROPERTIES) {
+  for (const property of ACCENT_PAINT_PROPERTIES) {
     const value = root.getPropertyValue(property).trim()
     if (value) element.style.setProperty(property, value)
     else element.style.removeProperty(property)

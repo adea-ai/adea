@@ -9,13 +9,14 @@ import {
   type AppearanceDraft,
   type AppearanceEditorProps,
 } from '@adea-ai/ui/components/composites/appearance-editor'
+import { ACCENTS as accentPresets, getAccent as accentPresetById } from '@adea-ai/themes'
+import { isThemeAccentId } from '@adea-ai/ui/lib/themes'
+import type { AppearancePreferencesV2 } from '@adea-ai/app-ui/components/appearance-codec'
 import {
-  accentPresets,
-  accentPresetById,
-  isThemeAccentId,
+  readCustomThemeLibrary,
+  removeCustomTheme,
   subscribeCustomThemes,
-  type AppearancePreferencesV2,
-} from '@adea-ai/app-ui/components/appearance'
+} from '@adea-ai/app-ui/components/custom-theme-library'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { mirrorWindowSurface } from './window-surface'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -25,7 +26,6 @@ import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
 
-import { readCustomThemeLibrary, removeCustomTheme } from '@adea-ai/app-ui/components/appearance'
 import { For, Show } from 'solid-js'
 import { themeAccentPresets } from '@adea-ai/themes'
 
@@ -249,10 +249,10 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
       return publishedDraft()
     },
     get lightTheme() {
-      return appearanceThemeForPreview(miniatures().light, editor.draft().accent)
+      return appearanceThemeForPreview(miniatures().light, editor.draft().accent, editor.draft())
     },
     get darkTheme() {
-      return appearanceThemeForPreview(miniatures().dark, editor.draft().accent)
+      return appearanceThemeForPreview(miniatures().dark, editor.draft().accent, editor.draft())
     },
     get resolvedAppearance() {
       return appearance.resolvedMode()

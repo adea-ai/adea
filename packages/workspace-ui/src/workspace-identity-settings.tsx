@@ -4,7 +4,7 @@ import {
   type WorkspaceSummary,
   type WorkspaceUpdate,
 } from '@adea-ai/types'
-import { accentPresetById, themeRegistry } from '@adea-ai/app-ui/components/appearance'
+import { accents } from '@adea-ai/ui/lib/themes'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
@@ -211,8 +211,7 @@ function AccentSwatches(props: {
 }) {
   const theme = useOptionalTheme()
   const appearance = (): 'light' | 'dark' => {
-    const variant = themeRegistry().find((entry) => entry.id === theme?.variantId())
-    return variant?.appearance === 'light' ? 'light' : 'dark'
+    return theme?.variant().appearance === 'light' ? 'light' : 'dark'
   }
   const choices = (): { id: string; label: string; fill: JSX.Element }[] => [
     {
@@ -221,7 +220,7 @@ function AccentSwatches(props: {
       fill: <span class="block size-full rounded-full bg-primary" />,
     },
     ...workspaceAccentIds.map((id) => {
-      const preset = accentPresetById(id)
+      const preset = accents.find((entry) => entry.id === id)
       const fill: JSX.Element = preset ? (
         <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
           <circle

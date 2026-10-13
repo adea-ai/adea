@@ -50,7 +50,11 @@ describe('private application UI boundary', () => {
 
   test('keeps host surface policy without copied shared resets', () => {
     const theme = source('styles/theme.css')
-    expect(theme).toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
+    // The surface amounts and the frosted dialog rule belong to the published theme.
+    expect(theme).not.toContain("[data-surface='frosted'] [role='dialog']:not([data-variant])")
+    expect(theme).not.toContain('--surface-alpha:')
+    expect(theme).not.toContain('--surface-frost')
+    expect(theme).toContain("[data-surface='translucent'] .conventional-workspace")
     expect(theme).not.toContain('button:not(:disabled)')
     expect(theme).not.toContain('border-color: var(--border)')
     expect(theme).not.toContain('background: var(--background)')

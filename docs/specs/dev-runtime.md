@@ -1663,14 +1663,14 @@ synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
-0.8.1 catalogue. Every editor projection clears the host's 4.5:1 syntax floor;
-the generator refuses unexpected exclusions and records the package's actual
-version. A removed or unknown stored ID resolves to the appearance default
-without deleting the stored preference.
-Solid destructive actions carry a separate generated fill/foreground pair from
-`shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
-and clear those tokens with the rest of the palette. Canonical status hues,
-terminal ANSI colors, and editor roles retain their published projections.
+catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
+exact version). Every editor projection clears the host's 4.5:1 syntax floor
+(`editorRoles: 'floor'`). A removed or unknown stored ID resolves to the
+appearance default without deleting the stored preference.
+Solid destructive actions carry a separate fill/foreground pair from the
+published projection; theme switching and the pre-paint script apply and clear
+those tokens with the rest of the palette. Canonical status hues, terminal ANSI
+colors, and editor roles retain their published projections.
 
 ### Desktop Chat presentation notifications
 
@@ -5848,8 +5848,8 @@ terminal suite pins computed Code styles and current-generation PTY resize in
 Migrate the old `theme` key without flash or deletion. System mode follows the
 OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation; the accent override owns `--primary`,
-`--primary-foreground`, and `--ring`, so a non-default variant's own copy of
-those roles must never be written over an active override — otherwise presets
+`--primary-foreground`, `--primary-hover`, and `--ring`, so a non-default
+variant's own copy of those roles must never be written over an active override — otherwise presets
 silently revert to the theme's primary on every catalogue and imported theme
 while working only on the default pair. Accents are one global preset axis for
 every theme, not a per-theme list, and the default accent is itself one of the
@@ -5857,7 +5857,7 @@ six catalogue presets (Violet) rather than a seventh "theme default" entry
 beside them: the picker offers the six presets plus the custom color, a stored
 legacy `'theme'` value migrates to the default preset on read and on resolve,
 and every selection — the default included — is therefore an active override
-that owns the three accent tokens. OS or user reduced transparency forces
+that owns the accent tokens. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 The terminal palette follows the resolved interface theme unless
@@ -5869,20 +5869,39 @@ default pair), and an unknown pinned id degrades to the interface palette,
 never a blank terminal. Terminals only exist after application JavaScript
 mounts, so the pre-paint script deliberately skips the pin — there is no
 pre-hydration terminal paint.
-The built-in registry is the published `@adea-ai/themes` catalogue adapted
-into this manifest's CSS, terminal, editor, and chart roles, led by the
-`adea-light`/`adea-dark` default pair; all published themes clear the editor
-floor. Preference IDs and pre-paint document authority remain Adea-owned.
-Every variant, including the default pair, ships in the generated
-`packages/ui/src/styles/canonical-themes.css` sheet. Its framework roles come
-from the published UI projection, including sidebar, status, and raised surfaces;
-terminal/editor aliases come from Themes adapters. The pre-paint script resolves
-the attribute and the render-blocking stylesheet paints the stored palette.
+The built-in registry is the published `@adea-ai/themes` catalogue, projected
+by the shared `@adea-ai/ui` ThemeProvider into CSS, terminal, editor, and chart
+roles, led by the `adea-light`/`adea-dark` default pair; all published themes
+clear the editor floor. The provider is shared, not forked: Adea runs the
+published provider and keeps three host-owned seams in
+`packages/ui/src/components` (ADR 0014). `appearance-codec.ts` owns the stored
+document: the keys `appearance`, `appearance.library`, `appearance.recovery`
+and the legacy `theme`, the V2 field set and its normalization, the legacy
+migration, and the fresh-install defaults (the Violet accent). `custom-theme-library.ts`
+owns the imported-theme library and its own recovery key,
+`appearance.library.recovery`, so a corrupt library can no longer overwrite the
+preference's quarantine. `appearance-host.tsx` configures the provider
+(`persistence`, imported `themes`, the surface policy and native-translucency
+capability, `accentContrastFloor: 3`, `editorRoles: 'floor'`, hex tokens, font
+zoom) and exposes the V2 view that the appearance editor and the shell read.
+Preference IDs and the stored document remain Adea-owned; the pre-paint script
+is the shared `themeScript` rendered from the same storage schema as the
+persistence, so first paint and the mounted provider read one document.
+Every variant, including the default pair, ships in the published
+`@adea-ai/ui/theme-variants.css` sheet, imported after the published theme
+sheet; the pre-paint script resolves the attribute and the render-blocking
+stylesheet paints the stored palette. The root carries `data-appearance`
+(`light`/`dark`), `data-theme`, and `data-accent` (the preset id, `custom` for
+a `#rrggbb` accent, absent for a theme-derived accent until the provider mounts).
 App-authored styles cannot redeclare published palette tokens. Palette
-normalization, accents, and contrast math remain catalogue-owned. Generated editor roles use the published
+normalization, accents, and contrast math remain catalogue-owned; the sheet
+writes colors in the catalogue's own notation and the provider writes inline
+accent and imported-theme tokens as hex. Generated editor roles use the published
 quantized-hex contrast projection, while the syntax API retains its quieter
-comment role. Unknown stored theme IDs fall back to the default of the same
-appearance in both the pre-paint script and the mounted provider.
+comment role. An imported theme pre-paints only its stored flat tokens; the
+roles derived from them appear when the provider mounts. Unknown stored theme IDs
+fall back to the default of the same appearance in both the pre-paint script and
+the mounted provider.
 
 The workspace toolbar opens the appearance Sheet over the current view without
 route navigation. Its editor/catalogue chunk loads on the first intentional
@@ -7563,8 +7582,10 @@ files in the same commit:
   host-matched credential authorization, offline-safe refresh (`stale` /
   `unavailable` typed truth, version kept when nothing moved), and remote
   redaction;
-  `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
-  envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
+  `packages/ui/tests/appearance-codec.test.ts` and
+  `packages/ui/tests/custom-theme-library.test.ts` pin the stored bytes, the
+  storage-level recovery envelope round-trips, the legacy-key order, and the
+  pre-paint script; `packages/workspace-ui/tests/unit/app-library.test.ts`
   pins the compiled trusted entry registry and every activation rejection;
   `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
   deep-link recovery, flat project list (no reorder affordance), shelf,
