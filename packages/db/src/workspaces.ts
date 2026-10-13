@@ -1,7 +1,7 @@
 import type {
   PrincipalRef,
   UserPrincipalRef,
-  WorkspaceAccentId,
+  WorkspaceAccent,
   WorkspaceLogo,
   WorkspacePermission,
   WorkspaceSceneId,
@@ -54,7 +54,7 @@ function workspaceSummary(
     canArchive: row.ownerUserId === userId && !isPersonalWorkspace(row),
     isPersonal: row.isPersonal && row.ownerUserId === userId,
     ...(row.deletionRequestedAt ? { deletionPending: true } : {}),
-    accent: (row.accent as WorkspaceAccentId | null) ?? null,
+    accent: (row.accent as WorkspaceAccent | null) ?? null,
     id: row.id,
     logo: workspaceLogo(row),
     name: row.name,

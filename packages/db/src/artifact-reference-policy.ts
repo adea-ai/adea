@@ -1,16 +1,10 @@
-import {
-  isArtifactReferenceGrant,
-  isArtifactReferenceTarget,
-  type ArtifactReferenceEvidence,
-  type ArtifactReferencePublicationDecision,
-  type ArtifactReferencePublicationInput,
-  type ArtifactReferenceRefusalReason,
-  type ArtifactReferenceRetrievalDecision,
-  type ArtifactReferenceRetrievalInput,
-  type UserPrincipalRef,
-} from '@adea-ai/types'
+import type { ArtifactReferenceEvidence, UserPrincipalRef } from '@adea-ai/types'
+import { and, eq, inArray } from 'drizzle-orm'
+
 import { getArtifactForUser } from './artifacts'
 import type { AgentHqDatabase } from './connection'
+import { resolveProjectAccessScopes } from './project-access'
+import { artifacts, tasks } from './schema'
 
 /**
  * Artifact-reference authorization policy for M15.03 (#1180).
@@ -70,131 +64,80 @@ export async function readArtifactReferenceEvidence(
   })
 }
 
-function parseTimestamp(value: string): number | null {
-  const timestamp = Date.parse(value)
-  return Number.isFinite(timestamp) ? timestamp : null
+/** One evidence read: the artifact, in its workspace, as one reader. */
+export type ArtifactEvidenceRequest = Readonly<{
+  artifactId: string
+  principalUserId: string
+  workspaceId: string
+}>
+
+/** The key an evidence batch result is stored under. */
+export function artifactEvidenceKey(request: ArtifactEvidenceRequest): string {
+  return `${request.workspaceId}\u0000${request.principalUserId}\u0000${request.artifactId}`
 }
 
 /**
- * The single ordered evaluation behind both gates. Returns the refusal
- * reason, or null when every exact-match, availability, grant-registration
- * and audience check passes. The order is deterministic so the same inputs
- * always produce the same typed reason.
+ * `readArtifactReferenceEvidence` for many requests, in two reads per workspace. The rules are
+ * the same as the single read: the reader needs a membership in the artifact's workspace, a
+ * task in a project the reader cannot see hides its artifact, and a deleted artifact has no
+ * evidence. A request with no evidence has no entry, which the policy treats as unavailable.
  */
-function evaluateArtifactReference(
-  input: ArtifactReferencePublicationInput | ArtifactReferenceRetrievalInput
-): ArtifactReferenceRefusalReason | null {
-  // Group-based authority has no reviewed contract yet: denied by name until
-  // one exists, whatever else the reference claims.
-  if (input.authority.kind !== 'workspace_grant') return 'unsupported_authority'
-
-  if (
-    !isArtifactReferenceTarget(input.target) ||
-    input.target.audienceWorkspaceId === input.target.sourceWorkspaceId
-  )
-    return 'reference_malformed'
-
-  // No current evidence (missing artifact, no access, deleted) — the locator
-  // alone proves nothing.
-  const { evidence } = input
-  if (!evidence) return 'evidence_unavailable'
-
-  // The evidence read must be about exactly the claimed source workspace and
-  // artifact; anything else is a cross-workspace forgery attempt.
-  if (
-    evidence.workspaceId !== input.target.sourceWorkspaceId ||
-    evidence.id !== input.target.artifactId
-  )
-    return 'workspace_mismatch'
-
-  if (evidence.deletionState === 'deleted') return 'artifact_deleted'
-  if (evidence.availability === 'quarantined') return 'artifact_quarantined'
-  if (evidence.availability !== 'available') return 'artifact_not_available'
-
-  // Exact version, then exact content digest: a stale version or a tampered
-  // digest never matches, at publication and again at retrieval.
-  if (evidence.version !== input.target.version) return 'stale_version'
-  if (evidence.checksumSha256 !== input.target.checksumSha256) return 'digest_mismatch'
-
-  // A supported workspace grant must exist, be well-formed, and bind exactly
-  // the presented target — including the granted artifact version, so a v1
-  // grant never presents a v2 locator even under an unchanged checksum.
-  const { grant } = input
-  if (!grant || !isArtifactReferenceGrant(grant)) return 'grant_malformed'
-  if (
-    grant.sourceWorkspaceId !== input.target.sourceWorkspaceId ||
-    grant.artifactId !== input.target.artifactId ||
-    grant.version !== input.target.version ||
-    grant.checksumSha256 !== input.target.checksumSha256 ||
-    grant.audienceWorkspaceId !== input.target.audienceWorkspaceId
-  )
-    return 'target_mismatch'
-
-  // The presented grant must be the registered one: unknown grants are
-  // forged, stale revisions are superseded, revocation is absolute.
-  const { grantState } = input
-  if (!grantState || grantState.grantId !== grant.grantId) return 'grant_not_registered'
-  // And it must be COMPLETELY the registered one: the retained registration
-  // authenticates every identity-bearing field of the presented grant, each
-  // divergence under its own typed refusal. A known grant identity thus
-  // authorizes exactly the artifact, digest, version and lifetime it was
-  // issued for — never a relabelled target, a substituted digest, a moved
-  // version, or a nulled/extended expiry.
-  if (
-    grantState.sourceWorkspaceId !== grant.sourceWorkspaceId ||
-    grantState.artifactId !== grant.artifactId
-  )
-    return 'grant_target_mismatch'
-  if (grantState.checksumSha256 !== grant.checksumSha256) return 'grant_digest_mismatch'
-  if (grantState.version !== grant.version) return 'grant_version_mismatch'
-  if (grantState.expiresAt !== grant.expiresAt) return 'grant_expiry_mismatch'
-  if (grantState.revoked || grant.revokedAt !== null) return 'grant_revoked'
-  if (grantState.revision !== grant.revision) return 'grant_revision_stale'
-  if (!grantState.audienceWorkspaceIds.includes(input.target.audienceWorkspaceId))
-    return 'audience_not_authorized'
-
-  // Expiry is checked last so a revoked or superseded grant is named as such.
-  // It is only reached when the presented expiry equals the registered one,
-  // so the lifetime decision below runs on authenticated truth.
-  if (grant.expiresAt !== null) {
-    const expiresAt = parseTimestamp(grant.expiresAt)
-    if (expiresAt === null) return 'grant_malformed'
-    const now = parseTimestamp(input.now)
-    // An unverifiable clock also fails closed, as expired.
-    if (now === null || now >= expiresAt) return 'grant_expired'
+export async function readArtifactReferenceEvidenceBatch(
+  database: AgentHqDatabase,
+  requests: readonly ArtifactEvidenceRequest[]
+): Promise<ReadonlyMap<string, ArtifactReferenceEvidence>> {
+  const evidence = new Map<string, ArtifactReferenceEvidence>()
+  const groups = new Map<string, ArtifactEvidenceRequest[]>()
+  for (const request of requests) {
+    const group = groups.get(request.workspaceId)
+    if (group) group.push(request)
+    else groups.set(request.workspaceId, [request])
   }
-
-  return null
+  for (const [workspaceId, group] of groups) {
+    const scopes = await resolveProjectAccessScopes(
+      database,
+      workspaceId,
+      group.map((request) => request.principalUserId)
+    )
+    const rows = await database
+      .select({ artifact: artifacts, projectId: tasks.projectId })
+      .from(artifacts)
+      .leftJoin(tasks, eq(tasks.id, artifacts.taskId))
+      .where(
+        and(
+          eq(artifacts.workspaceId, workspaceId),
+          inArray(
+            artifacts.id,
+            group.map((request) => request.artifactId)
+          ),
+          eq(artifacts.deletionState, 'active')
+        )
+      )
+    const rowById = new Map(rows.map((row) => [row.artifact.id, row]))
+    for (const request of group) {
+      const scope = scopes.get(request.principalUserId)
+      const row = rowById.get(request.artifactId)
+      if (!scope || !row) continue
+      if (row.artifact.taskId && row.projectId && scope.hiddenProjectIds.includes(row.projectId))
+        continue
+      evidence.set(
+        artifactEvidenceKey(request),
+        Object.freeze({
+          availability: row.artifact.availability,
+          checksumSha256: row.artifact.checksumSha256,
+          deletionState: row.artifact.deletionState,
+          id: row.artifact.id,
+          sensitivity: row.artifact.sensitivity,
+          version: row.artifact.version,
+          workspaceId: row.artifact.workspaceId,
+        })
+      )
+    }
+  }
+  return evidence
 }
 
-/**
- * Publication gate for a cross-workspace reference. Admits only an exact,
- * currently available artifact under a supported, current grant; holds
- * anything else — including the late publication of a result whose grant was
- * revoked, expired or superseded while the producing job kept running.
- */
-export function authorizeArtifactReferencePublication(
-  input: ArtifactReferencePublicationInput
-): ArtifactReferencePublicationDecision {
-  const reason = evaluateArtifactReference(input)
-  if (reason)
-    return { action: 'hold', ok: false, producerEffect: 'unaffected', reason, stage: 'publication' }
-  return { action: 'publish', ok: true, stage: 'publication', target: input.target }
-}
-
-/**
- * Retrieval gate for a cross-workspace reference. Rechecks everything the
- * publication gate checks against the CURRENT evidence, and additionally
- * binds delivery to the target's registered audience workspace: a result is
- * denied after revocation rather than delivered, and only the authorized
- * destination may ever receive it.
- */
-export function authorizeArtifactReferenceRetrieval(
-  input: ArtifactReferenceRetrievalInput
-): ArtifactReferenceRetrievalDecision {
-  if (input.requestingWorkspaceId !== input.target.audienceWorkspaceId)
-    return { action: 'deny', ok: false, reason: 'audience_not_authorized', stage: 'retrieval' }
-  const reason = evaluateArtifactReference(input)
-  if (reason) return { action: 'deny', ok: false, reason, stage: 'retrieval' }
-  return { action: 'deliver', ok: true, stage: 'retrieval', target: input.target }
-}
+export {
+  authorizeArtifactReferencePublication,
+  authorizeArtifactReferenceRetrieval,
+} from './artifact-reference-decisions'

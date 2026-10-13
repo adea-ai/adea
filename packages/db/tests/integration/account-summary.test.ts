@@ -226,7 +226,8 @@ describe.skipIf(!connectionUrl)('account workspace summaries', () => {
       await counting`select 1`
       queries = 0
       const summaries = await accountWorkspaceSummaries(drizzle(counting, { schema }), alice)
-      expect(queries).toBe(1)
+      // Two data reads plus begin, isolation setup and commit for the snapshot.
+      expect(queries).toBe(5)
       expect(summaries).toEqual([
         { mentions: 1, unreadChannels: 2, workspaceId: one },
         { mentions: 2, unreadChannels: 1, workspaceId: two },

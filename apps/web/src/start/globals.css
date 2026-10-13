@@ -1,13 +1,13 @@
 @import 'tailwindcss';
-/* Published UI owns structural and framework tokens. The generated catalogue
-   sheet below applies those same projections before hydration. */
+/* Published UI owns structural and framework tokens, and the catalogue sheet
+   (theme-variants.css) that applies the same projections before hydration. */
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
+@import '@adea-ai/ui/theme-variants.css';
 @import '@adea-ai/ui/appearance-font-settings.css';
 @import '@adea-ai/ui/fonts.css';
 @import '@adea-ai/app-ui/base.css';
 @import '@adea-ai/app-ui/theme.css';
-@import '@adea-ai/app-ui/canonical-themes.css';
 @import '@adea-ai/app-ui/auth-shell.css';
 @import '@adea-ai/app-ui/workspace-shell.css';
 @import '@adea-ai/app-ui/conventional-workspace.css';

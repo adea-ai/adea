@@ -24,6 +24,12 @@ Use `inTransaction()` for a domain mutation that must atomically append a `Works
 outbox/inbox record. Pass the transaction object through repository helpers; never fall back to a
 process-global connection inside a transaction.
 
+Use `inReadSnapshot()` for multi-statement product reads that resolve authorization separately
+from their result rows. Root connections run in a read-only `REPEATABLE READ` transaction; a
+caller-supplied transaction is reused only at `REPEATABLE READ` or `SERIALIZABLE` isolation. A
+weaker transaction fails closed before the read callback runs; its isolation and locks are never
+changed.
+
 `createUserWithAuthIdentity()` creates the stable `User` and provider identity in one transaction.
 Resolve sessions with `findUserPrincipalsByAuthIdentity()` and pass only the returned user
 `PrincipalRef` into authorization code. Provider subjects are authentication keys, never domain
@@ -210,13 +216,83 @@ which lock the project row first and the project's channels in id order, then
 compare-and-swap each channel `version`, so a concurrent write rolls the whole
 transaction back instead of losing an update.
 
-The combined local #1230 review candidate adds migration
-`0048_graceful_prima` after `0047_requested_role_model_selections`. This
-expand-only migration adds the `channel_archive_source` enum and
-`channels.archive_source`, positive `projects.version`, and the durable
-`management_authority_consumptions` table with its checks, workspace foreign
-key and index. Its SQL and snapshot are in the candidate journal at index 48;
-it has not landed on `main`. Local migration and database verification do not
-establish production migration history or live Control Plane qualification;
-verify the deployment target before any rollout. See
-[`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).
+Migration `0048_graceful_prima` follows `0047_requested_role_model_selections` in the current `main` journal. It is expand-only and adds the `channel_archive_source` enum, `channels.archive_source`, positive `projects.version`, and `management_authority_consumptions` with its checks, workspace foreign key and index. The group-participation migrations follow it at 0049 and 0050. `db:verify` validates the journal and SQL against an isolated target; local verification does not establish production migration history or live Control Plane qualification. See [`docs/plans/m14-03-management-action-contract.md`](../../docs/plans/m14-03-management-action-contract.md).
+
+## Group channel write admission
+
+A grant-gated group channel admits a user's writes only while that user's group
+admission is live, and an Agent's writes only while its enlistment is effective.
+User admission is decided on trusted time read after the channel row lock
+(`decideGroupTurn`, the same rule the fenced group post uses).
+
+- The fenced group post (`postGroupChannelMessage`) and `createLeadTurn` decide
+  before the write and again after the nested write, in the same transaction. A
+  denial rolls back the message, intent and event together.
+- The generic `createMessage` path checks a group **user** sender's membership
+  and live admission before its awaited writes and again after them, inside the
+  same transaction. The second check also covers the idempotent-replay branch. A
+  lapse during a wait throws `Channel unavailable` and rolls back the message,
+  mentions, event, frontier and task reopen.
+- Fenced callers use `createMessageInGroupFence`, which is package-internal and
+  is not re-exported from the package index. It skips only the user re-checks
+  above, because those callers already prove admission at their own clock. Their
+  clock readings are unchanged.
+- A group **agent** sender (for example the lead's publication through
+  `createRuntimeResultMessage`) re-proves its active standing and effective
+  enlistment after the awaited writes too, including the idempotent-replay
+  branch. The enlistment row is locked for both checks, so a revocation
+  serializes with them. A lapse denies with `Channel unavailable` and rolls back
+  the same effects as a user lapse.
+- A **system** sender keeps its existing validation. No group admission applies
+  to it, and that policy is unchanged.
+- The Agent's `lifecycle_state` is re-read after the writes, not row-locked, and
+  this is not a write authorization race. A new message appends its
+  `message.created` event, which takes the workspace's
+  `workspace_event_sequences` row before the post-write check. An archive
+  appends `agent.archived` through the same row. So an archive either commits
+  before that check, which denies the write, or waits until the write commits,
+  and is then ordered after it. No Agent row lock is taken, because a lock placed
+  after the sequence row deadlocks against an archive.
+- The one read-only window is an idempotent replay that reopens no task. It
+  appends no event, so its post-write read can precede an archive's commit. The
+  replay then returns the existing message, a read linearized before the
+  archive. It authorizes no new write.
+- A lead's publication holds the lead Agent row `FOR SHARE` for its whole
+  transaction (`lockAuthority`), and a lead cannot be archived at all
+  (`archiveAgent` refuses leads).
+
+Publication checks run on the publication transaction. `publishLeadTurnResult`
+passes that transaction to its `assertCurrentGrant` callback, and
+`publishGroupLeadResult` reads and locks through it, including the linked
+artifacts (held until the publication commits). Its pre-service checks each
+check out and release a connection in turn, and the service transaction holds
+exactly one. A publication never waits for a second connection while holding
+its own, so a bounded pool cannot starve it.
+
+Regressions: `packages/db/tests/integration/group-channels.test.ts` (a grant or
+enlistment lapsing during a waiting generic write, and during a waiting
+idempotent replay, for both a user and an Agent sender; and group publication on
+one- and two-connection pools, covering replay, a lapse at the check, a deleted
+artifact link and concurrent publications).
+
+## Group Agent enlistment authority
+
+Creating a group or replacing its roster requires the caller to hold
+`workspace.update` in both the host workspace and each enlisted Agent's
+canonical source workspace. The source is resolved from the Agent row, never
+from the grant's claimed workspace. The transaction locks the source membership
+and workspace while checking the shared workspace authorization policy, then
+locks the canonical Agent row `FOR SHARE` and rechecks its source and lifecycle
+before writing the grant. These locks remain through commit, so concurrent
+membership changes, workspace archive, and Agent archive order before or after
+the enlistment. Authorized cross-workspace enlistment remains supported;
+unauthorized or unknown Agents return the same unavailable response. This Agent
+row lock applies to enlistment writes; the message write-fence lifecycle check
+above keeps its separate event-sequence ordering.
+
+`beginWorkspaceDeletion()` and `deleteWorkspace()` currently fail closed with
+`workspace_deletion_cleanup_required` before removing memberships or cascading
+to Agents, so there is no active physical-delete path in this lock protocol. If
+server-verified deletion is enabled later, its workspace and membership cascade
+must be reviewed against enlistment's source-membership → workspace → Agent lock
+order; taking those rows in the inverse order could deadlock with an enlistment.

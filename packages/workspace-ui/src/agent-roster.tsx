@@ -22,6 +22,7 @@ import {
   AlertDialogTrigger,
 } from '@adea-ai/ui/components/ui/alert-dialog'
 import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Card,
@@ -97,6 +98,11 @@ function AgentRosterCard(props: {
           <CardTitle role="heading" aria-level="2">
             {agent().name}
           </CardTitle>
+          <Show when={agent().isWorkspaceLead === true}>
+            <Badge variant="subtle" title="Workspace lead">
+              Lead
+            </Badge>
+          </Show>
           <AgentStatus agent={agent()} compact />
         </CardHeader>
         <CardContent>
