@@ -383,3 +383,40 @@ test('a web host keeps the typed path input as the only way into the add surface
   expect((await report()).calls).toEqual([])
   expect(pageErrors).toEqual([])
 })
+
+test('the embedded source-control app sends its notices to the frame stack, not a second one', async ({
+  page,
+}) => {
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><head></head><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  // Source Control is off by default and opens from the App Library; the person has enabled it, so the
+  // rail preference is seeded before the harness loads.
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'adea:rail-preferences:v1',
+      JSON.stringify({
+        version: 1,
+        order: ['virtual', 'chat', 'dev', 'source-control'],
+        hidden: [],
+      })
+    )
+  })
+  await page.goto(path)
+  const app = resolve(
+    process.cwd(),
+    'apps/web/e2e/helpers/workspace-navigation-presentation-harness-app.tsx'
+  )
+  await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + app}'` })
+  await page.waitForFunction(() => Boolean(window.workspaceNavigationPresentationHarness))
+
+  await page.evaluate(() => window.workspaceNavigationPresentationHarness.showSourceControl())
+  // The fixture's runtime is ready, so the embedded app is connected: its stack would mount here if it
+  // had one of its own. The frame's default stack is the only notification region on the page.
+  await expect(page.getByText('Source control needs the Adea desktop runtime')).toHaveCount(0)
+  await expect(page.locator('.dev-scm').first()).toBeVisible()
+  await expect(page.locator('[aria-label^="Notifications ("]')).toHaveCount(1)
+})

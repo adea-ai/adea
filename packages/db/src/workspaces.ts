@@ -51,6 +51,7 @@ function workspaceSummary(
 ): WorkspaceSummary {
   return Object.freeze({
     canDelete: row.ownerUserId === userId && !isPersonalWorkspace(row),
+    canArchive: row.ownerUserId === userId && !isPersonalWorkspace(row),
     isPersonal: row.isPersonal && row.ownerUserId === userId,
     ...(row.deletionRequestedAt ? { deletionPending: true } : {}),
     accent: (row.accent as WorkspaceAccentId | null) ?? null,
@@ -401,6 +402,32 @@ export async function removeWorkspaceMembership(
   })
 }
 
+/**
+ * The archived workspaces this user owns, for discovery and reopen. Membership is looked up with
+ * the includeArchived semantics `findWorkspaceMembership` already applies, and ownership is the same
+ * owner check archive and reopen use. Only the signed-in user's own archived workspaces are returned.
+ */
+export async function listArchivedWorkspacesForOwner(
+  database: AgentHqDatabase,
+  owner: UserPrincipalRef
+): Promise<WorkspaceSummary[]> {
+  const rows = await database
+    .select({ sortOrder: workspaceMemberships.sortOrder, workspace: workspaces })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
+    .where(
+      and(
+        eq(workspaceMemberships.userId, owner.userId),
+        eq(workspaces.ownerUserId, owner.userId),
+        isNotNull(workspaces.deletedAt)
+      )
+    )
+    .orderBy(desc(workspaces.updatedAt), asc(workspaces.id))
+  return rows.map(({ sortOrder, workspace }) =>
+    workspaceSummary(workspace, sortOrder, owner.userId)
+  )
+}
+
 export async function listWorkspacesForUser(
   database: AgentHqDatabase,
   principal: UserPrincipalRef
@@ -678,7 +705,7 @@ export async function deleteWorkspace(
 }
 
 export async function archiveWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<void> {
@@ -715,7 +742,7 @@ export async function archiveWorkspace(
 }
 
 export async function reopenWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<WorkspaceSummary> {
@@ -764,7 +791,7 @@ export async function reopenWorkspace(
  * stale `expectedVersion` raises `WorkspaceVersionConflictError`.
  */
 export async function updateWorkspace(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
   input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>

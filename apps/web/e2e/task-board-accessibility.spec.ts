@@ -182,7 +182,6 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Accessibility anchor.', task.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
     const row = page.getByRole('button', { name: /Board Accessibility Lane/ })
     await expect(row).toBeVisible()
     await row.click()
@@ -370,7 +369,6 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Race anchor two.', second.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
     const row = page.getByRole('button', { name: /Board Close Race Lane/ })
     await expect(row).toBeVisible()
     await row.click()
@@ -438,7 +436,6 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Frame swap anchor.', task.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
     await page.getByRole('button', { name: /Board Frame Swap Lane/ }).click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
     await page.getByRole('button', { name: `Task · ${TASK_TITLE}` }).click()
@@ -494,7 +491,6 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Leave anchor.', task.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
     await page.getByRole('button', { name: /Board Leave Lane/ }).click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
     await page.getByRole('button', { name: `Task · ${TASK_TITLE}` }).click()
@@ -507,7 +503,10 @@ test.describe('the task board stays in the accessibility tree across sheet close
     // Navigate away from the kanban view: the board unmounts while the
     // workspace frame persists. No observer may outlive the board, so a late
     // Kobalte-style write afterwards finds nothing left to repair it.
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
+    await page
+      .getByRole('navigation', { name: 'Global navigation' })
+      .getByRole('button', { name: 'Chat view', exact: true })
+      .click()
     await expect(page.getByRole('region', { name: 'Task board', exact: true })).toHaveCount(0)
     await page.evaluate(() => {
       let frames = 0

@@ -14,6 +14,7 @@ const PR = 'feat-x'
 const LEGACY = `preview/pr-7-${PR}`
 const SHARD_1 = `${LEGACY}-s1`
 const SHARD_2 = `${LEGACY}-s2`
+const PROOF = `${LEGACY}-proof`
 const PROJECT = 'proj-test'
 
 const tempRoot = mkdtempSync(join(tmpdir(), 'neon-resolver-'))
@@ -83,6 +84,7 @@ globalThis.fetch = async (url) => {
     LEGACY_BRANCH: LEGACY,
     SHARD_1_BRANCH: SHARD_1,
     SHARD_2_BRANCH: SHARD_2,
+    PROOF_BRANCH: PROOF,
     SCENARIO_FILE: scenarioFile,
     REQUEST_LOG: logFile,
     ...overrides,
@@ -117,7 +119,7 @@ function outputOf(result: Run): Record<string, string> {
   )
 }
 
-const ALL_EMPTY = { legacy: '', shard_1: '', shard_2: '' }
+const ALL_EMPTY = { legacy: '', proof: '', shard_1: '', shard_2: '' }
 
 describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
   test('a branch on the second page is found, and the cursor is sent as a query parameter', () => {
@@ -133,13 +135,19 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
           branches: [
             { id: 'br-legacy', name: LEGACY },
             { id: 'br-s2', name: SHARD_2 },
+            { id: 'br-proof', name: PROOF },
           ],
           pagination: {},
         },
       },
     ])
     expect(result.status).toBe(0)
-    expect(outputOf(result)).toEqual({ legacy: 'br-legacy', shard_1: '', shard_2: 'br-s2' })
+    expect(outputOf(result)).toEqual({
+      legacy: 'br-legacy',
+      proof: 'br-proof',
+      shard_1: '',
+      shard_2: 'br-s2',
+    })
     expect(result.requests).toHaveLength(2)
     expect(new URL(result.requests[0]!).searchParams.has('cursor')).toBe(false)
     expect(new URL(result.requests[1]!).searchParams.get('cursor')).toBe('cursor-2')
@@ -151,7 +159,12 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
       { body: { branches: [{ id: 'br-legacy', name: LEGACY }], pagination: {} } },
     ])
     expect(result.status).toBe(0)
-    expect(outputOf(result)).toEqual({ legacy: 'br-legacy', shard_1: 'br-s1', shard_2: '' })
+    expect(outputOf(result)).toEqual({
+      legacy: 'br-legacy',
+      proof: '',
+      shard_1: 'br-s1',
+      shard_2: '',
+    })
   })
 
   test('a genuinely absent branch is reported absent only after every page has been read', () => {
@@ -262,6 +275,9 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
             { id: 'wrong-prefix', name: `${SHARD_1}-old` },
             { id: 'wrong-case', name: SHARD_1.toUpperCase() },
             { id: 'wrong-trailing', name: `${SHARD_1} ` },
+            { id: 'proof-prefix', name: `${PROOF}-old` },
+            { id: 'proof-suffix', name: `old-${PROOF}` },
+            { id: 'proof-case', name: PROOF.toUpperCase() },
             { id: 'br-right', name: SHARD_1 },
           ],
           pagination: {},
@@ -269,7 +285,12 @@ describe('Neon cleanup resolver (shipped workflow block, offline)', () => {
       },
     ])
     expect(result.status).toBe(0)
-    expect(outputOf(result)).toEqual({ legacy: '', shard_1: 'br-right', shard_2: '' })
+    expect(outputOf(result)).toEqual({
+      legacy: '',
+      proof: '',
+      shard_1: 'br-right',
+      shard_2: '',
+    })
   })
 
   test('two different branches with the same requested name fail the job as ambiguous', () => {

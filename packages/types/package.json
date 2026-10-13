@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.87.0",
+  "version": "0.90.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -65,6 +65,11 @@
       "types": "./dist/dev-runtime-errors.d.ts",
       "development": "./src/dev-runtime-errors.ts",
       "import": "./dist/dev-runtime-errors.js"
+    },
+    "./management": {
+      "types": "./dist/management.d.ts",
+      "development": "./src/management.ts",
+      "import": "./dist/management.js"
     }
   },
   "scripts": {

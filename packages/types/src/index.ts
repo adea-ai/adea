@@ -1,5 +1,7 @@
 import type { TaskExecutionLocation } from './task-execution'
 
+// Management authority runtime helpers stay on the dedicated /management
+// subpath so browser consumers of this shared barrel do not ship that contract.
 export * from './artifact-reference'
 export * from './desktop-permissions'
 export * from './execution-location'
@@ -139,6 +141,8 @@ export type WorkspaceLogo =
 export type WorkspaceSummary = {
   /** Presentation capability only; permanent deletion rechecks ownership on the server. */
   canDelete?: boolean
+  /** Presentation capability only; archive rechecks ownership and Home protection on the server. */
+  canArchive?: boolean
   /** This caller's persistent personal workspace; independent of its presentation. */
   isPersonal?: boolean
   deletionPending?: boolean
@@ -187,6 +191,12 @@ export type ProjectSummary = Readonly<{
   sortOrder: number
   sourceKind: ProjectSourceKind
   updatedAt: string
+  /**
+   * Monotonic optimistic revision; every write to the project row increments
+   * it, so an observed value is stale after any later write — including two
+   * writes in the same millisecond. Timestamps remain display-only.
+   */
+  version: number
   visibility: ProjectVisibility
   workspaceId: string
 }>

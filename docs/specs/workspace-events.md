@@ -12,12 +12,16 @@ same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 **Projects, not rooms:** [ADR 0011](../decisions/0011-unified-workspace-projects.md)
 renamed the cloud room entity to projects in one migration (`0030`). The
 `project` family (`project.created`, `project.updated`, `project.archived`,
-`project.reordered`, `project.deleted`) replaced `room.*`, `task.room_changed`
-became `task.project_changed`, and `agent.room_assigned` became
-`agent.project_assigned`. The `room` aggregate type survives in the database
-enum only so historical rows stay readable; no current contract emits it, and a
-client that replays an old `room.*` event treats it as an unknown family and
-refreshes the workspace.
+`project.reordered`, `project.restored`, `project.deleted`) replaced `room.*`,
+`task.room_changed` became `task.project_changed`, and `agent.room_assigned`
+became `agent.project_assigned`. Explicit project-state promotion appends
+`project.restored`; it emits `channel.restored` only for channels archived by
+the project cascade (`archive_source = 'project_cascade'`), never for channels
+archived individually (aggregate `channel`, payload `actorUserId`, `channelId`,
+`projectId`; ids only, like `channel.archived`). The `room` aggregate type
+survives in the database enum only so historical rows stay readable; no
+current contract emits it, and a client that replays an old `room.*` event
+treats it as an unknown family and refreshes the workspace.
 
 **Sharing:** ADR 0012 (workspace memory, connections and sharing) made delivery
 per principal. A `members` project, its channels, messages, tasks and their artifacts are visible
@@ -44,6 +48,13 @@ and receive distinct ordered sequences; a rolled-back mutation releases its
 increment with the rest of the transaction, so committed events have no gaps a
 client could read as missing work. `(workspace_id, workspace_sequence)` is
 unique, and the sequence is positive by check constraint.
+
+Managed mutations that can append durable events acquire this counter row after
+their sorted domain-row locks and before the effect-time Control Plane authority
+recheck. This is a non-incrementing lock; `appendWorkspaceEvent` still allocates
+the sequence when it writes. Project archive and promotion therefore keep the
+project → channel → sequence lock order while avoiding a sequence-row wait after
+the current-authority check.
 
 **One publication path.** `appendWorkspaceEvent(transaction, { workspaceId,
 eventType, payload })` resolves the contract, validates the payload, allocates
@@ -216,8 +227,15 @@ read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes
-with them. `workspace.member_*` events fall in the `workspace` family and refresh the member and
-invitation queries under the workspace prefix.
+with them; they also refresh the account-wide inbox, whose rows include visible project channels.
+Agent-family events refresh both workspace Agent queries and the account-wide directory. Channel,
+message and thread events refresh the account-wide inbox because channel membership, titles,
+recency and unread state are projected there. A detected sequence gap or `resync_required` refreshes
+both account page families along with the workspace scope. These are prefix invalidations: each
+mounted directory/inbox walk rebuilds successor cursors from refreshed predecessors, preserving its
+loaded depth unless the refreshed results are exhausted. Its search and action controls stay
+mounted and retain focus while the keyset pages rebase. `workspace.member_*` events fall in the
+`workspace` family and refresh the member and invitation queries under the workspace prefix.
 
 ## Verifying it locally
 

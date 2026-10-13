@@ -1,5 +1,89 @@
 # Changelog
 
+## [0.90.0](https://github.com/adea-ai/adea/compare/v0.89.0...v0.90.0) (2026-10-12)
+
+
+### Features
+
+* **management:** route human and lead controls through shared audited APIs ([#1215](https://github.com/adea-ai/adea/issues/1215)) ([#1230](https://github.com/adea-ai/adea/issues/1230)) ([14b10b7](https://github.com/adea-ai/adea/commit/14b10b7af67ee9849145906d67064c479627b09e))
+
+
+### Bug Fixes
+
+* **db:** preflight canonical migration history ([#1281](https://github.com/adea-ai/adea/issues/1281)) ([155ed32](https://github.com/adea-ai/adea/commit/155ed327a55de01fcc890c20a9d006116cf9db39))
+* **deps:** update dependency @adea-ai/contracts to v1.21.0 ([#1284](https://github.com/adea-ai/adea/issues/1284)) ([a14778e](https://github.com/adea-ai/adea/commit/a14778eeab0265f299a2913d2fbd8395acf621a0))
+* **deps:** update dependency @adea-ai/ui to v0.123.1 ([#1279](https://github.com/adea-ai/adea/issues/1279)) ([bc3fd1b](https://github.com/adea-ai/adea/commit/bc3fd1b07befaea2dc01f424423a4d0af7bcbd34))
+
+
+### Performance
+
+* **ci:** overlap E2E runner preparation ([#1283](https://github.com/adea-ai/adea/issues/1283)) ([bb08429](https://github.com/adea-ai/adea/commit/bb0842990a0fff536dfe6fe531f3f8a63b358f75))
+
+
+### Tests
+
+* **db:** rehearse canonical backfill quarantine ([#1222](https://github.com/adea-ai/adea/issues/1222)) ([#1282](https://github.com/adea-ai/adea/issues/1282)) ([5e114cb](https://github.com/adea-ai/adea/commit/5e114cb58bd930550d08a4b438f7cce24a7b3787))
+* **desktop:** cover retained session transfer and fallback ([#1223](https://github.com/adea-ai/adea/issues/1223)) ([#1285](https://github.com/adea-ai/adea/issues/1285)) ([864745a](https://github.com/adea-ai/adea/commit/864745ae87c252e8b291c9cff7408bf0deb4ee59))
+
+
+### CI
+
+* bound Neon proof and shard E2E validation ([#1280](https://github.com/adea-ai/adea/issues/1280)) ([386706b](https://github.com/adea-ai/adea/commit/386706bc0bad2d753071aae8a92944718f84800d))
+* use npm trusted publishing for audio and spatial ([#1287](https://github.com/adea-ai/adea/issues/1287)) ([2e2134a](https://github.com/adea-ai/adea/commit/2e2134aadad10265820c13c7361b6b92b723df69))
+
+## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
+
+
+### Features
+
+* retain explicit lead and child model-role choices ([#1229](https://github.com/adea-ai/adea/issues/1229)) ([c255008](https://github.com/adea-ai/adea/commit/c255008527b16a82bb1031ce8357fdbf5f47af2b))
+* **workspace:** archive and reopen optional workspaces from settings ([#1175](https://github.com/adea-ai/adea/issues/1175)) ([#1266](https://github.com/adea-ai/adea/issues/1266)) ([5fed288](https://github.com/adea-ai/adea/commit/5fed2884e564a5ed5605546267d7e11c06909795))
+
+
+### Bug Fixes
+
+* **deps:** update control-plane packages; retain compatible themes ([#1276](https://github.com/adea-ai/adea/issues/1276)) ([d9fee85](https://github.com/adea-ai/adea/commit/d9fee85ba56dc9a9a0ba1e120484578774062383))
+* **deps:** update dependency @adea-ai/themes to v0.10.3 ([#1275](https://github.com/adea-ai/adea/issues/1275)) ([7417f31](https://github.com/adea-ai/adea/commit/7417f31c4d1bfc336c56c7330e39b17b89921909))
+* **deps:** update dependency @adea-ai/themes to v0.10.4 ([#1277](https://github.com/adea-ai/adea/issues/1277)) ([0d53b47](https://github.com/adea-ai/adea/commit/0d53b477b0b3a8b3f6172bfe23cc4e903c243ea5))
+
+## [0.88.0](https://github.com/adea-ai/adea/compare/v0.87.0...v0.88.0) (2026-10-10)
+
+
+### Features
+
+* **db:** add read-only migration snapshot capture ([#1231](https://github.com/adea-ai/adea/issues/1231)) ([9fb30c4](https://github.com/adea-ai/adea/commit/9fb30c495ca9a4d7e680c24746924cc264e93203))
+* **db:** capture grants, jobs, runtime mappings and retained replicas ([#1219](https://github.com/adea-ai/adea/issues/1219)) ([#1248](https://github.com/adea-ai/adea/issues/1248)) ([0caee53](https://github.com/adea-ai/adea/commit/0caee533ab7d13963b79a0fd2aeaf74163c9f038))
+* **db:** persist artifact-reference grant registration and revocation ([#1207](https://github.com/adea-ai/adea/issues/1207)) ([93dab4d](https://github.com/adea-ai/adea/commit/93dab4d0604d006725b4bcff071cf60c9bc653d7))
+* **db:** wire artifact-reference grants into publication and retrieval ([#1216](https://github.com/adea-ai/adea/issues/1216)) ([#1246](https://github.com/adea-ai/adea/issues/1246)) ([34a3eaa](https://github.com/adea-ai/adea/commit/34a3eaad69b6f2d671fd802bfe21bb629e7609ff))
+* **evidence:** M18 evidence manifest validator ([#1225](https://github.com/adea-ai/adea/issues/1225)) ([#1236](https://github.com/adea-ai/adea/issues/1236)) ([40f54c8](https://github.com/adea-ai/adea/commit/40f54c826aa31de022b8596ec9c379bb61c132a8))
+* **home:** provision structural workspace lead on signed-in setup ([#1238](https://github.com/adea-ai/adea/issues/1238)) ([4495689](https://github.com/adea-ai/adea/commit/449568904e99718cf52e63fadad6dac58db7e277))
+* **workspace:** creation context on workspace creation surfaces ([#1261](https://github.com/adea-ai/adea/issues/1261)) ([#1264](https://github.com/adea-ai/adea/issues/1264)) ([6a72735](https://github.com/adea-ai/adea/commit/6a727352f0859c84112b7f687f11534c4bd51d7b))
+
+
+### Bug Fixes
+
+* **deps:** update @adea-ai/contracts to 1.19.1 ([#1271](https://github.com/adea-ai/adea/issues/1271)) ([55f4573](https://github.com/adea-ai/adea/commit/55f4573b3d8d6d5ab346fc6e6e8d3d7527298f9a))
+* **deps:** update @adea-ai/sdk to 1.17.0 (SDK-only) ([#1242](https://github.com/adea-ai/adea/issues/1242)) ([4690015](https://github.com/adea-ai/adea/commit/469001584b7984cb3c581b10cbd169fa1eda262a))
+* **deps:** update adea-ai design system ([#1234](https://github.com/adea-ai/adea/issues/1234)) ([d74641c](https://github.com/adea-ai/adea/commit/d74641c76c4fcf5950dd8c0b76e9a9a131c7b96b))
+* **web:** keep the chat route within its static bundle budget ([#1259](https://github.com/adea-ai/adea/issues/1259)) ([f499bdb](https://github.com/adea-ai/adea/commit/f499bdbad159ed4a3940fd6f74fd7048c85125b8))
+* **web:** scope ?workspace= completion to its own link ([#1268](https://github.com/adea-ai/adea/issues/1268)) ([363e472](https://github.com/adea-ai/adea/commit/363e472c44f589abfd68427543f85ac46643c8c1))
+* **workspace:** restore the task board's accessibility tree after the linked-task flow ([#1240](https://github.com/adea-ai/adea/issues/1240)) ([d3f5a12](https://github.com/adea-ai/adea/commit/d3f5a127255cd478689e581ecf5387e5d21ac2a0)), closes [#1239](https://github.com/adea-ai/adea/issues/1239)
+
+
+### Tests
+
+* **a11y:** open the left utility slot before the cert 2.5.8 strip check ([#1256](https://github.com/adea-ai/adea/issues/1256)) ([#1257](https://github.com/adea-ai/adea/issues/1257)) ([cd6d4e3](https://github.com/adea-ai/adea/commit/cd6d4e33454cdb122caaa7161e4b03a99ab682ff))
+* **a11y:** wait for the account menu's focus before the dialogs test moves it ([#1262](https://github.com/adea-ai/adea/issues/1262)) ([#1263](https://github.com/adea-ai/adea/issues/1263)) ([85ca9c0](https://github.com/adea-ai/adea/commit/85ca9c01c048d2973280dd7a5cb9312619796cb6))
+* **journeys:** cross-product session journeys for [#1223](https://github.com/adea-ai/adea/issues/1223) ([#1249](https://github.com/adea-ai/adea/issues/1249)) ([159d4bf](https://github.com/adea-ai/adea/commit/159d4bf3792ae9a54f05e78918c2742b6b98a22a))
+* preserve installed lead production-factory proof ([#1209](https://github.com/adea-ai/adea/issues/1209)) ([cc60506](https://github.com/adea-ai/adea/commit/cc60506b2eeb0ccd42ce89c3da601dfde60e86c4))
+* **readiness:** pin M18 readiness evidence and disclose gaps ([#1260](https://github.com/adea-ai/adea/issues/1260)) ([#1252](https://github.com/adea-ai/adea/issues/1252)) ([c6ace36](https://github.com/adea-ai/adea/commit/c6ace36270d525d7be80a5eead42bc87101dbffc))
+* **web:** close empty-data and deleted-workspace coverage for the global directory callers ([#1174](https://github.com/adea-ai/adea/issues/1174)) ([#1251](https://github.com/adea-ai/adea/issues/1251)) ([e8b75da](https://github.com/adea-ai/adea/commit/e8b75daa5cc996a4c0d84489a3885535c3045a2f))
+
+
+### CI
+
+* **neon:** run the integration inventory as two shards behind the migrate gate ([#1269](https://github.com/adea-ai/adea/issues/1269)) ([#1270](https://github.com/adea-ai/adea/issues/1270)) ([97189b6](https://github.com/adea-ai/adea/commit/97189b663e04d419cb0de90c51caa1d20767deec))
+
 ## [0.87.0](https://github.com/adea-ai/adea/compare/v0.86.0...v0.87.0) (2026-10-09)
 
 

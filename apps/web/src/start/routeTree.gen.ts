@@ -22,6 +22,7 @@ import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/mark
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
+import { Route as ApiWorkspacesArchivedRouteImport } from './routes/api/workspaces/archived'
 import { Route as ApiWorkspacesBootstrapRouteImport } from './routes/api/workspaces/bootstrap'
 import { Route as ApiWorkspacesClaimRouteImport } from './routes/api/workspaces/claim'
 import { Route as ApiWorkspacesReorderRouteImport } from './routes/api/workspaces/reorder'
@@ -31,11 +32,13 @@ import { Route as ApiAuthDesktopExchangeRouteImport } from './routes/api/auth/de
 import { Route as ApiAuthDesktopLogoutRouteImport } from './routes/api/auth/desktop/logout'
 import { Route as ApiAuthDesktopRefreshRouteImport } from './routes/api/auth/desktop/refresh'
 import { Route as ApiAuthDesktopRevokeRouteImport } from './routes/api/auth/desktop/revoke'
+import { Route as ApiInternalPiDurableManagementRouteImport } from './routes/api/internal/pi-durable/management'
 import { Route as ApiMarketplaceInstallationsGetRouteImport } from './routes/api/marketplace/installations/get'
 import { Route as ApiMarketplaceInstallationsUninstallRouteImport } from './routes/api/marketplace/installations/uninstall'
 import { Route as ApiV1AccountAgentsRouteImport } from './routes/api/v1/account/agents'
 import { Route as ApiV1AccountConversationsRouteImport } from './routes/api/v1/account/conversations'
 import { Route as ApiV1AccountSummaryRouteImport } from './routes/api/v1/account/summary'
+import { Route as ApiWorkspacesWorkspaceIdArchiveRouteImport } from './routes/api/workspaces/$workspaceId/archive'
 import { Route as ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/cloud-connections'
 import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api/workspaces/$workspaceId/delete'
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
@@ -86,6 +89,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRouteImport 
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -181,6 +185,11 @@ const ApiWorkspacesWorkspaceIdRoute =
     path: '/$workspaceId',
     getParentRoute: () => ApiWorkspacesRoute,
   } as any)
+const ApiWorkspacesArchivedRoute = ApiWorkspacesArchivedRouteImport.update({
+  id: '/archived',
+  path: '/archived',
+  getParentRoute: () => ApiWorkspacesRoute,
+} as any)
 const ApiWorkspacesBootstrapRoute = ApiWorkspacesBootstrapRouteImport.update({
   id: '/bootstrap',
   path: '/bootstrap',
@@ -226,6 +235,12 @@ const ApiAuthDesktopRevokeRoute = ApiAuthDesktopRevokeRouteImport.update({
   path: '/api/auth/desktop/revoke',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalPiDurableManagementRoute =
+  ApiInternalPiDurableManagementRouteImport.update({
+    id: '/api/internal/pi-durable/management',
+    path: '/api/internal/pi-durable/management',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiMarketplaceInstallationsGetRoute =
   ApiMarketplaceInstallationsGetRouteImport.update({
     id: '/api/marketplace/installations/get',
@@ -254,6 +269,12 @@ const ApiV1AccountSummaryRoute = ApiV1AccountSummaryRouteImport.update({
   path: '/api/v1/account/summary',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesWorkspaceIdArchiveRoute =
+  ApiWorkspacesWorkspaceIdArchiveRouteImport.update({
+    id: '/archive',
+    path: '/archive',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
 const ApiWorkspacesWorkspaceIdCloudConnectionsRoute =
   ApiWorkspacesWorkspaceIdCloudConnectionsRouteImport.update({
     id: '/cloud-connections',
@@ -554,6 +575,12 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute =
     path: '/members',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute =
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport.update({
+    id: '/restore',
+    path: '/restore',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute =
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRouteImport.update({
     id: '/visibility',
@@ -730,6 +757,7 @@ export interface FileRoutesByFullPath {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -739,11 +767,13 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -794,6 +824,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -834,6 +865,7 @@ export interface FileRoutesByTo {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -843,11 +875,13 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -898,6 +932,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -939,6 +974,7 @@ export interface FileRoutesById {
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  '/api/workspaces/archived': typeof ApiWorkspacesArchivedRoute
   '/api/workspaces/bootstrap': typeof ApiWorkspacesBootstrapRoute
   '/api/workspaces/claim': typeof ApiWorkspacesClaimRoute
   '/api/workspaces/reorder': typeof ApiWorkspacesReorderRoute
@@ -948,11 +984,13 @@ export interface FileRoutesById {
   '/api/auth/desktop/logout': typeof ApiAuthDesktopLogoutRoute
   '/api/auth/desktop/refresh': typeof ApiAuthDesktopRefreshRoute
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
+  '/api/internal/pi-durable/management': typeof ApiInternalPiDurableManagementRoute
   '/api/marketplace/installations/get': typeof ApiMarketplaceInstallationsGetRoute
   '/api/marketplace/installations/uninstall': typeof ApiMarketplaceInstallationsUninstallRoute
   '/api/v1/account/agents': typeof ApiV1AccountAgentsRouteWithChildren
   '/api/v1/account/conversations': typeof ApiV1AccountConversationsRouteWithChildren
   '/api/v1/account/summary': typeof ApiV1AccountSummaryRoute
+  '/api/workspaces/$workspaceId/archive': typeof ApiWorkspacesWorkspaceIdArchiveRoute
   '/api/workspaces/$workspaceId/cloud-connections': typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   '/api/workspaces/$workspaceId/delete': typeof ApiWorkspacesWorkspaceIdDeleteRoute
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -1003,6 +1041,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
@@ -1045,6 +1084,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1054,11 +1094,13 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1109,6 +1151,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1149,6 +1192,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1158,11 +1202,13 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1213,6 +1259,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1253,6 +1300,7 @@ export interface FileRouteTypes {
     | '/api/telemetry/scene-performance'
     | '/api/workspace-invitations/accept'
     | '/api/workspaces/$workspaceId'
+    | '/api/workspaces/archived'
     | '/api/workspaces/bootstrap'
     | '/api/workspaces/claim'
     | '/api/workspaces/reorder'
@@ -1262,11 +1310,13 @@ export interface FileRouteTypes {
     | '/api/auth/desktop/logout'
     | '/api/auth/desktop/refresh'
     | '/api/auth/desktop/revoke'
+    | '/api/internal/pi-durable/management'
     | '/api/marketplace/installations/get'
     | '/api/marketplace/installations/uninstall'
     | '/api/v1/account/agents'
     | '/api/v1/account/conversations'
     | '/api/v1/account/summary'
+    | '/api/workspaces/$workspaceId/archive'
     | '/api/workspaces/$workspaceId/cloud-connections'
     | '/api/workspaces/$workspaceId/delete'
     | '/api/workspaces/$workspaceId/model-connections'
@@ -1317,6 +1367,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members'
+    | '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
@@ -1363,6 +1414,7 @@ export interface RootRouteChildren {
   ApiAuthDesktopLogoutRoute: typeof ApiAuthDesktopLogoutRoute
   ApiAuthDesktopRefreshRoute: typeof ApiAuthDesktopRefreshRoute
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
+  ApiInternalPiDurableManagementRoute: typeof ApiInternalPiDurableManagementRoute
   ApiMarketplaceInstallationsGetRoute: typeof ApiMarketplaceInstallationsGetRoute
   ApiMarketplaceInstallationsUninstallRoute: typeof ApiMarketplaceInstallationsUninstallRoute
   ApiV1AccountAgentsRoute: typeof ApiV1AccountAgentsRouteWithChildren
@@ -1488,6 +1540,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdRouteImport
       parentRoute: typeof ApiWorkspacesRoute
     }
+    '/api/workspaces/archived': {
+      id: '/api/workspaces/archived'
+      path: '/archived'
+      fullPath: '/api/workspaces/archived'
+      preLoaderRoute: typeof ApiWorkspacesArchivedRouteImport
+      parentRoute: typeof ApiWorkspacesRoute
+    }
     '/api/workspaces/bootstrap': {
       id: '/api/workspaces/bootstrap'
       path: '/bootstrap'
@@ -1551,6 +1610,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiAuthDesktopRevokeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/pi-durable/management': {
+      id: '/api/internal/pi-durable/management'
+      path: '/api/internal/pi-durable/management'
+      fullPath: '/api/internal/pi-durable/management'
+      preLoaderRoute: typeof ApiInternalPiDurableManagementRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/marketplace/installations/get': {
       id: '/api/marketplace/installations/get'
       path: '/api/marketplace/installations/get'
@@ -1585,6 +1651,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/v1/account/summary'
       preLoaderRoute: typeof ApiV1AccountSummaryRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces/$workspaceId/archive': {
+      id: '/api/workspaces/$workspaceId/archive'
+      path: '/archive'
+      fullPath: '/api/workspaces/$workspaceId/archive'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdArchiveRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
     }
     '/api/workspaces/$workspaceId/cloud-connections': {
       id: '/api/workspaces/$workspaceId/cloud-connections'
@@ -1936,6 +2009,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/projects/$projectId/restore': {
+      id: '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
+      path: '/restore'
+      fullPath: '/api/v1/workspaces/$workspaceId/projects/$projectId/restore'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRoute
+    }
     '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility': {
       id: '/api/v1/workspaces/$workspaceId/projects/$projectId/visibility'
       path: '/visibility'
@@ -2172,6 +2252,7 @@ const ApiWorkspacesWorkspaceIdSkillsRouteWithChildren =
   )
 
 interface ApiWorkspacesWorkspaceIdRouteChildren {
+  ApiWorkspacesWorkspaceIdArchiveRoute: typeof ApiWorkspacesWorkspaceIdArchiveRoute
   ApiWorkspacesWorkspaceIdCloudConnectionsRoute: typeof ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren
   ApiWorkspacesWorkspaceIdDeleteRoute: typeof ApiWorkspacesWorkspaceIdDeleteRoute
   ApiWorkspacesWorkspaceIdModelConnectionsRoute: typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
@@ -2181,6 +2262,7 @@ interface ApiWorkspacesWorkspaceIdRouteChildren {
 
 const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildren =
   {
+    ApiWorkspacesWorkspaceIdArchiveRoute: ApiWorkspacesWorkspaceIdArchiveRoute,
     ApiWorkspacesWorkspaceIdCloudConnectionsRoute:
       ApiWorkspacesWorkspaceIdCloudConnectionsRouteWithChildren,
     ApiWorkspacesWorkspaceIdDeleteRoute: ApiWorkspacesWorkspaceIdDeleteRoute,
@@ -2198,6 +2280,7 @@ const ApiWorkspacesWorkspaceIdRouteWithChildren =
 
 interface ApiWorkspacesRouteChildren {
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
+  ApiWorkspacesArchivedRoute: typeof ApiWorkspacesArchivedRoute
   ApiWorkspacesBootstrapRoute: typeof ApiWorkspacesBootstrapRoute
   ApiWorkspacesClaimRoute: typeof ApiWorkspacesClaimRoute
   ApiWorkspacesReorderRoute: typeof ApiWorkspacesReorderRoute
@@ -2205,6 +2288,7 @@ interface ApiWorkspacesRouteChildren {
 
 const ApiWorkspacesRouteChildren: ApiWorkspacesRouteChildren = {
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
+  ApiWorkspacesArchivedRoute: ApiWorkspacesArchivedRoute,
   ApiWorkspacesBootstrapRoute: ApiWorkspacesBootstrapRoute,
   ApiWorkspacesClaimRoute: ApiWorkspacesClaimRoute,
   ApiWorkspacesReorderRoute: ApiWorkspacesReorderRoute,
@@ -2378,6 +2462,7 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren =
 interface ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute
   ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute
 }
 
@@ -2387,6 +2472,8 @@ const ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteChildren: ApiV1WorkspacesW
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute,
     ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRoute:
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute:
+      ApiV1WorkspacesWorkspaceIdProjectsProjectIdRestoreRoute,
     ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute:
       ApiV1WorkspacesWorkspaceIdProjectsProjectIdVisibilityRoute,
   }
@@ -2535,6 +2622,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthDesktopLogoutRoute: ApiAuthDesktopLogoutRoute,
   ApiAuthDesktopRefreshRoute: ApiAuthDesktopRefreshRoute,
   ApiAuthDesktopRevokeRoute: ApiAuthDesktopRevokeRoute,
+  ApiInternalPiDurableManagementRoute: ApiInternalPiDurableManagementRoute,
   ApiMarketplaceInstallationsGetRoute: ApiMarketplaceInstallationsGetRoute,
   ApiMarketplaceInstallationsUninstallRoute:
     ApiMarketplaceInstallationsUninstallRoute,

@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
@@ -15,6 +15,29 @@ export function inTransaction<T>(
   operation: (transaction: AgentHqTransaction) => Promise<T>
 ): Promise<T> {
   return database.transaction(operation)
+}
+
+/**
+ * Lock a workspace's event sequence without consuming it. Managed mutations
+ * use this after acquiring their domain rows and before rechecking current
+ * authority, so an event append cannot wait on the sequence after that check.
+ */
+export async function lockWorkspaceEventSequence(
+  transaction: AgentHqTransaction,
+  workspaceId: string
+): Promise<void> {
+  await transaction
+    .insert(workspaceEventSequences)
+    .values({ workspaceId, lastSequence: 0 })
+    .onConflictDoNothing({ target: workspaceEventSequences.workspaceId })
+
+  const [sequence] = await transaction
+    .select({ workspaceId: workspaceEventSequences.workspaceId })
+    .from(workspaceEventSequences)
+    .where(eq(workspaceEventSequences.workspaceId, workspaceId))
+    .for('update')
+
+  if (!sequence) throw new Error('Workspace event sequence lock failed')
 }
 
 /** What a domain mutation hands to the durable event log. */

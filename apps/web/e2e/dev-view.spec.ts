@@ -524,9 +524,15 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(page.getByRole('region', { name: 'terminal pane' })).toHaveCount(2)
   await expect(page.getByRole('region', { name: 'editor pane' })).toHaveCount(0)
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
+  // The first separator can render as a disabled geometry placeholder while
+  // SplitLayout's lazy resize controller loads. Wait for the live handle before
+  // sending its first keyboard event.
+  await expect(separator).not.toHaveAttribute('aria-disabled', 'true')
   await separator.focus()
+  await expect(separator).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
+  await expect(separator).toBeFocused()
 
   await page.getByRole('button', { name: 'Split pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
@@ -544,9 +550,12 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   // The balanced grid stacks a column root over the row branch; horizontal
   // handles are the row's ArrowLeft/ArrowRight surface.
   const rowSeparator = centerSeparators.and(page.locator('[data-orientation="horizontal"]'))
+  await expect(rowSeparator).not.toHaveAttribute('aria-disabled', 'true')
   await rowSeparator.focus()
+  await expect(rowSeparator).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect(rowSeparator).toHaveAttribute('aria-valuenow', '55')
+  await expect(rowSeparator).toBeFocused()
 
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   const projectsSidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
@@ -750,6 +759,35 @@ test('center panes move by keyboard while keeping one primary session', async ({
   await expect(page.getByRole('button', { name: 'New session' })).toHaveCount(0)
 })
 
+test('the active pane resize handle keeps resizing after its layout callback updates', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openDevView(page, '/?view=dev&devE2e=preserved')
+
+  const panes = page.locator('[data-pane-id]')
+  await expect(panes).toHaveCount(1)
+  await page.getByRole('button', { name: 'Split pane', exact: true }).click()
+
+  const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
+  await expect(separator).toHaveCount(1)
+  // SplitLayout loads its controller on demand. Wait for the live keyboard
+  // control, rather than treating its disabled geometry placeholder as ready.
+  await expect(separator).not.toHaveAttribute('aria-disabled', 'true')
+  await separator.focus()
+  await expect(separator).toBeFocused()
+
+  // Each resize publishes new layout state, which replaces the app's onResize
+  // callback while the same separator remains mounted and active.
+  await page.keyboard.press('ArrowRight')
+  await expect(separator).toHaveAttribute('aria-valuenow', '55')
+  await expect(separator).toBeFocused()
+
+  await page.keyboard.press('ArrowRight')
+  await expect(separator).toHaveAttribute('aria-valuenow', '60')
+  await expect(separator).toBeFocused()
+})
+
 test('the Dev shell restores the session layout document after a reload', async ({ page }) => {
   test.slow()
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -760,9 +798,12 @@ test('the Dev shell restores the session layout document after a reload', async 
   await expectPointerHitsButton(page, splitPane, 'Split pane')
   await splitPane.click()
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
+  await expect(separator).not.toHaveAttribute('aria-disabled', 'true')
   await separator.focus()
+  await expect(separator).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
+  await expect(separator).toBeFocused()
 
   await devSidebarControl(page, 'Expand utility sidebar').click()
   const rightUtilities = page.getByRole('complementary', { name: 'Shared developer utilities' })

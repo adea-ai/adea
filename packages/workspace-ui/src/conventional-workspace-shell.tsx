@@ -599,6 +599,11 @@ export function ConventionalWorkspaceShell(props: {
                           }
                         >
                           <AgentRoster
+                            accountDirectory={
+                              workspaceHost().globalNav?.agents
+                                ? (context) => workspaceHost().globalNav!.agents!(context)
+                                : undefined
+                            }
                             leadStatus={
                               <Suspense
                                 fallback={<p role="status">Checking the workspace lead…</p>}

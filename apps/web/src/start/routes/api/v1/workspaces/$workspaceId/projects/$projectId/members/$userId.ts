@@ -1,15 +1,14 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import type { ApiProjectMemberRemoveResponse, ApiProjectMemberResponse } from '@adea-ai/api-client'
-import { isProjectMemberRole, removeProjectMember, setProjectMember } from '@adea-ai/db'
+import { isProjectMemberRole } from '@adea-ai/db'
 
-import { applicationDatabase } from '../../../../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../../../server/desktop-workspace'
+import { applicationManagementOperations } from '../../../../../../../../../server/management-composition'
 import { withRequestScope } from '../../../../../../../../../server/request-scope'
-import { isUuid, sharingErrorResponse } from '../../../../../../../../../server/sharing-request'
-import { authorizeWorkspace } from '../../../../../../../../../server/workspace-authorization'
+import { isUuid } from '../../../../../../../../../server/sharing-request'
 import { resolveWorkspacePrincipal } from '../../../../../../../../../server/workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -25,12 +24,7 @@ async function authorized(request: Request, params: Params) {
   if (rejected) return { response: rejected }
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return { response: workspaceUnavailableResponse(request, 401) }
-  if (
-    !(await authorizeWorkspace(resolution.principal, 'membership.manage', params.workspaceId))
-      .allowed ||
-    !isUuid(params.projectId) ||
-    !isUuid(params.userId)
-  )
+  if (!isUuid(params.projectId) || !isUuid(params.userId))
     return { response: workspaceUnavailableResponse(request) }
   return { resolution }
 }
@@ -51,39 +45,38 @@ async function put(request: Request, params: Params) {
     !isProjectMemberRole(body.role)
   )
     return workspaceInvalidRequestResponse(request)
-  try {
-    const payload: ApiProjectMemberResponse = {
-      member: await setProjectMember(
-        applicationDatabase(),
-        params.workspaceId,
-        params.projectId,
-        resolution.principal,
-        { role: body.role, userId: params.userId }
-      ),
-    }
-    return workspaceJsonResponse(payload, resolution, request)
-  } catch (error) {
-    return sharingErrorResponse(error, resolution, request)
+  const outcome = await applicationManagementOperations().projectMemberSet({
+    principal: resolution.principal,
+    projectId: params.projectId,
+    role: body.role,
+    userId: params.userId,
+    workspaceId: params.workspaceId,
+  })
+  if (!outcome.ok) {
+    if (outcome.failure.code === 'unavailable' || outcome.failure.code === 'forbidden')
+      return workspaceUnavailableResponse(request)
+    throw new Error('Project member update failed')
   }
+  const payload: ApiProjectMemberResponse = { member: outcome.value }
+  return workspaceJsonResponse(payload, resolution, request)
 }
 
 async function remove(request: Request, params: Params) {
   const { resolution, response } = await authorized(request, params)
   if (!resolution) return response
-  try {
-    const payload: ApiProjectMemberRemoveResponse = {
-      removed: await removeProjectMember(
-        applicationDatabase(),
-        params.workspaceId,
-        params.projectId,
-        resolution.principal,
-        params.userId
-      ),
-    }
-    return workspaceJsonResponse(payload, resolution, request)
-  } catch (error) {
-    return sharingErrorResponse(error, resolution, request)
+  const outcome = await applicationManagementOperations().projectMemberRemove({
+    principal: resolution.principal,
+    projectId: params.projectId,
+    userId: params.userId,
+    workspaceId: params.workspaceId,
+  })
+  if (!outcome.ok) {
+    if (outcome.failure.code === 'unavailable' || outcome.failure.code === 'forbidden')
+      return workspaceUnavailableResponse(request)
+    throw new Error('Project member removal failed')
   }
+  const payload: ApiProjectMemberRemoveResponse = { removed: outcome.value }
+  return workspaceJsonResponse(payload, resolution, request)
 }
 
 export const Route = createFileRoute(

@@ -1,15 +1,14 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import type { ApiProjectResponse } from '@adea-ai/api-client'
-import { isProjectVisibility, setProjectVisibility } from '@adea-ai/db'
+import { isProjectVisibility } from '@adea-ai/db'
 
-import { applicationDatabase } from '../../../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../../server/desktop-workspace'
+import { applicationManagementOperations } from '../../../../../../../../server/management-composition'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
-import { isUuid, sharingErrorResponse } from '../../../../../../../../server/sharing-request'
-import { authorizeWorkspace } from '../../../../../../../../server/workspace-authorization'
+import { isUuid } from '../../../../../../../../server/sharing-request'
 import { resolveWorkspacePrincipal } from '../../../../../../../../server/workspace-principal'
 import {
   workspaceInvalidRequestResponse,
@@ -23,8 +22,6 @@ async function patch(request: Request, workspaceId: string, projectId: string) {
   if (rejected) return rejected
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'membership.manage', workspaceId)).allowed)
-    return workspaceUnavailableResponse(request)
   if (!isUuid(projectId)) return workspaceUnavailableResponse(request)
   let body: Record<string, unknown>
   try {
@@ -39,20 +36,19 @@ async function patch(request: Request, workspaceId: string, projectId: string) {
     !isProjectVisibility(body.visibility)
   )
     return workspaceInvalidRequestResponse(request)
-  try {
-    const payload: ApiProjectResponse = {
-      project: await setProjectVisibility(
-        applicationDatabase(),
-        workspaceId,
-        projectId,
-        resolution.principal,
-        body.visibility
-      ),
-    }
-    return workspaceJsonResponse(payload, resolution, request)
-  } catch (error) {
-    return sharingErrorResponse(error, resolution, request)
+  const outcome = await applicationManagementOperations().projectVisibilitySet({
+    principal: resolution.principal,
+    projectId,
+    visibility: body.visibility,
+    workspaceId,
+  })
+  if (!outcome.ok) {
+    if (outcome.failure.code === 'unavailable' || outcome.failure.code === 'forbidden')
+      return workspaceUnavailableResponse(request)
+    throw new Error('Project visibility update failed')
   }
+  const payload: ApiProjectResponse = { project: outcome.value }
+  return workspaceJsonResponse(payload, resolution, request)
 }
 
 export const Route = createFileRoute(

@@ -28,6 +28,16 @@ export const channelLifecycleState = appSchema.enum('channel_lifecycle_state', [
   'active',
   'archived',
 ])
+/**
+ * How a channel came to be archived. `individual` is an explicit channel
+ * action (and the default for historical rows); `project_cascade` marks the
+ * project-archive cascade. Explicit project promotion restores exactly the
+ * cascade set, so a channel archived independently is never silently revived.
+ */
+export const channelArchiveSource = appSchema.enum('channel_archive_source', [
+  'individual',
+  'project_cascade',
+])
 export const channelVisibility = appSchema.enum('channel_visibility', ['workspace', 'participants'])
 export const conversationPrincipalKind = appSchema.enum('conversation_principal_kind', [
   'user',
@@ -51,6 +61,7 @@ export const channels = appSchema.table(
     isPrimaryProjectChannel: boolean('is_primary_project_channel').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: channelLifecycleState('lifecycle_state').default('active').notNull(),
+    archiveSource: channelArchiveSource('archive_source').default('individual').notNull(),
     /**
      * Sequence of the newest live top-level message, or 0 when there is none.
      * Denormalized so the account summary can count unread channels across
