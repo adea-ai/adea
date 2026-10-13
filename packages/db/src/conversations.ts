@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import { PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS } from '@adea-ai/types/portable-export'
 import type {
   ChannelSummary,
   ConversationParticipantRef,
@@ -7,7 +8,7 @@ import type {
   MessageSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, gt, inArray, isNull, max, sql } from 'drizzle-orm'
+import { and, asc, eq, exists, gt, inArray, isNull, max, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
@@ -20,6 +21,7 @@ import {
   admissionInForce,
   admissionForParticipant,
   loadGroupAdmission,
+  groupChannelIdsInForce,
   loadGroupRoster,
   loadGroupSharingGrants,
 } from './group-participation-store'
@@ -42,6 +44,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  groupSharingGrants,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -272,6 +275,29 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
               )
               .toSorted(compareByStableKey)
           )
+  return channelSummaryFromRefs(row, participants)
+}
+
+function channelSummaryFromParticipants(
+  row: ChannelRow,
+  participantRows: readonly (typeof channelParticipants.$inferSelect)[]
+): ChannelSummary {
+  return channelSummaryFromRefs(
+    row,
+    participantRows
+      .map((participant): ConversationParticipantRef =>
+        participant.principalKind === 'user'
+          ? { kind: 'user', userId: participant.userId! }
+          : { agentId: participant.agentId!, kind: 'agent' }
+      )
+      .toSorted(compareByStableKey)
+  )
+}
+
+function channelSummaryFromRefs(
+  row: ChannelRow,
+  participants: readonly ConversationParticipantRef[]
+): ChannelSummary {
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -291,7 +317,8 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
   })
 }
 
-async function groupParticipantsInForce(
+/** A group's participants: the admissions still in force under their live grants. */
+export async function groupParticipantsInForce(
   database: Database,
   row: ChannelRow
 ): Promise<ConversationParticipantRef[]> {
@@ -765,6 +792,305 @@ export const createGroupChannel = (
     kind: 'group',
     visibility: 'participants',
   })
+
+export type ChannelPageCursor = Readonly<{ id: string }>
+export type ChannelPage = Readonly<{
+  channels: readonly ChannelSummary[]
+  nextAfter: ChannelPageCursor | undefined
+  participantRowsMaterialized: number
+}>
+export const CHANNEL_SUMMARY_PAGE_SIZE = 256
+const CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT = PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS
+
+export class ChannelParticipantOverflowError extends Error {
+  constructor() {
+    super('Channel participants exceed the portable export bound')
+    this.name = 'ChannelParticipantOverflowError'
+  }
+}
+
+/** Candidate pruning only. Canonical access is proved before any summary is read. */
+async function readableChannelPageRows(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{
+    after?: ChannelPageCursor
+    channelIds?: readonly string[]
+    includeArchived?: boolean
+    limit: number
+  }>
+) {
+  const scope = await requireProjectAccessScope(
+    database,
+    workspaceId,
+    principal,
+    'Channel unavailable'
+  )
+  const participant = database
+    .select({ id: channelParticipants.id })
+    .from(channelParticipants)
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channels.id),
+        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.userId, principal.userId)
+      )
+    )
+  const admission = database
+    .select({ id: groupAdmissions.id })
+    .from(groupAdmissions)
+    .where(
+      and(
+        eq(groupAdmissions.workspaceId, workspaceId),
+        eq(groupAdmissions.channelId, channels.id),
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, principal.userId)
+      )
+    )
+  const rows = await database
+    .select()
+    .from(channels)
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        ...(options.includeArchived ? [] : [eq(channels.lifecycleState, 'active')]),
+        visibleProjectCondition(channels.projectId, scope),
+        or(
+          and(eq(channels.kind, 'group'), exists(admission)),
+          and(
+            sql`${channels.kind} <> 'group'`,
+            or(eq(channels.visibility, 'workspace'), exists(participant))
+          )
+        ),
+        ...(options.after ? [gt(channels.id, options.after.id)] : []),
+        ...(options.channelIds
+          ? [options.channelIds.length ? inArray(channels.id, [...options.channelIds]) : sql`false`]
+          : [])
+      )
+    )
+    .orderBy(asc(channels.id))
+    .limit(options.limit + 1)
+  const scanned = rows.slice(0, options.limit)
+  const groupIds = scanned.filter((row) => row.kind === 'group').map((row) => row.id)
+  const effectiveGroups = groupIds.length
+    ? await groupChannelIdsInForce(
+        database,
+        principal.userId,
+        new Date().toISOString(),
+        workspaceId,
+        { channelIds: groupIds }
+      )
+    : new Set<string>()
+  const authorized = scanned.filter((row) => row.kind !== 'group' || effectiveGroups.has(row.id))
+
+  return { authorized, scanned, hasMore: rows.length > options.limit }
+}
+
+/** Bounded canonical channel summaries; groups retain their effective admission roster. */
+export function listChannelsForUserPage(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef,
+  options: Readonly<{
+    after?: ChannelPageCursor
+    channelIds?: readonly string[]
+    includeArchived?: boolean
+    limit?: number
+  }> = {}
+): Promise<ChannelPage> {
+  const limit = options.limit ?? CHANNEL_SUMMARY_PAGE_SIZE
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > CHANNEL_SUMMARY_PAGE_SIZE)
+    throw new RangeError(`channel page limit must be between 1 and ${CHANNEL_SUMMARY_PAGE_SIZE}`)
+  if (options.channelIds && options.channelIds.length > CHANNEL_SUMMARY_PAGE_SIZE)
+    throw new RangeError(`channel id page may contain at most ${CHANNEL_SUMMARY_PAGE_SIZE} ids`)
+  return inReadSnapshot(database, async (snapshot) => {
+    const page = await readableChannelPageRows(snapshot, workspaceId, principal, {
+      ...options,
+      limit,
+    })
+    const ordinaryIds = page.authorized.filter((row) => row.kind !== 'group').map((row) => row.id)
+    const groupIds = page.authorized.filter((row) => row.kind === 'group').map((row) => row.id)
+    const ordinaryCounts = ordinaryIds.length
+      ? await snapshot
+          .select({
+            channelId: sql<string>`participant_candidates.channel_id`,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(
+            snapshot
+              .select({ channelId: channelParticipants.channelId })
+              .from(channelParticipants)
+              .where(
+                and(
+                  eq(channelParticipants.workspaceId, workspaceId),
+                  inArray(channelParticipants.channelId, ordinaryIds)
+                )
+              )
+              .orderBy(asc(channelParticipants.channelId), asc(channelParticipants.id))
+              .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+              .as('participant_candidates')
+          )
+          .groupBy(sql`participant_candidates.channel_id`)
+          .orderBy(sql`participant_candidates.channel_id`)
+      : []
+    const groupCounts = groupIds.length
+      ? await snapshot
+          .select({
+            channelId: sql<string>`admission_candidates.channel_id`,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(
+            snapshot
+              .select({ channelId: groupAdmissions.channelId })
+              .from(groupAdmissions)
+              .where(
+                and(
+                  eq(groupAdmissions.workspaceId, workspaceId),
+                  inArray(groupAdmissions.channelId, groupIds)
+                )
+              )
+              .orderBy(asc(groupAdmissions.channelId), asc(groupAdmissions.id))
+              .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+              .as('admission_candidates')
+          )
+          .groupBy(sql`admission_candidates.channel_id`)
+          .orderBy(sql`admission_candidates.channel_id`)
+      : []
+    const incompleteIds = new Set<string>()
+    for (const counts of [ordinaryCounts, groupCounts]) {
+      if (counts.reduce((sum, row) => sum + row.count, 0) > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT)
+        incompleteIds.add(counts.at(-1)!.channelId)
+    }
+    const countsByChannel = new Map(
+      [...ordinaryCounts, ...groupCounts].map((row) => [row.channelId, row.count])
+    )
+    const summaryRows: ChannelRow[] = []
+    let countInBatch = 0
+    for (const row of page.authorized) {
+      const count = countsByChannel.get(row.id) ?? 0
+      if (incompleteIds.has(row.id) || countInBatch + count > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT)
+        break
+      summaryRows.push(row)
+      countInBatch += count
+    }
+    if (!summaryRows.length && page.authorized.length) throw new ChannelParticipantOverflowError()
+    const summaryOrdinaryIds = summaryRows
+      .filter((row) => row.kind !== 'group')
+      .map((row) => row.id)
+    const participantRows = summaryOrdinaryIds.length
+      ? await snapshot
+          .select()
+          .from(channelParticipants)
+          .where(
+            and(
+              eq(channelParticipants.workspaceId, workspaceId),
+              inArray(channelParticipants.channelId, summaryOrdinaryIds)
+            )
+          )
+          .orderBy(asc(channelParticipants.channelId), asc(channelParticipants.id))
+          .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+      : []
+    if (participantRows.length > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT)
+      throw new ChannelParticipantOverflowError()
+    const summaries: ChannelSummary[] = []
+    for (const row of summaryRows) {
+      if (row.kind === 'group') {
+        // Bound the grant families used by loadGroupRoster before it materializes them.
+        for (const table of [groupAudienceGrants, groupEnlistmentGrants]) {
+          const grants = await snapshot
+            .select({ id: table.id })
+            .from(table)
+            .where(and(eq(table.workspaceId, workspaceId), eq(table.channelId, row.id)))
+            .limit(CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT + 1)
+          if (grants.length > CHANNEL_PARTICIPANT_BATCH_ROW_LIMIT)
+            throw new ChannelParticipantOverflowError()
+        }
+        summaries.push(await channelSummary(snapshot, row))
+      } else {
+        summaries.push(
+          channelSummaryFromParticipants(
+            row,
+            participantRows.filter((participant) => participant.channelId === row.id)
+          )
+        )
+      }
+    }
+    const stoppedEarly = summaryRows.length < page.authorized.length
+    const last = stoppedEarly ? summaryRows.at(-1) : page.scanned.at(-1)
+    return {
+      channels: summaries,
+      nextAfter: (stoppedEarly || page.hasMore) && last ? { id: last.id } : undefined,
+      participantRowsMaterialized: countInBatch,
+    }
+  })
+}
+
+/** IDs are authorized in a coherent snapshot without materializing participant summaries. */
+export function listChannelIdsForUser(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+) {
+  return inReadSnapshot(database, async (snapshot) => {
+    const scope = await requireProjectAccessScope(
+      snapshot,
+      workspaceId,
+      principal,
+      'Channel unavailable'
+    )
+    const effectiveGroups = await groupChannelIdsInForce(
+      snapshot,
+      principal.userId,
+      new Date().toISOString(),
+      workspaceId,
+      { limit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1 }
+    ).catch((error: unknown) => {
+      if (
+        error instanceof RangeError &&
+        error.message === 'Group admission query exceeds its bound'
+      )
+        throw new ChannelParticipantOverflowError()
+      throw error
+    })
+    if (effectiveGroups.size > PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS)
+      throw new ChannelParticipantOverflowError()
+    const participant = snapshot
+      .select({ id: channelParticipants.id })
+      .from(channelParticipants)
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channels.id),
+          eq(channelParticipants.principalKind, 'user'),
+          eq(channelParticipants.userId, principal.userId)
+        )
+      )
+    const rows = await snapshot
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.lifecycleState, 'active'),
+          visibleProjectCondition(channels.projectId, scope),
+          or(
+            and(
+              eq(channels.kind, 'group'),
+              effectiveGroups.size ? inArray(channels.id, [...effectiveGroups]) : sql`false`
+            ),
+            and(
+              sql`${channels.kind} <> 'group'`,
+              or(eq(channels.visibility, 'workspace'), exists(participant))
+            )
+          )
+        )
+      )
+      .limit(PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1)
+    return rows.map((row) => row.id)
+  })
+}
 
 export function listChannelsForUser(
   database: Database,
@@ -1552,6 +1878,7 @@ export function listMessagesForUser(
   principal: UserPrincipalRef,
   options: Readonly<{
     afterSequence?: number
+    authorizationRecordLimit?: number
     limit?: number
     now?: string
     threadRootMessageId?: string
@@ -1562,6 +1889,32 @@ export function listMessagesForUser(
   )
 }
 
+/**
+ * Refuse a group whose authorization records exceed `limit` per family, before the roster and
+ * sharing history are materialized. The records are never truncated: an authorization decision
+ * made from part of them could allow what the whole forbids.
+ */
+async function assertGroupAuthorizationBound(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  limit: number
+): Promise<void> {
+  for (const table of [
+    groupAdmissions,
+    groupAudienceGrants,
+    groupEnlistmentGrants,
+    groupSharingGrants,
+  ]) {
+    const rows = await database
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.workspaceId, workspaceId), eq(table.channelId, channelId)))
+      .limit(limit + 1)
+    if (rows.length > limit) throw new ChannelParticipantOverflowError()
+  }
+}
+
 /** Keep visible group history, require visible roots for thread replies, and redact hidden refs. */
 async function projectGroupHistoryVisibleRows(
   database: Database,
@@ -1569,9 +1922,12 @@ async function projectGroupHistoryVisibleRows(
   channelId: string,
   principal: UserPrincipalRef,
   rows: readonly MessageRow[],
-  now: string
+  now: string,
+  authorizationRecordLimit?: number
 ): Promise<MessageRow[]> {
   if (!rows.length) return []
+  if (authorizationRecordLimit !== undefined)
+    await assertGroupAuthorizationBound(database, workspaceId, channelId, authorizationRecordLimit)
   const [roster, sharingGrants] = await Promise.all([
     loadGroupRoster(database, workspaceId, channelId),
     loadGroupSharingGrants(database, workspaceId, channelId),
@@ -1651,6 +2007,7 @@ async function listMessagesForUserInSnapshot(
   principal: UserPrincipalRef,
   options: Readonly<{
     afterSequence?: number
+    authorizationRecordLimit?: number
     limit?: number
     now?: string
     threadRootMessageId?: string
@@ -1678,16 +2035,42 @@ async function listMessagesForUserInSnapshot(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
+  const summaries = await projectMessageRowsForUser(
+    database,
+    workspaceId,
+    channel,
+    principal,
+    page,
+    options.now,
+    options.authorizationRecordLimit
+  )
+  return Object.freeze({
+    messages: Object.freeze(summaries),
+    ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
+  })
+}
+
+/** Shared projection for sequence paging and the final bounded export proof. */
+async function projectMessageRowsForUser(
+  database: Database,
+  workspaceId: string,
+  channel: ChannelRow,
+  principal: UserPrincipalRef,
+  page: readonly MessageRow[],
+  now?: string,
+  authorizationRecordLimit?: number
+): Promise<MessageSummary[]> {
   const jobVisibleRows = await filterVisibleMessageRows(database, page, principal.userId)
   const visibleRows =
     channel.kind === 'group'
       ? await projectGroupHistoryVisibleRows(
           database,
           workspaceId,
-          channelId,
+          channel.id,
           principal,
           jobVisibleRows,
-          options.now ?? new Date().toISOString()
+          now ?? new Date().toISOString(),
+          authorizationRecordLimit
         )
       : jobVisibleRows
   const reads = await readMessageChildReads(
@@ -1698,18 +2081,45 @@ async function listMessagesForUserInSnapshot(
   const summaries = visibleRows.map((row) =>
     messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
   )
-  if (channel.kind !== 'group')
-    return Object.freeze({
-      messages: Object.freeze(summaries),
-      ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
-    })
-  // Shared authorized read boundary for groups: join-point and live-grant
-  // filtering applies before child reads so a hidden reply cannot expose its
-  // body, mentions, or artifact references. Hidden entries can shorten a page;
-  // clients keep paging with `nextAfterSequence` until it is absent.
-  return Object.freeze({
-    messages: Object.freeze(summaries),
-    ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
+  return summaries
+}
+
+/** Reprove exact retained IDs through the same gates as a canonical history page. */
+export function readMessagesForUserIds(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  ids: readonly string[],
+  options: Readonly<{ authorizationRecordLimit?: number }> = {}
+): Promise<readonly MessageSummary[]> {
+  if (ids.length > 100 || new Set(ids).size !== ids.length)
+    throw new RangeError('message proof batch must contain at most 100 distinct IDs')
+  return inReadSnapshot(database, async (snapshot) => {
+    await requireMembership(snapshot, workspaceId, principal)
+    const channel = await requireChannelAccess(snapshot, workspaceId, channelId, principal)
+    if (!ids.length) return []
+    const rows = await snapshot
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.workspaceId, workspaceId),
+          eq(messages.channelId, channelId),
+          inArray(messages.id, [...ids])
+        )
+      )
+      .orderBy(asc(messages.sequence))
+      .limit(ids.length)
+    return projectMessageRowsForUser(
+      snapshot,
+      workspaceId,
+      channel,
+      principal,
+      rows,
+      undefined,
+      options.authorizationRecordLimit
+    )
   })
 }
 
