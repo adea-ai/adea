@@ -7,7 +7,7 @@ import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
-import { Heading } from '@adea-ai/ui/components/ui/typography'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
@@ -231,10 +231,10 @@ export function WorkspaceDetailsDialog(props: {
                           Position {workspacePosition() + 1} of {orderedWorkspaces().length}
                         </p>
                         <Show when={props.workspace.isPersonal}>
-                          <p class="conventional-settings-note">
+                          <Text variant="caption" tone="muted">
                             Home always stays first. Your other workspaces can be reordered below
                             it.
-                          </p>
+                          </Text>
                         </Show>
                         <div class="flex items-center gap-2">
                           <For each={[-1, 1] as const}>
@@ -259,9 +259,9 @@ export function WorkspaceDetailsDialog(props: {
                     </SettingsRow>
                   </Show>
                   <Show when={props.workspace.isPersonal}>
-                    <p class="conventional-settings-note">
+                    <Text variant="caption" tone="muted" class="mt-4">
                       Your personal workspace stays with your account.
-                    </p>
+                    </Text>
                   </Show>
                   <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
                     <SettingsRow

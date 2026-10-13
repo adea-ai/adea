@@ -4,6 +4,7 @@
 // secret ever enters this view. Without the service (web-only) the pane
 // renders the typed unavailable state instead of dead controls.
 import { SettingsRow, SettingsSection } from '@adea-ai/ui/components/composites/settings'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -254,12 +255,13 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
           </SettingsSection>
           <Show when={notice()}>
             {(current) => (
-              <p
-                class="conventional-settings-note"
+              <Alert
+                class="mt-4"
+                variant={current().tone === 'alert' ? 'destructive' : 'default'}
                 role={current().tone === 'alert' ? 'alert' : 'status'}
               >
-                {current().text}
-              </p>
+                <AlertDescription>{current().text}</AlertDescription>
+              </Alert>
             )}
           </Show>
         </>
