@@ -450,6 +450,20 @@ const readState = [
   },
 ]
 
+/**
+ * The account-wide Agent and conversation lists are supplemental to the
+ * canonical workspace lists. Serve empty pages so these captures never depend
+ * on a missing account backend (which would retry into an error state).
+ */
+async function mockEmptyAccountDirectory(page: Page) {
+  await page.route('**/api/v1/account/agents**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { agents: [] } })
+  )
+  await page.route('**/api/v1/account/conversations**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { conversations: [] } })
+  )
+}
+
 async function mockWorkspace(page: Page, empty = false) {
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
@@ -467,6 +481,7 @@ async function mockWorkspace(page: Page, empty = false) {
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
+  await mockEmptyAccountDirectory(page)
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.includes('/read-state'))
@@ -610,6 +625,7 @@ async function mockConnectedWorkspace(page: Page) {
       },
     })
   )
+  await mockEmptyAccountDirectory(page)
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
