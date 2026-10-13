@@ -12,6 +12,10 @@ import { createTerminalRuntimeConnection } from './runtime-connection'
 import { listShellProfiles } from './shell-profiles'
 import { resolveSelectedTerminal } from './selected-terminal'
 
+// The new-terminal flow ships with the pane chunk so the Dev View shell stays
+// free of shell-profile and toolbar-preference code.
+export { openTerminal, terminateSessionTerminal } from './open-terminal'
+
 const TerminalPane = lazy(() =>
   import('./terminal-pane').then((module) => ({ default: module.TerminalPane }))
 )

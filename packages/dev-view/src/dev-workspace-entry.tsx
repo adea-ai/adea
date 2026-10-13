@@ -77,7 +77,6 @@ import {
   createExclusiveRunner,
   isTerminalPlaceholderLeaf,
   replaceLeaf,
-  terminateSessionTerminal,
   terminatesOnLastClose,
 } from './terminal/terminal-close'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
@@ -244,6 +243,8 @@ const RuntimeTerminalPane = lazy(() =>
     default: module.RuntimeTerminalPane,
   }))
 )
+
+const loadTerminals = () => import('./terminal/runtime-terminal-pane')
 
 function focusPaneElement(leafId: string) {
   requestAnimationFrame(() => {
@@ -412,11 +413,16 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   >(undefined)
   const [newTerminalPending, setNewTerminalPending] = createSignal(false)
   const newTerminalWith = createExclusiveRunner()
-  // The create/attach flow loads on first use; the shell only owns the guards.
-  const openTerminalLazily = async (options: Omit<OpenTerminalOptions, 'execute'>) => {
-    const { openTerminal } = await import('./terminal/open-terminal')
-    return openTerminal({ ...options, execute: (command) => props.runtime.execute(command) })
-  }
+  // Creating and ending terminals loads on first use; the shell owns the guards.
+  const openTerminalLazily = (options: Omit<OpenTerminalOptions, 'execute'>) =>
+    loadTerminals().then(
+      (terminals) =>
+        terminals.openTerminal({
+          ...options,
+          execute: (command) => props.runtime.execute(command),
+        }),
+      () => 'The runtime could not open a new terminal.'
+    )
   const [announcement, setAnnouncement] = createSignal('')
   const [capabilities, setCapabilities] = createSignal<
     ReadonlyMap<DevCapability, { granted: boolean; reason?: string }>
@@ -705,103 +711,83 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       return
     const terminalId = closedLeaf.resourceId ?? primaryTerminalId
     if (!terminalId) return
-    void terminateSessionTerminal({
-      execute: (command) => props.runtime.execute(command),
-      scope,
-      runtimeSessionId,
-      worktreeId,
-      terminalId,
-    }).then((freed) => setTerminalCloseOutcome(freed ? 'freed' : 'kept'))
-  }
-  /**
-   * The closed pane's new-terminal action: create a fresh runtime instance
-   * (the terminated primary cannot be resurrected) and bind it explicitly on
-   * the placeholder's position, so the pane mounts against the new record.
-   */
-  const openNewTerminal = async () => {
-    const scope = activeScope()
-    const runtimeSessionId = selectedSession()
-    const worktreeId = selectedSessionWorktreeId()
-    const placeholder = listLeaves(layout().center).find(isTerminalPlaceholderLeaf)
-    if (!scope || !runtimeSessionId || !worktreeId || !placeholder) return
-    if (newTerminalPending()) return
-    setNewTerminalPending(true)
-    try {
-      setAnnouncement(
-        await openTerminalLazily({
+    void loadTerminals()
+      .then((terminals) =>
+        terminals.terminateSessionTerminal({
+          execute: (command) => props.runtime.execute(command),
           scope,
           runtimeSessionId,
           worktreeId,
-          shellProfileId: 'device-default',
-          canAttach: () =>
-            sameRuntimeScope(scope, activeScope()) &&
-            selectedSession() === runtimeSessionId &&
-            selectedSessionWorktreeId() === worktreeId &&
-            listLeaves(layout().center).some((leaf) => leaf.id === placeholder.id),
-          attach: (terminal) => {
-            const suffix = ++nextPaneId
-            updateLayout((state) => ({
-              ...state,
-              center: replaceLeaf(state.center, placeholder.id, {
-                kind: 'leaf',
-                id: `dev-terminal-${suffix}`,
-                pane: 'terminal',
-                resourceId: terminal.id,
-              }),
-            }))
-          },
+          terminalId,
         })
       )
-    } finally {
-      setNewTerminalPending(false)
-    }
+      .then(
+        (freed) => setTerminalCloseOutcome(freed ? 'freed' : 'kept'),
+        () => setTerminalCloseOutcome('kept')
+      )
   }
   /**
-   * The terminal toolbar's "New terminal with" action: start a runtime terminal
-   * with the chosen shell and open it beside the focused pane. The running
-   * terminal keeps its own shell.
+   * Start a runtime terminal and open it: on the closed pane's placeholder
+   * (the terminated primary cannot be resurrected, so the new record is bound
+   * explicitly), or beside the focused pane for the toolbar's "New terminal
+   * with". One create runs at a time, so a second pick cannot pass the same
+   * capacity check and start a terminal with no pane.
    */
-  const openNewTerminalWithShell = async (shellProfileId: string) => {
+  const startTerminal = async (shellProfileId: string, placeholderId?: string) => {
     const scope = activeScope()
     const runtimeSessionId = selectedSession()
     const worktreeId = selectedSessionWorktreeId()
     if (!scope || !runtimeSessionId || !worktreeId) return
-    if (splitPaneDisabled(countLeaves(layout().center), selectedProject())) {
-      setAnnouncement('Close a pane to open another terminal.')
+    const hasRoom = () =>
+      placeholderId
+        ? listLeaves(layout().center).some((leaf) => leaf.id === placeholderId)
+        : !splitPaneDisabled(countLeaves(layout().center), selectedProject())
+    if (!hasRoom()) {
+      if (!placeholderId) setAnnouncement('Close a pane to open another terminal.')
       return
     }
-    // One create at a time: a second pick while the first is in flight would
-    // pass the same capacity check and could start a terminal with no pane.
-    await newTerminalWith.run(async () =>
-      setAnnouncement(
-        await openTerminalLazily({
-          scope,
-          runtimeSessionId,
-          worktreeId,
-          shellProfileId,
-          canAttach: () =>
-            sameRuntimeScope(scope, activeScope()) &&
-            selectedSession() === runtimeSessionId &&
-            selectedSessionWorktreeId() === worktreeId &&
-            !splitPaneDisabled(countLeaves(layout().center), selectedProject()),
-          attach: (terminal) => {
-            const suffix = ++nextPaneId
-            updateLayout((state) =>
-              splitPaneBalanced(state, state.focusedLeafId, {
-                placement: 'after',
-                leaf: {
-                  kind: 'leaf',
-                  id: `dev-terminal-${suffix}`,
-                  pane: 'terminal',
-                  resourceId: terminal.id,
-                },
-                splitId: `dev-split-${suffix}`,
-              })
-            )
-          },
-        })
-      )
-    )
+    await newTerminalWith.run(async () => {
+      setNewTerminalPending(true)
+      try {
+        setAnnouncement(
+          await openTerminalLazily({
+            scope,
+            runtimeSessionId,
+            worktreeId,
+            shellProfileId,
+            canAttach: () =>
+              sameRuntimeScope(scope, activeScope()) &&
+              selectedSession() === runtimeSessionId &&
+              selectedSessionWorktreeId() === worktreeId &&
+              hasRoom(),
+            attach: (terminal) => {
+              const suffix = ++nextPaneId
+              const leaf: PaneLeaf = {
+                kind: 'leaf',
+                id: `dev-terminal-${suffix}`,
+                pane: 'terminal',
+                resourceId: terminal.id,
+              }
+              updateLayout((state) =>
+                placeholderId
+                  ? { ...state, center: replaceLeaf(state.center, placeholderId, leaf) }
+                  : splitPaneBalanced(state, state.focusedLeafId, {
+                      placement: 'after',
+                      leaf,
+                      splitId: `dev-split-${suffix}`,
+                    })
+              )
+            },
+          })
+        )
+      } finally {
+        setNewTerminalPending(false)
+      }
+    })
+  }
+  const openNewTerminal = () => {
+    const placeholder = listLeaves(layout().center).find(isTerminalPlaceholderLeaf)
+    if (placeholder) void startTerminal('device-default', placeholder.id)
   }
   const showPane = (pane: DevUtilityPane) => {
     utilityOwner.showUtilityPane(pane, selectedCanonicalBinding() ?? null)
@@ -1260,7 +1246,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                           ? 'Closing the pane ended its terminal instance on the runtime.'
                           : 'New terminal starts a fresh instance for the selected session.'
                       }
-                      onNewTerminal={canManageTerminal() ? () => void openNewTerminal() : undefined}
+                      onNewTerminal={canManageTerminal() ? openNewTerminal : undefined}
                       newTerminalPending={newTerminalPending()}
                       onAddProject={addProjectFromEmptyState}
                     />
@@ -1286,9 +1272,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                       canAttach={capabilities().get('dev.terminal.attach')?.granted}
                       canInput={capabilities().get('dev.terminal.input')?.granted}
                       canManage={capabilities().get('dev.terminal.manage')?.granted}
-                      onNewTerminalWithShell={(profileId) =>
-                        void openNewTerminalWithShell(profileId)
-                      }
+                      onNewTerminalWithShell={(profileId) => void startTerminal(profileId)}
                     />
                   </Suspense>
                 )
