@@ -820,6 +820,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         <div class="dev-terminal-editor">
           <Textarea
             rows={2}
+            variant="code"
             resize="none"
             aria-label="Compose terminal input"
             value={editor().draft}
