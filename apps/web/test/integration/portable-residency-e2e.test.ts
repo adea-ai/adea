@@ -15,10 +15,13 @@
 //   - destination refusals: an existing workspace, an importer without permission, a ledger class the
 //     version-1 format does not name, and a digest mismatch. Each refusal writes nothing.
 //   - explicit external domains: the import reports every withheld external domain as unavailable.
+//   - the successful export/import response helpers make no calls through globalThis.fetch. A
+//     fetch-only tripwire's positive control proves that such a call would be blocked and counted.
 //
 // Upstream dependencies, not claimed here: artifact bytes and provenance redaction (#86), replica sync
 // keys and restore (#193), native session and checkpoint portability (no port exists: that state stays on
-// the node), pre-join content (#1232) and withheld job publication (#1237).
+// the node). The canonical-reader regressions for group join points (#1232) and withheld job publications
+// tracked by #1237 are in packages/db/tests/integration/portable-export.test.ts.
 //
 // The scratch database is required. This file fails rather than skipping when
 // MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is missing.
@@ -94,6 +97,7 @@ if (!sourceUrl || !provisioningUrl)
 const run = randomBytes(6).toString('hex')
 const future = () => new Date(Date.now() + 60 * 60 * 1000)
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+const portableRouteFetchAttempts = { export: -1, import: -1 }
 
 const canary = {
   artifactLocator: `ARTIFACT-LOCATOR-${run}`,
@@ -140,6 +144,28 @@ function importRequest(body: unknown) {
     headers: { 'content-type': 'application/json' },
     method: 'POST',
   })
+}
+
+/**
+ * Blocks and counts JavaScript calls through globalThis.fetch for one operation only. It does not
+ * intercept Postgres connections, raw sockets, native clients or other non-fetch transports.
+ */
+async function withFetchOnlyFence<T>(
+  operation: () => Promise<T>,
+  recordAttempts: (attempts: number) => void
+): Promise<T> {
+  const previousFetch = globalThis.fetch
+  let attempts = 0
+  globalThis.fetch = (async () => {
+    attempts += 1
+    throw new Error('globalThis.fetch blocked by portable residency test fence')
+  }) as unknown as typeof fetch
+  try {
+    return await operation()
+  } finally {
+    globalThis.fetch = previousFetch
+    recordAttempts(attempts)
+  }
 }
 
 function assertAbsent(text: string, values: readonly string[]) {
@@ -371,7 +397,14 @@ describe('end-to-end authorized export and import residency', () => {
     // The clean destination: a scratch database on the provisioning instance, migrated from the
     // repository's migrations, with the users the owner's bundle names provisioned. The restore never
     // creates identities.
-    ownerBundle = (await exportAs(owner.principal)).bundle
+    ownerBundle = (
+      await withFetchOnlyFence(
+        () => exportAs(owner.principal),
+        (attempts) => {
+          portableRouteFetchAttempts.export = attempts
+        }
+      )
+    ).bundle
     scratch = scratchNameFor()
     assertDisposableScratch(scratch)
     admin = createDatabase(urlForDatabase('postgres'))
@@ -386,11 +419,17 @@ describe('end-to-end authorized export and import residency', () => {
         id: user.userId,
       }))
     )
-    const restored = await portableImportResponse(
-      importRequest(ownerBundle),
-      destination.db,
-      resolutionFor(owner.principal),
-      async () => true
+    const restored = await withFetchOnlyFence(
+      () =>
+        portableImportResponse(
+          importRequest(ownerBundle),
+          destination.db,
+          resolutionFor(owner.principal),
+          async () => true
+        ),
+      (attempts) => {
+        portableRouteFetchAttempts.import = attempts
+      }
     )
     expect(restored.status).toBe(201)
     restoredBody = await restored.json()
@@ -398,6 +437,23 @@ describe('end-to-end authorized export and import residency', () => {
       await destination.db.execute(sql`select count(*)::int as n from app.messages`)
     )[0]!.n as number
   }, 600_000)
+
+  test('portable GET and POST response helpers make no global fetch calls', () => {
+    expect(portableRouteFetchAttempts).toEqual({ export: 0, import: 0 })
+  })
+
+  test('the fetch-only fence blocks and counts its positive control', async () => {
+    let attempts = -1
+    await expect(
+      withFetchOnlyFence(
+        () => globalThis.fetch('https://fetch-only-tripwire.invalid'),
+        (count) => {
+          attempts = count
+        }
+      )
+    ).rejects.toThrow('globalThis.fetch blocked by portable residency test fence')
+    expect(attempts).toBe(1)
+  })
 
   afterAll(async () => {
     try {
