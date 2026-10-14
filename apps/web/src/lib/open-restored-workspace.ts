@@ -47,7 +47,12 @@ export function createRestoredWorkspaceOpener<W extends { id: string }>(options:
         await previous
         if (!isCurrent()) return false
         const landed = await options.switchTo(restored, isCurrent)
-        if (!landed && !isCurrent()) await Promise.resolve(options.onRetired?.()).catch(() => {})
+        if (!landed && !isCurrent()) {
+          // Handing control back is best effort: a refusal, thrown or rejected, never fails the open.
+          try {
+            await options.onRetired?.()
+          } catch {}
+        }
         return landed
       })()
       switching = run.catch(() => false)

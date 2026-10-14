@@ -172,15 +172,37 @@ describe('opening a restored workspace', () => {
     expect(opened).toHaveLength(1)
   })
 
-  test('a failing scope hand-back never turns into a failed open', async () => {
+  test.each([
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('shell refused')
+      },
+    ],
+    ['rejects', () => Promise.reject(new Error('shell refused'))],
+  ] as const)('a scope hand-back that %s never fails the open', async (_how, onRetired) => {
+    const authorize = gate<void>()
+    let hitRetired = false
     const opener = createRestoredWorkspaceOpener<Workspace>({
       loaded: () => [{ id: 'w1' }],
       refetch: async () => [],
-      switchTo: async () => false,
+      async switchTo(_workspace, isCurrent) {
+        await authorize.promise
+        return isCurrent()
+      },
       onOpened: () => {},
-      onRetired: () => Promise.reject(new Error('shell refused')),
+      onRetired: () => {
+        hitRetired = true
+        return onRetired()
+      },
     })
-    opener.cancel()
-    expect(await opener.open('w1', () => false)).toBe(false)
+    // The person leaves while the switch is being authorised, so the switch is dropped after it started.
+    let asking = true
+    const pending = opener.open('w1', () => asking)
+    await started()
+    asking = false
+    authorize.resolve()
+    expect(await pending).toBe(false)
+    expect(hitRetired).toBe(true)
   })
 })
