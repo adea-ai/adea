@@ -740,15 +740,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
       sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
     })
-    await grantRetentionDeletionAuthorization(connection.db, {
-      actor: owner,
-      category: 'artifacts',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      subjectId: artifact.id,
-      workspaceId: workspace.id,
-    })
-    await recordAll(workspace.id, node, 'artifacts', verified('artifacts', artifact.id), 'artifact')
-
+    // The reference exists before any deletion authority: registration is fenced afterwards.
     const grantId = `grant-${crypto.randomUUID()}`
     const registered = await registerArtifactReferenceGrant(connection.db, workspace.id, owner, {
       artifactId: artifact.id,
@@ -758,6 +750,14 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
       grantId,
       version: 1,
     })
+    await grantRetentionDeletionAuthorization(connection.db, {
+      actor: owner,
+      category: 'artifacts',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      subjectId: artifact.id,
+      workspaceId: workspace.id,
+    })
+    await recordAll(workspace.id, node, 'artifacts', verified('artifacts', artifact.id), 'artifact')
     expect(
       await evaluateStoredRetentionDeletion(
         connection.db,
@@ -777,7 +777,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     expect(registered.outcome).toBe('registered')
   })
 
-  test('a reference registration waits for an in-flight gate, so the gate decides on the pre-registration state', async () => {
+  test('a reference registration waits for an in-flight gate, then is fenced by the authority the gate ran under', async () => {
     const { node, owner, workspace } = await fixture('race-reference')
     const { workspace: audience } = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: `retention-race-audience-${crypto.randomUUID()}`,
@@ -841,14 +841,23 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     releaseGate()
     const decision = await gate
     expect(decision.outcome).toBe('verified_complete')
-    await registration
+    // The gate committed under a live authority, so the waiting registration is fenced out.
+    await expect(registration).rejects.toMatchObject({ code: 'grant_artifact_retention_fenced' })
 
     expect(
-      await evaluateStoredRetentionDeletion(
-        connection.db,
-        gateInput(workspace.id, 'artifacts', artifact.id)
-      )
-    ).toEqual({ outcome: 'refused', reason: 'active_reference_retained' })
+      (
+        await evaluateStoredRetentionDeletion(
+          connection.db,
+          gateInput(workspace.id, 'artifacts', artifact.id)
+        )
+      ).outcome
+    ).toBe('verified_complete')
+    expect(
+      await connection.db
+        .select({ id: artifactReferenceGrants.id })
+        .from(artifactReferenceGrants)
+        .where(eq(artifactReferenceGrants.grantId, grantId))
+    ).toHaveLength(0)
   })
 
   test('a revocation waits for an in-flight gate; the gate decides on the authority it saw', async () => {
