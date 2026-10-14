@@ -90,6 +90,17 @@ export type FilesPaneProps = Readonly<{
 
 const LIST_PAGE = 500
 
+const pathIn = (context: WorktreeContext, relativePath: string) => ({
+  worktreeId: context.worktreeId,
+  rootIdentity: context.rootIdentity,
+  relativePath,
+})
+const rootTarget = (context: WorktreeContext) => ({
+  kind: 'workspace_root' as const,
+  id: context.worktreeId,
+  generation: context.generation,
+})
+
 type MutationPlanSummary = {
   id: string
   digest: string
@@ -206,16 +217,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       'dev.files.list',
       {
         worktreeId: context.worktreeId,
-        path: {
-          worktreeId: context.worktreeId,
-          rootIdentity: context.rootIdentity,
-          relativePath: relativePath.length === 0 ? '.' : relativePath,
-        },
+        path: pathIn(context, relativePath.length === 0 ? '.' : relativePath),
         ...(cursor ? { cursor } : {}),
         limit: LIST_PAGE,
         ...(cursor !== undefined ? { cursor } : {}),
       },
-      { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      rootTarget(context)
     )
     setNodes((current) => mergeListing(current, page.items))
     if (page.nextCursor) await loadDirectory(context, relativePath, page.nextCursor)
@@ -305,7 +312,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         activeScope,
         'dev.files.search',
         contentSearchBody(context.worktreeId, wanted),
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       setContentRows(contentSearchRows(page.items))
       setContentTruncated(page.nextCursor !== undefined)
@@ -346,16 +353,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.create',
         {
           worktreeId: context.worktreeId,
-          path: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: name,
-          },
+          path: pathIn(context, name),
           kind: 'file',
           content: new TextEncoder().encode(''),
           failIfExists: true,
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       setCreating(false)
       setNewName('')
@@ -385,15 +388,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.delete',
         {
           worktreeId: context.worktreeId,
-          path: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: node.relativePath,
-          },
+          path: pathIn(context, node.relativePath),
           expectedIdentity: node.identity,
           confirmationId: `files-delete-${node.relativePath}`,
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       await refresh()
     } catch (reply) {
@@ -431,20 +430,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.rename',
         {
           worktreeId: context.worktreeId,
-          from: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: from,
-          },
-          to: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: to,
-          },
+          from: pathIn(context, from),
+          to: pathIn(context, to),
           expectedIdentity: findNode(nodes(), from)?.identity,
           failIfExists: true,
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       setRenaming(undefined)
       setOverwriteTarget(undefined)
@@ -475,13 +466,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.stat',
         {
           worktreeId: context.worktreeId,
-          path: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: from,
-          },
+          path: pathIn(context, from),
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       const liveTo = await executeOperation<{ identity: FileEntry['identity'] }>(
         props.runtime,
@@ -489,13 +476,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.stat',
         {
           worktreeId: context.worktreeId,
-          path: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: to,
-          },
+          path: pathIn(context, to),
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       const plan = await executeOperation<MutationPlanSummary>(
         props.runtime,
@@ -503,27 +486,19 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         'dev.files.renameOverwritePlan',
         {
           worktreeId: context.worktreeId,
-          from: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: from,
-          },
-          to: {
-            worktreeId: context.worktreeId,
-            rootIdentity: context.rootIdentity,
-            relativePath: to,
-          },
+          from: pathIn(context, from),
+          to: pathIn(context, to),
           expectedFromIdentity: liveFrom.identity,
           expectedToIdentity: liveTo.identity,
         },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       await executeOperation(
         props.runtime,
         activeScope,
         'dev.files.renameOverwriteCommit',
         { planId: plan.id, planDigest: plan.digest },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       setRenaming(undefined)
       setOverwriteTarget(undefined)
@@ -555,15 +530,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           'dev.files.deleteTreePlan',
           {
             worktreeId: context.worktreeId,
-            path: {
-              worktreeId: context.worktreeId,
-              rootIdentity: context.rootIdentity,
-              relativePath: node.relativePath,
-            },
+            path: pathIn(context, node.relativePath),
             expectedIdentity: node.identity,
             confirmationId: `files-delete-tree-${node.relativePath}`,
           },
-          { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+          rootTarget(context)
         )
         setPendingTree({
           planId: plan.id,
@@ -595,20 +566,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           'dev.files.copyTreePlan',
           {
             worktreeId: context.worktreeId,
-            from: {
-              worktreeId: context.worktreeId,
-              rootIdentity: context.rootIdentity,
-              relativePath: node.relativePath,
-            },
-            to: {
-              worktreeId: context.worktreeId,
-              rootIdentity: context.rootIdentity,
-              relativePath: destination,
-            },
+            from: pathIn(context, node.relativePath),
+            to: pathIn(context, destination),
             expectedIdentity: node.identity,
             failIfExists: true,
           },
-          { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+          rootTarget(context)
         )
         setPendingTree({
           planId: plan.id,
@@ -639,7 +602,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         activeScope,
         pending.commitOperation,
         { planId: pending.planId, planDigest: pending.digest },
-        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        rootTarget(context)
       )
       setNotice(undefined)
       await refresh()

@@ -100,6 +100,41 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
   const sessionItems = () =>
     (sessions()?.contextKey === contextKey() ? sessions()?.items : undefined) ?? []
 
+  type Fence = NonNullable<ReturnType<typeof fences.capture>>
+
+  function runDeviceCommand(
+    fence: Fence,
+    operation: 'dev.device.start' | 'dev.device.stop',
+    body: Record<string, unknown>,
+    resource: { kind: string; id: string; generation: number },
+    failure: string
+  ): void {
+    executeDevUtilityCommand<DeviceSession>(fence, operation, body, resource)
+      .then(() => {
+        if (!fence.isCurrent()) return
+        setError(undefined)
+        void refetchSessions()
+      })
+      .catch((reply) => {
+        if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
+          setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? failure}`)
+      })
+  }
+
+  function startInventoryItem(fence: Fence, item: DeviceInventoryItem): void {
+    runDeviceCommand(
+      fence,
+      'dev.device.start',
+      {
+        inventoryId: item.id,
+        expectedGeneration: item.generation,
+        runtimeSessionId: fence.context.runtimeSessionId!,
+      },
+      { kind: 'device_inventory', id: item.id, generation: item.generation },
+      'start failed'
+    )
+  }
+
   function startDevice(item: DeviceInventoryItem): void {
     const fence = fences.capture('session')
     if (
@@ -111,25 +146,10 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
       setError('no active runtime session')
       return
     }
-    const runtimeSessionId = fence.context.runtimeSessionId!
     // `dev.device.start` binds a `device_inventory` resource, so the command
     // MUST carry it — `buildDevCommand` throws without one, which made every
     // inventory-row start fail locally before any request was sent.
-    executeDevUtilityCommand<DeviceSession>(
-      fence,
-      'dev.device.start',
-      { inventoryId: item.id, expectedGeneration: item.generation, runtimeSessionId },
-      { kind: 'device_inventory', id: item.id, generation: item.generation }
-    )
-      .then(() => {
-        if (!fence.isCurrent()) return
-        setError(undefined)
-        void refetchSessions()
-      })
-      .catch((reply) => {
-        if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
-          setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
-      })
+    startInventoryItem(fence, item)
   }
 
   function startResponsive(): void {
@@ -138,7 +158,6 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
       setError('no active runtime session')
       return
     }
-    const runtimeSessionId = fence.context.runtimeSessionId!
     // The responsive row is an inventory entry like any other: it needs the
     // same resource binding and generation, not a hardcoded id and no binding.
     const responsive = findResponsiveInventoryItem(inventoryItems())
@@ -146,25 +165,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
       setError('the responsive device inventory entry is not available')
       return
     }
-    executeDevUtilityCommand<DeviceSession>(
-      fence,
-      'dev.device.start',
-      {
-        inventoryId: responsive.id,
-        expectedGeneration: responsive.generation,
-        runtimeSessionId,
-      },
-      { kind: 'device_inventory', id: responsive.id, generation: responsive.generation }
-    )
-      .then(() => {
-        if (!fence.isCurrent()) return
-        setError(undefined)
-        void refetchSessions()
-      })
-      .catch((reply) => {
-        if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
-          setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
-      })
+    startInventoryItem(fence, responsive)
   }
 
   function stopDevice(session: DeviceSession): void {
@@ -175,7 +176,7 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
       !sameDevUtilityScope(session.scope, fence.context.scope)
     )
       return
-    executeDevUtilityCommand<DeviceSession>(
+    runDeviceCommand(
       fence,
       'dev.device.stop',
       {
@@ -183,17 +184,9 @@ export function DevicesPane(props: { context: DevUtilityContextReader }) {
         expectedGeneration: session.generation,
         confirmationId: `stop-${session.inventoryId}`,
       },
-      { kind: 'device_session', id: session.id, generation: session.generation }
+      { kind: 'device_session', id: session.id, generation: session.generation },
+      'stop failed'
     )
-      .then(() => {
-        if (!fence.isCurrent()) return
-        setError(undefined)
-        void refetchSessions()
-      })
-      .catch((reply) => {
-        if (fence.isCurrent() && !isDevUtilityContextChanged(reply))
-          setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'stop failed'}`)
-      })
   }
 
   const responsiveSession = () =>

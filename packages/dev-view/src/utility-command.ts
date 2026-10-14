@@ -1,4 +1,4 @@
-import type { DevOperation } from '@adea-ai/types/dev-runtime'
+import type { DevError, DevOperation } from '@adea-ai/types/dev-runtime'
 
 import { buildDevCommand } from './browser/command'
 import {
@@ -7,6 +7,17 @@ import {
   isDevUtilityContextChanged,
   type DevUtilityFence,
 } from './utility-context'
+
+/** The runtime's typed failure when the rejection carries one, else a generic invalid-state error. */
+export function commandError(error: unknown): DevError {
+  return (
+    (error as { error?: DevError })?.error ?? {
+      code: 'invalid_state',
+      retryable: false,
+      message: error instanceof Error ? error.message : 'command failed',
+    }
+  )
+}
 
 /** Execute under the captured identity and fail closed if it changes in flight. */
 export async function executeDevUtilityCommand<T>(

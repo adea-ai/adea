@@ -195,7 +195,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.status',
         { worktreeId: context.worktreeId, limit: 500 },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setStatusCache(cacheStatus(reply, context.generation))
     } catch (reply) {
@@ -216,7 +216,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.stage',
         { worktreeId: context.worktreeId, paths: paths.map(toWorkspacePath(context)) },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       await refreshStatus()
     } catch (reply) {
@@ -234,7 +234,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.unstage',
         { worktreeId: context.worktreeId, paths: paths.map(toWorkspacePath(context)) },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       await refreshStatus()
     } catch (reply) {
@@ -268,7 +268,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           worktreeId: context.worktreeId,
           paths: [toWorkspacePath(context)(entry.path.relativePath)],
         },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       if (plan.blockers.length > 0) {
         setNotice(plan.blockers.map((blocker) => blocker.message).join('; '))
@@ -279,7 +279,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.discardCommit',
         { planId: plan.id, planDigest: plan.digest },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       await refreshStatus()
     } catch (reply) {
@@ -307,7 +307,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           message: trimmed,
           expectedIndexSha: current.indexSha,
         },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setMessage('')
       setNotice(undefined)
@@ -328,7 +328,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.fetch',
         { worktreeId: context.worktreeId, remoteName: 'origin', prune: true },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setNotice('Fetch completed.')
     } catch (reply) {
@@ -348,7 +348,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         activeScope,
         'dev.git.history',
         { worktreeId: context.worktreeId, limit: 20 },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setHistory(page.items)
     } catch (reply) {
@@ -373,7 +373,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           path: toWorkspacePath(context)(relativePath),
           limit: 2000,
         },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setDiffHunks(page.items)
       setDiffRendered(undefined)
@@ -410,14 +410,14 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           direction,
           hunks: [hunk],
         },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       await executeOperation(
         props.runtime,
         activeScope,
         'dev.git.hunkStagingCommit',
         { planId: plan.id, planDigest: plan.digest },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        worktreeTarget(context)
       )
       setNotice(undefined)
       await refreshStatus()
@@ -1091,6 +1091,12 @@ function StatusRow(props: {
     </div>
   )
 }
+
+const worktreeTarget = (context: WorktreeContext) => ({
+  kind: 'worktree',
+  id: context.worktreeId,
+  generation: context.generation,
+})
 
 function toWorkspacePath(
   context: WorktreeContext
