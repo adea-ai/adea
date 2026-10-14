@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.91.0](https://github.com/adea-ai/adea/compare/v0.90.0...v0.91.0) (2026-10-13)
+
+
+### Features
+
+* **chat:** explicit direct-session handoff and job controls ([#1177](https://github.com/adea-ai/adea/issues/1177)) ([#1228](https://github.com/adea-ai/adea/issues/1228)) ([8b5d142](https://github.com/adea-ai/adea/commit/8b5d1424c71d7cd6a721384c377581daa148f3f9))
+* **chat:** start a distinct named topic with an Agent ([#1294](https://github.com/adea-ai/adea/issues/1294)) ([65d44e3](https://github.com/adea-ai/adea/commit/65d44e3c6f4c5746e1687fe9a6d2cd99cab22fef))
+* **db:** add authorized portable workspace export and restore ([#1226](https://github.com/adea-ai/adea/issues/1226)) ([#1245](https://github.com/adea-ai/adea/issues/1245)) ([58958d7](https://github.com/adea-ai/adea/commit/58958d7fe3f832cda16dc3ed4407457b022fe84a))
+* **db:** grant-gated atomic group channels ([#1178](https://github.com/adea-ai/adea/issues/1178)) ([#1232](https://github.com/adea-ai/adea/issues/1232)) ([05aaac3](https://github.com/adea-ai/adea/commit/05aaac3e06f75342ca8340360fc9d554657137e7))
+* **desktop:** device-wide default harness that a workspace default overrides ([#1316](https://github.com/adea-ai/adea/issues/1316)) ([44dab7a](https://github.com/adea-ai/adea/commit/44dab7aeae6ff761386682fd4d5e28095c8013ab))
+* **desktop:** expose the harness inventory and an explicit rescan ([#1312](https://github.com/adea-ai/adea/issues/1312)) ([782d09a](https://github.com/adea-ai/adea/commit/782d09a09624a7cc625128768ed95ef853ba3a4b))
+* **dev-view:** device default first, workspace override as an opt-in ([#1318](https://github.com/adea-ai/adea/issues/1318)) ([5de4e9f](https://github.com/adea-ai/adea/commit/5de4e9f199dd8d3302b2e6ac02f9804613f98093))
+* **dev-view:** list installed harnesses with state, capabilities and Make default ([#1314](https://github.com/adea-ai/adea/issues/1314)) ([619d100](https://github.com/adea-ai/adea/commit/619d10061b1e4d8c4b061c22ed5e86be98a4def3))
+* **workspace-ui:** choose a custom colour as the workspace accent ([#1305](https://github.com/adea-ai/adea/issues/1305)) ([2e40c2d](https://github.com/adea-ai/adea/commit/2e40c2d829a3ab7020acdc11b3afedfc4eca34f5))
+* **workspace-ui:** export a workspace and restore one from an export file ([#1328](https://github.com/adea-ai/adea/issues/1328)) ([1aaa0a7](https://github.com/adea-ai/adea/commit/1aaa0a72bf81d8f90410081a1cac84acfc760943))
+* **workspace-ui:** mark the workspace lead on its Agents card ([#1303](https://github.com/adea-ai/adea/issues/1303)) ([e1681aa](https://github.com/adea-ai/adea/commit/e1681aa9eb4b987aa72f11644d5971eaf058cb3e))
+* **workspace-ui:** pin Home first in the workspace order and show the accent choices in one row ([#1299](https://github.com/adea-ai/adea/issues/1299)) ([2695b63](https://github.com/adea-ai/adea/commit/2695b63449c37a36e9045879cda8a276f2dab38d))
+
+
+### Bug Fixes
+
+* **ci:** fall back to mirror registries when the Postgres pull is rate limited ([#1322](https://github.com/adea-ai/adea/issues/1322)) ([4ddb4e2](https://github.com/adea-ai/adea/commit/4ddb4e2576478634cf1cc22e281ee6f137bfc592))
+* **db:** bound the group roster before it loads and stop trusting exportedBy for join points ([#1334](https://github.com/adea-ai/adea/issues/1334)) ([33f6345](https://github.com/adea-ai/adea/commit/33f6345d1505b9d118169450c76ea60bed348fd4))
+* **performance:** keep unavailable interaction evidence from passing ([#1304](https://github.com/adea-ai/adea/issues/1304)) ([7d5ba4b](https://github.com/adea-ai/adea/commit/7d5ba4b8088eda3096c533e6b197df22e4dcb5f4))
+* **web:** hide the empty account blocks and serve empty account lists in the visual lane ([#1293](https://github.com/adea-ai/adea/issues/1293)) ([eef28c8](https://github.com/adea-ai/adea/commit/eef28c8f9606db737d4d637e1bcda88a1a62abb8))
+* **web:** judge a ?workspace= link only after the saved workspace restores ([#1300](https://github.com/adea-ai/adea/issues/1300)) ([ba41b24](https://github.com/adea-ai/adea/commit/ba41b246c1e032d05fad82fcb72623a06cfb23e1))
+
+
+### Performance
+
+* **ui:** load the themes catalogue lazily and drop the test-condition workaround ([#1310](https://github.com/adea-ai/adea/issues/1310)) ([9033588](https://github.com/adea-ai/adea/commit/903358811cc22d5454a855f0dcf7224b1d9b0c8a))
+
+
+### Tests
+
+* **e2e:** match the supplemental account row by workspace name ([#1296](https://github.com/adea-ai/adea/issues/1296)) ([2f9fdc7](https://github.com/adea-ai/adea/commit/2f9fdc70d12eaf0e3a2cadb198307033066affa8))
+* **e2e:** refresh darwin visual baselines ([#1320](https://github.com/adea-ai/adea/issues/1320)) ([8101169](https://github.com/adea-ai/adea/commit/8101169933fce90784d8552072bad855422efb72))
+* **e2e:** wait for the archive dialog to close and refresh stale linux baselines ([#1321](https://github.com/adea-ai/adea/issues/1321)) ([111a216](https://github.com/adea-ai/adea/commit/111a216e6f5d7b092db3c045788a4079a491f6b0))
+* **visual:** make the workspace lane green on main again ([#1309](https://github.com/adea-ai/adea/issues/1309)) ([39d7a93](https://github.com/adea-ai/adea/commit/39d7a93c1ad7d1ea1f60c0188f7d64d11ece7c58))
+* **visual:** refresh linux baselines after the account directory moved into the sidebar ([#1295](https://github.com/adea-ai/adea/issues/1295)) ([b9e89c4](https://github.com/adea-ai/adea/commit/b9e89c456c2bd0cb254ef79e3e5376e630eb4792))
+* **visual:** refresh linux baselines after the local CSS token pass ([#1291](https://github.com/adea-ai/adea/issues/1291)) ([dbc6a50](https://github.com/adea-ai/adea/commit/dbc6a5092b74d2d5ee312b2b8b65831ba421046d))
+
+
+### Maintenance
+
+* consumers read the shared theme context ([#1308](https://github.com/adea-ai/adea/issues/1308)) ([38fb6a4](https://github.com/adea-ai/adea/commit/38fb6a493824b629a95ae7e0dfa9c1365d828a54))
+* **ui:** compose Heading, Text and AlertDialog for headings and confirms ([#1292](https://github.com/adea-ai/adea/issues/1292)) ([0c32500](https://github.com/adea-ai/adea/commit/0c3250066e63b924545fd1a3b54cca0bec511a62))
+* **ui:** import variantFromRecord from the shared theme-records module ([#1311](https://github.com/adea-ai/adea/issues/1311)) ([ab31093](https://github.com/adea-ai/adea/commit/ab310939ad81e8b76e9840c79e677eda4a542974))
+* **ui:** run adea on the shared ThemeProvider ([#1307](https://github.com/adea-ai/adea/issues/1307)) ([5a4ffb4](https://github.com/adea-ai/adea/commit/5a4ffb4eb414ea20e2c4b6635e1995835eb64ee8))
+
+## [0.90.0](https://github.com/adea-ai/adea/compare/v0.89.0...v0.90.0) (2026-10-12)
+
+
+### Features
+
+* **management:** route human and lead controls through shared audited APIs ([#1215](https://github.com/adea-ai/adea/issues/1215)) ([#1230](https://github.com/adea-ai/adea/issues/1230)) ([14b10b7](https://github.com/adea-ai/adea/commit/14b10b7af67ee9849145906d67064c479627b09e))
+
+
+### Bug Fixes
+
+* **db:** preflight canonical migration history ([#1281](https://github.com/adea-ai/adea/issues/1281)) ([155ed32](https://github.com/adea-ai/adea/commit/155ed327a55de01fcc890c20a9d006116cf9db39))
+* **deps:** update dependency @adea-ai/contracts to v1.21.0 ([#1284](https://github.com/adea-ai/adea/issues/1284)) ([a14778e](https://github.com/adea-ai/adea/commit/a14778eeab0265f299a2913d2fbd8395acf621a0))
+* **deps:** update dependency @adea-ai/ui to v0.123.1 ([#1279](https://github.com/adea-ai/adea/issues/1279)) ([bc3fd1b](https://github.com/adea-ai/adea/commit/bc3fd1b07befaea2dc01f424423a4d0af7bcbd34))
+
+
+### Performance
+
+* **ci:** overlap E2E runner preparation ([#1283](https://github.com/adea-ai/adea/issues/1283)) ([bb08429](https://github.com/adea-ai/adea/commit/bb0842990a0fff536dfe6fe531f3f8a63b358f75))
+
+
+### Tests
+
+* **db:** rehearse canonical backfill quarantine ([#1222](https://github.com/adea-ai/adea/issues/1222)) ([#1282](https://github.com/adea-ai/adea/issues/1282)) ([5e114cb](https://github.com/adea-ai/adea/commit/5e114cb58bd930550d08a4b438f7cce24a7b3787))
+* **desktop:** cover retained session transfer and fallback ([#1223](https://github.com/adea-ai/adea/issues/1223)) ([#1285](https://github.com/adea-ai/adea/issues/1285)) ([864745a](https://github.com/adea-ai/adea/commit/864745ae87c252e8b291c9cff7408bf0deb4ee59))
+
+
+### CI
+
+* bound Neon proof and shard E2E validation ([#1280](https://github.com/adea-ai/adea/issues/1280)) ([386706b](https://github.com/adea-ai/adea/commit/386706bc0bad2d753071aae8a92944718f84800d))
+* use npm trusted publishing for audio and spatial ([#1287](https://github.com/adea-ai/adea/issues/1287)) ([2e2134a](https://github.com/adea-ai/adea/commit/2e2134aadad10265820c13c7361b6b92b723df69))
+
 ## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
 
 

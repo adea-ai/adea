@@ -209,6 +209,9 @@ the channel's project for `channelId`; the message's channel for every `messageI
 message channel. Lookups use current state, so a task moved into a hidden project is hidden in
 replay too, and a removed project member stops seeing the project's history on the next page.
 Channel, message, thread/reply and content references also require current channel audience access.
+A group message event must also lie within the subscriber's effective join-point history window (or
+an authorized earlier-history share). Current admission after a removal and rejoin does not make
+pre-join message events visible again; reply and thread-root ancestry use that same history window.
 A thread reply also requires its thread root to be visible to the subscriber under the same rules: a
 reply whose root is a job publication the subscriber is no longer authorized for is withheld, live and on
 replay, exactly as the publication itself is. The replies stay stored; they are delivered again when
@@ -256,8 +259,15 @@ access-scope and group-standing reads. Idle polls read nothing extra.
 
 **Client refresh.** `project.visibility_changed` and `project.members_changed` refresh the whole
 workspace scope, because access to the project's channels, tasks, read state and search changes
-with them. `workspace.member_*` events fall in the `workspace` family and refresh the member and
-invitation queries under the workspace prefix.
+with them; they also refresh the account-wide inbox, whose rows include visible project channels.
+Agent-family events refresh both workspace Agent queries and the account-wide directory. Channel,
+message and thread events refresh the account-wide inbox because channel membership, titles,
+recency and unread state are projected there. A detected sequence gap or `resync_required` refreshes
+both account page families along with the workspace scope. These are prefix invalidations: each
+mounted directory/inbox walk rebuilds successor cursors from refreshed predecessors, preserving its
+loaded depth unless the refreshed results are exhausted. Its search and action controls stay
+mounted and retain focus while the keyset pages rebase. `workspace.member_*` events fall in the
+`workspace` family and refresh the member and invitation queries under the workspace prefix.
 
 ## Verifying it locally
 

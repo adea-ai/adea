@@ -53,6 +53,11 @@ export type HarnessPreferenceAuthority = Readonly<{
    * means nothing is launchable — the caller reports the typed gap.
    */
   resolveDefault(projectId: string | undefined): PreferenceResolution | undefined
+  /**
+   * True when the user disabled this installation for the project (or for the whole workspace).
+   * A disabled harness is never auto-launched, whichever default names it.
+   */
+  isDisabled(installationId: string, projectId: string | undefined): boolean
 }>
 
 export function createHarnessPreferenceAuthority(input: {
@@ -60,6 +65,10 @@ export function createHarnessPreferenceAuthority(input: {
   scope: Scope
   /** The managed installation id when ready; the root-default anchor. */
   managedInstallationId: () => string | undefined
+  /** True when the device-wide default names a family. The managed-Pi root
+   * default then yields to it (the register resolves the family to an
+   * installation), so the effective list never shows both as the default. */
+  deviceDefaultActive?: () => boolean
 }): HarnessPreferenceAuthority {
   const store = createDurableJsonStore<HarnessPreferenceRecord>({
     file: join(input.dataDir, PREFS_STORE_FILE),
@@ -87,6 +96,7 @@ export function createHarnessPreferenceAuthority(input: {
     ) {
       return undefined
     }
+    if (input.deviceDefaultActive?.()) return undefined
     const managedId = input.managedInstallationId()
     if (!managedId) return undefined
     return {
@@ -96,6 +106,7 @@ export function createHarnessPreferenceAuthority(input: {
       sortKey: sortKeyFor(0),
       default: true,
       version: 1,
+      rootDefault: true,
     }
   }
 
@@ -150,6 +161,14 @@ export function createHarnessPreferenceAuthority(input: {
         storedInScope().filter((record) =>
           projectId === undefined ? false : record.projectId !== projectId
         )
+      )
+    },
+    isDisabled(installationId, projectId) {
+      return storedInScope().some(
+        (record) =>
+          record.harnessInstallationId === installationId &&
+          !record.enabled &&
+          (record.projectId === undefined || record.projectId === projectId)
       )
     },
     resolveDefault(projectId) {

@@ -21,8 +21,9 @@ import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { ArrowLeft, Copy } from 'lucide-solid'
-import { For, Show, createEffect, createResource, createSignal, on, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, on, type JSX } from 'solid-js'
 
+import { createReadResource } from '../resource'
 import { errorText, type ScmClient } from '../client'
 import { plural } from '../model/format'
 import { mergeWhenReadyCopy } from '../model/merge-dock'
@@ -65,7 +66,7 @@ export function NewPullRequestDialog(props: {
   const [creating, setCreating] = createSignal(false)
   const [failure, setFailure] = createSignal<string>()
 
-  const [branches] = createResource(
+  const [branches] = createReadResource(
     () => (props.open ? props.repoId : undefined),
     (repoId) => props.client.branches(repoId)
   )
@@ -111,7 +112,7 @@ export function NewPullRequestDialog(props: {
     if (!titleEdited() && head()) setTitle(titleFromBranch(head()))
   })
 
-  const [compare] = createResource(
+  const [compare] = createReadResource(
     () =>
       props.open && base() && head() && base() !== head()
         ? { base: base(), head: head() }

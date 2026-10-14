@@ -53,6 +53,26 @@ export function createLeadTurnSdkAdapter(
             const receipt = response.data.receipt
             if (receipt !== null && !record(receipt)) throw new Error('RUNTIME_RESPONSE_INVALID')
             // Project the bounded receipt only; no inference from its dispatch bookkeeping state.
+            // The control-plane observed target (execution session + plan task)
+            // passes through when wellformed so owners can compare it against
+            // the retained claim; it is execution location, never authority,
+            // and it carries no generation. Malformed enrichment is omitted
+            // (never thrown): the core receipt must survive control-plane
+            // skew, and absence simply reads as unobserved.
+            const observed = ((): Record<string, { sessionId: string; taskId: string }> => {
+              if (!record(receipt)) return {}
+              const candidate = receipt.observedTarget
+              if (!record(candidate)) return {}
+              const { sessionId, taskId } = candidate
+              if (
+                typeof sessionId !== 'string' ||
+                !sessionId.trim() ||
+                typeof taskId !== 'string' ||
+                !taskId.trim()
+              )
+                return {}
+              return { observedTarget: { sessionId, taskId } }
+            })()
             return {
               schemaVersion: 'pi-lead-lookup/v1',
               workspaceId: transport.workspaceId,
@@ -68,6 +88,7 @@ export function createLeadTurnSdkAdapter(
                       ...(receipt.runtimeSessionId !== undefined
                         ? { runtimeSessionId: receipt.runtimeSessionId }
                         : {}),
+                      ...observed,
                     },
             }
           },

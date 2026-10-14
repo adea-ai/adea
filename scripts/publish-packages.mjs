@@ -3,11 +3,12 @@ import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shouldPublishVersion } from './publish-version.mjs'
 
 // Publishes the moat-free shared packages (@adea-ai/audio, @adea-ai/spatial)
 // to the public npm registry so the
 // private agent-sim repo — and, later, the public adea repo — consume them
-// without any registry auth. These packages have zero @adea-ai/* transitive
+// without install credentials. These packages have zero @adea-ai/* transitive
 // deps beyond each other and contain no engine, simulation, or binary-asset
 // code; that is what makes public publishing safe. Never add an engine
 // package to PUBLISH_PACKAGES.
@@ -31,10 +32,11 @@ import { fileURLToPath } from 'node:url'
 // repository, so this workflow could no longer publish the package by OIDC even
 // if the list above still named it.
 //
-// The npm `adea` org must exist and NPM_TOKEN must be an automation token
-// with publish rights on it. Versions come from each package.json
-// (release-please lockstep); already-published versions are skipped, so the
-// script is safe to re-run and runs on every main push touching these paths.
+// Publishing uses the GitHub Actions OIDC trusted publishers configured for
+// both packages; this script does not use npm tokens. Versions come from each
+// package.json (release-please lockstep); already-published versions are
+// skipped, so the script is safe to re-run and runs on every main push touching
+// these paths.
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
@@ -50,10 +52,18 @@ function sh(args, cwd, extraEnv) {
   return result
 }
 
-async function publishedVersion(name) {
-  const result = sh(['npm', 'view', `${name}`, 'version'], repoRoot)
-  if (result.status !== 0) return null
-  return result.stdout.trim() || null
+async function registryVersion(name, version) {
+  const spec = version ? `${name}@${version}` : name
+  const field = version ? 'version' : 'dist-tags.latest'
+  const result = sh(['npm', 'view', spec, field], repoRoot)
+  if (result.status === 0) {
+    const resolved = result.stdout.trim()
+    if (!resolved) throw new Error(`[publish] registry returned no ${field} for ${spec}`)
+    return resolved
+  }
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
+  if (/\bE404\b/.test(output)) return null
+  throw new Error(`[publish] registry lookup failed for ${spec}: ${output.trim()}`)
 }
 
 // Workspace manifests are the source of truth for workspace: ranges; bun
@@ -86,7 +96,9 @@ for (const relative of PUBLISH_PACKAGES) {
   if (manifest.private) {
     throw new Error(`[publish] refusing to publish ${name}: remove "private": true first`)
   }
-  if (await publishedVersion(name).then((v) => v === version)) {
+  const exactVersion = await registryVersion(name, version)
+  const latestVersion = exactVersion === version ? null : await registryVersion(name)
+  if (!shouldPublishVersion(version, exactVersion, latestVersion)) {
     console.log(`[publish] ${name}@${version} already published; skipping.`)
     continue
   }
@@ -125,7 +137,7 @@ ${result.stderr ?? ''}`
       let converged = false
       for (let attempt = 1; attempt <= 6 && !converged; attempt++) {
         await new Promise((done) => setTimeout(done, 10_000))
-        converged = (await publishedVersion(name)) === version
+        converged = (await registryVersion(name, version)) === version
       }
       if (converged) {
         console.log(`[publish] ${name}@${version} won by a concurrent lane; continuing.`)

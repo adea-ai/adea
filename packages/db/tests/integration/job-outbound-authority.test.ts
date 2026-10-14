@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { exportPortableWorkspace } from '../../src/portable-export'
 import { and, eq, sql } from 'drizzle-orm'
 
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
@@ -844,25 +845,23 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
     const database = {
       select: () => ({
         from: () => ({
-          where: () => ({
-            for: async () => {
-              referenceReads += 1
-              return referenceReads === 1
-                ? [
-                    {
-                      channelId,
-                      executionRef: null,
-                      id: candidateId,
-                      replyToMessageId: missingAncestorId,
-                      senderKind: 'user',
-                      senderSystemId: null,
-                      threadRootMessageId: null,
-                      workspaceId,
-                    },
-                  ]
-                : []
-            },
-          }),
+          where: async () => {
+            referenceReads += 1
+            return referenceReads === 1
+              ? [
+                  {
+                    channelId,
+                    executionRef: null,
+                    id: candidateId,
+                    replyToMessageId: missingAncestorId,
+                    senderKind: 'user',
+                    senderSystemId: null,
+                    threadRootMessageId: null,
+                    workspaceId,
+                  },
+                ]
+              : []
+          },
         }),
       }),
     } as unknown as AgentHqDatabase
@@ -1222,16 +1221,19 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       )?.map(({ kind }) => kind)
     ).toEqual(['deliver'])
 
-    await connection.db
-      .delete(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, f.destination.id),
-          eq(channelParticipants.channelId, f.channel.id),
-          eq(channelParticipants.principalKind, 'user'),
-          eq(channelParticipants.userId, f.recipient.principal.userId)
-        )
-      )
+    const [channelBeforeRevocation] = await connection.db
+      .select({ version: channels.version })
+      .from(channels)
+      .where(eq(channels.id, f.channel.id))
+      .limit(1)
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channel.id,
+      f.owner.principal,
+      [f.owner.principal],
+      channelBeforeRevocation!.version
+    )
     expect(
       await getContentRefForUser(
         connection.db,
@@ -1460,5 +1462,92 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
         ({ id }) => id === f.channel.id
       )
     ).toMatchObject({ latestTopLevelSequence: visibleRoot.sequence })
+  }, 30_000)
+
+  test('portable export refuses a buffered publication after source authority is revoked', async () => {
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'EXPORT_SOURCE_AUTHORITY')
+    expect(published.publication.decision.action).toBe('publish')
+    const before = await exportPortableWorkspace(connection.db, {
+      workspaceId: f.destination.id,
+      principal: f.owner.principal,
+    })
+    expect(before.content.messages.map((message) => message.messageId)).toContain(
+      published.publication.messageId!
+    )
+    await expect(
+      exportPortableWorkspace(connection.db, {
+        workspaceId: f.destination.id,
+        principal: f.owner.principal,
+        hooks: {
+          beforeStep: async (step) => {
+            if (step.name === 'final')
+              await connection.db
+                .delete(workspaceMemberships)
+                .where(
+                  and(
+                    eq(workspaceMemberships.workspaceId, f.source.id),
+                    eq(workspaceMemberships.userId, f.owner.principal.userId)
+                  )
+                )
+          },
+        },
+      })
+    ).rejects.toMatchObject({ code: 'denied' })
+    expect(
+      await listMessagesForUser(connection.db, f.destination.id, f.channel.id, f.owner.principal)
+    ).toMatchObject({ messages: [] })
+  }, 30_000)
+
+  test('portable export refuses a buffered publication and reply ancestry after grant revocation', async () => {
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'EXPORT_GRANT_AUTHORITY')
+    expect(published.publication.decision.action).toBe('publish')
+    const reply = await createMessage(
+      connection.db,
+      f.destination.id,
+      f.channel.id,
+      f.owner.principal,
+      {
+        bodyText: 'Reply to exported publication',
+        sender: f.owner.principal,
+        idempotencyKey: crypto.randomUUID(),
+        replyToMessageId: published.publication.messageId!,
+      }
+    )
+    const before = await exportPortableWorkspace(connection.db, {
+      workspaceId: f.destination.id,
+      principal: f.owner.principal,
+    })
+    expect(before.content.messages.map((message) => message.messageId)).toContain(reply.id)
+    await expect(
+      exportPortableWorkspace(connection.db, {
+        workspaceId: f.destination.id,
+        principal: f.owner.principal,
+        hooks: {
+          beforeStep: async (step) => {
+            if (step.name === 'final')
+              await revokeArtifactReferenceGrant(
+                connection.db,
+                f.source.id,
+                f.owner.principal,
+                grantId
+              )
+          },
+        },
+      })
+    ).rejects.toMatchObject({ code: 'denied' })
+    const after = await listMessagesForUser(
+      connection.db,
+      f.destination.id,
+      f.channel.id,
+      f.owner.principal
+    )
+    expect(after.messages.map((message) => message.id)).not.toContain(reply.id)
+    expect(after.messages.map((message) => message.id)).not.toContain(
+      published.publication.messageId!
+    )
   }, 30_000)
 })

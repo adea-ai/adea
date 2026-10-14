@@ -288,6 +288,23 @@ describe('job outbound result service', () => {
     expect(h.events.indexOf('write')).toBeGreaterThan(h.events.lastIndexOf('clock'))
   })
 
+  test('the final requester check runs after judgment and before the publication write', async () => {
+    const state = world()
+    const h = harness(state)
+    await h.service.publish(
+      { ...publishInput, beforeWrite: async () => void h.events.push('seam') },
+      h.write,
+      undefined,
+      async ({ transaction }) => {
+        expect(transaction).toBe(h.transaction)
+        h.events.push('requester-check')
+      }
+    )
+    const requesterCheck = h.events.indexOf('requester-check')
+    expect(requesterCheck).toBeGreaterThan(h.events.lastIndexOf('clock'))
+    expect(h.events.indexOf('write')).toBe(requesterCheck + 1)
+  })
+
   test('a held publish writes nothing: no message exists for an unauthorized publication', async () => {
     const state = world({ access: { role: 'member', workspaceLive: true } })
     const h = harness(state)

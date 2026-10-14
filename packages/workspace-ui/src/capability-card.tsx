@@ -2,6 +2,7 @@ import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Item, ItemDescription, ItemTitle } from '@adea-ai/ui/components/ui/item'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 import { capabilitySnapshotAge, presentCapability } from './capability-status'
 import { keyedRows } from './keyed-rows'
@@ -59,26 +60,32 @@ export function CapabilityList(props: {
   return (
     <div role="group" aria-label="Local capabilities" data-local-capabilities="true">
       <For each={capabilityRows()}>{(entry) => <CapabilityCard status={entry.item()} />}</For>
-      <div class="conventional-settings-note">
-        <p>
+      <Item
+        variant="muted"
+        size="sm"
+        class="mt-4"
+        trailing={
+          <Show when={props.onRefresh}>
+            {(onRefresh) => (
+              <Button
+                aria-label="Refresh local capability status"
+                disabled={props.busy}
+                onClick={() => onRefresh()()}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Refresh
+              </Button>
+            )}
+          </Show>
+        }
+      >
+        <Text variant="caption" tone="muted">
           {capabilitySnapshotAge(props.snapshot)}
           {props.snapshot.servedFromCache ? ' (cached)' : ''}
-        </p>
-        <Show when={props.onRefresh}>
-          {(onRefresh) => (
-            <Button
-              aria-label="Refresh local capability status"
-              disabled={props.busy}
-              onClick={() => onRefresh()()}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              Refresh
-            </Button>
-          )}
-        </Show>
-      </div>
+        </Text>
+      </Item>
     </div>
   )
 }

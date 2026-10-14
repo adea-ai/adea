@@ -4,6 +4,7 @@ import { Show } from 'solid-js'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Card, CardContent } from '@adea-ai/ui/components/ui/card'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export function ArtifactDetail(props: {
   artifact: ArtifactSummary
@@ -15,7 +16,9 @@ export function ArtifactDetail(props: {
       <header class="conventional-surface-header">
         <div>
           <span>Artifact</span>
-          <h1 id="artifact-title">{props.artifact.filename}</h1>
+          <Heading as="h1" size="title" id="artifact-title">
+            {props.artifact.filename}
+          </Heading>
         </div>
         <ActionButton
           type="button"

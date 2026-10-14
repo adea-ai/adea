@@ -232,11 +232,19 @@ async function selectGrants(
         eq(groupEnlistmentGrants.channelId, channelId)
       )
     )
-  const [audienceRows, enlistmentRows, agentHomes] = await Promise.all([
+  const [audienceRows, enlistmentRows] = await Promise.all([
     forUpdate ? audienceQuery.for('update') : audienceQuery,
     forUpdate ? enlistmentQuery.for('update') : enlistmentQuery,
-    database.select({ agentId: agents.id, workspaceId: agents.workspaceId }).from(agents),
   ])
+  // Resolve only the Agents these grants name: the registry is global, and the roster of one
+  // group must not scale with every Agent that exists.
+  const enlistedAgentIds = [...new Set(enlistmentRows.map((row) => row.agentId))]
+  const agentHomes = enlistedAgentIds.length
+    ? await database
+        .select({ agentId: agents.id, workspaceId: agents.workspaceId })
+        .from(agents)
+        .where(inArray(agents.id, enlistedAgentIds))
+    : []
   const homeWorkspaceByAgent = new Map(agentHomes.map((row) => [row.agentId, row.workspaceId]))
   return {
     audience: audienceRows.map((row) => audienceGrantFromRow(channelId, row)),
@@ -344,9 +352,12 @@ export async function groupChannelIdsInForce(
   database: GroupStoreDatabase,
   userId: string,
   now: string,
-  workspaceId?: string
+  workspaceId?: string,
+  options: Readonly<{ channelIds?: readonly string[]; limit?: number }> = {}
 ): Promise<Set<string>> {
-  const rows = await database
+  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1))
+    throw new RangeError('group admission limit must be a positive safe integer')
+  const query = database
     .select({ admission: groupAdmissions, grant: groupAudienceGrants })
     .from(groupAdmissions)
     .leftJoin(
@@ -361,9 +372,19 @@ export async function groupChannelIdsInForce(
       and(
         eq(groupAdmissions.principalKind, 'user'),
         eq(groupAdmissions.userId, userId),
-        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : []),
+        ...(options.channelIds
+          ? [
+              options.channelIds.length
+                ? inArray(groupAdmissions.channelId, [...options.channelIds])
+                : sql`false`,
+            ]
+          : [])
       )
     )
+  const rows = options.limit ? await query.limit(options.limit) : await query
+  if (options.limit !== undefined && rows.length >= options.limit)
+    throw new RangeError('Group admission query exceeds its bound')
   const inForce = rows.filter(({ admission: row, grant }) => {
     const channelId = row.channelId
     const window = resolveAdmissionWindow(

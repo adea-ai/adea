@@ -121,10 +121,11 @@ describe('Dev Runtime operation registry', () => {
     // registry record), 229 before the machine-wide janitor slice (scan,
     // measure, plan, commit), 233 before dev.github.repositories (the
     // authenticated account's repository listing, the add surface's "From
-    // GitHub" import source): the registry ratchet moves only when an
+    // GitHub" import source), 236 after the harness inventory read and its
+    // explicit rescan, 238 after the device-wide default harness read and update: the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(234)
+    expect(devOperations).toHaveLength(238)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

@@ -5,6 +5,7 @@
  */
 import { For, Show } from 'solid-js'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { cn } from '@adea-ai/ui/lib/utils'
 
 import type { UsageCard } from './resources-model'
@@ -13,9 +14,11 @@ export function UsageTab(props: { cards: readonly UsageCard[] }) {
   return (
     <div class="dev-resources__tab">
       <section class="dev-resources__group" aria-label="Provider usage">
-        <h3 class="dev-resources__group-header">
-          <span class="dev-resources__group-title">Provider usage</span>
-        </h3>
+        <div class="dev-resources__group-header">
+          <Text as="h3" variant="overline">
+            Provider usage
+          </Text>
+        </div>
         <Show
           when={props.cards.length > 0}
           fallback={<p class="dev-resources__note">No usage observations yet.</p>}

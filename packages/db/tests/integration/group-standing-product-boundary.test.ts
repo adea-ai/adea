@@ -245,6 +245,62 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
     expect(saved).toEqual([{ lastReadSequence: visible.sequence }])
   })
 
+  test('earlier-summary counts survive an empty visible frontier and a read mark', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Summary-only with no visible messages')
+    const [historical] = await db()
+      .select({ sequence: messages.sequence })
+      .from(messages)
+      .where(eq(messages.id, group.messageId))
+    expect(historical).toBeDefined()
+
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: historical!.sequence + 1 })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    await db().insert(groupSharingGrants).values({
+      channelId: group.channelId,
+      expiresAt: null,
+      grantId: 'gra_summary_only_empty_member',
+      issuedAt: new Date().toISOString(),
+      principalKind: 'user',
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_summary',
+      userId: f.member.userId,
+      workspaceId: f.workspace.id,
+    })
+
+    const visible = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(visible.messages).toEqual([])
+    const beforeRead = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(beforeRead).toMatchObject({ latestTopLevelSequence: 0, topLevelUnreadCount: 1 })
+
+    await markChannelReadState(
+      db(),
+      f.workspace.id,
+      group.channelId,
+      f.member,
+      'read',
+      historical!.sequence + 99
+    )
+    const afterRead = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(afterRead).toMatchObject({
+      lastReadSequence: 0,
+      latestTopLevelSequence: 0,
+      topLevelUnreadCount: 1,
+    })
+  })
+
   test('earlier-history access exposes messages without granting earlier summary counts', async () => {
     const f = await fixture()
     const group = await groupWithAudience(f, 'History-only summary boundary')
@@ -312,6 +368,260 @@ describe.skipIf(!connectionUrl)('participation standing at the product boundary 
       threadUnreadCount: 0,
       threads: [],
     })
+  })
+
+  test('post-join rootless reply chains preserve messages and redact hidden references', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Rootless reply chain visibility')
+    const hiddenRoot = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'pre-join root hidden from member',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const firstReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'post-join B replies to hidden A',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenRoot.id,
+      sender: f.owner,
+    })
+    const secondReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'post-join C replies to B',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: firstReply.id,
+      sender: f.owner,
+    })
+    const thirdReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'post-join D replies to C',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: secondReply.id,
+      sender: f.owner,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: firstReply.sequence })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+    expect(firstReply.replyToMessageId).toBe(hiddenRoot.id)
+    expect(firstReply.threadRootMessageId).toBeUndefined()
+
+    const pages: Awaited<ReturnType<typeof listMessagesForUser>>['messages'][number][] = []
+    let afterSequence: number | undefined
+    let reachedEnd = false
+    for (let index = 0; index < 8; index += 1) {
+      const page = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member, {
+        ...(afterSequence !== undefined ? { afterSequence } : {}),
+        limit: 1,
+      })
+      pages.push(...page.messages)
+      if (page.nextAfterSequence === undefined) {
+        reachedEnd = true
+        break
+      }
+      expect(page.nextAfterSequence).toBeGreaterThan(afterSequence ?? 0)
+      afterSequence = page.nextAfterSequence
+    }
+    expect(reachedEnd).toBe(true)
+    expect(pages.map((message) => message.id)).toEqual([
+      firstReply.id,
+      secondReply.id,
+      thirdReply.id,
+    ])
+    expect(pages.map((message) => message.bodyText)).toEqual([
+      'post-join B replies to hidden A',
+      'post-join C replies to B',
+      'post-join D replies to C',
+    ])
+    expect(pages[0]).not.toHaveProperty('replyToMessageId')
+    expect(pages[1]).toMatchObject({ replyToMessageId: firstReply.id })
+    expect(pages[2]).toMatchObject({ replyToMessageId: secondReply.id })
+    expect(JSON.stringify(pages)).not.toContain(hiddenRoot.id)
+
+    const directFirst = await getMessageForUser(db(), f.workspace.id, firstReply.id, f.member)
+    const directSecond = await getMessageForUser(db(), f.workspace.id, secondReply.id, f.member)
+    expect(directFirst).toMatchObject({ bodyText: 'post-join B replies to hidden A' })
+    expect(directFirst).not.toHaveProperty('replyToMessageId')
+    expect(directSecond).toMatchObject({
+      bodyText: 'post-join C replies to B',
+      replyToMessageId: firstReply.id,
+    })
+
+    const state = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(state).toMatchObject({
+      latestTopLevelSequence: thirdReply.sequence,
+      topLevelUnreadCount: 3,
+      threadUnreadCount: 0,
+    })
+    const inbox = (await accountConversationInbox(db(), f.member)).conversations.find(
+      (entry) => entry.id === group.channelId
+    )
+    expect(inbox).toMatchObject({
+      latestTopLevelSequence: thirdReply.sequence,
+      topLevelUnreadCount: 3,
+    })
+    const workspaceSummary = (await accountWorkspaceSummaries(db(), f.member)).find(
+      (entry) => entry.workspaceId === f.workspace.id
+    )
+    expect(workspaceSummary).toMatchObject({ unreadChannels: 1 })
+
+    await expect(
+      getMessageForUser(db(), f.workspace.id, firstReply.id, f.owner)
+    ).resolves.toMatchObject({
+      bodyText: 'post-join B replies to hidden A',
+      replyToMessageId: hiddenRoot.id,
+    })
+  })
+
+  test('a hidden thread root withholds post-join replies from history, search, and unread state', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Thread root redaction')
+    const hiddenRoot = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'pre-join thread root',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const hiddenReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'pre-join thread reply',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenRoot.id,
+      sender: f.owner,
+      threadRootMessageId: hiddenRoot.id,
+    })
+    const visibleThreadReply = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'hidden-root-post-join-thread-reply-token',
+      idempotencyKey: crypto.randomUUID(),
+      replyToMessageId: hiddenReply.id,
+      sender: f.owner,
+      threadRootMessageId: hiddenRoot.id,
+    })
+    await db()
+      .update(groupAdmissions)
+      .set({ joinedSequence: visibleThreadReply.sequence })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, group.channelId),
+          eq(groupAdmissions.userId, f.member.userId)
+        )
+      )
+
+    const history = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(history.messages.map((message) => message.id)).not.toContain(visibleThreadReply.id)
+    expect(JSON.stringify(history.messages)).not.toContain(
+      'hidden-root-post-join-thread-reply-token'
+    )
+    expect(JSON.stringify(history.messages)).not.toContain(hiddenRoot.id)
+    expect(JSON.stringify(history.messages)).not.toContain(hiddenReply.id)
+    await expect(
+      getMessageForUser(db(), f.workspace.id, visibleThreadReply.id, f.member)
+    ).rejects.toThrow('Message unavailable')
+
+    const search = await searchWorkspaceForUser(
+      db(),
+      f.workspace.id,
+      f.member,
+      'hidden-root-post-join-thread-reply-token',
+      { channelId: group.channelId }
+    )
+    expect(search.results.map((result) => result.messageId)).not.toContain(visibleThreadReply.id)
+
+    await expect(
+      markThreadReadState(db(), f.workspace.id, group.channelId, hiddenRoot.id, f.member, 'read')
+    ).rejects.toThrow('Read state unavailable')
+    const state = (await listReadStateForUser(db(), f.workspace.id, f.member)).find(
+      (entry) => entry.channelId === group.channelId
+    )
+    expect(state).toMatchObject({
+      latestTopLevelSequence: 0,
+      topLevelUnreadCount: 0,
+      threadUnreadCount: 0,
+      threads: [],
+    })
+
+    const inbox = (await accountConversationInbox(db(), f.member)).conversations.find(
+      (entry) => entry.id === group.channelId
+    )
+    expect(inbox).toMatchObject({
+      latestTopLevelSequence: 0,
+      topLevelUnreadCount: 0,
+      threadUnreadCount: 0,
+      unread: false,
+    })
+    const summary = (await accountWorkspaceSummaries(db(), f.member)).find(
+      (entry) => entry.workspaceId === f.workspace.id
+    )
+    expect(summary).toMatchObject({ unreadChannels: 0 })
+
+    const marked = await markChannelReadState(
+      db(),
+      f.workspace.id,
+      group.channelId,
+      f.member,
+      'read',
+      visibleThreadReply.sequence
+    )
+    expect(marked.find((entry) => entry.channelId === group.channelId)).toMatchObject({
+      latestTopLevelSequence: 0,
+      topLevelUnreadCount: 0,
+      threadUnreadCount: 0,
+      unread: false,
+    })
+    const savedChannel = await db()
+      .select({ lastReadSequence: channelReadStates.lastReadSequence })
+      .from(channelReadStates)
+      .where(
+        and(
+          eq(channelReadStates.workspaceId, f.workspace.id),
+          eq(channelReadStates.channelId, group.channelId),
+          eq(channelReadStates.userId, f.member.userId)
+        )
+      )
+    expect(savedChannel).toEqual([{ lastReadSequence: 0 }])
+  })
+
+  test('cyclic message references fail closed without stalling group pagination', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Cyclic reference visibility')
+    const first = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'cycle first',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const second = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'cycle second',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    const control = await createMessage(db(), f.workspace.id, group.channelId, f.owner, {
+      bodyText: 'valid post-join control',
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+    await db()
+      .update(messages)
+      .set({ replyToMessageId: second.id })
+      .where(eq(messages.id, first.id))
+    await db()
+      .update(messages)
+      .set({ replyToMessageId: first.id })
+      .where(eq(messages.id, second.id))
+
+    // The shared filterVisibleMessageRows ancestry gate rejects both cyclic rows
+    // before the group projection could redact only the forward reference.
+    const history = await listMessagesForUser(db(), f.workspace.id, group.channelId, f.member)
+    expect(history.messages.map((message) => message.id)).not.toContain(first.id)
+    expect(history.messages.map((message) => message.id)).not.toContain(second.id)
+    expect(history.messages.map((message) => message.id)).toContain(control.id)
+    await expect(getMessageForUser(db(), f.workspace.id, first.id, f.member)).rejects.toThrow(
+      'Message unavailable'
+    )
+    await expect(getMessageForUser(db(), f.workspace.id, second.id, f.member)).rejects.toThrow(
+      'Message unavailable'
+    )
   })
 
   test('mutations hide pre-join targets before checking their versions', async () => {

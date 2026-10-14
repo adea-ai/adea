@@ -12,6 +12,7 @@ import './onboarding.css'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 export type FirstRunOnboardingProps = Readonly<{
   facts: FirstRunFacts
@@ -91,8 +92,12 @@ export function FirstRunOnboarding(props: FirstRunOnboardingProps): JSX.Element 
   return (
     <main class="dev-onboarding" aria-busy={pending() || state().busy}>
       <section class="dev-onboarding__panel" aria-labelledby="dev-onboarding-title">
-        <p class="dev-onboarding__eyebrow">Adea chat</p>
-        <h1 id="dev-onboarding-title">{state().heading}</h1>
+        <Text as="p" variant="overline">
+          Adea chat
+        </Text>
+        <Heading as="h1" size="title" id="dev-onboarding-title">
+          {state().heading}
+        </Heading>
         <p class="dev-onboarding__message">{state().message}</p>
         <p class="dev-onboarding__install" role="status" aria-live="polite">
           {state().installStatus}

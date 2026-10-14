@@ -160,7 +160,6 @@ test.describe('the task board survives a transient workspace refetch failure', (
     )
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: 'Global conversation inbox' }).click()
     const row = page.getByRole('button', { name: /Board Resilience Lane/ })
     await expect(row).toBeVisible()
     await row.click()

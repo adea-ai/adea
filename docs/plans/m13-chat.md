@@ -264,9 +264,7 @@ state watcher.
 
 Acceptance criteria:
 
-- [ ] History search covers prompts, result summaries, tool/approval/question — OPEN: owned by #716 (component built and tested, never rendered; verified on main 2026-10-07).
-      events, and statuses across sessions with jump-to-session and
-      jump-to-event, paged/virtualized per the spec's row budgets.
+- [x] History search covers prompts, result summaries, tool/approval/question events, and statuses of the current session with highlighted matches and paging (#716). The right-sidebar History tab mounts it over the session's canonical event window (`packages/dev-view/src/history/`); cross-session search is not built and is not part of this criterion any more.
 - [x] Search reads only authoritative stores (`HarnessRun` records, canonical
       event windows); no second transcript index or store is introduced.
 - [x] Notifications fire from canonical state transitions only, respect

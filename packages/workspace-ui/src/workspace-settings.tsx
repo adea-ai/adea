@@ -2,7 +2,7 @@ import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { SettingsNavigation, SettingsRow } from '@adea-ai/ui/components/composites/settings'
@@ -49,8 +49,10 @@ import {
   settingsSections,
   type SettingsSection,
 } from './settings-section'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const sectionIcons = {
   account: UserRound,
@@ -342,7 +344,9 @@ export function WorkspaceSettingsDialog(props: {
                       aria-hidden="true"
                     />
                     <div>
-                      <h3>{settingsSectionLabels[panelSection]}</h3>
+                      <Heading as="h3" size="card">
+                        {settingsSectionLabels[panelSection]}
+                      </Heading>
                       <p>{sectionDescriptions[panelSection]}</p>
                     </div>
                   </header>
@@ -440,9 +444,9 @@ export function WorkspaceSettingsDialog(props: {
                     </Button>
                   </SettingsRow>
                   <Show when={permissionError()}>
-                    <p class="conventional-settings-note" role="alert">
-                      {permissionError()}
-                    </p>
+                    <Alert variant="destructive" class="mt-4">
+                      <AlertDescription>{permissionError()}</AlertDescription>
+                    </Alert>
                   </Show>
                   <SettingsRow
                     label="Dictation language"
@@ -490,10 +494,12 @@ export function WorkspaceSettingsDialog(props: {
                       </SettingsRow>
                     )}
                   </For>
-                  <p class="conventional-settings-note">
-                    <Bell aria-hidden="true" /> Notification clicks will use canonical Project,
-                    Channel, Message, and Task identities when live events are wired in M3.
-                  </p>
+                  <Alert role="note" class="mt-4" icon={<Bell aria-hidden="true" />}>
+                    <AlertDescription>
+                      Notification clicks will use canonical Project, Channel, Message, and Task
+                      identities when live events are wired in M3.
+                    </AlertDescription>
+                  </Alert>
                 </Show>
                 <Show when={panelSection === 'privacy-data'}>
                   <SettingsRow
@@ -517,10 +523,12 @@ export function WorkspaceSettingsDialog(props: {
                       children={false}
                     />
                   </SettingsRow>
-                  <p class="conventional-settings-note">
-                    <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search,
-                    logs, telemetry, or WorkspaceEvents.
-                  </p>
+                  <Alert role="note" class="mt-4" icon={<EyeOff aria-hidden="true" />}>
+                    <AlertDescription>
+                      Private bodies are never sent to cloud search, logs, telemetry, or
+                      WorkspaceEvents.
+                    </AlertDescription>
+                  </Alert>
                 </Show>
                 <Show when={panelSection === 'integrations'}>
                   <Show

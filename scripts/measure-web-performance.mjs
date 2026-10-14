@@ -7,7 +7,7 @@
 //     cleared for the cold run and restored for the warm one;
 //   - deploy artifact sizes SEPARATED from local build caches (dist/ totals,
 //     the client JS surface, the worker entry, the largest client chunks);
-//   - local TTFB against the built Worker booted through wrangler;
+//   - local response-header timing (a TTFB proxy) against the built Worker;
 //   - browser LCP and CLS on the built app, plus an event-timing INP proxy
 //     from a scripted interaction burst (labeled as a proxy: real INP needs
 //     field data, not a lab run).
@@ -29,6 +29,7 @@ import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import { writeLaneSummary } from './dev-runtime-lane-report.mjs'
+import { measureScriptedInteractions, sampleResponseHeaders } from './web-performance-samplers.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const web = path.join(root, 'apps/web')
@@ -38,7 +39,7 @@ const startedAt = new Date()
 // and the Dev View chunk budget stay in their own gates (invoked below); these
 // cover what only this lane measures, with headroom for a busy machine.
 const BUDGETS = {
-  /** Local TTFB against the built Worker on loopback. */
+  /** Local response-header timing against the built Worker on loopback. */
   ttfbMedianMs: 300,
   /** Largest Contentful Paint on the pinned Chromium, cold cache. */
   lcpMs: 4_000,
@@ -254,16 +255,15 @@ async function measureTtfb(port) {
   await fetch(url, { redirect: 'manual' }).catch(() => undefined)
   const samples = []
   for (let index = 0; index < 20; index += 1) {
-    const start = performance.now()
-    const response = await fetch(url, { redirect: 'manual' })
-    await response.arrayBuffer()
-    samples.push(performance.now() - start)
+    const { response, elapsedMs } = await sampleResponseHeaders(url)
+    samples.push(elapsedMs)
     if (!response.ok && response.status !== 307) {
       return { error: `unexpected status ${response.status}` }
     }
   }
   samples.sort((left, right) => left - right)
   return {
+    metric: 'response_headers',
     samples: samples.length,
     minMs: Number(samples[0].toFixed(1)),
     medianMs: Number(samples[Math.floor(samples.length / 2)].toFixed(1)),
@@ -277,7 +277,7 @@ async function measureBrowser(port) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()
   await page.addInitScript(() => {
-    const buffer = { lcp: 0, cls: 0, events: [] }
+    const buffer = { lcp: 0, cls: 0, events: [], eventTimingSupported: false }
     // eslint-disable-next-line no-underscore-dangle
     window.__perfBuffer = buffer
     try {
@@ -292,8 +292,9 @@ async function measureBrowser(port) {
       new PerformanceObserver((entries) => {
         for (const entry of entries.getEntries()) buffer.events.push(entry.duration)
       }).observe({ type: 'event', buffered: true, durationThreshold: 16 })
+      buffer.eventTimingSupported = true
     } catch {
-      /* older engines: metrics stay zero and the lane reports them as such */
+      /* Unsupported Event Timing stays explicitly unavailable. */
     }
   })
 
@@ -313,48 +314,13 @@ async function measureBrowser(port) {
       : null
   })
 
-  // Scripted interaction burst: the worst event-timing duration is an INP
-  // proxy, not field INP.
-  const interactionTargets = [
-    () =>
-      page
-        .getByRole('button', { name: /search/i })
-        .first()
-        .click({ timeout: 5_000 }),
-    () => page.keyboard.press('Escape'),
-    () =>
-      page
-        .getByRole('button', { name: /user settings/i })
-        .first()
-        .click({ timeout: 5_000 }),
-    () => page.keyboard.press('Escape'),
-  ]
-  for (const act of interactionTargets) {
-    try {
-      await act()
-      await page.waitForTimeout(250)
-    } catch {
-      /* a target may not exist on this surface; the burst continues */
-    }
-  }
-  await page.waitForTimeout(1_000)
-  const metrics = await page.evaluate(() => {
-    // eslint-disable-next-line no-underscore-dangle
-    const buffer = window.__perfBuffer
-    const events = buffer?.events ?? []
-    return {
-      lcpMs: Math.round(buffer?.lcp ?? 0),
-      cls: Number((buffer?.cls ?? 0).toFixed(4)),
-      interactionCount: events.length,
-      interactionWorstMs: events.length ? Math.round(Math.max(...events)) : 0,
-    }
-  })
+  const metrics = await measureScriptedInteractions(page)
   await browser.close()
   return { status: navigation?.status() ?? 0, navTiming, ...metrics }
 }
 
 async function main() {
-  const results = { gates: {}, measurements: {}, failures: [] }
+  const results = { schemaVersion: 2, gates: {}, measurements: {}, failures: [] }
 
   const builds = await measureBuilds()
   results.measurements.builds = builds
@@ -398,19 +364,21 @@ async function main() {
   try {
     const ttfb = await measureTtfb(port)
     results.measurements.ttfb = ttfb
-    if (!ttfb) {
-      results.failures.push('the built Worker never answered on loopback')
+    if (!ttfb || ttfb.error) {
+      results.failures.push(ttfb?.error ?? 'the built Worker never answered on loopback')
     } else if (ttfb.medianMs > BUDGETS.ttfbMedianMs) {
       results.failures.push(`TTFB median ${ttfb.medianMs}ms exceeds ${BUDGETS.ttfbMedianMs}ms`)
     }
-    if (ttfb) {
+    if (ttfb && !ttfb.error) {
       const browserMetrics = await measureBrowser(port)
       results.measurements.browser = browserMetrics
       if (browserMetrics.lcpMs > BUDGETS.lcpMs)
         results.failures.push(`LCP ${browserMetrics.lcpMs}ms exceeds ${BUDGETS.lcpMs}ms`)
       if (browserMetrics.cls > BUDGETS.cls)
         results.failures.push(`CLS ${browserMetrics.cls} exceeds ${BUDGETS.cls}`)
-      if (browserMetrics.interactionWorstMs > BUDGETS.interactionWorstMs)
+      if (browserMetrics.interactionStatus !== 'measured')
+        results.failures.push(`interaction proxy unavailable: ${browserMetrics.interactionReason}`)
+      else if (browserMetrics.interactionWorstMs > BUDGETS.interactionWorstMs)
         results.failures.push(
           `worst scripted interaction ${browserMetrics.interactionWorstMs}ms exceeds ${BUDGETS.interactionWorstMs}ms`
         )
@@ -451,9 +419,9 @@ async function main() {
   console.log(
     `  worker entry          ${results.measurements.artifacts.workerEntry?.bytes ?? 'n/a'} bytes`
   )
-  if (results.measurements.ttfb)
+  if (results.measurements.ttfb && !results.measurements.ttfb.error)
     console.log(
-      `  local TTFB            min ${results.measurements.ttfb.minMs} / median ${results.measurements.ttfb.medianMs} / p95 ${results.measurements.ttfb.p95Ms} ms`
+      `  header timing         min ${results.measurements.ttfb.minMs} / median ${results.measurements.ttfb.medianMs} / p95 ${results.measurements.ttfb.p95Ms} ms (TTFB proxy)`
     )
   if (results.measurements.browser) {
     const browser = results.measurements.browser
@@ -462,7 +430,9 @@ async function main() {
     )
     console.log(`  LCP / CLS             ${browser.lcpMs} ms / ${browser.cls}`)
     console.log(
-      `  interaction proxy     worst ${browser.interactionWorstMs} ms over ${browser.interactionCount} event-timing entries`
+      browser.interactionStatus === 'measured'
+        ? `  interaction proxy     worst ${browser.interactionWorstMs} ms over ${browser.interactionCount} event-timing entries`
+        : `  interaction proxy     ${browser.interactionStatus}: ${browser.interactionReason}`
     )
   }
   console.log(
@@ -483,4 +453,6 @@ async function main() {
   }
 }
 
-await main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main()
+}

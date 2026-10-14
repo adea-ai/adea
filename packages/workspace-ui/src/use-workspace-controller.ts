@@ -17,6 +17,7 @@ import {
   useCompleteTaskMutation,
   useCreateAgentMutation,
   useCreateDirectChannelMutation,
+  useCreateDirectTopicMutation,
   useCreateGroupChannelMutation,
   useCreateProjectMutation,
   useCreateTaskMutation,
@@ -94,6 +95,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const createProject = useCreateProjectMutation(client(), () => workspaceId() ?? '')
   const createGroup = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
   const createDirect = useCreateDirectChannelMutation(client(), () => workspaceId() ?? '')
+  const createDirectTopic = useCreateDirectTopicMutation(client(), () => workspaceId() ?? '')
   const createAgent = useCreateAgentMutation(client(), () => workspaceId() ?? '')
   const archiveAgent = useArchiveAgentMutation(client(), () => workspaceId() ?? '')
   const assignAgentProject = useAssignAgentProjectMutation(client(), () => workspaceId() ?? '')
@@ -291,6 +293,22 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     openAgentConversation: async (agentId: string) => {
       const authority = selectionAuthority()
       const result = await createDirect.mutateAsync(agentId)
+      if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
+    },
+    /**
+     * A fresh topic with the same Agent. Each call commits a distinct
+     * conversation; only a retry of this call (same request id) deduplicates.
+     */
+    startAgentTopic: async (
+      agentId: string,
+      topic: Readonly<{ requestId: string; title: string }>
+    ) => {
+      const authority = selectionAuthority()
+      const result = await createDirectTopic.mutateAsync({
+        agentId,
+        idempotencyKey: topic.requestId,
+        title: topic.title,
+      })
       if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
     },
     get persistenceReady() {

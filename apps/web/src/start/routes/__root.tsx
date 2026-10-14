@@ -3,6 +3,7 @@ import { HydrationScript } from 'solid-js/web'
 import type { JSX } from 'solid-js'
 import { ThemeScript } from '@adea-ai/app-ui/components/theme-provider'
 import { TextLink } from '@adea-ai/ui/components/ui/text-link'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import '../globals.css'
 
 /**
@@ -18,10 +19,8 @@ export type WorkspaceSearch = {
   chatE2e?: string
   chatState?: string
   /**
-   * The account-wide directory surface (M11.03): `agents` shows the global
-   * Agents directory, `inbox` the global conversation inbox. Present, the
-   * surface replaces the workspace view; the results never scope to the
-   * selected workspace.
+   * Legacy account-directory links. The frame normalizes these into the
+   * existing Chat Agents or Conversations surface, then removes the key.
    */
   directory?: 'agents' | 'inbox'
   /** Dev View deep links: deterministic project/session selection. */
@@ -55,9 +54,9 @@ function RootStatePage(props: {
         aria-labelledby="root-state-title"
       >
         <p class="auth-eyebrow">{props.eyebrow}</p>
-        <h1 class="auth-title" id="root-state-title">
+        <Heading as="h1" size="display" data-auth-title id="root-state-title">
           {props.title}
-        </h1>
+        </Heading>
         <p class="auth-introduction">{props.detail}</p>
         <TextLink href="/">{props.actionLabel}</TextLink>
       </section>

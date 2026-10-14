@@ -14,7 +14,7 @@
   gap: 1rem;
   color: var(--foreground);
   font-family: var(--font-ui, var(--font-sans));
-  font-size: calc(0.875rem * var(--font-ui-scale, 1));
+  font-size: var(--text-sm);
 }
 
 .dev-permissions__header {
@@ -38,8 +38,8 @@
 .dev-permissions__notice {
   margin: 0;
   padding: 0.5rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   color: var(--muted-foreground);
   font-family: var(--font-content, var(--font-sans));
   font-size: var(--text-content);
@@ -53,19 +53,13 @@
   gap: 0;
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
-.dev-permissions__group-heading {
-  margin: 0;
+[data-permissions-group-heading] {
   padding: 0.5rem 1rem;
-  background: color-mix(in srgb, var(--muted) 60%, transparent);
-  font-size: calc(0.75rem * var(--font-ui-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
+  background: var(--muted);
 }
 
 .dev-permissions__row {
@@ -75,7 +69,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-block-start: 1px solid var(--border);
 }
 
 .dev-permissions__identity {
@@ -91,12 +85,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-}
-
-.dev-permissions__title {
-  margin: 0;
-  font-size: calc(0.875rem * var(--font-ui-scale, 1));
-  font-weight: 500;
 }
 
 .dev-permissions__purpose,

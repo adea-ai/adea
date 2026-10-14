@@ -145,6 +145,21 @@ test('rejects a route that becomes part of the static startup graph', () => {
   expect(() => inspectClientBundle(chunks)).toThrow('statically loads the Dev View entry')
 })
 
+test('rejects the themes catalogue in the static startup graph', () => {
+  const withCatalogue = (source: string) =>
+    fixture().map((item) => (item.file === 'shared-shell.js' ? { ...item, source } : item))
+
+  expect(() =>
+    inspectClientBundle(withCatalogue('export const themes = [{ name: "Catppuccin Mocha" }];'))
+  ).toThrow('statically loads the themes catalogue')
+  // A lazy chunk may hold it: only the startup closure is checked.
+  const lazy = [
+    ...fixture(),
+    chunk('theme-catalogue-main.js', 'export const name = "Catppuccin Mocha";'),
+  ]
+  expect(() => inspectClientBundle(lazy)).not.toThrow()
+})
+
 test('fails if a lazy editor chunk is added without route attribution', () => {
   const chunks = fixture().map((item) =>
     item.file === 'code-editor-main.js'

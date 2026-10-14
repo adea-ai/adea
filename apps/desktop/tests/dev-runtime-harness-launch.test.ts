@@ -43,6 +43,7 @@ import {
   type NativeNotificationRequest,
 } from '../shell/src/notifications/harness-run-notifications'
 import { createManagedPiDriver } from '../shell/src/dev-runtime/harness/managed-pi-driver'
+import type { HarnessDiscoverySource } from '../shell/src/dev-runtime/discovery/types'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
@@ -98,12 +99,13 @@ function seedInventoryConnection(
     auth?: 'ready' | 'required' | 'expired' | 'unknown'
     health?: 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
     acpAvailability?: 'available' | 'adapter_required' | 'unavailable'
+    family?: string
   }
 ): void {
   const entry = {
     id: connection.id,
     scope,
-    family: 'claude',
+    family: connection.family ?? 'claude',
     displayName: 'Claude Code (ACP)',
     driverId: 'local-executable',
     driverVersion: '1',
@@ -184,6 +186,7 @@ async function boot(
     probeHost?: () => Promise<{ supported: boolean; reason?: string }>
     seedAcpInstallation?: Parameters<typeof seedInventoryConnection>[2]
     publish?: (event: string, payload: unknown) => void
+    discoverySources?: readonly HarnessDiscoverySource[]
   } = {}
 ): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-harness-launch-'))
@@ -235,6 +238,7 @@ async function boot(
     }),
     acpDriver: noopAcpDriver,
     ...(options.publish ? { publish: options.publish } : {}),
+    ...(options.discoverySources ? { discoverySources: options.discoverySources } : {}),
   })
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
   return {
@@ -323,6 +327,19 @@ async function createSession(
   return reply.value as { id: string; generation: number; version: number; projectId: string }
 }
 
+/** A further session in the project `createSession` already registered. */
+async function createAnotherSession(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+  const reply = await channel.execute(
+    commandFor('dev.session.create', SCOPE_A, {
+      projectId: '00000000-0000-4000-8000-0000000000aa',
+      repoId: '00000000-0000-4000-8000-0000000000ab',
+      worktreeId: randomUUID(),
+    })
+  )
+  if (!reply.ok) throw new Error(`session create failed: ${JSON.stringify(reply.error)}`)
+  return reply.value as { id: string; generation: number; version: number; projectId: string }
+}
+
 function sessionResource(session: { id: string; generation: number }) {
   return { kind: 'runtime_session', id: session.id, generation: session.generation }
 }
@@ -353,6 +370,8 @@ describe('harness preferences and the root default (#400)', () => {
         harnessInstallationId: managedId,
         enabled: true,
         default: true,
+        // Marked so the UI never presents the fallback as a user choice.
+        rootDefault: true,
       })
       expect(items[0]!.projectId).toBeUndefined()
     } finally {
@@ -523,6 +542,135 @@ describe('harness preferences and the root default (#400)', () => {
         harnessInstallationId: shell.managedPiStatus().installationId,
         default: true,
       })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a stored workspace default outlives its installation and can still be cleared', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({ seedAcpInstallation: { id: installationId } })
+    try {
+      const channel = await shell.openChannel()
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      // The installation disappears (uninstalled, or lost in a rescan).
+      writeFileSync(
+        join(shell.dataDir, 'dev-runtime', 'discovery', 'inventory.json'),
+        JSON.stringify({ schemaVersion: 1, savedAt: new Date().toISOString(), records: [] })
+      )
+      // It cannot be made the default again, and an unknown id still refuses.
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId,
+              expectedVersion: 1,
+              patch: { default: true },
+            })
+          )
+        )
+      ).toBe('not_found')
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId: randomUUID(),
+              expectedVersion: 0,
+              patch: { default: false },
+            })
+          )
+        )
+      ).toBe('not_found')
+      // The stored default is still listed, and clearing it is accepted.
+      const listed = okValue(
+        await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {}))
+      )
+      expect(
+        (listed.items as Array<Record<string, unknown>>).some(
+          (item) => item.harnessInstallationId === installationId && item.default === true
+        )
+      ).toBe(true)
+      const cleared = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 1,
+            patch: { default: false },
+          })
+        )
+      )
+      expect(cleared).toMatchObject({
+        harnessInstallationId: installationId,
+        default: false,
+        version: 2,
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a workspace-chosen non-Pi default launches with managed Pi absent and never bootstraps it', async () => {
+    const installationId = randomUUID()
+    let bootstrapCalls = 0
+    const shell = await boot({
+      archiveResolver: async () => {
+        bootstrapCalls += 1
+        return DEFAULT_ARCHIVE()
+      },
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      // Managed Pi is not installed on this host and is never installed here.
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
+      const session = await createSession(shell.host(), channel)
+      const preference = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      expect(preference).toMatchObject({
+        harnessInstallationId: installationId,
+        enabled: true,
+        default: true,
+      })
+
+      // The workspace-chosen non-Pi default launches on its own authority:
+      // no managed-Pi install/ensure path is consulted or bootstrapped.
+      const launched = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(launched).toMatchObject({
+        runtimeSessionId: session.id,
+        installationId,
+        state: 'starting',
+      })
+      expect(bootstrapCalls).toBe(0)
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
@@ -1080,8 +1228,12 @@ describe('harness default and session override independence (#1211)', () => {
 
   test('a traditional-session default launches its own installation and model without managed Pi', async () => {
     const traditional = randomUUID()
+    let bootstrapCalls = 0
     const shell = await boot({
-      archiveResolver: () => Promise.resolve(null),
+      archiveResolver: async () => {
+        bootstrapCalls += 1
+        return DEFAULT_ARCHIVE()
+      },
       seedAcpInstallation: { id: traditional },
     })
     try {
@@ -1117,6 +1269,7 @@ describe('harness default and session override independence (#1211)', () => {
       })
       // Managed Pi was never installed and never became the launch target.
       expect(shell.managedPiStatus().installationId).toBeUndefined()
+      expect(bootstrapCalls).toBe(0)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
@@ -1306,6 +1459,338 @@ describe('harness default and session override independence (#1211)', () => {
       )
       expect(fallback.installationId).toBe(managed)
       expect(fallback).not.toHaveProperty('modelId')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('device-wide default harness', () => {
+  async function launchDefault(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    session: Awaited<ReturnType<typeof createSession>>
+  ) {
+    return channel.execute(
+      commandFor(
+        'dev.session.launchDefault',
+        SCOPE_A,
+        {
+          runtimeSessionId: session.id,
+          expectedGeneration: session.generation,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+        },
+        { resource: sessionResource(session) }
+      )
+    )
+  }
+
+  test('reads, sets and clears behind a version fence and rejects unknown families', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      const empty = okValue(
+        await channel.execute(commandFor('dev.harness.deviceDefault', SCOPE_A, {}))
+      )
+      expect(empty).toMatchObject({ version: 0 })
+      expect(empty.family).toBeUndefined()
+
+      const unknown = await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          family: 'not-a-harness',
+          expectedVersion: 0,
+        })
+      )
+      expect(errorCode(unknown)).toBe('invalid_state')
+
+      const set = okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'codex',
+            expectedVersion: 0,
+          })
+        )
+      )
+      expect(set).toMatchObject({ family: 'codex', version: 1 })
+
+      const stale = await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          family: 'pi',
+          expectedVersion: 0,
+        })
+      )
+      expect(errorCode(stale)).toBe('stale_version')
+
+      const cleared = okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, { expectedVersion: 1 })
+        )
+      )
+      expect(cleared).toMatchObject({ version: 2 })
+      expect(cleared.family).toBeUndefined()
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('launchDefault follows the device default, a workspace default overrides it, clearing restores it', async () => {
+    const claude = randomUUID()
+    const codex = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: claude, family: 'claude-code' },
+    })
+    try {
+      seedInventoryConnection(shell.dataDir, SCOPE_A, { id: codex, family: 'codex' })
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const session = await createSession(shell.host(), channel)
+
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'claude-code',
+            expectedVersion: 0,
+          })
+        )
+      )
+      // The managed Pi root default yields: the effective list is empty.
+      const effective = okValue(
+        await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {}))
+      )
+      expect(effective.items).toEqual([])
+      const viaDevice = okValue(await launchDefault(channel, session))
+      expect(viaDevice).toMatchObject({ installationId: claude })
+
+      // A workspace default overrides the device default.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      const fresh = await createAnotherSession(channel)
+      expect(okValue(await launchDefault(channel, fresh))).toMatchObject({ installationId: codex })
+
+      // Clearing the workspace default falls back to the device default.
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 1,
+            patch: { default: false },
+          })
+        )
+      )
+      const again = await createAnotherSession(channel)
+      expect(okValue(await launchDefault(channel, again))).toMatchObject({ installationId: claude })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a device default that is not installed here refuses typed instead of launching another harness', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const session = await createSession(shell.host(), channel)
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+            family: 'codex',
+            expectedVersion: 0,
+          })
+        )
+      )
+      const refused = await launchDefault(channel, session)
+      expect(errorCode(refused)).toBe('capability_unavailable')
+      if (!refused.ok) {
+        expect(refused.error.remediation?.action).toBe('dev.harness.inventoryRefresh')
+      }
+      const runs = okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+      expect((runs.items as unknown[]).length).toBe(0)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('device default launch against a moving world', () => {
+  const codexReport = {
+    connections: [
+      {
+        family: 'codex',
+        displayName: 'Codex',
+        provenance: 'user_managed' as const,
+        executableIdentity: '/opt/test/bin/codex',
+        executableLabel: 'codex (path)',
+        protocol: 'native' as const,
+        acpAvailability: 'unavailable' as const,
+        version: '1.2.3',
+        auth: 'ready' as const,
+        health: 'healthy' as const,
+        capabilities: ['native', 'models', 'resume'],
+        sessionOperations: ['session.new', 'session.resume'],
+        entitlementHints: ['user_managed', 'native_auth'],
+        limitations: ['history_is_native_not_adea'],
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  }
+
+  /** A discovery source that reports Codex only once the test lets it, so a launch can be held mid-scan. */
+  function gatedSource() {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = { probing: false, release }
+    const source: HarnessDiscoverySource = {
+      driverId: 'test-local',
+      driverVersion: '1',
+      transport: 'direct_local',
+      discover: async () => {
+        state.probing = true
+        await gate
+        return codexReport
+      },
+    }
+    return { source, state }
+  }
+
+  async function waitForProbe(state: { probing: boolean }) {
+    for (let waited = 0; !state.probing && waited < 5_000; waited += 10) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(state.probing).toBe(true)
+  }
+
+  async function setDeviceDefault(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    family: string | undefined,
+    expectedVersion = 0
+  ) {
+    okValue(
+      await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          ...(family !== undefined ? { family } : {}),
+          expectedVersion,
+        })
+      )
+    )
+  }
+
+  function launchWith(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    session: Awaited<ReturnType<typeof createSession>>
+  ) {
+    return channel.execute(
+      commandFor(
+        'dev.session.launchDefault',
+        SCOPE_A,
+        {
+          runtimeSessionId: session.id,
+          expectedGeneration: session.generation,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+        },
+        { resource: sessionResource(session) }
+      )
+    )
+  }
+
+  async function runCount(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+    const runs = okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+    return (runs.items as unknown[]).length
+  }
+
+  test('a session archived while discovery runs launches nothing', async () => {
+    const { source, state } = gatedSource()
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE, discoverySources: [source] })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      const launching = launchWith(channel, session)
+      await waitForProbe(state)
+      okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.archive',
+            SCOPE_A,
+            { runtimeSessionId: session.id, expectedGeneration: session.generation },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      state.release()
+      const refused = await launching
+      expect(['stale_generation', 'invalid_state']).toContain(errorCode(refused))
+      expect(await runCount(channel)).toBe(0)
+    } finally {
+      state.release()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a default that changes while discovery runs asks for a fresh launch', async () => {
+    const { source, state } = gatedSource()
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE, discoverySources: [source] })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      const launching = launchWith(channel, session)
+      await waitForProbe(state)
+      await setDeviceDefault(channel, undefined, 1)
+      state.release()
+      const refused = await launching
+      expect(errorCode(refused)).toBe('invalid_state')
+      expect(await runCount(channel)).toBe(0)
+    } finally {
+      state.release()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('an installation the user disabled is not launched as the device default', async () => {
+    const codex = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: codex, family: 'codex' },
+    })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 0,
+            patch: { enabled: false },
+          })
+        )
+      )
+      const refused = await launchWith(channel, session)
+      expect(errorCode(refused)).toBe('capability_unavailable')
+      expect(await runCount(channel)).toBe(0)
+
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 1,
+            patch: { enabled: true },
+          })
+        )
+      )
+      expect(okValue(await launchWith(channel, session))).toMatchObject({ installationId: codex })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

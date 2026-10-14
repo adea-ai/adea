@@ -40,6 +40,7 @@ import {
   createManagedPiDriver,
   MANAGED_PI_PINNED_VERSION,
 } from '../shell/src/dev-runtime/harness/managed-pi-driver'
+import type { HarnessDiscoverySource } from '../shell/src/dev-runtime/discovery/types'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
@@ -140,6 +141,7 @@ type HarnessBootOptions = {
   probeHost?: () => Promise<{ supported: boolean; reason?: string }>
   acpDriver?: AcpLaneDriver
   publish?: (event: string, payload: unknown) => void
+  discoverySources?: readonly HarnessDiscoverySource[]
   seedAcpInstallation?: {
     id: string
     acpAvailability?: 'available' | 'adapter_required' | 'unavailable'
@@ -217,6 +219,7 @@ async function boot(options: HarnessBootOptions = {}): Promise<Boot> {
     }),
     ...(options.acpDriver ? { acpDriver: options.acpDriver } : {}),
     ...(options.publish ? { publish: options.publish } : {}),
+    ...(options.discoverySources ? { discoverySources: options.discoverySources } : {}),
   }
   const host = createDevRuntimeHost(compositionInput)
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
@@ -697,6 +700,121 @@ describe('harness substrate behind the M10 gate', () => {
         )
       )
       expect(errorCode(foreign)).toBe('not_found')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('harness inventory operations', () => {
+  const codexReport = {
+    connections: [
+      {
+        family: 'codex',
+        displayName: 'Codex',
+        provenance: 'user_managed' as const,
+        executableIdentity: '/opt/test/bin/codex',
+        executableLabel: 'codex (path)',
+        protocol: 'native' as const,
+        acpAvailability: 'unavailable' as const,
+        version: '1.2.3',
+        auth: 'ready' as const,
+        health: 'healthy' as const,
+        capabilities: ['native', 'models', 'resume'],
+        sessionOperations: ['session.new', 'session.resume'],
+        entitlementHints: ['user_managed', 'native_auth'],
+        limitations: ['history_is_native_not_adea'],
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  }
+
+  test('read never probes; the explicit rescan discovers and stores the machine', async () => {
+    let probes = 0
+    const source: HarnessDiscoverySource = {
+      driverId: 'test-local',
+      driverVersion: '1',
+      transport: 'direct_local',
+      discover: async () => {
+        probes += 1
+        return codexReport
+      },
+    }
+    const events: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const shell = await boot({
+      discoverySources: [source],
+      publish: (event, payload) =>
+        events.push({ event, payload: payload as Record<string, unknown> }),
+    })
+    try {
+      const channel = await shell.openChannel()
+      const before = okValue(
+        await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {}))
+      )
+      expect(before.items).toEqual([])
+      expect(probes).toBe(0)
+
+      const refreshed = okValue(
+        await channel.execute(commandFor('dev.harness.inventoryRefresh', SCOPE_A, {}))
+      )
+      expect(probes).toBe(1)
+      expect(refreshed.items).toMatchObject([
+        {
+          family: 'codex',
+          displayName: 'Codex',
+          version: '1.2.3',
+          auth: 'ready',
+          capabilities: ['native', 'models', 'resume'],
+          eligibility: { eligible: true },
+        },
+      ])
+      expect(refreshed.freshness).toEqual(['fresh'])
+      expect(events.at(-1)).toMatchObject({
+        event: 'dev.harness.updated',
+        payload: { kind: 'inventory.refreshed', connections: 1 },
+      })
+
+      // The later read serves the stored observation without another probe.
+      const after = okValue(await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {})))
+      expect(after.items).toEqual(refreshed.items)
+      expect(probes).toBe(1)
+
+      // A discovered installation can be made the default through the
+      // existing preference operation.
+      const installationId = String((after.items as Array<{ id: string }>)[0]?.id)
+      const preference = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { default: true },
+          })
+        )
+      )
+      expect(preference).toMatchObject({ harnessInstallationId: installationId, default: true })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a host without discovery sources keeps its saved inventory on rescan', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({ seedAcpInstallation: { id: installationId } })
+    try {
+      const channel = await shell.openChannel()
+      const before = okValue(
+        await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {}))
+      )
+      expect(before.items).toHaveLength(1)
+      const refreshed = okValue(
+        await channel.execute(commandFor('dev.harness.inventoryRefresh', SCOPE_A, {}))
+      )
+      expect(refreshed.items).toEqual(before.items)
+      const after = okValue(await channel.execute(commandFor('dev.harness.inventory', SCOPE_A, {})))
+      expect(after.items).toEqual(before.items)
+      const foreign = await channel.execute(commandFor('dev.harness.inventory', OTHER_SCOPE, {}))
+      expect(errorCode(foreign)).toBe('channel_unauthorized')
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

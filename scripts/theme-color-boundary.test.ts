@@ -248,18 +248,9 @@ describe('theme color contract', () => {
     ])
   })
 
-  test('limits generated palette allowance to generator-validated outputs', () => {
-    expect(GENERATED_THEME_FILES).toEqual([
-      'packages/ui/src/styles/canonical-themes.css',
-      'packages/ui/src/components/canonical-theme-data.ts',
-      'packages/ui/src/components/canonical-theme-css-data.ts',
-      'packages/ui/src/components/canonical-theme-meta.ts',
-    ])
-    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/theme.css')
-    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/workspace-shell.css')
-    expect(scanSource('--background: #123456; color: #abcdef;', GENERATED_THEME_FILES[0])).toEqual(
-      []
-    )
+  test('exempts no file from literal scanning', () => {
+    // The generated catalogue projection now ships in the published UI package.
+    expect(GENERATED_THEME_FILES).toEqual([])
     expect(
       scanSource('--background: #123456; color: #abcdef;', 'packages/ui/src/styles/theme.css')
     ).toEqual([
@@ -313,14 +304,8 @@ describe('theme color contract', () => {
     }
   })
 
-  test('only generated palette projections are exempt from literal scanning', async () => {
-    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/styles/theme.css')
-    expect(GENERATED_THEME_FILES).toContain('packages/ui/src/components/canonical-theme-data.ts')
-    expect(GENERATED_THEME_FILES).not.toContain('packages/ui/src/components/appearance.ts')
-    for (const file of GENERATED_THEME_FILES) {
-      const source = await Bun.file(`${root}${file}`).text()
-      expect(source).toContain('Generated from the isolated @adea-ai/themes')
-    }
+  test('no host file is exempt from literal scanning', () => {
+    expect(GENERATED_THEME_FILES).toEqual([])
   })
 })
 

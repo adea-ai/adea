@@ -1,33 +1,21 @@
-import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
 import type {
   DevRuntimePage,
-  DevStreamFrame,
   Project,
   RuntimeEvent,
   RuntimeSession,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import {
-  devProjectDisplayName,
-  type DevRuntimeService,
-  type DevStreamTransportSocket,
-} from '../../platform'
+import { devProjectDisplayName, type DevRuntimeService } from '../../platform'
 
 import { buildDevCommand } from '../../browser/command'
 import {
   ChatRuntimeError,
   executeChatCommand,
-  eventSourceForStream,
   launchBody,
   makeChatUserInput,
   sessionResource,
 } from './commands'
-import {
-  acceptRuntimeStreamFrame,
-  CHAT_EVENT_RETENTION_LIMIT,
-  createTranscriptAccumulator,
-  type TranscriptAccumulator,
-} from './transcript'
+import { CHAT_EVENT_RETENTION_LIMIT, type TranscriptAccumulator } from './transcript'
 import type {
   ChatConversation,
   ChatConversationProjection,
@@ -40,8 +28,11 @@ import type {
   ChatDraftValue,
 } from './types'
 import { normalizeChatDraft } from '../draft'
+import { eventIdentity, openRuntimeEventStream } from './event-stream'
 
 export * from './commands'
+export * from './handoff'
+export * from './handoff-authority'
 export * from './transcript'
 export * from './types'
 
@@ -79,10 +70,6 @@ function compareEvents(left: RuntimeEvent, right: RuntimeEvent): number {
   const leftSequence = eventSequence(left)
   const rightSequence = eventSequence(right)
   return leftSequence === rightSequence ? 0 : leftSequence < rightSequence ? -1 : 1
-}
-
-function eventIdentity(event: RuntimeEvent): string {
-  return `${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
 }
 
 function mergeSessionEvents(
@@ -208,6 +195,7 @@ export function projectChatConversations(
       ...(session.activeHarnessRunId !== undefined
         ? { activeHarnessRunId: session.activeHarnessRunId }
         : {}),
+      ...(session.taskId !== undefined ? { taskId: session.taskId } : {}),
       draft: draft.text,
       draftBlocks: draft.blocks,
       events,
@@ -603,105 +591,22 @@ export function createChatConversationModel(
     const current = sessions.get(runtimeSessionId)
       ? requireConversation(runtimeSessionId)
       : await attach(runtimeSessionId)
-    const command = buildDevCommand({
-      operation: 'dev.session.events',
+    return openRuntimeEventStream({
+      service,
       scope,
-      body: {
-        runtimeSessionId,
-        expectedGeneration: current.generation,
-        direction: 'read',
-        ...(streamOptions.fromSequence !== undefined
-          ? { fromSequence: streamOptions.fromSequence }
-          : {}),
-      },
-      resource: sessionResource(sessions.get(runtimeSessionId)!),
-    })
-    const grant = await executeChatCommand<{
-      resource: { generation: number }
-      fromSequence: string
-    }>(service, command)
-    const transport = service.streams?.()
-    if (!transport)
-      throw new ChatRuntimeError({
-        code: 'capability_unavailable',
-        retryable: false,
-        message: 'Runtime event stream is unavailable.',
-      })
-    let transcript = createTranscriptAccumulator({
       runtimeSessionId,
-      generation: grant.resource.generation,
-      fromSequence: grant.fromSequence,
+      resource: sessionResource(sessions.get(runtimeSessionId)!),
+      generation: current.generation,
+      ...(streamOptions.fromSequence !== undefined
+        ? { fromSequence: streamOptions.fromSequence }
+        : {}),
+      ...(streamOptions.source !== undefined ? { source: streamOptions.source } : {}),
+      onAccepted: (event) =>
+        events.set(
+          runtimeSessionId,
+          mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], [event])
+        ),
     })
-    let socket: DevStreamTransportSocket | undefined
-    const pendingAcks: DevStreamFrame[] = []
-    const listeners = new Set<(state: TranscriptAccumulator) => void>()
-    const publish = () => {
-      for (const listener of listeners) listener(transcript)
-    }
-    socket = transport.connect(grant as never, {
-      onFrame: (frame) => {
-        const source = eventSourceForStream({ source: streamOptions.source })
-        let decodedEvent: RuntimeEvent | undefined
-        if (frame.type === 'data') {
-          try {
-            const decoded = decodeCbor(frame.bytes)
-            const candidate = decodeRuntimeEvent(decoded.value, { source })
-            if (
-              candidate.seq === frame.sequence &&
-              candidate.runtimeSessionId === runtimeSessionId &&
-              candidate.generation === current.generation
-            )
-              decodedEvent = candidate
-          } catch {
-            decodedEvent = undefined
-          }
-        }
-        transcript = acceptRuntimeStreamFrame(transcript, frame, source)
-        if (frame.type === 'data' && decodedEvent) {
-          // The decoded identity is invariant across the window, so build it
-          // once instead of once per retained event on every streamed frame.
-          const decodedIdentity = eventIdentity(decodedEvent)
-          const accepted = transcript.events.some(
-            (event) => eventIdentity(event) === decodedIdentity
-          )
-          if (accepted)
-            events.set(
-              runtimeSessionId,
-              mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], [
-                decodedEvent,
-              ])
-            )
-          if (
-            accepted &&
-            transcript.availability.status !== 'resync_required' &&
-            transcript.availability.status !== 'conflict' &&
-            transcript.availability.status !== 'stale_generation'
-          ) {
-            const ack: DevStreamFrame = {
-              type: 'ack',
-              throughSequence: frame.sequence,
-              availableCreditBytes: frame.bytes.byteLength,
-            }
-            if (socket?.open) socket.send(ack)
-            else pendingAcks.push(ack)
-          }
-        }
-        publish()
-      },
-      onClose: (_code, _reason) => publish(),
-    })
-    for (const ack of pendingAcks) if (socket.open) socket.send(ack)
-    return {
-      state: () => transcript,
-      subscribe: (listener: (state: TranscriptAccumulator) => void) => {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
-      },
-      close: () => {
-        listeners.clear()
-        socket.close(1000, 'chat detached')
-      },
-    }
   }
 
   const setDraft = (runtimeSessionId: string, draft: string | ChatDraftValue): ChatConversation => {
@@ -798,6 +703,7 @@ export function createChatConversationModel(
       mutateSession(runtimeSessionId, 'dev.session.resumeHarness', harnessRunId),
     cancel: (runtimeSessionId, harnessRunId) =>
       mutateSession(runtimeSessionId, 'dev.session.cancelHarness', harnessRunId),
+
     archive,
     unarchive,
     send,

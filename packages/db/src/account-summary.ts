@@ -79,30 +79,6 @@ async function accountWorkspaceSummariesInSnapshot(
   const now = new Date().toISOString()
   const historyAccess = await groupHistoryAccessByUser(database, principal.userId, now)
   const inForce = [...historyAccess.keys()]
-  const groupHistoryVisible = (alias: string, access: ReadonlyMap<string, GroupHistoryAccess>) => {
-    if (!access.size) return sql`true`
-    const channelId = sql.raw(`${alias}.channel_id`)
-    const sequence = sql.raw(`${alias}.sequence`)
-    const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
-    const replyToMessageId = sql.raw(`${alias}.reply_to_message_id`)
-    const groupIds = [...access.keys()]
-    return sql`(
-      ${channelId} not in (${sql.join(
-        groupIds.map((id) => sql`${id}::uuid`),
-        sql`, `
-      )})
-      or (
-        ${groupHistoryMessageAndThreadVisibleCondition({
-          channelId,
-          sequence,
-          threadRootMessageId,
-          replyToMessageId,
-          access,
-        })}
-        and ${groupSummaryMessageVisibleCondition({ channelId, sequence, access })}
-      )
-    )`
-  }
   const rows = await database.execute<SummaryChannelRow>(sql`
     select
       membership.workspace_id as "workspaceId",
@@ -232,4 +208,27 @@ async function accountWorkspaceSummariesInSnapshot(
       })
     )
   )
+}
+
+function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHistoryAccess>) {
+  if (!access.size) return sql`true`
+  const channelId = sql.raw(`${alias}.channel_id`)
+  const sequence = sql.raw(`${alias}.sequence`)
+  const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
+  const groupIds = [...access.keys()]
+  return sql`(
+    ${channelId} not in (${sql.join(
+      groupIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    )})
+    or (
+      ${groupHistoryMessageAndThreadVisibleCondition({
+        channelId,
+        sequence,
+        threadRootMessageId,
+        access,
+      })}
+      and ${groupSummaryMessageVisibleCondition({ channelId, sequence, access })}
+    )
+  )`
 }
