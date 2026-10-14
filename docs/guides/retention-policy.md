@@ -166,23 +166,83 @@ database clock has passed its observation.
 - Holds, revocations, reference registrations, and reconciliation changes for the
   subject block on the gate's lock and serialize against the commit.
 
-What this slice does not establish: a reference registered after the commit is
-not fenced by retention authority. Verification is still refused while the
-reference lives, but replicas that were already deleted are not restored. Fencing
-registration needs a change in the grant module, which another owner maintains.
-This is a decision for root.
+A reference registered after cleanup is fenced out by the registration boundary
+(see "Registration fence" below), so no live grant can be committed to data the
+executor has deleted.
 
 The executor is exercised only against owned replicas in a disposable schema. No
 production store is wired, no period is chosen, and nothing is scheduled.
+
+## Registration fence
+
+Artifact-reference registration, replay, and regrant consult retention authority
+(`packages/db/src/artifact-retention-fence.ts`, called from
+`requireRegistrationAuthority` in `artifact-reference-grants.ts`). The gate protects
+references registered before cleanup; the fence protects the other direction. An
+artifact is fenced, and the grant store refuses with
+`grant_artifact_retention_fenced` (409 through the grant routes), when either holds
+in its source workspace:
+
+- **Authority live.** An unrevoked `artifacts` deletion authorization exists for it.
+  Expiry does not lift this. After expiry the executor can no longer record receipts,
+  so a deletion that committed under the generation might have no evidence. Only
+  revocation, which says nobody will delete under the generation, lifts it.
+- **Cleanup evidenced.** A `delete` receipt exists under any generation, whatever its
+  outcome. A failed, unreachable, or in-progress delete may have removed part of the
+  data, and a revoked or superseded generation does not bring it back. Evidence
+  outlives its generation, so this fence is permanent.
+
+Not fenced: holds (they block deletion, not sharing), a `read_check` receipt alone,
+authority of another category or workspace that shares the subject string, any other
+artifact, and revoking an existing grant. The fence is judged after issuer authority
+and target canonicality, so only an authoritative issuer learns that an artifact is
+under retention, and it applies on every path: fresh insert, idempotent replay,
+concurrent-insert fallback, and regrant. A fenced replay or regrant changes nothing.
+
+Why a plain read is enough. The reader takes no lock. It runs in the registration
+transaction after the artifact row lock, and `withRetentionDeletionGate` takes that
+same row lock first for artifacts. A gate and a registration for one artifact are
+therefore mutually exclusive:
+
+- Registration first: the gate waits, counts the committed grant as an active
+  reference, and refuses (`active_reference_retained`).
+- Gate first: the registration waits for the gate to commit, then reads the authority
+  and evidence it left, and is refused.
+- Authority and receipts take only the subject advisory lock. One that commits while a
+  registration waits is seen when it proceeds. One that commits after the registration's
+  read cannot be overtaken by a deletion, because the deletion needs the artifact row
+  lock the registration holds until it commits.
+
+Lock order, for every path that touches these tables: artifact row (`FOR UPDATE`),
+grant row (`FOR UPDATE`), issuer membership and source workspace (`FOR SHARE`),
+audience workspace (`FOR SHARE`), then the lock-free fence read. The retention gate
+takes the artifact row, then the subject advisory lock. Every other retention act
+(grant, revoke, hold, release, receipt) takes the advisory lock without any artifact
+or grant row, and revocation of a grant takes only its grant row. No path waits for an
+artifact or grant row while holding the advisory lock, so no cycle exists.
+`artifact-registration-retention-fence.test.ts` proves the order with held locks
+(`FOR UPDATE NOWAIT` on a waiting replay, and a revocation that does not wait on a
+held artifact row) and runs a concurrent mix of every operation looking for deadlocks.
+
+Not covered: a deletion that committed under a generation which was then revoked
+before any of its receipts reached the database. Receipts are accepted only against a
+live generation, so that evidence is refused and the fence cannot see the deletion.
+The executor's receipts must be accepted before an administrator revokes the
+generation it ran under. Nothing in this slice deletes in production, so the case is
+not reachable today. Closing it for good needs a durable "deletion dispatched" mark
+written inside the gate transaction, which would be a schema change and is left to
+root.
+
+Retention periods stay unset and production deletion stays disabled; the fence changes
+neither.
 
 ## Not implemented here
 
 - Deletion execution, executors, backup expiry, export, or any scheduler. No
   caller dispatches cleanup, and no period is configured.
 - Grant, revoke, hold, and release routes. Only receipt submission and status are wired.
-- Reference registration does not consult retention authority. A grant that
-  commits after a `cleanup_ready` decision, and before any deletion, is not
-  blocked by this slice.
+- Revoking a deletion generation does not restore data a store already deleted. The
+  fence below sees such a deletion only through its receipts (see its last item).
 - Non-artifact categories have no authoritative reference store yet, so their
   active-reference count is zero. The owning domain must supply
   `reconciliationOpen`.

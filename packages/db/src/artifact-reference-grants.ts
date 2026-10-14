@@ -2,6 +2,7 @@ import type { ArtifactReferenceGrantState, UserPrincipalRef } from '@adea-ai/typ
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { readArtifactRetentionFence } from './artifact-retention-fence'
 import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } from './schema'
 
 /**
@@ -30,7 +31,14 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *   (`deletion_state = 'active'`, not quarantined — the schema's own
  *   lifecycle semantics), and the presented version and content checksum are
  *   EQUAL to the artifact record's. A registration whose version or digest
- *   diverges from the canonical record fails closed and persists nothing.
+ *   diverges from the canonical record fails closed and persists nothing;
+ * - the artifact is not fenced by retention (M18.02 #1221): no unrevoked
+ *   deletion authorization and no `delete` cleanup receipt exist for it in the
+ *   source workspace, under any generation. A fenced artifact refuses
+ *   registration, replay, and regrant with `grant_artifact_retention_fenced`, so
+ *   a grant is never committed to data that cleanup has deleted or may delete.
+ *   See `artifact-retention-fence` for the fence states and why a plain read
+ *   under the artifact lock is sufficient.
  *
  * Durability guarantees:
  *
@@ -62,6 +70,12 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *   impossible; revocation locks the grant row alone (it cannot know the
  *   artifact before reading the grant) and never waits on a second row lock,
  *   so it cannot close a cycle either.
+ *
+ * Lock order, in full: artifact row (FOR UPDATE), grant row (FOR UPDATE),
+ * issuer membership and source workspace (FOR SHARE), audience workspace
+ * (FOR SHARE), then the lock-free retention fence read. The retention gate takes
+ * the artifact row first as well, then its per-subject advisory lock; the
+ * advisory lock is never held while waiting for an artifact or grant row.
  *
  * The reader resolves a presented grant id to its CURRENT registration and
  * hands back the full stored state; the policy performs the field-by-field
@@ -110,6 +124,7 @@ export type ArtifactReferenceGrantLockScope = ArtifactReferenceGrantPresentation
 export const artifactReferenceGrantRejectionCodes = [
   'grant_artifact_deleted',
   'grant_artifact_quarantined',
+  'grant_artifact_retention_fenced',
   'grant_artifact_unknown',
   'grant_identity_conflict',
   'grant_identity_invalid',
@@ -130,6 +145,7 @@ export type ArtifactReferenceGrantRejectionCode =
 const rejectionMessages: Record<ArtifactReferenceGrantRejectionCode, string> = {
   grant_artifact_deleted: 'Artifact reference grant artifact deleted',
   grant_artifact_quarantined: 'Artifact reference grant artifact quarantined',
+  grant_artifact_retention_fenced: 'Artifact reference grant artifact fenced by retention',
   grant_artifact_unknown: 'Artifact reference grant artifact unknown',
   grant_identity_conflict: 'Artifact reference grant identity conflict',
   grant_identity_invalid: 'Artifact reference grant metadata invalid',
@@ -386,6 +402,10 @@ async function requireRegistrationAuthority(
   await requireWorkspaceLive(transaction, input.audienceWorkspaceId)
   if (artifact.version !== input.version || artifact.checksumSha256 !== input.checksumSha256)
     reject('grant_target_divergence')
+  // Judged last, so only an authoritative issuer learns an artifact is under retention. Plain
+  // read, under the artifact lock already held: see `artifact-retention-fence`.
+  if ((await readArtifactRetentionFence(transaction, sourceWorkspaceId, artifact.id)) !== 'clear')
+    reject('grant_artifact_retention_fenced')
 }
 
 async function selectByGrantId(database: Database, grantId: string): Promise<GrantRow | undefined> {

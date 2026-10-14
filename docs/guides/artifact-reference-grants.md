@@ -44,6 +44,7 @@ location, or artifact content.
 | 409    | `grant_revoked_retry`                                  | Replaying a revoked grant. Access is restored only by regrant.                                                                              |
 | 409    | `grant_revision_conflict`                              | Stale or wrong `expectedRevision`. Nothing changes.                                                                                         |
 | 409    | `grant_artifact_deleted`, `grant_artifact_quarantined` | The artifact is not live.                                                                                                                   |
+| 409    | `grant_artifact_retention_fenced`                      | The artifact's deletion is authorized or evidenced (see the retention guide). Create, replay, and regrant change nothing.                   |
 
 ## Consumers
 
