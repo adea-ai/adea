@@ -1265,7 +1265,11 @@ async function captureFamilySectionByName(
               checksumSha256: artifactReferenceGrants.checksumSha256,
               expiresAt: artifactReferenceGrants.expiresAt,
               grantId: artifactReferenceGrants.grantId,
-              revokedAt: artifactReferenceGrants.revokedAt,
+              // Read as text in PostgreSQL so microseconds survive: a JavaScript Date keeps milliseconds only,
+              // which would hide a revocation instant that moved within one millisecond.
+              revokedAt: sql<
+                string | null
+              >`to_char(${artifactReferenceGrants.revokedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
               revision: artifactReferenceGrants.revision,
               sourceWorkspaceId: artifactReferenceGrants.sourceWorkspaceId,
               version: artifactReferenceGrants.version,
@@ -1281,7 +1285,7 @@ async function captureFamilySectionByName(
           expiresAt: row.expiresAt,
           family: 'artifactReferenceGrants',
           grantId: row.grantId,
-          revokedAt: row.revokedAt === null ? null : row.revokedAt.toISOString(),
+          revokedAt: row.revokedAt,
           revision: row.revision,
           sourceWorkspaceId: row.sourceWorkspaceId,
           version: row.version,

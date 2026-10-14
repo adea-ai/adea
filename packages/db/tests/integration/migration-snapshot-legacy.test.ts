@@ -107,7 +107,7 @@ describe.skipIf(!provisioned)('registered legacy snapshot capture (#1222)', () =
     })
     expect(Object.keys(result.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(result.document.identity).toEqual({
-      formatVersion: 1,
+      formatVersion: 2,
       rehearsalId: IDENTITY.rehearsalId,
       snapshotId: IDENTITY.snapshotId,
       source: IDENTITY.source,

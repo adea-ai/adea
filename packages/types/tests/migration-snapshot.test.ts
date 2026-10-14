@@ -333,7 +333,7 @@ function isSorted(values: readonly string[]): boolean {
 
 describe('migration snapshot contract constants', () => {
   test('the snapshot format version is pinned at 1', () => {
-    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(1)
+    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(2)
     expect(Number.isInteger(MIGRATION_SNAPSHOT_FORMAT_VERSION)).toBe(true)
   })
 

@@ -34,8 +34,13 @@
 /**
  * Format version of the snapshot document contract. Bump it when a record
  * shape changes; the comparator refuses to compare documents that disagree.
+ *
+ * Version 2 replaces `artifactReferenceGrants.revoked` (a flag) with `revokedAt` (the persisted
+ * instant, microsecond precision) and adds the group grant families' issue and revocation instants.
+ * A version 1 document cannot be compared: it lacks the instants, so the comparator rejects it with a
+ * typed incompatibility error instead of reading its flag as an equal instant.
  */
-export const MIGRATION_SNAPSHOT_FORMAT_VERSION = 1
+export const MIGRATION_SNAPSHOT_FORMAT_VERSION = 2
 
 /**
  * Maximum length of any single identifier field, in characters. Identifier
@@ -369,7 +374,7 @@ export type ArtifactReferenceGrantSnapshotRecord = Readonly<{
   expiresAt: string | null
   grantId: string
   revision: number
-  /** The persisted revocation instant (ISO 8601), never flattened to a flag; `null` means never revoked. */
+  /** The persisted revocation instant (ISO 8601 UTC, microsecond precision), never a flag; `null` means never revoked. */
   revokedAt: string | null
   sourceWorkspaceId: string
   version: number

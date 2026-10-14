@@ -22,7 +22,7 @@ import {
 // returned verdict, findings and inventory. No database is involved anywhere.
 
 const BEFORE_IDENTITY = {
-  formatVersion: 1,
+  formatVersion: 2,
   rehearsalId: 'rehearsal-1181',
   snapshotId: 'snapshot-before',
   source: 'unit',
@@ -1332,7 +1332,7 @@ describe('migration snapshot comparator', () => {
     const before = doc(sections, 'snapshot-before')
     for (const drift of [
       { rehearsalId: 'rehearsal-other' },
-      { formatVersion: 2 },
+      { formatVersion: 3 },
       { source: 'other-system' },
     ]) {
       const after = doc(sections)
@@ -1346,12 +1346,42 @@ describe('migration snapshot comparator', () => {
     }
   })
 
+  test('a snapshot from an older format version is refused by name, never compared (#1222)', () => {
+    const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
+    const current = doc(sections, 'snapshot-current')
+    // A version 1 artifact grant carried a revocation flag; reading it as an instant could hide a change.
+    const legacy = Object.freeze({
+      identity: Object.freeze({ ...current.identity, formatVersion: 1, snapshotId: 'snapshot-v1' }),
+      sections: Object.freeze({
+        artifactReferenceGrants: section([
+          { ...grant(), revoked: true, revokedAt: undefined } as unknown as MigrationSnapshotRecord,
+        ]),
+      }),
+    }) as unknown as MigrationSnapshotDocument
+    for (const [before, after] of [
+      [legacy, current],
+      [current, legacy],
+      [legacy, legacy],
+    ] as const) {
+      expect(() => compareMigrationSnapshots({ before, after })).toThrow(
+        /format incompatible.*version 1 predates version 2/
+      )
+    }
+    const future = Object.freeze({
+      identity: Object.freeze({ ...current.identity, formatVersion: 3 }),
+      sections: current.sections,
+    }) satisfies MigrationSnapshotDocument
+    expect(() => compareMigrationSnapshots({ before: current, after: future })).toThrow(
+      /newer than the supported version 2/
+    )
+  })
+
   test('malformed snapshot identity is a typed error', () => {
     const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
     for (const identity of [
       { formatVersion: 0, rehearsalId: 'r', snapshotId: 's', source: 'x' },
-      { formatVersion: 1, rehearsalId: '', snapshotId: 's', source: 'x' },
-      { formatVersion: 1, rehearsalId: 'r', snapshotId: 's' },
+      { formatVersion: 2, rehearsalId: '', snapshotId: 's', source: 'x' },
+      { formatVersion: 2, rehearsalId: 'r', snapshotId: 's' },
     ]) {
       const broken = Object.freeze({
         identity: Object.freeze(identity) as MigrationSnapshotDocument['identity'],

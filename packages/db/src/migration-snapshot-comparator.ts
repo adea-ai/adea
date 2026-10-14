@@ -885,6 +885,27 @@ function requireMatchingIdentity(
     'formatVersion',
     'source',
   ]
+  // An older document is refused by name before any other identity check: its record shapes differ
+  // (version 2 replaced the artifact grant revocation flag with the persisted instant), so comparing it
+  // would read a flag as an instant and could report a changed authorization as identical.
+  for (const [label, identity] of [
+    ['before', before.identity],
+    ['after', after.identity],
+  ] as const) {
+    const version = identity.formatVersion
+    if (typeof version === 'number' && Number.isInteger(version) && version >= 1) {
+      if (version < MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} predates version ${MIGRATION_SNAPSHOT_FORMAT_VERSION} (artifact grant revocation is now an instant, not a flag); recapture it before comparing`
+        )
+      }
+      if (version > MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} is newer than the supported version ${MIGRATION_SNAPSHOT_FORMAT_VERSION}`
+        )
+      }
+    }
+  }
   for (const field of fields) {
     const beforeValue = before.identity[field]
     const afterValue = after.identity[field]
