@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
@@ -24,6 +24,7 @@ import {
   listMessagesForUser,
   setChannelParticipants,
 } from '../../src/conversations'
+import { shareGroupHistory } from '../../src/group-channels'
 import { searchWorkspaceForUser } from '../../src/search'
 import { accountConversationInbox } from '../../src/account-inbox'
 import { accountWorkspaceSummaries } from '../../src/account-summary'
@@ -55,6 +56,10 @@ import { createProject } from '../../src/projects'
 import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
 import {
   channels,
+  coordinationPlanCitations,
+  coordinationPlanRevisions,
+  coordinationPlans,
+  groupAdmissions,
   messageArtifactReferences,
   messages,
   taskMutations,
@@ -69,6 +74,12 @@ import {
   summarySha256,
 } from '../../src/job-outbound-binding'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
+import {
+  COORDINATION_PLAN_MAX_CITATIONS,
+  createCoordinationPlan,
+  readCoordinationPlanJobReferences,
+  reviseCoordinationPlan,
+} from '../../src/coordination-plans'
 import {
   JOB_REFERENCE_MAX_BATCH,
   JobReferenceBatchError,
@@ -106,6 +117,26 @@ const unavailableReference = (jobId: string) => ({
   availability: 'unavailable',
   jobId,
 })
+
+/** A write the database must refuse; a drizzle builder is awaited here, not handed to `expect`. */
+const refuses = (write: PromiseLike<unknown>) =>
+  expect(
+    (async () => {
+      await write
+    })()
+  ).rejects.toThrow()
+
+const planKey = () => `plan-${crypto.randomUUID()}`
+
+/** Rejection message of a call, or null when it succeeded. */
+async function rejection(run: () => Promise<unknown>): Promise<string | null> {
+  try {
+    await run()
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
 
 /** Statements one call issues on its own connection, excluding connection setup. */
 async function statementsOf(run: (db: AgentHqDatabase) => Promise<unknown>) {
@@ -3684,5 +3715,673 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       })
     ).rejects.toThrow()
     expect(await taskState(f)).toMatchObject({ lifecycleState: 'completed' })
+  })
+
+  // ─── Coordination plans citing separately owned jobs (#1217) ───────────────────
+
+  const PLAN_PRIVATE_SENTINELS = [
+    'PRIVATE_PROMPT_SENTINEL',
+    'PRIVATE_CONTEXT_SENTINEL',
+    'SECOND_PROMPT_SENTINEL',
+    'PRIVATE_MEMORY_SENTINEL',
+    'Source workspace',
+  ]
+
+  /** A second, separately owned and completed job in the same fixture, as a fixture of its own. */
+  async function anotherCompletedJob(f: Fixture): Promise<Fixture> {
+    const extra = await f.submitAnotherJob()
+    const g = { ...f, task: extra } as Fixture
+    await completeJob(g, crypto.randomUUID(), outboundRequest(g, { summary: 'Second result.' }))
+    return g
+  }
+
+  function createPlan(
+    f: Fixture,
+    actor: UserPrincipalRef,
+    jobIds: readonly string[],
+    idempotencyKey = planKey(),
+    channelId = f.channelA.id
+  ) {
+    return createCoordinationPlan(connection.db, f.destination.id, channelId, actor, {
+      idempotencyKey,
+      jobIds,
+    })
+  }
+
+  function revisePlan(
+    f: Fixture,
+    actor: UserPrincipalRef,
+    planId: string,
+    expectedRevision: number,
+    jobIds: readonly string[]
+  ) {
+    return reviseCoordinationPlan(connection.db, f.destination.id, f.channelA.id, planId, actor, {
+      expectedRevision,
+      jobIds,
+    })
+  }
+
+  function readPlan(
+    f: Fixture,
+    reader: UserPrincipalRef,
+    planId: string,
+    revision: number,
+    channelId = f.channelA.id
+  ) {
+    return readCoordinationPlanJobReferences(
+      connection.db,
+      f.destination.id,
+      channelId,
+      planId,
+      revision,
+      reader
+    )
+  }
+
+  async function planRows(f: Fixture) {
+    return connection.db
+      .select()
+      .from(coordinationPlans)
+      .where(eq(coordinationPlans.workspaceId, f.destination.id))
+  }
+
+  test('an actor creates a plan from results released to them; a reader resolves it as safe references', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Plan input.')
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    expect(created).toMatchObject({ jobIds: [f.task.id], revision: 1 })
+    const [row] = await planRows(f)
+    // The author comes from the principal, not from anything the caller could assert.
+    expect(row).toMatchObject({
+      channelId: f.channelA.id,
+      createdByUserId: f.recipient.principal.userId,
+      currentRevision: 1,
+      workspaceId: f.destination.id,
+    })
+    const [revision] = await connection.db
+      .select()
+      .from(coordinationPlanRevisions)
+      .where(eq(coordinationPlanRevisions.planId, created.planId))
+    expect(revision).toMatchObject({ authorUserId: f.recipient.principal.userId, revision: 1 })
+
+    for (const reader of [f.recipient.principal, f.owner.principal])
+      expect(await readPlan(f, reader, created.planId, 1)).toEqual({
+        planId: created.planId,
+        references: [{ authority: 'none', availability: 'available', jobId: f.task.id, messageId }],
+        revision: 1,
+      })
+  })
+
+  test('a plan stores nothing of the job but its id, and the read carries no private context', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    const stored = JSON.stringify({
+      citations: await connection.db.select().from(coordinationPlanCitations),
+      plans: await planRows(f),
+      revisions: await connection.db.select().from(coordinationPlanRevisions),
+    })
+    const read = JSON.stringify(await readPlan(f, f.recipient.principal, created.planId, 1))
+    for (const sentinel of PLAN_PRIVATE_SENTINELS) {
+      expect(stored).not.toContain(sentinel)
+      expect(read).not.toContain(sentinel)
+    }
+    // The pointer names neither workspace of the job's source nor any task title or objective.
+    expect(read).not.toContain(f.workspace.id)
+    expect(Object.keys(JSON.parse(read).references[0]).toSorted()).toEqual([
+      'authority',
+      'availability',
+      'jobId',
+      'messageId',
+    ])
+  })
+
+  test('writes are group-channel participant writes: outsiders, other channels and non-members are refused alike', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const outsider = await addDestinationMember(f)
+    const stranger = (
+      await createTemporaryUserSession(connection.db, {
+        credentialDigest: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    ).principal
+    const refused = await Promise.all([
+      // A workspace member who is not in the group.
+      rejection(() => createPlan(f, outsider, [f.task.id])),
+      // Not a member of the workspace at all.
+      rejection(() => createPlan(f, stranger, [f.task.id])),
+      // A participant of channel A, writing to channel B where the job was never published.
+      rejection(() => createPlan(f, f.recipient.principal, [f.task.id], planKey(), f.channelB.id)),
+    ])
+    expect(refused.every((message) => message === 'Channel unavailable')).toBe(true)
+    expect(await planRows(f)).toEqual([])
+
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    expect(await rejection(() => revisePlan(f, outsider, created.planId, 1, [f.task.id]))).toBe(
+      'Channel unavailable'
+    )
+    expect(await rejection(() => revisePlan(f, stranger, created.planId, 1, [f.task.id]))).toBe(
+      'Channel unavailable'
+    )
+    expect((await planRows(f))[0]?.currentRevision).toBe(1)
+  })
+
+  test('reads need current read access: outsiders, other channels and unknown plans answer the same', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    const outsider = await addDestinationMember(f)
+    expect(await rejection(() => readPlan(f, outsider, created.planId, 1))).toBe(
+      'Channel unavailable'
+    )
+    // The plan is in channel A; naming it through channel B is the same as naming nothing.
+    const wrongChannel = await rejection(() =>
+      readPlan(f, f.owner.principal, created.planId, 1, f.channelB.id)
+    )
+    const unknownPlan = await rejection(() => readPlan(f, f.owner.principal, NIL_UUID, 1))
+    const unknownRevision = await rejection(() => readPlan(f, f.owner.principal, created.planId, 2))
+    const badRevision = await rejection(() => readPlan(f, f.owner.principal, created.planId, 0))
+    expect(wrongChannel).toBe('Plan unavailable')
+    expect([unknownPlan, unknownRevision, badRevision]).toEqual([
+      'Plan unavailable',
+      'Plan unavailable',
+      'Plan unavailable',
+    ])
+    // A participant removed from the group loses the plan with the channel.
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      [f.owner.principal],
+      await rosterVersion(f.channelA.id)
+    )
+    expect(await rejection(() => readPlan(f, f.recipient.principal, created.planId, 1))).toBe(
+      'Channel unavailable'
+    )
+  })
+
+  test('a citation must already be released to the actor in this channel; the refusal is one error and writes nothing', async () => {
+    const f = await fixture({ complete: false })
+    // A result held by memory provenance is never a publication, so it cannot be cited.
+    await completeJob(
+      f,
+      crypto.randomUUID(),
+      outboundRequest(f, { memorySource: 'private', summary: 'PRIVATE_MEMORY_SENTINEL' })
+    )
+    const released = await anotherCompletedJob(f)
+    const refused = await Promise.all(
+      [f.task.id, NIL_UUID, crypto.randomUUID()].map((jobId) =>
+        rejection(() => createPlan(f, f.recipient.principal, [jobId]))
+      )
+    )
+    expect(new Set(refused)).toEqual(new Set(['Plan citation unavailable']))
+    expect(await planRows(f)).toEqual([])
+
+    // One released and one not: the whole request is refused and nothing is saved.
+    expect(
+      await rejection(() => createPlan(f, f.recipient.principal, [released.task.id, NIL_UUID]))
+    ).toBe('Plan citation unavailable')
+    expect(await planRows(f)).toEqual([])
+
+    // A result released in channel A is not released in channel B, where the actor is a participant
+    // of neither the channel nor its audience.
+    expect(
+      await rejection(() =>
+        createPlan(f, f.owner.principal, [released.task.id], planKey(), f.channelB.id)
+      )
+    ).toBe('Plan citation unavailable')
+    expect(await planRows(f)).toEqual([])
+    expect(await createPlan(f, f.recipient.principal, [released.task.id])).toMatchObject({
+      revision: 1,
+    })
+  })
+
+  test('citations are ordered and deduplicated; the cap holds after deduplication; malformed input is refused whole', async () => {
+    const f = await fixture()
+    const first = await publishTo(f, f.channelA.id, 'First.')
+    const g = await anotherCompletedJob(f)
+    const second = (
+      await resolveJobReferences(connection.db, {
+        channelId: f.channelA.id,
+        jobIds: [g.task.id],
+        reader: f.recipient.principal,
+        workspaceId: f.destination.id,
+      })
+    )[0]
+    expect(second).toMatchObject({ availability: 'available' })
+
+    const created = await createPlan(f, f.recipient.principal, [
+      g.task.id,
+      f.task.id.toUpperCase(),
+      g.task.id,
+      f.task.id,
+    ])
+    expect(created.jobIds).toEqual([g.task.id, f.task.id])
+    const read = await readPlan(f, f.recipient.principal, created.planId, 1)
+    expect(read.references.map((reference) => reference.jobId)).toEqual([g.task.id, f.task.id])
+    expect(read.references).toContainEqual(expect.objectContaining({ messageId: first }))
+
+    // 50 distinct is within the bound; duplicates do not count toward it.
+    const filler = Array.from({ length: COORDINATION_PLAN_MAX_CITATIONS - 2 }, () =>
+      crypto.randomUUID()
+    )
+    const invalid = await Promise.all([
+      rejection(() =>
+        createPlan(f, f.recipient.principal, [...filler, f.task.id, g.task.id, crypto.randomUUID()])
+      ),
+      rejection(() => createPlan(f, f.recipient.principal, [f.task.id, 'not-a-uuid'])),
+      rejection(() => createPlan(f, f.recipient.principal, 'nope' as never)),
+      rejection(() => createPlan(f, f.recipient.principal, [123 as never])),
+      rejection(() => createPlan(f, f.recipient.principal, [f.task.id], '   ')),
+      rejection(() => createPlan(f, f.recipient.principal, [f.task.id], 'k'.repeat(129))),
+    ])
+    expect(invalid).toEqual(Array(6).fill('Plan citations invalid'))
+    expect(await planRows(f)).toHaveLength(1)
+  })
+
+  test('an empty plan is allowed, and the stored position and uniqueness bounds hold at the database', async () => {
+    const f = await fixture()
+    const empty = await createPlan(f, f.recipient.principal, [])
+    expect(empty.jobIds).toEqual([])
+    expect((await readPlan(f, f.recipient.principal, empty.planId, 1)).references).toEqual([])
+    await refuses(
+      connection.db.insert(coordinationPlanCitations).values({
+        jobId: crypto.randomUUID(),
+        planId: empty.planId,
+        position: 50,
+        revision: 1,
+      })
+    )
+    await publishTo(f, f.channelA.id, 'x')
+    const cited = await createPlan(f, f.recipient.principal, [f.task.id])
+    await refuses(
+      connection.db.insert(coordinationPlanCitations).values({
+        jobId: f.task.id,
+        planId: cited.planId,
+        position: 1,
+        revision: 1,
+      })
+    )
+  })
+
+  test('create is idempotent per key; a different request or actor under the key conflicts', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const key = planKey()
+    const first = await createPlan(f, f.recipient.principal, [f.task.id], key)
+    const again = await createPlan(f, f.recipient.principal, [f.task.id.toUpperCase()], key)
+    expect(again).toEqual(first)
+    expect(await planRows(f)).toHaveLength(1)
+    expect(await rejection(() => createPlan(f, f.recipient.principal, [], key))).toBe(
+      'Plan idempotency conflict'
+    )
+    expect(await rejection(() => createPlan(f, f.owner.principal, [f.task.id], key))).toBe(
+      'Plan idempotency conflict'
+    )
+    expect(await planRows(f)).toHaveLength(1)
+
+    // Concurrent creates under one key converge on one plan.
+    const raceKey = planKey()
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => createPlan(f, f.recipient.principal, [f.task.id], raceKey))
+    )
+    expect(new Set(results.map((result) => result.planId)).size).toBe(1)
+    expect(await planRows(f)).toHaveLength(2)
+  })
+
+  test('revisions advance by one from the revision the writer saw; a stale writer is refused and changes nothing', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const g = await anotherCompletedJob(f)
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+
+    const second = await revisePlan(f, f.owner.principal, created.planId, 1, [g.task.id, f.task.id])
+    expect(second).toMatchObject({ jobIds: [g.task.id, f.task.id], revision: 2 })
+    // Both writers last saw revision 1; the loser changes nothing.
+    expect(await rejection(() => revisePlan(f, f.recipient.principal, created.planId, 1, []))).toBe(
+      'Plan version conflict'
+    )
+    expect(await rejection(() => revisePlan(f, f.recipient.principal, created.planId, 3, []))).toBe(
+      'Plan version conflict'
+    )
+    const [row] = await planRows(f)
+    expect(row?.currentRevision).toBe(2)
+    expect(
+      await connection.db
+        .select()
+        .from(coordinationPlanRevisions)
+        .where(eq(coordinationPlanRevisions.planId, created.planId))
+    ).toHaveLength(2)
+
+    // Two writers race on the same expected revision: exactly one wins.
+    const outcomes = await Promise.allSettled([
+      revisePlan(f, f.recipient.principal, created.planId, 2, [f.task.id]),
+      revisePlan(f, f.owner.principal, created.planId, 2, [g.task.id]),
+    ])
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    const lost = outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult
+    expect(lost.reason.message).toBe('Plan version conflict')
+    expect((await planRows(f))[0]?.currentRevision).toBe(3)
+
+    // Invalid expected revisions never reach the plan.
+    for (const expected of [0, -1, 1.5, Number.NaN, 2_147_483_647])
+      expect(
+        await rejection(() => revisePlan(f, f.owner.principal, created.planId, expected, []))
+      ).toBe('Plan citations invalid')
+    expect(await rejection(() => revisePlan(f, f.owner.principal, NIL_UUID, 1, []))).toBe(
+      'Plan unavailable'
+    )
+  })
+
+  test('accepted revisions are immutable: history reads unchanged and the database refuses to alter it', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const g = await anotherCompletedJob(f)
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    await revisePlan(f, f.recipient.principal, created.planId, 1, [g.task.id])
+    const one = await readPlan(f, f.recipient.principal, created.planId, 1)
+    const two = await readPlan(f, f.recipient.principal, created.planId, 2)
+    expect(one.references.map((reference) => reference.jobId)).toEqual([f.task.id])
+    expect(two.references.map((reference) => reference.jobId)).toEqual([g.task.id])
+
+    await refuses(
+      connection.db
+        .update(coordinationPlanCitations)
+        .set({ jobId: crypto.randomUUID() })
+        .where(eq(coordinationPlanCitations.planId, created.planId))
+    )
+    await refuses(
+      connection.db
+        .delete(coordinationPlanCitations)
+        .where(eq(coordinationPlanCitations.planId, created.planId))
+    )
+    await refuses(
+      connection.db
+        .update(coordinationPlanRevisions)
+        .set({ authorUserId: f.owner.principal.userId })
+        .where(eq(coordinationPlanRevisions.planId, created.planId))
+    )
+    await refuses(
+      connection.db
+        .delete(coordinationPlanRevisions)
+        .where(eq(coordinationPlanRevisions.planId, created.planId))
+    )
+    await refuses(
+      connection.db.delete(coordinationPlans).where(eq(coordinationPlans.id, created.planId))
+    )
+    // The plan row advances by one and keeps its identity.
+    await refuses(
+      connection.db
+        .update(coordinationPlans)
+        .set({ currentRevision: 5 })
+        .where(eq(coordinationPlans.id, created.planId))
+    )
+    await refuses(
+      connection.db
+        .update(coordinationPlans)
+        .set({ createdByUserId: f.owner.principal.userId })
+        .where(eq(coordinationPlans.id, created.planId))
+    )
+    expect(await readPlan(f, f.recipient.principal, created.planId, 1)).toEqual(one)
+    expect(await readPlan(f, f.recipient.principal, created.planId, 2)).toEqual(two)
+  })
+
+  test('a citation is not authority: no dependency, no source read, no completion, and the job is unchanged', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const before = await taskState(f)
+    const created = await createPlan(f, f.owner.principal, [f.task.id])
+    expect(await readPlan(f, f.owner.principal, created.planId, 1)).toMatchObject({
+      references: [{ authority: 'none', availability: 'available' }],
+    })
+    expect(await taskState(f)).toEqual(before)
+    expect(
+      await getTaskForUser(connection.db, f.destination.id, f.task.id, f.owner.principal)
+    ).toBeNull()
+    await expect(
+      completeTask(connection.db, f.destination.id, f.task.id, f.owner.principal, {
+        expectedVersion: f.task.version,
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow()
+    const local = await createTask(
+      connection.db,
+      f.destination.id,
+      f.owner.principal,
+      { title: 'Plan step', objective: 'Depends on nothing foreign.' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    await expect(
+      setTaskDependencies(
+        connection.db,
+        f.destination.id,
+        local.id,
+        f.owner.principal,
+        [f.task.id],
+        {
+          expectedVersion: local.version,
+          idempotencyKey: crypto.randomUUID(),
+          requestId: crypto.randomUUID(),
+        }
+      )
+    ).rejects.toThrow('Task dependency unavailable')
+    // The citation row carries no foreign key to tasks: deleting nothing and constraining nothing.
+    const references = await connection.db.execute<{ count: number }>(
+      sql`select count(*)::int as count from pg_constraint c
+          join pg_class t on t.oid = c.conrelid
+          where t.relname = 'coordination_plan_citations' and c.contype = 'f'
+            and c.confrelid::regclass::text like '%tasks%'`
+    )
+    expect(references[0]?.count).toBe(0)
+  })
+
+  test('revocation ends the reference in every revision, for every reader, and reads like an unknown job', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const published = await completeJob(
+      f,
+      crypto.randomUUID(),
+      outboundRequest(f, { artifact: artifactRef(reg) })
+    )
+    const messageId = published.publication.messageId!
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    const next = await revisePlan(f, f.recipient.principal, created.planId, 1, [f.task.id])
+    expect(next.revision).toBe(2)
+    const open = [{ authority: 'none', availability: 'available', jobId: f.task.id, messageId }]
+    for (const revision of [1, 2])
+      expect(
+        (await readPlan(f, f.recipient.principal, created.planId, revision)).references
+      ).toEqual(open)
+
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+
+    const unknown = await createPlan(f, f.recipient.principal, [])
+    for (const revision of [1, 2])
+      for (const reader of [f.recipient.principal, f.owner.principal])
+        expect((await readPlan(f, reader, created.planId, revision)).references).toEqual([
+          unavailableReference(f.task.id),
+        ])
+    // The revoked answer has the shape of an answer about a job that never existed.
+    const ghost = await readPlan(f, f.recipient.principal, created.planId, 1)
+    expect(Object.keys(ghost.references[0]!).toSorted()).toEqual([
+      'authority',
+      'availability',
+      'jobId',
+    ])
+    expect(unknown.revision).toBe(1)
+
+    // Carrying the revoked id forward needs no new release; adding it fresh does.
+    const carried = await revisePlan(f, f.recipient.principal, created.planId, 2, [f.task.id])
+    expect(carried.revision).toBe(3)
+    expect(await rejection(() => createPlan(f, f.recipient.principal, [f.task.id]))).toBe(
+      'Plan citation unavailable'
+    )
+  })
+
+  test('a regrant does not revive a reference bound to the revoked revision', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    await completeJob(f, crypto.randomUUID(), outboundRequest(f, { artifact: artifactRef(reg) }))
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+    expect((await readPlan(f, f.recipient.principal, created.planId, 1)).references).toEqual([
+      unavailableReference(f.task.id),
+    ])
+  })
+
+  test('roster and source-authority changes end a reference for the affected reader only', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Plan input.')
+    const created = await createPlan(f, f.owner.principal, [f.task.id])
+    const open = [{ authority: 'none', availability: 'available', jobId: f.task.id, messageId }]
+    expect((await readPlan(f, f.recipient.principal, created.planId, 1)).references).toEqual(open)
+
+    // The original actor loses source-workspace standing: nobody can resolve the result.
+    await setOriginalActorRole(f, 'member')
+    for (const reader of [f.owner.principal, f.recipient.principal])
+      expect((await readPlan(f, reader, created.planId, 1)).references).toEqual([
+        unavailableReference(f.task.id),
+      ])
+    await setOriginalActorRole(f, 'owner')
+    expect((await readPlan(f, f.recipient.principal, created.planId, 1)).references).toEqual(open)
+  })
+
+  test('history from before the reader joined is unavailable in a plan exactly as in the channel, until history is shared', async () => {
+    const f = await fixture()
+    const publishedId = await publishTo(f, f.channelA.id, 'Published before the reader joined.')
+    const created = await createPlan(f, f.owner.principal, [f.task.id])
+    const inHistory = async (reader: UserPrincipalRef) =>
+      (await historyOf(reader, f.destination.id, f.channelA.id)).some(
+        (message) => message.id === publishedId
+      )
+    const resolves = async (reader: UserPrincipalRef) =>
+      (await readPlan(f, reader, created.planId, 1)).references[0]?.availability === 'available'
+    const reader = f.recipient.principal
+    expect(await inHistory(reader)).toBe(true)
+    expect(await resolves(reader)).toBe(true)
+
+    // A real roster change also ends every publication bound to the earlier channel revision, which
+    // would hide this case behind a different gate. Moving only the reader's join point, past the
+    // publication and with the channel revision unchanged, isolates the join-point rule.
+    const [message] = await connection.db
+      .select({ sequence: messages.sequence })
+      .from(messages)
+      .where(eq(messages.id, publishedId))
+    await connection.db
+      .update(groupAdmissions)
+      .set({ joinedSequence: message!.sequence + 1 })
+      .where(
+        and(eq(groupAdmissions.channelId, f.channelA.id), eq(groupAdmissions.userId, reader.userId))
+      )
+    // The reader may still open the plan, which is channel content, but the earlier publication is
+    // held back exactly as the channel history holds it back. Other readers are not affected.
+    expect(await inHistory(reader)).toBe(false)
+    expect((await readPlan(f, reader, created.planId, 1)).references).toEqual([
+      unavailableReference(f.task.id),
+    ])
+    expect(await resolves(f.owner.principal)).toBe(true)
+    // They cannot cite what they cannot read either.
+    expect(await rejection(() => createPlan(f, reader, [f.task.id]))).toBe(
+      'Plan citation unavailable'
+    )
+
+    // Sharing earlier history with this reader releases it, through the same rule, for them only.
+    await shareGroupHistory(connection.db, f.destination.id, f.channelA.id, f.owner.principal, {
+      expiresAt: null,
+      grantId: `share-${crypto.randomUUID()}`,
+      groupId: f.channelA.id,
+      issuedAt: new Date(Date.now() - 1000).toISOString(),
+      participant: { kind: 'user', userId: reader.userId },
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_history',
+    })
+    expect(await inHistory(reader)).toBe(true)
+    expect(await resolves(reader)).toBe(true)
+  })
+
+  test('a memory-derived result is held, so a plan cannot cite it and no reference reveals it', async () => {
+    const f = await fixture({ complete: false })
+    await completeJob(
+      f,
+      crypto.randomUUID(),
+      outboundRequest(f, { memorySource: 'workspace', summary: 'PRIVATE_MEMORY_SENTINEL' })
+    )
+    expect(await rejection(() => createPlan(f, f.recipient.principal, [f.task.id]))).toBe(
+      'Plan citation unavailable'
+    )
+    const empty = await createPlan(f, f.recipient.principal, [])
+    const read = JSON.stringify(await readPlan(f, f.recipient.principal, empty.planId, 1))
+    expect(read).not.toContain('PRIVATE_MEMORY_SENTINEL')
+    expect(await planRows(f)).toHaveLength(1)
+  })
+
+  test('a grant revoked while a plan is being written orders either before the plan or after it, never between', async () => {
+    for (let round = 0; round < 3; round += 1) {
+      const f = await fixture({ complete: false })
+      const reg = await registeredArtifact(f)
+      await completeJob(f, crypto.randomUUID(), outboundRequest(f, { artifact: artifactRef(reg) }))
+      const [created, revoked] = await Promise.allSettled([
+        createPlan(f, f.recipient.principal, [f.task.id]),
+        revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner.principal, reg.grantId),
+      ])
+      // Revocation always succeeds; the plan either saw the live grant or was refused.
+      expect(revoked.status).toBe('fulfilled')
+      if (created.status === 'rejected')
+        expect(created.reason.message).toBe('Plan citation unavailable')
+      // Whatever the order, the settled state hides the result from every reader.
+      const rows = await planRows(f)
+      for (const row of rows)
+        expect((await readPlan(f, f.recipient.principal, row.id, 1)).references).toEqual([
+          unavailableReference(f.task.id),
+        ])
+      expect(rows).toHaveLength(created.status === 'fulfilled' ? 1 : 0)
+    }
+  })
+
+  test('errors and refusals carry no job, workspace or channel detail', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const outsider = await addDestinationMember(f)
+    const messagesSeen = (
+      await Promise.all([
+        rejection(() => createPlan(f, f.recipient.principal, [NIL_UUID])),
+        rejection(() => createPlan(f, outsider, [f.task.id])),
+        rejection(() => readPlan(f, f.recipient.principal, NIL_UUID, 1)),
+        rejection(() => readPlan(f, outsider, NIL_UUID, 1)),
+        rejection(() => revisePlan(f, f.recipient.principal, NIL_UUID, 1, [f.task.id])),
+        rejection(() => revisePlan(f, f.recipient.principal, NIL_UUID, 1, ['bad'])),
+      ])
+    ).map(String)
+    for (const message of messagesSeen)
+      for (const secret of [f.task.id, f.workspace.id, f.destination.id, f.channelA.id, NIL_UUID])
+        expect(message).not.toContain(secret)
   })
 })

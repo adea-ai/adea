@@ -2204,7 +2204,7 @@ async function getMessageForUserInSnapshot(
  * A group mutation locks the channel before its admission and grant, matching
  * the group write fence so mutation and grant revocation serialize together.
  */
-async function requireGroupMutationStanding(
+export async function requireGroupMutationStanding(
   database: Database,
   workspaceId: string,
   channelId: string,

@@ -231,6 +231,26 @@ export type ApiMessagePage = Readonly<{
   messages: readonly MessageSummary[]
   nextAfterSequence?: number
 }>
+/** An accepted coordination plan revision (#1217): the job ids a plan cites, nothing about the jobs. */
+export type ApiCoordinationPlanRevision = Readonly<{
+  createdAt: string
+  jobIds: readonly string[]
+  planId: string
+  revision: number
+}>
+/**
+ * One cited job as the reader may see it now. `authority` is always `none`: a reference grants no
+ * access to the job. `messageId` is the released publication the reader can already open.
+ * Unknown, hidden, revoked and unpublished jobs are the same `unavailable` view.
+ */
+export type ApiJobReference =
+  | Readonly<{ authority: 'none'; availability: 'available'; jobId: string; messageId: string }>
+  | Readonly<{ authority: 'none'; availability: 'unavailable'; jobId: string }>
+export type ApiCoordinationPlanReferences = Readonly<{
+  planId: string
+  references: readonly ApiJobReference[]
+  revision: number
+}>
 export type ApiHandoffTargetRequest = Readonly<{
   /** The exact direct session this admission coordinates. */
   runtimeSessionId: string
