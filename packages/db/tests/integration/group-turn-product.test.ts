@@ -583,4 +583,50 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       expect(messageId).toBeString()
     }
   )
+
+  T(
+    'a database error during replay surfaces as an error and never drops a turn from a page',
+    async () => {
+      const f = await fixture()
+      const first = await address(f, f.lead.id)
+      const second = await address(f, f.helper.id)
+      // Let the group read-proof (transaction 1) pass, then fail every later read snapshot.
+      const flaky = (healthyReads: number) => {
+        let reads = 0
+        return new Proxy(connection.db, {
+          get(target, property) {
+            if (property === 'transaction')
+              return (...args: Parameters<typeof target.transaction>) => {
+                reads += 1
+                return reads > healthyReads
+                  ? Promise.reject(new Error('connection terminated unexpectedly'))
+                  : target.transaction(...args)
+              }
+            const value = Reflect.get(target, property, target)
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        }) as typeof connection.db
+      }
+      await expect(
+        listAddressedTurnsForUser(flaky(1), f.workspace.id, f.channelId, f.owner, { limit: 1 })
+      ).rejects.toThrow('connection terminated unexpectedly')
+      // Deliberate unavailability is still the only thing that omits a turn.
+      const healthy = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        { limit: 1 }
+      )
+      expect(healthy.turns.map((turn) => turn.id)).toEqual([first.turn.id])
+      const rest = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        { after: healthy.nextAfter! }
+      )
+      expect(rest.turns.map((turn) => turn.id)).toEqual([second.turn.id])
+    }
+  )
 })

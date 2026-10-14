@@ -97,6 +97,31 @@ const INVALID_REASONS = new Set([
   'turn_trigger_mismatch',
 ])
 
+/**
+ * Project a replay-read failure. Known coordinator and "unavailable" outcomes keep their mapping; anything
+ * else (a database or infrastructure failure) is a retryable 503, never the generic 400 of the shared
+ * conversation projection, so a client never mistakes a failed read for an empty or finished page.
+ */
+export function addressedTurnReplayErrorResponse(
+  error: unknown,
+  resolution: WorkspacePrincipalResolution,
+  request: Request
+) {
+  if (
+    error instanceof Error &&
+    ((error.name === 'AddressedTurnError' && 'reason' in error) ||
+      /^[A-Za-z ]+ unavailable$/.test(error.message))
+  )
+    return addressedTurnErrorResponse(error, resolution, request)
+  console.error('[addressed-turns] replay read failed', error)
+  return workspaceJsonResponse(
+    { code: 'turns_read_failed', message: 'Addressed turns could not be read; retry' },
+    resolution,
+    request,
+    { headers: { 'cache-control': 'private, no-store' }, status: 503 }
+  )
+}
+
 /** Project a coordinator failure. Identified by name and shape so this module needs no db import. */
 export function addressedTurnErrorResponse(
   error: unknown,

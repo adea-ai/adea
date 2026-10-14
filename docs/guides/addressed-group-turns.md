@@ -38,10 +38,16 @@ Agents or revoked grants. States reached only after that proof answer `409` with
 `reason`: `turn_superseded`, `turn_cancelled`, `turn_already_responded`, `turn_budget_exhausted`,
 `turn_depth_exceeded`.
 
+Cancel takes no input. An absent body is the normal request; a body that is oversized, claims an invalid length or
+fails mid-read answers `400` before the coordinator is reached, so a failed read can never cancel a turn.
+
 ## Ordering, human priority, loops
 
 - Replay is ordered by commit time and id. A turn whose trigger message the reader cannot read (it predates their
   join point and no sharing grant covers it) is omitted entirely, and its id is not a valid cursor for that reader.
+  Only that deliberate "unavailable" outcome omits a turn. A database or infrastructure failure while checking a
+  trigger fails the whole read (`503`, `code: "turns_read_failed"`, retryable), so a page is never silently short
+  and a paging client cannot move its cursor past a turn it never saw.
 - A newer human message in the group supersedes every live turn in the same transaction as the post. Agent
   messages never supersede and never address.
 - Only a human message can trigger a turn, so Agent output cannot start follow-up turns on its own.

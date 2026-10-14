@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   addressedTurnErrorResponse,
+  addressedTurnReplayErrorResponse,
   parseAddressedTurnBody,
   parseAddressedTurnQuery,
 } from '../src/server/addressed-turn-request'
@@ -117,5 +118,43 @@ describe('addressed turn error projection', () => {
     } finally {
       console.error = original
     }
+  })
+})
+
+describe('addressed turn replay failures', () => {
+  const resolution = {
+    clearTemporaryCredential: false,
+    principal: { kind: 'user' as const, userId: ID_A },
+    sessionRotated: false,
+    temporary: true,
+  }
+  const request = new Request('https://test/turns')
+
+  test('a database or infrastructure failure is a retryable 503, never an empty page or a 400', async () => {
+    const original = console.error
+    console.error = () => undefined
+    try {
+      for (const failure of [
+        new Error('Failed query: select * from addressed_agent_turns'),
+        new Error('connection terminated unexpectedly'),
+        'not even an error',
+      ]) {
+        const response = addressedTurnReplayErrorResponse(failure, resolution, request)
+        expect(response.status).toBe(503)
+        expect(response.headers.get('cache-control')).toBe('private, no-store')
+        expect(await response.json()).toMatchObject({ code: 'turns_read_failed' })
+      }
+    } finally {
+      console.error = original
+    }
+  })
+
+  test('deliberate unavailability and coordinator outcomes keep their mapping', () => {
+    expect(
+      addressedTurnReplayErrorResponse(new Error('Channel unavailable'), resolution, request).status
+    ).toBe(404)
+    expect(
+      addressedTurnReplayErrorResponse(turnError('turn_cursor_invalid'), resolution, request).status
+    ).toBe(400)
   })
 })

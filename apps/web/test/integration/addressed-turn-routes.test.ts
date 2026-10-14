@@ -466,4 +466,41 @@ describe.skipIf(!connectionUrl)('addressed group turns: product routes', () => {
     expect(redispatch.status).toBe(409)
     expect(await redispatch.json()).toMatchObject({ reason: 'turn_cancelled' })
   })
+
+  test('an oversized, mis-sized or failing cancel body is refused before any cancellation', async () => {
+    const f = await fixture()
+    const made = (await (await address(f, request(f, f.helper.id))).json()) as {
+      turn: { id: string }
+    }
+    const raw = (init: RequestInit & { duplex?: 'half' }) =>
+      cancelRoute.server.handlers.POST({
+        params: { channelId: f.channelId, turnId: made.turn.id, workspaceId: f.workspace.id },
+        request: new Request(
+          `http://localhost/api/v1/workspaces/${f.workspace.id}/channels/${f.channelId}/turns/${made.turn.id}/cancel`,
+          {
+            ...init,
+            headers: { 'x-test-user-id': f.owner.userId, ...(init.headers as object) },
+            method: 'POST',
+          }
+        ),
+      })
+    const state = async () => (await claims(f)).find((turn) => turn.id === made.turn.id)?.state
+    // Oversized: the stream crosses the limit, so the read yields nothing usable.
+    expect((await raw({ body: ' '.repeat(4096) })).status).toBe(400)
+    // A claimed length above the limit is refused unread.
+    expect((await raw({ body: '{}', headers: { 'content-length': '999999' } })).status).toBe(400)
+    // A malformed length claim.
+    expect((await raw({ body: '{}', headers: { 'content-length': 'abc' } })).status).toBe(400)
+    // A body stream that fails mid-read.
+    const failing = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error('client went away'))
+      },
+    })
+    expect((await raw({ body: failing, duplex: 'half' })).status).toBe(400)
+    expect(await state()).toBe('claimed')
+    // A genuinely absent body still cancels: no input is the normal cancel request.
+    expect((await raw({})).status).toBe(200)
+    expect(await state()).toBe('cancelled')
+  })
 })

@@ -9,6 +9,7 @@ import { addressGroupTurn, cancelGroupTurn, listAddressedTurnsForUser } from '@a
 
 import {
   addressedTurnErrorResponse,
+  addressedTurnReplayErrorResponse,
   ADDRESSED_TURN_BODY_LIMIT,
   parseAddressedTurnBody,
   parseAddressedTurnQuery,
@@ -108,7 +109,8 @@ export async function listTurnsRequest(request: Request, params: AddressedTurnPa
       headers: { 'cache-control': 'private, no-store' },
     })
   } catch (error) {
-    return addressedTurnErrorResponse(error, resolution, request)
+    // A replay failure is an error the client retries, never an empty or short page it would page past.
+    return addressedTurnReplayErrorResponse(error, resolution, request)
   }
 }
 
@@ -119,10 +121,19 @@ export async function cancelTurnRequest(request: Request, params: AddressedTurnP
   const gate = await authorizedPrincipal(request, params, true)
   if ('rejection' in gate) return gate.rejection
   const { resolution } = gate
-  // Cancel carries no input: the turn is named by the path, the actor by the session.
-  const bytes = await readBoundedRequestBytes(request, ADDRESSED_TURN_BODY_LIMIT)
+  // Cancel carries no input: the turn is named by the path, the actor by the session. Only a body that is
+  // genuinely absent reads as "no input"; an oversized, malformed-length or failed read is refused before
+  // any side effect, because cancellation cannot be undone.
+  const bodyless =
+    request.body === null &&
+    (request.headers.get('content-length') === null ||
+      request.headers.get('content-length') === '0')
+  const bytes = bodyless
+    ? new Uint8Array(0)
+    : await readBoundedRequestBytes(request, ADDRESSED_TURN_BODY_LIMIT)
+  if (bytes === null) return workspaceInvalidRequestResponse(request)
   try {
-    const body = bytes && bytes.byteLength ? JSON.parse(new TextDecoder().decode(bytes)) : {}
+    const body = bytes.byteLength ? JSON.parse(new TextDecoder().decode(bytes)) : {}
     if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
       return workspaceInvalidRequestResponse(request)
   } catch {

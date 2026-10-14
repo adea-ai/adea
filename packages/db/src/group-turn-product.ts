@@ -170,6 +170,11 @@ export async function addressGroupTurn(
   }
 }
 
+/** The read paths' deliberate "not visible to you" outcome (`Message unavailable`, `Channel unavailable`, …). */
+function isUnavailableError(error: unknown): boolean {
+  return error instanceof Error && /^[A-Za-z ]+ unavailable$/.test(error.message)
+}
+
 export const ADDRESSED_TURN_PAGE_LIMIT = 100
 export const ADDRESSED_TURN_PAGE_MAX = 200
 
@@ -199,6 +204,9 @@ export async function listAddressedTurnsForUser(
   const canRead = async (messageId: string) => {
     const known = readable.get(messageId)
     if (known !== undefined) return known
+    // Only a definitive "the reader may not see this message" omits the turn. Any other failure (a
+    // database error, a lost connection) propagates: swallowing it would drop the turn from the page
+    // while the cursor moves past it, and a paging client would never see it again.
     const allowed = await getGroupMessageForUser(
       database,
       workspaceId,
@@ -208,7 +216,10 @@ export async function listAddressedTurnsForUser(
       fence
     ).then(
       () => true,
-      () => false
+      (error: unknown) => {
+        if (isUnavailableError(error)) return false
+        throw error
+      }
     )
     readable.set(messageId, allowed)
     return allowed
