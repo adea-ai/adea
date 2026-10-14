@@ -859,6 +859,41 @@ export async function loadAddressedTurns(
     .orderBy(asc(addressedAgentTurns.createdAt), asc(addressedAgentTurns.id))
 }
 
+/**
+ * One bounded committed-order window for the participant history reader. The cursor timestamp stays
+ * in PostgreSQL: converting `created_at` to JavaScript `Date` would discard microseconds and can skip
+ * turns that share a millisecond. The cursor itself is workspace/channel scoped before it participates
+ * in the tuple comparison.
+ */
+export async function loadAddressedTurnReadWindow(
+  database: AgentHqDatabase | AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  afterId: string | null,
+  limit: number
+): Promise<readonly AddressedAgentTurn[]> {
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError('Invalid addressed-turn window')
+  const scope = and(
+    eq(addressedAgentTurns.workspaceId, workspaceId),
+    eq(addressedAgentTurns.channelId, channelId)
+  )!
+  const cursor = afterId
+    ? sql`(${addressedAgentTurns.createdAt}, ${addressedAgentTurns.id}) > (
+        SELECT cursor.created_at, cursor.id
+        FROM app.addressed_agent_turns AS cursor
+        WHERE cursor.workspace_id = ${workspaceId}::uuid
+          AND cursor.channel_id = ${channelId}::uuid
+          AND cursor.id = ${afterId}::uuid
+      )`
+    : undefined
+  return asStore(database)
+    .select()
+    .from(addressedAgentTurns)
+    .where(cursor ? and(scope, cursor) : scope)
+    .orderBy(asc(addressedAgentTurns.createdAt), asc(addressedAgentTurns.id))
+    .limit(limit)
+}
+
 export class AddressedTurnError extends Error {
   constructor(readonly reason: string) {
     super(`Addressed turn unavailable: ${reason}`)
