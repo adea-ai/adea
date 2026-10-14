@@ -28,9 +28,12 @@ import {
  * submission port, and only once the database clock has passed each observation, but
  * the mark does not depend on them: it is the evidence the artifact registration fence
  * relies on when a generation is revoked before any receipt is accepted.
- * Stores are expected to act inside the gate transaction. A store with effects outside
- * it (an object store, an external index) must report them itself: a thrown error rolls
- * the mark back with the rest of the transaction.
+ * An ordinary exception from a store port is caught inside the gate and halts with
+ * `store_error`, allowing the mark to commit without a completion receipt for that
+ * coverage. This requires the database transaction to remain usable. A PostgreSQL
+ * transaction abort, connection loss, or process failure can still roll the mark back
+ * while an out-of-transaction effect (an object store or external index) survives; such
+ * stores need their own durable dispatch intent and reconciliation before production use.
  *
  * A pending generation can be retried after an unreachable or failed store, or
  * after receipt submission was interrupted. No receipt from a retry replaces
@@ -77,6 +80,7 @@ export type RetentionReceiptDraft = Readonly<{
 
 export type RetentionCleanupHaltReason =
   | 'authorization_not_current'
+  | 'store_error'
   | 'store_not_completed'
   | 'store_result_invalid'
   | 'residual_invalid'
@@ -217,11 +221,19 @@ export async function runRetentionCleanupExecutor(
           halt = { coverage, reason: 'authorization_not_current' }
           break
         }
-        // Durable evidence first, in this transaction: the mark commits with whatever the
-        // store deleted, so no committed deletion can leave the database without a trace.
+        // Durable evidence first, in this transaction. Database deletes share its commit;
+        // external effects need separate reconciliation if this transaction aborts.
         await context.markDeletionDispatched(coverage)
         const deletedMs = await databaseClockMs(context.transaction)
-        const outcome: unknown = await store.deleteSubject(context.transaction, subject)
+        let outcome: unknown
+        try {
+          outcome = await store.deleteSubject(context.transaction, subject)
+        } catch {
+          // Preserve the dispatch mark when an adapter throws without aborting the database
+          // transaction. The unknown delete outcome gets no receipt.
+          halt = { coverage, reason: 'store_error' }
+          break
+        }
         // An unrecognised result is unknown, not a failure report. It gets no receipt.
         if (!isStoreOutcome(outcome)) {
           halt = { coverage, reason: 'store_result_invalid' }
@@ -235,7 +247,14 @@ export async function runRetentionCleanupExecutor(
         }
         // Read-back runs after the delete, strictly later in the receipt timeline.
         const readMs = Math.max(await databaseClockMs(context.transaction), deletedMs + 1)
-        const residual: unknown = await store.residualCount(context.transaction, subject)
+        let residual: unknown
+        try {
+          residual = await store.residualCount(context.transaction, subject)
+        } catch {
+          // The delete result may be recorded, but no read-check can claim absence.
+          halt = { coverage, reason: 'store_error' }
+          break
+        }
         // Invalid counts are not zero. Stop before any later store, and claim no absence for this one.
         if (!isResidualCount(residual)) {
           halt = { coverage, reason: 'residual_invalid' }

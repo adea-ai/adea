@@ -67,6 +67,31 @@ const TABLE_FOR_COVERAGE: Record<CleanupCoverageKind, string> = {
   runtime_state: 'runtime_state_rows',
 }
 
+function externalStorePort(
+  coverage: CleanupCoverageKind,
+  externalSubjects: Set<string>,
+  options: Readonly<{
+    calls?: string[]
+    failAt?: 'delete' | 'residual' | 'database_abort'
+  }> = {}
+): RetentionCleanupStorePort {
+  return {
+    coverage,
+    async deleteSubject(transaction, subject) {
+      options.calls?.push(`${coverage}:delete`)
+      externalSubjects.delete(subject.subjectId)
+      if (options.failAt === 'database_abort') await transaction.execute(sql`select 1 / 0`)
+      if (options.failAt === 'delete') throw new Error(`${coverage} delete failed`)
+      return 'completed'
+    },
+    async residualCount(_transaction, subject) {
+      options.calls?.push(`${coverage}:residual`)
+      if (options.failAt === 'residual') throw new Error(`${coverage} residual read failed`)
+      return externalSubjects.has(subject.subjectId) ? 1 : 0
+    },
+  }
+}
+
 /**
  * Dispatch marks are append-only for the application role, so test cleanup disables the trigger
  * as the table owner inside one transaction. The disable is invisible to other sessions: the
@@ -529,7 +554,15 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
     }
 
     /** A live artifact in the fixture's workspace, with replicas seeded in every artifact store. */
-    async function seededArtifact(f: Awaited<ReturnType<typeof fixture>>) {
+    async function seededArtifact(
+      f: Awaited<ReturnType<typeof fixture>>,
+      tables: readonly string[] = [
+        'primary_rows',
+        'object_version_rows',
+        'cache_rows',
+        'replica_rows',
+      ]
+    ) {
       const artifact = await createArtifact(connection.db, f.workspaceId, f.owner, {
         availability: 'available',
         checksumSha256: CHECKSUM,
@@ -540,11 +573,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
         sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
       })
-      await seed(
-        f.workspaceId,
-        [artifact.id],
-        ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows']
-      )
+      await seed(f.workspaceId, [artifact.id], tables)
       return artifact
     }
 
@@ -774,6 +803,214 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       const retry = await execute(f, subject)
       expect(retry.execution.status).toBe('executed')
       expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
+    })
+
+    test('a retry appends ordered observations for one live generation and replays identical receipts idempotently', async () => {
+      const f = await fixture('store-error-retry')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      const authorization = await grant(f, subject)
+      const externalSubjects = new Set([subject])
+      const firstStores = RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverage) =>
+        externalStorePort(
+          coverage,
+          externalSubjects,
+          coverage === 'index' ? { failAt: 'delete' } : {}
+        )
+      )
+
+      const first = await execute(f, subject, { stores: firstStores })
+
+      expect(first.execution.halt).toEqual({ coverage: 'index', reason: 'store_error' })
+      expect(await statusOf(f, subject)).toEqual({
+        outcome: 'pending',
+        blockers: [
+          { kind: 'coverage', coverage: 'index', reason: 'coverage_incomplete' },
+          { kind: 'coverage', coverage: 'cache', reason: 'coverage_incomplete' },
+          { kind: 'coverage', coverage: 'replica', reason: 'coverage_incomplete' },
+        ],
+      })
+      const marksAfterError = await dispatchedCoverage(subject)
+      expect(marksAfterError).toEqual(['index', 'primary'])
+      expect(first.responses).toHaveLength(2)
+      expect(first.responses.every((response) => response.status === 200)).toBe(true)
+      const firstAttemptReceipts = await connection.db
+        .select({
+          id: retentionCleanupReceipts.id,
+          idempotencyKey: retentionCleanupReceipts.idempotencyKey,
+          authorizationId: retentionCleanupReceipts.authorizationId,
+          coverage: retentionCleanupReceipts.coverage,
+          operation: retentionCleanupReceipts.operation,
+          observedAt: retentionCleanupReceipts.observedAt,
+        })
+        .from(retentionCleanupReceipts)
+        .where(eq(retentionCleanupReceipts.subjectId, subject))
+      expect(
+        firstAttemptReceipts.map(({ coverage, operation }) => `${coverage}:${operation}`).toSorted()
+      ).toEqual(['primary:delete', 'primary:read_check'])
+
+      const retry = await execute(f, subject, {
+        stores: RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverage) =>
+          externalStorePort(coverage, externalSubjects)
+        ),
+      })
+
+      expect(retry.execution.status).toBe('executed')
+      expect(
+        retry.execution.drafts.every((receipt) => receipt.requestId === authorization.id)
+      ).toBe(true)
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'verified_complete' })
+      expect(await dispatchedCoverage(subject)).toEqual(['cache', 'index', 'primary', 'replica'])
+      const currentAuthority = await connection.db
+        .select({
+          id: retentionDeletionAuthorizations.id,
+          revokedAt: retentionDeletionAuthorizations.revokedAt,
+          expiresAt: retentionDeletionAuthorizations.expiresAt,
+        })
+        .from(retentionDeletionAuthorizations)
+        .where(eq(retentionDeletionAuthorizations.id, authorization.id))
+      expect(currentAuthority).toHaveLength(1)
+      expect(currentAuthority[0]?.revokedAt).toBeNull()
+      expect(currentAuthority[0]!.expiresAt.getTime()).toBeGreaterThan(Date.now())
+      const receipts = await connection.db
+        .select({
+          id: retentionCleanupReceipts.id,
+          idempotencyKey: retentionCleanupReceipts.idempotencyKey,
+          authorizationId: retentionCleanupReceipts.authorizationId,
+          coverage: retentionCleanupReceipts.coverage,
+          operation: retentionCleanupReceipts.operation,
+          observedAt: retentionCleanupReceipts.observedAt,
+        })
+        .from(retentionCleanupReceipts)
+        .where(eq(retentionCleanupReceipts.subjectId, subject))
+      const retryReceiptIds = new Set(firstAttemptReceipts.map((receipt) => receipt.id))
+      const retryAttemptReceipts = receipts.filter((receipt) => !retryReceiptIds.has(receipt.id))
+      expect(
+        receipts.map(({ coverage, operation }) => `${coverage}:${operation}`).toSorted()
+      ).toEqual(
+        RETENTION_COVERAGE_RULES.messages.requiredCoverage
+          .flatMap((coverage) => [`${coverage}:delete`, `${coverage}:read_check`])
+          .concat(['primary:delete', 'primary:read_check'])
+          .toSorted()
+      )
+      expect(receipts.every((receipt) => receipt.authorizationId === authorization.id)).toBe(true)
+      expect(new Set(receipts.map((receipt) => receipt.idempotencyKey)).size).toBe(receipts.length)
+      for (const operation of ['delete', 'read_check'] as const) {
+        const previous = firstAttemptReceipts.find(
+          (receipt) => receipt.coverage === 'primary' && receipt.operation === operation
+        )!
+        const retried = retryAttemptReceipts.find(
+          (receipt) => receipt.coverage === 'primary' && receipt.operation === operation
+        )!
+        expect(retried).toBeDefined()
+        expect(retried.observedAt.getTime()).toBeGreaterThan(previous.observedAt.getTime())
+      }
+      const firstDelete = firstAttemptReceipts.find(
+        (receipt) => receipt.coverage === 'primary' && receipt.operation === 'delete'
+      )!
+      const firstReadCheck = firstAttemptReceipts.find(
+        (receipt) => receipt.coverage === 'primary' && receipt.operation === 'read_check'
+      )!
+      expect(firstReadCheck.observedAt.getTime()).toBeGreaterThan(firstDelete.observedAt.getTime())
+      const retryDelete = retryAttemptReceipts.find(
+        (receipt) => receipt.coverage === 'primary' && receipt.operation === 'delete'
+      )!
+      const retryReadCheck = retryAttemptReceipts.find(
+        (receipt) => receipt.coverage === 'primary' && receipt.operation === 'read_check'
+      )!
+      expect(retryReadCheck.observedAt.getTime()).toBeGreaterThan(retryDelete.observedAt.getTime())
+
+      const receiptCountBeforeReplay = receipts.length
+      const firstSignedReceipt = first.responses[0]!
+      const replayed = await handleRuntimeNodeRetentionReceipt(
+        new Request(
+          `https://cloud.test/api/v1/workspaces/${f.workspaceId}/runtime-nodes/${f.nodeId}/retention/cleanup-receipts`,
+          {
+            body: firstSignedReceipt.text,
+            headers: {
+              'content-length': String(Buffer.byteLength(firstSignedReceipt.text)),
+              'content-type': 'application/json',
+            },
+            method: 'POST',
+          }
+        ),
+        { runtimeNodeId: f.nodeId, workspaceId: f.workspaceId },
+        { database: () => connection.db as AgentHqDatabase }
+      )
+      expect(replayed.status).toBe(200)
+      const replayBody = (await replayed.json()) as { outcome: string; receiptId: string }
+      expect(replayBody).toEqual({
+        outcome: 'replayed',
+        receiptId: firstSignedReceipt.body.receiptId,
+      })
+      const receiptsAfterReplay = await connection.db
+        .select({ id: retentionCleanupReceipts.id })
+        .from(retentionCleanupReceipts)
+        .where(eq(retentionCleanupReceipts.subjectId, subject))
+      expect(receiptsAfterReplay).toHaveLength(receiptCountBeforeReplay)
+      expect(receiptsAfterReplay.map((receipt) => receipt.id).toSorted()).toEqual(
+        receipts.map((receipt) => receipt.id).toSorted()
+      )
+      expect(await dispatchedCoverage(subject)).toEqual(['cache', 'index', 'primary', 'replica'])
+    })
+
+    test('a revoked generation cannot use a healthy retry after an ordinary store error', async () => {
+      const f = await fixture('revoked-store-error-retry')
+      const subject = crypto.randomUUID()
+      await seed(
+        f.workspaceId,
+        [subject],
+        ['primary_rows', 'index_rows', 'cache_rows', 'replica_rows']
+      )
+      const authorization = await grant(f, subject)
+      const externalSubjects = new Set([subject])
+      const failedStores = RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverage) =>
+        externalStorePort(
+          coverage,
+          externalSubjects,
+          coverage === 'index' ? { failAt: 'delete' } : {}
+        )
+      )
+      const first = await execute(f, subject, { stores: failedStores })
+      expect(first.execution.halt).toEqual({ coverage: 'index', reason: 'store_error' })
+      const marksBeforeRevoke = await dispatchedCoverage(subject)
+      const receiptsBeforeRevoke = await connection.db
+        .select({ id: retentionCleanupReceipts.id })
+        .from(retentionCleanupReceipts)
+        .where(eq(retentionCleanupReceipts.subjectId, subject))
+      expect(marksBeforeRevoke).toEqual(['index', 'primary'])
+      expect(receiptsBeforeRevoke).toHaveLength(2)
+
+      await revokeRetentionDeletionAuthorization(connection.db, {
+        actor: f.owner,
+        authorizationId: authorization.id,
+        workspaceId: f.workspaceId,
+      })
+      const retryCalls: string[] = []
+      const retry = await execute(f, subject, {
+        stores: RETENTION_COVERAGE_RULES.messages.requiredCoverage.map((coverage) =>
+          externalStorePort(coverage, externalSubjects, { calls: retryCalls })
+        ),
+      })
+
+      expect(retry.execution).toMatchObject({
+        decision: { outcome: 'refused', reason: 'authorization_not_current' },
+        drafts: [],
+        status: 'skipped',
+      })
+      expect(retry.responses).toEqual([])
+      expect(retryCalls).toEqual([])
+      expect(await dispatchedCoverage(subject)).toEqual(marksBeforeRevoke)
+      expect(
+        await connection.db
+          .select({ id: retentionCleanupReceipts.id })
+          .from(retentionCleanupReceipts)
+          .where(eq(retentionCleanupReceipts.subjectId, subject))
+      ).toEqual(receiptsBeforeRevoke)
     })
 
     test('the read-back catches a row that reappears after delete, so no absence is claimed', async () => {
@@ -1219,35 +1456,119 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       ).toHaveLength(0)
     })
 
-    test('a store that throws rolls back its deletion and every dispatch mark, so the artifact is not fenced', async () => {
-      const f = await fixture('mark-rollback')
-      const audience = await audienceWorkspace('mark-rollback')
-      const artifact = await seededArtifact(f)
+    test('a later store throw commits prior dispatch marks after an external deletion without completing failed coverage', async () => {
+      const f = await fixture('external-delete-then-store-error')
+      const audience = await audienceWorkspace('external-delete-then-store-error')
+      const artifact = await seededArtifact(f, ['primary_rows', 'cache_rows', 'replica_rows'])
       const record = await grant(f, artifact.id, 'artifacts')
+      const externalObjects = new Set([artifact.id])
+      const calls: string[] = []
       const stores = portsFor('artifacts').map((port) =>
-        port.coverage === 'cache'
-          ? ({
-              ...port,
-              async deleteSubject() {
-                throw new Error('store crashed')
-              },
-            } satisfies RetentionCleanupStorePort)
-          : port
+        port.coverage === 'object_version'
+          ? externalStorePort('object_version', externalObjects, { calls })
+          : port.coverage === 'cache'
+            ? ({
+                ...port,
+                async deleteSubject() {
+                  calls.push('cache:delete')
+                  throw new Error('cache adapter crashed')
+                },
+              } satisfies RetentionCleanupStorePort)
+            : port
       )
-      await expect(execute(f, artifact.id, { category: 'artifacts', stores })).rejects.toThrow(
-        'store crashed'
-      )
-      // The earlier stores deleted and marked inside the same transaction, and all of it rolled back.
-      for (const table of ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows'])
-        expect(await rowCount(f.workspaceId, table, artifact.id)).toBe(1)
-      expect(await dispatchedCoverage(artifact.id)).toEqual([])
-      // With the generation revoked, nothing was deleted or marked, so a reference registers.
+      const { execution, responses } = await execute(f, artifact.id, {
+        category: 'artifacts',
+        stores,
+      })
+
+      expect(execution.halt).toEqual({ coverage: 'cache', reason: 'store_error' })
+      expect(
+        execution.drafts.map(({ coverage, operation, outcome }) => [coverage, operation, outcome])
+      ).toEqual([
+        ['primary', 'delete', 'completed'],
+        ['primary', 'read_check', 'completed'],
+        ['object_version', 'delete', 'completed'],
+        ['object_version', 'read_check', 'completed'],
+      ])
+      expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200])
+      expect(calls).toEqual(['object_version:delete', 'object_version:residual', 'cache:delete'])
+      expect(externalObjects.has(artifact.id)).toBe(false)
+      expect(await rowCount(f.workspaceId, 'primary_rows', artifact.id)).toBe(0)
+      expect(await rowCount(f.workspaceId, 'cache_rows', artifact.id)).toBe(1)
+      expect(await rowCount(f.workspaceId, 'replica_rows', artifact.id)).toBe(1)
+      expect(await dispatchedCoverage(artifact.id)).toEqual(['cache', 'object_version', 'primary'])
+      expect(await statusOf(f, artifact.id, 'artifacts')).toMatchObject({ outcome: 'pending' })
+
       await revokeRetentionDeletionAuthorization(connection.db, {
         actor: f.owner,
         authorizationId: record.id,
         workspaceId: f.workspaceId,
       })
-      expect((await registerReference(f, audience.id, artifact.id)).outcome).toBe('registered')
+      await expect(registerReference(f, audience.id, artifact.id)).rejects.toThrow()
+    })
+
+    test('a read-back exception after an external delete produces no read-check or later-store receipt', async () => {
+      const f = await fixture('external-residual-error')
+      const subject = crypto.randomUUID()
+      await seed(f.workspaceId, [subject], ['index_rows', 'cache_rows', 'replica_rows'])
+      await grant(f, subject)
+      const externalIndex = new Set([subject])
+      const calls: string[] = []
+      const stores = portsFor('messages').map((port) =>
+        port.coverage === 'primary'
+          ? externalStorePort('primary', externalIndex, { calls, failAt: 'residual' })
+          : port
+      )
+
+      const { execution, responses } = await execute(f, subject, { stores })
+
+      expect(execution.halt).toEqual({ coverage: 'primary', reason: 'store_error' })
+      expect(
+        execution.drafts.map(({ coverage, operation, outcome }) => [coverage, operation, outcome])
+      ).toEqual([['primary', 'delete', 'completed']])
+      expect(responses).toHaveLength(1)
+      expect(calls).toEqual(['primary:delete', 'primary:residual'])
+      expect(externalIndex.has(subject)).toBe(false)
+      expect(await dispatchedCoverage(subject)).toEqual(['primary'])
+      for (const table of ['index_rows', 'cache_rows', 'replica_rows'])
+        expect(await rowCount(f.workspaceId, table, subject)).toBe(1)
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'pending' })
+    })
+
+    test('a database-aborting store error rolls back the mark while its external effect survives', async () => {
+      const f = await fixture('external-delete-database-abort')
+      const subject = crypto.randomUUID()
+      await seed(f.workspaceId, [subject], ['index_rows', 'cache_rows', 'replica_rows'])
+      await grant(f, subject)
+      const externalIndex = new Set([subject])
+      const calls: string[] = []
+      const stores = portsFor('messages').map((port) =>
+        port.coverage === 'primary'
+          ? externalStorePort('primary', externalIndex, { calls, failAt: 'database_abort' })
+          : port
+      )
+      let submissionAttempts = 0
+
+      await expect(
+        execute(f, subject, {
+          beforeSubmit: async () => {
+            submissionAttempts++
+          },
+          stores,
+        })
+      ).rejects.toThrow()
+
+      expect(calls).toEqual(['primary:delete'])
+      expect(externalIndex.has(subject)).toBe(false)
+      expect(submissionAttempts).toBe(0)
+      expect(await dispatchedCoverage(subject)).toEqual([])
+      expect(
+        await connection.db
+          .select({ id: retentionCleanupReceipts.id })
+          .from(retentionCleanupReceipts)
+          .where(eq(retentionCleanupReceipts.subjectId, subject))
+      ).toEqual([])
+      expect(await statusOf(f, subject)).toMatchObject({ outcome: 'cleanup_ready' })
     })
 
     test('authority that expires while the first store call is in flight: the call finishes, no later store runs, and nothing further is claimed', async () => {

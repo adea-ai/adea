@@ -160,6 +160,10 @@ database clock has passed its observation.
   no receipt, and the run halts with `store_result_invalid`.
 - A residual that is not a safe, non-negative integer halts the run with
   `residual_invalid`. No read-back receipt is made, so no absence is claimed.
+- An exception from `deleteSubject` or `residualCount` halts with `store_error`.
+  The executor catches it inside the gate so a usable transaction can commit its
+  dispatch marks. A throwing delete gets no receipt; a throwing read-back gets no
+  read-check receipt, so that coverage cannot be verified complete.
 - A store that does not complete stops the run, so later stores keep their data.
   A residual above zero after read-back stops it as well.
 - The result carries `halt` (coverage and reason) or `null`. Stores after the
@@ -189,9 +193,14 @@ dispatched to that store under that generation. Its writer is
 `context.markDeletionDispatched(coverage)` in `withRetentionDeletionGate`, and the
 cleanup executor calls it for every store before the store runs.
 
-- It is written in the deleting transaction, before the store is called. The mark and
-  whatever the store deleted commit or roll back together, so a committed deletion
-  always leaves a committed mark, and a rolled-back one leaves none.
+- It is written in the deleting transaction, before the store is called. Database
+  deletions in that transaction commit or roll back with the mark. An ordinary
+  store-port exception is caught inside the gate, so its mark can commit without a
+  completion receipt for that coverage.
+- This atomicity does not extend to an object store or external index. A database
+  transaction abort, connection loss, or process failure can roll back the mark while
+  an out-of-transaction effect survives. Those stores need durable dispatch intent and
+  reconciliation before production cleanup is enabled.
 - It needs no receipt and no executor round trip. Receipts are accepted only against a
   live generation, so a revocation (or expiry) before any receipt is accepted refuses
   every late receipt; the mark was already committed and stays.
@@ -264,13 +273,14 @@ artifact or grant row while holding the advisory lock, so no wait cycle among th
 held artifact row) and runs a concurrent mix of every operation looking for deadlocks.
 
 What the fence does not cover. The mark is written by whoever deletes under the gate.
-A caller that deletes artifact data outside `withRetentionDeletionGate`, or a store
-whose effects happen outside the gate transaction and survive its rollback (an object
-store, an external index), leaves no mark, and a thrown error rolls the mark back with
-the rest of the transaction. Stores with out-of-transaction effects must report them
-through their outcome rather than throw, and need their own evidence before production
-cleanup is enabled. A deletion that committed before migration 0057 is also unmarked;
-nothing deletes in production today, and the fence does not enable it.
+A caller that deletes artifact data outside `withRetentionDeletionGate` leaves no mark.
+An ordinary store-port exception is caught as `store_error`, allowing a healthy gate
+transaction to commit its mark without a completion receipt for that coverage. A
+PostgreSQL transaction abort, connection loss, or process failure can still roll the
+mark back while an external object-store or index effect survives. Out-of-transaction
+stores need durable dispatch intent and reconciliation before production cleanup is
+enabled. A deletion that committed before migration 0057 is also unmarked; nothing
+deletes in production today, and the fence does not enable it.
 
 Retention periods stay unset and production deletion stays disabled; the fence changes
 neither.
