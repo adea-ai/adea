@@ -12,7 +12,12 @@ import { createHash } from 'node:crypto'
 // helpers/visual.ts for the race this closes.
 import { expect, test, type Locator, type Page } from './helpers/visual'
 
-import { canonicalThemeCssTokens } from '../../../packages/ui/src/components/canonical-theme-css-data'
+import {
+  accentRolesForSelection,
+  themeById,
+  themeCssVariables,
+  tokensAsHex,
+} from '@adea-ai/ui/lib/themes'
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
 const timestamp = '2026-08-30T12:00:00.000Z'
@@ -289,7 +294,9 @@ const channels = [
     lifecycleState: 'active',
     participants: [user, agentPrincipal],
     sortOrder: 2,
-    title: 'Research Agent',
+    // The server's default direct title. The sidebar labels that lane with the
+    // Agent's name; any other title reads "<Agent> · <title>" (#1294).
+    title: 'Direct conversation',
     updatedAt: timestamp,
     version: 1,
     visibility: 'participants',
@@ -1006,6 +1013,9 @@ test('renders empty and populated Project-first workspace states', async ({ page
   await page.goto('/')
   await expect(workspaceNav(page).getByRole('heading', { name: 'Work', level: 3 })).toBeVisible()
   await expect(workspaceNav(page).getByText('No projects yet.')).toBeVisible()
+  // The account-wide lists are served empty, so the supplemental block renders
+  // nothing (a loading or error block would bake into the capture).
+  await expect(workspaceNav(page).getByText('Across your workspaces')).toHaveCount(0)
   await expect(page).toHaveScreenshot('workspace-empty-light.png', { animations: 'disabled' })
 
   await page.unrouteAll({ behavior: 'wait' })
@@ -1082,9 +1092,21 @@ test('uses the published Adea Light semantic theme by default', async ({ page })
       primary: styles.getPropertyValue('--primary').trim(),
     }
   })
-  const canonical = canonicalThemeCssTokens('adea-light')
+  // The palette is the published catalogue sheet, written in the catalogue's own
+  // notation. The default accent is the Violet preset: the sheet's accent block
+  // paints it first, and the provider repaints it inline as hex once it mounts,
+  // so the primary is the same colour in whichever notation has landed.
+  const light = themeById('adea-light')!
+  const canonical = themeCssVariables(light)
+  const violet = accentRolesForSelection('violet', 'light', undefined, {
+    background: light.colors.background,
+    floor: 3,
+    variantId: light.id,
+  })!
   expect(tokens.background).toBe(canonical['--background'])
-  expect(tokens.primary).toBe(canonical['--primary'])
+  expect([violet.primary, tokensAsHex({ '--primary': violet.primary })['--primary']]).toContain(
+    tokens.primary
+  )
 })
 
 test('loads chat before secure-context-only authentication APIs are requested', async ({
@@ -2539,9 +2561,8 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   const form = page.locator('form.conventional-agent-customization')
-  // The bold label is the grid's field header; the controls themselves keep
-  // the normal weight, and the native select fills its grid column so its
-  // chevron sits at the select's edge instead of the column's end.
+  // The controls keep the normal weight, and the native select fills its grid
+  // column so its chevron sits at the select's edge instead of the column's end.
   const fieldPaint = await form.evaluate((formElement) => {
     const input = formElement.querySelector<HTMLInputElement>('input[name="name"]')
     const select = formElement.querySelector<HTMLSelectElement>('select[name="projectId"]')
@@ -2579,10 +2600,23 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     expectedRevision: 0,
   })
 
+  // The saved form closes after its last request resolves. Reopening before that
+  // lets the closing form's height change move the section's scroll position
+  // underneath the click, so the dialog backdrop was captured at a different
+  // scroll offset from run to run.
+  await expect(form).toBeHidden()
   await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
   await expect(page.getByText('Permanent deletion is unavailable')).toBeVisible()
-  await page.getByRole('button', { name: 'Archive Agent' }).click()
+  const archiveAgent = page.getByRole('button', { name: 'Archive Agent' })
+  // Pin the scrolled backdrop: reveal the button flush with the scrollport's
+  // bottom edge (what a click from the top would do) instead of leaving the
+  // offset to however far the reopen scrolled, then require it to hold.
+  const directory = page.locator('section.conventional-directory')
+  await archiveAgent.evaluate((element) => element.scrollIntoView({ block: 'end' }))
+  const pinnedScroll = await directory.evaluate((element) => element.scrollTop)
+  await archiveAgent.click()
   await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeVisible()
+  await expect.poll(() => directory.evaluate((element) => element.scrollTop)).toBe(pinnedScroll)
   await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
     animations: 'disabled',
   })
@@ -2590,6 +2624,9 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     .getByRole('alertdialog', { name: 'Archive Research Agent' })
     .getByRole('button', { name: 'Cancel' })
     .click()
+  // The dialog returns focus to its trigger when it closes. Wait for that, or a slow
+  // machine presses Tab below and then has focus pulled back to "Archive Agent".
+  await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeHidden()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   for (const mode of ['light', 'dark']) {
     await page.evaluate((theme) => {
@@ -4027,7 +4064,7 @@ test('Chat conversation surface follows the shared light and dark theme backgrou
     if (await save.isEnabled()) await save.click()
     await page.keyboard.press('Escape')
     await expect(settings).toBeHidden()
-    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', mode.toLowerCase())
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', mode.toLowerCase())
     const colors = await surface.evaluate((element) => ({
       conversation: getComputedStyle(element).backgroundColor,
       workspace: getComputedStyle(element.closest('.conventional-workspace')!).backgroundColor,

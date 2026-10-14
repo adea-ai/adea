@@ -16,6 +16,7 @@ import {
 } from '@adea-ai/ui/components/ui/board'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { keyedRows, type KeyedRow } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
@@ -162,7 +163,9 @@ export function TaskBoard(props: Props) {
     <section class="conventional-kanban" aria-labelledby="task-board-title">
       <header class="conventional-kanban__toolbar">
         <div class="conventional-kanban__heading">
-          <h1 id="task-board-title">Kanban</h1>
+          <Heading as="h1" size="card" id="task-board-title">
+            Kanban
+          </Heading>
           <Badge variant="subtle" size="sm" aria-label={taskCountLabel()}>
             {props.tasks.length}
           </Badge>

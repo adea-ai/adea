@@ -797,6 +797,21 @@ export const projectMutationOptions = {
       await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
     },
   }),
+  restore: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      variables: Readonly<{
+        input: Parameters<AgentHqApiClient['restoreProject']>[2]
+        projectId: string
+      }>
+    ) => client.restoreProject(workspaceId, variables.projectId, variables.input),
+    onSuccess: async (
+      result: Awaited<ReturnType<AgentHqApiClient['restoreProject']>>,
+      variables: Readonly<{ projectId: string }>
+    ) => {
+      queryClient.setQueryData(projectQueryKeys.detail(workspaceId, variables.projectId), result)
+      await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all(workspaceId) })
+    },
+  }),
   create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createProject']>[1]) =>
       client.createProject(workspaceId, input),
@@ -861,6 +876,14 @@ export const workspaceMutationOptions = {
         agents: [],
         tasks: [],
       })
+    },
+  }),
+  importPortable: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (bundleText: string) => client.importWorkspace(bundleText),
+    onSuccess: async () => {
+      // The restored workspace joins the owner's list under its own ID; the list refetch is how
+      // the sidebar and the workspace switcher learn about it.
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
     },
   }),
   update: (client: AgentHqApiClient, queryClient: QueryClient) => ({
@@ -1026,6 +1049,11 @@ export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
 }
 
+export function useImportPortableWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.importPortable(client, queryClient))
+}
+
 export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.archive(client, queryClient))
@@ -1096,6 +1124,17 @@ export function useDeleteProjectMutation(
   const queryClient = useQueryClient()
   return useMutation(() =>
     projectMutationOptions.delete(client, queryClient, resolveAccessor(workspaceId))
+  )
+}
+
+/** Explicit promotion of an archived project at the observed revision. */
+export function useRestoreProjectMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  const queryClient = useQueryClient()
+  return useMutation(() =>
+    projectMutationOptions.restore(client, queryClient, resolveAccessor(workspaceId))
   )
 }
 
@@ -1261,6 +1300,14 @@ export function useCreateDirectChannelMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.direct(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useCreateDirectTopicMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.directTopic(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useCreateGroupChannelMutation(

@@ -125,7 +125,7 @@ export default defineConfig(({ command }) => ({
                 },
                 {
                   name: 'shared-lazy-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(external-link|mic|pencil|play|rotate-ccw|square-terminal)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(download|external-link|file-text|mic|pencil|play|rotate-ccw|square-terminal|upload)\.jsx$/,
                   minShareCount: 2,
                 },
               ],

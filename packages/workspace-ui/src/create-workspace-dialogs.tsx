@@ -47,10 +47,7 @@ export function CreateProjectDialog(props: {
       title="Create Project"
       description="Projects hold the work, Agents, Tasks and conversations of one effort. A repository is optional."
     >
-      <div
-        class="conventional-template-options"
-        aria-label={`${props.template} Project suggestions`}
-      >
+      <div class="grid grid-cols-3 gap-2" aria-label={`${props.template} Project suggestions`}>
         <For each={projectTemplates}>
           {(project) => (
             <Button
@@ -65,13 +62,13 @@ export function CreateProjectDialog(props: {
               }
             >
               <ProjectIcon iconKey={project.iconKey} />
-              <strong>{project.name}</strong>
+              {project.name}
             </Button>
           )}
         </For>
       </div>
       <form
-        class="conventional-dialog-form"
+        class="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           const form = new FormData(event.currentTarget)
@@ -150,7 +147,7 @@ export function EditProjectDialog(props: {
       description="Rename the Project or change its icon key to update its sidebar icon."
     >
       <form
-        class="conventional-dialog-form"
+        class="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           const form = new FormData(event.currentTarget)
@@ -221,7 +218,7 @@ export function RenameConversationDialog(props: {
       description={`Give this ${noun()} a clear, durable title.`}
     >
       <form
-        class="conventional-dialog-form"
+        class="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           const title = String(new FormData(event.currentTarget).get('title') ?? '')
@@ -283,7 +280,7 @@ export function CreateGroupDialog(props: {
       description="A durable conversation for users and multiple Agents, without requiring a Project."
     >
       <form
-        class="conventional-dialog-form"
+        class="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault()
           const title = String(new FormData(event.currentTarget).get('title') ?? '')

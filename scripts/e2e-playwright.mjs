@@ -28,6 +28,10 @@ const specs = [
   'apps/web/e2e/chat-transcript-composition.spec.ts',
   'apps/web/e2e/desktop-runtime-chat.spec.ts',
   'apps/web/e2e/desktop-first-run-chat.spec.ts',
+  // Direct-session handoff (#1177): mounted proof over the production
+  // resolver with fixture transports — own ephemeral harness server,
+  // no database, safe in every shard.
+  'apps/web/e2e/direct-session-handoff.spec.ts',
   'apps/web/e2e/plugins-loading.spec.ts',
   'apps/web/e2e/workspace-form.spec.ts',
   'apps/web/e2e/workspace-settings.spec.ts',
@@ -61,6 +65,9 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Several conversations with one Agent (Pi Durable REQ 060): New conversation starts a
+  // distinct named topic beside the default lane, over real routes with no mocks.
+  'apps/web/e2e/agent-topics.spec.ts',
   // Lead model-role choices (#1211): the requested-reference picker, composer carry-through and
   // the mismatch refusal, mounted over module-only fixtures that need no host inputs. The
   // connected CP journey is deliberately absent: it is the opt-in PI_ROLE_CONNECTED_PROOF lane
@@ -75,6 +82,10 @@ const specs = [
   // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
   // target and a revisit by the same ID selects it again. No route mocks.
   'apps/web/e2e/workspace-deeplink-real.spec.ts',
+  // History tab (#716): prompts with reply summaries, search and its accessible
+  // names, and paging across the 1,000-event window, mounted over module-only
+  // fixtures that need no host inputs.
+  'apps/web/e2e/history-pane.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

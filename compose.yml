@@ -2,7 +2,9 @@ name: agent-hq
 
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    # The default is the pinned canonical image. Scripts that retry a rate-limited pull set
+    # ADEA_POSTGRES_IMAGE to the same digest on a fallback registry (scripts/docker-pull-backoff.mjs).
+    image: ${ADEA_POSTGRES_IMAGE:-public.ecr.aws/docker/library/postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2}
     restart: unless-stopped
     environment:
       POSTGRES_DB: agent_hq

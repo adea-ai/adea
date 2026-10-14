@@ -37,6 +37,8 @@ import {
   type SocketData,
 } from '../dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
+import { harnessFamilySpecs } from '../dev-runtime/discovery/families'
+import { createLocalExecutableDiscoverySource } from '../dev-runtime/discovery/source'
 import {
   createHarnessRunNotificationPublisher,
   requestNativeChatNotification,
@@ -342,6 +344,11 @@ function composeHost(scope = identity.currentScope()): {
     // production boot opts into the managed Pi warm — fire-and-forget, every
     // failure a typed durable driver state, skipped for injected drivers.
     managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
+    // M10 #30: the harness selector's explicit rescan probes this machine's
+    // installed harness executables (fixed-argv version probes, no shell).
+    discoverySources: [
+      createLocalExecutableDiscoverySource({ specs: harnessFamilySpecs, env: process.env }),
+    ],
     runLsof: async () => {
       const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
         stdout: 'pipe',

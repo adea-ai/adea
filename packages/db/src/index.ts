@@ -143,6 +143,7 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  ReadSnapshotIsolationError,
   lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
@@ -230,6 +231,54 @@ export {
   validateGroupCreation,
   workspaceQualifiedAgentKey,
 } from './group-participation-policy'
+export {
+  ABSENT_GRANT_WINDOW,
+  admissionForParticipant,
+  assertGroupChannelGate,
+  authorizeGroupChannelHistoryRead,
+  authorizeGroupChannelPublication,
+  authorizeGroupChannelSummaryRead,
+  authorizeGroupChannelTurn,
+  authorizeGroupChannelTurnNow,
+  createGroupChannelWithGrants,
+  decideGroupChannelHistoryReadNow,
+  decideGroupChannelPublicationNow,
+  decideGroupChannelSummaryReadNow,
+  getGroupMessageForUser,
+  groupCreationCandidatesFromGrants,
+  groupCreationPayloadHash,
+  GroupCreationError,
+  GroupPublicationHoldError,
+  listGroupChannelMessagesForUser,
+  liveGroupClock,
+  loadGroupAdmission,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+  partitionGroupChannelHistory,
+  postGroupChannelMessage,
+  postGroupChannelMessageInTransaction,
+  publishGroupLeadResult,
+  requireGroupManagementAuthority,
+  resolveAdmissionWindow,
+  resolveGroupLeadAgent,
+  revokeGroupGrant,
+  setGroupChannelParticipantsInTransaction,
+  setGroupChannelParticipantsWithGrants,
+  shareGroupHistory,
+  type GroupChannelCreateInput,
+  type GroupChannelDirectPostInput,
+  type GroupChannelGate,
+  type GroupChannelLeadPostInput,
+  type GroupChannelPostInput,
+  type GroupChannelSetParticipantsInput,
+  type GroupClock,
+  type GroupFenceOptions,
+  type GroupGrantKind,
+  type GroupLeadPublicationInput,
+  type GroupPostBarrier,
+  type GroupRosterBarrier,
+  type GroupStoreDatabase,
+} from './group-channels'
 export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
@@ -322,7 +371,14 @@ export {
   type AgentPersonaPlan,
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  createLeadTurn,
+  getLatestLeadTurnForTarget,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+  parseHandoffTarget,
+  type HandoffTarget,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,
@@ -379,6 +435,40 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+export {
+  exportPortableWorkspace,
+  type PortableExportHooks,
+  readCompletePortableContent,
+} from './portable-export'
+export {
+  PORTABLE_SYSTEM_SENDER_ID,
+  PortableExportError,
+  type PortableExportFailureCode,
+  portableContentDigest,
+} from './portable-export-content'
+export { importPortableWorkspace, type PortableImportResult } from './portable-import'
+export { PortableImportError, type PortableImportFailureCode } from './portable-import-guards'
+
+export {
+  completeTaskAndPublishOutboundResult,
+  createJobOutboundStoreService,
+  type JobOutboundCompletionOutcome,
+  type JobOutboundCompletionRequest,
+} from './job-outbound-result-store'
+export type {
+  JobOutboundArtifactPolicy,
+  JobOutboundDeliveryDecision,
+} from './job-outbound-result-policy'
+export {
+  completeTaskFromRequest,
+  type TaskCompletionInput,
+  type TaskCompletionOutcome,
+} from './task-completion-request'
+export {
+  parseOutboundCompletion,
+  summarizePublication,
+  type TaskCompletionPublication,
+} from './task-completion-parse'
 
 export * from './lead-model-selections'
 

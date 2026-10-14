@@ -1,6 +1,7 @@
 import { ClientOnly, createFileRoute } from '@tanstack/solid-router'
 import { createServerOnlyFn } from '@tanstack/solid-start'
 import { getRequestHeader } from '@tanstack/solid-start/server'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 import lazyComponent from '../../components/lazy-component'
 import { isDesktopRuntime } from '../../lib/desktop-bridge'
@@ -24,9 +25,9 @@ function EarlyAccessNotice() {
     <main class="auth-shell">
       <section class="auth-panel" aria-labelledby="early-access-title">
         <p class="auth-eyebrow">Adea</p>
-        <h1 class="auth-title" id="early-access-title">
+        <Heading as="h1" size="display" data-auth-title id="early-access-title">
           Adea is in early access
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>

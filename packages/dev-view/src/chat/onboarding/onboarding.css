@@ -17,25 +17,10 @@
   background: var(--background);
 }
 
-.dev-onboarding__eyebrow,
 .dev-onboarding__message,
 .dev-onboarding__install,
 .dev-onboarding__notice {
   margin: 0;
-}
-
-.dev-onboarding__eyebrow {
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.dev-onboarding__panel h1 {
-  margin: 0;
-  font-size: calc(clamp(1.35rem, 2.4vw, 1.8rem) * var(--font-ui-scale, 1));
-  line-height: 1.2;
 }
 
 .dev-onboarding__message {

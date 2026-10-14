@@ -329,13 +329,24 @@ describe('group creation validation', () => {
     ])
   })
 
-  test('rejects cross-tenant humans and Agents', () => {
+  test('rejects cross-tenant humans while admitting qualified foreign Agents', () => {
+    // Humans stay host-anchored (no account model exists for cross-workspace
+    // humans yet); Agents keep their source workspace, so a properly
+    // qualified foreign enlistment is valid at the pure layer — the
+    // transactional layer then proves the claimed source against the
+    // registry before anything persists.
     const validation = validateGroupCreation({
       candidates: [
         {
           audienceGrant: audienceGrant(),
           kind: 'human',
           participant: ALICE,
+          workspaceId: WORKSPACE,
+        },
+        {
+          audienceGrant: audienceGrant({}, BOB),
+          kind: 'human',
+          participant: BOB,
           workspaceId: OTHER_WORKSPACE,
         },
         {
@@ -354,8 +365,9 @@ describe('group creation validation', () => {
 
     expect(validation.ok).toBeFalse()
     if (validation.ok) return
+    // Only the cross-tenant human is rejected; the qualified foreign Agent
+    // passes pure validation.
     expect(validation.rejections.map((rejection) => rejection.reason)).toEqual([
-      'participant_cross_tenant',
       'participant_cross_tenant',
     ])
   })

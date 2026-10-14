@@ -97,6 +97,7 @@ export function createDevWorkspaceNavHost(
       logo: workspace.logo,
       accent: workspace.accent,
       sortOrder: workspace.sortOrder,
+      ...(workspace.isPersonal ? { isHome: true } : {}),
     }))
   )
 

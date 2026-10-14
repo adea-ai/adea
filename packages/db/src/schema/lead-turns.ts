@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, jsonb, text, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import type { RequestedRoleModelSelections } from '../lead-model-selections'
 import { agents } from './agents'
 import { channels, messages } from './conversations'
@@ -38,6 +38,16 @@ export const leadTurnIntents = appSchema.table(
     requestedModelSelections: jsonb(
       'requested_model_selections'
     ).$type<RequestedRoleModelSelections>(),
+    /** Structured handoff target: exact direct session, never prose. Null for legacy admissions. */
+    handoffTargetSessionId: text('handoff_target_session_id'),
+    handoffTargetGeneration: integer('handoff_target_generation'),
+    handoffTargetTaskId: uuid('handoff_target_task_id'),
+    /**
+     * Ordinal of this admission within one target context (session and generation): 1 for the
+     * first, and one more for each successor admitted after the previous runtime completed or
+     * failed. Null exactly when there is no target.
+     */
+    handoffTargetAttempt: integer('handoff_target_attempt'),
     dispatchKey: text('dispatch_key').notNull(),
     state: text('state').default('blocked').notNull(),
     reasonCode: text('reason_code').default('ADMISSION_SERVICE_UNAVAILABLE').notNull(),
@@ -57,6 +67,10 @@ export const leadTurnIntents = appSchema.table(
       sql`${table.channelVisibility} in ('workspace', 'participants')`
     ),
     check('lead_turn_intents_audience_valid', sql`jsonb_typeof(${table.audience}) = 'array'`),
+    check(
+      'lead_turn_intents_handoff_target_valid',
+      sql`(${table.handoffTargetSessionId} is null and ${table.handoffTargetGeneration} is null and ${table.handoffTargetTaskId} is null and ${table.handoffTargetAttempt} is null) or (${table.handoffTargetSessionId} is not null and length(btrim(${table.handoffTargetSessionId})) between 1 and 256 and ${table.handoffTargetGeneration} is not null and ${table.handoffTargetGeneration} >= 0 and ${table.handoffTargetTaskId} is not null and ${table.handoffTargetAttempt} is not null and ${table.handoffTargetAttempt} >= 1)`
+    ),
     check(
       'lead_turn_intents_blocked_only',
       sql`${table.state} = 'blocked' and ${table.reasonCode} = 'ADMISSION_SERVICE_UNAVAILABLE'`
@@ -87,5 +101,17 @@ export const leadTurnIntents = appSchema.table(
       )`
     ),
     index('lead_turn_intents_workspace_channel_idx').on(table.workspaceId, table.channelId),
+    // Exactly one admission per target context and attempt: concurrent same-target admissions
+    // serialize on the channel lock, and the loser recovers the winner. A successor takes the
+    // next attempt, so a completed or failed predecessor stays retained and unchanged.
+    uniqueIndex('lead_turn_intents_target_unique')
+      .on(
+        table.workspaceId,
+        table.channelId,
+        table.handoffTargetSessionId,
+        table.handoffTargetGeneration,
+        table.handoffTargetAttempt
+      )
+      .where(sql`${table.handoffTargetSessionId} is not null`),
   ]
 )

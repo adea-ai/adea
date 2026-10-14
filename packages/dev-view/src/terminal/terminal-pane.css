@@ -155,54 +155,9 @@
   box-shadow: var(--shadow-md);
 }
 
-.dev-terminal-search input[type='text'] {
-  min-width: 0;
-  flex: 1;
-  padding: 0.125rem 0.375rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  background: var(--background);
-  color: var(--foreground);
-}
-
-.dev-terminal-search input[type='text']:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -1px;
-}
-
-.dev-terminal-search button {
-  padding: 0.125rem 0.375rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  background: transparent;
-  color: var(--foreground);
-}
-
-.dev-terminal-search button:disabled {
-  color: var(--muted-foreground);
-}
-
 .dev-terminal-search-count {
   flex: none;
   color: var(--muted-foreground);
-  font-size: var(--text-xs);
-}
-
-/* Multiline paste confirmation, shared by the surface and the compose editor. */
-.dev-terminal-paste-confirm {
-  position: absolute;
-  inset-inline: 0.5rem;
-  bottom: 0.5rem;
-  z-index: var(--z-dialog, 180);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--background);
-  box-shadow: var(--shadow-md);
   font-size: var(--text-xs);
 }
 
@@ -215,44 +170,9 @@
   border-top: 1px solid var(--border);
 }
 
-.dev-terminal-editor textarea {
-  width: 100%;
-  padding: 0.25rem 0.375rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--background);
-  color: var(--foreground);
-  resize: none;
-  font-family: var(--font-code, var(--font-mono));
-  font-size: var(--text-code);
-}
-
-.dev-terminal-editor textarea:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -1px;
-}
-
 .dev-terminal-editor footer {
   display: flex;
   gap: 0.375rem;
-}
-
-.dev-terminal-editor footer button {
-  padding: 0.125rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
-}
-
-.dev-terminal-editor footer button:hover,
-.dev-terminal-editor footer button:focus-visible {
-  background: var(--surface-hover);
-}
-
-.dev-terminal-editor footer button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -1px;
 }
 
 .dev-terminal-raw-note {
@@ -265,14 +185,6 @@
   border-top: 1px solid var(--border);
   color: var(--muted-foreground);
   font-size: var(--text-xs);
-}
-
-.dev-terminal-raw-note button {
-  padding: 0.125rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
 }
 
 /* Typed fallback shell chooser: modal-toned panel, list of explicit picks. */
@@ -291,17 +203,6 @@
   overflow-y: auto;
 }
 
-.dev-terminal-shell-chooser h2 {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.dev-terminal-shell-chooser p {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: var(--text-xs);
-}
-
 .dev-terminal-shell-chooser ul {
   display: flex;
   flex-direction: column;
@@ -309,40 +210,6 @@
   margin: 0;
   padding: 0;
   list-style: none;
-}
-
-.dev-terminal-shell-chooser button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.125rem;
-  width: 100%;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
-  text-align: start;
-}
-
-.dev-terminal-shell-chooser button:hover,
-.dev-terminal-shell-chooser button:focus-visible {
-  background: var(--surface-hover);
-}
-
-.dev-terminal-shell-chooser button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -1px;
-}
-
-.dev-terminal-shell-chooser button[aria-pressed='true'] {
-  border-color: var(--ring);
-}
-
-.dev-terminal-shell-path {
-  color: var(--muted-foreground);
-  font-family: var(--font-code, var(--font-mono));
-  font-size: var(--text-code);
 }
 
 /* Pane-local screen-reader text (self-contained; no utility-class reliance). */

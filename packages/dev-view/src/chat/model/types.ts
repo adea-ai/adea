@@ -30,6 +30,10 @@ export type ChatConversation = Readonly<{
   generation: number
   version: number
   activeHarnessRunId?: string
+  /** Cloud task id when the session was created for task-scoped work; the
+   *  canonical link a lead-aware surface uses to resolve the task's lead
+   *  channel. Absent for ordinary direct sessions. */
+  taskId?: string
   draft: string
   draftBlocks: readonly PasteBlock[]
   events: readonly RuntimeEvent[]

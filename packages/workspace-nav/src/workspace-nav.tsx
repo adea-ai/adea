@@ -1,6 +1,6 @@
 import '@adea-ai/app-ui/workspace-nav.css'
 
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -196,12 +196,9 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
         {/* The heading's actions stay visible: grouping and creating a
             workspace are primary affordances, not hover extras. */}
         <div class="flex min-w-0 items-center gap-1 py-1 ps-2 pe-1">
-          <h2
-            id={headingId}
-            class="min-w-0 flex-1 truncate text-2xs font-medium tracking-wide text-sidebar-muted-foreground uppercase"
-          >
+          <Text as="h2" variant="overline" id={headingId} class="min-w-0 flex-1">
             Workspaces
-          </h2>
+          </Text>
           <span class="flex shrink-0 items-center gap-0.5" data-slot="workspace-nav-actions">
             <DropdownMenu>
               {/* The current grouping is visible text, not only a tooltip. */}
@@ -378,7 +375,7 @@ function ActiveWorkspace(
   const [host, setHost] = createSignal<HTMLDivElement>()
   createEffect(() => {
     const element = host()
-    if (element) paintWorkspaceAccent(element, props.workspace.accent, theme?.variantId() ?? '')
+    if (element) paintWorkspaceAccent(element, props.workspace.accent, theme)
   })
   return (
     <div

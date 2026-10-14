@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
@@ -498,11 +498,24 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
       })
     ).rejects.toBeInstanceOf(WorkspaceVersionConflictError)
 
-    const cleared = await updateWorkspace(connection.db, workspace.id, temporary.principal, {
+    const custom = await updateWorkspace(connection.db, workspace.id, temporary.principal, {
       expectedVersion: 2,
+      update: { accent: '#2563eb' },
+    })
+    expect(custom).toMatchObject({ accent: '#2563eb', version: 3 })
+    // The column itself rejects colours the request parser would not pass.
+    await expect(
+      (async () =>
+        await connection.db.execute(
+          sql`update app.workspaces set accent = '#2563EB' where id = ${workspace.id}`
+        ))()
+    ).rejects.toThrow()
+
+    const cleared = await updateWorkspace(connection.db, workspace.id, temporary.principal, {
+      expectedVersion: 3,
       update: { accent: null, logo: { kind: 'monogram' } },
     })
-    expect(cleared).toMatchObject({ accent: null, logo: { kind: 'box' }, version: 3 })
+    expect(cleared).toMatchObject({ accent: null, logo: { kind: 'box' }, version: 4 })
 
     const events = await connection.db
       .select({ payload: workspaceEvents.payload })
@@ -513,7 +526,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
           eq(workspaceEvents.eventType, 'workspace.updated')
         )
       )
-    expect(events).toHaveLength(2)
+    expect(events).toHaveLength(3)
     expect(events[0]!.payload).toEqual({ actorUserId: temporary.principal.userId })
   })
 

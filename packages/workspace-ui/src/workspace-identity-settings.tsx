@@ -1,18 +1,20 @@
 import {
+  isWorkspaceAccent,
   workspaceAccentIds,
   type WorkspaceAccentId,
   type WorkspaceSummary,
   type WorkspaceUpdate,
 } from '@adea-ai/types'
-import { accentPresetById, themeRegistry } from '@adea-ai/app-ui/components/appearance'
+import { accentPresets } from '@adea-ai/ui/lib/accent-presets'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import type { JSX } from 'solid-js'
 import { createEffect, createSignal, For, Show } from 'solid-js'
 
@@ -167,7 +169,9 @@ export function WorkspaceIdentitySettings(props: {
           selected={props.workspace.accent ?? 'theme'}
           disabled={!editable()}
           onSelect={(value) =>
-            void save({ accent: value === 'theme' ? null : (value as WorkspaceAccentId) })
+            void save({
+              accent: value === 'theme' ? null : isWorkspaceAccent(value) ? value : null,
+            })
           }
         />
       </SettingsRow>
@@ -182,14 +186,16 @@ export function WorkspaceIdentitySettings(props: {
           <RadioGroupItem value="work" label="Work" />
         </RadioGroup>
       </SettingsRow>
-      <p
-        class="conventional-settings-note"
+      <Text
+        variant="caption"
+        tone="muted"
+        class="mt-4"
         role="status"
         aria-label="Workspace identity save status"
         aria-live="polite"
       >
         {status()}
-      </p>
+      </Text>
     </>
   )
 }
@@ -211,8 +217,7 @@ function AccentSwatches(props: {
 }) {
   const theme = useOptionalTheme()
   const appearance = (): 'light' | 'dark' => {
-    const variant = themeRegistry().find((entry) => entry.id === theme?.variantId())
-    return variant?.appearance === 'light' ? 'light' : 'dark'
+    return theme?.variant().appearance === 'light' ? 'light' : 'dark'
   }
   const choices = (): { id: string; label: string; fill: JSX.Element }[] => [
     {
@@ -221,7 +226,7 @@ function AccentSwatches(props: {
       fill: <span class="block size-full rounded-full bg-primary" />,
     },
     ...workspaceAccentIds.map((id) => {
-      const preset = accentPresetById(id)
+      const preset = accentPresets.find((entry) => entry.id === id)
       const fill: JSX.Element = preset ? (
         <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
           <circle
@@ -237,41 +242,84 @@ function AccentSwatches(props: {
       return { id, label: ACCENT_LABELS[id], fill }
     }),
   ]
+  // A custom accent is any stored accent that is not a preset id (a stored hex colour).
+  const customValue = () =>
+    isWorkspaceAccent(props.selected) &&
+    !(workspaceAccentIds as readonly string[]).includes(props.selected)
+      ? props.selected
+      : undefined
+  let colorPicker: HTMLInputElement | undefined
   return (
-    <RadioGroup
-      aria-label="Workspace accent"
-      value={props.selected}
-      disabled={props.disabled}
-      class="grid-cols-4"
-      data-accent-grid=""
-      onChange={(value) => props.onSelect(value)}
-    >
-      <For each={choices()}>
-        {(option) => (
-          <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
-            {/* The card is the control's published Label (associated by the
+    <div class="flex flex-wrap items-center gap-2">
+      <RadioGroup
+        aria-label="Workspace accent"
+        value={props.selected}
+        disabled={props.disabled}
+        class="grid-cols-7"
+        data-accent-grid=""
+        onChange={(value) => props.onSelect(value)}
+      >
+        <For each={choices()}>
+          {(option) => (
+            <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
+              {/* The card is the control's published Label (associated by the
                 deterministic item/input id pair), so clicking anywhere on the
                 swatch selects the accent; the hidden radio control keeps the
                 group keyboard-driven and the wrapper carries its focus ring. */}
-            <RadioGroupItem
-              id={`workspace-accent-${option.id}`}
-              value={option.id}
-              controlClass="sr-only"
-            >
-              <Label for={`workspace-accent-${option.id}-input`} class="w-full">
-                <span
-                  class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
-                    'border-primary ring-1 ring-primary': props.selected === option.id,
-                  })}
-                >
-                  {option.fill}
-                </span>
-                <span class="sr-only">{option.label}</span>
-              </Label>
-            </RadioGroupItem>
-          </div>
-        )}
-      </For>
-    </RadioGroup>
+              <RadioGroupItem
+                id={`workspace-accent-${option.id}`}
+                value={option.id}
+                controlClass="sr-only"
+              >
+                <Label for={`workspace-accent-${option.id}-input`} class="w-full">
+                  <span
+                    class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
+                      'border-primary ring-1 ring-primary': props.selected === option.id,
+                    })}
+                  >
+                    {option.fill}
+                  </span>
+                  <span class="sr-only">{option.label}</span>
+                </Label>
+              </RadioGroupItem>
+            </div>
+          )}
+        </For>
+      </RadioGroup>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={props.disabled}
+        aria-pressed={customValue() !== undefined}
+        onClick={() => colorPicker?.click()}
+      >
+        <Show when={customValue()}>
+          {(hex) => (
+            <svg aria-hidden="true" data-custom-accent-swatch="" class="size-3" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="8" fill={hex()} />
+            </svg>
+          )}
+        </Show>
+        Custom
+      </Button>
+      <Input
+        ref={(element) => {
+          colorPicker = element
+        }}
+        type="color"
+        class="sr-only"
+        tabIndex={-1}
+        aria-label="Custom accent color"
+        value={customValue() ?? defaultCustomValue(appearance())}
+        disabled={props.disabled}
+        onChange={(event) => props.onSelect(event.currentTarget.value.toLowerCase())}
+      />
+    </div>
   )
+}
+
+/** A custom accent starts from the theme's blue until the person picks a colour. */
+function defaultCustomValue(appearance: 'light' | 'dark'): string | undefined {
+  const blue = accentPresets.find((entry) => entry.id === 'blue')
+  return appearance === 'light' ? blue?.light : blue?.dark
 }

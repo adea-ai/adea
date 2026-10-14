@@ -527,6 +527,9 @@ test('an auto-provisioned lead reaches Customize, and its profile save updates t
     .locator('article')
     .filter({ has: page.getByRole('heading', { name: 'Workspace lead', exact: true }) })
   await expect(leadCard).toBeVisible()
+  // Only the lead carries the badge; the ordinary Agent does not.
+  await expect(leadCard.getByText('Lead', { exact: true })).toBeVisible()
+  await expect(page.locator('article').getByText('Lead', { exact: true })).toHaveCount(1)
 
   // Same-document marker: a reload would clear it.
   await page.evaluate(() => {
