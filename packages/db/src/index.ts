@@ -576,6 +576,15 @@ export {
   type JobReferenceView,
   type ResolveJobReferencesInput,
 } from './job-outbound-reference'
+export {
+  COORDINATION_PLAN_MAX_CITATIONS,
+  createCoordinationPlan,
+  normalizePlanJobIds,
+  readCoordinationPlanJobReferences,
+  reviseCoordinationPlan,
+  type CoordinationPlanReferences,
+  type CoordinationPlanRevisionView,
+} from './coordination-plans'
 export type {
   JobOutboundArtifactPolicy,
   JobOutboundDeliveryDecision,

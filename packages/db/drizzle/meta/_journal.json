@@ -393,6 +393,13 @@
       "when": 1791944151873,
       "tag": "0055_addressed_agent_turns",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791954572076,
+      "tag": "0056_coordination_plans",
+      "breakpoints": true
     }
   ]
 }

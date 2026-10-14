@@ -117,12 +117,55 @@ decision, so a revocation or roster change that commits after the read orders af
 Task dependencies stay workspace-scoped: a plan step in the audience workspace cannot
 depend on the cited job.
 
+A group channel also holds back history from before the reader joined: a publication
+earlier than the reader's join point reads as `unavailable` unless a sharing grant
+releases that history, the same rule the channel's message history applies.
+
+## Coordination plans
+
+Adea owns the coordination plan (`packages/db/src/coordination-plans.ts`), scoped to one
+group channel and its workspace. The Control Plane keeps execution plans and runtime
+authority. A plan revision is an ordered, deduplicated list of at most 50 job ids and
+nothing else: no title, summary, private context or credential. `job_id` is not a foreign
+key to tasks, so a citation neither moves the job nor constrains it.
+
+| Route (under `/api/v1/workspaces/:workspaceId/channels/:channelId`) | Purpose                                                                         |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `POST /plans` with `Idempotency-Key` and `{ jobIds }`               | Create a plan at revision 1 (201).                                              |
+| `POST /plans/:planId/revisions` with `{ expectedRevision, jobIds }` | Write revision `expectedRevision + 1` (201); a stale writer gets 409.           |
+| `GET /plans/:planId/revisions/:revision/job-references`             | `{ planId, revision, references }` for the caller, from `resolveJobReferences`. |
+
+- **Writers.** The actor is the authenticated principal. A write needs the same standing
+  as posting a message to the group (workspace membership, project write access, a live
+  participation grant under the channel lock). A citation that is new to a plan must
+  already be released to that actor in this channel, checked in the write transaction
+  with the publication and grant locks held to commit. The actor's roster and history-sharing
+  grants are locked too, so a sharing grant revoked before the plan commits cannot validate
+  a citation. A citation carried over from the
+  previous revision is not rechecked: it is only a pointer, and each reader's resolution
+  decides what it shows.
+- **Revisions.** They increase by one and are immutable: triggers in migration 0056 refuse
+  any update or delete of a revision or its citations, and only allow the plan row to move
+  to the next revision. A revision declares its citation count when it is written: citations
+  may only take positions below it, and the count must be filled exactly by commit, so a late
+  insert cannot grow an accepted revision.
+- **Summaries.** The summary of a cited job is the authorized outbound publication message
+  (`messageId`). The plan stores no second summary, and model-generated text is never
+  approval. Message content stays behind the message read path, which checks current
+  readership on its own. Memory-derived results stay held (see above), so they cannot be
+  cited.
+- **Reads.** The reader needs current read access to the channel. Historical revisions are
+  read with current authority, so revocation, roster changes and the reader's join point
+  apply to old revisions as to new ones. Hidden, revoked, unknown and unpublished
+  references are one `unavailable` view, and a missing plan, revision or channel is one
+  unavailable response. Every response, success and error alike (400, 401, 404, 409), is `Cache-Control: private, no-store`.
+
 ## Not in this slice
 
 - A read route for grant state.
 - Changes to an existing grant's expiry. A new lifetime needs a new grant id.
 - Interface work for issuing or revoking grants.
-- A route or interface that calls `resolveJobReferences`, and a plan record that stores the
-  cited ids. Only the read model and its guarantees are here.
+- Interface work for plans, a route to list plans or read a plan's metadata, and plan
+  events or notifications. Plans emit none, so no notification can carry job context.
 - A memory-share grant, and with it any release of memory-derived text across workspaces.
 - Producer attestation of `memorySource`. A producer that declares nothing is read as `none`.
