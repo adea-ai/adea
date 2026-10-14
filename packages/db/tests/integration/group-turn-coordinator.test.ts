@@ -1222,6 +1222,38 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     expect(replay.map((turn) => turn.state)).toEqual(['superseded'])
   })
 
+  T('ordinary calls without test options read the live clock', async () => {
+    const f = await groupWithAgent()
+    const input = claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner)
+    const first = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input)
+    expect(first.status).toBe('claimed')
+    const again = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, input)
+    expect(again.status).toBe('duplicate')
+    const response = await createMessage(connection.db, f.workspace.id, f.channelId, f.owner, {
+      bodyText: 'echo answers',
+      idempotencyKey: crypto.randomUUID(),
+      sender: { agentId: f.agent.id, kind: 'agent' },
+    })
+    const recorded = await recordAddressedTurnResponse(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      first.turn.id,
+      response.id
+    )
+    expect(recorded).toMatchObject({ responseMessageId: response.id, state: 'responded' })
+    // Dispatch of a non-lead agent reaches its typed lead check (not an
+    // authorization failure from an empty clock).
+    await expect(
+      dispatchAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        f.owner,
+        claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner, { dispatchRevision: 2 })
+      )
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_not_lead' })
+  })
+
   T('an identical retry of a human message does not supersede live work', async () => {
     const f = await groupWithAgent()
     const post = (key: string) =>

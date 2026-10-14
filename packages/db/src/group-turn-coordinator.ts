@@ -268,6 +268,9 @@ async function resolveClaimParent(
   return { budget: { maxDepth: root.maxDepth, maxTurns: root.maxTurns }, parent }
 }
 
+/** Trusted wall time for the coordinator; tests inject `now`, production callers omit it. */
+const liveTurnClock = () => new Date().toISOString()
+
 /**
  * Durable claim: persists causal ID, workspace-qualified label, revision and
  * budget before any dispatch. The whole decision runs inside one transaction
@@ -281,7 +284,7 @@ export async function claimAddressedTurn(
   workspaceId: string,
   principal: UserPrincipalRef,
   input: AddressedTurnClaimInput,
-  options: Readonly<{ now: string; budget?: AddressedTurnBudget }> = { now: '' }
+  options: Readonly<{ now?: string; budget?: AddressedTurnBudget }> = {}
 ): Promise<AddressedTurnClaim> {
   if (input.addressedBy.kind !== 'user' || input.addressedBy.userId !== principal.userId)
     throw new AddressedTurnError('turn_addresser_mismatch')
@@ -302,6 +305,8 @@ export async function claimAddressedTurn(
       .limit(1)
       .for('update')
     if (!trigger) throw new AddressedTurnError('turn_trigger_unknown')
+    // Trusted time is read after the trigger lock is held; tests inject `now`.
+    const now = options.now ?? liveTurnClock()
     // Successive retries converge even when the budget is full: the
     // retained claim wins before any budget is consulted. Authorization
     // is revalidated FIRST, though — a revoked or forged principal never
@@ -314,7 +319,7 @@ export async function claimAddressedTurn(
       principal
     )
     const addresserEffective = Boolean(
-      admission && evaluateGroupGrantWindow(admission.grant, options.now) === 'effective'
+      admission && evaluateGroupGrantWindow(admission.grant, now) === 'effective'
     )
     const addresserBound = bound || (await isWorkspaceManager(store, workspaceId, principal.userId))
     const retained = await loadTurnByTriple(store, workspaceId, input)
@@ -341,14 +346,10 @@ export async function claimAddressedTurn(
       options.budget ??
       input.budget ??
       DEFAULT_ADDRESSED_TURN_BUDGET
-    const decision = decideAddressedTurn(
-      input,
-      roster,
-      parent?.parent ?? null,
-      budget,
-      options.now,
-      { addresserBound, addresserEffective }
-    )
+    const decision = decideAddressedTurn(input, roster, parent?.parent ?? null, budget, now, {
+      addresserBound,
+      addresserEffective,
+    })
     // (Roster already loaded by the proof above; reused, not re-read.)
     if (decision.action === 'deny') throw new AddressedTurnError(decision.reason)
     if ((await countTriggerTree(store, input.triggerMessageId)) >= budget.maxTurns)
@@ -412,7 +413,7 @@ export async function recordAddressedTurnResponse(
   principal: UserPrincipalRef,
   turnId: string,
   responseMessageId: string,
-  options: Readonly<{ now: string }> = { now: '' }
+  options: Readonly<{ now?: string }> = {}
 ): Promise<AddressedAgentTurn> {
   return database.transaction(async (transaction) => {
     const store = asStore(transaction)
@@ -425,6 +426,7 @@ export async function recordAddressedTurnResponse(
       .limit(1)
       .for('update')
     if (!turn) throw new AddressedTurnError('turn_response_unresolved')
+    const now = options.now ?? liveTurnClock()
     const [response] = await store
       .select({
         channelId: messages.channelId,
@@ -444,7 +446,7 @@ export async function recordAddressedTurnResponse(
     const roster = await loadGroupRoster(store, workspaceId, turn.channelId)
     const recorder =
       admissionForParticipant(roster, { kind: 'user', userId: principal.userId }) ?? null
-    if (!recorder || evaluateGroupGrantWindow(recorder.grant, options.now) !== 'effective')
+    if (!recorder || evaluateGroupGrantWindow(recorder.grant, now) !== 'effective')
       throw new AddressedTurnError('turn_response_unauthorized')
     const updated = await store
       .update(addressedAgentTurns)
@@ -496,10 +498,10 @@ export async function dispatchAddressedTurn(
   principal: UserPrincipalRef,
   input: AddressedTurnClaimInput,
   options: Readonly<{
-    now: string
+    now?: string
     budget?: AddressedTurnBudget
     barrier?: GroupTurnDispatchBarrier
-  }> = { now: '' }
+  }> = {}
 ) {
   const claim = await claimAddressedTurn(database, workspaceId, principal, input, options)
   await options.barrier?.beforeDispatchDecision?.()
@@ -508,7 +510,7 @@ export async function dispatchAddressedTurn(
   // (supersede-able), never stranded mid-flight. The canonical admission
   // below re-enforces the expected Agent inside its own transaction as
   // defense in depth against a racing lead change.
-  const now = options.now || new Date().toISOString()
+  const now = options.now ?? liveTurnClock()
   const leadAgentId = await resolveGroupLeadAgentId(database, workspaceId, input.channelId, now)
   if (leadAgentId !== input.agentId) throw new AddressedTurnError('turn_not_lead')
   // One serialization boundary: the admission transaction locks the claim
