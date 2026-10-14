@@ -19,7 +19,7 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import { resolveMigrationSnapshotCaptureDomains } from '../../src/migration-snapshot-capture'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
-import { canonicalChainFolders } from '../fixtures/canonical-chain'
+import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
 
 // Audience-side artifact publication and retrieval after the canonical cutover (#1222 acceptance,
 // backed by the #1216 service). The decisions come from the real service and policy on main; the
@@ -103,6 +103,9 @@ describe.skipIf(!provisioningUrl && !inCi)(
         sql`select count(*)::int as count from drizzle.__drizzle_migrations`
       )
       recordedAfterCutover = rows[0]?.count ?? -1
+      // Registration reads the retention tables (0053, the artifact retention fence), so the
+      // product calls below need today's schema. The cutover count above is taken before this.
+      await applyMigrationTail(connection.db)
     })
 
     afterAll(async () => {
