@@ -180,7 +180,8 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     const member = await temporaryUser(`${name}-member`)
     const workspace = await newWorkspace(name, owner)
     await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
-    const audience = await newWorkspace(`${name}-audience`, await temporaryUser(`${name}-aud`))
+    const audienceOwner = await temporaryUser(`${name}-aud`)
+    const audience = await newWorkspace(`${name}-audience`, audienceOwner)
     const [node] = await connection.db
       .insert(runtimeNodes)
       .values({
@@ -204,7 +205,7 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     })
     executorByWorkspace.set(workspace.id, node!.id)
     const artifact = await newArtifact(workspace.id, owner)
-    return { artifact, audience, member, node: node!, owner, workspace }
+    return { artifact, audience, audienceOwner, member, node: node!, owner, workspace }
   }
 
   type Fixture = Awaited<ReturnType<typeof fixture>>
@@ -435,17 +436,23 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     })
     // The same subject string under another category is another subject.
     await authorize(f, f.artifact.id, { category: 'messages' })
-    // The audience workspace's own authority for the same id does not reach the source's artifact.
-    await grantRetentionDeletionAuthorization(connection.db, {
-      actor: f.owner,
+    // The audience workspace's own authority for the same artifact id is another workspace's
+    // subject. It is really written (its owner is a member there), and it does not reach the
+    // source workspace's artifact.
+    const foreign = await grantRetentionDeletionAuthorization(connection.db, {
+      actor: f.audienceOwner,
       category: 'artifacts',
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
       subjectId: f.artifact.id,
       workspaceId: f.audience.id,
-    }).catch((error: unknown) => {
-      // The source owner is not a member of the audience; the refusal is typed and nothing is written.
-      if (!(error instanceof RetentionCleanupError)) throw error
     })
+    expect(foreign).toMatchObject({ subjectId: f.artifact.id, workspaceId: f.audience.id })
+    expect(
+      await connection.db
+        .select({ id: retentionDeletionAuthorizations.id })
+        .from(retentionDeletionAuthorizations)
+        .where(eq(retentionDeletionAuthorizations.id, foreign.id))
+    ).toHaveLength(1)
     expect(await fenceOf(f)).toBe('clear')
     expect((await register(f, registrationFor(f))).outcome).toBe('registered')
 
@@ -458,6 +465,28 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     await revokeAuthority(f, authority)
     expect(await fenceOf(f, other.id)).toBe('clear')
     expect((await register(f, registrationFor(f, other.id))).outcome).toBe('registered')
+  })
+
+  test('KNOWN GAP: a deletion revoked before its receipt is recorded leaves nothing for the fence to see', async () => {
+    const f = await fixture('known-gap')
+    const authority = await authorize(f)
+    // A store deletes under this generation (not simulated: nothing here deletes), and the
+    // administrator revokes it before the executor's receipt is accepted.
+    await revokeAuthority(f, authority)
+    // The late receipt is refused, because receipts bind only to a live generation.
+    let code: string | undefined
+    try {
+      await recordReceipt(f, authority, 'delete', 'completed', ARTIFACT_COVERAGE[0]!, 5)
+    } catch (error) {
+      if (!(error instanceof RetentionCleanupError)) throw error
+      code = error.code
+    }
+    expect(code).toBe('authorization_not_current')
+    // So the database holds no trace, and registration is accepted. This pins today's behaviour so
+    // that closing the gap (durable deletion evidence written in the deleting transaction) must
+    // update this test. Production cleanup stays disabled until then.
+    expect(await fenceOf(f)).toBe('clear')
+    expect((await register(f, registrationFor(f))).outcome).toBe('registered')
   })
 
   test('only an authoritative issuer learns an artifact is fenced', async () => {

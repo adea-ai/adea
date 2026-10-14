@@ -167,8 +167,9 @@ database clock has passed its observation.
   subject block on the gate's lock and serialize against the commit.
 
 A reference registered after cleanup is fenced out by the registration boundary
-(see "Registration fence" below), so no live grant can be committed to data the
-executor has deleted.
+(see "Registration fence" below) while the database holds the authority or the
+delete evidence. The fence has a known gap, described there, and production cleanup
+must stay disabled until it is closed.
 
 The executor is exercised only against owned replicas in a disposable schema. No
 production store is wired, no period is chosen, and nothing is scheduled.
@@ -202,7 +203,7 @@ concurrent-insert fallback, and regrant. A fenced replay or regrant changes noth
 Why a plain read is enough. The reader takes no lock. It runs in the registration
 transaction after the artifact row lock, and `withRetentionDeletionGate` takes that
 same row lock first for artifacts. A gate and a registration for one artifact are
-therefore mutually exclusive:
+therefore serialize on that lock:
 
 - Registration first: the gate waits, counts the committed grant as an active
   reference, and refuses (`active_reference_retained`).
@@ -219,19 +220,21 @@ audience workspace (`FOR SHARE`), then the lock-free fence read. The retention g
 takes the artifact row, then the subject advisory lock. Every other retention act
 (grant, revoke, hold, release, receipt) takes the advisory lock without any artifact
 or grant row, and revocation of a grant takes only its grant row. No path waits for an
-artifact or grant row while holding the advisory lock, so no cycle exists.
+artifact or grant row while holding the advisory lock, so no wait cycle among these paths was found by inspection, and the stress test named next observed no deadlock.
 `artifact-registration-retention-fence.test.ts` proves the order with held locks
 (`FOR UPDATE NOWAIT` on a waiting replay, and a revocation that does not wait on a
 held artifact row) and runs a concurrent mix of every operation looking for deadlocks.
 
-Not covered: a deletion that committed under a generation which was then revoked
-before any of its receipts reached the database. Receipts are accepted only against a
-live generation, so that evidence is refused and the fence cannot see the deletion.
-The executor's receipts must be accepted before an administrator revokes the
-generation it ran under. Nothing in this slice deletes in production, so the case is
-not reachable today. Closing it for good needs a durable "deletion dispatched" mark
-written inside the gate transaction, which would be a schema change and is left to
-root.
+Known gap, and a condition on enabling cleanup. The fence sees only authority and
+receipts. If a store deletes under a generation, and an administrator revokes that
+generation before any of its receipts is accepted, the database holds no trace of the
+deletion: receipts are accepted only against a live generation, so the late evidence
+is refused, and the revoked generation no longer fences. A registration after that
+point is accepted for deleted data. Having the executor submit receipts first is a
+convention, not a guarantee. Closing it needs durable deletion evidence written inside
+the gate transaction that deletes (a schema change), fenced on here. Production
+cleanup must stay disabled until that exists. Nothing in this slice deletes in
+production, and the fence does not enable it.
 
 Retention periods stay unset and production deletion stays disabled; the fence changes
 neither.

@@ -9,8 +9,9 @@ import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './sch
  * The retention gate (`retention-cleanup`) refuses deletion while an artifact
  * has a live reference. That protects references registered BEFORE cleanup. This
  * module closes the other direction: once an artifact's deletion is authorized
- * or has been evidenced, no new reference may be registered against it, so a
- * grant can never be committed to data that cleanup has deleted or is about to.
+ * or has been evidenced, no new reference may be registered against it. This is a
+ * fence on what the database records, not a proof that no live grant can reach
+ * deleted data: see "Known gap" below.
  *
  * The fence is closed, by name, in exactly two states:
  *
@@ -33,7 +34,7 @@ import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './sch
  * registration transaction AFTER the artifact row lock. That is what makes a
  * plain read sufficient: the retention gate takes the same artifact row lock
  * first (`withRetentionDeletionGate`), so a gate and a registration for one
- * artifact are mutually exclusive for the whole of each other's transaction.
+ * artifact serialize on that lock for the whole of each other's transaction.
  *
  * - Registration first: the gate waits for it, then counts the committed grant
  *   as an active reference and refuses deletion.
@@ -41,21 +42,25 @@ import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './sch
  *   authority and any evidence that gate left, and refuses.
  * - Authority or receipts written by other retention operations take only the
  *   per-subject advisory lock, never the artifact row. A registration that read
- *   `clear` just before an authority commits cannot be overtaken by a deletion,
+ *   `clear` just before an authority commits is not overtaken by a deletion,
  *   because that deletion needs the artifact row lock the registration still
  *   holds until commit.
  *
- * Lock order is unchanged and global: artifact row, then grant row (both
+ * Lock order is unchanged: artifact row, then grant row (both
  * through `lockArtifactThenGrant`), then the issuer membership and workspace
- * share locks, then this lock-free read. The fence adds no lock, so it cannot
- * close a cycle.
+ * share locks, then this lock-free read. The fence adds no lock, so it adds no
+ * wait edge.
  *
- * Not covered: a deletion that committed under a generation which was then
- * revoked before any receipt reached the database. Receipts are recorded only
- * against a live generation, so that evidence is refused and the fence cannot
- * see the deletion. The executor must have its receipts accepted before an
- * administrator revokes the generation it ran under. Nothing in this slice
- * deletes, so the case is not reachable in production today.
+ * Known gap (production cleanup must stay disabled until it is closed). The fence sees
+ * only authority and receipts. If a store deletes under a generation, and an
+ * administrator revokes that generation before any of its receipts is accepted, the
+ * database holds no trace of the deletion: receipts are accepted only against a live
+ * generation, so the late evidence is refused, and the revoked generation no longer
+ * fences. A registration after that point is accepted for deleted data. Ordering the
+ * executor to submit receipts first is a convention, not a guarantee. Closing it needs
+ * durable deletion evidence written inside the gate transaction that deletes (a
+ * schema change) and fenced on here. Nothing deletes in production today, and this
+ * change does not enable it.
  */
 
 export type ArtifactRetentionFence = 'authority_live' | 'cleanup_evidenced' | 'clear'

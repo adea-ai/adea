@@ -36,7 +36,8 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *   deletion authorization and no `delete` cleanup receipt exist for it in the
  *   source workspace, under any generation. A fenced artifact refuses
  *   registration, replay, and regrant with `grant_artifact_retention_fenced`, so
- *   a grant is never committed to data that cleanup has deleted or may delete.
+ *   a grant is not committed to data whose deletion is authorized or evidenced in the
+ *   database (a deletion revoked before any receipt is recorded is a known gap).
  *   See `artifact-retention-fence` for the fence states and why a plain read
  *   under the artifact lock is sufficient.
  *
