@@ -454,7 +454,16 @@ describe('test suite boundaries', () => {
       // A path filter never reports on an unrelated pull request, so a required check cannot have
       // one; applicability is decided inside the run instead.
       expect(workflow.on.pull_request.paths).toBeUndefined()
-      expect(workflow.on.pull_request.types).toEqual(['synchronize', 'ready_for_review'])
+      // Never-draft pull requests (release automation) emit only opened/reopened, so the required
+      // gate must trigger on them; drafts are still kept off the runners by the draft guard below.
+      expect(workflow.on.pull_request.types).toEqual([
+        'opened',
+        'reopened',
+        'synchronize',
+        'ready_for_review',
+      ])
+      expect(workflow.jobs.changes!.if).toContain('github.event.pull_request.draft == false')
+      expect(workflow.jobs.gate!.if).toContain('github.event.pull_request.draft == false')
       expect(workflow.jobs.gate!.name).toBe(gateName)
       expect(workflow.jobs.gate!.needs).toEqual(['changes', laneJob])
       expect(workflow.jobs.gate!.if).toContain('always()')
