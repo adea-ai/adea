@@ -90,12 +90,13 @@ describes the shipped implementation, not the SQLite target.
 **Record.** One owner-only (`0600`) JSON file per entry under
 `local-content/memory/<id>.json`, written atomically (temp file plus rename).
 The entry shape is `{ id, workspaceId, text, source, status, createdAt,
-updatedAt, revision }` (`WorkspaceMemoryEntry` in `@adea-ai/types`): `id` is a
-random canonical UUID, `source` is `user` or `agent`, `status` is `active` or
+updatedAt, revision, origin }` (`WorkspaceMemoryEntry` in `@adea-ai/types`): `id` is a
+random canonical UUID, `source` is `user` or `agent`, `origin` is the verified
+creator (see Provenance), `status` is `active` or
 `pending`, and `revision` starts at 1. Only the text is sealed: AES-256-GCM
 under the device key with a fresh 96-bit nonce per write, and associated data
 `schemaVersion || keyVersion || workspaceId || contentId || contentType`
-(`\u001f`-joined, content type `memory_entry`). Id, workspace, source, status,
+(`\u001f`-joined, content type `memory_entry`). Id, workspace, source, origin, status,
 timestamps and revision are workspace metadata stored beside the ciphertext.
 
 **Workspace binding.** Every read authenticates under the workspace the caller
@@ -115,6 +116,27 @@ refuses with a stable store code (`memory_invalid_input`, `memory_not_found`,
 as it was. Nothing else in the device — a profile/persona change, a connection
 binding or the injection switch — rewrites an entry or changes which
 workspace's launch receives it.
+
+**Origin.** `origin` says who created the entry and is derived by the shell
+from the trusted path that wrote it, never from an argument, a proposal body
+or note text. `memory_create` always records `{ kind: 'user' }`.
+`dev.memory.propose` records `{ kind: 'agent', provenance: 'recorded',
+harnessId, agentProfileId, runtimeSessionId, runId }`, read from the live
+harness run the host resolved for the bound session (`harnessId` is the
+installation's family, or `null` when the host cannot name one). The store
+rebuilds the origin from exactly those four fields, each a short printable id,
+and refuses a malformed trace with `memory_invalid_input`. An agent entry
+written before origins existed, or whose stored origin is malformed or
+disagrees with `source`, reads as `{ kind: 'agent', provenance: 'unknown' }`;
+it is never assigned a session or run afterwards, and a user note without a
+stored origin reads as `{ kind: 'user' }`. Accept, edit, the injection switch
+and a profile, persona or connection change all leave the origin exactly as
+it was, and promotion refuses `memory_provenance_mismatch` if a different
+origin is presented. Settings › Memory states the origin on each agent entry
+(a recorded session and run, or "Origin not recorded"). The origin is
+workspace metadata beside the ciphertext, authenticated no more than `source`
+and `status` are; it is a display and audit record, not a grant, and it
+widens no audience.
 
 **Bounds.** Entry text is trimmed, 1–2,000 UTF-16 code units, and contains no
 NUL; `\r\n` normalizes to `\n`. A workspace holds at most 200 entries

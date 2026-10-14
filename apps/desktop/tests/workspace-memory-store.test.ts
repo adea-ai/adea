@@ -20,6 +20,12 @@ import { MemoryStoreError, createMemoryStore } from '../shell/src/memory/store'
 
 const WORKSPACE_A = '00000000-0000-4000-8000-00000000000a'
 const WORKSPACE_B = '00000000-0000-4000-8000-00000000000b'
+const TRACE = {
+  harnessId: 'pi',
+  agentProfileId: 'agent-profile-1',
+  runtimeSessionId: 'runtime-session-1',
+  runId: 'run-1',
+} as const
 
 function withStore(
   run: (context: { dir: string; store: ReturnType<typeof createMemoryStore> }) => void
@@ -139,8 +145,8 @@ describe('memory store', () => {
 
   test('agent proposals stay pending until accepted; a rejected proposal is deleted', () => {
     withStore(({ store }) => {
-      const kept = store.propose(WORKSPACE_A, { text: 'proposal to keep' })
-      const dropped = store.propose(WORKSPACE_A, { text: 'proposal to drop' })
+      const kept = store.propose(WORKSPACE_A, { text: 'proposal to keep', origin: TRACE })
+      const dropped = store.propose(WORKSPACE_A, { text: 'proposal to drop', origin: TRACE })
       expect(kept).toMatchObject({ source: 'agent', status: 'pending' })
       // Pending entries are never injected.
       expect(store.preamble(WORKSPACE_A)).toBeUndefined()
@@ -160,12 +166,145 @@ describe('memory store', () => {
     })
   })
 
+  test('records host-resolved origin: user notes are user, proposals carry their run', () => {
+    withStore(({ dir, store }) => {
+      const note = store.create(WORKSPACE_A, { text: 'by hand' })
+      expect(note.origin).toEqual({ kind: 'user' })
+      const proposal = store.propose(WORKSPACE_A, { text: 'by a run', origin: TRACE })
+      expect(proposal.origin).toEqual({ kind: 'agent', provenance: 'recorded', ...TRACE })
+      // The origin is stored beside the ciphertext, never inside the sealed text.
+      const stored = JSON.parse(
+        readFileSync(join(dir, 'memory', `${proposal.id}.json`), 'utf8')
+      ) as { origin: unknown }
+      expect(stored.origin).toEqual(proposal.origin)
+      // Only the four known fields survive, even if a caller attaches more.
+      const extra = store.propose(WORKSPACE_A, {
+        text: 'with extras',
+        origin: { ...TRACE, kind: 'user', source: 'user', workspaceId: WORKSPACE_B } as never,
+      })
+      expect(extra.origin).toEqual({ kind: 'agent', provenance: 'recorded', ...TRACE })
+    })
+  })
+
+  test('refuses a malformed or missing agent trace before storing anything', () => {
+    withStore(({ dir, store }) => {
+      for (const origin of [
+        undefined,
+        null,
+        {},
+        { ...TRACE, runId: '' },
+        { ...TRACE, runId: 'has space' },
+        { ...TRACE, runtimeSessionId: 'x'.repeat(129) },
+        { ...TRACE, agentProfileId: 7 },
+        { ...TRACE, harnessId: 'bad id' },
+      ]) {
+        expect(
+          codeOf(() => store.propose(WORKSPACE_A, { text: 'x', origin: origin as never }))
+        ).toBe('memory_invalid_input')
+      }
+      expect(readdirSync(join(dir, 'memory'), { withFileTypes: true }).length).toBe(0)
+      // A harness the host could not name is recorded as unnamed, not invented.
+      const unnamed = store.propose(WORKSPACE_A, {
+        text: 'y',
+        origin: { ...TRACE, harnessId: null },
+      })
+      expect(unnamed.origin).toMatchObject({ provenance: 'recorded', harnessId: null })
+    })
+  })
+
+  test('historical records without an origin read as explicitly unknown, never invented', () => {
+    withStore(({ dir, store }) => {
+      const note = store.create(WORKSPACE_A, { text: 'old note' })
+      const proposal = store.propose(WORKSPACE_A, { text: 'old proposal', origin: TRACE })
+      for (const id of [note.id, proposal.id]) {
+        const file = join(dir, 'memory', `${id}.json`)
+        const { origin: _origin, ...legacy } = JSON.parse(readFileSync(file, 'utf8')) as {
+          origin: unknown
+        }
+        writeFileSync(file, JSON.stringify(legacy))
+      }
+      const listed = store.list(WORKSPACE_A).entries
+      expect(listed.find((entry) => entry.id === note.id)?.origin).toEqual({ kind: 'user' })
+      expect(listed.find((entry) => entry.id === proposal.id)?.origin).toEqual({
+        kind: 'agent',
+        provenance: 'unknown',
+      })
+      // Promotion and edits keep it unknown; reading never writes a run back.
+      const accepted = store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 })
+      expect(accepted.origin).toEqual({ kind: 'agent', provenance: 'unknown' })
+      const edited = store.update(WORKSPACE_A, {
+        entryId: proposal.id,
+        expectedRevision: 2,
+        text: 'edited once',
+      })
+      expect(edited.origin).toEqual({ kind: 'agent', provenance: 'unknown' })
+      expect(edited.source).toBe('agent')
+    })
+  })
+
+  test('a stored origin that disagrees with the source is not trusted', () => {
+    withStore(({ dir, store }) => {
+      const note = store.create(WORKSPACE_A, { text: 'user note' })
+      const proposal = store.propose(WORKSPACE_A, { text: 'agent text', origin: TRACE })
+      const rewrite = (id: string, patch: Record<string, unknown>) => {
+        const file = join(dir, 'memory', `${id}.json`)
+        writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), ...patch }))
+      }
+      // A user note claiming an agent run, and an agent entry claiming to be the user.
+      rewrite(note.id, { origin: { kind: 'agent', provenance: 'recorded', ...TRACE } })
+      rewrite(proposal.id, { origin: { kind: 'user' } })
+      const listed = store.list(WORKSPACE_A).entries
+      expect(listed.find((entry) => entry.id === note.id)?.origin).toEqual({ kind: 'user' })
+      expect(listed.find((entry) => entry.id === proposal.id)?.origin).toEqual({
+        kind: 'agent',
+        provenance: 'unknown',
+      })
+      // A malformed recorded origin degrades to unknown instead of passing through.
+      rewrite(proposal.id, {
+        origin: { kind: 'agent', provenance: 'recorded', ...TRACE, runId: '<script>' },
+      })
+      expect(store.list(WORKSPACE_A).entries.find((e) => e.id === proposal.id)?.origin).toEqual({
+        kind: 'agent',
+        provenance: 'unknown',
+      })
+    })
+  })
+
+  test('accept, edit, and the injection switch keep the recorded origin and audience', () => {
+    withStore(({ store }) => {
+      const proposal = store.propose(WORKSPACE_A, { text: 'learned', origin: TRACE })
+      const expected = { kind: 'agent', provenance: 'recorded', ...TRACE }
+      const accepted = store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 })
+      expect(accepted.origin).toEqual(expected)
+      // A stale accept (another edit already landed) refuses and changes nothing.
+      expect(
+        codeOf(() => store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 }))
+      ).toBe('memory_stale_revision')
+      store.setInjectionEnabled(WORKSPACE_A, false)
+      store.setInjectionEnabled(WORKSPACE_A, true)
+      const edited = store.update(WORKSPACE_A, {
+        entryId: proposal.id,
+        expectedRevision: 2,
+        text: 'learned, reworded',
+      })
+      expect(edited).toMatchObject({ source: 'agent', workspaceId: WORKSPACE_A, revision: 3 })
+      expect(edited.origin).toEqual(expected)
+      // Another workspace never reads, accepts or edits it.
+      expect(store.list(WORKSPACE_B).entries).toEqual([])
+      expect(
+        codeOf(() =>
+          store.update(WORKSPACE_B, { entryId: proposal.id, expectedRevision: 3, text: 'x' })
+        )
+      ).toBe('memory_not_found')
+    })
+  })
+
   test('bounds the pending proposals and the entries per workspace', () => {
     withStore(({ store }) => {
       for (let index = 0; index < 20; index += 1) {
-        store.propose(WORKSPACE_A, { text: `p${String(index)}` })
+        store.propose(WORKSPACE_A, { text: `p${String(index)}`, origin: TRACE })
       }
-      expect(codeOf(() => store.propose(WORKSPACE_A, { text: 'overflow' }))).toBe(
+      expect(codeOf(() => store.propose(WORKSPACE_A, { text: 'overflow', origin: TRACE }))).toBe(
         'memory_limit_exceeded'
       )
       for (let index = 0; index < 180; index += 1) {
@@ -342,8 +481,8 @@ describe('memory_* trusted commands', () => {
         // The same device key the command surface's default store uses.
         key: () => loadDeviceKey(join(shell.dataDir, 'desktop-state', 'device.key')),
       })
-      const keep = store.propose(WORKSPACE_A, { text: 'keep me' })
-      const drop = store.propose(WORKSPACE_A, { text: 'drop me' })
+      const keep = store.propose(WORKSPACE_A, { text: 'keep me', origin: TRACE })
+      const drop = store.propose(WORKSPACE_A, { text: 'drop me', origin: TRACE })
       expect(
         shell.invoke('memory_accept_proposal', {
           workspaceId: WORKSPACE_A,
@@ -362,6 +501,58 @@ describe('memory_* trusted commands', () => {
         entries: Array<{ id: string }>
       }
       expect(listed.entries.map((entry) => entry.id)).toEqual([keep.id])
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('commands cannot supply an origin, and acceptance needs the current authority', () => {
+    const shell = surface(WORKSPACE_A)
+    try {
+      const created = shell.invoke('memory_create', {
+        workspaceId: WORKSPACE_A,
+        text: 'note',
+        source: 'agent',
+        origin: { kind: 'agent', provenance: 'recorded', ...TRACE },
+      })
+      expect(created).toMatchObject({
+        ok: true,
+        value: { source: 'user', origin: { kind: 'user' } },
+      })
+      const store = createMemoryStore({
+        contentDir: join(shell.dataDir, 'local-content'),
+        key: () => loadDeviceKey(join(shell.dataDir, 'desktop-state', 'device.key')),
+      })
+      const proposal = store.propose(WORKSPACE_A, { text: 'proposal', origin: TRACE })
+      // Presenting a different origin on accept is ignored: the stored one is preserved.
+      expect(
+        shell.invoke('memory_accept_proposal', {
+          workspaceId: WORKSPACE_A,
+          entryId: proposal.id,
+          expectedRevision: 1,
+          origin: { kind: 'user' },
+        })
+      ).toMatchObject({
+        ok: true,
+        value: { source: 'agent', origin: { kind: 'agent', provenance: 'recorded', ...TRACE } },
+      })
+      // After the shell's scope moves, the same entry cannot be edited, accepted or rejected.
+      const second = store.propose(WORKSPACE_A, { text: 'second', origin: TRACE })
+      shell.authorize(WORKSPACE_B)
+      for (const cmd of ['memory_accept_proposal', 'memory_reject_proposal', 'memory_update']) {
+        expect(
+          shell.invoke(cmd, {
+            workspaceId: WORKSPACE_A,
+            entryId: second.id,
+            expectedRevision: 1,
+            text: 'x',
+          })
+        ).toEqual({ ok: false, error: 'memory_workspace_unauthorized' })
+      }
+      expect(store.list(WORKSPACE_A).entries.find((e) => e.id === second.id)).toMatchObject({
+        status: 'pending',
+        revision: 1,
+      })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
@@ -424,7 +615,7 @@ describe('workspace memory deletion', () => {
   test('purges active and pending entries and its injection preference; preserves a sibling and retries', () => {
     withStore(({ dir, store }) => {
       const own = store.create(WORKSPACE_A, { text: 'workspace owned' })
-      store.propose(WORKSPACE_A, { text: 'pending proposal' })
+      store.propose(WORKSPACE_A, { text: 'pending proposal', origin: TRACE })
       const sibling = store.create(WORKSPACE_B, { text: 'keep sibling' })
       store.setInjectionEnabled(WORKSPACE_A, false)
       store.setInjectionEnabled(WORKSPACE_B, false)
