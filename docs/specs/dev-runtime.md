@@ -3954,8 +3954,12 @@ Managed deletion:
 7. persist continuation if a sweep page is capped, until all proven entries are
    processed.
 
-On `dev.worktree.cleanupResume`, the host replays the durable journal and
-returns one result for every selected step. A restart in the narrow window
+On `dev.worktree.cleanupResume`, a completed job returns its actual step
+outcomes, persisted atomically with completion, including non-journaled outcomes
+and an empty result list. Selecting a step is never proof it ran. Older completed
+records without saved outcomes fall back to the durable journal; an unrecorded
+step is reported as skipped rather than inferred completed. Interrupted jobs
+replay the journal and return one result for every selected step. A restart in the narrow window
 after quarantine's fsynced completion and before the worktree record update is
 rolled back only when the journaled trash root, generated entry name, recorded
 identity, and missing canonical path all match; the original checkout is

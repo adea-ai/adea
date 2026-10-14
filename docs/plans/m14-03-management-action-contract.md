@@ -232,3 +232,9 @@ deletion that never ran:
   journal entry, such as `delete_quarantine` on a plan that never quarantined,
   is `skipped`. The commit result agrees: a selected `delete_quarantine` with
   nothing quarantined is `skipped`, not silently omitted.
+- Completion now persists the exact step outcomes with the job record, and
+  resume replays them, so commit and resume can never disagree. Records written
+  before this change fall back to the journal. Andrew's prepared patch
+  (`1370-cleanup-outcomes`) was reconciled with the journal-derived fix: the
+  persisted outcomes are primary, the journal fallback is kept for legacy
+  records, and commit reports a selected-but-unrun deletion as `skipped`.

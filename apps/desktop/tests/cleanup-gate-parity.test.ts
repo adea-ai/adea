@@ -9,7 +9,7 @@
 // or expired while facts are being read, and crash/retry.
 import { afterAll, describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -469,6 +469,92 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
         ['unregister_worktree', 'completed'],
         ['delete_quarantine', 'completed'],
       ])
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  for (const selectedSteps of [
+    ['delete_quarantine'],
+    ['delete_quarantine', 'prune_retained_data'],
+    [...FULL_STEPS],
+  ] as const) {
+    test(`completed outcomes survive resume/restart: ${selectedSteps.join(', ')}`, async () => {
+      const f = fixture()
+      try {
+        const { worktree } = await readyWorktree(f)
+        const plan = await f.service.planCleanup({
+          scope,
+          worktreeId: worktree.id,
+          expectedGeneration: worktree.generation,
+          selectedSteps: [...selectedSteps],
+        })
+        expect(plan.selectedSteps).toEqual([...selectedSteps])
+        expect(plan.blockers).toEqual([])
+        const committed = await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+        expect(committed.state).toBe('completed')
+        if (!selectedSteps.some((step) => step === 'quarantine_worktree')) {
+          // Nothing was quarantined, so the selected deletion is reported as not run.
+          expect(
+            committed.stepResults.find((step) => step.step === 'delete_quarantine')?.state
+          ).toBe('skipped')
+          expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
+        }
+        const before = f.service.getWorktree(scope, worktree.id)
+        const restarted = createWorktreeService({
+          dataDir: f.dataDir,
+          runtimeNodeId: scope.runtimeNodeId,
+          roots: f.roots,
+          clock: () => new Date(),
+        })
+        for (const service of [f.service, f.service, restarted, restarted]) {
+          expect(
+            await service.resumeCleanup({ scope, worktreeId: worktree.id, jobId: plan.planId })
+          ).toEqual(committed)
+          expect(service.getWorktree(scope, worktree.id)).toEqual(before)
+        }
+      } finally {
+        f.cleanup()
+      }
+    })
+  }
+
+  test('legacy completed jobs (no saved outcomes) report only what the journal proves', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: ['delete_quarantine', 'prune_retained_data'],
+      })
+      await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+      const file = join(f.dataDir, 'dev-runtime', 'worktrees', 'cleanup-jobs.json')
+      const saved = JSON.parse(readFileSync(file, 'utf8'))
+      for (const record of saved.records) {
+        if (record.jobId === plan.planId) delete record.stepResults
+      }
+      writeFileSync(file, JSON.stringify(saved))
+      const restarted = createWorktreeService({
+        dataDir: f.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: f.roots,
+        clock: () => new Date(),
+      })
+      const before = restarted.getWorktree(scope, worktree.id)
+      const resumed = await restarted.resumeCleanup({
+        scope,
+        worktreeId: worktree.id,
+        jobId: plan.planId,
+      })
+      expect(resumed.state).toBe('completed')
+      expect(Object.fromEntries(resumed.stepResults.map((r) => [r.step, r.state]))).toEqual({
+        delete_quarantine: 'skipped',
+        prune_retained_data: 'completed',
+      })
+      expect(restarted.getWorktree(scope, worktree.id)).toEqual(before)
+      expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
     } finally {
       f.cleanup()
     }

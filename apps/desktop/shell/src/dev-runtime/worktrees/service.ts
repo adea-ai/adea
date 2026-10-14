@@ -464,6 +464,8 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     version: number
     /** Selected steps survive a shell restart for recovery reporting. */
     selectedSteps?: CleanupStepKind[]
+    /** Actual outcomes persisted atomically with successful job completion. */
+    stepResults?: CleanupResult['stepResults']
   }>({
     file: join(storesDir, 'cleanup-jobs.json'),
     schemaVersion: 1,
@@ -1654,12 +1656,17 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
           )
         }
 
-        const markJob = (state: string) => {
+        const markJob = (state: string, completedResults?: CleanupResult['stepResults']) => {
           const all = [...cleanupJobStore.load().records]
           const job = all.find((entry) => entry.jobId === jobId)
           if (job) {
             const index = all.indexOf(job)
-            all[index] = { ...job, state, observedAt: nowIso(clock) }
+            all[index] = {
+              ...job,
+              state,
+              observedAt: nowIso(clock),
+              ...(completedResults === undefined ? {} : { stepResults: [...completedResults] }),
+            }
             cleanupJobStore.save(all)
           }
         }
@@ -1945,7 +1952,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
             updatedAt: nowIso(clock),
           })
         }
-        markJob('completed')
+        markJob('completed', stepResults)
         return { planId: jobId, worktreeId: recordAtPlan.id, state: 'completed', stepResults }
       }
     )
@@ -2064,22 +2071,24 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
         planId: input.jobId,
         worktreeId: input.worktreeId,
         state: 'completed',
-        // Report only what the journal proves ran. Retained-data pruning is the
-        // one selected step that never journals, so it is the one completed
-        // step without an entry. Any other selected step with no entry never ran
-        // (for example a deletion with nothing quarantined): it is skipped, never
-        // reported as completed.
-        stepResults: recoveryResults().map((result) =>
-          result.step === 'prune_retained_data'
-            ? {
-                step: result.step,
-                state: 'completed' as const,
-                detail: 'dependency templates are cleared through the template cache',
-              }
-            : result.state === 'skipped'
-              ? { ...result, detail: 'step was selected but did not run in this job' }
-              : result
-        ),
+        // Selection is intent, not proof of execution: replay the exact outcomes
+        // persisted with completion, including non-journaled steps and an empty
+        // list. Older records have only the journal, which proves what ran;
+        // retained-data pruning is the one step that never journals, and any
+        // other selected step with no entry never ran, so it is skipped.
+        stepResults:
+          job.stepResults ??
+          recoveryResults().map((result) =>
+            result.step === 'prune_retained_data'
+              ? {
+                  step: result.step,
+                  state: 'completed' as const,
+                  detail: 'dependency templates are cleared through the template cache',
+                }
+              : result.state === 'skipped'
+                ? { ...result, detail: 'step was selected but did not run in this job' }
+                : result
+          ),
       }
     }
     if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {
