@@ -485,6 +485,12 @@ async function mockWorkspace(page: Page, empty = false) {
       json: { activeWorkspace: workspace, principal: { temporary: true }, workspaces: [workspace] },
     })
   )
+  // Group conversations qualify each Agent by the workspace list's names.
+  await page.route('**/api/workspaces', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ contentType: 'application/json', json: [workspace] })
+      : route.fallback()
+  )
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
@@ -572,6 +578,12 @@ async function mockWorkspace(page: Page, empty = false) {
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : artifacts })
     if (url.pathname.endsWith('/channels'))
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : channels })
+    // Group conversations read their addressed turns on open; none exist in this fixture.
+    if (url.pathname.endsWith('/turns'))
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { nextAfter: null, turns: [] },
+      })
     if (url.pathname.endsWith('/messages')) {
       const channelId = url.pathname.split('/').at(-2)
       const threadRoot = url.searchParams.get('threadRootMessageId')
@@ -1650,6 +1662,22 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await page.getByRole('button', { name: 'Launch group', exact: true }).click()
   await expect(
     page.locator('#workspace-main').getByText('Group conversation', { exact: true })
+  ).toBeVisible()
+  // The group controls load lazily; capture only once the roster and the picker are in place.
+  await expect(page.getByRole('navigation', { name: 'People in this conversation' })).toBeVisible()
+  await expect(
+    page.getByRole('group', { name: 'Agents your next message addresses' })
+  ).toBeVisible()
+  // The Agent belongs to this workspace, which the mocked workspace list names.
+  await expect(
+    page
+      .getByRole('navigation', { name: 'People in this conversation' })
+      .getByRole('listitem', { name: 'Research Agent · Work' })
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('group', { name: 'Agents your next message addresses' })
+      .getByRole('button', { name: 'Research Agent · Work' })
   ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 

@@ -678,6 +678,7 @@ export function ConventionalWorkspaceShell(props: {
                         artifacts={controller.artifacts}
                         channel={controller.selectedChannel}
                         client={controller.client}
+                        currentUserId={sessionIdentity()}
                         draft={selectedChannelId() ? (drafts()[selectedChannelId()!] ?? '') : ''}
                         onDraftChange={(value) =>
                           selectedChannelId() &&

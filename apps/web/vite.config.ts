@@ -126,9 +126,15 @@ export default defineConfig(({ command }) => ({
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
                 },
+                // arrow-down, plus and sliders-horizontal are imported by the
+                // startup entries and by terminal, App Library and Chat code;
+                // left alone each is a request of a few hundred bytes. Folding
+                // them into this startup-loaded group frees three files for the
+                // lazy terminal addon chunks without moving any bytes out of
+                // the measured graphs.
                 {
                   name: 'workspace-navigation-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right|arrow-down|plus|sliders-horizontal)\.jsx$/,
                   minShareCount: 2,
                 },
                 {
