@@ -1,7 +1,11 @@
 import { and, eq, isNull } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
-import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './schema'
+import {
+  retentionCleanupReceipts,
+  retentionDeletionAuthorizations,
+  retentionDeletionDispatches,
+} from './schema'
 
 /**
  * The retention fence on artifact-reference registration (M18.02, #1221).
@@ -9,17 +13,24 @@ import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './sch
  * The retention gate (`retention-cleanup`) refuses deletion while an artifact
  * has a live reference. That protects references registered BEFORE cleanup. This
  * module closes the other direction: once an artifact's deletion is authorized
- * or has been evidenced, no new reference may be registered against it. This is a
- * fence on what the database records, not a proof that no live grant can reach
- * deleted data: see "Known gap" below.
+ * or has begun, no new reference may be registered against it. This is a fence on
+ * what the database records, not a proof that no live grant can reach data deleted
+ * by a path that bypasses the gate: see "What it does not cover" below.
  *
- * The fence is closed, by name, in exactly two states:
+ * The fence is closed, by name, in exactly three states:
  *
  * - `authority_live`: an unrevoked deletion authorization exists for the artifact
  *   in its source workspace. Expiry does not lift it. After expiry the executor
  *   can no longer record receipts, so a deletion that committed under the
  *   generation might have no evidence; only an explicit revocation lifts the
  *   fence, which is the one act that says nobody will delete under it.
+ * - `deletion_dispatched`: a deletion dispatch mark exists under ANY generation for
+ *   the artifact. The retention gate transaction that deletes writes the mark before
+ *   it calls a store (`markDeletionDispatched`), so the mark commits with the
+ *   deletion and cannot be missing when a deletion committed. It does not wait for a
+ *   receipt and does not need a live generation, so revoking the generation (or its
+ *   expiry) before any receipt is accepted leaves it in place. This is what closes
+ *   the delete-then-revoke-before-receipt race.
  * - `cleanup_evidenced`: a `delete` receipt exists under ANY generation for the
  *   artifact, whatever its outcome. A failed, unreachable, or in-progress delete
  *   may have removed part of the data, and a revoked or superseded generation
@@ -51,19 +62,20 @@ import { retentionCleanupReceipts, retentionDeletionAuthorizations } from './sch
  * share locks, then this lock-free read. The fence adds no lock, so it adds no
  * wait edge.
  *
- * Known gap (production cleanup must stay disabled until it is closed). The fence sees
- * only authority and receipts. If a store deletes under a generation, and an
- * administrator revokes that generation before any of its receipts is accepted, the
- * database holds no trace of the deletion: receipts are accepted only against a live
- * generation, so the late evidence is refused, and the revoked generation no longer
- * fences. A registration after that point is accepted for deleted data. Ordering the
- * executor to submit receipts first is a convention, not a guarantee. Closing it needs
- * durable deletion evidence written inside the gate transaction that deletes (a
- * schema change) and fenced on here. Nothing deletes in production today, and this
- * change does not enable it.
+ * What it does not cover. The mark is written by whoever deletes under
+ * `withRetentionDeletionGate`; the cleanup executor does it for every store. A caller
+ * that deletes artifact data without going through the gate, or a store whose effects
+ * happen outside the gate transaction and survive its rollback, leaves no mark. Both
+ * are rules about how a deleting path is written, not something this reader can see.
+ * Deletions that committed before the dispatch table existed are likewise unmarked;
+ * nothing deletes in production, and this change does not enable it.
  */
 
-export type ArtifactRetentionFence = 'authority_live' | 'cleanup_evidenced' | 'clear'
+export type ArtifactRetentionFence =
+  | 'authority_live'
+  | 'deletion_dispatched'
+  | 'cleanup_evidenced'
+  | 'clear'
 
 /** Read the fence for one artifact in its source workspace. See the module comment for locking. */
 export async function readArtifactRetentionFence(
@@ -84,6 +96,18 @@ export async function readArtifactRetentionFence(
     )
     .limit(1)
   if (authority) return 'authority_live'
+  const [dispatch] = await transaction
+    .select({ id: retentionDeletionDispatches.id })
+    .from(retentionDeletionDispatches)
+    .where(
+      and(
+        eq(retentionDeletionDispatches.workspaceId, sourceWorkspaceId),
+        eq(retentionDeletionDispatches.category, 'artifacts'),
+        eq(retentionDeletionDispatches.subjectId, artifactId)
+      )
+    )
+    .limit(1)
+  if (dispatch) return 'deletion_dispatched'
   const [evidence] = await transaction
     .select({ id: retentionCleanupReceipts.id })
     .from(retentionCleanupReceipts)

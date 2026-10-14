@@ -48,6 +48,7 @@ const excluded: Readonly<Record<string, string>> = {
   message_artifact_references: 'artifact_bytes_and_locations',
   retention_cleanup_receipts: 'job_effect_approval_evidence',
   retention_deletion_authorizations: 'job_effect_approval_evidence',
+  retention_deletion_dispatches: 'job_effect_approval_evidence',
   retention_holds: 'job_effect_approval_evidence',
   runtime_node_challenges: 'credentials',
   runtime_node_delivery_requests: 'runtime_execution_state',

@@ -81,6 +81,7 @@ export {
   retentionCleanupOutcome,
   retentionCleanupReceipts,
   retentionDeletionAuthorizations,
+  retentionDeletionDispatches,
   retentionHolds,
 } from './retention-cleanup'
 export {

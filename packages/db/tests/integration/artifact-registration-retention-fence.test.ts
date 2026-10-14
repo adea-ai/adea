@@ -35,6 +35,7 @@ import {
   artifacts,
   retentionCleanupReceipts,
   retentionDeletionAuthorizations,
+  retentionDeletionDispatches,
   retentionHolds,
   runtimeNodeKeys,
   runtimeNodes,
@@ -49,8 +50,10 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 /**
  * Retention fence on artifact-reference registration (M18.02 #1221, closing the
  * gap #1243 documented). Registration, replay, and regrant refuse an artifact
- * whose deletion is authorized or evidenced, so a grant can never be committed to
- * data that cleanup has deleted or may delete. Everything runs on real rows in the
+ * whose deletion is authorized, dispatched or evidenced, so a grant can never be
+ * committed to data that cleanup has deleted or may delete. A deletion's dispatch
+ * mark is written in the deleting gate transaction, so it also covers a deletion
+ * whose generation is revoked before any receipt is accepted. Everything runs on real rows in the
  * disposable database, and every race is two or more real connections blocked on
  * the real locks. Nothing here deletes anything, schedules anything, or sets a
  * retention period beyond the one-day fixture the gate needs to reach a decision.
@@ -122,6 +125,9 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
         .delete(retentionCleanupReceipts)
         .where(eq(retentionCleanupReceipts.workspaceId, workspaceId))
       await connection.db.delete(retentionHolds).where(eq(retentionHolds.workspaceId, workspaceId))
+      await connection.db
+        .delete(retentionDeletionDispatches)
+        .where(eq(retentionDeletionDispatches.workspaceId, workspaceId))
       await connection.db
         .delete(retentionDeletionAuthorizations)
         .where(eq(retentionDeletionAuthorizations.workspaceId, workspaceId))
@@ -320,6 +326,44 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     }
   }
 
+  /**
+   * A gate pass that deletes: like the cleanup executor, it records the dispatch mark in the gate
+   * transaction before it would call a store. Nothing is actually deleted here.
+   */
+  async function dispatchDeletion(
+    f: Fixture,
+    artifactId: string = f.artifact.id,
+    coverages: readonly (typeof ARTIFACT_COVERAGE)[number][] = [ARTIFACT_COVERAGE[0]!]
+  ) {
+    return withRetentionDeletionGate(
+      connection.db,
+      gateInput(f, artifactId),
+      async (decision, context) => {
+        if (decision.outcome === 'cleanup_ready')
+          for (const coverage of coverages) await context.markDeletionDispatched(coverage)
+        return decision.outcome
+      }
+    )
+  }
+
+  async function dispatchRows(artifactId: string) {
+    return connection.db
+      .select()
+      .from(retentionDeletionDispatches)
+      .where(eq(retentionDeletionDispatches.subjectId, artifactId))
+  }
+
+  /** A late receipt is refused with the typed reason, because receipts bind only to a live generation. */
+  async function lateReceiptRefusal(f: Fixture, authority: RetentionAuthorizationRecord) {
+    try {
+      await recordReceipt(f, authority, 'delete', 'completed', ARTIFACT_COVERAGE[0]!, 5)
+    } catch (error) {
+      if (error instanceof RetentionCleanupError) return error.code
+      throw error
+    }
+    throw new Error('expected the late receipt to be refused')
+  }
+
   async function grantRows(artifactId: string) {
     return connection.db
       .select()
@@ -467,26 +511,158 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     expect((await register(f, registrationFor(f, other.id))).outcome).toBe('registered')
   })
 
-  test('KNOWN GAP: a deletion revoked before its receipt is recorded leaves nothing for the fence to see', async () => {
-    const f = await fixture('known-gap')
+  test('a deletion revoked before any receipt is recorded is still fenced by its dispatch mark', async () => {
+    const f = await fixture('revoked-before-receipt')
     const authority = await authorize(f)
-    // A store deletes under this generation (not simulated: nothing here deletes), and the
-    // administrator revokes it before the executor's receipt is accepted.
+    // The gate pass that deletes records its dispatch mark in its own transaction and commits.
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+    // The administrator revokes the generation before the executor's receipt is accepted, and
+    // the late receipt is refused, because receipts bind only to a live generation.
     await revokeAuthority(f, authority)
-    // The late receipt is refused, because receipts bind only to a live generation.
-    let code: string | undefined
-    try {
-      await recordReceipt(f, authority, 'delete', 'completed', ARTIFACT_COVERAGE[0]!, 5)
-    } catch (error) {
-      if (!(error instanceof RetentionCleanupError)) throw error
-      code = error.code
-    }
-    expect(code).toBe('authorization_not_current')
-    // So the database holds no trace, and registration is accepted. This pins today's behaviour so
-    // that closing the gap (durable deletion evidence written in the deleting transaction) must
-    // update this test. Production cleanup stays disabled until then.
+    expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+    expect(
+      await connection.db
+        .select({ id: retentionCleanupReceipts.id })
+        .from(retentionCleanupReceipts)
+        .where(eq(retentionCleanupReceipts.subjectId, f.artifact.id))
+    ).toHaveLength(0)
+    // The mark was written with the deletion, so the database still shows it and registration is refused.
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+    expect(await grantRefusal(() => register(f, registrationFor(f)))).toBe(FENCED)
+    expect(await grantRows(f.artifact.id)).toHaveLength(0)
+  })
+
+  test('the dispatch mark is written in the deleting transaction: a rollback leaves nothing and fences nothing', async () => {
+    const f = await fixture('mark-atomicity')
+    const first = await authorize(f)
+
+    // A deleting pass that fails after marking rolls the mark back with it.
+    await expect(
+      withRetentionDeletionGate(connection.db, gateInput(f), async (_decision, context) => {
+        await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+        throw new Error('store failed')
+      })
+    ).rejects.toThrow('store failed')
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+    await revokeAuthority(f, first)
     expect(await fenceOf(f)).toBe('clear')
     expect((await register(f, registrationFor(f))).outcome).toBe('registered')
+  })
+
+  test('the dispatch mark is idempotent per generation and coverage, and outlives every generation', async () => {
+    const f = await fixture('mark-generations')
+    const first = await authorize(f)
+    // Marking the same coverage again under one generation (a retried pass) is still one row.
+    await withRetentionDeletionGate(connection.db, gateInput(f), async (_decision, context) => {
+      await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+      await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+      await context.markDeletionDispatched(ARTIFACT_COVERAGE[1]!)
+    })
+    const marks = await dispatchRows(f.artifact.id)
+    expect(marks.map((row) => row.coverage).toSorted()).toEqual(
+      [ARTIFACT_COVERAGE[0]!, ARTIFACT_COVERAGE[1]!].toSorted()
+    )
+    expect(new Set(marks.map((row) => row.authorizationId))).toEqual(new Set([first.id]))
+
+    // The same coverage under a newer generation is its own row.
+    await revokeAuthority(f, first)
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+    const second = await authorize(f)
+    await withRetentionDeletionGate(connection.db, gateInput(f), async (_decision, context) => {
+      await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+    })
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(3)
+    await revokeAuthority(f, second)
+    // Every generation is revoked and none has a receipt: the marks alone keep the fence closed.
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+    expect(await grantRefusal(() => register(f, registrationFor(f)))).toBe(FENCED)
+  })
+
+  test('a mark needs a generation that was current at the decision, and writes nothing without one', async () => {
+    const f = await fixture('mark-needs-generation')
+    let code: string | undefined
+    await withRetentionDeletionGate(connection.db, gateInput(f), async (decision, context) => {
+      expect(decision).toEqual({ outcome: 'refused', reason: 'authorization_not_current' })
+      try {
+        await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+      } catch (error) {
+        if (!(error instanceof RetentionCleanupError)) throw error
+        code = error.code
+      }
+    })
+    expect(code).toBe('authorization_not_current')
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+    expect(await fenceOf(f)).toBe('clear')
+  })
+
+  test('a dispatch mark reaches only its own artifact: another artifact, category and workspace stay clear', async () => {
+    const f = await fixture('mark-scope')
+    const other = await newArtifact(f.workspace.id, f.owner)
+    // A live reference to an unrelated artifact is left alone by the marked artifact's cleanup.
+    const unrelated = registrationFor(f, other.id)
+    expect((await register(f, unrelated)).outcome).toBe('registered')
+
+    const authority = await authorize(f)
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+    await revokeAuthority(f, authority)
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+
+    expect(await fenceOf(f, other.id)).toBe('clear')
+    expect((await register(f, registrationFor(f, other.id))).outcome).toBe('registered')
+    const [live] = await grantRows(other.id).then((rows) =>
+      rows.filter((row) => row.grantId === unrelated.grantId)
+    )
+    expect(live).toMatchObject({ revision: 1, revokedAt: null })
+
+    // The same subject string under another category, and the audience workspace's own
+    // authority and mark for that string, are other subjects.
+    const messages = await authorize(f, other.id, { category: 'messages' })
+    const foreign = await grantRetentionDeletionAuthorization(connection.db, {
+      actor: f.audienceOwner,
+      category: 'artifacts',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      subjectId: other.id,
+      workspaceId: f.audience.id,
+    })
+    await connection.db.insert(retentionDeletionDispatches).values([
+      {
+        authorizationId: messages.id,
+        category: 'messages',
+        coverage: ARTIFACT_COVERAGE[0]!,
+        subjectId: other.id,
+        workspaceId: f.workspace.id,
+      },
+      {
+        authorizationId: foreign.id,
+        category: 'artifacts',
+        coverage: ARTIFACT_COVERAGE[0]!,
+        subjectId: other.id,
+        workspaceId: f.audience.id,
+      },
+    ])
+    expect(await fenceOf(f, other.id)).toBe('clear')
+    expect((await register(f, registrationFor(f, other.id))).outcome).toBe('registered')
+  })
+
+  test('regrant is fenced by a dispatch mark after the generation is revoked, and the revoked grant stays as it was', async () => {
+    const f = await fixture('mark-regrant')
+    const input = registrationFor(f)
+    await register(f, input)
+    // The gate refuses to delete while a reference is live, so no mark is written for it.
+    const authority = await authorize(f)
+    expect(await dispatchDeletion(f)).toBe('refused')
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+    await revokeArtifactReferenceGrant(connection.db, f.workspace.id, f.owner, input.grantId)
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+    await revokeAuthority(f, authority)
+    expect(
+      await grantRefusal(() =>
+        regrantArtifactReferenceGrant(connection.db, f.workspace.id, f.owner, input, 1)
+      )
+    ).toBe(FENCED)
+    const [row] = await grantRows(f.artifact.id)
+    expect(row).toMatchObject({ revision: 1 })
+    expect(row!.revokedAt).not.toBeNull()
   })
 
   test('only an authoritative issuer learns an artifact is fenced', async () => {
@@ -662,6 +838,106 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     expect(await grantRows(f.artifact.id)).toHaveLength(0)
   })
 
+  test('deletion in flight: a registration and a revocation queued behind the gate both end with the artifact fenced, in either order', async () => {
+    const f = await fixture('deletion-in-flight')
+    const authority = await authorize(f)
+
+    let enteredGate!: () => void
+    const gateEntered = new Promise<void>((resolve) => {
+      enteredGate = resolve
+    })
+    let releaseGate!: () => void
+    const gateReleased = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    // The deleting pass marks first, as the executor does, then holds its locks while the store works.
+    const gate = withRetentionDeletionGate(
+      connection.db,
+      gateInput(f),
+      async (decision, context) => {
+        await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+        enteredGate()
+        await gateReleased
+        return decision
+      }
+    )
+    await gateEntered
+
+    const input = registrationFor(f)
+    const registration = grantRefusal(() => register(f, input))
+    const revocation = revokeAuthority(f, authority)
+    await waitUntilBlockedOnLock('for update')
+    await waitUntilBlockedOnLock('pg_advisory_xact_lock')
+    expect(await stillPending(registration, 100)).toBe(true)
+    expect(await stillPending(revocation, 100)).toBe(true)
+    // Neither the mark nor the deletion is visible to anyone until the gate commits.
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+
+    releaseGate()
+    expect((await gate).outcome).toBe('cleanup_ready')
+    await revocation
+    // Whichever of the two ran first, the committed mark fences the artifact and no grant exists.
+    expect(await registration).toBe(FENCED)
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+    expect(await grantRows(f.artifact.id)).toHaveLength(0)
+    expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+  })
+
+  test('revocation commits while a registration is mid-flight: the mark, not a receipt, keeps the artifact fenced', async () => {
+    const f = await fixture('revoke-mid-flight')
+    const authority = await authorize(f)
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+    // No receipt is ever accepted for this deletion. The registration queues on the artifact row.
+    const writer = await holdTransaction(async (transaction) => {
+      await transaction
+        .select({ id: artifacts.id })
+        .from(artifacts)
+        .where(eq(artifacts.id, f.artifact.id))
+        .for('update')
+    })
+    const input = registrationFor(f)
+    const registration = grantRefusal(() => register(f, input))
+    expect(await stillPending(registration, 150)).toBe(true)
+    // The revocation takes the subject lock only and commits while the registration waits.
+    await revokeAuthority(f, authority)
+    expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+    writer.release('commit')
+    await writer.finished
+    expect(await registration).toBe(FENCED)
+    expect(await grantRows(f.artifact.id)).toHaveLength(0)
+  })
+
+  test('registration first: a reference committed ahead of a queued deleting pass refuses the deletion and leaves no mark', async () => {
+    const f = await fixture('mark-registration-first')
+    const input = registrationFor(f)
+    // The uncommitted row holds the unique grant id, so the registration stalls after its fence read.
+    const holder = await holdTransaction(async (transaction) => {
+      await transaction.insert(artifactReferenceGrants).values({
+        artifactId: crypto.randomUUID(),
+        audienceWorkspaceId: f.audience.id,
+        checksumSha256: CHECKSUM,
+        grantId: input.grantId,
+        revision: 1,
+        sourceWorkspaceId: f.workspace.id,
+        version: 1,
+      })
+    })
+    const registration = register(f, input)
+    await waitUntilBlockedOnLock('artifact_reference_grants')
+
+    await authorize(f)
+    const deleting = dispatchDeletion(f)
+    expect(await stillPending(deleting)).toBe(true)
+
+    holder.release('rollback')
+    await holder.finished
+    expect((await registration).outcome).toBe('registered')
+    // The deleting pass waited for the artifact row, saw the committed reference, and refused.
+    expect(await deleting).toBe('refused')
+    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+    expect(await grantRows(f.artifact.id)).toHaveLength(1)
+  })
+
   test('lock order: registration holds the artifact row while it waits for the grant row; revocation never waits on the artifact', async () => {
     const f = await fixture('lock-order')
     const input = registrationFor(f)
@@ -737,6 +1013,7 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
   test('concurrent registrations, regrants, revocations, gates, authority changes and authorizations never deadlock', async () => {
     const f = await fixture('stress')
     const artifactsUnderTest = [f.artifact, await newArtifact(f.workspace.id, f.owner)]
+    const marked = await newArtifact(f.workspace.id, f.owner)
     const failures: unknown[] = []
 
     const operations: Array<() => Promise<unknown>> = []
@@ -768,6 +1045,18 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
           }
         )
       }
+    }
+    // Deleting passes that mark, racing registrations, authority changes and gates on one more artifact.
+    for (let round = 0; round < 4; round++) {
+      const input = registrationFor(f, marked.id, { grantId: `stress-marked-${round}` })
+      operations.push(
+        () => register(f, input),
+        () => dispatchDeletion(f, marked.id),
+        async () => {
+          const authority = await authorize(f, marked.id, { ttlMs: 30_000 })
+          await revokeAuthority(f, authority)
+        }
+      )
     }
     await Promise.all(
       operations.map((operation) =>

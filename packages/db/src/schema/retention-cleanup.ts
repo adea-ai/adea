@@ -39,6 +39,13 @@ import { workspaces } from './workspaces'
  *   node's signing-key fingerprint for audit, and is unique per workspace
  *   idempotency key, so a repeated delivery is a replay and never a second row.
  *
+ * - `retention_deletion_dispatches`: durable, append-only evidence that a deletion
+ *   was DISPATCHED for one subject and coverage under one generation. It is written
+ *   inside the deleting gate transaction, before the store is called, so it commits
+ *   or rolls back with the deletion itself. Unlike a receipt it needs no executor
+ *   round trip and no live generation at read time, so revoking or expiring the
+ *   generation never erases it.
+ *
  * Retention periods are deliberately not stored here: no duration is invented
  * by this schema, and the gate refuses every deletion while periods are unset.
  */
@@ -194,5 +201,44 @@ export const retentionCleanupReceipts = appSchema.table(
       sql`char_length(${table.subjectId}) between 1 and 128`
     ),
     check('retention_cleanup_receipts_residual_nonnegative', sql`${table.residualCount} >= 0`),
+  ]
+)
+
+export const retentionDeletionDispatches = appSchema.table(
+  'retention_deletion_dispatches',
+  {
+    id: entityId(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    /** The generation the deletion ran under. Kept after that generation is revoked or expires. */
+    authorizationId: uuid('authorization_id').notNull(),
+    category: retentionCategory('category').notNull(),
+    subjectId: text('subject_id').notNull(),
+    coverage: retentionCleanupCoverage('coverage').notNull(),
+    dispatchedAt: timestamp('dispatched_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.authorizationId],
+      foreignColumns: [retentionDeletionAuthorizations.id],
+      name: 'retention_deletion_dispatches_authorization_fk',
+    }).onDelete('restrict'),
+    // One mark per generation and store: a retried pass is the same dispatch.
+    uniqueIndex('retention_deletion_dispatches_generation_uidx').on(
+      table.authorizationId,
+      table.coverage
+    ),
+    index('retention_deletion_dispatches_subject_idx').on(
+      table.workspaceId,
+      table.category,
+      table.subjectId
+    ),
+    check(
+      'retention_deletion_dispatches_subject_bounded',
+      sql`char_length(${table.subjectId}) between 1 and 128`
+    ),
   ]
 )

@@ -67,13 +67,17 @@ candidates throw `RetentionPolicyError` with a code only.
 ## Durable storage and the stored gate
 
 Migration `0053_retention_cleanup_authority` adds three tables, and
-`packages/db/src/retention-cleanup.ts` composes the pure gate over them:
+`packages/db/src/retention-cleanup.ts` composes the pure gate over them (a fourth,
+`retention_deletion_dispatches`, arrives with 0056, below):
 
 - `retention_holds`: active while `released_at` is null.
 - `retention_deletion_authorizations`: at most one unrevoked row per subject
   (partial unique index). Expiry is fixed, never open-ended.
 - `retention_cleanup_receipts`: append-only rows bound to the recording runtime
   node, unique per workspace idempotency key.
+- `retention_deletion_dispatches` (migration `0056_retention_deletion_dispatches`):
+  append-only deletion dispatch marks, one per deletion generation and coverage,
+  written inside the deleting gate transaction. See "Deletion dispatch marks".
 
 Entry points, all typed through `RetentionCleanupError`:
 
@@ -93,19 +97,21 @@ Entry points, all typed through `RetentionCleanupError`:
   decision.
 - `withRetentionDeletionGate`: decides under locks and runs a callback with the
   decision while the locks are held, so a dispatch cannot act on a stale
-  decision. `evaluateStoredRetentionDeletion` is the decision alone.
+  decision. Its context carries `markDeletionDispatched(coverage)`, which a deleting
+  callback must call before it touches a store. `evaluateStoredRetentionDeletion` is
+  the decision alone and never marks.
 
 Time is the database clock. Every operation for one subject takes the same
 transaction-scoped advisory lock. Artifact gates lock the artifact row first, in
 the order reference registration uses. Active references for artifacts are the
 live rows of `artifact_reference_grants`.
 
-Numbering: retention takes 0053, after `0052_lead_handoff_target` on `main`. Its
-journal `when` is later than 0052's, which drizzle requires for the migration to be
-applied on an upgraded database, and its snapshot chains to the 0052 snapshot. Another
-pending migration (rollback fencing, #1244) must take the next free number when it
-lands: whichever of the two merges second renumbers and regenerates with `db:generate`,
-keeping `when` strictly increasing.
+Numbering: retention took 0053 and the dispatch table took 0056, the next free number
+on `main` when it was written (after `0055_addressed_agent_turns`). Each journal `when`
+is later than its predecessor's, which drizzle requires for the migration to be applied
+on an upgraded database, and each snapshot chains to the previous one. A migration that
+lands later must take the next free number, regenerate with `db:generate`, and keep
+`when` strictly increasing.
 
 ## HTTP boundary (#1243)
 
@@ -145,6 +151,8 @@ database clock has passed its observation.
 
 - Each required coverage kind is a `RetentionCleanupStorePort` (delete and
   residual count). The executor fails before the gate if a port is missing.
+- Before each store is called, the executor records that coverage's deletion dispatch
+  mark in the same transaction ("Deletion dispatch marks" below).
 - The generation is checked on the database clock before each store call, and
   again after the read-back and before a completion is claimed. Expiry, revocation,
   or a different live generation halts the run with `authorization_not_current`.
@@ -167,12 +175,37 @@ database clock has passed its observation.
   subject block on the gate's lock and serialize against the commit.
 
 A reference registered after cleanup is fenced out by the registration boundary
-(see "Registration fence" below) while the database holds the authority or the
-delete evidence. The fence has a known gap, described there, and production cleanup
-must stay disabled until it is closed.
+(see "Registration fence" below) while the database holds the authority, a dispatch
+mark or a delete receipt for the artifact.
 
 The executor is exercised only against owned replicas in a disposable schema. No
 production store is wired, no period is chosen, and nothing is scheduled.
+
+## Deletion dispatch marks
+
+`retention_deletion_dispatches` (migration `0056_retention_deletion_dispatches`) holds
+one row per `(authorization_id, coverage)`: durable evidence that a deletion was
+dispatched to that store under that generation. Its writer is
+`context.markDeletionDispatched(coverage)` in `withRetentionDeletionGate`, and the
+cleanup executor calls it for every store before the store runs.
+
+- It is written in the deleting transaction, before the store is called. The mark and
+  whatever the store deleted commit or roll back together, so a committed deletion
+  always leaves a committed mark, and a rolled-back one leaves none.
+- It needs no receipt and no executor round trip. Receipts are accepted only against a
+  live generation, so a revocation (or expiry) before any receipt is accepted refuses
+  every late receipt; the mark was already committed and stays.
+- It is keyed to the generation but never lifted with it. Revoking or superseding the
+  generation does not remove it, and a newer generation gets its own rows.
+- A repeat for the same generation and coverage (a retried pass) is the same row.
+- It refuses (`authorization_not_current`) when the decision had no live generation,
+  and writes nothing then.
+- Rows are append-only by API only, like receipts. No trigger enforces it, and the
+  `restrict` foreign keys keep a workspace with marks from being deleted.
+
+Any code that deletes under the gate outside the executor must call it first, in the
+same transaction. The marks are classified with the other job, effect and approval
+evidence for export.
 
 ## Registration fence
 
@@ -181,13 +214,16 @@ Artifact-reference registration, replay, and regrant consult retention authority
 `requireRegistrationAuthority` in `artifact-reference-grants.ts`). The gate protects
 references registered before cleanup; the fence protects the other direction. An
 artifact is fenced, and the grant store refuses with
-`grant_artifact_retention_fenced` (409 through the grant routes), when either holds
-in its source workspace:
+`grant_artifact_retention_fenced` (409 through the grant routes), when any of these
+holds in its source workspace:
 
 - **Authority live.** An unrevoked `artifacts` deletion authorization exists for it.
   Expiry does not lift this. After expiry the executor can no longer record receipts,
   so a deletion that committed under the generation might have no evidence. Only
   revocation, which says nobody will delete under the generation, lifts it.
+- **Deletion dispatched.** A deletion dispatch mark exists under any generation. This
+  is what covers a deletion whose generation was revoked before any receipt was
+  accepted.
 - **Cleanup evidenced.** A `delete` receipt exists under any generation, whatever its
   outcome. A failed, unreachable, or in-progress delete may have removed part of the
   data, and a revoked or superseded generation does not bring it back. Evidence
@@ -225,16 +261,14 @@ artifact or grant row while holding the advisory lock, so no wait cycle among th
 (`FOR UPDATE NOWAIT` on a waiting replay, and a revocation that does not wait on a
 held artifact row) and runs a concurrent mix of every operation looking for deadlocks.
 
-Known gap, and a condition on enabling cleanup. The fence sees only authority and
-receipts. If a store deletes under a generation, and an administrator revokes that
-generation before any of its receipts is accepted, the database holds no trace of the
-deletion: receipts are accepted only against a live generation, so the late evidence
-is refused, and the revoked generation no longer fences. A registration after that
-point is accepted for deleted data. Having the executor submit receipts first is a
-convention, not a guarantee. Closing it needs durable deletion evidence written inside
-the gate transaction that deletes (a schema change), fenced on here. Production
-cleanup must stay disabled until that exists. Nothing in this slice deletes in
-production, and the fence does not enable it.
+What the fence does not cover. The mark is written by whoever deletes under the gate.
+A caller that deletes artifact data outside `withRetentionDeletionGate`, or a store
+whose effects happen outside the gate transaction and survive its rollback (an object
+store, an external index), leaves no mark, and a thrown error rolls the mark back with
+the rest of the transaction. Stores with out-of-transaction effects must report them
+through their outcome rather than throw, and need their own evidence before production
+cleanup is enabled. A deletion that committed before migration 0056 is also unmarked;
+nothing deletes in production today, and the fence does not enable it.
 
 Retention periods stay unset and production deletion stays disabled; the fence changes
 neither.
@@ -245,11 +279,12 @@ neither.
   caller dispatches cleanup, and no period is configured.
 - Grant, revoke, hold, and release routes. Only receipt submission and status are wired.
 - Revoking a deletion generation does not restore data a store already deleted. The
-  fence below sees such a deletion only through its receipts (see its last item).
+  registration fence sees such a deletion through its dispatch marks and receipts.
 - Non-artifact categories have no authoritative reference store yet, so their
   active-reference count is zero. The owning domain must supply
   `reconciliationOpen`.
-- Receipts are append-only by API only. No database trigger enforces it.
+- Receipts and dispatch marks are append-only by API only. No database trigger
+  enforces it.
 - Existing workspace deletion refuses to proceed while holds, authorities, or
   receipts exist (`restrict` foreign keys).
 - Changes to the existing relay ciphertext purge (`relay:purge`).

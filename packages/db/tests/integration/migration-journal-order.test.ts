@@ -149,6 +149,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       expect(retention.map((row) => row.table_name as string)).toEqual([
         'retention_cleanup_receipts',
         'retention_deletion_authorizations',
+        'retention_deletion_dispatches',
         'retention_holds',
       ])
       const dupes = await second.db.execute(sql`
