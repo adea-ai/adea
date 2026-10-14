@@ -32,7 +32,7 @@ import {
 } from '../../src/group-channels'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
-import { createWorkspaceWithOwner } from '../../src/workspaces'
+import { addWorkspaceMembership, createWorkspaceWithOwner } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
 const ISSUED = '2026-10-01T00:00:00.000Z'
@@ -841,6 +841,8 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       name: 'Labels away',
       owner: otherOwner,
     })
+    // The enlisting owner must hold workspace.update in the Agent's source workspace.
+    await addWorkspaceMembership(connection.db, other.workspace.id, owner, 'admin')
     const echoHome = await createAgent(connection.db, workspace.id, owner, {
       name: 'Echo',
       profileId: 'lead',
@@ -1233,6 +1235,8 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       name: 'XWS away',
       owner: otherOwner,
     })
+    // The enlisting owner must hold workspace.update in the Agent's source workspace.
+    await addWorkspaceMembership(connection.db, other.workspace.id, owner, 'admin')
     const leadAway = await ensureWorkspaceLead(connection.db, other.workspace.id, otherOwner)
     const channelId = crypto.randomUUID()
     await createGroupChannelWithGrants(connection.db, workspace.id, owner, {

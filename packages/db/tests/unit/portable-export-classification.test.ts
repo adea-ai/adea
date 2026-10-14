@@ -27,6 +27,7 @@ const portable: Readonly<Record<string, string>> = {
 }
 
 const excluded: Readonly<Record<string, string>> = {
+  addressed_agent_turns: 'runtime_execution_state',
   artifact_reference_grants: 'artifact_bytes_and_locations',
   artifacts: 'artifact_bytes_and_locations',
   auth_identities: 'credentials',

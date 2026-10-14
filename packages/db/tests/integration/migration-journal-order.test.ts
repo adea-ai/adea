@@ -141,7 +141,7 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       const appliedJournal = await second.db.execute(
         sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
       )
-      expect(appliedJournal[0]!.n as number).toBe(53)
+      expect(appliedJournal[0]!.n as number).toBe(54)
       const dupes = await second.db.execute(sql`
       SELECT hash FROM app.__drizzle_migrations GROUP BY hash HAVING count(*) > 1`)
       expect(dupes).toHaveLength(0)
