@@ -31,6 +31,31 @@ async function report(page: Page) {
   return page.evaluate(() => window.__adeaTerminalPaneHarness.report())
 }
 
+/** Holds requests for a lazy xterm addon chunk until `release()` is called. */
+function holdChunk(page: Page, pattern: RegExp) {
+  const requests: string[] = []
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return page
+    .route(pattern, async (route) => {
+      requests.push(route.request().url())
+      await gate
+      await route.continue()
+    })
+    .then(() => ({ requests, release }))
+}
+
+async function seedNeedles(page: Page, pane: ReturnType<Page['locator']>) {
+  await page.evaluate(() => {
+    window.__adeaTerminalPaneHarness.write(
+      '\r\nneedle one\r\nfiller line\r\nneedle two\r\nfiller line\r\nneedle three\r\n'
+    )
+  })
+  await expect(pane.locator('.xterm-rows')).toContainText('needle three')
+}
+
 test.describe('terminal pane (real xterm surface)', () => {
   let consoleErrors: string[]
   let pageErrors: string[]
@@ -357,7 +382,7 @@ test.describe('terminal pane (real xterm surface)', () => {
     })
     await expect(pane.locator('.xterm-rows')).toContainText('needle three')
     await pane.click()
-    await page.keyboard.press('ControlOrMeta+f')
+    await page.keyboard.press('ControlOrMeta+Shift+f')
     const search = pane.getByRole('search', { name: 'Search terminal' })
     await expect(search).toBeVisible()
     await search.getByLabel('Search terminal').fill('needle')
@@ -383,12 +408,163 @@ test.describe('terminal pane (real xterm surface)', () => {
     await expect(search).toBeHidden()
     // Escape closes too.
     await pane.click()
-    await page.keyboard.press('ControlOrMeta+f')
+    await page.keyboard.press('ControlOrMeta+Shift+f')
     await expect(search).toBeVisible()
     await search.getByLabel('Search terminal').press('Escape')
     await expect(search).toBeHidden()
     expect(consoleErrors).toEqual([])
     expect(pageErrors).toEqual([])
+  })
+
+  // The WebGL renderer and the search addon are separate chunks fetched after
+  // the terminal is usable (WebGL) and on first search (search). These tests
+  // hold or fail those chunk requests in the browser to prove the terminal
+  // keeps working, and that the pane applies only the latest search intent.
+  test.describe('lazy addons', () => {
+    const SEARCH_CHUNK = /addon-search/
+    const WEBGL_CHUNK = /addon-webgl/
+
+    test('search is fetched on first open, not with the terminal, and rapid open/type/close/reopen applies the latest query', async ({
+      page,
+    }) => {
+      const search = await holdChunk(page, SEARCH_CHUNK)
+      const pane = await openHarness(page)
+      await seedNeedles(page, pane)
+      expect(search.requests).toHaveLength(0)
+
+      await pane.click()
+      const bar = pane.getByRole('search', { name: 'Search terminal' })
+      const input = bar.getByLabel('Search terminal')
+      await page.keyboard.press('ControlOrMeta+Shift+f')
+      await expect(bar).toBeVisible()
+      await input.pressSequentially('need')
+      await input.press('Escape')
+      await expect(bar).toBeHidden()
+      await pane.click()
+      await page.keyboard.press('ControlOrMeta+Shift+f')
+      await expect(bar).toBeVisible()
+      await input.fill('filler')
+      // One fetch for the whole sequence, and the bar says so while it waits.
+      await expect.poll(() => search.requests.length).toBe(1)
+      const count = bar.locator('.dev-terminal-search-count')
+      await expect(count).toHaveText('Searching…')
+      // The terminal keeps taking output while the addon downloads.
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.write('while-loading\r\n'))
+      await expect(pane.locator('.xterm-rows')).toContainText('while-loading')
+      const copy = pane.locator('[data-terminal-copy]').first()
+      await expect(copy).toBeDisabled()
+
+      const loaded = page.waitForResponse((response) => SEARCH_CHUNK.test(response.url()))
+      search.release()
+      await loaded
+      // Only the current query ('filler', not the abandoned 'need') is selected
+      // once the addon lands.
+      await expect(copy).toBeEnabled({ timeout: 15_000 })
+      await copy.click()
+      await expect.poll(async () => (await report(page)).copies).toEqual(['filler'])
+      expect(search.requests).toHaveLength(1)
+      expect(consoleErrors).toEqual([])
+      expect(pageErrors).toEqual([])
+    })
+
+    test('closing search before the chunk lands leaves no stale search behind', async ({
+      page,
+    }) => {
+      const search = await holdChunk(page, SEARCH_CHUNK)
+      const pane = await openHarness(page)
+      await seedNeedles(page, pane)
+      await pane.click()
+      const bar = pane.getByRole('search', { name: 'Search terminal' })
+      await page.keyboard.press('ControlOrMeta+Shift+f')
+      await bar.getByLabel('Search terminal').fill('needle')
+      await expect.poll(() => search.requests.length).toBe(1)
+      await bar.getByRole('button', { name: 'Close search' }).click()
+      await expect(bar).toBeHidden()
+
+      const loaded = page.waitForResponse((response) => SEARCH_CHUNK.test(response.url()))
+      search.release()
+      await loaded
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)))
+      // A stale find would have selected a match, enabling the copy affordance.
+      await expect(pane.locator('[data-terminal-copy]').first()).toBeDisabled()
+      expect(consoleErrors).toEqual([])
+      expect(pageErrors).toEqual([])
+    })
+
+    test('a failed search chunk is reported without disturbing the terminal', async ({ page }) => {
+      await page.route(SEARCH_CHUNK, (route) => route.abort())
+      const pane = await openHarness(page)
+      await seedNeedles(page, pane)
+      await pane.click()
+      const bar = pane.getByRole('search', { name: 'Search terminal' })
+      await page.keyboard.press('ControlOrMeta+Shift+f')
+      await bar.getByLabel('Search terminal').fill('needle')
+      await expect(bar.locator('.dev-terminal-search-count')).toHaveText('Search unavailable')
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.write('still-alive\r\n'))
+      await expect(pane.locator('.xterm-rows')).toContainText('still-alive')
+      expect(pageErrors).toEqual([])
+    })
+
+    test('unmounting while the search chunk downloads is silent', async ({ page }) => {
+      const search = await holdChunk(page, SEARCH_CHUNK)
+      const pane = await openHarness(page)
+      await pane.click()
+      const bar = pane.getByRole('search', { name: 'Search terminal' })
+      await page.keyboard.press('ControlOrMeta+Shift+f')
+      await bar.getByLabel('Search terminal').fill('needle')
+      await expect.poll(() => search.requests.length).toBe(1)
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.unmount())
+      await expect(pane).toHaveCount(0)
+      const loaded = page.waitForResponse((response) => SEARCH_CHUNK.test(response.url()))
+      search.release()
+      await loaded
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)))
+      expect(consoleErrors).toEqual([])
+      expect(pageErrors).toEqual([])
+    })
+
+    test('output renders on DOM while the WebGL chunk downloads and a failed chunk keeps DOM', async ({
+      page,
+    }) => {
+      const requests: string[] = []
+      let fail!: () => void
+      const gate = new Promise<void>((resolve) => {
+        fail = resolve
+      })
+      await page.route(WEBGL_CHUNK, async (route) => {
+        requests.push(route.request().url())
+        await gate
+        await route.abort()
+      })
+      const pane = await openHarness(page)
+      await expect.poll(() => requests.length).toBe(1)
+      await expect(pane).toHaveAttribute('data-renderer', 'dom')
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.write('during-webgl-load\r\n'))
+      await expect(pane.locator('.xterm-rows')).toContainText('during-webgl-load')
+
+      fail()
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)))
+      await expect(pane).toHaveAttribute('data-renderer', 'dom')
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.write('after-webgl-failure\r\n'))
+      await expect(pane.locator('.xterm-rows')).toContainText('after-webgl-failure')
+      expect(pageErrors).toEqual([])
+    })
+
+    test('unmounting while the WebGL chunk downloads attaches nothing to the disposed terminal', async ({
+      page,
+    }) => {
+      const webgl = await holdChunk(page, WEBGL_CHUNK)
+      const pane = await openHarness(page)
+      await expect.poll(() => webgl.requests.length).toBe(1)
+      await page.evaluate(() => window.__adeaTerminalPaneHarness.unmount())
+      await expect(pane).toHaveCount(0)
+      const loaded = page.waitForResponse((response) => WEBGL_CHUNK.test(response.url()))
+      webgl.release()
+      await loaded
+      await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 250)))
+      expect(consoleErrors).toEqual([])
+      expect(pageErrors).toEqual([])
+    })
   })
 
   test('selection enables the copy affordance and copy goes through the seam', async ({ page }) => {

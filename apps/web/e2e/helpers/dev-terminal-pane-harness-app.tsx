@@ -140,7 +140,14 @@ function subscribeToObservations(handler: ObservationHandler): () => void {
   return () => undefined
 }
 
+let disposePane: (() => void) | undefined
+
 const harness = {
+  /** Unmounts the pane, as closing the terminal tab does. */
+  unmount() {
+    disposePane?.()
+    disposePane = undefined
+  },
   setCodeFont(family: AppearanceEditorFontFamilyId, size: number) {
     applyAppearanceFontSettings(document.documentElement, {
       ...DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
@@ -193,7 +200,7 @@ function mount() {
     { id: SH_PROFILE_ID, label: 'sh', argv: ['/bin/sh'] },
     { id: BASH_PROFILE_ID, label: 'bash', argv: ['/bin/bash'] },
   ]
-  render(
+  disposePane = render(
     () => (
       <TerminalPane
         connect={scriptedConnect}

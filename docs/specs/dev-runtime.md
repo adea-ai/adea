@@ -3187,6 +3187,24 @@ a font choice or disposing the pane invalidates pending font completions.
 Typography updates preserve the stream, output, selection, focus, and editor
 draft.
 
+The terminal pane downloads only its base terminal (xterm, fit, web links)
+when it opens; the WebGL renderer and the search addon are separate on-demand
+chunks. The pane starts its stream, takes output and input, and draws with the
+DOM renderer before any addon request settles, then fetches WebGL once the
+terminal is open and attached. The reported renderer is the one drawing: it
+reads DOM until the WebGL addon is active. A failed import, an addon that
+cannot activate, or WebGL context loss beyond the recovery budget leaves the
+DOM renderer in place (each recovery attaches a fresh addon that is itself
+watched for context loss), and an unmount during the download attaches
+nothing to the disposed terminal. The search addon is fetched the first time
+search opens. The pane reports only its latest search inputs and the addon
+applies them when it lands, so typing and closing while the chunk downloads
+never replays stale queries or leaves decorations behind. A failed search
+import reads "Search unavailable" in the bar, leaves the terminal untouched,
+and the next query change or reopen retries. The client bundle gate pins both
+chunks as the terminal pane's only dynamic edges and fails if either is
+reachable from startup or from the terminal route's static closure.
+
 A bottom editor supports multiline input, history search, palette sources, and
 send-to-active-terminal; pasting multiline or control-character text requires
 confirmation. Raw direct-keyboard mode remains available so full-screen TUIs
