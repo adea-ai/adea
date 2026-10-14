@@ -507,13 +507,14 @@ What it adds to the helper-level proofs above. Each claim names what is actually
   fence's positive control counts one. This is a fetch-only probe: it does not see Postgres sockets
   or other transports, so it is evidence about JavaScript fetch egress, not network residency.
 
-Teardown: each person is recorded when created, so a later test needs no cleanup of its own, and
+Teardown: each user id is recorded the moment the user exists, before its session is issued, so a
+failed session creation cannot leave an unregistered user and a later test needs no cleanup of its own, and
 teardown deletes every recorded user with their desktop sessions and auth identities, then fails the
 file if any user, identity or session carrying this run's marker remains. Each scratch database
 is registered for teardown before it is created, so a failed creation or migration still drops it,
 and teardown runs every step even if an earlier one fails, rethrowing the first failure. Two
 consecutive local runs left 0 users, identities, sessions, workspaces and scratch databases; with
-the tracking removed the guard failed with 12 leftovers; with the migrations folder made
+the tracking removed the guard failed with 12 leftovers; with session issuance made to fail for one user, the previous head left 1 user and identity and this one leaves none; with the migrations folder made
 unreachable, no scratch database or user was left behind.
 
 Mutation checks run while writing the file (each reverted afterwards; the expected cases failed):

@@ -273,11 +273,13 @@ const preflight = (origin: string) =>
   })
 
 /**
- * Every user this file creates in the lane database, in creation order. Teardown deletes exactly
- * these, so a test that adds a person needs no cleanup of its own. Destination persons live in a
- * scratch database that is dropped whole, so they are not tracked here.
+ * The id of every user this file creates in the lane database, recorded the moment the user exists and
+ * before anything else is done for it (a session is issued afterwards), so a failure in a later step
+ * cannot leave the record unregistered. Teardown deletes exactly these, so a test that adds a person
+ * needs no cleanup of its own. Destination persons live in a scratch database that is dropped whole,
+ * so they are not tracked here.
  */
-const sourcePeople: Person[] = []
+const sourceUserIds: string[] = []
 
 /** Every person in either database, for the final scan of the response log. */
 const everyPerson: Person[] = []
@@ -301,10 +303,10 @@ async function createPerson(
       identity: { provider: 'authpath-fixture', subject: `${name}-${run}-${randomUUID()}` },
       profile: { displayName: `${name} ${run}` },
     })
+    sourceUserIds.push(principal.userId)
   }
   const person = { ...(await issue(principal, email)), email, name, principal }
   everyPerson.push(person)
-  if (!id) sourcePeople.push(person)
   return person
 }
 
@@ -406,7 +408,7 @@ describe('authenticated portable export and import request path', () => {
    * the lane database concurrently.
    */
   async function sourceFingerprint() {
-    const ids = sourcePeople.map((person) => person.principal.userId)
+    const ids = sourceUserIds
     const tables = (await source.db.execute(sql`
       select c.table_name from information_schema.columns c
       join information_schema.tables t
@@ -614,7 +616,7 @@ describe('authenticated portable export and import request path', () => {
     if (source) {
       if (workspaceId) await attempt(() => removeSource(workspaceId))
       // Sessions and identities reference the user, so they go first; then every tracked user.
-      const ids = sourcePeople.map((person) => person.principal.userId)
+      const ids = sourceUserIds
       if (ids.length) {
         await attempt(() =>
           source.db.delete(desktopSessions).where(inArray(desktopSessions.userId, ids))
