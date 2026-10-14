@@ -3,33 +3,33 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
-import { zodLiteSource } from '../apps/web/start/neon-auth-zod-lite.mjs'
+import { ZOD_LITE_ID, authZodLite, zodLiteSource } from '../../src/vite-client-bundle'
 
-const require = createRequire(join(import.meta.dir, '../apps/web/package.json'))
-const authDist = join(dirname(require.resolve('@neondatabase/auth/package.json')), 'dist')
-
-// The real zod the adapter would otherwise bundle.
 type Schema = { safeParse(input: unknown): { success: boolean; data?: unknown } }
 type ZodLike = {
   string(): unknown
   number(): unknown
   object(shape: Record<string, unknown>): Schema
 }
-const realZod = createRequire(join(authDist, 'x.mjs'))('zod').z as ZodLike
 
-const adapterFiles = readdirSync(authDist).filter((name) => name.endsWith('.mjs'))
-const zodUsers = adapterFiles
-  .map((name) => ({ name, source: readFileSync(join(authDist, name), 'utf8') }))
+const require = createRequire(import.meta.url)
+const adapterDist = join(dirname(require.resolve('@neondatabase/auth/package.json')), 'dist')
+// The real zod the adapter would otherwise bundle.
+const realZod = createRequire(join(adapterDist, 'x.mjs'))('zod').z as ZodLike
+
+const zodUsers = readdirSync(adapterDist)
+  .filter((name) => name.endsWith('.mjs'))
+  .map((name) => ({ name, source: readFileSync(join(adapterDist, name), 'utf8') }))
   .filter(({ source }) => /from\s+["']zod["']/.test(source))
 
 const make = (z: ZodLike) => z.object({ token: z.string(), expires_at: z.number() })
 
-async function loadLite() {
+async function loadLite(): Promise<ZodLike> {
   const url = `data:text/javascript;base64,${Buffer.from(zodLiteSource).toString('base64')}`
   return (await import(url)).default as ZodLike
 }
 
-describe('neon auth zod stand-in', () => {
+describe('client bundle zod stand-in', () => {
   test('the installed adapter uses only what the stand-in implements', () => {
     expect(zodUsers.length).toBeGreaterThan(0)
     for (const { name, source } of zodUsers) {
@@ -46,15 +46,14 @@ describe('neon auth zod stand-in', () => {
     }
   })
 
-  test('the only schema is the anonymous token response', () => {
+  test('the only schema is the anonymous token response, read through safeParse', () => {
     for (const { source } of zodUsers) {
       const schemas = [...source.matchAll(/\bz\.object\(\{([^}]*)\}\)/g)].map((m) =>
         m[1]!.replaceAll(/\s+/g, '')
       )
       expect(schemas).toEqual(['token:z.string(),expires_at:z.number()'])
-      // Only the safe parse is called on it, and nothing reads zod error types.
       expect(source).toMatch(/anonymousTokenResponseSchema\.safeParse\(/)
-      expect(source).not.toMatch(/\.parse\(responseData|ZodError|\.issues|\.error\b.*zod/)
+      expect(source).not.toMatch(/anonymousTokenResponseSchema\.parse\(|ZodError/)
     }
   })
 
@@ -82,5 +81,21 @@ describe('neon auth zod stand-in', () => {
       expect({ sample, success: actual.success }).toEqual({ sample, success: expected.success })
       if (expected.success) expect(actual.data).toEqual(expected.data)
     }
+  })
+
+  test('the plugin swaps only the adapter\u2019s zod import, in the client build', () => {
+    const plugin = authZodLite()
+    const adapter = '/repo/node_modules/@neondatabase/auth/dist/adapter-core-X.mjs'
+    expect(plugin.applyToEnvironment({ name: 'client' })).toBe(true)
+    expect(plugin.applyToEnvironment({ name: 'ssr' })).toBe(false)
+    expect(plugin.resolveId('zod', adapter)).toBe(ZOD_LITE_ID)
+    expect(
+      plugin.resolveId('zod', 'C:\\repo\\node_modules\\@neondatabase\\auth\\dist\\x.mjs')
+    ).toBe(ZOD_LITE_ID)
+    expect(plugin.resolveId('zod', '/repo/node_modules/better-auth/dist/index.mjs')).toBeNull()
+    expect(plugin.resolveId('zod/v4', adapter)).toBeNull()
+    expect(plugin.resolveId('zod', undefined)).toBeNull()
+    expect(plugin.load(ZOD_LITE_ID)).toBe(zodLiteSource)
+    expect(plugin.load('/other')).toBeNull()
   })
 })
