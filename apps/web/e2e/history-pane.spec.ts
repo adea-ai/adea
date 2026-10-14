@@ -23,7 +23,7 @@ async function mount(page: Page, query = '') {
     },
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/history-pane-harness-app.tsx')
   )
-  await expect(page.getByRole('tablist', { name: 'History view' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'History view' })).toBeVisible()
 }
 
 test('lists prompts newest first with a reply summary', async ({ page }) => {
@@ -101,4 +101,44 @@ test('shows a loading status while the feed opens', async ({ page }) => {
   await mount(page, '?status=loading')
   await expect(page.getByRole('status', { name: 'Loading history' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Search this conversation' })).toBeDisabled()
+})
+
+test('a stale feed says so, hides the partial list and offers a reload', async ({ page }) => {
+  await mount(page, '?status=stale')
+  await expect(page.getByRole('status').filter({ hasText: 'History is out of date' })).toBeVisible()
+  await expect(page.getByText('deploy the staging build')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Search this conversation' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Reload' }).click()
+  await expect(page.getByTestId('jumps')).toHaveText('retry')
+})
+
+test('the Turns and Runs switch works from the keyboard', async ({ page }) => {
+  await mount(page)
+  const group = page.getByRole('group', { name: 'History view' })
+  const turns = group.getByRole('button', { name: 'Turns' })
+  const runs = group.getByRole('button', { name: 'Runs' })
+  const turnsList = page.getByRole('list', { name: 'Prompts and replies, newest first' })
+  const runHistory = page.getByRole('region', { name: 'Run history' })
+
+  await expect(turns).toHaveAttribute('aria-pressed', 'true')
+  await expect(turnsList).toBeVisible()
+
+  // Turns -> Runs: Tab to the second control and activate it with Enter.
+  await turns.focus()
+  await page.keyboard.press('Tab')
+  await expect(runs).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(runs).toHaveAttribute('aria-pressed', 'true')
+  await expect(turns).toHaveAttribute('aria-pressed', 'false')
+  await expect(runHistory).toBeVisible()
+  await expect(turnsList).toHaveCount(0)
+
+  // Runs -> Turns: Shift+Tab back and activate with Space.
+  await page.keyboard.press('Shift+Tab')
+  await expect(turns).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(turns).toHaveAttribute('aria-pressed', 'true')
+  await expect(runs).toHaveAttribute('aria-pressed', 'false')
+  await expect(turnsList).toBeVisible()
+  await expect(runHistory).toHaveCount(0)
 })
