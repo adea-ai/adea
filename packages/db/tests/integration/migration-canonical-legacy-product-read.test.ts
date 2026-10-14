@@ -22,7 +22,7 @@ import { loadGroupAdmission } from '../../src/group-participation-store'
 import { createTemporaryUserSession } from '../../src/identity'
 import { workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
-import { canonicalChainFolders } from '../fixtures/canonical-chain'
+import { applyAddressedTurnsMigration, canonicalChainFolders } from '../fixtures/canonical-chain'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -291,6 +291,7 @@ describe.skipIf(!provisioned)(
       const chain = canonicalChainFolders()
 
       await migrate(fresh.migration.db, { migrationsFolder: chain.full })
+      await applyAddressedTurnsMigration(fresh.migration.db)
       freshGroup = await buildFreshGroup(fresh)
 
       await migrate(upgrade.migration.db, { migrationsFolder: chain.stageOne })
@@ -299,6 +300,7 @@ describe.skipIf(!provisioned)(
         runtime: upgrade.runtime.db,
       })
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
+      await applyAddressedTurnsMigration(upgrade.migration.db)
       await installLegacyAudienceQuarantine(upgrade.migration.db)
       // Clean members write into the active group before the quarantine, as the legacy product allowed.
       for (const [sender, text] of [

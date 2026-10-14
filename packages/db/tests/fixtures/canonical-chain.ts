@@ -10,6 +10,9 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { sql } from 'drizzle-orm'
+
+import type { AgentHqDatabase } from '../../src/connection'
 import { DRIZZLE_DIR, readJournal } from './cutover-rehearsal'
 
 // The incoming canonical migration chain for the #1241 rehearsal: main through 0046, then the
@@ -218,4 +221,21 @@ export function canonicalChainFolders(): CanonicalChainFolders {
     })),
     root,
   }
+}
+
+/**
+ * Product calls on a canonical-chain database run today's group post path, which retires live
+ * addressed turns (#1179). That table is a later migration, outside the pinned rehearsal chain, so
+ * the product tests add exactly it from the live migration file, unchanged.
+ */
+export async function applyAddressedTurnsMigration(db: AgentHqDatabase): Promise<void> {
+  const tag = readJournal().entries.find((entry) =>
+    entry.tag.endsWith('_addressed_agent_turns')
+  )?.tag
+  if (!tag) throw new Error('the addressed agent turns migration is not in the journal')
+  const statements = readFileSync(`${DRIZZLE_DIR}/${tag}.sql`, 'utf8')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+  for (const statement of statements) await db.execute(sql.raw(statement))
 }
