@@ -348,3 +348,36 @@ export async function reconcileLegacyAudience(
     },
   }
 }
+
+export type GroupAudienceParticipants = Readonly<{
+  /** `channel:kind:principal`, sorted, one per canonical admission. */
+  admissions: readonly string[]
+  /** `channel:user:grantId:revision:revokedAt`, sorted, one per audience grant. */
+  audienceGrants: readonly string[]
+  /** `channel:agent:grantId:revision:revokedAt`, sorted, one per enlistment grant. */
+  enlistmentGrants: readonly string[]
+}>
+
+/**
+ * The exact participants and grants the canonical group tables hold for one workspace. The digests in
+ * the reconciliation prove nothing changed; this names who is admitted and under which grant, so a
+ * swapped or widened principal cannot hide behind an equal count.
+ */
+export async function captureGroupAudienceParticipants(
+  db: AgentHqDatabase,
+  workspaceId: string
+): Promise<GroupAudienceParticipants> {
+  const keys = async (statement: ReturnType<typeof sql>) =>
+    (await db.execute<{ key: string }>(statement)).map((row) => row.key).toSorted()
+  return {
+    admissions: await keys(sql`
+      select concat_ws(':', channel_id, principal_kind, coalesce(user_id, agent_id)) as key
+      from app.group_admissions where workspace_id = ${workspaceId}::uuid`),
+    audienceGrants: await keys(sql`
+      select concat_ws(':', channel_id, 'user', user_id, grant_id, revision, coalesce(revoked_at, '')) as key
+      from app.group_audience_grants where workspace_id = ${workspaceId}::uuid`),
+    enlistmentGrants: await keys(sql`
+      select concat_ws(':', channel_id, 'agent', agent_id, grant_id, revision, coalesce(revoked_at, '')) as key
+      from app.group_enlistment_grants where workspace_id = ${workspaceId}::uuid`),
+  }
+}
