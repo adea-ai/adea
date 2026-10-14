@@ -1,7 +1,7 @@
 import {
   sidebarGroupModes,
   type SidebarGroupMode,
-  type WorkspaceAccentId,
+  type WorkspaceAccent,
   type WorkspaceLogo,
 } from '@adea-ai/types'
 
@@ -83,8 +83,10 @@ export type NavWorkspace = Readonly<{
   id: string
   name: string
   logo: WorkspaceLogo
-  accent: WorkspaceAccentId | null
+  accent: WorkspaceAccent | null
   sortOrder: number
+  /** The caller's Home workspace: it always leads the list, whatever the stored order says. */
+  isHome?: boolean
   summary: NavWorkspaceSummary
   /** Present for the active workspace only; collapsed workspaces read counts. */
   projects?: readonly NavProject[]
@@ -267,10 +269,13 @@ export function workspaceChips(workspace: Pick<NavWorkspace, 'summary'>): Worksp
   return chips
 }
 
-/** Workspaces in the caller's own order. */
+/** Workspaces in the caller's own order, with Home pinned first. */
 export function sortWorkspaces(workspaces: readonly NavWorkspace[]): NavWorkspace[] {
   return workspaces.toSorted(
-    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
+    (left, right) =>
+      Number(right.isHome ?? false) - Number(left.isHome ?? false) ||
+      left.sortOrder - right.sortOrder ||
+      left.name.localeCompare(right.name)
   )
 }
 

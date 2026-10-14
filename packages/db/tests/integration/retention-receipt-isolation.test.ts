@@ -802,6 +802,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     )
     const gateOutcome = observePromise(gate)
     let admissionOutcome: Promise<PromiseOutcome<ReceiptAdmissionResult>> | undefined
+    let cleanupFailure: { reason: unknown } | undefined
     try {
       await awaitReadiness(gateEntered, gateOutcome, 'retention subject gate')
       const receipt = {
@@ -830,8 +831,9 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       releaseGate()
       const gateResult = await settleWithin(gateOutcome, 'retention subject gate')
       if (admissionOutcome) await settleWithin(admissionOutcome, 'receipt admission')
-      if (gateResult.status === 'rejected') throw gateResult.reason
+      if (gateResult.status === 'rejected') cleanupFailure ??= { reason: gateResult.reason }
     }
+    if (cleanupFailure) throw cleanupFailure.reason
     const outcome = await admissionOutcome!
     expect(outcome.status).toBe('rejected')
     expect((outcome as Extract<typeof outcome, { status: 'rejected' }>).reason).toBeInstanceOf(
@@ -866,6 +868,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     )
     const gateOutcome = observePromise(gate)
     let admissionOutcome: Promise<PromiseOutcome<ReceiptAdmissionResult>> | undefined
+    let cleanupFailure: { reason: unknown } | undefined
     try {
       await awaitReadiness(gateEntered, gateOutcome, 'retention subject gate')
       const receipt = {
@@ -892,8 +895,9 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       releaseGate()
       const gateResult = await settleWithin(gateOutcome, 'retention subject gate')
       if (admissionOutcome) await settleWithin(admissionOutcome, 'receipt admission')
-      if (gateResult.status === 'rejected') throw gateResult.reason
+      if (gateResult.status === 'rejected') cleanupFailure ??= { reason: gateResult.reason }
     }
+    if (cleanupFailure) throw cleanupFailure.reason
     const outcome = await admissionOutcome!
     expect(outcome.status).toBe('fulfilled')
     expect((outcome as Extract<typeof outcome, { status: 'fulfilled' }>).value.outcome).toBe(
@@ -923,6 +927,7 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
     })
     const holderOutcome = observePromise(holder)
     let gateOutcome: Promise<PromiseOutcome<RetentionDecision>> | undefined
+    let cleanupFailure: { reason: unknown } | undefined
     try {
       await awaitReadiness(holderEntered, holderOutcome, 'authorization table lock holder')
       const gate = evaluateStoredRetentionDeletion(connection.db, gateInput(workspaceId, subject))
@@ -939,9 +944,10 @@ describe.skipIf(!connectionUrl)('Receipt-generation isolation (stored)', () => {
       const gateResult = gateOutcome
         ? await settleWithin(gateOutcome, 'retention gate evaluation')
         : undefined
-      if (holderResult.status === 'rejected') throw holderResult.reason
-      if (gateResult?.status === 'rejected') throw gateResult.reason
+      if (holderResult.status === 'rejected') cleanupFailure ??= { reason: holderResult.reason }
+      if (gateResult?.status === 'rejected') cleanupFailure ??= { reason: gateResult.reason }
     }
+    if (cleanupFailure) throw cleanupFailure.reason
     const gateResult = await gateOutcome!
     expect(gateResult.status).toBe('fulfilled')
     expect((gateResult as Extract<typeof gateResult, { status: 'fulfilled' }>).value).toEqual({

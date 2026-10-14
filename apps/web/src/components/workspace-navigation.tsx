@@ -66,7 +66,7 @@ import type {
   WorkspaceDeepLink,
   WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
-import { useOptionalTheme } from '@adea-ai/app-ui/components/theme-provider'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
   enabledWorkspaceApps,
@@ -77,6 +77,7 @@ import {
   workspaceApps,
   type WorkspaceAppId,
 } from '@adea-ai/workspace-ui/workspace-apps'
+import { useWorkspacePersistence } from '@adea-ai/workspace-ui/use-workspace-persistence'
 import {
   devBreadcrumbs,
   type DevBreadcrumbSelection,
@@ -430,6 +431,8 @@ function WorkspaceSettingsOverlay(props: {
 function WorkspaceDetailsOverlay(props: {
   client: AgentHqApiClient
   onClose: () => void
+  /** Opens a workspace the dialog just restored; false leaves the dialog open to try again. */
+  onOpenWorkspace: (workspaceId: string) => Promise<boolean>
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
@@ -445,6 +448,7 @@ function WorkspaceDetailsOverlay(props: {
       }}
       client={props.client}
       onClose={props.onClose}
+      onOpenWorkspace={props.onOpenWorkspace}
       onUpdateWorkspace={async (update) => {
         await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
       }}
@@ -903,7 +907,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         : Promise.resolve(false)
     },
   })
+  // The persisted workspace selection restores on mount. Judging a link before
+  // that would call it "already there" against the bootstrap fallback, drop the
+  // param, and then lose to the restored selection of another workspace.
+  const persistenceReady = useWorkspacePersistence()
   createEffect(() => {
+    if (!persistenceReady()) return
     const requestedWorkspace = currentSearch().workspace
     if (!requestedWorkspace) {
       deepLinks.release()
@@ -1109,14 +1118,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const theme = useOptionalTheme()
   createEffect(() => {
     if (typeof document === 'undefined') return
-    paintWorkspaceAccent(
-      document.body,
-      props.activeWorkspace?.accent ?? null,
-      theme?.variantId() ?? ''
-    )
+    paintWorkspaceAccent(document.body, props.activeWorkspace?.accent ?? null, theme)
   })
   onCleanup(() => {
-    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, '')
+    if (typeof document !== 'undefined') paintWorkspaceAccent(document.body, null, undefined)
   })
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
@@ -1755,6 +1760,19 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           onClose={() => {
             setHashWorkspaceSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
+          }}
+          onOpenWorkspace={async (workspaceId) => {
+            const findRestored = (list: readonly WorkspaceSummary[] | undefined) =>
+              list?.find(({ id }) => id === workspaceId)
+            // The restore refreshes the list, but that refresh can fail on its own; ask again
+            // before giving up so the restored workspace is reachable without a reload.
+            const restored =
+              findRestored(orderedWorkspaces()) ??
+              findRestored((await workspaceList.refetch()).data)
+            if (!restored || !(await switchToWorkspace(restored))) return false
+            setHashWorkspaceSettingsOpen(false)
+            workspaceStore.getState().setGlobalPanel(null)
+            return true
           }}
           open
           services={props.services}

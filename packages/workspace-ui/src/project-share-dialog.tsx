@@ -43,6 +43,7 @@ import { Label } from '@adea-ai/ui/components/ui/label'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
@@ -183,9 +184,9 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
     >
       <div class="flex flex-col gap-6">
         <section class="flex flex-col gap-3" aria-labelledby="project-share-visibility">
-          <h3 id="project-share-visibility" class="text-sm font-medium">
+          <Heading as="h3" size="subsection" id="project-share-visibility">
             Who can see this project
-          </h3>
+          </Heading>
           <RadioGroup
             aria-labelledby="project-share-visibility"
             value={visibility()}
@@ -203,9 +204,9 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
         </section>
 
         <section class="flex flex-col gap-3" aria-labelledby="project-share-members">
-          <h3 id="project-share-members" class="text-sm font-medium">
+          <Heading as="h3" size="subsection" id="project-share-members">
             People on this project
-          </h3>
+          </Heading>
           <Show
             when={listed().length}
             fallback={
@@ -307,9 +308,9 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
 
         <Show when={canManage()}>
           <section class="flex flex-col gap-3" aria-labelledby="project-share-invite">
-            <h3 id="project-share-invite" class="text-sm font-medium">
+            <Heading as="h3" size="subsection" id="project-share-invite">
               Invite someone new to the workspace
-            </h3>
+            </Heading>
             <form
               class="flex items-center gap-2"
               onSubmit={(event) => {
@@ -365,9 +366,9 @@ export function ProjectShareDialog(props: ProjectShareDialogProps) {
           </section>
 
           <section class="flex flex-col gap-3" aria-labelledby="project-share-pending">
-            <h3 id="project-share-pending" class="text-sm font-medium">
+            <Heading as="h3" size="subsection" id="project-share-pending">
               Pending invitations
-            </h3>
+            </Heading>
             <Show
               when={pending().length}
               fallback={

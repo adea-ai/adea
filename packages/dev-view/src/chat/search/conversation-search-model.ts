@@ -28,6 +28,17 @@ export type ConversationSearchRow = Readonly<{
   resumeReason?: 'available' | 'cancelled' | 'missing_start' | 'non_terminal' | 'unknown_state'
 }>
 
+/**
+ * Accessible name of a result's jump button. A session title repeats across
+ * every match in that session, so the matched event kind and preview make each
+ * button distinguishable to a screen reader's links/buttons list.
+ */
+export function conversationSearchRowLabel(
+  row: Pick<ConversationSearchRow, 'title' | 'kind' | 'preview'>
+): string {
+  return `${row.title}, ${row.kind}: ${row.preview}`
+}
+
 export type ConversationSearchPage = Readonly<{
   items: readonly ConversationSearchRow[]
   nextCursor?: string
@@ -39,6 +50,13 @@ export type ConversationSearchInput = Readonly<{
   runs: readonly HarnessRun[]
   events: ReadonlyMap<string, readonly RuntimeEvent[]>
   query?: string
+  /**
+   * What a query is compared against. `all` (default) also matches the session
+   * title, kind and session id, which suits a search across sessions. `preview`
+   * matches only what the row shows, so a search inside one conversation does
+   * not return every row because the session title contains the word.
+   */
+  matchOn?: 'all' | 'preview'
   cursor?: string
   limit?: number
 }>
@@ -106,7 +124,7 @@ function eventRow(
   if (kind === 'turn.user_input') {
     searchKind = 'prompt'
     preview = payloadString(event, ['text', 'content', 'message'])
-  } else if (kind === 'turn.result') {
+  } else if (kind === 'turn.result' || kind === 'turn.assistant_message') {
     searchKind = 'result'
     preview = payloadString(event, ['summary', 'result', 'text', 'content'])
   } else if (kind.startsWith('tool.')) {
@@ -199,10 +217,11 @@ export function searchConversationHistory(input: ConversationSearchInput): Conve
   const filtered = rows
     .filter((row) => {
       if (!normalizedQuery) return true
-      return [row.title, row.preview, row.kind, row.runtimeSessionId]
-        .join(' ')
-        .toLocaleLowerCase()
-        .includes(normalizedQuery)
+      const haystack =
+        input.matchOn === 'preview'
+          ? [row.preview]
+          : [row.title, row.preview, row.kind, row.runtimeSessionId]
+      return haystack.join(' ').toLocaleLowerCase().includes(normalizedQuery)
     })
     .toSorted((left, right) => {
       const time = rowTime(right).localeCompare(rowTime(left))

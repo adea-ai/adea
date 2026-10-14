@@ -1,15 +1,28 @@
 import type { AgentSummary, ProjectSummary } from '@adea-ai/types'
-import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
+import { Bot, MessageCircle, Pencil, Plus, X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show, untrack, type Accessor, type JSX } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
 import { agentProfileActionNotice } from './agent-profile-notice'
 import { agentProfileStateNotice } from './agent-profile-state'
 import { keyedRows } from './keyed-rows'
+import { createClientRequestId } from './request-id'
 import { WorkspaceEmpty } from './workspace-states'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { PropertyList, PropertyTerm, PropertyValue } from '@adea-ai/ui/components/composites/stat'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Avatar, AvatarFallback } from '@adea-ai/ui/components/ui/avatar'
+import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Card,
@@ -18,10 +31,16 @@ import {
   CardHeader,
   CardTitle,
 } from '@adea-ai/ui/components/ui/card'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { FormField } from '@adea-ai/ui/components/ui/field'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Textarea } from '@adea-ai/ui/components/ui/textarea'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
+
+/** `requestId` stays the same across retries of one deliberate action, so a lost response cannot fork the topic. */
+export type NewConversationRequest = Readonly<{ requestId: string; title: string }>
 
 export type AgentCustomizationInput = Readonly<{
   avatarRef: string | null
@@ -53,6 +72,8 @@ type Props = Readonly<{
   ) => Promise<void>
   onArchive: (agentId: string) => Promise<void>
   onMessage: (agentId: string) => Promise<void>
+  /** Start a distinct topic with this Agent; the server commits one conversation per call. */
+  onNewConversation: (agentId: string, topic: NewConversationRequest) => Promise<void>
   onUpdate: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
   projects: readonly ProjectSummary[]
 }>
@@ -61,9 +82,14 @@ function AgentRosterCard(props: {
   agent: Accessor<AgentSummary>
   projectById: Accessor<ReadonlyMap<string, ProjectSummary>>
   onMessage: (agent: AgentSummary) => void
+  onNewConversation: (agent: AgentSummary, topic: NewConversationRequest) => Promise<void>
   onCustomize: (agent: AgentSummary) => void
 }) {
   const agent = () => props.agent()
+  const [naming, setNaming] = createSignal(false)
+  const [starting, setStarting] = createSignal(false)
+  const [startError, setStartError] = createSignal<string | null>(null)
+  let pendingRequestId: string | undefined
   return (
     <article>
       <Card>
@@ -74,6 +100,11 @@ function AgentRosterCard(props: {
           <CardTitle role="heading" aria-level="2">
             {agent().name}
           </CardTitle>
+          <Show when={agent().isWorkspaceLead === true}>
+            <Badge variant="subtle" title="Workspace lead">
+              Lead
+            </Badge>
+          </Show>
           <AgentStatus agent={agent()} compact />
         </CardHeader>
         <CardContent>
@@ -104,6 +135,63 @@ function AgentRosterCard(props: {
               <MessageCircle aria-hidden="true" />
               Open conversation
             </Button>
+            <Show
+              when={naming()}
+              fallback={
+                <Button type="button" variant="outline" onClick={() => setNaming(true)}>
+                  <Plus aria-hidden="true" />
+                  New conversation
+                </Button>
+              }
+            >
+              <form
+                class="grid gap-2"
+                onSubmit={async (event) => {
+                  event.preventDefault()
+                  const title = String(new FormData(event.currentTarget).get('topic') ?? '').trim()
+                  if (!title || starting()) return
+                  setStarting(true)
+                  setStartError(null)
+                  try {
+                    pendingRequestId ??= createClientRequestId()
+                    await props.onNewConversation(agent(), { requestId: pendingRequestId, title })
+                    pendingRequestId = undefined
+                    setNaming(false)
+                  } catch {
+                    setStartError('The conversation could not be started. Try again.')
+                  } finally {
+                    setStarting(false)
+                  }
+                }}
+              >
+                <Label for={`new-topic-${agent().id}`}>Topic for {agent().name}</Label>
+                <Input
+                  id={`new-topic-${agent().id}`}
+                  name="topic"
+                  maxLength={120}
+                  required
+                  autofocus
+                  placeholder="What is this conversation about?"
+                />
+                <Show when={startError()}>{(message) => <p role="alert">{message()}</p>}</Show>
+                <div class="flex gap-2">
+                  <Button type="submit" disabled={starting()}>
+                    {starting() ? 'Starting…' : 'Start conversation'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={starting()}
+                    onClick={() => {
+                      setNaming(false)
+                      setStartError(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </Show>
             <Button type="button" variant="outline" onClick={() => props.onCustomize(agent())}>
               <Pencil aria-hidden="true" />
               Customize
@@ -135,6 +223,7 @@ export function AgentRoster(props: Props) {
       agent={agent}
       projectById={projectById}
       onMessage={(current) => void props.onMessage(current.id)}
+      onNewConversation={(current, topic) => props.onNewConversation(current.id, topic)}
       onCustomize={setEditingAgent}
     />
   )
@@ -150,7 +239,9 @@ export function AgentRoster(props: Props) {
       <header class="conventional-surface-header">
         <div>
           <span>Durable identities</span>
-          <h1 id="agent-roster-title">Agents</h1>
+          <Heading as="h1" size="title" id="agent-roster-title">
+            Agents
+          </Heading>
           <p>Status reflects configuration only. Runtime availability arrives later.</p>
         </div>
         <Button type="button" onClick={() => setCreating(true)}>
@@ -230,10 +321,9 @@ function AgentCustomizationForm(props: {
   onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
   projects: readonly ProjectSummary[]
 }) {
-  const [archiveConfirmation, setArchiveConfirmation] = createSignal(false)
   return (
     <form
-      class="conventional-inline-form conventional-agent-customization"
+      class="conventional-agent-form conventional-agent-customization"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
@@ -248,116 +338,128 @@ function AgentCustomizationForm(props: {
         })
       }}
     >
-      <div class="conventional-inline-form__header">
-        <div>
-          <h2>Customize {props.agent.name}</h2>
-          <p>Stable identity · {props.agent.id}</p>
-        </div>
-        <ActionButton
-          type="button"
-          aria-label="Close Agent customization"
-          tooltip="Close Agent customization"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => props.onCancel()}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <AgentStatus agent={props.agent} />
-      <div class="conventional-form-grid">
-        <Label>
-          Name
-          <Input name="name" required maxLength={120} value={props.agent.name} />
-        </Label>
-        <Label>
-          Project
-          <NativeSelect
-            name="projectId"
-            value={props.agent.projectId ?? ''}
-            options={[
-              { value: '', label: 'Unassigned' },
-              ...props.projects.map((project) => ({
-                value: project.id,
-                label: project.name,
-              })),
-            ]}
-          />
-        </Label>
-        <Label class="col-span-full">
-          Role or persona
-          <Textarea
-            name="roleSummary"
-            rows={3}
-            maxLength={500}
-            value={props.agent.roleSummary ?? ''}
-          />
-        </Label>
-        <Label>
-          Avatar reference
-          <Input
-            name="avatarRef"
-            maxLength={500}
-            value={props.agent.avatarRef ?? ''}
-            placeholder="Optional stable asset reference"
-          />
-        </Label>
-        <Label>
-          Character reference
-          <Input
-            name="characterRef"
-            maxLength={500}
-            value={props.agent.characterRef ?? ''}
-            placeholder="Optional character reference"
-          />
-        </Label>
-        <AgentProfileFields profile={props.agent.profile} />
-      </div>
-      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <div class="conventional-agent-customization__actions">
-        <Button type="submit" disabled={props.busy}>
-          {props.busy ? 'Saving…' : 'Save changes'}
-        </Button>
-        <Show
-          when={archiveConfirmation()}
-          fallback={
-            <Button
+      <Card>
+        <CardHeader>
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <Heading as="h2" size="card">
+                Customize {props.agent.name}
+              </Heading>
+              <Text as="p" variant="caption" tone="muted">
+                Stable identity · {props.agent.id}
+              </Text>
+            </div>
+            <ActionButton
               type="button"
-              variant="outline"
-              disabled={props.busy}
-              onClick={() => setArchiveConfirmation(true)}
+              aria-label="Close Agent customization"
+              tooltip="Close Agent customization"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => props.onCancel()}
             >
-              Archive Agent
-            </Button>
-          }
-        >
-          <div
-            class="conventional-destructive-confirmation"
-            role="alertdialog"
-            aria-label={`Archive ${props.agent.name}`}
-          >
-            <ShieldAlert aria-hidden="true" />
-            <p>
-              Archive this Agent? Durable conversations and history remain linked to its stable
-              identity.
-            </p>
-            <Button
-              type="button"
-              disabled={props.busy}
-              onClick={() => void props.onArchive(props.agent)}
-            >
-              Confirm archive
-            </Button>
-            <Button type="button" onClick={() => setArchiveConfirmation(false)}>
-              Cancel
-            </Button>
+              <X aria-hidden="true" />
+            </ActionButton>
           </div>
-        </Show>
-      </div>
-      <p class="conventional-agent-delete-note">
-        Permanent deletion is unavailable because it would break durable identity and conversation
-        references.
-      </p>
+        </CardHeader>
+        <CardContent>
+          <div class="flex flex-col gap-4">
+            <AgentStatus agent={props.agent} />
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FormField label="Name">
+                <Input name="name" required maxLength={120} value={props.agent.name} />
+              </FormField>
+              <FormField label="Project">
+                <NativeSelect
+                  class="w-full"
+                  name="projectId"
+                  value={props.agent.projectId ?? ''}
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...props.projects.map((project) => ({
+                      value: project.id,
+                      label: project.name,
+                    })),
+                  ]}
+                />
+              </FormField>
+              <FormField class="col-span-full" label="Role or persona">
+                <Textarea
+                  name="roleSummary"
+                  rows={3}
+                  maxLength={500}
+                  value={props.agent.roleSummary ?? ''}
+                />
+              </FormField>
+              <FormField label="Avatar reference">
+                <Input
+                  name="avatarRef"
+                  maxLength={500}
+                  value={props.agent.avatarRef ?? ''}
+                  placeholder="Optional stable asset reference"
+                />
+              </FormField>
+              <FormField label="Character reference">
+                <Input
+                  name="characterRef"
+                  maxLength={500}
+                  value={props.agent.characterRef ?? ''}
+                  placeholder="Optional character reference"
+                />
+              </FormField>
+              <AgentProfileFields profile={props.agent.profile} />
+            </div>
+            <Show when={props.error}>
+              {(error) => (
+                <Alert variant="destructive">
+                  <AlertDescription>{error()}</AlertDescription>
+                </Alert>
+              )}
+            </Show>
+            <div class="flex flex-wrap items-center gap-3">
+              <Button type="submit" disabled={props.busy}>
+                {props.busy ? 'Saving…' : 'Save changes'}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger
+                  as={Button}
+                  type="button"
+                  variant="outline"
+                  disabled={props.busy}
+                >
+                  Archive Agent
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{`Archive ${props.agent.name}`}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Archive this Agent? Durable conversations and history remain linked to its
+                      stable identity.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel as={Button} type="button" variant="outline">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      as={Button}
+                      type="button"
+                      variant="destructive"
+                      disabled={props.busy}
+                      onClick={() => void props.onArchive(props.agent)}
+                    >
+                      Confirm archive
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+            <Text as="p" variant="caption" tone="muted">
+              Permanent deletion is unavailable because it would break durable identity and
+              conversation references.
+            </Text>
+          </div>
+        </CardContent>
+      </Card>
     </form>
   )
 }
@@ -370,7 +472,7 @@ function AgentCreateForm(props: {
 }) {
   return (
     <form
-      class="conventional-inline-form"
+      class="conventional-agent-form"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
@@ -382,32 +484,46 @@ function AgentCreateForm(props: {
         })
       }}
     >
-      <div class="conventional-inline-form__header">
-        <h2>Create Agent</h2>
-        <ActionButton
-          type="button"
-          aria-label="Cancel Agent creation"
-          tooltip="Cancel Agent creation"
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => props.onCancel()}
-        >
-          <X aria-hidden="true" />
-        </ActionButton>
-      </div>
-      <Label>
-        Name
-        <Input name="name" required maxLength={120} />
-      </Label>
-      <Label>
-        Role or persona
-        <Textarea name="roleSummary" rows={2} maxLength={500} />
-      </Label>
-      <AgentProfileFields />
-      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
-      <Button type="submit" disabled={props.busy}>
-        {props.busy ? 'Creating…' : 'Create Agent'}
-      </Button>
+      <Card>
+        <CardHeader>
+          <div class="flex items-start justify-between gap-2">
+            <Heading as="h2" size="card">
+              Create Agent
+            </Heading>
+            <ActionButton
+              type="button"
+              aria-label="Cancel Agent creation"
+              tooltip="Cancel Agent creation"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => props.onCancel()}
+            >
+              <X aria-hidden="true" />
+            </ActionButton>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div class="flex flex-col gap-4">
+            <FormField label="Name">
+              <Input name="name" required maxLength={120} />
+            </FormField>
+            <FormField label="Role or persona">
+              <Textarea name="roleSummary" rows={2} maxLength={500} />
+            </FormField>
+            <AgentProfileFields />
+            <Show when={props.error}>
+              {(error) => (
+                <Alert variant="destructive">
+                  <AlertDescription>{error()}</AlertDescription>
+                </Alert>
+              )}
+            </Show>
+            <Button type="submit" disabled={props.busy}>
+              {props.busy ? 'Creating…' : 'Create Agent'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </form>
   )
 }
@@ -417,17 +533,15 @@ function AgentProfileFields(props: { profile?: AgentSummary['profile'] }) {
   const version = props.profile?.version ?? ''
   return (
     <>
-      <Label>
-        Profile ID
+      <FormField label="Profile ID">
         <Input name="profileId" required placeholder="prf_…" maxLength={30} value={id} />
-      </Label>
-      <Label>
-        Profile version ID
+      </FormField>
+      <FormField label="Profile version ID">
         <Input name="profileVersion" required placeholder="pfv_…" maxLength={30} value={version} />
-      </Label>
-      <p class="conventional-settings-note col-span-full">
+      </FormField>
+      <Text as="p" variant="caption" tone="muted" class="col-span-full">
         Published, approved IDs: Workspace settings › Skills. Future submissions.
-      </p>
+      </Text>
     </>
   )
 }

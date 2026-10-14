@@ -57,15 +57,9 @@
   overflow: hidden;
 }
 
-.dev-permissions__group-heading {
-  margin: 0;
+[data-permissions-group-heading] {
   padding: 0.5rem 1rem;
   background: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
 }
 
 .dev-permissions__row {
@@ -91,12 +85,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-}
-
-.dev-permissions__title {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: 500;
 }
 
 .dev-permissions__purpose,

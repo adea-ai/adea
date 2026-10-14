@@ -9,22 +9,26 @@ import {
   type AppearanceDraft,
   type AppearanceEditorProps,
 } from '@adea-ai/ui/components/composites/appearance-editor'
+import { ACCENTS as accentPresets, getAccent as accentPresetById } from '@adea-ai/themes'
+import { isThemeAccentId } from '@adea-ai/ui/lib/themes'
 import {
-  accentPresets,
-  accentPresetById,
-  isThemeAccentId,
-  subscribeCustomThemes,
+  preferencesFromSelection,
   type AppearancePreferencesV2,
-} from '@adea-ai/app-ui/components/appearance'
+} from '@adea-ai/app-ui/components/appearance-codec'
+import {
+  readCustomThemeLibrary,
+  removeCustomTheme,
+  subscribeCustomThemes,
+} from '@adea-ai/app-ui/components/custom-theme-library'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { mirrorWindowSurface } from './window-surface'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 import { MonitorCog } from 'lucide-solid'
 
-import { readCustomThemeLibrary, removeCustomTheme } from '@adea-ai/app-ui/components/appearance'
 import { For, Show } from 'solid-js'
 import { themeAccentPresets } from '@adea-ai/themes'
 
@@ -64,6 +68,10 @@ export function AppearanceControl(props: AppearanceControlProps) {
 function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   const appearance = useTheme()
   const editor = createAppearanceEditor()
+  // The shell starts without the 34-theme catalogue (ADR 0014). A draft of a
+  // catalogue theme previews once it has loaded, so fetch it when the editor opens
+  // instead of on the first click. Idempotent; a failure leaves the default pair.
+  onMount(() => void appearance.loadCatalogue?.())
   // Mirror the glass choice to the native window whenever it changes (the
   // desktop host registers the transport; everywhere else this is a no-op).
   // The mirror is idempotent, so firing on the restored draft is harmless.
@@ -231,7 +239,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
   }
 
   const openDraft = () => {
-    const committed = untrack(() => appearance.preferences())
+    const committed = untrack(() => preferencesFromSelection(appearance.selection()))
     editor.open(committed)
     setCustomAccent(customAccentValue(committed.accent))
     setRawCustomAccent(customAccentValue(committed.accent))
@@ -248,13 +256,13 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
       return publishedDraft()
     },
     get lightTheme() {
-      return appearanceThemeForPreview(miniatures().light, editor.draft().accent)
+      return appearanceThemeForPreview(miniatures().light, editor.draft().accent, editor.draft())
     },
     get darkTheme() {
-      return appearanceThemeForPreview(miniatures().dark, editor.draft().accent)
+      return appearanceThemeForPreview(miniatures().dark, editor.draft().accent, editor.draft())
     },
     get resolvedAppearance() {
-      return appearance.resolvedMode()
+      return appearance.resolvedAppearance()
     },
     get themes() {
       return themes()
@@ -304,7 +312,9 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
             <header class="conventional-settings-section-header">
               <MonitorCog aria-hidden="true" />
               <div>
-                <h3>Appearance</h3>
+                <Heading as="h3" size="card">
+                  Appearance
+                </Heading>
                 <p>
                   Changes preview immediately. Save keeps them; leaving this section without saving
                   restores your previous appearance.

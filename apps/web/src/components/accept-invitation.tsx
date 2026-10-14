@@ -1,6 +1,7 @@
 import { ApiClientError, createApiClient } from '@adea-ai/api-client'
 import { useAcceptWorkspaceInvitationMutation } from '@adea-ai/data'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { createSignal, Match, onMount, Switch } from 'solid-js'
 
 type AcceptStatus = 'loading' | 'ready' | 'accepting' | 'sign-in' | 'invalid' | 'joined'
@@ -77,9 +78,9 @@ export function AcceptInvitation() {
     <Switch>
       <Match when={status() === 'invalid'}>
         <p class="auth-eyebrow">Adea workspace</p>
-        <h1 class="auth-title" id="accept-invitation-title">
+        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
           This invitation can’t be used
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="alert">
           It may have expired, been revoked, already been used, or been sent to a different email
           address. Ask the person who invited you for a new link.
@@ -88,9 +89,9 @@ export function AcceptInvitation() {
       </Match>
       <Match when={status() === 'sign-in'}>
         <p class="auth-eyebrow">Adea workspace</p>
-        <h1 class="auth-title" id="accept-invitation-title">
+        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
           Sign in to join
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="status">
           Sign in with the email address the invitation was sent to, then you’ll come back here to
           accept it.
@@ -99,18 +100,18 @@ export function AcceptInvitation() {
       </Match>
       <Match when={status() === 'joined'}>
         <p class="auth-eyebrow">Adea workspace</p>
-        <h1 class="auth-title" id="accept-invitation-title">
+        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
           You’ve joined the workspace
-        </h1>
+        </Heading>
         <p class="auth-introduction" role="status" aria-live="polite">
           Opening it now…
         </p>
       </Match>
       <Match when={status() === 'loading' || status() === 'ready' || status() === 'accepting'}>
         <p class="auth-eyebrow">Adea workspace</p>
-        <h1 class="auth-title" id="accept-invitation-title">
+        <Heading as="h1" size="display" data-auth-title id="accept-invitation-title">
           You’ve been invited to a workspace
-        </h1>
+        </Heading>
         <p class="auth-introduction">
           Accepting adds you as a member with the role you were invited with.
         </p>

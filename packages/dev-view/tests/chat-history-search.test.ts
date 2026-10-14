@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeEvent, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 
 import {
+  conversationSearchRowLabel,
   exportTranscriptWindow,
   searchConversationHistory,
   virtualSearchRows,
@@ -91,6 +92,34 @@ describe('searchConversationHistory', () => {
     expect(prompt?.jump).toMatchObject({ runtimeSessionId: session.id, eventId: 'event-1' })
   })
 
+  test('matchOn preview ignores the session title and kind', () => {
+    const input = {
+      sessions: [{ ...session, displayName: 'Deploy planning' }],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({ payload: { text: 'write the release notes' } }),
+            event({
+              eventId: 'event-2',
+              sourceEventId: 'source-2',
+              seq: '2',
+              payload: { text: 'deploy the staging build' },
+            }),
+          ],
+        ],
+      ]),
+      limit: 10,
+    }
+    expect(searchConversationHistory({ ...input, query: 'deploy' }).totalMatches).toBe(2)
+    const scoped = searchConversationHistory({ ...input, query: 'deploy', matchOn: 'preview' })
+    expect(scoped.items.map((item) => item.preview)).toEqual(['deploy the staging build'])
+    expect(
+      searchConversationHistory({ ...input, query: 'prompt', matchOn: 'preview' }).totalMatches
+    ).toBe(0)
+  })
+
   test('paginates with an opaque bounded cursor and virtualizes a result window', () => {
     const page = searchConversationHistory({
       sessions: [session],
@@ -134,5 +163,34 @@ describe('exportTranscriptWindow', () => {
     })
     expect(result.exportedEvents).toBe(1)
     expect(result.truncated).toBe(true)
+  })
+})
+
+describe('conversationSearchRowLabel', () => {
+  test('names a result by its session title, matched kind, and preview', () => {
+    const page = searchConversationHistory({
+      sessions: [session],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({}),
+            event({
+              eventId: 'approval-1',
+              sourceEventId: 'approval-source',
+              seq: '2',
+              kind: 'approval.requested',
+              payload: { title: 'Deploy' },
+            }),
+          ],
+        ],
+      ]),
+      query: 'deploy',
+      limit: 10,
+    })
+    const labels = page.items.map(conversationSearchRowLabel)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('Adea task, approval: Deploy')
   })
 })

@@ -9,6 +9,7 @@ import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { For, Show, createSignal, type JSX } from 'solid-js'
 
 import { errorText, type ScmClient } from '../client'
@@ -80,9 +81,9 @@ export function DetailsPanel(props: {
     <aside class="dev-scm__details" aria-label="Pull request details">
       <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-reviewers">
         <div class="dev-scm-details__head">
-          <h2 class="dev-scm-eyebrow" id="dev-scm-details-reviewers">
+          <Text as="h2" variant="overline" id="dev-scm-details-reviewers">
             Reviewers
-          </h2>
+          </Text>
           <Picker
             noun="reviewers"
             searchLabel="Search people"
@@ -127,9 +128,9 @@ export function DetailsPanel(props: {
 
       <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-assignees">
         <div class="dev-scm-details__head">
-          <h2 class="dev-scm-eyebrow" id="dev-scm-details-assignees">
+          <Text as="h2" variant="overline" id="dev-scm-details-assignees">
             Assignees
-          </h2>
+          </Text>
           <Picker
             noun="assignees"
             searchLabel="Search people"
@@ -150,9 +151,9 @@ export function DetailsPanel(props: {
 
       <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-labels">
         <div class="dev-scm-details__head">
-          <h2 class="dev-scm-eyebrow" id="dev-scm-details-labels">
+          <Text as="h2" variant="overline" id="dev-scm-details-labels">
             Labels
-          </h2>
+          </Text>
           <Picker
             noun="labels"
             searchLabel="Filter labels"
@@ -180,9 +181,9 @@ export function DetailsPanel(props: {
       </section>
 
       <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-session">
-        <h2 class="dev-scm-eyebrow" id="dev-scm-details-session">
+        <Text as="h2" variant="overline" id="dev-scm-details-session">
           Agent session
-        </h2>
+        </Text>
         <Show
           when={props.pr.session}
           fallback={
@@ -231,9 +232,9 @@ export function DetailsPanel(props: {
       </section>
 
       <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-issues">
-        <h2 class="dev-scm-eyebrow" id="dev-scm-details-issues">
+        <Text as="h2" variant="overline" id="dev-scm-details-issues">
           Linked issues
-        </h2>
+        </Text>
         <Show
           when={props.pr.linkedIssues.length > 0}
           fallback={<span class="dev-scm-caption">None.</span>}
@@ -257,9 +258,9 @@ export function DetailsPanel(props: {
 
       <Show when={props.pr.state === 'open' && !props.pr.crossRepository}>
         <section class="dev-scm-details__section" aria-labelledby="dev-scm-details-after">
-          <h2 class="dev-scm-eyebrow" id="dev-scm-details-after">
+          <Text as="h2" variant="overline" id="dev-scm-details-after">
             After merge
-          </h2>
+          </Text>
           <Switch
             checked={props.deleteBranch}
             onChange={props.onDeleteBranch}

@@ -1388,6 +1388,43 @@ project/session sidebar uses that same owner and shelf. These surfaces continue
 to use the published shared navigation and its existing domain renderers for
 general project, room, and session navigation.
 
+#### History pane
+
+The right-sidebar History tab (`DevUtilityPane` `history`, capability
+`dev.session.read`) answers "what did I ask last, and what did the agent say".
+It is bound to the one canonical session of the utility context; there is no
+cross-session search and no second store.
+
+- **Data.** `SessionHistorySection` reads `dev.session.get` and `dev.harness.runs`
+  through the captured utility fence, then opens a read-direction
+  `runtime-events-v1` stream through `openRuntimeEventStream` (the same opener
+  Chat uses for its transcript) bound to the session generation. It folds frames
+  into the bounded transcript accumulator (1,000 events) and closes the stream
+  when the pane unmounts or the context changes.
+- **Turns tab.** One row per `turn.user_input`, newest first, from
+  `buildHistoryTurns`: the redacted prompt, a short summary of the reply
+  (`turn.result` summary, else the latest `turn.assistant_message`), the tool-call
+  count (`tool.requested`), generation and relative time. State is `Done` and
+  `Failed` only from the reply event itself (`isError`, or `status`
+  `failed`/`error`), `Working` only for the newest prompt while the newest
+  `HarnessRun` is working or awaiting input/approval, and otherwise
+  `No reply recorded`; nothing is inferred from silence. A row expands in place to
+  the full redacted prompt and reply.
+- **Search.** The search field filters the same retained window through
+  `searchConversationHistory` with `matchOn: 'preview'`, so it matches prompts,
+  replies, tool names, approvals, questions and statuses and never the session
+  title. Results page 100 at a time; "Load more" extends the list from the
+  previous cursor. Matches are highlighted. A result's Jump button appears only
+  where the host can reveal an event (Chat supplies `onJump`; Dev shows none).
+- **Runs tab.** The existing `RunHistoryPane` for the session.
+- **Truthful states.** A `terminal_fallback` projection has no structured feed, so
+  the Turns tab says so instead of showing an empty list; a window that retention
+  dropped older events from says "Showing the latest events only"; an unreadable
+  feed offers Try again.
+- **Redaction.** Prompt and reply text pass `redactSearchText` (secrets, private
+  paths, control characters, bounded length), and `credential`-classified events
+  are skipped.
+
 Archive command construction, pagination, and response validation load on demand;
 the shell owner retains shelf state, request revisions, and context fences.
 A pending load MUST capture existing authority before runtime readiness or code
@@ -1663,14 +1700,18 @@ synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
-0.8.1 catalogue. Every editor projection clears the host's 4.5:1 syntax floor;
-the generator refuses unexpected exclusions and records the package's actual
-version. A removed or unknown stored ID resolves to the appearance default
-without deleting the stored preference.
-Solid destructive actions carry a separate generated fill/foreground pair from
-`shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
-and clear those tokens with the rest of the palette. Canonical status hues,
-terminal ANSI colors, and editor roles retain their published projections.
+catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
+exact version) through its lazy entry, so the catalogue is not in the start-up
+chunk: the default pair, imported themes and every accent need no import, a saved
+or previewed catalogue theme paints from the stylesheet and keeps `variant()` on the
+appearance default until the provider's own fetch of the catalogue resolves, and the
+appearance editor loads it when it mounts. Every editor projection clears the host's 4.5:1 syntax floor
+(`editorRoles: 'floor'`). A removed or unknown stored ID resolves to the
+appearance default without deleting the stored preference.
+Solid destructive actions carry a separate fill/foreground pair from the
+published projection; theme switching and the pre-paint script apply and clear
+those tokens with the rest of the palette. Canonical status hues, terminal ANSI
+colors, and editor roles retain their published projections.
 
 ### Desktop Chat presentation notifications
 
@@ -5577,6 +5618,61 @@ between plan and commit fails the commit `stale_generation`, and the reply's
 strict decoders (`JanitorScanReport`, `JanitorMeasurePage`, `JanitorPlan`,
 `JanitorCommitResult`) fail closed like every other operation's.
 
+### Harness inventory
+
+`dev.harness.inventory` (`dev.harness.read`) returns the machine's discovered
+harness installations as a `RuntimeConnectionInventorySnapshot`: one entry per
+family with its display name, version, `auth` and `health` states, declared
+`capabilities` and `sessionOperations`, `limitations`, and the eligibility
+verdict with typed blockers, plus a parallel `freshness` list. It is a pure
+projection of the last stored observation and never probes the machine, so an
+empty list means "not scanned yet" or "nothing found", not "not installed".
+
+`dev.harness.inventoryRefresh` (`dev.harness.manage`) is the explicit rescan.
+It runs the shell's discovery sources (the local-executable source: path
+resolution plus a bounded fixed-argv version probe per found executable, no
+shell text), stores the observation, publishes `dev.harness.updated` with
+`kind: 'inventory.refreshed'`, and returns the fresh snapshot. Overlapping
+rescans share one pass. A host composed without discovery sources returns the
+stored observation unchanged. Making a discovered installation the default
+goes through the existing `dev.harness.preferenceUpdate`; the default is per
+runtime node (optionally per project), not per workspace.
+
+### Default harness: device and workspace
+
+A new session with no explicit harness starts with the first of: the project
+default, the workspace default, the device default, the managed-Pi root
+default. The project and workspace defaults are `HarnessPreference` records
+(`default: true`, scoped to the active account, workspace and runtime node);
+setting one through `dev.harness.preferenceUpdate` is the per-workspace
+override, and clearing it (`default: false`) returns the workspace to the
+device default. A stored preference outlives its installation: when the
+installation is uninstalled or lost in a rescan the record stays listed and
+`preferenceUpdate` still accepts a patch that does not set `default: true`
+(clear or disable); making a missing installation the default is `not_found`.
+
+`dev.harness.deviceDefault` (`dev.harness.read`) and
+`dev.harness.deviceDefaultUpdate` (`dev.harness.manage`) hold the device
+default: one harness family (`claude-code`, `codex`, `opencode`, `pi`) shared by
+every workspace on this device, so a new workspace needs no reconfiguring. It
+names a family, not an installation, because installation ids are bound to one
+workspace scope. The update is fenced by `expectedVersion` (0 when never set,
+`stale_version` with the current version otherwise); omitting `family` clears
+it; an unknown family is `invalid_state`. While a device default is set the
+managed-Pi root default is not synthesized into `dev.harness.preferences`.
+
+`dev.session.launchDefault` resolves the device default family to a
+launch-eligible installation in the active workspace (scanning once when the
+workspace was never scanned). An installation the user disabled never
+qualifies, and the workspace's own account for the family is resolved first: a
+delivered account satisfies a missing native login when the launch attaches a
+terminal, the same rule the launch itself applies. The session is read again
+after any scan, so one archived or transferred meanwhile launches nothing
+(`stale_generation` or `invalid_state`), and a default that changed meanwhile
+refuses `invalid_state` (retryable). A family that is not installed or not
+eligible refuses `capability_unavailable` with remediation
+`dev.harness.inventoryRefresh`; it never launches a different harness.
+
 ### Runtime activity
 
 The Agents pane mounts the harness status surface above the Activity section:
@@ -5848,8 +5944,8 @@ terminal suite pins computed Code styles and current-generation PTY resize in
 Migrate the old `theme` key without flash or deletion. System mode follows the
 OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation; the accent override owns `--primary`,
-`--primary-foreground`, and `--ring`, so a non-default variant's own copy of
-those roles must never be written over an active override — otherwise presets
+`--primary-foreground`, `--primary-hover`, and `--ring`, so a non-default
+variant's own copy of those roles must never be written over an active override — otherwise presets
 silently revert to the theme's primary on every catalogue and imported theme
 while working only on the default pair. Accents are one global preset axis for
 every theme, not a per-theme list, and the default accent is itself one of the
@@ -5857,7 +5953,7 @@ six catalogue presets (Violet) rather than a seventh "theme default" entry
 beside them: the picker offers the six presets plus the custom color, a stored
 legacy `'theme'` value migrates to the default preset on read and on resolve,
 and every selection — the default included — is therefore an active override
-that owns the three accent tokens. OS or user reduced transparency forces
+that owns the accent tokens. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 The terminal palette follows the resolved interface theme unless
@@ -5869,20 +5965,42 @@ default pair), and an unknown pinned id degrades to the interface palette,
 never a blank terminal. Terminals only exist after application JavaScript
 mounts, so the pre-paint script deliberately skips the pin — there is no
 pre-hydration terminal paint.
-The built-in registry is the published `@adea-ai/themes` catalogue adapted
-into this manifest's CSS, terminal, editor, and chart roles, led by the
-`adea-light`/`adea-dark` default pair; all published themes clear the editor
-floor. Preference IDs and pre-paint document authority remain Adea-owned.
-Every variant, including the default pair, ships in the generated
-`packages/ui/src/styles/canonical-themes.css` sheet. Its framework roles come
-from the published UI projection, including sidebar, status, and raised surfaces;
-terminal/editor aliases come from Themes adapters. The pre-paint script resolves
-the attribute and the render-blocking stylesheet paints the stored palette.
+The built-in registry is the published `@adea-ai/themes` catalogue, projected
+by the shared `@adea-ai/ui` ThemeProvider into CSS, terminal, editor, and chart
+roles, led by the `adea-light`/`adea-dark` default pair; all published themes
+clear the editor floor. The provider is shared, not forked: Adea runs the
+published provider and keeps three host-owned seams in
+`packages/ui/src/components` (ADR 0014). `appearance-codec.ts` owns the stored
+document: the keys `appearance`, `appearance.library`, `appearance.recovery`
+and the legacy `theme`, the V2 field set and its normalization, the legacy
+migration, and the fresh-install defaults (the Violet accent). `custom-theme-library.ts`
+owns the imported-theme library and its own recovery key,
+`appearance.library.recovery`, so a corrupt library can no longer overwrite the
+preference's quarantine. `appearance-host.tsx` configures the provider
+(`persistence`, imported `themes`, the surface policy and native-translucency
+capability, `accentContrastFloor: 3`, `editorRoles: 'floor'`, hex tokens, font
+zoom) and exposes the V2 `update`/`preview` seam the appearance editor writes
+through; the shell (workspace accent, identity marks, the mode toggle) reads the
+shared context directly, and `accentRolesFor` derives a workspace accent over
+the active variant.
+Preference IDs and the stored document remain Adea-owned; the pre-paint script
+is the shared `themeScript` rendered from the same storage schema as the
+persistence, so first paint and the mounted provider read one document.
+Every variant, including the default pair, ships in the published
+`@adea-ai/ui/theme-variants.css` sheet, imported after the published theme
+sheet; the pre-paint script resolves the attribute and the render-blocking
+stylesheet paints the stored palette. The root carries `data-appearance`
+(`light`/`dark`), `data-theme`, and `data-accent` (the preset id, `custom` for
+a `#rrggbb` accent, absent for a theme-derived accent until the provider mounts).
 App-authored styles cannot redeclare published palette tokens. Palette
-normalization, accents, and contrast math remain catalogue-owned. Generated editor roles use the published
+normalization, accents, and contrast math remain catalogue-owned; the sheet
+writes colors in the catalogue's own notation and the provider writes inline
+accent and imported-theme tokens as hex. Generated editor roles use the published
 quantized-hex contrast projection, while the syntax API retains its quieter
-comment role. Unknown stored theme IDs fall back to the default of the same
-appearance in both the pre-paint script and the mounted provider.
+comment role. An imported theme pre-paints only its stored flat tokens; the
+roles derived from them appear when the provider mounts. Unknown stored theme IDs
+fall back to the default of the same appearance in both the pre-paint script and
+the mounted provider.
 
 The workspace toolbar opens the appearance Sheet over the current view without
 route navigation. Its editor/catalogue chunk loads on the first intentional
@@ -7563,8 +7681,10 @@ files in the same commit:
   host-matched credential authorization, offline-safe refresh (`stale` /
   `unavailable` typed truth, version kept when nothing moved), and remote
   redaction;
-  `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
-  envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
+  `packages/ui/tests/appearance-codec.test.ts` and
+  `packages/ui/tests/custom-theme-library.test.ts` pin the stored bytes, the
+  storage-level recovery envelope round-trips, the legacy-key order, and the
+  pre-paint script; `packages/workspace-ui/tests/unit/app-library.test.ts`
   pins the compiled trusted entry registry and every activation rejection;
   `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
   deep-link recovery, flat project list (no reorder affordance), shelf,

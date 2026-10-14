@@ -84,6 +84,7 @@ export {
   retentionHolds,
 } from './retention-cleanup'
 export {
+  channelArchiveSource,
   channelKind,
   channelLifecycleState,
   channelParticipants,
@@ -96,6 +97,12 @@ export {
   messageSenderKind,
 } from './conversations'
 export { channelReadStates, threadReadStates } from './read-state'
+export {
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
+  groupSharingGrants,
+} from './group-participation'
 export { taskSubmissionState, taskSubmissions } from './task-submissions'
 export { leadTurnIntents } from './lead-turns'
 export { leadTurnRuntime } from './lead-turn-runtime'

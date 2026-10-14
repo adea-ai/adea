@@ -13,6 +13,12 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /** Exact admission target retained on the intent; absent for legacy admissions. */
+  handoffTarget?: Readonly<{
+    runtimeSessionId: string
+    taskId?: string
+    observedGeneration: number
+  }>
   /** Exact requested lead choice from the immutable intent; null or absent means workspace default. */
   requestedLeadSelection?: Readonly<{ selectionRef: string; selectionRevision: number }> | null
 }>
@@ -184,6 +190,7 @@ export function createLeadTurnRuntime(
       ...(stored?.attemptId ? { attemptId: stored.attemptId } : {}),
       ...(stored?.selectionRef ? { selectionRef: stored.selectionRef } : {}),
       ...(stored?.selectionRevision ? { selectionRevision: stored.selectionRevision } : {}),
+      ...(authority.handoffTarget ? { handoffTarget: authority.handoffTarget } : {}),
       ...(stored?.preparationRef ? { preparationRef: stored.preparationRef } : {}),
       ...(stored?.preparationExpiresAt
         ? { preparationExpiresAt: stored.preparationExpiresAt }
