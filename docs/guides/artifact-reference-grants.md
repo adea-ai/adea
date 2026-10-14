@@ -158,7 +158,7 @@ key to tasks, so a citation neither moves the job nor constrains it.
   read with current authority, so revocation, roster changes and the reader's join point
   apply to old revisions as to new ones. Hidden, revoked, unknown and unpublished
   references are one `unavailable` view, and a missing plan, revision or channel is one
-  unavailable response. Responses are `Cache-Control: private, no-store`.
+  unavailable response. Every response, success and error alike (400, 401, 404, 409), is `Cache-Control: private, no-store`.
 
 ## Not in this slice
 

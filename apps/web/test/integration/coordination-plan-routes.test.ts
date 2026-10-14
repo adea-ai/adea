@@ -374,49 +374,61 @@ describe.skipIf(!url)(
       return { ...job, messageId: outcome.outboundPublication.messageId, outcome }
     }
 
-    function postPlan(
+    /** Every answer of the plan routes is private and uncacheable, whatever its status. */
+    function privately(response: Response) {
+      expect(response.headers.get('cache-control')).toBe('private, no-store')
+      return response
+    }
+
+    async function postPlan(
       f: Fixture,
       credential: string,
       jobIds: unknown,
       options: { channelId?: string; extra?: Record<string, unknown>; idempotencyKey?: string } = {}
     ) {
-      return call(PLANS, 'POST', {
-        body: { jobIds, ...options.extra },
-        credential,
-        idempotencyKey: options.idempotencyKey,
-        params: { channelId: options.channelId ?? f.channel.id, workspaceId: f.audience.id },
-      })
+      return privately(
+        await call(PLANS, 'POST', {
+          body: { jobIds, ...options.extra },
+          credential,
+          idempotencyKey: options.idempotencyKey,
+          params: { channelId: options.channelId ?? f.channel.id, workspaceId: f.audience.id },
+        })
+      )
     }
 
-    function postRevision(
+    async function postRevision(
       f: Fixture,
       credential: string,
       planId: string,
       body: Record<string, unknown>
     ) {
-      return call(REVISIONS, 'POST', {
-        body,
-        credential,
-        params: { channelId: f.channel.id, planId, workspaceId: f.audience.id },
-      })
+      return privately(
+        await call(REVISIONS, 'POST', {
+          body,
+          credential,
+          params: { channelId: f.channel.id, planId, workspaceId: f.audience.id },
+        })
+      )
     }
 
-    function getReferences(
+    async function getReferences(
       f: Fixture,
       credential: string | undefined,
       planId: string,
       revision: string | number,
       channelId = f.channel.id
     ) {
-      return call(REFERENCES, 'GET', {
-        credential,
-        params: {
-          channelId,
-          planId,
-          revision: String(revision),
-          workspaceId: f.audience.id,
-        },
-      })
+      return privately(
+        await call(REFERENCES, 'GET', {
+          credential,
+          params: {
+            channelId,
+            planId,
+            revision: String(revision),
+            workspaceId: f.audience.id,
+          },
+        })
+      )
     }
 
     async function created(response: Response): Promise<PlanView> {
@@ -462,6 +474,44 @@ describe.skipIf(!url)(
       }
       // The write response carries what the caller sent, and nothing the source holds.
       expect(JSON.stringify(plan)).not.toContain(f.source.id)
+    })
+
+    test('every answer is private and uncacheable, error paths included', async () => {
+      const f = await setup()
+      const job = await publishedJob(f, 'Plan input')
+      const key = `plan-${crypto.randomUUID()}`
+      const plan = await created(
+        await postPlan(f, f.recipientCredential, [job.id], { idempotencyKey: key })
+      )
+      // One answer per error status the routes give (400, 401, 404, 409), and a read. The helpers assert
+      // the header on each response; the statuses are listed so a path cannot silently drop out.
+      const answers = [
+        await postPlan(f, f.recipientCredential, [job.id], { idempotencyKey: 'k'.repeat(129) }),
+        await postPlan(f, '', [job.id]),
+        await postPlan(f, f.recipientCredential, [NIL_UUID]),
+        await postPlan(f, f.recipientCredential, [], { idempotencyKey: key }),
+        await postRevision(f, f.recipientCredential, plan.planId, { jobIds: [] }),
+        await postRevision(f, '', plan.planId, { expectedRevision: 1, jobIds: [] }),
+        await postRevision(f, f.recipientCredential, NIL_UUID, { expectedRevision: 1, jobIds: [] }),
+        await postRevision(f, f.recipientCredential, plan.planId, {
+          expectedRevision: 9,
+          jobIds: [],
+        }),
+        await getReferences(f, f.recipientCredential, plan.planId, 1),
+        await getReferences(f, undefined, plan.planId, 1),
+        await getReferences(f, f.recipientCredential, NIL_UUID, 1),
+        await getReferences(f, f.recipientCredential, plan.planId, 'x'),
+        await getReferences(f, f.recipientCredential, plan.planId, 2),
+      ]
+      expect([...new Set(answers.map((answer) => answer.status))].toSorted()).toEqual([
+        200, 400, 401, 404, 409,
+      ])
+      // A success on each write route as well.
+      const revised = await postRevision(f, f.recipientCredential, plan.planId, {
+        expectedRevision: 1,
+        jobIds: [job.id],
+      })
+      expect(revised.status).toBe(201)
     })
 
     test('the actor is the authenticated principal: a body that names another author changes nothing', async () => {
@@ -590,11 +640,13 @@ describe.skipIf(!url)(
         await postPlan(f, f.recipientCredential, 'nope'),
         await postPlan(f, f.recipientCredential, undefined),
         await postPlan(f, f.recipientCredential, [first.id], { idempotencyKey: 'k'.repeat(129) }),
-        await call(PLANS, 'POST', {
-          body: [first.id],
-          credential: f.recipientCredential,
-          params: { channelId: f.channel.id, workspaceId: f.audience.id },
-        }),
+        privately(
+          await call(PLANS, 'POST', {
+            body: [first.id],
+            credential: f.recipientCredential,
+            params: { channelId: f.channel.id, workspaceId: f.audience.id },
+          })
+        ),
       ]
       for (const answer of invalid) expect(answer.status).toBe(400)
       expect(await planCount(f)).toBe(1)
