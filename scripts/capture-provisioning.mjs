@@ -1,5 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import {
+  defaultPullBackoffMs,
+  fallbackImages,
+  isRegistryRateLimit,
+} from './docker-pull-backoff.mjs'
 
 // The migration-snapshot capture proofs build a disposable PostgreSQL scratch
 // database per run: a capture inventories the whole app schema and the
@@ -28,6 +33,10 @@ export const captureProvisioningImage =
 // created.
 const interruptSignals = ['SIGINT', 'SIGTERM']
 
+// The longest the whole capture image start may take, every registry attempt and every wait included.
+// It sits inside the smoke lane's readiness bound, which also covers the readiness probe after the start.
+export const captureStartBudgetMs = 120_000
+
 // Bounds one removal, so a stuck Docker daemon cannot hold the caller, or a heavy-validation slot, forever.
 const defaultRemovalTimeoutMs = 30_000
 
@@ -38,6 +47,11 @@ export function dockerDaemonAvailable() {
     timeout: 15_000,
   })
   return !result.error && result.status === 0
+}
+
+// Synchronous sleep; the runner is single-threaded and the next step needs the instance healthy.
+function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 
 export function dockerCaptureRun(args, what, timeoutMs) {
@@ -113,6 +127,96 @@ function attachRemoval(handle) {
   return () => process.off('exit', onExit)
 }
 
+function limited(result) {
+  return result.status !== 0 && isRegistryRateLimit(`${result.stdout}\n${result.stderr}`)
+}
+
+// Runs `start(image)` against the digest-pinned capture image. Anonymous pulls from shared hosted
+// runners are throttled per registry (`toomanyrequests`), so a rate-limited start falls over to the
+// same digest on the other registries the main database uses (see docker-pull-backoff.mjs), then
+// retries with the same bounded backoff. A digest names the content, so a fallback cannot change
+// which image runs. Only a registry rate limit on the canonical reference moves on; a failing fallback
+// is logged and the next registry is tried. `start` returns a spawnSync result; every
+// caller that starts a container from this image goes through here, so none pulls it bare.
+export function startFromCaptureImage(
+  start,
+  {
+    backoffMs = defaultPullBackoffMs,
+    budgetMs = captureStartBudgetMs,
+    now = Date.now,
+    sleep = sleepSync,
+  } = {}
+) {
+  const [canonical, ...fallbacks] = [
+    captureProvisioningImage,
+    ...fallbackImages(captureProvisioningImage),
+  ]
+  // One deadline covers every attempt and every wait, so the retries can never outlast the caller's
+  // startup budget. Each attempt is told how long it has left and must bound itself to that.
+  const deadline = now() + budgetMs
+  const remaining = () => deadline - now()
+  let last
+  for (let retry = 0; ; retry += 1) {
+    last = start(canonical, remaining())
+    // Only a rate limit on the canonical reference moves on: any other outcome there is final.
+    if (last.error || !limited(last)) return last
+    console.warn(`Container registry rate-limited an image pull for ${canonical}.`)
+    for (const image of fallbacks) {
+      if (remaining() <= 0) return last
+      last = start(image, remaining())
+      if (last.error || last.status === 0) return last
+      // A fallback that fails, rate-limited or not, must not hide the registries after it.
+      console.warn(`Starting from ${image} failed: ${last.stderr.trim() || `exit ${last.status}`}`)
+    }
+    // A wait that would leave no time for another attempt ends the retries instead of sleeping.
+    if (retry >= backoffMs.length || remaining() <= backoffMs[retry]) return last
+    console.warn(
+      `Container registries rate-limited the capture image pull; retry ${retry + 1} of ${backoffMs.length} in ${backoffMs[retry] / 1000}s.`
+    )
+    sleep(backoffMs[retry])
+  }
+}
+
+// Runs the throwaway container. The container name is fixed up front, so every attempt is removed by
+// the same cleanup, and a start that fails before the container exists leaves nothing to remove.
+function runCaptureContainer(name, password, options) {
+  const result = startFromCaptureImage(
+    (image, remainingMs) =>
+      spawnSync(
+        'docker',
+        [
+          'run',
+          '-d',
+          '--rm',
+          // Loopback-only ephemeral host port: a plain `-P` publishes the port on
+          // every host interface, which would put the throwaway instance on the
+          // LAN. The mapping is read back below instead of guessing a port.
+          '-p',
+          '127.0.0.1::5432',
+          '--name',
+          name,
+          '-e',
+          `POSTGRES_PASSWORD=${password}`,
+          image,
+        ],
+        {
+          encoding: 'utf8',
+          // SIGKILL, because the bound holds only if the killed client exits.
+          killSignal: 'SIGKILL',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: Math.max(1, remainingMs),
+        }
+      ),
+    options
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(
+      `starting the throwaway capture provisioning container (${captureProvisioningImage}) failed: ${result.stderr.trim() || `exit code ${result.status}`}`
+    )
+  }
+}
+
 /**
  * Starts the throwaway instance, or returns null when Docker is unavailable.
  * `register` receives the handle before the container exists, so a timeout or
@@ -125,7 +229,11 @@ function attachRemoval(handle) {
  */
 export function startCaptureProvisioning(
   register = () => {},
-  { removalTimeoutMs = defaultRemovalTimeoutMs } = {}
+  {
+    removalTimeoutMs = defaultRemovalTimeoutMs,
+    backoffMs = defaultPullBackoffMs,
+    budgetMs = captureStartBudgetMs,
+  } = {}
 ) {
   if (!dockerDaemonAvailable()) return null
   // Random hex doubles as URL-safe: no percent-encoding concerns in the URL.
@@ -145,25 +253,7 @@ export function startCaptureProvisioning(
   const detachExit = attachRemoval(handle)
   register(handle)
   try {
-    dockerCaptureRun(
-      [
-        'run',
-        '-d',
-        '--rm',
-        // Loopback-only ephemeral host port: a plain `-P` publishes the port on
-        // every host interface, which would put the throwaway instance on the
-        // LAN. The mapping is read back below instead of guessing a port.
-        '-p',
-        '127.0.0.1::5432',
-        '--name',
-        name,
-        '-e',
-        `POSTGRES_PASSWORD=${password}`,
-        captureProvisioningImage,
-      ],
-      `starting the throwaway capture provisioning container (${captureProvisioningImage})`,
-      120_000
-    )
+    runCaptureContainer(name, password, { backoffMs, budgetMs })
     // Read the loopback ephemeral host port mapping back instead of guessing
     // one. The image's default POSTGRES_USER (postgres, superuser) owns the
     // default `postgres` admin database.
@@ -192,9 +282,8 @@ export function startCaptureProvisioning(
         ready = true
         break
       }
-      // Synchronous sleep between readiness probes; the runner is single-
-      // threaded and the next step needs the instance healthy.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000)
+      // Wait between readiness probes.
+      sleepSync(1_000)
     }
     if (!ready) throw new Error('the throwaway capture provisioning instance never became ready')
     handle.databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`

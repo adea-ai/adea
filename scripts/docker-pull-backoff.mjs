@@ -42,7 +42,7 @@ export async function runWithPullBackoff(
   }
 }
 
-// The compose file and the integration runner pin the official Postgres image by digest on the AWS
+// The compose file, the integration runner and the capture provisioning container pin the official Postgres image by digest on the AWS
 // ECR Public mirror of Docker Hub. Anonymous pulls from shared hosted-runner IPs are throttled per
 // registry (`toomanyrequests: Data limit exceeded` there, a pull-rate limit on Docker Hub), and the
 // quota is exhausted by other tenants, not by us. The same digest is served anonymously by Google's
