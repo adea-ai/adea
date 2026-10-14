@@ -14,6 +14,7 @@ const selectors = { workspaceId: cpWorkspaceId, intentId, principalId: 'svc_cont
 const unavailableBody = { status: 404, body: { code: 'LEAD_PRODUCT_UNAVAILABLE' } }
 const admitted: CurrentLeadTurnProduct = {
   workspaceId: '5c1e2d3f-4a5b-4c6d-8e7f-998877665544',
+  agentWorkspaceId: '5c1e2d3f-4a5b-4c6d-8e7f-998877665544',
   controlPlaneWorkspaceId: cpWorkspaceId,
   intentId,
   intentCreatedAt: new Date(now - 1000).toISOString(),

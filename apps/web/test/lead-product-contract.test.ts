@@ -22,6 +22,7 @@ const now = Date.UTC(2026, 9, 9, 12)
 const selectors = { workspaceId: cpWorkspaceId, intentId, principalId: 'svc_control-plane' }
 const base: CurrentLeadTurnProduct = {
   workspaceId: '5c1e2d3f-4a5b-4c6d-8e7f-998877665544',
+  agentWorkspaceId: '5c1e2d3f-4a5b-4c6d-8e7f-998877665544',
   controlPlaneWorkspaceId: cpWorkspaceId,
   intentId,
   intentCreatedAt: new Date(now - 1000).toISOString(),
