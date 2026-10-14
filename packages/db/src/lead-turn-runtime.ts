@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { bindAddressedTurnResponse } from './addressed-turn-response-binding'
 import { createRuntimeResultMessage } from './conversations'
 import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
@@ -451,6 +452,13 @@ export function publishLeadTurnResult(
           .digest('hex')
         if (row.publishedMessageId) {
           if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')
+          // A replayed publication repairs a binding an interrupted first attempt never wrote.
+          await bindAddressedTurnResponse(
+            publicationTx,
+            workspaceId,
+            admitted.id,
+            row.publishedMessageId
+          )
           return row.publishedMessageId
         }
         const message = await createRuntimeResultMessage(
@@ -470,6 +478,7 @@ export function publishLeadTurnResult(
           .update(leadTurnRuntime)
           .set({ publishedMessageId: message.id, publicationDigest: digest })
           .where(eq(leadTurnRuntime.intentId, admitted.id))
+        await bindAddressedTurnResponse(publicationTx, workspaceId, admitted.id, message.id)
         return message.id
       }
     )
