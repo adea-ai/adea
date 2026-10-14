@@ -160,6 +160,26 @@ test.describe('showing an event in the pane', () => {
     await mount(page, '?focus=event-gone')
     await expect(page.getByTestId('jumps')).toHaveText('focus:missing')
   })
+
+  test('does not call an event missing until the host proves the replay finished', async ({
+    page,
+  }) => {
+    await mount(page, '?focus=event-gone&unconfirmed=1')
+    await expect(page.getByText('Not confirmed complete')).toBeVisible()
+    await page.waitForTimeout(500)
+    await expect(page.getByTestId('jumps')).toHaveText('')
+    // The proof arrives with no such event: only now is it reported missing.
+    await expect(page.getByTestId('jumps')).toHaveText('focus:missing')
+    await expect(page.getByText('Not confirmed complete')).toHaveCount(0)
+  })
+
+  test('shows an event that has already arrived without waiting for the proof', async ({
+    page,
+  }) => {
+    await mount(page, '?focus=event-5&unconfirmed=1')
+    await expect(page.getByTestId('jumps')).toHaveText('focus:found')
+    await expect(page.locator('[data-revealed]')).toContainText('write the release notes')
+  })
 })
 
 test.describe('all sessions', () => {
@@ -191,7 +211,7 @@ test.describe('all sessions', () => {
     )
     await expect(
       page.getByText(
-        'Searched the most recent events of 3 sessions. Searching older history is not available yet.'
+        'Searched the most recent events of 3 sessions. Older history, and any session that has not finished loading, may not be included.'
       )
     ).toBeVisible()
     const shell = page.getByRole('list', { name: 'Matches in Shell switcher' })

@@ -327,7 +327,7 @@ function ioOf(overrides: Partial<AllSessionsScanIO> & { sessions: RuntimeSession
       peak = Math.max(peak, live)
       await new Promise((resolve) => setTimeout(resolve, 2))
       live -= 1
-      return { events: [eventOf(session.id, 1)], bounded: false }
+      return { events: [eventOf(session.id, 1)], bounded: false, confirmed: true }
     },
     assertCurrent: () => {},
     ...rest,
@@ -377,7 +377,7 @@ describe('scanAllSessions', () => {
       readWindow: async (session) => {
         if (session.id === 'b') throw new Error('socket closed')
         if (session.id === 'c') return undefined
-        return { events: [eventOf('a', 1)], bounded: true }
+        return { events: [eventOf('a', 1)], bounded: true, confirmed: true }
       },
     })
     const scan = await scanAllSessions(io)
@@ -388,6 +388,16 @@ describe('scanAllSessions', () => {
   test('fails when no session could be read at all', async () => {
     const { io } = ioOf({ sessions: [sessionOf('a')], readWindow: async () => undefined })
     await expect(scanAllSessions(io)).rejects.toThrow()
+  })
+
+  test('a window the host did not confirm complete makes the scan partial', async () => {
+    const { io } = ioOf({
+      sessions: [sessionOf('a')],
+      readWindow: async () => ({ events: [eventOf('a', 1)], bounded: false, confirmed: false }),
+    })
+    const scan = await scanAllSessions(io)
+    expect(scan.searched).toBe(1)
+    expect(scan.partial).toBe(true)
   })
 
   test('a truncated list or runs page, or a repeated cursor, is reported as partial', async () => {
@@ -433,10 +443,12 @@ function fakeStream() {
     runtimeSessionId: 'a',
     generation: 1,
   })
+  let through: string | undefined
   const listeners = new Set<(next: TranscriptAccumulator) => void>()
   let closed = 0
   const stream: RuntimeEventStream = {
     state: () => state,
+    deliveredThrough: () => through,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -445,24 +457,67 @@ function fakeStream() {
       closed += 1
     },
   }
+  const notify = () => {
+    for (const listener of listeners) listener(state)
+  }
   return {
     stream,
     closed: () => closed,
     push(next: Partial<TranscriptAccumulator>) {
       state = { ...state, ...next }
-      for (const listener of listeners) listener(state)
+      notify()
+    },
+    /** The host's replay-end heartbeat. */
+    caughtUp(sequence: string) {
+      through = sequence
+      notify()
     },
   }
 }
 
 describe('readEventWindow', () => {
-  test('settles once frames stop after the stream opened, and closes the stream', async () => {
+  test('is confirmed complete only once the host proves its replay finished, then closes', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 200, timeoutMs: 500 })
+    fake.push({ expectedSequence: '1' })
+    fake.push({ events: [eventOf('a', 1)], expectedSequence: '2' })
+    fake.caughtUp('1')
+    // No waiting on a quiet period: the proof settles it at once.
+    await expect(window).resolves.toEqual({
+      events: [eventOf('a', 1)],
+      bounded: false,
+      confirmed: true,
+    })
+    expect(fake.closed()).toBe(1)
+  })
+
+  test('a quiet stream with no proof is returned, but not as confirmed', async () => {
     const fake = fakeStream()
     const window = readEventWindow(fake.stream, { quietMs: 10, timeoutMs: 500 })
     fake.push({ expectedSequence: '1' })
     fake.push({ events: [eventOf('a', 1)], expectedSequence: '2' })
-    await expect(window).resolves.toEqual({ events: [eventOf('a', 1)], bounded: false })
-    expect(fake.closed()).toBe(1)
+    await expect(window).resolves.toEqual({
+      events: [eventOf('a', 1)],
+      bounded: false,
+      confirmed: false,
+    })
+  })
+
+  test('a heartbeat naming events that have not arrived is not proof', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 10, timeoutMs: 500 })
+    fake.push({ expectedSequence: '1' })
+    fake.push({ events: [eventOf('a', 1)], expectedSequence: '2' })
+    fake.caughtUp('5')
+    await expect(window).resolves.toMatchObject({ confirmed: false })
+  })
+
+  test('an empty log is confirmed by a heartbeat at 0', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 200, timeoutMs: 500 })
+    fake.push({ expectedSequence: '0' })
+    fake.caughtUp('0')
+    await expect(window).resolves.toEqual({ events: [], bounded: false, confirmed: true })
   })
 
   test('waits for the stream to open instead of settling an empty window early', async () => {
@@ -470,7 +525,7 @@ describe('readEventWindow', () => {
     const window = readEventWindow(fake.stream, { quietMs: 5, timeoutMs: 500 })
     await new Promise((resolve) => setTimeout(resolve, 40))
     fake.push({ expectedSequence: '1' })
-    await expect(window).resolves.toEqual({ events: [], bounded: false })
+    await expect(window).resolves.toEqual({ events: [], bounded: false, confirmed: false })
   })
 
   test('a stream that never opens is unread at the timeout', async () => {
@@ -500,7 +555,7 @@ describe('readEventWindow', () => {
     }
   })
 
-  test('a replay still running at the timeout is kept but reported as bounded', async () => {
+  test('a replay still running at the timeout is kept, unconfirmed', async () => {
     const fake = fakeStream()
     const window = readEventWindow(fake.stream, { quietMs: 30, timeoutMs: 60 })
     fake.push({ expectedSequence: '1' })
@@ -511,36 +566,20 @@ describe('readEventWindow', () => {
     }, 10)
     const result = await window
     clearInterval(feed)
-    expect(result?.bounded).toBe(true)
+    expect(result?.confirmed).toBe(false)
     expect(result?.events.length).toBeGreaterThan(0)
     expect(fake.closed()).toBe(1)
   })
 
-  test('a first frame that trails the opening frame is waited for, not skipped', async () => {
-    const fake = fakeStream()
-    const window = readEventWindow(fake.stream, { quietMs: 20, timeoutMs: 500 })
-    fake.push({ expectedSequence: '1' })
-    // Longer than the quiet time between frames, shorter than the first-frame wait.
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    fake.push({ events: [eventOf('a', 1)], expectedSequence: '2' })
-    await expect(window).resolves.toEqual({ events: [eventOf('a', 1)], bounded: false })
-  })
-
-  test('a session with no events settles empty once the first-frame wait passes', async () => {
-    const fake = fakeStream()
-    const window = readEventWindow(fake.stream, { quietMs: 10, timeoutMs: 500 })
-    fake.push({ expectedSequence: '1' })
-    await expect(window).resolves.toEqual({ events: [], bounded: false })
-  })
-
   test('reports a window retention cut short as bounded', async () => {
     const fake = fakeStream()
-    const window = readEventWindow(fake.stream, { quietMs: 5, timeoutMs: 500 })
+    const window = readEventWindow(fake.stream, { quietMs: 200, timeoutMs: 500 })
     fake.push({
       expectedSequence: '5',
       retention: { maxEvents: 1_000, complete: false, reason: 'retention' },
     })
-    await expect(window).resolves.toMatchObject({ bounded: true })
+    fake.caughtUp('4')
+    await expect(window).resolves.toMatchObject({ bounded: true, confirmed: true })
   })
 })
 

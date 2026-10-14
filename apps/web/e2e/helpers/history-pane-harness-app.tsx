@@ -175,6 +175,10 @@ function Harness() {
   // still loading (the session being left) for a moment, then ready.
   const [loaded, setLoaded] = createSignal(!params.has('focus'))
   if (params.has('focus')) setTimeout(() => setLoaded(true), 600)
+  // `?unconfirmed=1`: the feed is ready, but the host has not yet proved its
+  // replay finished; it does after 1.8 s.
+  const [replayed, setReplayed] = createSignal(!params.has('unconfirmed'))
+  if (params.has('unconfirmed')) setTimeout(() => setReplayed(true), 1_800)
   const scopes = params.has('scopes') || params.has('scope')
   const allStatus = params.get('all') ?? 'ready'
   let refuse = params.get('resumeFails') === '1'
@@ -198,6 +202,7 @@ function Harness() {
           session={session}
           runs={[run]}
           bounded={params.get('bounded') === '1'}
+          confirmed={replayed()}
           nowMs={() => Date.parse('2026-09-22T10:20:00.000Z')}
           onGo={(jump) =>
             setJumps((current) => [...current, jump.eventId ?? `session:${jump.runtimeSessionId}`])

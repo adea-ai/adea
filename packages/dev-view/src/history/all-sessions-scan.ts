@@ -17,13 +17,13 @@ export const SCAN_MAX_SESSIONS = 20
 const SCAN_CONCURRENCY = 4
 const LIST_MAX_PAGES = 3
 const RUN_MAX_PAGES = 2
-/** Until the first event arrives a quiet stream may still be starting its replay, so it is given this many times the quiet time. */
-const FIRST_FRAME_FACTOR = 4
 
 export type SessionWindow = Readonly<{
   events: readonly RuntimeEvent[]
-  /** Older events are missing: retention cut the window, or the replay was still running at the timeout. */
+  /** Retention cut the window: older events are missing. */
   bounded: boolean
+  /** The host said its replay finished and every event up to it is held. */
+  confirmed: boolean
 }>
 
 type Page<T> = Readonly<{ items: readonly T[]; nextCursor?: string }>
@@ -128,7 +128,7 @@ export async function scanAllSessions(
       if (!window) unread += 1
       else {
         events.set(session.id, window.events)
-        if (window.bounded) bounded = true
+        if (window.bounded || !window.confirmed) bounded = true
       }
     }
   }
@@ -151,29 +151,45 @@ export async function scanAllSessions(
 }
 
 type Timers = Readonly<{
-  /** Quiet time after the last frame that marks the replay as finished. */
+  /** Quiet time after the last frame before a stream that sent no proof is given up on. */
   quietMs?: number
   /** Longest wait for one session before its window is taken as it stands. */
   timeoutMs?: number
 }>
 
 /**
- * Read a freshly opened event stream to the end of its replay. The stream is a
- * live tail with no end marker, so a window is complete once frames stop
- * arriving after the opening frame; a stream that never opens is unread.
+ * Whether the host proved its replay finished: it sent the replay-end heartbeat
+ * and every event up to the sequence it names has been accepted. A stream that
+ * only went quiet proves nothing, since it has no end marker of its own.
+ */
+export function replayProven(stream: RuntimeEventStream): boolean {
+  const through = stream.deliveredThrough()
+  const next = stream.state().expectedSequence
+  return (
+    through !== undefined &&
+    next !== undefined &&
+    (BigInt(through) === 0n || BigInt(next) > BigInt(through))
+  )
+}
+
+/**
+ * Read a freshly opened event stream until the host proves its replay finished.
+ * A host that sends no proof (older, or a stream that stalls) is given up on
+ * after it goes quiet or at the timeout, and the window comes back unconfirmed;
+ * a stream that never opens is unread.
  */
 export function readEventWindow(
   stream: RuntimeEventStream,
   timers: Timers = {}
 ): Promise<SessionWindow | undefined> {
-  const quietMs = timers.quietMs ?? 300
+  const quietMs = timers.quietMs ?? 1_200
   const timeoutMs = timers.timeoutMs ?? 4_000
   return new Promise((resolve) => {
     let quiet: ReturnType<typeof setTimeout> | undefined
     let hard: ReturnType<typeof setTimeout> | undefined
     let unsubscribe: (() => void) | undefined
     let done = false
-    const finish = (readable: boolean, replaying = false) => {
+    const finish = (readable: boolean) => {
       if (done) return
       done = true
       clearTimeout(quiet)
@@ -183,7 +199,11 @@ export function readEventWindow(
       const state = stream.state()
       resolve(
         readable && !transcriptIsStale(state.availability)
-          ? { events: state.events, bounded: replaying || !state.retention.complete }
+          ? {
+              events: state.events,
+              bounded: !state.retention.complete,
+              confirmed: replayProven(stream),
+            }
           : undefined
       )
     }
@@ -191,13 +211,12 @@ export function readEventWindow(
     const observe = () => {
       if (transcriptIsStale(stream.state().availability)) return finish(false)
       if (!opened()) return
+      if (replayProven(stream)) return finish(true)
       clearTimeout(quiet)
-      const first = stream.state().events.length === 0
-      quiet = setTimeout(() => finish(true), first ? quietMs * FIRST_FRAME_FACTOR : quietMs)
+      quiet = setTimeout(() => finish(true), quietMs)
     }
     unsubscribe = stream.subscribe(observe)
-    // Still receiving frames at the timeout: what arrived is kept, as partial.
-    hard = setTimeout(() => finish(opened(), true), timeoutMs)
+    hard = setTimeout(() => finish(opened()), timeoutMs)
     observe()
   })
 }

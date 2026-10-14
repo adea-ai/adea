@@ -204,6 +204,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     }
   })
 
+  const exec = <T = unknown,>(
+    context: WorktreeContext,
+    activeScope: Scope,
+    operation: Parameters<typeof executeOperation>[2],
+    body: Record<string, unknown>
+  ) => executeOperation<T>(props.runtime, activeScope, operation, body, rootTarget(context))
+
   async function loadDirectory(
     context: WorktreeContext,
     relativePath: string,
@@ -211,8 +218,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   ): Promise<void> {
     const activeScope = scope()
     if (!activeScope) return
-    const page = await executeOperation<{ items: readonly FileEntry[]; nextCursor?: string }>(
-      props.runtime,
+    const page = await exec<{ items: readonly FileEntry[]; nextCursor?: string }>(
+      context,
       activeScope,
       'dev.files.list',
       {
@@ -221,8 +228,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         ...(cursor ? { cursor } : {}),
         limit: LIST_PAGE,
         ...(cursor !== undefined ? { cursor } : {}),
-      },
-      rootTarget(context)
+      }
     )
     setNodes((current) => mergeListing(current, page.items))
     if (page.nextCursor) await loadDirectory(context, relativePath, page.nextCursor)
@@ -347,19 +353,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       return
     }
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.files.create',
-        {
-          worktreeId: context.worktreeId,
-          path: pathIn(context, name),
-          kind: 'file',
-          content: new TextEncoder().encode(''),
-          failIfExists: true,
-        },
-        rootTarget(context)
-      )
+      await exec(context, activeScope, 'dev.files.create', {
+        worktreeId: context.worktreeId,
+        path: pathIn(context, name),
+        kind: 'file',
+        content: new TextEncoder().encode(''),
+        failIfExists: true,
+      })
       setCreating(false)
       setNewName('')
       await refresh()
@@ -382,18 +382,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     }
     setConfirmDelete(undefined)
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.files.delete',
-        {
-          worktreeId: context.worktreeId,
-          path: pathIn(context, node.relativePath),
-          expectedIdentity: node.identity,
-          confirmationId: `files-delete-${node.relativePath}`,
-        },
-        rootTarget(context)
-      )
+      await exec(context, activeScope, 'dev.files.delete', {
+        worktreeId: context.worktreeId,
+        path: pathIn(context, node.relativePath),
+        expectedIdentity: node.identity,
+        confirmationId: `files-delete-${node.relativePath}`,
+      })
       await refresh()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -424,19 +418,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const parent = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : ''
     const to = `${parent}${name}`
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.files.rename',
-        {
-          worktreeId: context.worktreeId,
-          from: pathIn(context, from),
-          to: pathIn(context, to),
-          expectedIdentity: findNode(nodes(), from)?.identity,
-          failIfExists: true,
-        },
-        rootTarget(context)
-      )
+      await exec(context, activeScope, 'dev.files.rename', {
+        worktreeId: context.worktreeId,
+        from: pathIn(context, from),
+        to: pathIn(context, to),
+        expectedIdentity: findNode(nodes(), from)?.identity,
+        failIfExists: true,
+      })
       setRenaming(undefined)
       setOverwriteTarget(undefined)
       await refresh()
@@ -460,28 +448,26 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const to = overwriteTarget()
     if (!context || !activeScope || !from || !to) return
     try {
-      const liveFrom = await executeOperation<{ identity: FileEntry['identity'] }>(
-        props.runtime,
+      const liveFrom = await exec<{ identity: FileEntry['identity'] }>(
+        context,
         activeScope,
         'dev.files.stat',
         {
           worktreeId: context.worktreeId,
           path: pathIn(context, from),
-        },
-        rootTarget(context)
+        }
       )
-      const liveTo = await executeOperation<{ identity: FileEntry['identity'] }>(
-        props.runtime,
+      const liveTo = await exec<{ identity: FileEntry['identity'] }>(
+        context,
         activeScope,
         'dev.files.stat',
         {
           worktreeId: context.worktreeId,
           path: pathIn(context, to),
-        },
-        rootTarget(context)
+        }
       )
-      const plan = await executeOperation<MutationPlanSummary>(
-        props.runtime,
+      const plan = await exec<MutationPlanSummary>(
+        context,
         activeScope,
         'dev.files.renameOverwritePlan',
         {
@@ -490,16 +476,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           to: pathIn(context, to),
           expectedFromIdentity: liveFrom.identity,
           expectedToIdentity: liveTo.identity,
-        },
-        rootTarget(context)
+        }
       )
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.files.renameOverwriteCommit',
-        { planId: plan.id, planDigest: plan.digest },
-        rootTarget(context)
-      )
+      await exec(context, activeScope, 'dev.files.renameOverwriteCommit', {
+        planId: plan.id,
+        planDigest: plan.digest,
+      })
       setRenaming(undefined)
       setOverwriteTarget(undefined)
       await refresh()
@@ -524,8 +506,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     // "Confirm". The copy arm below already compared `summary` correctly.
     if (pendingTree()?.summary !== node.relativePath) {
       try {
-        const plan = await executeOperation<MutationPlanSummary>(
-          props.runtime,
+        const plan = await exec<MutationPlanSummary>(
+          context,
           activeScope,
           'dev.files.deleteTreePlan',
           {
@@ -533,8 +515,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             path: pathIn(context, node.relativePath),
             expectedIdentity: node.identity,
             confirmationId: `files-delete-tree-${node.relativePath}`,
-          },
-          rootTarget(context)
+          }
         )
         setPendingTree({
           planId: plan.id,
@@ -560,8 +541,8 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const destination = `${node.relativePath}-copy`
     if (pendingTree()?.summary !== `${node.relativePath} → ${destination}`) {
       try {
-        const plan = await executeOperation<MutationPlanSummary>(
-          props.runtime,
+        const plan = await exec<MutationPlanSummary>(
+          context,
           activeScope,
           'dev.files.copyTreePlan',
           {
@@ -570,8 +551,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             to: pathIn(context, destination),
             expectedIdentity: node.identity,
             failIfExists: true,
-          },
-          rootTarget(context)
+          }
         )
         setPendingTree({
           planId: plan.id,

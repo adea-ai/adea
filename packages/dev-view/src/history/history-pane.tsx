@@ -43,6 +43,8 @@ export type HistoryPaneProps = Readonly<{
   runs: readonly HarnessRun[]
   /** True when retention dropped older events from the window. */
   bounded?: boolean
+  /** The feed's replay is proven complete; false while it may still be loading. Default: complete. */
+  confirmed?: boolean
   /** True while the newest harness run is working or awaiting input/approval. */
   runActive?: boolean
   nowMs?: () => number
@@ -275,6 +277,8 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
     const eventId = props.focusEventId
     if (!eventId || props.status !== 'ready') return
     const turnId = turnIdForEvent(turns(), props.events, eventId)
+    // Absent from a replay that is not proven finished is not absent: wait.
+    if (turnId === undefined && props.confirmed === false) return
     props.onFocusResult?.(turnId !== undefined)
     if (turnId === undefined) return
     setTab('turns')
@@ -487,10 +491,18 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                     </div>
                   )}
                 </Show>
-                <Show when={props.bounded && props.status === 'ready' && !searching()}>
+                <Show
+                  when={
+                    (props.bounded || props.confirmed === false) &&
+                    props.status === 'ready' &&
+                    !searching()
+                  }
+                >
                   <div class="px-3 pt-2">
                     <Text variant="caption" tone="muted" role="status">
-                      Showing the latest events only. Older prompts were dropped by retention.
+                      {props.bounded
+                        ? 'Showing the latest events only. Older prompts were dropped by retention.'
+                        : 'Not confirmed complete: earlier prompts may still be loading.'}
                     </Text>
                   </div>
                 </Show>

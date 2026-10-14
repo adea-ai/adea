@@ -24,6 +24,7 @@ import type { AllSessionsFeed } from './all-sessions-results'
 import {
   newestScanOnly,
   readEventWindow,
+  replayProven,
   scanAllSessions,
   type AllSessionsScan,
 } from './all-sessions-scan'
@@ -60,7 +61,7 @@ export type SessionHistorySectionProps = {
 const SCOPE_KEY = 'adea.dev.history.scope.v1'
 /** A scan older than this is read again when the scope is chosen. */
 const SCAN_FRESH_MS = 30_000
-/** How long History waits for a transcript to show an event before saying so. */
+/** How long History waits for Chat's transcript to show an event before saying so. */
 const REVEAL_WAIT_MS = 6_000
 const NOTICE_MS = 8_000
 
@@ -97,6 +98,8 @@ type HistoryFeed = Readonly<{
   status: HistoryPaneStatus
   events: readonly RuntimeEvent[]
   bounded: boolean
+  /** The host proved its replay finished; until then the list may be incomplete. */
+  confirmed: boolean
   session?: RuntimeSession
   runs: readonly HarnessRun[]
 }>
@@ -232,12 +235,9 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
     const eventId = jump.eventId
     if (!eventId) return
     if (!hasEventRevealConsumer()) {
-      const target = { sessionId: jump.runtimeSessionId, eventId }
-      setFocus(target)
-      return later(
-        () => setFocus((current) => (current === target ? undefined : current)),
-        REVEAL_WAIT_MS
-      )
+      // Kept until the pane finds the event or the host proves the replay
+      // finished without it: no timer decides that the event is missing.
+      return setFocus({ sessionId: jump.runtimeSessionId, eventId })
     }
     const token = requestEventReveal(jump.runtimeSessionId, eventId)
     later(() => {
@@ -301,6 +301,7 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
           status,
           events: state?.events ?? [],
           bounded: state ? !state.retention.complete : false,
+          confirmed: stream ? replayProven(stream) : false,
           ...(session ? { session } : {}),
           runs,
         })
@@ -395,6 +396,7 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
         session={current()?.session}
         runs={current()?.runs ?? []}
         bounded={current()?.bounded ?? false}
+        confirmed={current()?.confirmed ?? false}
         runActive={newestRunActive(current()?.runs ?? [])}
         onRetry={() => setAttempt((count) => count + 1)}
         onGo={go}

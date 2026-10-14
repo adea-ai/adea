@@ -107,12 +107,17 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
     return key ? { key, tick: tick(), retry: retryTick() } : undefined
   }
 
+  // The session fence for a read of `key`, unless the context has moved on since.
+  const fenceFor = (key: string | undefined) => {
+    const fence = key ? fences.capture('session') : undefined
+    return fence && devUtilityContextKey(fence.context) === key ? fence : undefined
+  }
+
   const [runs] = createResource(staticKey, async ({ key }) => {
-    const fence = fences.capture('session')
-    if (!key || !fence || devUtilityContextKey(fence.context) !== key)
-      return { contextKey: undefined, items: [] as readonly HarnessRun[] }
+    const fence = fenceFor(key)
+    if (!fence) return { contextKey: undefined, items: [] as readonly HarnessRun[] }
     return guarded(
-      key,
+      key!,
       'the harness runs',
       async () => {
         const page = await readDevUtilityCommand<{ items: readonly HarnessRun[] }>(
@@ -132,11 +137,10 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
     )
   })
   const [preferences] = createResource(refetchKey, async ({ key }) => {
-    const fence = fences.capture('session')
-    if (!key || !fence || devUtilityContextKey(fence.context) !== key)
-      return { contextKey: undefined, items: [] as readonly HarnessPreference[] }
+    const fence = fenceFor(key)
+    if (!fence) return { contextKey: undefined, items: [] as readonly HarnessPreference[] }
     return guarded(
-      key,
+      key!,
       'the harness preferences',
       async () => {
         const page = await readDevUtilityCommand<{ items: readonly HarnessPreference[] }>(
@@ -159,10 +163,10 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
   // Reads never probe: a device that was never scanned lists nothing until the
   // user rescans. Scanning is always an explicit action.
   const [inventory] = createResource(refetchKey, async ({ key }) => {
-    const fence = fences.capture('session')
-    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
+    const fence = fenceFor(key)
+    if (!fence) return undefined
     return guarded(
-      key,
+      key!,
       'the installed harnesses',
       async () => {
         const snapshot = await readDevUtilityCommand<RuntimeConnectionInventorySnapshot>(
@@ -181,10 +185,10 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
     )
   })
   const [deviceDefault] = createResource(refetchKey, async ({ key }) => {
-    const fence = fences.capture('session')
-    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
+    const fence = fenceFor(key)
+    if (!fence) return undefined
     return guarded(
-      key,
+      key!,
       'the device default',
       async () => ({
         value: await readDevUtilityCommand<HarnessDeviceDefault>(
@@ -197,10 +201,10 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
     )
   })
   const [managedPi] = createResource(staticKey, async ({ key }) => {
-    const fence = fences.capture('session')
-    if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
+    const fence = fenceFor(key)
+    if (!fence) return undefined
     return guarded(
-      key,
+      key!,
       'the managed Pi status',
       async () => {
         const status = await readDevUtilityCommand<ManagedPiStatus>(

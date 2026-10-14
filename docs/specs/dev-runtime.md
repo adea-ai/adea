@@ -1421,24 +1421,31 @@ sessions. There is no second store and no server-side index.
   event: the mounted `ChatTranscript` scrolls to the event's row and marks it
   (`event-reveal.ts`, a one-slot request the transcript answers). In Dev, which
   renders no transcript, the section keeps the target (session and event) while
-  the host opens the session; the pane acts only once the feed of that session is
+  the host opens the session; the pane acts once the feed of that session is
   ready, then clears the search and scrolls to and marks the event's turn in its
   own list. Until then it judges nothing, because the events it holds belong to the
-  session being left; a target nothing answers is dropped after 6 seconds. An
-  event the window does not hold is reported ("That prompt is no longer in the
-  retained history." or "That event is no longer shown in the conversation.").
+  session being left. An event the feed already holds is shown at once; one it does
+  not hold is reported missing ("That prompt is no longer in the retained history.")
+  only after the host has proved the replay finished, never on a timer. While that
+  proof is outstanding the feed says "Not confirmed complete: earlier prompts may
+  still be loading." and the target is kept. A target for Chat's transcript that
+  nothing answers is dropped after 6 seconds ("That event is no longer shown in the
+  conversation.").
 - **All sessions.** `scanAllSessions` (`all-sessions-scan.ts`) lists open
   (non-archived) sessions (`dev.session.list`, 200 per page, at most 3 pages) and
   runs (`dev.harness.runs`, 500 per page, at most 2 pages), ranks sessions by the
   start of their newest run, and reads the retained event window of the 20 most
   recent structured sessions, four at a time, through `openRuntimeEventStream`.
-  A stream is a live tail with no end marker, so its window is complete once frames
-  stop for 300 ms (1.2 s while no event has arrived yet, since the first frame can
-  trail the opening frame); a replay still delivering frames at 4 s is kept but
-  reported as partial. The stream is closed at once. A stale, conflicting or unopened stream is an unread session. The scan reports
-  `partial` when sessions beyond the 20, pages beyond the cap, bounded windows or
-  unread sessions were left out ("Searched the most recent events of N sessions.
-  Searching older history is not available yet."), and fails with "History search
+  The host ends a replay with one `heartbeat` whose `throughSequence` is the newest
+  sequence held at attach ("0" for an empty log), so a window is confirmed complete
+  only when that heartbeat arrived and the events held run through it; the stream is
+  then closed at once. A host that sends no heartbeat, or a stream that stalls (no
+  frame for 1.2 s, or still delivering at 4 s), is kept but reported unconfirmed;
+  no timer decides completeness. A stale, conflicting or unopened stream is an
+  unread session. The scan reports `partial` when sessions beyond the 20, pages
+  beyond the cap, bounded windows, unconfirmed windows or unread sessions were left
+  out ("Searched the most recent events of N sessions. Older history, and any
+  session that has not finished loading, may not be included."), and fails with "History search
   is unavailable" only when no window could be read. The scan is kept for 30
   seconds while the pane is open and is identified by the workspace scope alone,
   so it survives a change of open session; when a scan starts while another is
@@ -4753,7 +4760,11 @@ fabricated here. At attach the handler replays at most the newest 500 events
 of the granted generation from (or after) `fromSequence`. When that bound
 raises the actual replay floor above the requested cursor, the handler emits a
 `resync { reason: 'checkpoint_required', checkpointSequence }` frame naming
-that floor before the CBOR `data` frames. It then streams live
+that floor before the CBOR `data` frames. After the replay it sends one
+`heartbeat { throughSequence }` carrying the newest sequence at attach ("0" for an
+empty log): the replay-end marker. A reader that has held events through
+`throughSequence` (or sees "0") has proof the replay finished; without it a quiet
+stream is unconfirmed, never complete. It then streams live
 append-matched events, accepts only `ack` control frames, and closes
 `stale_generation` when the session moves to a newer generation — grants
 minted under an old generation are inert, never ambiguous.

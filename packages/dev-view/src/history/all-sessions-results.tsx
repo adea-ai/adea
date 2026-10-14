@@ -250,8 +250,8 @@ export function AllSessionsResults(props: {
                 <Show when={current().partial}>
                   <Note>
                     Searched the most recent events of{' '}
-                    {plural(current().searched, 'session', 'sessions')}. Searching older history is
-                    not available yet.
+                    {plural(current().searched, 'session', 'sessions')}. Older history, and any
+                    session that has not finished loading, may not be included.
                   </Note>
                 </Show>
               </div>

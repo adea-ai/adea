@@ -97,6 +97,23 @@ export function createTranscriptAccumulator(input: {
  * projected, and a sequence gap stops advancement until a fresh window is
  * attached.
  */
+/** The window missed events: what was expected, and the sequence that arrived instead. */
+function gapped(
+  state: TranscriptAccumulator,
+  received: string,
+  expected = state.expectedSequence ?? state.fromSequence
+): TranscriptAccumulator {
+  return {
+    ...state,
+    availability: {
+      status: 'resync_required',
+      reason: 'sequence_gap',
+      expectedSequence: expected,
+      receivedSequence: received,
+    },
+  }
+}
+
 export function acceptRuntimeEvent(
   state: TranscriptAccumulator,
   event: RuntimeEvent
@@ -125,13 +142,7 @@ export function acceptRuntimeEvent(
   const eventSequence = sequence(event.seq)
   if (expected !== undefined && eventSequence > sequence(expected)) {
     return {
-      ...state,
-      availability: {
-        status: 'resync_required',
-        reason: 'sequence_gap',
-        expectedSequence: expected,
-        receivedSequence: event.seq,
-      },
+      ...gapped(state, event.seq, expected),
       retention: retention(state.events, state.fromSequence, 'sequence_gap'),
     }
   }
@@ -203,27 +214,10 @@ export function acceptRuntimeStreamFrame(
     try {
       const decoded = decodeCbor(frame.bytes)
       const event = decodeRuntimeEvent(decoded.value, { source })
-      if (event.seq !== frame.sequence)
-        return {
-          ...state,
-          availability: {
-            status: 'resync_required',
-            reason: 'sequence_gap',
-            expectedSequence: state.expectedSequence ?? state.fromSequence,
-            receivedSequence: frame.sequence,
-          },
-        }
+      if (event.seq !== frame.sequence) return gapped(state, frame.sequence)
       return acceptRuntimeEvent(state, event)
     } catch {
-      return {
-        ...state,
-        availability: {
-          status: 'resync_required',
-          reason: 'sequence_gap',
-          expectedSequence: state.expectedSequence ?? state.fromSequence,
-          receivedSequence: frame.sequence,
-        },
-      }
+      return gapped(state, frame.sequence)
     }
   }
   if (frame.type === 'resync') {
