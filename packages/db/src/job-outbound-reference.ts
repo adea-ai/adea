@@ -13,6 +13,10 @@
  * reader's membership and participation at the bound channel revision. This module adds no
  * authority rule of its own. It only looks up the publication messages a plan could mean.
  *
+ * A group channel also holds back history from before the reader joined, exactly as its message
+ * history does: a publication earlier than the reader's join point is `unavailable` unless a
+ * sharing grant releases that history.
+ *
  * Every other case is `unavailable`, and the cases are not told apart: an unknown id, a job that
  * has not completed or published, a result held or revoked, a publication in another channel, a
  * job the reader's workspace owns, a reader who left the group. An answer that named the reason
@@ -21,10 +25,16 @@
 import { and, asc, eq, inArray, like } from 'drizzle-orm'
 import type { UserPrincipalRef } from '@adea-ai/types'
 
-import type { AgentHqDatabase } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { decideGroupHistoryRead } from './group-participation-policy'
+import {
+  admissionForParticipant,
+  loadGroupRoster,
+  loadGroupSharingGrants,
+} from './group-participation-store'
 import { JOB_OUTBOUND_SENDER_PREFIX } from './job-outbound-binding'
 import { readerVisiblePublicationIds } from './job-outbound-visibility'
-import { messages } from './schema'
+import { channels, messages } from './schema'
 
 /** A plan may cite this many jobs in one resolution; more is refused, never truncated. */
 export const JOB_REFERENCE_MAX_BATCH = 50
@@ -44,6 +54,12 @@ export type ResolveJobReferencesInput = Readonly<{
   /** The group channel that carries the plan. */
   channelId: string
   jobIds: readonly string[]
+  /**
+   * Hold the reader's roster and history-sharing grants to the end of the surrounding transaction.
+   * A writer that records a citation sets it, so a sharing grant revoked before the writer commits
+   * cannot validate the citation with a value it no longer has. A plain read leaves it off.
+   */
+  lockHistory?: boolean
   reader: UserPrincipalRef
   /** The workspace that holds that channel. */
   workspaceId: string
@@ -57,6 +73,43 @@ export class JobReferenceBatchError extends Error {
   }
 }
 
+type HistoryRow = Readonly<{ createdAt: Date; sequence: number }>
+
+/**
+ * The reader's history window in a group channel, as the message history applies it. Any other
+ * channel has no join point, so every row is inside its window. A channel that cannot be read
+ * as a group in this workspace has no window at all.
+ */
+async function historyAllowedFor(
+  database: AgentHqDatabase | AgentHqTransaction,
+  input: ResolveJobReferencesInput,
+  candidates: readonly HistoryRow[]
+): Promise<(row: HistoryRow) => boolean> {
+  if (!candidates.length) return () => false
+  const [channel] = await database
+    .select({ kind: channels.kind })
+    .from(channels)
+    .where(and(eq(channels.id, input.channelId), eq(channels.workspaceId, input.workspaceId)))
+    .limit(1)
+  if (!channel) return () => false
+  if (channel.kind !== 'group') return () => true
+  const lock = { forUpdate: input.lockHistory === true }
+  const [roster, sharingGrants] = await Promise.all([
+    loadGroupRoster(database, input.workspaceId, input.channelId, lock),
+    loadGroupSharingGrants(database, input.workspaceId, input.channelId, lock),
+  ])
+  const admission = admissionForParticipant(roster, { kind: 'user', userId: input.reader.userId })
+  const now = new Date().toISOString()
+  return (row) =>
+    decideGroupHistoryRead({
+      admission,
+      entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
+      groupId: input.channelId,
+      now,
+      sharingGrants,
+    }).action === 'allow'
+}
+
 function unavailable(jobId: string): JobReferenceView {
   return { authority: 'none', availability: 'unavailable', jobId }
 }
@@ -68,7 +121,7 @@ function unavailable(jobId: string): JobReferenceView {
  * that commits after the read orders after it, and the next resolution reflects it.
  */
 export async function resolveJobReferences(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   input: ResolveJobReferencesInput
 ): Promise<readonly JobReferenceView[]> {
   if (input.jobIds.length > JOB_REFERENCE_MAX_BATCH) throw new JobReferenceBatchError()
@@ -85,8 +138,10 @@ export async function resolveJobReferences(
     // included on purpose: the delivery decision refuses them, and a decision is never skipped.
     const candidates = await database
       .select({
+        createdAt: messages.createdAt,
         executionRef: messages.executionRef,
         id: messages.id,
+        sequence: messages.sequence,
         senderKind: messages.senderKind,
         senderSystemId: messages.senderSystemId,
       })
@@ -101,7 +156,12 @@ export async function resolveJobReferences(
         )
       )
       .orderBy(asc(messages.sequence))
-    const visible = await readerVisiblePublicationIds(database, candidates, input.reader.userId)
+    const inHistory = await historyAllowedFor(database, input, candidates)
+    const visible = await readerVisiblePublicationIds(
+      database,
+      candidates.filter((candidate) => inHistory(candidate)),
+      input.reader.userId
+    )
     for (const candidate of candidates) {
       // The earliest released publication names the job; a job has one per destination.
       if (

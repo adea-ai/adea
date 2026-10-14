@@ -33,11 +33,11 @@ import { artifactReferenceGrants, artifacts, workspaceMemberships, workspaces } 
  *   EQUAL to the artifact record's. A registration whose version or digest
  *   diverges from the canonical record fails closed and persists nothing;
  * - the artifact is not fenced by retention (M18.02 #1221): no unrevoked
- *   deletion authorization and no `delete` cleanup receipt exist for it in the
- *   source workspace, under any generation. A fenced artifact refuses
- *   registration, replay, and regrant with `grant_artifact_retention_fenced`, so
- *   a grant is not committed to data whose deletion is authorized or evidenced in the
- *   database (a deletion revoked before any receipt is recorded is a known gap).
+ *   deletion authorization, no deletion dispatch mark and no `delete` cleanup
+ *   receipt exist for it in the source workspace, under any generation. A fenced
+ *   artifact refuses registration, replay, and regrant with
+ *   `grant_artifact_retention_fenced`, so a grant is not committed to data whose
+ *   deletion is authorized, dispatched or evidenced in the database.
  *   See `artifact-retention-fence` for the fence states and why a plain read
  *   under the artifact lock is sufficient.
  *

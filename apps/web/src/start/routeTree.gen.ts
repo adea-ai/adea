@@ -88,6 +88,8 @@ import { Route as ApiV1WorkspacesWorkspaceIdArtifactGrantsGrantIdRevokeRouteImpo
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
+import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
 import { Route as ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
@@ -121,6 +123,9 @@ import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImpo
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -574,6 +579,18 @@ const ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute =
     path: '/participants',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteImport.update({
+    id: '/plans',
+    path: '/plans',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteImport.update({
+    id: '/turns',
+    path: '/turns',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute =
   ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport.update({
     id: '/replicas',
@@ -783,6 +800,33 @@ const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceipt
       getParentRoute: () => rootRouteImport,
     } as any,
   )
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteImport.update(
+    {
+      id: '/$planId/revisions',
+      path: '/$planId/revisions',
+      getParentRoute: () =>
+        ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute,
+    } as any,
+  )
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRouteImport.update(
+    {
+      id: '/$turnId/cancel',
+      path: '/$turnId/cancel',
+      getParentRoute: () =>
+        ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute,
+    } as any,
+  )
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRouteImport.update(
+    {
+      id: '/$revision/job-references',
+      path: '/$revision/job-references',
+      getParentRoute: () =>
+        ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -864,6 +908,8 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
@@ -897,6 +943,9 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -978,6 +1027,8 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
@@ -1011,6 +1062,9 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -1093,6 +1147,8 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/messages': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
@@ -1126,6 +1182,9 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -1209,6 +1268,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
@@ -1242,6 +1303,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1323,6 +1387,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
@@ -1356,6 +1422,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
   id:
     | '__root__'
     | '/'
@@ -1437,6 +1506,8 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/lead-turn'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/messages'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
@@ -1470,6 +1541,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+    | '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -2083,6 +2157,20 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute
     }
+    '/api/v1/workspaces/$workspaceId/channels/$channelId/plans': {
+      id: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+      path: '/plans'
+      fullPath: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/channels/$channelId/turns': {
+      id: '/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
+      path: '/turns'
+      fullPath: '/api/v1/workspaces/$workspaceId/channels/$channelId/turns'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute
+    }
     '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': {
       id: '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
       path: '/replicas'
@@ -2314,6 +2402,27 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions': {
+      id: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+      path: '/$planId/revisions'
+      fullPath: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute
+    }
+    '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel': {
+      id: '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+      path: '/$turnId/cancel'
+      fullPath: '/api/v1/workspaces/$workspaceId/channels/$channelId/turns/$turnId/cancel'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute
+    }
+    '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references': {
+      id: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
+      path: '/$revision/job-references'
+      fullPath: '/api/v1/workspaces/$workspaceId/channels/$channelId/plans/$planId/revisions/$revision/job-references'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute
+    }
   }
 }
 
@@ -2504,10 +2613,57 @@ const ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteChildren,
   )
 
+interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteChildren {
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteChildren: ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute:
+      ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRevisionJobReferencesRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteChildren,
+  )
+
+interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteChildren {
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren
+}
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteChildren: ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRoute:
+      ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansPlanIdRevisionsRouteWithChildren,
+  }
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteChildren,
+  )
+
+interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteChildren {
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute
+}
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteChildren: ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteChildren =
+  {
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute:
+      ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsTurnIdCancelRoute,
+  }
+
+const ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren =
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute._addFileChildren(
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteChildren,
+  )
+
 interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdLeadTurnRoute
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren
 }
 
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren: ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren =
@@ -2518,6 +2674,10 @@ const ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren: ApiV1WorkspacesW
       ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute,
     ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute:
       ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute,
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRoute:
+      ApiV1WorkspacesWorkspaceIdChannelsChannelIdPlansRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRoute:
+      ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteWithChildren,
   }
 
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren =

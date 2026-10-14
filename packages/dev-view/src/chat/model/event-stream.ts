@@ -23,6 +23,11 @@ export type RuntimeEventStream = Readonly<{
    * renders up to one tick stale.
    */
   subscribe: (listener: (state: TranscriptAccumulator) => void) => () => void
+  /**
+   * The newest sequence the host has said it delivered (its replay-end
+   * heartbeat), undefined until one arrives. The only proof a replay finished.
+   */
+  deliveredThrough: () => string | undefined
   close: () => void
 }>
 
@@ -76,6 +81,7 @@ export async function openRuntimeEventStream(
     fromSequence: grant.fromSequence,
   })
   let socket: DevStreamTransportSocket | undefined
+  let deliveredThrough: string | undefined
   const pendingAcks: DevStreamFrame[] = []
   const listeners = new Set<(state: TranscriptAccumulator) => void>()
   const publish = () => {
@@ -84,6 +90,7 @@ export async function openRuntimeEventStream(
   socket = transport.connect(grant as never, {
     onFrame: (frame) => {
       const source = eventSourceForStream({ source: input.source })
+      if (frame.type === 'heartbeat') deliveredThrough = frame.throughSequence
       let decodedEvent: RuntimeEvent | undefined
       if (frame.type === 'data') {
         try {
@@ -128,6 +135,7 @@ export async function openRuntimeEventStream(
   for (const ack of pendingAcks) if (socket.open) socket.send(ack)
   return {
     state: () => transcript,
+    deliveredThrough: () => deliveredThrough,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)

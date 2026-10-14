@@ -55,7 +55,12 @@ describe('build and bundler boundary', () => {
     const serverConfig = readFileSync(resolve(root, 'apps/web/vite.config.ts'), 'utf8')
     expect(serverConfig).toContain("from '@tanstack/solid-start/plugin/vite'")
     expect(serverConfig).toContain("from '@cloudflare/vite-plugin'")
-    expect(serverConfig).toContain("from 'vite-plugin-solid'")
+    // The Solid plugin is configured by the helper the config wires in, which
+    // splits the hydratable and client-only compiles.
+    expect(serverConfig).toContain("from './start/solid-compile'")
+    expect(serverConfig).toContain('...solidPlugins()')
+    const solidCompile = readFileSync(resolve(root, 'apps/web/start/solid-compile.ts'), 'utf8')
+    expect(solidCompile).toContain("from 'vite-plugin-solid'")
     const desktopConfig = readFileSync(resolve(root, 'apps/web/vite.desktop.config.ts'), 'utf8')
     expect(desktopConfig).toContain("from '@tanstack/solid-start/plugin/vite'")
     expect(desktopConfig).toContain('spa:')

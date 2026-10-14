@@ -953,6 +953,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let rightUtilityOpener: HTMLButtonElement | undefined
   /** Registered by the sidebar's "New project" flow; center-pane empty states
    *  use it to start adding a project (no-op without a runtime scope). */
+  const selectSession = (projectId: string, sessionId: string | null) => {
+    setRecoveryNotice('')
+    const store = workspaceStore.getState()
+    if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
+    if (sessionId) store.setSelectedRuntimeSessionId(sessionId)
+    props.onSelectionChange?.({ projectId, sessionId })
+  }
   let openAddProjectPanel: (() => void) | undefined
   const addProjectFromEmptyState = () => openAddProjectPanel?.()
   const sidebarToggleControl = () => {
@@ -1154,13 +1161,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             />
           }
           pickFolder={props.pickFolder}
-          onSelectSession={(projectId, sessionId) => {
-            setRecoveryNotice('')
-            const store = workspaceStore.getState()
-            if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
-            if (sessionId) store.setSelectedRuntimeSessionId(sessionId)
-            props.onSelectionChange?.({ projectId, sessionId })
-          }}
+          onSelectSession={selectSession}
           onBindingsChanged={() => loadProjection()}
           onSelectedLeafChange={setSelectedBreadcrumb}
           announce={setAnnouncement}
@@ -1330,7 +1331,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
         <Show when={!props.utilityHostOwnedByShell && visiblePaneOf('right')}>
           <Suspense fallback={<p class="dev-pane-state__line">Loading workspace utilities…</p>}>
-            <SharedDevUtilityHost owner={utilityOwner} restoreFocusRef={() => rightUtilityOpener} />
+            <SharedDevUtilityHost
+              owner={utilityOwner}
+              restoreFocusRef={() => rightUtilityOpener}
+              onOpenSession={({ projectId, runtimeSessionId }) =>
+                selectSession(projectId, runtimeSessionId)
+              }
+            />
           </Suspense>
         </Show>
       </div>

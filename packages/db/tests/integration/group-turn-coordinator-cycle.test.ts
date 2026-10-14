@@ -311,7 +311,10 @@ test('a stalled body times out, runs cleanup, and cannot continue after release'
     (error: unknown) => error
   )
 
-  expect(thrown).toMatchObject({ message: 'timed out waiting for test body' })
+  expect(thrown).toBeInstanceOf(Error)
+  expect((thrown as Error).message).toMatch(
+    /^timed out waiting for (?:test body|stalled body step)$/u
+  )
   expect(cleanupRan).toBe(true)
   expect(continuedAfterTimeout).toBe(false)
 })

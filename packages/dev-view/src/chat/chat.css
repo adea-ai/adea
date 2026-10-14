@@ -93,6 +93,11 @@
   background: var(--background);
 }
 
+.dev-chat__row[data-revealed] {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
 .dev-chat__row--user {
   align-self: flex-end;
   background: var(--primary-subtle);

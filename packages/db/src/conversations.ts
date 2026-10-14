@@ -8,7 +8,20 @@ import type {
   MessageSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, exists, gt, inArray, isNull, max, or, sql } from 'drizzle-orm'
+import { portableJsonUtf8ByteLength } from '@adea-ai/types/portable-export'
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  getTableColumns,
+  gt,
+  inArray,
+  isNull,
+  max,
+  or,
+  sql,
+} from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
@@ -56,6 +69,30 @@ import {
 type Database = AgentHqDatabase | AgentHqTransaction
 type ChannelRow = typeof channels.$inferSelect
 type MessageRow = typeof messages.$inferSelect
+type MessagePageOptions = Readonly<{
+  afterSequence?: number
+  authorizationRecordLimit?: number
+  limit?: number
+  now?: string
+  threadRootMessageId?: string
+}>
+
+export type PortableExportMessagePage = Readonly<{
+  bodyTextByteBudget: number
+  bodyTextJsonBytes: number
+  bodyTextWithinByteBudget: boolean
+  bodyTextWithheldRows: number
+  messages: readonly MessageSummary[]
+  nextAfterSequence?: number
+}>
+
+export type PortableExportMessageProofPage = Readonly<{
+  bodyTextByteBudget: number
+  bodyTextJsonBytes: number
+  bodyTextWithinByteBudget: boolean
+  bodyTextWithheldRows: number
+  messages: readonly MessageSummary[]
+}>
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
@@ -1893,17 +1930,40 @@ export function listMessagesForUser(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{
-    afterSequence?: number
-    authorizationRecordLimit?: number
-    limit?: number
-    now?: string
-    threadRootMessageId?: string
-  }> = {}
+  options: MessagePageOptions = {}
 ) {
   return inReadSnapshot(database, (snapshot) =>
     listMessagesForUserInSnapshot(snapshot, workspaceId, channelId, principal, options)
   )
+}
+
+/** The portable export uses the same page authorization, with a SQL-bound body projection. */
+export function listMessagesForUserForPortableExport(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  options: MessagePageOptions & Readonly<{ bodyTextByteBudget: number }>
+): Promise<PortableExportMessagePage> {
+  if (!Number.isSafeInteger(options.bodyTextByteBudget) || options.bodyTextByteBudget < 0)
+    throw new RangeError('portable export message text budget must be a non-negative safe integer')
+  return inReadSnapshot(database, async (snapshot) => {
+    const page = await listMessagesForUserInSnapshot(
+      snapshot,
+      workspaceId,
+      channelId,
+      principal,
+      options
+    )
+    if (
+      page.bodyTextByteBudget === undefined ||
+      page.bodyTextJsonBytes === undefined ||
+      page.bodyTextWithinByteBudget === undefined ||
+      page.bodyTextWithheldRows === undefined
+    )
+      throw new Error('portable export message text projection was not applied')
+    return page as PortableExportMessagePage
+  })
 }
 
 /**
@@ -2022,13 +2082,7 @@ async function listMessagesForUserInSnapshot(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{
-    afterSequence?: number
-    authorizationRecordLimit?: number
-    limit?: number
-    now?: string
-    threadRootMessageId?: string
-  }>
+  options: MessagePageOptions & Readonly<{ bodyTextByteBudget?: number }>
 ) {
   await requireMembership(database, workspaceId, principal)
   const channel = await requireChannelAccess(
@@ -2042,41 +2096,66 @@ async function listMessagesForUserInSnapshot(
     options.authorizationRecordLimit
   )
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100)
-  const rows = await database
-    .select()
-    .from(messages)
-    .where(
-      and(
-        eq(messages.workspaceId, workspaceId),
-        eq(messages.channelId, channelId),
-        ...(options.afterSequence !== undefined
-          ? [gt(messages.sequence, options.afterSequence)]
-          : []),
-        ...(options.threadRootMessageId
-          ? [eq(messages.threadRootMessageId, options.threadRootMessageId)]
-          : [])
-      )
-    )
-    .orderBy(asc(messages.sequence))
-    .limit(limit + 1)
+  const condition = and(
+    eq(messages.workspaceId, workspaceId),
+    eq(messages.channelId, channelId),
+    ...(options.afterSequence !== undefined ? [gt(messages.sequence, options.afterSequence)] : []),
+    ...(options.threadRootMessageId
+      ? [eq(messages.threadRootMessageId, options.threadRootMessageId)]
+      : [])
+  )
+  const rows: MessageRow[] =
+    options.bodyTextByteBudget === undefined
+      ? await database
+          .select()
+          .from(messages)
+          .where(condition)
+          .orderBy(asc(messages.sequence))
+          .limit(limit + 1)
+      : await database
+          .select({
+            ...getTableColumns(messages),
+            bodyText: sql<string | null>`null`,
+          })
+          .from(messages)
+          .where(condition)
+          .orderBy(asc(messages.sequence))
+          .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
-  const summaries = await projectMessageRowsForUser(
+  const projection = await projectMessageRowsForUser(
     database,
     workspaceId,
     channel,
     principal,
     page,
     options.now,
-    options.authorizationRecordLimit
+    options.authorizationRecordLimit,
+    options.bodyTextByteBudget
   )
   return Object.freeze({
-    messages: Object.freeze(summaries),
+    messages: Object.freeze(projection.messages),
+    ...(projection.bodyTextByteBudget === undefined
+      ? {}
+      : {
+          bodyTextByteBudget: projection.bodyTextByteBudget,
+          bodyTextJsonBytes: projection.bodyTextJsonBytes!,
+          bodyTextWithheldRows: projection.bodyTextWithheldRows!,
+          bodyTextWithinByteBudget: projection.bodyTextWithinByteBudget!,
+        }),
     ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
   })
 }
 
-/** Shared projection for sequence paging and the final bounded export proof. */
+type ProjectedMessagePage = Readonly<{
+  bodyTextByteBudget?: number
+  bodyTextJsonBytes?: number
+  bodyTextWithheldRows?: number
+  bodyTextWithinByteBudget?: boolean
+  messages: MessageSummary[]
+}>
+
+/** Shared authorization projection for sequence paging and the final bounded export proof. */
 async function projectMessageRowsForUser(
   database: Database,
   workspaceId: string,
@@ -2084,8 +2163,10 @@ async function projectMessageRowsForUser(
   principal: UserPrincipalRef,
   page: readonly MessageRow[],
   now?: string,
-  authorizationRecordLimit?: number
-): Promise<MessageSummary[]> {
+  authorizationRecordLimit?: number,
+  bodyTextByteBudget?: number,
+  includeMentionsInBodyTextBudget = true
+): Promise<ProjectedMessagePage> {
   const jobVisibleRows = await filterVisibleMessageRows(database, page, principal.userId)
   const visibleRows =
     channel.kind === 'group'
@@ -2107,7 +2188,76 @@ async function projectMessageRowsForUser(
   const summaries = visibleRows.map((row) =>
     messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
   )
-  return summaries
+  if (bodyTextByteBudget === undefined) return { messages: summaries }
+
+  const rowsWithAccountedMentions = new Set(
+    visibleRows
+      .filter((row) => row.deletedAt !== null || !row.bodyContentRefId)
+      .map((row) => row.id)
+  )
+  const mentionJsonBytes = includeMentionsInBodyTextBudget
+    ? summaries.reduce(
+        (total, message) =>
+          rowsWithAccountedMentions.has(message.id)
+            ? total + portableJsonUtf8ByteLength(message.mentions)
+            : total,
+        0
+      )
+    : 0
+  const remainingBodyTextBytes = Math.max(0, bodyTextByteBudget - mentionJsonBytes)
+  const bodyTextRows = visibleRows.filter((row) => !row.deletedAt && !row.bodyContentRefId)
+  const bodyTextProjection = bodyTextRows.length
+    ? sql`
+        sum(
+          octet_length(to_json(coalesce(${messages.bodyText}, ''))::text)
+        ) over (
+          order by ${messages.sequence}
+          rows between unbounded preceding and current row
+        )
+      `
+    : undefined
+  const projectedBodyTextRows = bodyTextProjection
+    ? await database
+        .select({
+          bodyText: sql<
+            string | null
+          >`case when ${bodyTextProjection} <= ${remainingBodyTextBytes} then ${messages.bodyText} else null end`,
+          id: messages.id,
+          withinByteBudget: sql<boolean>`${bodyTextProjection} <= ${remainingBodyTextBytes}`,
+        })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.workspaceId, workspaceId),
+            inArray(
+              messages.id,
+              bodyTextRows.map((row) => row.id)
+            )
+          )
+        )
+        .orderBy(asc(messages.sequence))
+    : []
+  const bodyTextWithheldRows = projectedBodyTextRows.filter((row) => !row.withinByteBudget).length
+  const bodyTextJsonBytes = projectedBodyTextRows.reduce(
+    (total, row) =>
+      row.withinByteBudget ? total + portableJsonUtf8ByteLength(row.bodyText ?? '') : total,
+    0
+  )
+  const bodyTextByMessageId = new Map(projectedBodyTextRows.map((row) => [row.id, row.bodyText]))
+  const messagesWithBoundedBodies = visibleRows.map((row) => {
+    const bodyText = bodyTextByMessageId.get(row.id)
+    return messageSummaryFrom(
+      bodyText ? { ...row, bodyText } : row,
+      reads.get(row.id) ?? { mentions: [], artifactIds: [] }
+    )
+  })
+  return {
+    bodyTextByteBudget: remainingBodyTextBytes,
+    bodyTextJsonBytes,
+    bodyTextWithheldRows,
+    bodyTextWithinByteBudget: bodyTextWithheldRows === 0,
+    messages: messagesWithBoundedBodies,
+  }
 }
 
 /** Reprove exact retained IDs through the same gates as a canonical history page. */
@@ -2119,43 +2269,133 @@ export function readMessagesForUserIds(
   ids: readonly string[],
   options: Readonly<{ authorizationRecordLimit?: number }> = {}
 ): Promise<readonly MessageSummary[]> {
-  if (ids.length > 100 || new Set(ids).size !== ids.length)
-    throw new RangeError('message proof batch must contain at most 100 distinct IDs')
+  assertMessageProofBatch(ids)
   return inReadSnapshot(database, async (snapshot) => {
-    await requireMembership(snapshot, workspaceId, principal)
-    const channel = await requireChannelAccess(
+    return (
+      await readMessageIdsForUserInSnapshot(
+        snapshot,
+        workspaceId,
+        channelId,
+        principal,
+        ids,
+        options
+      )
+    ).messages
+  })
+}
+
+/** Reprove an export batch without transferring message text before current visibility checks. */
+export function readMessagesForUserIdsForPortableExport(
+  database: Database,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  ids: readonly string[],
+  options: Readonly<{
+    authorizationRecordLimit?: number
+    bodyTextByteBudget: number
+  }>
+): Promise<PortableExportMessageProofPage> {
+  assertMessageProofBatch(ids)
+  if (!Number.isSafeInteger(options.bodyTextByteBudget) || options.bodyTextByteBudget < 0)
+    throw new RangeError('portable export message text budget must be a non-negative safe integer')
+  return inReadSnapshot(database, async (snapshot) => {
+    const page = await readMessageIdsForUserInSnapshot(
       snapshot,
       workspaceId,
       channelId,
       principal,
-      'read',
-      false,
-      undefined,
-      options.authorizationRecordLimit
+      ids,
+      { ...options, includeMentionsInBodyTextBudget: false }
     )
-    if (!ids.length) return []
-    const rows = await snapshot
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.workspaceId, workspaceId),
-          eq(messages.channelId, channelId),
-          inArray(messages.id, [...ids])
-        )
-      )
-      .orderBy(asc(messages.sequence))
-      .limit(ids.length)
-    return projectMessageRowsForUser(
-      snapshot,
-      workspaceId,
-      channel,
-      principal,
-      rows,
-      undefined,
-      options.authorizationRecordLimit
+    if (
+      page.bodyTextByteBudget === undefined ||
+      page.bodyTextJsonBytes === undefined ||
+      page.bodyTextWithinByteBudget === undefined ||
+      page.bodyTextWithheldRows === undefined
     )
+      throw new Error('portable export message proof projection was not applied')
+    return {
+      bodyTextByteBudget: page.bodyTextByteBudget,
+      bodyTextJsonBytes: page.bodyTextJsonBytes,
+      bodyTextWithinByteBudget: page.bodyTextWithinByteBudget,
+      bodyTextWithheldRows: page.bodyTextWithheldRows,
+      messages: page.messages,
+    }
   })
+}
+
+function assertMessageProofBatch(ids: readonly string[]): void {
+  if (ids.length > 100 || new Set(ids).size !== ids.length)
+    throw new RangeError('message proof batch must contain at most 100 distinct IDs')
+}
+
+async function readMessageIdsForUserInSnapshot(
+  snapshot: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  principal: UserPrincipalRef,
+  ids: readonly string[],
+  options: Readonly<{
+    authorizationRecordLimit?: number
+    bodyTextByteBudget?: number
+    includeMentionsInBodyTextBudget?: boolean
+  }>
+): Promise<ProjectedMessagePage> {
+  await requireMembership(snapshot, workspaceId, principal)
+  const channel = await requireChannelAccess(
+    snapshot,
+    workspaceId,
+    channelId,
+    principal,
+    'read',
+    false,
+    undefined,
+    options.authorizationRecordLimit
+  )
+  if (!ids.length)
+    return options.bodyTextByteBudget === undefined
+      ? { messages: [] }
+      : {
+          bodyTextByteBudget: options.bodyTextByteBudget,
+          bodyTextJsonBytes: 0,
+          bodyTextWithheldRows: 0,
+          bodyTextWithinByteBudget: true,
+          messages: [],
+        }
+  const condition = and(
+    eq(messages.workspaceId, workspaceId),
+    eq(messages.channelId, channelId),
+    inArray(messages.id, [...ids])
+  )
+  const rows: MessageRow[] =
+    options.bodyTextByteBudget === undefined
+      ? await snapshot
+          .select()
+          .from(messages)
+          .where(condition)
+          .orderBy(asc(messages.sequence))
+          .limit(ids.length)
+      : await snapshot
+          .select({
+            ...getTableColumns(messages),
+            bodyText: sql<string | null>`null`,
+          })
+          .from(messages)
+          .where(condition)
+          .orderBy(asc(messages.sequence))
+          .limit(ids.length)
+  return projectMessageRowsForUser(
+    snapshot,
+    workspaceId,
+    channel,
+    principal,
+    rows,
+    undefined,
+    options.authorizationRecordLimit,
+    options.bodyTextByteBudget,
+    options.includeMentionsInBodyTextBudget
+  )
 }
 
 export function getMessageForUser(
@@ -2204,7 +2444,7 @@ async function getMessageForUserInSnapshot(
  * A group mutation locks the channel before its admission and grant, matching
  * the group write fence so mutation and grant revocation serialize together.
  */
-async function requireGroupMutationStanding(
+export async function requireGroupMutationStanding(
   database: Database,
   workspaceId: string,
   channelId: string,

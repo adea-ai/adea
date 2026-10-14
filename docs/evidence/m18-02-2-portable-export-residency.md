@@ -80,11 +80,28 @@ check. The requester's access is checked at these points:
   join the same byte budget; SQL withholds both agent text columns once their cumulative
   lower bound exceeds the remaining budget. User-name byte lengths are also checked in SQL before
   name values are transferred to the Worker.
-- These byte checks bound retained accumulation and stop later reads once the lower bound exceeds
-  the document limit; they are not an 8 MiB process-heap ceiling. Task and message pages are
-  materialized before row-by-row accounting, so a single oversized task or message value can
-  transiently exceed the limit before refusal. Agent names and role summaries are now projected
-  conditionally in SQL before transfer to the Worker.
+- Task title/objective and message body text are projected in SQL against the remaining document
+  byte budget before either text value reaches the Worker. For each task page (at most 25 rows), SQL
+  sums the compact JSON UTF-8 lower bound in task-ID order and returns title/objective only for rows
+  within that budget; the first and later over-budget rows return null text with
+  `withinByteBound = false` and cause `too_large` before retention or document construction.
+  Message pages first fetch row metadata with
+  `bodyText = NULL`, apply the canonical membership, channel, job-visibility and group-history
+  gates, then project only visible, nondeleted, non-content-ref bodies whose cumulative JSON UTF-8
+  bytes fit. An over-budget body is withheld and causes refusal; text is never truncated or
+  returned as a complete partial export. The final retained-message proof repeats the bounded body
+  projection after current visibility checks and denies if a body is withheld before exact summary
+  comparison.
+- Final retained-task proof selects only `id`, `version`, `projectId` and `objectiveContentRefId`
+  for the retained task IDs. It does not select title/objective, so oversized text edits are not
+  materialized in that proof. A task edit through `updateTask` increments `version` and is denied by
+  the proof; a text edit that bypasses version increments is not detected because the proof does
+  not re-read or compare those text fields.
+- These checks bound exported text contributions and prevent the task title/objective and message
+  body columns from being transferred to the Worker beyond the remaining byte budget; they do not
+  impose an 8 MiB process-heap or source-database work ceiling. Bounded pages, row metadata,
+  references, other included fields, and runtime/driver overhead still consume memory. Agent names
+  and role summaries are also conditionally projected in SQL before transfer to the Worker.
 - Before the task pages begin, before the content references are checked, and before the final
   check: each is a test seam (`beforeStep`) so that revocations can be placed there.
 - After the last read and before the document is built: the start checks again, plus every
@@ -223,13 +240,19 @@ API.
 
 ## End-to-end residency proof
 
-`apps/web/test/integration/portable-residency-e2e.test.ts` (8 tests) builds the source only through
+`apps/web/test/integration/portable-residency-e2e.test.ts` (10 tests) builds the source only through
 existing APIs: a workspace, a participants-only group, a members-only project with a task, content refs,
 `upsertContentReplica` for an E2E-synchronized body ref, artifacts with object-store, external-harness and
 native execution references, native session references on a message, a workspace invitation and a
 temporary session. It exports through the GET handler as the owner, a participant and an outsider. It
 restores the owner's bundle through the POST handler into a clean scratch database. No native checkpoint is
 transplanted, and no replica storage is invented.
+
+The successful GET and POST response helpers run under a temporary `globalThis.fetch` tripwire;
+both record zero calls. A synthetic fetch positive control proves the tripwire blocks and counts a
+call. This instrumentation covers JavaScript calls through `globalThis.fetch` only. It does not
+intercept Postgres connections, raw sockets, native clients or other non-fetch transports, and is
+not comprehensive network isolation.
 
 It proves:
 
@@ -244,6 +267,8 @@ It proves:
 - Explicit external domains: the import reports `artifact_bytes_and_locations`,
   `control_plane_identifiers`, `e2e_ciphertext_replicas`, `remote_content_envelopes` and
   `runtime_execution_state` as `unavailable`, each with its authority. This destination restores none of them.
+- Fetch boundary: the portable export and import response helpers make zero intercepted
+  `globalThis.fetch` calls in the successful clean-restore fixture.
 
 Upstream dependencies, exact:
 
@@ -259,28 +284,26 @@ Upstream dependencies, exact:
 The issue lists requirements REQ 045, 055, 097, 140 to 145 and 177, and tests A27, A35, A36 and
 A38. Their text is in the Agent HQ TDD. Status is one of covered, partial or not claimed.
 
-| Item             | Requirement or test                                                                                                                                                        | Status              | Evidence or gap                                                                                                                                                                                                                                                |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #1226 acceptance | Prove authorized portable export/import and end-to-end residency without credentials or private-audience leakage                                                           | Partial             | Covered: authorized export and import, clean restore, credential canaries, revocation and hidden-reference tests for the export's own readers. Not covered: pre-join content (#1232), withheld job publication (#1237), residency beyond the product database. |
-| REQ 045          | Archive preserves history and links while preventing new work                                                                                                              | Partial             | Archived channels and projects are excluded from the export; the product's archive semantics are not changed here.                                                                                                                                             |
-| REQ 055          | Reset, archive and delete are separate actions                                                                                                                             | Not claimed         | Conversation actions are outside the export.                                                                                                                                                                                                                   |
-| REQ 097          | Credentials stay out of export, recovery and debug paths                                                                                                                   | Partial             | Export path only: canaries in `portable-export.test.ts` and `portable-restore-clean.test.ts`. Recovery, debug, logs and context preparation are not covered.                                                                                                   |
-| REQ 140 to 143   | Retention classes, deletion, holds                                                                                                                                         | Not claimed (#1221) | The export omits soft-deleted and archived records. It defines no retention policy.                                                                                                                                                                            |
-| REQ 144          | Stable IDs, timestamps, authors, audience and history metadata, job and attempt relationships, artifact versions and source provenance, a documented format, clean restore | Partial             | Covered: IDs, timestamps, authors, audience, history (edits and tombstones), cloud-location attempts, the documented format and clean restore. Not exported: artifact versions and source provenance (#86) and job, effect and approval evidence (#1221).      |
-| REQ 145          | Residency checks: runtime state, product database, artifact store, inference, logs, external tools                                                                         | Partial             | Checked: the product database, by clean restore. Not checked: the artifact store, runtime state, logs, inference and external tools. The export sends nothing to a model or tool.                                                                              |
-| REQ 177          | Destructive cleanup follows the rollback and retention gates; restoration limits are documented                                                                            | Partial             | Restoration limits are listed under residual limits. Cleanup gates belong to #1221.                                                                                                                                                                            |
-| A27              | Delete or export with an offline executor and retained evidence: honest pending status; portable authorized export                                                         | Partial             | Covered: the portable authorized export. Not represented: the offline executor's pending status and retained evidence (#1221).                                                                                                                                 |
-| A35              | Permanent deletion before trusted cleanup fails closed                                                                                                                     | Not claimed         | Deletion path, outside the export.                                                                                                                                                                                                                             |
-| A36              | Preserve history and reconnect to supported state; no #193 expansion                                                                                                       | Partial             | No #193 dependency: replica ciphertext and key material never leave, by ledger and canary tests. Reconnect and cross-device history sync are not covered.                                                                                                      |
-| A38              | Secrets stay out of recovery, export, logs and context preparation                                                                                                         | Partial             | Export path only, by canary tests. Recovery, logs and context preparation are not covered.                                                                                                                                                                     |
+| Item             | Requirement or test                                                                                                                                                        | Status              | Evidence or gap                                                                                                                                                                                                                                           |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1226 acceptance | Prove authorized portable export/import and end-to-end residency without credentials or private-audience leakage                                                           | Partial             | Covered: authorized export/import, clean restore, credential and audience canaries, revocation, pre-join history and withheld job-publication regressions through the canonical readers. Not covered: residency beyond the product database.              |
+| REQ 045          | Archive preserves history and links while preventing new work                                                                                                              | Partial             | Archived channels and projects are excluded from the export; the product's archive semantics are not changed here.                                                                                                                                        |
+| REQ 055          | Reset, archive and delete are separate actions                                                                                                                             | Not claimed         | Conversation actions are outside the export.                                                                                                                                                                                                              |
+| REQ 097          | Credentials stay out of export, recovery and debug paths                                                                                                                   | Partial             | Export path only: canaries in `portable-export.test.ts` and `portable-restore-clean.test.ts`. Recovery, debug, logs and context preparation are not covered.                                                                                              |
+| REQ 140 to 143   | Retention classes, deletion, holds                                                                                                                                         | Not claimed (#1221) | The export omits soft-deleted and archived records. It defines no retention policy.                                                                                                                                                                       |
+| REQ 144          | Stable IDs, timestamps, authors, audience and history metadata, job and attempt relationships, artifact versions and source provenance, a documented format, clean restore | Partial             | Covered: IDs, timestamps, authors, audience, history (edits and tombstones), cloud-location attempts, the documented format and clean restore. Not exported: artifact versions and source provenance (#86) and job, effect and approval evidence (#1221). |
+| REQ 145          | Residency checks: runtime state, product database, artifact store, inference, logs, external tools                                                                         | Partial             | Checked: product-database clean restore and zero `globalThis.fetch` calls through the portable response helpers. Not checked: actual artifact-store/runtime state, logs, inference or external tools; the fetch probe does not cover other transports.    |
+| REQ 177          | Destructive cleanup follows the rollback and retention gates; restoration limits are documented                                                                            | Partial             | Restoration limits are listed under residual limits. Cleanup gates belong to #1221.                                                                                                                                                                       |
+| A27              | Delete or export with an offline executor and retained evidence: honest pending status; portable authorized export                                                         | Partial             | Covered: the portable authorized export. Not represented: the offline executor's pending status and retained evidence (#1221).                                                                                                                            |
+| A35              | Permanent deletion before trusted cleanup fails closed                                                                                                                     | Not claimed         | Deletion path, outside the export.                                                                                                                                                                                                                        |
+| A36              | Preserve history and reconnect to supported state; no #193 expansion                                                                                                       | Partial             | No #193 dependency: replica ciphertext and key material never leave, by ledger and canary tests. Reconnect and cross-device history sync are not covered.                                                                                                 |
+| A38              | Secrets stay out of recovery, export, logs and context preparation                                                                                                         | Partial             | Export path only, by canary tests. Recovery, logs and context preparation are not covered.                                                                                                                                                                |
 
-Pre-join content (#1232, `decideGroupHistoryRead`) and withheld job publication (#1237,
-`filterVisibleJobOutboundRows`) are not on `main`. Neither the admission tables nor the
-publication rows exist there, so no regression for pre-join content or withheld publication
-bodies can run on this branch. The export inherits both gates through the canonical readers when
-those PRs merge, because it calls the same readers. The two regressions must be added after
-#1232 and #1237 land, and this PR should not merge before then. Those two regressions are not
-claimed here.
+Merged PR #1245 composes the export with the canonical group-history and job-publication readers.
+`packages/db/tests/integration/portable-export.test.ts` includes the regressions `a group member
+who joined after earlier history never receives it, and the founder does` and `a job publication the
+readers withhold, and its encoded binding, never leave in an export`. These behaviors are covered on
+current main and no longer block the portable export proof.
 
 ## Withheld and excluded
 
@@ -354,7 +377,8 @@ restore tests.
 
 Residual limits, recorded rather than claimed:
 
-- Pre-join and publication withholding regressions are blocked on #1232 and #1237.
+- The route egress probe intercepts only JavaScript `globalThis.fetch`; it is not a comprehensive
+  network-isolation test and does not inspect external service state, logs or native transports.
 - The export is not one point-in-time snapshot (see Read authorization). A revocation undone
   between two checks yields a partial view, not unauthorized content. A revocation committed after
   the last check is not observed.
@@ -400,16 +424,16 @@ Fresh validation in the saved executor:
   provisioned and removed its disposable capture database. No credential or role settings were
   changed.
 
-This closes only the pre-transfer bound for agent names and role summaries. Issue #1226 remains
-partial: the pre-join audience proof and withheld job-publication proof still depend on #1232 and
-#1237, respectively, and this change does not cover artifact storage, replicas, or native runtime
-state.
+This checkpoint closed only the pre-transfer bound for agent names and role summaries. Its
+remaining-gap note is historical: merged PR #1245 added the canonical group-history and
+job-publication export regressions listed above. Issue #1226 remains partial because it does not
+verify residency in artifact storage, replicas, logs or native runtime state.
 
-## Unpublished current-main isolation repair (2026-10-13)
+## Current-main isolation and restore proof (incorporated in #1245)
 
-The implementation below composes published #1245 `b7588ea040f0116df6f2f3343785f43945513cb7`
-with main `2e40c2d829a3ab7020acdc11b3afedfc4eca34f5`. It does not incorporate or reconstruct the
-unavailable earlier qualified candidate `d575a16f3b5a4d08cb1f1c7e1192140d2ca3cd51`.
+The behavior recorded below is present in merged PR #1245 (merge commit
+`58958d7fe3f832cda16dc3ed4407457b022fe84a`). Earlier local candidate hashes and unpublished
+status notes are historical and do not describe current main.
 
 Orchestration reads use short READ COMMITTED transactions and release the pool connection before
 hooks or canonical page snapshots. Channels and messages are projected in their canonical coherent
@@ -430,8 +454,9 @@ references and actual share locks, and records zero INSERT/UPDATE/DELETE/DDL sta
 The four newly landed group authority tables are explicitly excluded under the existing version-1
 `authority_grants` class; source grants and admissions are not transplanted.
 
-Remaining blocker: the provisioned restore-order suite exposes that imported groups have no new
-canonical destination admission. Three cases pass and the two canonical read/order cases refuse
-with `Channel unavailable`. This isolation repair does not grant new import authority or weaken
-that refusal. Destination admission creation needs its own reviewed restore-policy repair.
-Issue #1226 remains open; this is not complete import/residency acceptance or permission to merge.
+The previously recorded missing-destination-admission blocker is resolved in #1245. Import creates
+fresh restore-scoped audience/enlistment grants and admissions for the bundle's listed group
+participants; it does not copy source grants or admit an unlisted importer. The clean-restore and
+edited-`exportedBy` regressions in `portable-export.test.ts` verify those join points and reads.
+Issue #1226 remains open and partial because residency outside the product database is not fully
+checked; the fetch tripwire above covers `globalThis.fetch` only.
