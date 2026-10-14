@@ -517,4 +517,48 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(consoleErrors).toEqual([])
     expect(pageErrors).toEqual([])
   })
+  test('the shell menu starts a new terminal with a chosen shell and saves a device default', async ({
+    page,
+  }) => {
+    const pane = await openHarness(page)
+    await page.evaluate(() => window.localStorage.removeItem('adea.dev.terminal.toolbar.v1'))
+    const trigger = pane.getByRole('button', { name: 'Shell: sh. Open shell menu' })
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+
+    const menu = page.getByRole('menu')
+    await expect(menu.getByRole('menuitem', { name: 'New terminal with sh' })).toBeVisible()
+    await expect(menu.getByText('This terminal')).toBeVisible()
+    await menu.getByRole('menuitem', { name: 'New terminal with bash' }).click()
+    expect((await report(page)).newTerminals).toEqual(['00000000-0000-4000-8000-00000000d0a2'])
+
+    await trigger.click()
+    await page.getByRole('menuitemradio', { name: 'bash' }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'bash' })).toBeChecked()
+    const saved = await page.evaluate(() =>
+      JSON.parse(window.localStorage.getItem('adea.dev.terminal.toolbar.v1') ?? '{}')
+    )
+    expect(saved.defaultShellProfileId).toBe('00000000-0000-4000-8000-00000000d0a2')
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('the toolbar customizer hides items and command blocks, and resets', async ({ page }) => {
+    const pane = await openHarness(page)
+    await page.evaluate(() => window.localStorage.removeItem('adea.dev.terminal.toolbar.v1'))
+    await expect(pane.locator('[data-terminal-integration]')).toBeVisible()
+    await expect(pane.getByRole('list', { name: 'Command blocks' })).toBeVisible()
+
+    await pane.getByRole('button', { name: 'Customize toolbar' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Shell integration' }).click()
+    await page.getByRole('menuitemcheckbox', { name: 'Command blocks' }).click()
+    await expect(pane.locator('[data-terminal-integration]')).toHaveCount(0)
+    await expect(pane.getByRole('list', { name: 'Command blocks' })).toHaveCount(0)
+
+    await page.getByRole('menuitem', { name: 'Reset to default' }).click()
+    await expect(pane.locator('[data-terminal-integration]')).toBeVisible()
+    await expect(pane.getByRole('list', { name: 'Command blocks' })).toBeVisible()
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
 })

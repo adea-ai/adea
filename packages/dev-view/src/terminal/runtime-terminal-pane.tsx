@@ -1,10 +1,20 @@
-import { type DevErrorCode, type Scope, type TerminalRecord } from '@adea-ai/types/dev-runtime'
+import {
+  type DevErrorCode,
+  type Scope,
+  type ShellProfile,
+  type TerminalRecord,
+} from '@adea-ai/types/dev-runtime'
 import { Show, Suspense, createEffect, createMemo, createSignal, lazy, onCleanup } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 import type { DevRuntimeService } from '../platform'
 import { createTerminalRuntimeConnection } from './runtime-connection'
+import { listShellProfiles } from './shell-profiles'
 import { resolveSelectedTerminal } from './selected-terminal'
+
+// The new-terminal flow ships with the pane chunk so the Dev View shell stays
+// free of shell-profile and toolbar-preference code.
+export { openTerminal, terminateSessionTerminal } from './open-terminal'
 
 const TerminalPane = lazy(() =>
   import('./terminal-pane').then((module) => ({ default: module.TerminalPane }))
@@ -36,6 +46,8 @@ export type RuntimeTerminalPaneProps = Readonly<{
   canAttach?: boolean
   canInput?: boolean
   canManage?: boolean
+  /** Opens a new terminal started with the chosen shell profile. */
+  onNewTerminalWithShell?: (profileId: string) => void
 }>
 
 function messageFor(reason: DevErrorCode): string {
@@ -55,6 +67,7 @@ function messageFor(reason: DevErrorCode): string {
 export function RuntimeTerminalPane(props: RuntimeTerminalPaneProps) {
   const [state, setState] = createSignal<RuntimeTerminalState>({ status: 'loading' })
   const [retrySequence, setRetrySequence] = createSignal(0)
+  const [shellProfiles, setShellProfiles] = createSignal<readonly ShellProfile[]>([])
   const request = createMemo(
     () => ({
       runtime: props.runtime,
@@ -154,6 +167,15 @@ export function RuntimeTerminalPane(props: RuntimeTerminalPaneProps) {
     const controller = new AbortController()
     onCleanup(() => controller.abort())
     setState({ status: 'loading' })
+    // The shell menu is offered only with host-confirmed profiles, and a failed
+    // read leaves it out rather than blocking the terminal.
+    void listShellProfiles({
+      execute: (command) => runtime.execute(command),
+      scope,
+      signal: controller.signal,
+    }).then((profiles) => {
+      if (!controller.signal.aborted) setShellProfiles(profiles)
+    })
     void resolveSelectedTerminal({
       execute: (command) => runtime.execute(command),
       scope,
@@ -224,6 +246,11 @@ export function RuntimeTerminalPane(props: RuntimeTerminalPaneProps) {
             resizeEnabled={props.canManage === true}
             worktreeId={ready().terminal.worktreeId}
             worktreeLabel={props.worktreeLabel}
+            shellProfiles={shellProfiles()}
+            currentShellProfileId={ready().terminal.shellProfileId}
+            onNewTerminalWithShell={
+              props.canManage === true ? props.onNewTerminalWithShell : undefined
+            }
           />
         </Suspense>
       )}
