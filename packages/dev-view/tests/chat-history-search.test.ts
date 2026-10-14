@@ -61,6 +61,34 @@ function event(overrides: Partial<RuntimeEvent>): RuntimeEvent {
 }
 
 describe('searchConversationHistory', () => {
+  test('never returns credential-classified events, with or without a query', () => {
+    const events = new Map([
+      [
+        session.id,
+        [
+          event({ eventId: 'safe', seq: '1', payload: { text: 'rotate the staging key' } }),
+          event({
+            eventId: 'cred',
+            seq: '2',
+            classification: 'credential',
+            payload: { text: 'rotate the staging key to hunter2' },
+          }),
+        ],
+      ],
+    ])
+    for (const query of ['', 'rotate', 'hunter2']) {
+      const page = searchConversationHistory({
+        sessions: [session],
+        runs: [],
+        events,
+        query,
+        matchOn: 'preview',
+      })
+      expect(page.items.map((row) => row.id)).not.toContain('event:cred')
+      expect(JSON.stringify(page.items)).not.toContain('hunter2')
+    }
+  })
+
   test('searches canonical runs and event windows with jump targets and redaction', () => {
     const page = searchConversationHistory({
       sessions: [session],
