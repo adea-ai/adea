@@ -9,6 +9,11 @@ import { readCurrentLeadTurnProduct, withCurrentLeadTurnProduct } from '../../sr
 import type { RequestedRoleModelSelections } from '../../src/lead-model-selections'
 import { agents, channels, messages, workspaceMemberships, workspaces } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
+import {
+  createGroupChannelWithGrants,
+  groupCreationCandidatesFromGrants,
+  revokeGroupGrant,
+} from '../../src/group-channels'
 
 const databaseUrl = process.env.DATABASE_URL
 describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
@@ -86,6 +91,7 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
     const current = await f.read()
     expect(current).toMatchObject({
       workspaceId: f.workspace.id,
+      agentWorkspaceId: f.workspace.id,
       controlPlaneWorkspaceId: f.mapped.controlPlaneWorkspaceId,
       intentId: f.admitted.leadTurn.intentId,
       intentCreatedAt: expect.any(String),
@@ -131,6 +137,91 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
       .set({ profileRevision: changed.lead.profile.revision + 1 })
       .where(eq(agents.id, changed.lead.id))
     await expect(changed.read()).rejects.toThrow('version conflict')
+  })
+
+  test('foreign lead evidence retains its locked source identity across distinct host groups and revocation', async () => {
+    const f = await fixture()
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      name: 'Foreign lead source',
+      owner: f.owner.principal,
+      idempotencyKey: crypto.randomUUID(),
+    })
+    const lead = await ensureWorkspaceLead(connection.db, source.id, f.owner.principal)
+    const [sourceAgent] = await connection.db
+      .select({ controlPlaneAgentId: agents.controlPlaneAgentId })
+      .from(agents)
+      .where(eq(agents.id, lead.id))
+    const groups = []
+    const issuedAt = new Date(Date.now() - 1_000).toISOString()
+    for (let index = 0; index < 2; index++) {
+      const channelId = crypto.randomUUID()
+      const grantId = `gra_source_product_${index}`
+      await createGroupChannelWithGrants(connection.db, f.workspace.id, f.owner.principal, {
+        channelId,
+        title: 'Foreign source context',
+        idempotencyKey: crypto.randomUUID(),
+        now: issuedAt,
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            {
+              participant: f.owner.principal,
+              groupId: channelId,
+              grantId: `gra_actor_product_${index}`,
+              revision: 1,
+              issuedAt,
+              expiresAt: null,
+              revokedAt: null,
+            },
+          ],
+          enlistmentGrants: [
+            {
+              agent: { agentId: lead.id, workspaceId: source.id },
+              groupId: channelId,
+              grantId,
+              revision: 1,
+              issuedAt,
+              expiresAt: null,
+              revokedAt: null,
+            },
+          ],
+        }),
+      })
+      const admitted = await createLeadTurn(
+        connection.db,
+        f.workspace.id,
+        channelId,
+        f.owner.principal,
+        {
+          bodyText: 'Foreign lead context',
+          idempotencyKey: crypto.randomUUID(),
+        }
+      )
+      const read = () =>
+        readCurrentLeadTurnProduct(
+          connection.db,
+          f.mapped.controlPlaneWorkspaceId,
+          admitted.leadTurn.intentId
+        )
+      const product = await read()
+      expect(product).toMatchObject({
+        workspaceId: f.workspace.id,
+        agentWorkspaceId: source.id,
+        controlPlaneWorkspaceId: f.mapped.controlPlaneWorkspaceId,
+        agentId: lead.id,
+        controlPlaneAgentId: sourceAgent!.controlPlaneAgentId,
+        profileId: lead.profile.id,
+        channelId,
+      })
+      groups.push({ channelId, grantId, read, product })
+    }
+    expect(groups[0]!.product!.channelId).not.toBe(groups[1]!.product!.channelId)
+    await revokeGroupGrant(connection.db, f.workspace.id, groups[0]!.channelId, f.owner.principal, {
+      grantId: groups[0]!.grantId,
+      kind: 'enlistment',
+      revokedAt: new Date().toISOString(),
+    })
+    await expect(groups[0]!.read()).rejects.toThrow('unavailable')
+    expect(await groups[1]!.read()).toMatchObject({ agentWorkspaceId: source.id, agentId: lead.id })
   })
 
   test('edited canonical prompt is withheld from the original immutable intent', async () => {
