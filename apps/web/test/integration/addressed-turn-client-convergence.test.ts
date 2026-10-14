@@ -226,7 +226,9 @@ describe.skipIf(!connectionUrl)('addressed turns: client convergence', () => {
         return response
       },
       replay: async () => {
-        const read = await replayAddressedTurns(client, f.workspace.id, f.channelId)
+        const read = await replayAddressedTurns(client, f.workspace.id, f.channelId, {
+          heldAtStart: state.held?.turns.map(({ causalId }) => causalId) ?? [],
+        })
         state.held = foldAddressedTurnCache(state.held, {
           ...read,
           conversationAudienceEpoch: 0,
@@ -326,7 +328,9 @@ describe.skipIf(!connectionUrl)('addressed turns: client convergence', () => {
     const tab = openTab(f, f.owner)
     const { turn } = await tab.address(f.helper.id, trigger.id)
     // The tab starts a read, the cancel lands, and the read's page was cut before the cancel committed.
-    const staleRead = await replayAddressedTurns(tab.client, f.workspace.id, f.channelId)
+    const staleRead = await replayAddressedTurns(tab.client, f.workspace.id, f.channelId, {
+      heldAtStart: tab.state.held?.turns.map(({ causalId }) => causalId) ?? [],
+    })
     expect(staleRead.turns[0]?.state).toBe('claimed')
     const cancelled = await tab.cancel(turn.id)
     expect(cancelled.turn.state).toBe('cancelled')

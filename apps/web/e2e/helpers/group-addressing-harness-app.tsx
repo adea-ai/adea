@@ -54,6 +54,8 @@ type Harness = {
   calls: { address: number; cancel: number; list: number; mentions: string[][] }
   dropNextAddressResponse: () => void
   failReplay: (value: boolean) => void
+  /** The server stops listing every turn, as for a reader whose audience was withdrawn. */
+  hideTurns: (value: boolean) => void
   humanMessage: (text: string) => void
   turns: () => ApiAddressedTurn[]
 }
@@ -74,6 +76,7 @@ function build() {
   let tick = 0
   let dropAddress = false
   let replayFails = false
+  let turnsHidden = false
   const stamp = () => new Date(Date.now() + tick++).toISOString()
   const message = (sender: MessageSummary['sender'], bodyText: string): MessageSummary => {
     sequence += 1
@@ -123,7 +126,7 @@ function build() {
     if (path.endsWith('/turns') && request.method === 'GET') {
       calls.list += 1
       if (replayFails) return json({ code: 'turns_read_failed', message: 'retry' }, 503)
-      return json({ nextAfter: null, turns })
+      return json({ nextAfter: null, turns: turnsHidden ? [] : turns })
     }
     if (path.endsWith('/turns') && request.method === 'POST') {
       calls.address += 1
@@ -193,6 +196,9 @@ function build() {
     },
     failReplay: (value) => {
       replayFails = value
+    },
+    hideTurns: (value) => {
+      turnsHidden = value
     },
     humanMessage: (text) => {
       message({ kind: 'user', userId }, text)

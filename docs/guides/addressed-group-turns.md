@@ -83,8 +83,12 @@ the convergence ledger) and `packages/workspace-ui/src/group-addressing.tsx` (th
   server collapses on, so a lost response is retried unchanged (button, or automatically when the browser comes
   back online) and never starts a second turn. Each turn is folded into the cache by its causal ID with a
   monotonic state rank, so a late or repeated delivery never moves a turn backwards. A complete replay (paged to
-  a cap of 25 pages) is authoritative for listing and order; turns newer than the replay's newest entry survive
-  it. An incomplete or failed read keeps what was shown and offers `Read again`. Replays refetch every 3 seconds
+  a cap of 25 pages) is authoritative for listing and order: a turn the cache held when the read began and the
+  replay omits is dropped, an empty replay included, so withdrawn history does not linger. Only a turn folded in
+  while that read was running survives it (it may have committed after the server answered); the next read
+  settles it. A failed refresh keeps the turns last read for the same audience, with their Cancel buttons, and
+  shows `Addressed turns could not be refreshed` with Retry; a replaced audience never shows them. An incomplete
+  read keeps what was shown and offers `Read again`. Replays refetch every 3 seconds
   only while a turn is live, when the conversation's latest message changes, and on reconnect.
 - **Proof.** `apps/web/test/integration/addressed-turn-client-convergence.test.ts` drives the real client, the
   real route handlers and the database (concurrent tabs, a lost response, reconnect order, a stale replay after

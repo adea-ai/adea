@@ -135,9 +135,7 @@ test('cancelling a live turn is confirmed by the server and cannot be repeated',
   expect(await page.evaluate(() => window.addressingHarness.calls.cancel)).toBe(1)
 })
 
-test('a reconnect shows the answer, a newer message shows superseded, and a failed read keeps what was shown', async ({
-  page,
-}) => {
+test('a reconnect shows the answer, and a newer message shows superseded', async ({ page }) => {
   await open(page)
   await aria(page).click()
   await send(page, 'First question')
@@ -146,11 +144,6 @@ test('a reconnect shows the answer, a newer message shows superseded, and a fail
   await page.evaluate((id) => window.addressingHarness.answer(id), turnId)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expect(addressed(page)).toContainText('Answered')
-  // A read that fails does not blank or rewind the turns already shown.
-  await page.evaluate(() => window.addressingHarness.failReplay(true))
-  await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(addressed(page)).toContainText('Answered')
-  await page.evaluate(() => window.addressingHarness.failReplay(false))
   // The chosen recipients stay chosen, and the header says so, so a follow-up addresses the same Agent.
   await send(page, 'Second question')
   const lists = addressed(page)
@@ -162,4 +155,25 @@ test('a reconnect shows the answer, a newer message shows superseded, and a fail
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
   await expect(lists.last()).toContainText('Superseded')
   await expect(lists.last()).toContainText('A newer message arrived')
+})
+
+test('a failed refresh keeps the turns and Cancel with a notice, and an empty read withdraws them', async ({
+  page,
+}) => {
+  await open(page)
+  await aria(page).click()
+  await send(page, 'Please answer')
+  await expect(addressed(page)).toContainText('Dispatched')
+  await page.evaluate(() => window.addressingHarness.failReplay(true))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByText('Addressed turns could not be refreshed')).toBeVisible()
+  await expect(addressed(page)).toContainText('Dispatched')
+  await expect(page.getByRole('button', { name: 'Cancel turn for Aria · Acme' })).toBeVisible()
+  // The server answers again, but lists nothing: the turns it withdrew do not linger.
+  await page.evaluate(() => window.addressingHarness.failReplay(false))
+  await page.evaluate(() => window.addressingHarness.hideTurns(true))
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByText('Addressed turns could not be refreshed')).toHaveCount(0)
+  await expect(addressed(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Cancel turn for/ })).toHaveCount(0)
 })

@@ -110,14 +110,16 @@ export function foldAddressedTurns(
 
 /**
  * Applies one complete replay (the server's committed order) to the held list. The replay is
- * authoritative for which turns this reader may see, and for their order. Held turns it does not list
- * survive only when they are newer than everything it did list: that is a turn committed after the read
- * began. An older absent turn is one the reader can no longer see (a revoked audience, a withheld trigger)
- * and is dropped, so a replay never leaves a ghost of withheld history behind.
+ * authoritative for which turns this reader may see, and for their order. `heldAtStart` is the causal ids
+ * held when the read began: a held turn the replay omits was committed before the read, so its absence is
+ * the answer (a withdrawn audience, a withheld trigger, history gone) and it is dropped, an empty replay
+ * included. Only a turn folded in while the read was running is kept: it can have committed after the
+ * server answered, and the next read settles it.
  */
 export function applyAddressedTurnReplay(
   held: readonly ApiAddressedTurn[],
-  replay: readonly ApiAddressedTurn[]
+  replay: readonly ApiAddressedTurn[],
+  heldAtStart: ReadonlySet<string>
 ): readonly ApiAddressedTurn[] {
   const heldByCausalId = new Map(held.map((turn) => [turn.causalId, turn]))
   const listed = new Set<string>()
@@ -128,14 +130,10 @@ export function applyAddressedTurnReplay(
     const known = heldByCausalId.get(turn.causalId)
     result.push(known ? advanceAddressedTurn(known, turn) : turn)
   }
-  const newest = replay.reduce<string | null>(
-    (latest, turn) => (latest === null || turn.createdAt > latest ? turn.createdAt : latest),
-    null
-  )
-  const survivors = held
-    .filter((turn) => !listed.has(turn.causalId) && (newest === null || turn.createdAt > newest))
+  const arrivedDuringRead = held
+    .filter((turn) => !listed.has(turn.causalId) && !heldAtStart.has(turn.causalId))
     .toSorted(compareAddressedTurns)
-  return [...result, ...survivors]
+  return [...result, ...arrivedDuringRead]
 }
 
 export type AddressedTurnReplay = Readonly<{
@@ -143,6 +141,11 @@ export type AddressedTurnReplay = Readonly<{
   conversationAudienceEpoch: number
   /** False when the page cap was reached: the newest turns were not read. Never presented as complete. */
   complete: boolean
+  /**
+   * The causal ids the cache held when this read began. Only meaningful on a fresh read: it is what
+   * lets a complete replay drop a held turn it omits while keeping one that arrived mid-read.
+   */
+  heldAtStart: readonly string[]
   turns: readonly ApiAddressedTurn[]
 }>
 
@@ -151,8 +154,9 @@ export async function replayAddressedTurns(
   client: Pick<AgentHqApiClient, 'listAddressedTurns'>,
   workspaceId: string,
   channelId: string,
-  options: Readonly<{ pageCap?: number; pageSize?: number }> = {}
-): Promise<Pick<AddressedTurnReplay, 'complete' | 'turns'>> {
+  options: Readonly<{ heldAtStart?: readonly string[]; pageCap?: number; pageSize?: number }> = {}
+): Promise<Pick<AddressedTurnReplay, 'complete' | 'heldAtStart' | 'turns'>> {
+  const heldAtStart = options.heldAtStart ?? []
   const pageCap = options.pageCap ?? ADDRESSED_TURN_REPLAY_PAGE_CAP
   const limit = options.pageSize ?? ADDRESSED_TURN_PAGE_SIZE
   const turns: ApiAddressedTurn[] = []
@@ -163,12 +167,12 @@ export async function replayAddressedTurns(
       limit,
     })
     turns.push(...result.turns)
-    if (result.nextAfter === null) return { complete: true, turns }
+    if (result.nextAfter === null) return { complete: true, heldAtStart, turns }
     // A cursor that does not advance would loop forever; treat it as an unfinished read.
-    if (result.nextAfter === after) return { complete: false, turns }
+    if (result.nextAfter === after) return { complete: false, heldAtStart, turns }
     after = result.nextAfter
   }
-  return { complete: false, turns }
+  return { complete: false, heldAtStart, turns }
 }
 
 /** The cache write rule: a complete replay is authoritative for listing; anything else only advances. */
@@ -184,8 +188,9 @@ export function foldAddressedTurnCache(
   return {
     complete: incoming.complete,
     conversationAudienceEpoch: incoming.conversationAudienceEpoch,
+    heldAtStart: incoming.heldAtStart,
     turns: incoming.complete
-      ? applyAddressedTurnReplay(current.turns, incoming.turns)
+      ? applyAddressedTurnReplay(current.turns, incoming.turns, new Set(incoming.heldAtStart))
       : foldAddressedTurns(current.turns, incoming.turns),
   }
 }
@@ -193,10 +198,22 @@ export function foldAddressedTurnCache(
 export const addressedTurnQueryOptions = {
   list: (client: AgentHqApiClient, workspaceId?: string, channelId?: string) => ({
     queryKey: addressedTurnQueryKeys.list(workspaceId ?? '', channelId ?? ''),
-    queryFn: async (): Promise<AddressedTurnReplay> => {
+    queryFn: async ({
+      client: queryClient,
+    }: {
+      client: QueryClient
+    }): Promise<AddressedTurnReplay> => {
       const conversationAudienceEpoch =
         workspaceStore.getState().conversationAudienceEpochs[workspaceId!] ?? 0
-      const replay = await replayAddressedTurns(client, workspaceId!, channelId!)
+      const held = queryClient.getQueryData<AddressedTurnCache>(
+        addressedTurnQueryKeys.list(workspaceId!, channelId!)
+      )
+      const replay = await replayAddressedTurns(client, workspaceId!, channelId!, {
+        heldAtStart:
+          held?.conversationAudienceEpoch === conversationAudienceEpoch
+            ? held.turns.map(({ causalId }) => causalId)
+            : [],
+      })
       return { ...replay, conversationAudienceEpoch }
     },
     enabled: Boolean(workspaceId && channelId),
@@ -228,6 +245,7 @@ export function foldTurnIntoReplay(
   return {
     complete: current?.complete ?? false,
     conversationAudienceEpoch: audienceEpoch,
+    heldAtStart: current?.heldAtStart ?? [],
     turns: foldAddressedTurns(current?.turns ?? [], [turn]),
   }
 }

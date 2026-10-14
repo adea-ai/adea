@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { ApiAddressedTurn, ApiAddressedTurnState } from '@adea-ai/api-client'
+import { QueryClient } from '@tanstack/solid-query'
 
 import {
+  addressedTurnQueryKeys,
+  addressedTurnQueryOptions,
   advanceAddressedTurn,
   applyAddressedTurnReplay,
   foldAddressedTurnCache,
@@ -165,43 +168,52 @@ describe('foldAddressedTurns', () => {
   })
 })
 
+const idsOf = (...turns: ApiAddressedTurn[]) => new Set(turns.map(({ causalId }) => causalId))
+
 describe('applyAddressedTurnReplay', () => {
   test('the replay fixes the order', () => {
     const [x, y, z] = [turn(), turn(), turn()]
-    expect(applyAddressedTurnReplay([z, x, y], [x, y, z]).map((entry) => entry.id)).toEqual([
-      x.id,
-      y.id,
-      z.id,
-    ])
+    expect(
+      applyAddressedTurnReplay([z, x, y], [x, y, z], idsOf(x, y, z)).map((entry) => entry.id)
+    ).toEqual([x.id, y.id, z.id])
   })
 
-  test('a held turn the replay no longer lists is dropped when something newer was listed', () => {
+  test('a held turn the replay no longer lists is dropped: it committed before the read', () => {
     const withheld = turn()
     const kept = turn()
-    const next = turn()
     expect(
-      applyAddressedTurnReplay([withheld, kept], [kept, next]).map((entry) => entry.id)
-    ).toEqual([kept.id, next.id])
+      applyAddressedTurnReplay([withheld, kept], [kept], idsOf(withheld, kept)).map(
+        (entry) => entry.id
+      )
+    ).toEqual([kept.id])
   })
 
-  test('a held turn newer than anything listed survives: it committed after the read began', () => {
+  test('an empty replay clears what was held when the read began', () => {
+    const [x, y] = [turn(), turn()]
+    expect(applyAddressedTurnReplay([x, y], [], idsOf(x, y))).toEqual([])
+  })
+
+  test('a turn that arrived while the read ran survives it, listed or not later', () => {
     const listed = turn()
     const justCreated = turn({ state: 'claimed', dispatched: false })
     expect(
-      applyAddressedTurnReplay([listed, justCreated], [listed]).map((entry) => entry.id)
+      applyAddressedTurnReplay([listed, justCreated], [listed], idsOf(listed)).map(
+        (entry) => entry.id
+      )
     ).toEqual([listed.id, justCreated.id])
+    expect(applyAddressedTurnReplay([justCreated], [], new Set())).toEqual([justCreated])
   })
 
   test('a stale replay cannot reopen a turn the reader already saw finish', () => {
     const base = turn()
     const cancelled = at(base, 'cancelled', 1)
-    const [merged] = applyAddressedTurnReplay([cancelled], [base])
+    const [merged] = applyAddressedTurnReplay([cancelled], [base], idsOf(cancelled))
     expect(merged!.state).toBe('cancelled')
   })
 
   test('a replay that lists a causal id twice shows it once', () => {
     const only = turn()
-    expect(applyAddressedTurnReplay([], [only, { ...only }])).toHaveLength(1)
+    expect(applyAddressedTurnReplay([], [only, { ...only }], new Set())).toHaveLength(1)
   })
 })
 
@@ -279,6 +291,7 @@ const replay = (
 ): AddressedTurnReplay => ({
   complete: true,
   conversationAudienceEpoch: 0,
+  heldAtStart: [],
   turns,
   ...overrides,
 })
@@ -305,6 +318,16 @@ describe('foldAddressedTurnCache', () => {
     expect(folded!.turns.map((entry) => entry.state)).toEqual(['cancelled', 'dispatching'])
   })
 
+  test('an empty complete read drops what the cache held at its start and keeps a mid-read arrival', () => {
+    const old = turn()
+    const arrived = turn()
+    const folded = foldAddressedTurnCache(
+      replay([old, arrived]),
+      replay([], { heldAtStart: [old.causalId] })
+    )
+    expect(folded!.turns.map((entry) => entry.id)).toEqual([arrived.id])
+  })
+
   test('the first write is stored as it arrived', () => {
     const only = replay([turn()])
     expect(foldAddressedTurnCache(undefined, only)).toBe(only)
@@ -320,5 +343,62 @@ describe('turn predicates', () => {
     expect(isUnstartedAddressedTurn(turn({ state: 'claimed', dispatched: false }))).toBe(true)
     expect(isUnstartedAddressedTurn(turn({ state: 'claimed', dispatched: true }))).toBe(false)
     expect(isUnstartedAddressedTurn(turn({ state: 'dispatching', dispatched: true }))).toBe(false)
+  })
+})
+
+describe('addressedTurnQueryOptions.list', () => {
+  const key = addressedTurnQueryKeys.list('ws', 'channel-1')
+
+  test('an authoritative empty read removes withdrawn turns; a failed read keeps what was held', async () => {
+    const queryClient = new QueryClient()
+    const shown = [turn(), turn()]
+    let served: readonly ApiAddressedTurn[] = shown
+    let failing = false
+    const client = {
+      listAddressedTurns: async () => {
+        if (failing) throw new Error('503')
+        return { nextAfter: null, turns: served }
+      },
+    } as never
+    const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+    await queryClient.fetchQuery({ ...options, staleTime: 0 })
+    expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toHaveLength(2)
+    failing = true
+    await expect(
+      queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+    ).rejects.toThrow('503')
+    expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toHaveLength(2)
+    failing = false
+    served = []
+    await queryClient.fetchQuery({ ...options, staleTime: 0 })
+    expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toEqual([])
+  })
+
+  test('a turn folded in while a read is in flight survives that read', async () => {
+    const queryClient = new QueryClient()
+    const earlier = turn()
+    const arrival = turn({ state: 'claimed', dispatched: false })
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>()
+    let slow = false
+    const client = {
+      listAddressedTurns: async () => {
+        if (slow) await gate
+        return { nextAfter: null, turns: [] as ApiAddressedTurn[] }
+      },
+    } as never
+    const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+    queryClient.setQueryData(key, replay([earlier]))
+    slow = true
+    const read = queryClient.fetchQuery({ ...options, staleTime: 0 })
+    // The address response lands while the read is waiting on the server.
+    queryClient.setQueryData<AddressedTurnReplay>(key, (current) => ({
+      ...current!,
+      turns: [...current!.turns, arrival],
+    }))
+    release()
+    await read
+    expect(
+      queryClient.getQueryData<AddressedTurnReplay>(key)!.turns.map((entry) => entry.id)
+    ).toEqual([arrival.id])
   })
 })

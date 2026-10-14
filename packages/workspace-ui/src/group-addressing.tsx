@@ -7,6 +7,7 @@ import {
   useCancelAddressedTurnMutation,
   useWorkspaceListQuery,
   isLiveAddressedTurn,
+  type AddressedTurnReplay,
 } from '@adea-ai/data'
 import type { AgentSummary, ChannelSummary } from '@adea-ai/types'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
@@ -15,6 +16,7 @@ import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
 import { Text } from '@adea-ai/ui/components/ui/typography'
 import {
+  createComputed,
   createEffect,
   createMemo,
   createSignal,
@@ -70,6 +72,8 @@ export type GroupAddressing = Readonly<{
   recipients: Accessor<readonly string[]>
   refresh: () => void
   retry: (key: string) => Promise<void>
+  /** The latest refresh failed; the turns shown are the last ones read. */
+  stale: Accessor<boolean>
   roster: Accessor<readonly QualifiedAgent[]>
   setRecipients: (agentIds: readonly string[]) => void
   turns: Accessor<readonly ApiAddressedTurn[]>
@@ -105,7 +109,20 @@ export function GroupAddressingController(props: {
     () => props.workspaceId,
     () => props.channel.id
   )
-  const page = () => settledConversationPage(turnsQuery, props.audienceEpoch)
+  // A failed background refresh puts the query in its error state, which settledConversationPage hides.
+  // The turns last read for this audience are still the best account there is, so they stay shown (with
+  // their Cancel buttons) and an alert says the refresh failed. A replaced audience never shows them.
+  const [lastRead, setLastRead] = createSignal<AddressedTurnReplay>()
+  createComputed(() => {
+    const fresh = settledConversationPage(turnsQuery, props.audienceEpoch)
+    if (fresh) setLastRead(fresh)
+  })
+  const page = () => {
+    const fresh = settledConversationPage(turnsQuery, props.audienceEpoch)
+    if (fresh) return fresh
+    const kept = lastRead()
+    return kept?.conversationAudienceEpoch === props.audienceEpoch ? kept : undefined
+  }
   const turns = () => page()?.turns ?? []
   const context = createMemo(() => qualifyContext(props.agents, settledData(workspaces) ?? []))
   const roster = createMemo(() =>
@@ -170,6 +187,7 @@ export function GroupAddressingController(props: {
     currentUserId: () => props.currentUserId,
     dismiss: queue.dismiss,
     failed: () => turnsQuery.isError && !page(),
+    stale: () => turnsQuery.isError && Boolean(page()),
     intents,
     loaded: () => Boolean(page()),
     mode,
@@ -289,6 +307,17 @@ export function GroupRecipientPicker(props: { addressing: GroupAddressing }) {
         <Alert variant="destructive">
           <AlertDescription>
             Addressed turns could not be read, so their status is not shown.{' '}
+            <Button size="xs" variant="outline" onClick={() => addressing().refresh()}>
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <Show when={addressing().stale()}>
+        <Alert variant="destructive">
+          <AlertDescription>
+            Addressed turns could not be refreshed. What is shown is from the last read and may be
+            out of date.{' '}
             <Button size="xs" variant="outline" onClick={() => addressing().refresh()}>
               Retry
             </Button>
