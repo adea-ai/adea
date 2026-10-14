@@ -490,6 +490,7 @@ const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
   // opened and funded. Nothing about the reservation is mirrored in this host.
   reserveBudget: new cp.worker.DurableChildRuntimeBudgetAdmission({
     store: host.repositories.usage,
+    plans: host.repositories.plans,
   }).reserve,
 })
 async function startChild() {

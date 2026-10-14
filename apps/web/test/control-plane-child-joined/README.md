@@ -27,9 +27,9 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP draft head `74d10c49`)
+## Latest result (2026-10-14, CP draft head `8d8843b4`)
 
-The pin is the head of CP draft PR #1123 (`74d10c49`), which adds the explicit child allowance
+The pin is the head of CP draft PR #1123 (`8d8843b4`), which adds the explicit child allowance
 designed for CP #1121 on top of the #1116 merge (`082c2c33`). That PR is unmerged, so this proof
 pins an unreleased CP revision. Result: 8 of 8 pass, stable across three consecutive runs.
 
@@ -42,7 +42,10 @@ check, and the child ceiling is still clamped to what the parent has available.
 The child's runtime attempt is reserved by CP's production `DurableChildRuntimeBudgetAdmission`
 (the bridge's `reserveBudget` seam), not by a reservation mirrored in this host. It checks the
 delegation record, the allocator's opening receipt and the parent's funding reservation, then
-reserves the child's funded budget less the allowance its own plan holds back.
+reserves the child's funded budget less the allowance its own plan holds back. The allowance is
+also a cap at allocation, so a child is never funded beyond it even if the lead's reservation has
+settled; that ordering is proven in CP's own tests, not by this journey, which keeps the lead
+running.
 
 Passing:
 
