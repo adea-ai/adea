@@ -334,8 +334,24 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
         expect(restarted.getWorktree(scope, worktree.id)).toEqual(before)
         expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
       }
+      // A restart after the rollback (the first response was lost) resumes the
+      // same way: the durable journal and record are all it has.
+      const afterRestart = createWorktreeService({
+        dataDir: f.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: f.roots,
+        clock: () => new Date(),
+      })
+      const lost = await afterRestart.resumeCleanup({
+        scope,
+        worktreeId: worktree.id,
+        jobId: plan.planId,
+      })
+      expect(lost.state).toBe('partial')
+      expect(afterRestart.getWorktree(scope, worktree.id)).toEqual(before)
+
       // And the retry still works after the repeated resumes.
-      expect((await restarted.commitCleanup({ scope, plan, digest: plan.digest })).state).toBe(
+      expect((await afterRestart.commitCleanup({ scope, plan, digest: plan.digest })).state).toBe(
         'completed'
       )
       expect(existsSync(worktree.canonicalRoot)).toBe(false)
