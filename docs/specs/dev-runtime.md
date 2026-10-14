@@ -613,6 +613,7 @@ type TerminalRecord = {
   health: 'healthy' | 'degraded' | 'replay_required' | 'faulted'
   lastSeq: string
   generation: number
+  shellProfileId?: string // the host-admitted ShellProfile the terminal started with
 }
 
 type BrowserLane = {
@@ -3141,6 +3142,44 @@ M12 scope until a redaction/expiry policy exists.
 Terminal splits use the shared layout tree. Closing a split never deletes its
 worktree; closing a pane whose terminal has an active process requires
 confirmation.
+
+#### Terminal toolbar and shell choice
+
+The pane header is a configurable toolbar: the shell chip, connection status,
+worktree, shell-integration state, working directory, a Customize control and
+Copy. Command blocks render below it. This is a layout and preference surface
+only; every shell it offers is a host-advertised `ShellProfile`, and a block or
+exit code still appears only from authenticated shell observations.
+
+- **Shell menu.** The chip names the shell the terminal in this pane was started
+  with (`TerminalRecord.shellProfileId`). Its menu lists "New terminal with" each
+  advertised profile, which creates a runtime terminal with that
+  `shellProfileId` (needs `dev.terminal.manage`) and opens it in a split beside
+  the focused pane, and "Default for new terminals", a radio choice saved on this
+  device. A terminal that is already running keeps its shell.
+- **Create races.** One "New terminal with" create runs at a time; a second pick
+  while it is in flight is ignored. After the create resolves, the pane is bound
+  only if the same session is still selected and the center still has room under
+  the pane limit (the "No terminal open" action also needs its placeholder to
+  still exist). Otherwise the new terminal is ended with `dev.terminal.terminate`
+  instead of being left running without a pane, and the announcement says so; if
+  it cannot be ended, the announcement says it is still running.
+- **Host.** `dev.terminal.create` honours `shellProfileId`: an advertised id
+  starts that profile, omitting it starts the host default (the first
+  advertised profile), and an id the host does not advertise is refused with
+  `not_found`; the host never falls back to another shell for an explicit
+  request. The record carries the profile id the terminal started with.
+- **Default shell.** The new-terminal action in the "No terminal open" state uses the saved
+  device default only while the host still advertises it; otherwise the host
+  default starts. It is a device default, not a workspace setting; per-workspace
+  overrides are a later extension of the same preference.
+- **Customize.** Each of Shell, Worktree, Working directory, Shell integration
+  and Status, and the Command blocks list, can be hidden; Reset restores the
+  default layout and keeps the default shell. Preferences are device-local
+  (`localStorage`, tolerant of damaged or blocked storage) and shared by every
+  terminal pane on the device.
+- **Unusable shell.** When the preferred `$SHELL` is missing the typed fallback
+  chooser still appears and nothing starts until the user confirms a shell.
 
 Warp's command-block implementation is AGPL and remains a prohibited source:
 the block UI is implemented independently against the external OSC 133/7
