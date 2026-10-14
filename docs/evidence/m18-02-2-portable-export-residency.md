@@ -442,57 +442,86 @@ are identified by desktop sessions issued by the production `desktopSessionServi
 with the production header contract (`Authorization: Desktop`, `X-Adea-Desktop-Session`, a trusted
 `Origin`, `X-Adea-Client`). Sessions belong to real, non-temporary users.
 
-What it adds to the helper-level proofs above:
+What it adds to the helper-level proofs above. Each claim names what is actually asserted.
 
-- **Rejected callers, export and import alike.** Missing credential, wrong credential, another
-  user's session id, expired session, revoked session, disabled account, malformed scheme, an
-  untrusted origin, a missing origin and an account-allowlist denial all end at the wrapper or the
-  resolver. The seven credential failures return one byte-identical 401 body for both routes, no
-  `Set-Cookie`, no canary and no credential material, and an import refused this way writes no
-  row. An untrusted origin gets 403 with no `Access-Control-Allow-Origin`.
-- **Private-audience canaries on the wire.** Status, headers and body of every response are scanned
-  for the artifact locator and provenance, execution and native session references, the replica
-  ciphertext, the invitation token and email, and each caller's credential, credential digest,
-  provider email and provider session id. An owner and a participant receive the participants-only
-  group and the members-only project text; a workspace member outside both receives the
-  workspace-wide text and neither private text, and the group is absent from the channel list. An
-  authenticated non-member gets the same 404 body as an unknown workspace id and the id is not
-  echoed.
-- **Revocation between requests.** Removing a group participant, removing a workspace member,
-  revoking the desktop session, disabling the account and revoking an importer's session each end
-  the next response (empty of the previously readable text, 404, 401, 401 and 401 respectively).
+- **Rejected callers.** Seven credential failures (missing credential, wrong credential, another
+  user's session id, an unknown session id, expired, revoked, disabled account) are sent to both
+  routes. Across those 14 responses the 401 body is one byte-identical string, and none carries a
+  `Set-Cookie`, a source canary or the credential material of the sessions involved. An
+  account-allowlist denial gets 401 on both routes and the listed account passes. Four malformed
+  authorization or session-id headers get 401 on the export route only. An untrusted origin gets
+  403 with no `Access-Control-Allow-Origin` on both routes; a session presented with no origin gets
+  401 on the export route only. A fixture fingerprint (below) is compared before and after for the
+  seven-credential matrix and the allowlist denial, and is unchanged. The malformed-header and
+  origin cases assert the status and that the credential does not appear, not the fingerprint.
+- **Private-audience canaries.** The bundles served to an owner, a participant and a workspace
+  member outside the audience are scanned, headers and body, for the artifact locator and
+  provenance, execution and native session references, the replica ciphertext, the invitation
+  token and email, and the credential, credential digest, provider email and provider session id of
+  the four initial users. The owner and participant bundles contain the participants-only group
+  text, the members-only project, its channel and its text. The outsider bundle contains the
+  workspace-wide text and none of: the group text, the project name, its channel title, its text;
+  its channel list lacks the group and its project list lacks the project. An authenticated
+  non-member gets the same 404 body as an unknown workspace id, with the workspace id not echoed.
+  The audience assertions are made on those named responses; the log scan below does not repeat
+  them.
+- **Every response, for secrets only.** All route calls in the file go through one wrapper that
+  records the status, headers and body of each response (65 responses of GET, POST and OPTIONS
+  calls in the current run). The last test scans that log, for every status it
+  contains, for the source canaries and for the credential, digest, provider email and provider
+  session id of every person created in either database, and for `Set-Cookie`. It also requires more than 50 logged responses and the
+  log to contain a 200, 201, 204, 400, 401, 403, 404, 409, 413 and 422, so the scan cannot pass over
+  an empty log. This is the only place "every response" is claimed, and only for those secrets.
+- **Revocation between requests.** After removing a group participant, the participant's next
+  export lacks the text sent after their admission and the group is gone from their channel list.
+  After removing a workspace member, the next export is the same 404 as an unknown id. After
+  revoking a desktop session or disabling an account, the next export is 401. An importer whose
+  session was revoked gets 401 on import. In each case the session was valid on the request before.
   The participant case uses a text sent after admission, because pre-join history is already
   withheld by the canonical reader (#1232).
-- **Import through the authenticated POST route into brand-new databases.** Two scratch databases
-  are created on the provisioning instance and migrated from the repository's migrations. For each,
-  an importer session is issued by the same production service against that database
-  (`DATABASE_URL` is pointed at it only for the call). The owner's bundle first meets a destination
-  that lacks the other users and is refused 422 `unresolved_users` with nothing written; after
-  those users exist it restores with 201, the digest matches the bundle, the destination's own GET
-  re-exports the same digest, every external domain is reported unavailable, and a second POST is 409. Every table of the destination is dumped and searched for the source canaries: nothing
-  leaks, no replica, artifact or invitation exists, the only membership is the importer as owner,
-  and every restored content ref is `missing`. The outsider's bundle, restored the same way, leaves
-  no private group or members-only text anywhere in its destination and no group channel row.
-- **Refusals write nothing and echo nothing.** Through the route: existing workspace 409, edited
-  text 422 `digest_mismatch`, an unnamed ledger class 422, malformed JSON 400, a declared length
-  over the bound 413 and an undeclared stream over the bound 413. Neither the edited text nor the
-  unnamed class appears in any refusal body, and the source rows are unchanged.
-- **Route-level fetch fence.** An authenticated GET, an authenticated POST refusal and an
-  authenticated restore into a scratch database each make zero `globalThis.fetch` calls; the fence's
-  positive control counts one. This is still a fetch-only probe: it does not see Postgres sockets
+- **Import through the authenticated POST route into brand-new databases.** Three scratch
+  databases are created on the provisioning instance and migrated from the repository's
+  migrations. For each, an importer session is issued by the same production service against that
+  database (`DATABASE_URL` is pointed at it only for the call). The owner's bundle first meets a
+  destination that lacks the other users and is refused 422 `unresolved_users`; a dump of every
+  table of that destination is identical before and after the request. After those users exist it
+  restores with 201, the digest matches the bundle, the destination's own export has the same
+  digest, every external domain is reported unavailable, and a second POST is 409 with every table
+  again identical before and after. Every table of the restored destination is dumped and searched
+  for the source canaries: nothing leaks, there is no replica, artifact or invitation, the only
+  membership is the importer as owner, and every restored content ref is `missing`. The outsider's
+  bundle, restored the same way, leaves no private group or members-only text and no group channel
+  row anywhere in its destination. The third destination holds an importer whose session was
+  revoked: the import is 401 and the dump is unchanged.
+- **Refusals on the lane database.** Existing workspace 409, edited text 422 `digest_mismatch`, an
+  unnamed ledger class 422, malformed JSON 400, a declared length over the bound 413 and an
+  undeclared stream over the bound 413. The edited text and the unnamed class do not appear in
+  their refusal bodies, and the fixture fingerprint is unchanged across the whole sequence.
+- **Fixture fingerprint.** A content hash of every table that has a `workspace_id` column,
+  restricted to the fixture workspace, plus the workspace row and any workspace the fixture users
+  own, and the fixture users' own user, membership and desktop-session rows. It is scoped to the
+  fixture because other route files share the lane database concurrently; it says nothing about
+  rows elsewhere.
+- **Route-level fetch fence.** An authenticated export, an authenticated import refused with 409
+  and an authenticated restore into a scratch database each make zero `globalThis.fetch` calls; the
+  fence's positive control counts one. This is a fetch-only probe: it does not see Postgres sockets
   or other transports, so it is evidence about JavaScript fetch egress, not network residency.
 
-Teardown deletes every user the file created in the lane database (each person is recorded when
-created, so a later test needs no cleanup of its own), together with their desktop sessions and
-auth identities, and then fails the file if any user, identity or session carrying this run's
-marker remains. Destination persons live in scratch databases that are dropped whole. Two
+Teardown: each person is recorded when created, so a later test needs no cleanup of its own, and
+teardown deletes every recorded user with their desktop sessions and auth identities, then fails the
+file if any user, identity or session carrying this run's marker remains. Each scratch database
+is registered for teardown before it is created, so a failed creation or migration still drops it,
+and teardown runs every step even if an earlier one fails, rethrowing the first failure. Two
 consecutive local runs left 0 users, identities, sessions, workspaces and scratch databases; with
-the tracking removed, the guard failed with 12 leftovers.
+the tracking removed the guard failed with 12 leftovers; with the migrations folder made
+unreachable, no scratch database or user was left behind.
 
 Mutation checks run while writing the file (each reverted afterwards; the expected cases failed):
 allowlist ignored (1 failure), origin guard disabled (1), denied callers answered 403 with the id
 (2), a credential echoed in a response header (2), session revocation ignored (4), disabled-account
-check ignored (2) and session expiry ignored (1).
+check ignored (2), session expiry ignored (1), a refusal path that updates `messages` (2, found by
+the fingerprint and a destination dump) and a header carrying the Authorization value only on a
+no-origin refusal (1, found only by the log scan).
 
 Findings worth recording:
 

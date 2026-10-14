@@ -89,7 +89,6 @@ if (!sourceUrl || !provisioningUrl)
     'DATABASE_URL and MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL are required: this authenticated-path proof restores into disposable databases and must not skip'
   )
 
-type Handler = (input: { request: Request; params: Record<string, string> }) => Promise<Response>
 type RouteModule = { server: { handlers: Record<string, Handler> } }
 
 const exportRoute =
@@ -107,6 +106,9 @@ const run = randomBytes(6).toString('hex')
 const TRUSTED_ORIGIN = 'http://127.0.0.1:4789'
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const credentialDigest = (value: string) => createHash('sha256').update(value).digest('base64url')
+
+const projectName = `Authpath project ${run}`
+const projectChannelTitle = `Authpath project lane ${run}`
 
 const canary = {
   artifactLocator: `ARTIFACT-LOCATOR-${run}`,
@@ -128,6 +130,30 @@ type Person = {
   principal: UserPrincipalRef
   providerSessionId: string
   sessionId: string
+}
+
+type Handler = (input: { request: Request; params: Record<string, string> }) => Promise<Response>
+
+/**
+ * Every response any route handler returns in this file, as the client receives it. All route calls go
+ * through `invoke`, and the last test scans the whole log, so a response read in passing (a status
+ * check, a preflight, a refusal) is covered by the same canary scan as the ones inspected in detail.
+ */
+const wireLog: { label: string; raw: string }[] = []
+
+function rawOf(status: number, headers: Headers, body: string) {
+  const lines = [...headers.entries()].map(([name, value]) => `${name}: ${value}`)
+  return `${status}\n${lines.join('\n')}\n${body}`
+}
+
+async function invoke(handler: Handler, input: Parameters<Handler>[0]): Promise<Response> {
+  const response = await handler(input)
+  const copy = response.clone()
+  wireLog.push({
+    label: `${input.request.method} ${new URL(input.request.url).pathname} -> ${response.status}`,
+    raw: rawOf(copy.status, copy.headers, await copy.text()),
+  })
+  return response
 }
 
 type Destination = { admin: DatabaseConnection; connection: DatabaseConnection; name: string }
@@ -189,12 +215,7 @@ async function withFetchOnlyFence<T>(
 /** The status, headers and body exactly as the client receives them, as one searchable string. */
 async function wire(response: Response): Promise<{ body: string; raw: string; status: number }> {
   const body = await response.text()
-  const headers = [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`)
-  return {
-    body,
-    raw: `${response.status}\n${headers.join('\n')}\n${body}`,
-    status: response.status,
-  }
+  return { body, raw: rawOf(response.status, response.headers, body), status: response.status }
 }
 
 function assertAbsent(text: string, values: readonly string[]) {
@@ -237,7 +258,7 @@ async function tableDump(database: DatabaseConnection['db']): Promise<string> {
   for (const { table_name: table } of tables) {
     const rows = (await database.execute(
       sql.raw(
-        `select coalesce(string_agg(row_to_json(t)::text, E'\\n'), '') as dump from app."${table}" t`
+        `select coalesce(string_agg(row_to_json(t)::text, E'\\n' order by row_to_json(t)::text), '') as dump from app."${table}" t`
       )
     )) as unknown as { dump: string }[]
     parts.push(`-- ${table}\n${rows[0]!.dump}`)
@@ -246,7 +267,7 @@ async function tableDump(database: DatabaseConnection['db']): Promise<string> {
 }
 
 const preflight = (origin: string) =>
-  exportRoute.Route.server.handlers.OPTIONS!({
+  invoke(exportRoute.Route.server.handlers.OPTIONS!, {
     params: { workspaceId: randomUUID() },
     request: new Request('http://localhost/x', { headers: { origin }, method: 'OPTIONS' }),
   })
@@ -257,6 +278,9 @@ const preflight = (origin: string) =>
  * scratch database that is dropped whole, so they are not tracked here.
  */
 const sourcePeople: Person[] = []
+
+/** Every person in either database, for the final scan of the response log. */
+const everyPerson: Person[] = []
 
 async function createPerson(
   database: DatabaseConnection['db'],
@@ -279,6 +303,7 @@ async function createPerson(
     })
   }
   const person = { ...(await issue(principal, email)), email, name, principal }
+  everyPerson.push(person)
   if (!id) sourcePeople.push(person)
   return person
 }
@@ -319,7 +344,7 @@ describe('authenticated portable export and import request path', () => {
     id = workspaceId,
     extraHeaders: Record<string, string> = {}
   ) {
-    return exportRoute.Route.server.handlers.GET!({
+    return invoke(exportRoute.Route.server.handlers.GET!, {
       params: { workspaceId: id },
       request: new Request(`http://localhost/api/v1/workspaces/${id}/portable-export`, {
         headers: authHeaders(person, extraHeaders),
@@ -332,7 +357,7 @@ describe('authenticated portable export and import request path', () => {
     body: BodyInit | null,
     extraHeaders: Record<string, string> = {}
   ) {
-    return importRoute.Route.server.handlers.POST!({
+    return invoke(importRoute.Route.server.handlers.POST!, {
       params: {},
       request: new Request('http://localhost/api/v1/portable-imports', {
         body,
@@ -354,14 +379,17 @@ describe('authenticated portable export and import request path', () => {
   ): Promise<Destination & { importer: Person }> {
     const name = scratchNameFor()
     assertDisposableScratch(name)
+    // Clients connect lazily. The destination is registered for teardown before the database exists, so
+    // a failure in creation or migration still drops whatever was made, and `drop ... if exists`
+    // tolerates a database that was never created.
     const admin = createDatabase(urlForDatabase('postgres'))
-    await admin.client.unsafe(`create database "${name}"`)
     const connection = createDatabase(urlForDatabase(name))
+    const destination = { admin, connection, name }
+    destinations.push(destination)
+    await admin.client.unsafe(`create database "${name}"`)
     await migrate(connection.db, {
       migrationsFolder: `${import.meta.dir}/../../../../packages/db/drizzle`,
     })
-    const destination = { admin, connection, name }
-    destinations.push(destination)
     // Only the importer exists at first: the rest of the bundle's users are provisioned later.
     const importerRow = bundleUsers.find((user) => user.userId === importerId)!
     const importer = await againstDatabase(urlForDatabase(name), () =>
@@ -370,15 +398,38 @@ describe('authenticated portable export and import request path', () => {
     return { ...destination, importer }
   }
 
-  async function sourceRowCounts() {
-    const ids = people().map((person) => person.principal.userId)
-    const [row] = (await source.db.execute(sql`
-      select
-        (select count(*)::int from app.workspaces where id = ${workspaceId}) as workspaces,
-        (select count(*)::int from app.workspace_memberships where user_id in ${ids}) as memberships,
-        (select count(*)::int from app.messages where workspace_id = ${workspaceId}) as messages
-    `)) as unknown as { memberships: number; messages: number; workspaces: number }[]
-    return row!
+  /**
+   * A content hash of every row this file's refusals could plausibly touch: each table that carries a
+   * workspace_id, restricted to the fixture workspace, plus the workspace row, the fixture users' own
+   * rows, memberships and desktop sessions, and any workspace they own. A refused request must leave it
+   * identical. It is scoped to the fixture, not the whole database, because other route files share
+   * the lane database concurrently.
+   */
+  async function sourceFingerprint() {
+    const ids = sourcePeople.map((person) => person.principal.userId)
+    const tables = (await source.db.execute(sql`
+      select c.table_name from information_schema.columns c
+      join information_schema.tables t
+        on t.table_schema = c.table_schema and t.table_name = c.table_name
+      where c.table_schema = 'app' and c.column_name = 'workspace_id' and t.table_type = 'BASE TABLE'
+      order by 1`)) as unknown as { table_name: string }[]
+    const hash = async (from: string, where: ReturnType<typeof sql>) => {
+      const [row] = (await source.db.execute(
+        sql`select count(*)::int as n, coalesce(md5(string_agg(row_to_json(t)::text, ',' order by row_to_json(t)::text)), '') as h from ${sql.raw(from)} t where ${where}`
+      )) as unknown as { h: string; n: number }[]
+      return `${row!.n}:${row!.h}`
+    }
+    const result: Record<string, string> = {}
+    for (const { table_name: table } of tables)
+      result[table] = await hash(`app."${table}"`, sql`t.workspace_id = ${workspaceId}`)
+    result['workspaces'] = await hash(
+      'app.workspaces',
+      sql`t.id = ${workspaceId} or t.owner_user_id in ${ids}`
+    )
+    result['users'] = await hash('app.users', sql`t.id in ${ids}`)
+    result['memberships'] = await hash('app.workspace_memberships', sql`t.user_id in ${ids}`)
+    result['desktop_sessions'] = await hash('app.desktop_sessions', sql`t.user_id in ${ids}`)
+    return result
   }
 
   async function removeSource(id: string) {
@@ -476,7 +527,7 @@ describe('authenticated portable export and import request path', () => {
     // A members-only project the member views and the outsider does not.
     const project = await createProject(db, workspaceId, owner.principal, {
       iconKey: 'folder',
-      name: `Authpath project ${run}`,
+      name: projectName,
     })
     await setProjectVisibility(db, workspaceId, project.id, owner.principal, 'members')
     await setProjectMember(db, workspaceId, project.id, owner.principal, {
@@ -490,7 +541,7 @@ describe('authenticated portable export and import request path', () => {
       owner.principal,
       {
         idempotencyKey: `authpath-project-channel-${run}`,
-        title: 'Authpath project lane',
+        title: projectChannelTitle,
       }
     )
     await createMessage(db, workspaceId, projectChannel.id, owner.principal, {
@@ -540,30 +591,42 @@ describe('authenticated portable export and import request path', () => {
   }, 300_000)
 
   afterAll(async () => {
-    for (const destination of destinations) {
+    // Each step runs whatever the previous one did, and the first failure is rethrown at the end, so one
+    // broken drop cannot leave the remaining scratch databases or fixture users behind.
+    const failures: unknown[] = []
+    const attempt = async (step: () => Promise<unknown>) => {
       try {
-        await destination.connection.close()
-      } finally {
-        assertDisposableScratch(destination.name)
-        await destination.admin.client.unsafe(
-          `drop database if exists "${destination.name}" with (force)`
-        )
-        await destination.admin.close()
+        await step()
+      } catch (error) {
+        failures.push(error)
       }
     }
+    for (const destination of destinations) {
+      assertDisposableScratch(destination.name)
+      await attempt(() => destination.connection.close())
+      await attempt(() =>
+        destination.admin.client.unsafe(
+          `drop database if exists "${destination.name}" with (force)`
+        )
+      )
+      await attempt(() => destination.admin.close())
+    }
     if (source) {
-      try {
-        if (workspaceId) await removeSource(workspaceId)
-      } finally {
-        // Sessions and identities reference the user, so they go first; then every tracked user.
-        const ids = sourcePeople.map((person) => person.principal.userId)
-        if (ids.length) {
-          await source.db.delete(desktopSessions).where(inArray(desktopSessions.userId, ids))
-          await source.db.delete(authIdentities).where(inArray(authIdentities.userId, ids))
-          await source.db.delete(users).where(inArray(users.id, ids))
-        }
-        // Independent of the tracking list: anything this run created that teardown missed fails the
-        // lane instead of piling up in a shared database.
+      if (workspaceId) await attempt(() => removeSource(workspaceId))
+      // Sessions and identities reference the user, so they go first; then every tracked user.
+      const ids = sourcePeople.map((person) => person.principal.userId)
+      if (ids.length) {
+        await attempt(() =>
+          source.db.delete(desktopSessions).where(inArray(desktopSessions.userId, ids))
+        )
+        await attempt(() =>
+          source.db.delete(authIdentities).where(inArray(authIdentities.userId, ids))
+        )
+        await attempt(() => source.db.delete(users).where(inArray(users.id, ids)))
+      }
+      // Independent of the tracking list: anything this run created that teardown missed fails the
+      // lane instead of piling up in a shared database.
+      await attempt(async () => {
         const [left] = (await source.db.execute(sql`
           select
             (select count(*)::int from app.users where display_name like ${`% ${run}`}) as users,
@@ -572,10 +635,11 @@ describe('authenticated portable export and import request path', () => {
             (select count(*)::int from app.desktop_sessions
               where email like ${`%-${run}@example.test`}) as sessions
         `)) as unknown as { identities: number; sessions: number; users: number }[]
-        await source.close()
         expect(left).toEqual({ identities: 0, sessions: 0, users: 0 })
-      }
+      })
+      await attempt(() => source.close())
     }
+    if (failures.length) throw failures[0]
   }, 300_000)
 
   describe('unauthenticated and rejected callers', () => {
@@ -617,7 +681,7 @@ describe('authenticated portable export and import request path', () => {
         },
         'session id of another user': { credential: owner.credential, sessionId: member.sessionId },
       }
-      const before = await sourceRowCounts()
+      const before = await sourceFingerprint()
       const bodies = new Set<string>()
       for (const [label, person] of Object.entries(cases)) {
         for (const response of [
@@ -640,7 +704,7 @@ describe('authenticated portable export and import request path', () => {
       expect([...bodies]).toEqual([
         JSON.stringify({ code: 'workspace_unavailable', message: 'Workspace unavailable' }),
       ])
-      expect(await sourceRowCounts()).toEqual(before)
+      expect(await sourceFingerprint()).toEqual(before)
     })
 
     test('a malformed authorization scheme and an untrusted or missing origin are refused before any lookup', async () => {
@@ -655,7 +719,7 @@ describe('authenticated portable export and import request path', () => {
       ]
       for (const headers of schemes) {
         const response = await wire(
-          await exportRoute.Route.server.handlers.GET!({
+          await invoke(exportRoute.Route.server.handlers.GET!, {
             params: { workspaceId },
             request: new Request('http://localhost/x', {
               headers: { origin: TRUSTED_ORIGIN, 'x-adea-client': 'desktop', ...headers },
@@ -672,13 +736,11 @@ describe('authenticated portable export and import request path', () => {
         await wire(await importCall(owner, '{}', { origin: foreignOrigin })),
       ]) {
         expect(response.status).toBe(403)
-        expect(response.raw.toLowerCase()).not.toContain(
-          'access-control-allow-origin: https://evil'
-        )
+        expect(response.raw.toLowerCase()).not.toContain('access-control-allow-origin')
         assertAbsent(response.raw, [owner.credential, canary.privateText, workspaceId])
       }
       // A desktop session presented without any origin is not trusted either.
-      const noOrigin = await exportRoute.Route.server.handlers.GET!({
+      const noOrigin = await invoke(exportRoute.Route.server.handlers.GET!, {
         params: { workspaceId },
         request: new Request('http://localhost/x', {
           headers: {
@@ -702,6 +764,7 @@ describe('authenticated portable export and import request path', () => {
 
     test('the account allowlist stops an otherwise valid session at both routes', async () => {
       const bundle = (await exportAs(owner)).bundle
+      const before = await sourceFingerprint()
       await withAllowlist(`someone-else-${run}@example.test`, async () => {
         for (const response of [
           await wire(await exportCall(owner)),
@@ -711,6 +774,7 @@ describe('authenticated portable export and import request path', () => {
           assertAbsent(response.raw, [...sourceSecrets(), canary.privateText])
         }
       })
+      expect(await sourceFingerprint()).toEqual(before)
       await withAllowlist(` ${owner.email.toUpperCase()} `, async () => {
         expect((await exportCall(owner)).status).toBe(200)
         // Only the listed account passes: the member's session is denied, and so is a session with no
@@ -740,9 +804,23 @@ describe('authenticated portable export and import request path', () => {
         expect(result.body).toContain(canary.membersText)
         expect(result.body).toContain(canary.publicText)
       }
-      // The outsider is a workspace member but holds neither the group audience nor a project seat.
+      for (const result of [bundles.owner, bundles.member]) {
+        expect(result.bundle.content.projects.map((project) => project.name)).toContain(projectName)
+        expect(result.body).toContain(projectChannelTitle)
+      }
+      // The outsider is a workspace member but holds neither the group audience nor a project seat:
+      // the group, the members-only project and that project's channel are all absent, by text and
+      // by record, while the workspace-wide channel is present.
       expect(bundles.outsider.body).toContain(canary.publicText)
-      assertAbsent(bundles.outsider.raw, [canary.privateText, canary.membersText])
+      assertAbsent(bundles.outsider.raw, [
+        canary.privateText,
+        canary.membersText,
+        projectName,
+        projectChannelTitle,
+      ])
+      expect(bundles.outsider.bundle.content.projects.map((project) => project.name)).not.toContain(
+        projectName
+      )
       expect(
         bundles.outsider.bundle.content.channels.some((channel) => channel.channelId === groupId)
       ).toBe(false)
@@ -891,18 +969,18 @@ describe('authenticated portable export and import request path', () => {
           sessionId: holder.sessionId,
         })
       )
-      const before = await sourceRowCounts()
+      const before = await sourceFingerprint()
       const refused = await wire(await importCall(holder, JSON.stringify(held.bundle)))
       expect(refused.status).toBe(401)
       assertAbsent(refused.raw, [...sourceSecrets(), ...secretsOf(holder)])
-      expect(await sourceRowCounts()).toEqual(before)
+      expect(await sourceFingerprint()).toEqual(before)
     })
   })
 
   describe('authenticated import', () => {
     test('refusals through the route write nothing and echo nothing from the bundle', async () => {
       const bundle = (await exportAs(owner)).bundle
-      const before = await sourceRowCounts()
+      const before = await sourceFingerprint()
 
       // The workspace id already exists in this database.
       const exists = await wire(await importCall(owner, JSON.stringify(bundle)))
@@ -954,7 +1032,7 @@ describe('authenticated portable export and import request path', () => {
           controller.close()
         },
       })
-      const streamed = await importRoute.Route.server.handlers.POST!({
+      const streamed = await invoke(importRoute.Route.server.handlers.POST!, {
         params: {},
         request: new Request('http://localhost/api/v1/portable-imports', {
           body: oversized,
@@ -966,14 +1044,7 @@ describe('authenticated portable export and import request path', () => {
       expect(streamed.status).toBe(413)
       await streamed.arrayBuffer()
 
-      expect(await sourceRowCounts()).toEqual(before)
-      // None of the refusals above created a session, a cookie or a row for the importer.
-      expect(
-        await source.db
-          .select()
-          .from(workspaceMemberships)
-          .where(eq(workspaceMemberships.userId, stranger.principal.userId))
-      ).toEqual([])
+      expect(await sourceFingerprint()).toEqual(before)
     })
 
     test('the owner restores through the authenticated route and the destination keeps only what the bundle permits', async () => {
@@ -983,17 +1054,14 @@ describe('authenticated portable export and import request path', () => {
       const url = urlForDatabase(destination.name)
 
       // The bundle names users this destination does not hold yet: refused, and nothing is written.
+      const emptyDestination = await tableDump(destination.connection.db)
       const unresolved = await againstDatabase(url, async () =>
         wire(await importCall(destination.importer, JSON.stringify(bundle)))
       )
       expect(unresolved.status).toBe(422)
       expect(JSON.parse(unresolved.body).error).toBe('unresolved_users')
-      expect(
-        await destination.connection.db
-          .select()
-          .from(workspaces)
-          .where(eq(workspaces.id, workspaceId))
-      ).toEqual([])
+      // Every table of the destination is byte-for-byte what it was before the refused request.
+      expect(await tableDump(destination.connection.db)).toBe(emptyDestination)
 
       const others = bundle.content.users.filter((user) => user.userId !== owner.principal.userId)
       if (others.length)
@@ -1047,10 +1115,12 @@ describe('authenticated portable export and import request path', () => {
       for (const ref of refs) expect(ref.availability).toBe('missing')
 
       // The same bundle cannot be restored twice into the same destination.
+      const restoredDump = await tableDump(destination.connection.db)
       const again = await againstDatabase(url, async () =>
         wire(await importCall(destination.importer, JSON.stringify(bundle)))
       )
       expect(again.status).toBe(409)
+      expect(await tableDump(destination.connection.db)).toBe(restoredDump)
     }, 300_000)
 
     test('the outsider restores their own bundle and no private audience content reaches the destination', async () => {
@@ -1103,11 +1173,37 @@ describe('authenticated portable export and import request path', () => {
           })
         )
       )
+      const revokedDump = await tableDump(destination.connection.db)
       const refused = await againstDatabase(url, async () =>
         wire(await importCall(destination.importer, JSON.stringify(exported.bundle)))
       )
       expect(refused.status).toBe(401)
-      expect(await destination.connection.db.select().from(workspaces)).toEqual([])
+      expect(await tableDump(destination.connection.db)).toBe(revokedDump)
     }, 300_000)
+  })
+
+  describe('every response this file received', () => {
+    test('none carries source secrets or any credential material, and every route answer was logged', () => {
+      // Responses to the test's own calls (including status-only checks, preflights and refusals),
+      // not only the ones inspected individually above.
+      expect(wireLog.length).toBeGreaterThan(50)
+      const statuses = new Set(wireLog.map((entry) => entry.raw.split('\n', 1)[0]))
+      for (const status of ['200', '201', '204', '400', '401', '403', '404', '409', '413', '422'])
+        expect(statuses.has(status), `no logged ${status}`).toBe(true)
+      const secrets = [
+        canary.artifactLocator,
+        canary.artifactProvenance,
+        canary.executionRef,
+        canary.externalSession,
+        canary.inviteEmail,
+        inviteToken,
+        replicaCiphertext,
+        ...secretsOf(...everyPerson),
+      ]
+      for (const entry of wireLog) {
+        for (const secret of secrets) expect(entry.raw, entry.label).not.toContain(secret)
+        expect(entry.raw.toLowerCase(), entry.label).not.toContain('set-cookie')
+      }
+    })
   })
 })
