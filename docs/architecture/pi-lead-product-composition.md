@@ -160,7 +160,8 @@ live provider qualification or completed foreign-Agent execution acceptance.
 `withCurrentSourceLeadTurnProduct` is a candidate in-process reader, separate
 from the guarded HTTP endpoint. It resolves the exact source CP selector and
 canonical intent, requires the original actor's current `runtime.invoke` in the
-source workspace, and holds source membership/mapping locks before entering the
+source workspace, and holds the actor's users-row share lock plus source
+membership/mapping locks (in that order, matching canonical reorder) before entering the
 existing locked host product reader. Current host actor, audience, message,
 profile and enlistment remain required. Disclosure retains both workspace
 mappings, the exact qualified Agent and the effective enlistment ID/revision.
@@ -177,8 +178,10 @@ reader rereads the original human audience window and rechecks both audience and
 enlistment immediately before disclosure and after awaited final verification.
 A PostgreSQL Agent-lock barrier reproduces an audience grant expiring after the
 host helper's earlier time snapshot; the source reader denies disclosure without
-renewing either grant. Source-to-host lock-order review and full lifecycle/physical
-source qualification remain outstanding.
+renewing either grant. The reorder deadlock found in review is repaired in the
+reader (actor users-row share lock first; see
+`docs/evidence/1178-source-lock-order-qualification.md`). Full lifecycle/physical
+source qualification remains outstanding.
 
 ### Candidate shared-contract consumer
 

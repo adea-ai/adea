@@ -5,7 +5,7 @@ import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { admissionInForce, loadGroupAdmission } from './group-participation-store'
 import { withCurrentLeadTurnProduct, type CurrentLeadTurnProduct } from './lead-turn-product'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
-import { agents, leadTurnIntents, workspaceMemberships, workspaces } from './schema'
+import { agents, leadTurnIntents, users, workspaceMemberships, workspaces } from './schema'
 
 export type CurrentSourceLeadTurnProduct = CurrentLeadTurnProduct &
   Readonly<{
@@ -46,8 +46,21 @@ export async function withCurrentSourceLeadTurnProduct<T>(
       .limit(1)
     if (!resolved || resolved.hostWorkspaceId === resolved.agentWorkspaceId) return undefined
 
-    // Source membership -> source workspace -> canonical host/channel/Agent:
-    // source rows precede the Agent lock, as they do during enlistment.
+    // Original actor's users row first. Canonical workspace management (reorder,
+    // create, claim) takes this row FOR UPDATE before it writes any membership, so
+    // taking the shared form before our membership SHARE locks keeps every path in
+    // one order and removes the membership cycle (SQLSTATE 40P01) with reorder.
+    // Readers share it; only management writers for this actor wait behind us.
+    const [actorRow] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, resolved.actorUserId))
+      .for('share')
+      .limit(1)
+    if (!actorRow) throw new Error('Lead turn unavailable')
+
+    // Actor users row -> source membership -> source workspace -> canonical
+    // host/channel/Agent: source rows precede the Agent lock, as in enlistment.
     const [membership] = await tx
       .select({ role: workspaceMemberships.role })
       .from(workspaceMemberships)

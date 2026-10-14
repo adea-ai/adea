@@ -16,7 +16,7 @@ import {
   revokeGroupGrant,
 } from '../../src/group-channels'
 import { withCurrentSourceLeadTurnProduct } from '../../src/lead-source-product'
-import { workspaceMemberships, workspaces, users } from '../../src/schema'
+import { workspaceMemberships, workspaces } from '../../src/schema'
 
 function barrier() {
   let release!: () => void
@@ -232,14 +232,9 @@ describe.skipIf(!databaseUrl)('source lock-order qualification (disposable fixtu
       )
     ).rejects.toThrow('unavailable')
   })
-  test.each([
-    { direction: 0, serializeActor: false },
-    { direction: 1, serializeActor: false },
-    { direction: 0, serializeActor: true },
-    { direction: 1, serializeActor: true },
-  ])(
-    'canonical reorder cycle / test-only actor serialization: %j',
-    async ({ direction, serializeActor }) => {
+  test.each([{ direction: 0 }, { direction: 1 }])(
+    'production source reader does not deadlock with canonical reorder: %j',
+    async ({ direction }) => {
       const f = await fixture(),
         group = f.groups[direction]!,
         updatedHost = barrier(),
@@ -319,28 +314,17 @@ describe.skipIf(!databaseUrl)('source lock-order qualification (disposable fixtu
       const readerDb = tagged('source-lock-cycle-reader', (pid) => {
         readerPid = pid
       })
-      const read = readerDb
-        .transaction(async (tx) => {
-          // Test-only proposed repair. Production source reader remains unchanged.
-          // Canonical reorder/creation/claim paths take this same user row UPDATE
-          // before memberships. Both directional readers can share it concurrently.
-          if (serializeActor)
-            await tx
-              .select({ id: users.id })
-              .from(users)
-              .where(eq(users.id, f.actor.principal.userId))
-              .for('share')
-          return withCurrentSourceLeadTurnProduct(
-            tx,
-            group.source.controlPlaneWorkspaceId,
-            group.intentId,
-            async () => 'read'
-          )
-        })
-        .then(
-          (value) => ({ value }),
-          (error: unknown) => ({ error })
-        )
+      // The unchanged production reader, no wrapper: it must queue behind the
+      // reorder's actor lock instead of holding a membership lock the reorder needs.
+      const read = withCurrentSourceLeadTurnProduct(
+        readerDb,
+        group.source.controlPlaneWorkspaceId,
+        group.intentId,
+        async () => 'read'
+      ).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error })
+      )
       try {
         for (let attempt = 0; attempt < 200; attempt++) {
           if (readerPid) break
@@ -351,15 +335,62 @@ describe.skipIf(!databaseUrl)('source lock-order qualification (disposable fixtu
       } finally {
         continueReorder.release()
       }
-      const results = await Promise.all([read, reorder])
-      const errors = results.flatMap((result) => ('error' in result ? [sqlCode(result.error)] : []))
-      expect(errors).toEqual(serializeActor ? [] : ['40P01'])
-      if (serializeActor) expect(results.every((result) => 'value' in result)).toBe(true)
-      console.log(
-        serializeActor
-          ? `Test-only actor SHARE fence removes observed reorder cycle in direction ${direction}`
-          : `Observed direction ${direction}: reader holds source membership SHARE -> host membership; canonical reorder holds host membership UPDATE -> source membership; SQLSTATE 40P01`
+      const [readResult, reorderResult] = await Promise.all([read, reorder])
+      // A 40P01 here is the regression this test exists to catch.
+      expect(readResult).toEqual({ value: 'read' })
+      expect('error' in reorderResult ? sqlCode(reorderResult.error) : undefined).toBeUndefined()
+      expect('value' in reorderResult).toBe(true)
+    },
+    10_000
+  )
+  test.each([{ direction: 0 }, { direction: 1 }])(
+    'canonical reorder waits behind a reader in final verification, then both finish: %j',
+    async ({ direction }) => {
+      const f = await fixture(),
+        group = f.groups[direction]!,
+        entered = barrier(),
+        held = barrier()
+      let readerPid = 0,
+        writerPid = 0
+      const read = withCurrentSourceLeadTurnProduct(
+        tagged('source-lock-held-reader', (pid) => {
+          readerPid = pid
+        }),
+        group.source.controlPlaneWorkspaceId,
+        group.intentId,
+        async () => {
+          entered.release()
+          await held.wait
+          return 'read'
+        }
+      ).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error })
       )
+      await entered.wait
+      const reorder = reorderWorkspaces(
+        tagged('source-lock-late-reorder', (pid) => {
+          writerPid = pid
+        }),
+        f.actor.principal,
+        [group.host.id, group.source.id]
+      ).then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error })
+      )
+      try {
+        for (let attempt = 0; attempt < 200; attempt++) {
+          if (writerPid) break
+          await Bun.sleep(5)
+        }
+        expect(writerPid).toBeGreaterThan(0)
+        await waitBlocked(writerPid, readerPid)
+      } finally {
+        held.release()
+      }
+      const [readResult, reorderResult] = await Promise.all([read, reorder])
+      expect(readResult).toEqual({ value: 'read' })
+      expect('value' in reorderResult).toBe(true)
     },
     10_000
   )
