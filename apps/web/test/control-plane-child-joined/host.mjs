@@ -16,6 +16,7 @@ const cp = {
   tool: await import(cpPath('packages/tool-execution/src/index.ts')),
   context: await import(cpPath('packages/context/src/index.ts')),
   orchestration: await import(cpPath('packages/orchestration/src/index.ts')),
+  executionPlan: await import(cpPath('packages/execution-plan/src/index.ts')),
 }
 const id = (prefix) => `${prefix}_01JBBCDEF0123456789ABCDEFG`
 let host, delegationService, toolService, toolCalls, childRecords, lifecycle
@@ -336,6 +337,9 @@ async function allocateBody(intentId) {
   childConstraints.limits.tokens.maximumTotal = Math.floor(
     plan.constraints.limits.tokens.maximumTotal / 2
   )
+  // The parent's depth limit is one, so this child may not delegate further. That is stricter than
+  // the parent and it drops the parent's own allowance, which a child does not inherit.
+  childConstraints.limits.childExecutions = { maximumTotal: 0, maximumDepth: 0 }
   const before = await leadEvidence()
   try {
     const allocated = await delegationService.delegate({
@@ -420,6 +424,50 @@ async function allocate(intentId) {
 // Child-runtime admission through the canonical bridge. Authority is re-read at every
 // start: the admitting tool call, then the same current account/product/readiness
 // resolution the allocator used. Budget is the child's own ledger reservation.
+async function assertChildAuthority(admission) {
+  const call = await toolCalls.get(admission.record.admittedToolCallId)
+  if (
+    !call ||
+    call.executionId !== admission.identity.parentExecutionId ||
+    call.attemptId !== admission.identity.parentAttemptId ||
+    !['executing', 'succeeded'].includes(call.status)
+  )
+    throw new Error('CHILD_TOOL_AUTHORITY_REJECTED')
+  // The caller's workspace grant is independently revocable: re-read it for the parent and the
+  // child plan, as the delegation service does, before anything else is trusted.
+  for (const scoped of [dispatched.plan, admission.plan]) {
+    const allowed = await cp.executionPlan.currentExecutionScopeAllows(
+      host.state.scopeAuthority,
+      {
+        ...scoped.correlation,
+        callerPrincipalId: host.actorPrincipalId,
+        executionPlan: {
+          executionPlanId: scoped.executionPlanId,
+          contentDigest: scoped.contentDigest,
+          schemaVersion: scoped.schemaVersion,
+        },
+      },
+      host.at
+    )
+    if (!allowed) throw new Error('CHILD_SCOPE_AUTHORITY_REJECTED')
+  }
+  await host.composition.resolveChildSelection(
+    {
+      schemaVersion: 'pi-lead-intent/v1',
+      workspaceId: host.workspaceId,
+      intentId: dispatched.intentId,
+      principalId: host.principal.principalId,
+    },
+    {
+      // A separate request id: this is a current-readiness read, not a second acceptance of the
+      // child request whose selection the allocator already retained.
+      childRequestId: 'req_01JBBCDEF0123456789ABCDEFH',
+      childRequestDigest: `sha256:${createHash('sha256').update(admission.record.delegationId).digest('hex')}`,
+      canonicalActorPrincipalId: host.actorPrincipalId,
+      requestedSelection: ref(child),
+    }
+  )
+}
 const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
   records: childRecords,
   lifecycle,
@@ -427,30 +475,7 @@ const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
   delegations: delegationService,
   runtime: scriptedChildRuntime,
   runtimeConnectionId: ids.runtimeConnection,
-  async assertAuthority(admission) {
-    const call = await toolCalls.get(admission.record.admittedToolCallId)
-    if (
-      !call ||
-      call.executionId !== admission.identity.parentExecutionId ||
-      call.attemptId !== admission.identity.parentAttemptId ||
-      !['executing', 'succeeded'].includes(call.status)
-    )
-      throw new Error('CHILD_TOOL_AUTHORITY_REJECTED')
-    await host.composition.resolveChildSelection(
-      {
-        schemaVersion: 'pi-lead-intent/v1',
-        workspaceId: host.workspaceId,
-        intentId: dispatched.intentId,
-        principalId: host.principal.principalId,
-      },
-      {
-        childRequestId: admission.plan.correlation.requestId,
-        childRequestDigest: `sha256:${createHash('sha256').update(admission.record.delegationId).digest('hex')}`,
-        canonicalActorPrincipalId: host.actorPrincipalId,
-        requestedSelection: ref(child),
-      }
-    )
-  },
+  assertAuthority: assertChildAuthority,
   async reserveBudget(admission) {
     const reservationKey = `runtime-attempt:${admission.attempt.attemptId}`
     const budget = await host.repositories.usage.transaction(host.workspaceId, (tx) =>
@@ -491,13 +516,28 @@ const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
 async function startChild() {
   const before = await leadEvidence()
   try {
-    const handle = await bridge.startChild({
+    const identity = {
       schemaVersion: 'delegation-runtime-admission/v1',
       parentExecutionId: dispatched.dispatch.executionId,
       parentAttemptId: dispatched.dispatch.attemptId,
       delegationId: ids.delegation,
       childAttemptId: ids.childAttempt,
+    }
+    // CP's delegation runtime dispatches the admitted child, then starts it. Authority is read
+    // first so a revoked or quota-blocked caller moves nothing, not even the delegation state.
+    const record = await childRecords.get(ids.delegation)
+    const plan = await host.repositories.plans.get({
+      executionPlanId: record.childExecutionPlanId,
+      contentDigest: record.childExecutionPlanDigest,
     })
+    await assertChildAuthority({ identity, record, plan })
+    await delegationService.dispatchChild({
+      delegationId: ids.delegation,
+      childAttemptId: ids.childAttempt,
+      runtime: { runtimeConnectionId: ids.runtimeConnection },
+      dispatchedAt: host.at,
+    })
+    const handle = await bridge.startChild(identity)
     return { ok: true, handleAttemptId: handle.attemptId, before, after: await leadEvidence() }
   } catch (error) {
     return {

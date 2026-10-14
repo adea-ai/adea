@@ -352,6 +352,7 @@ test('revoked and quota-blocked authority after allocation start no child runtim
 test('current authority admits the child runtime once and a retry starts nothing twice', async () => {
   expect(allocation?.ok).toBe(true)
   const started = await control('start-child')
+  if (!started.ok) logBlocker({ stage: 'child-runtime-admission', ...started })
   expect(started.ok).toBe(true)
   // Child-runtime admission reserved the child's own ceiling; the parent did not move.
   expect(started.after.runtime).toEqual({
