@@ -1913,6 +1913,12 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
             }
           )
           stepResults.push({ step: 'delete_quarantine', state: 'completed' })
+        } else if (selected.has('delete_quarantine')) {
+          stepResults.push({
+            step: 'delete_quarantine',
+            state: 'skipped',
+            detail: 'nothing was quarantined, so there was nothing to delete',
+          })
         }
         if (selected.has('prune_retained_data')) {
           stepResults.push({
@@ -2058,9 +2064,22 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
         planId: input.jobId,
         worktreeId: input.worktreeId,
         state: 'completed',
-        // Not every step journals (retained-data pruning does not), so a
-        // completed job reports its selected steps as done, never "not reached".
-        stepResults: selectedSteps.map((step) => ({ step, state: 'completed' as const })),
+        // Report only what the journal proves ran. Retained-data pruning is the
+        // one selected step that never journals, so it is the one completed
+        // step without an entry. Any other selected step with no entry never ran
+        // (for example a deletion with nothing quarantined): it is skipped, never
+        // reported as completed.
+        stepResults: recoveryResults().map((result) =>
+          result.step === 'prune_retained_data'
+            ? {
+                step: result.step,
+                state: 'completed' as const,
+                detail: 'dependency templates are cleared through the template cache',
+              }
+            : result.state === 'skipped'
+              ? { ...result, detail: 'step was selected but did not run in this job' }
+              : result
+        ),
       }
     }
     if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {

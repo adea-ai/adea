@@ -403,6 +403,77 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
     }
   })
 
+  test('resuming a completed job reports only what ran: a selected deletion that never ran is skipped', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      // delete_quarantine without quarantine_worktree has nothing to delete.
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: ['delete_quarantine', 'prune_retained_data'],
+      })
+      const committed = await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+      expect(committed.state).toBe('completed')
+      const before = f.service.getWorktree(scope, worktree.id)
+      expect(before.lifecycle).toBe('ready')
+
+      const restarted = createWorktreeService({
+        dataDir: f.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: f.roots,
+        clock: () => new Date(),
+      })
+      for (const service of [f.service, restarted]) {
+        const resumed = await service.resumeCleanup({
+          scope,
+          worktreeId: worktree.id,
+          jobId: plan.planId,
+        })
+        expect(resumed.state).toBe('completed')
+        const byStep = Object.fromEntries(resumed.stepResults.map((r) => [r.step, r.state]))
+        expect(byStep).toEqual({ delete_quarantine: 'skipped', prune_retained_data: 'completed' })
+        // Commit and resume agree on what ran.
+        expect(
+          committed.stepResults.filter((r) => r.state === 'completed').map((r) => r.step)
+        ).toEqual(['prune_retained_data'])
+        expect(service.getWorktree(scope, worktree.id)).toEqual(before)
+      }
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('resuming a completed full removal reports every journaled step completed', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: [...FULL_STEPS],
+      })
+      expect((await f.service.commitCleanup({ scope, plan, digest: plan.digest })).state).toBe(
+        'completed'
+      )
+      const resumed = await f.service.resumeCleanup({
+        scope,
+        worktreeId: worktree.id,
+        jobId: plan.planId,
+      })
+      expect(resumed.state).toBe('completed')
+      expect(resumed.stepResults.map((r) => [r.step, r.state])).toEqual([
+        ['quarantine_worktree', 'completed'],
+        ['unregister_worktree', 'completed'],
+        ['delete_quarantine', 'completed'],
+      ])
+    } finally {
+      f.cleanup()
+    }
+  })
+
   test('an unprovable interruption stays recovery_required; the preview offers no automatic retry', async () => {
     const f = fixture()
     try {

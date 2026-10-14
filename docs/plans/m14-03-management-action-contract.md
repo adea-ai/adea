@@ -222,3 +222,13 @@ Second follow-up (same day), from review of the first:
   record becomes `recovery_required`, the rollback is not journaled and the
   entry stays in trash. `WorktreeServiceOptions.pruneRegistrations` is the test
   seam for this.
+
+Third follow-up (same day), from Andrew's report that resume could claim a
+deletion that never ran:
+
+- Resuming a completed job reported every selected step `completed`. It now
+  reports only what the journal proves ran: retained-data pruning (the one step
+  that never journals) is `completed`, and any other selected step with no
+  journal entry, such as `delete_quarantine` on a plan that never quarantined,
+  is `skipped`. The commit result agrees: a selected `delete_quarantine` with
+  nothing quarantined is `skipped`, not silently omitted.
