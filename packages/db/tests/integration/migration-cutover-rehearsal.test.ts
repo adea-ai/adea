@@ -842,6 +842,9 @@ async function probeCleanMember(connection: DatabaseConnection, fixture: Fixture
       getMessageForUser(db, workspaceId, fixture.memberMessageId, member)
     ),
     inbox: (await accountConversationInbox(db, member)).conversations.map((entry) => entry.id),
+    searchChannels: (
+      await searchWorkspaceForUser(db, workspaceId, member, 'Shared rehearsal channel')
+    ).results.filter((hit) => hit.kind === 'channel'),
     searchMessages: (
       await searchWorkspaceForUser(db, workspaceId, member, 'rehearsal-shared-body')
     ).results.filter((hit) => hit.kind === 'message'),
@@ -1374,7 +1377,44 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(denial.admission).toBeNull()
     // A refused write leaves messages, roster rows, admissions and the channel version untouched.
     expect(denial.footprintAfter).toEqual(denial.footprintBefore)
-    // Positive control: the clean member, through the same paths, is served in full.
+    // Positive control: the clean member, through the same paths, is served in full. Each read must
+    // succeed with the exact seeded content, so a blanket denial cannot satisfy this test.
+    if (!('value' in control.channel)) throw new Error('clean member channel read was denied')
+    if (!('value' in control.messages)) throw new Error('clean member message list was denied')
+    if (!('value' in control.message)) throw new Error('clean member message read was denied')
+    expect(control.channel.value).toMatchObject({
+      id: fixture.sharedChannelId,
+      kind: 'group',
+      lifecycleState: 'active',
+      title: 'Shared rehearsal channel',
+      workspaceId: fixture.workspaceId,
+    })
+    expect(control.channel.value.participants.map((entry) => entry.userId).toSorted()).toEqual(
+      [fixture.owner.userId, fixture.member.userId].toSorted()
+    )
+    const listed = control.messages.value.messages
+    expect(
+      listed.map((entry) => [entry.sequence, entry.bodyText, entry.sender.userId, entry.deleted])
+    ).toEqual([
+      [1, 'rehearsal-shared-body-1', fixture.owner.userId, false],
+      [2, 'rehearsal-shared-body-2', fixture.owner.userId, false],
+      [3, 'rehearsal-shared-body-3', fixture.member.userId, false],
+    ])
+    expect(listed.every((entry) => entry.channelId === fixture.sharedChannelId)).toBe(true)
+    expect(listed[2]?.id).toBe(fixture.memberMessageId)
+    expect(control.message.value).toMatchObject({
+      bodyText: 'rehearsal-shared-body-3',
+      channelId: fixture.sharedChannelId,
+      id: fixture.memberMessageId,
+      sequence: 3,
+    })
+    expect(control.searchChannels.map((hit) => hit.id)).toEqual([fixture.sharedChannelId])
+    expect(control.searchMessages.map((hit) => hit.messageId).toSorted()).toEqual(
+      listed.map((entry) => entry.id).toSorted()
+    )
+    expect(control.searchMessages.every((hit) => hit.channelId === fixture.sharedChannelId)).toBe(
+      true
+    )
     expect(control.channels).toEqual([fixture.sharedChannelId])
     expect(control.inbox).toEqual([fixture.sharedChannelId])
     expect(control.events).toBe('deliver')
