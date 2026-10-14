@@ -2,10 +2,11 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
+import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
 import {
   ArtifactReferenceGrantError,
@@ -16,7 +17,23 @@ import {
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createContentRef } from '../../src/content-refs'
 import { upsertContentReplica } from '../../src/content-replicas'
-import { listChannelsForUser, listMessagesForUser } from '../../src/conversations'
+import { accountConversationInbox } from '../../src/account-inbox'
+import { accountWorkspaceSummaries } from '../../src/account-summary'
+import {
+  archiveChannel,
+  createMessage,
+  getChannelForUser,
+  getMessageForUser,
+  listChannelsForUser,
+  listMessagesForUser,
+  setChannelParticipants,
+  updateChannel,
+} from '../../src/conversations'
+import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
+import type { WorkspaceEventView } from '../../src/event-log'
+import { postGroupChannelMessage } from '../../src/group-channels'
+import { loadGroupAdmission } from '../../src/group-participation-store'
+import { searchWorkspaceForUser } from '../../src/search'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
   captureMigrationSnapshot,
@@ -29,7 +46,12 @@ import {
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
 } from '../../src/migration-snapshot-legacy'
 import { listReadStateForUser } from '../../src/read-state'
-import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
+import {
+  channelParticipants,
+  groupAdmissions,
+  taskExecutionAttempts,
+  workspaceMemberships,
+} from '../../src/schema'
 import { listTasksForUser } from '../../src/tasks'
 import {
   createWorkspaceInvitation,
@@ -48,7 +70,16 @@ import {
   view,
 } from '../fixtures/cutover-rehearsal'
 import {
+  captureGroupAudienceParticipants,
+  installLegacyAudienceQuarantine,
+  legacyBackfillProfile,
+  quarantineLegacyAudience,
+  reconcileLegacyAudience,
+  replayCanonicalBackfill,
+} from '../fixtures/legacy-audience-quarantine'
+import {
   insertLegacyGroup,
+  insertLegacyMessage,
   insertLegacyMessageSequence,
   insertLegacyProject,
   insertLegacyProjectMember,
@@ -138,8 +169,21 @@ type Fixture = {
   audienceOwner: Principal
   collaborator: Principal
   outsider: Principal
+  /** A clean legacy participant: admissible, the positive control for every denial below. */
+  member: Principal
+  /** A legacy participant who has since left the workspace (an ambiguous audience record). */
+  removed: Principal
+  /** An Agent from another workspace on a legacy roster (an ambiguous audience record). */
+  foreignAgentId: string
   sharedChannelId: string
   archivedChannelId: string
+  /** Stable ids of the seeded records the exact-evidence assertions pin. */
+  memberMessageId: string
+  /** The highest sequence the owner, member and removed user had read on the shared channel. */
+  ownerReadSequence: number
+  removedReadSequence: number
+  messageContentRefId: string
+  secondTaskId: string
 }
 
 async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixture> {
@@ -156,6 +200,8 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
   const collaborator = await session('collaborator')
   const outsider = await session('outsider')
   const audienceOwner = await session('audience-owner')
+  const member = await session('member')
+  const removed = await session('removed')
 
   const { workspace } = await createWorkspaceWithOwner(connection.db, {
     idempotencyKey: `rehearsal-${suffix}`,
@@ -163,15 +209,21 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     owner,
   })
   const workspaceId = workspace.id
-  await connection.db.insert(workspaceMemberships).values({
-    role: 'member',
-    userId: collaborator.userId,
-    workspaceId,
-  })
+  await connection.db.insert(workspaceMemberships).values([
+    { role: 'member', userId: collaborator.userId, workspaceId },
+    { role: 'member', userId: member.userId, workspaceId },
+    { role: 'member', userId: removed.userId, workspaceId },
+  ])
   const { workspace: audience } = await createWorkspaceWithOwner(connection.db, {
     idempotencyKey: `rehearsal-audience-${suffix}`,
     name: 'Rehearsal audience',
     owner: audienceOwner,
+  })
+  // An Agent that lives in the audience workspace, later placed on the host workspace's legacy roster.
+  const foreignAgent = await createAgent(connection.db, audience.id, audienceOwner, {
+    name: 'Rehearsal foreign agent',
+    profileId: 'software-engineer',
+    profileVersion: '1.0.0',
   })
 
   // Legacy group rows, written as the pre-#1232 product wrote them: the group policy tables do not
@@ -197,6 +249,33 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     userId: owner.userId,
     workspaceId,
   })
+  // Ambiguous legacy audience on the shared group: a clean member, a user who is about to leave the
+  // workspace, and an Agent from another workspace. Their roster rows are the only record of them.
+  await connection.db.insert(channelParticipants).values([
+    { channelId: sharedId, principalKind: 'user', userId: member.userId, workspaceId },
+    { channelId: sharedId, principalKind: 'user', userId: removed.userId, workspaceId },
+    { channelId: sharedId, principalKind: 'agent', agentId: foreignAgent.id, workspaceId },
+  ])
+  // A third message from the clean member, with a stable id the exact-evidence assertions pin.
+  const memberMessageId = await insertLegacyMessage(connection.db, {
+    bodyText: 'rehearsal-shared-body-3',
+    channelId: sharedId,
+    sender: member,
+    workspaceId,
+  })
+  // Each participant has read part of the channel; the owner has read all of it.
+  await insertLegacyReadState(connection.db, {
+    channelId: sharedId,
+    lastReadSequence: latestShared,
+    userId: member.userId,
+    workspaceId,
+  })
+  await insertLegacyReadState(connection.db, {
+    channelId: sharedId,
+    lastReadSequence: Math.max(1, latestShared - 1),
+    userId: removed.userId,
+    workspaceId,
+  })
 
   const closedId = await insertLegacyGroup(
     connection.db,
@@ -211,6 +290,14 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     sender: owner,
     workspaceId,
   })
+  // The clean member also sits on the archived group, so the owner and member rows there are the
+  // 'group channel not active' shape once the canonical backfill declines to admit them.
+  await connection.db.insert(channelParticipants).values({
+    channelId: closedId,
+    principalKind: 'user',
+    userId: member.userId,
+    workspaceId,
+  })
 
   const taskId = await insertLegacyTask(connection.db, {
     creatorUserId: owner.userId,
@@ -223,6 +310,29 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     locationKind: 'agent_hq_cloud',
     runtimeNodeId: null,
     taskId,
+    workspaceId,
+  })
+  // The same task retried: attempt 2 is the active (highest) attempt, a sticky retry on the cloud.
+  await connection.db.insert(taskExecutionAttempts).values({
+    attempt: 2,
+    change: 'sticky_retry',
+    locationKind: 'agent_hq_cloud',
+    runtimeNodeId: null,
+    taskId,
+    workspaceId,
+  })
+  // A second task with a single initial attempt, so active-attempt ownership is per task.
+  const secondTaskId = await insertLegacyTask(connection.db, {
+    creatorUserId: member.userId,
+    objective: 'Rehearsal second objective',
+    title: 'Rehearsal second task',
+    workspaceId,
+  })
+  await connection.db.insert(taskExecutionAttempts).values({
+    attempt: 1,
+    locationKind: 'agent_hq_cloud',
+    runtimeNodeId: null,
+    taskId: secondTaskId,
     workspaceId,
   })
 
@@ -266,6 +376,30 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     schemaVersion: 1,
   })
 
+  // A message-linked ref: the link from the member's message to its encrypted body.
+  const messageContentRef = await createContentRef(connection.db, workspaceId, member, {
+    availability: 'available',
+    contentType: 'message_body',
+    digestSha256: 'e'.repeat(64),
+    id: crypto.randomUUID(),
+    keyVersion: 1,
+    messageId: memberMessageId,
+    schemaVersion: 1,
+    sensitivity: 'restricted',
+    storagePolicy: 'local_authority',
+    synchronizationPolicy: 'agent_hq_e2ee_sync',
+  })
+
+  // The user leaves the workspace; the legacy roster rows remain, as they did for real departures.
+  await connection.db
+    .delete(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, removed.userId)
+      )
+    )
+
   // Created before cutover: the artifact must survive the expansion unchanged.
   const artifact = await createArtifact(connection.db, workspaceId, owner, {
     availability: 'available',
@@ -290,8 +424,16 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     audienceOwner,
     collaborator,
     outsider,
+    member,
+    removed,
+    foreignAgentId: foreignAgent.id,
     sharedChannelId: sharedId,
     archivedChannelId: closedId,
+    memberMessageId,
+    ownerReadSequence: latestShared,
+    removedReadSequence: Math.max(1, latestShared - 1),
+    messageContentRefId: messageContentRef.id,
+    secondTaskId,
   }
 }
 
@@ -386,28 +528,47 @@ async function tablePresent(connection: DatabaseConnection, name: string): Promi
   return rows[0]?.present === true
 }
 
-/** Exact, bounded evidence for the task-linked ref and its physical replica. */
-function assertContentEvidence(document: MigrationSnapshotDocument, fixture: Fixture): void {
-  const refs = (document.sections.contentRefs?.records ?? []).filter(
-    (row) => row.workspaceId === fixture.workspaceId
+/**
+ * Exact, bounded evidence for the seeded historical records of the fixture workspace, pinned by stable id:
+ * the same assertion runs on the pre-cutover capture, the post-cutover capture and the repeat capture, so a
+ * dropped, duplicated or re-keyed record fails by name rather than by an aggregate count.
+ */
+function assertHistoricalEvidence(document: MigrationSnapshotDocument, fixture: Fixture): void {
+  const inWorkspace = <T extends { workspaceId?: string }>(rows: readonly T[] | undefined) =>
+    (rows ?? []).filter((row) => row.workspaceId === fixture.workspaceId)
+  const sections = document.sections
+
+  // Content: the task-linked ref and the message-linked ref, and the one replica.
+  const refs = inWorkspace(sections.contentRefs?.records).toSorted((left, right) =>
+    left.contentRefId.localeCompare(right.contentRefId)
   )
-  const replicas = (document.sections.contentReplicas?.records ?? []).filter(
-    (row) => row.workspaceId === fixture.workspaceId
+  expect(refs).toEqual(
+    [
+      {
+        availability: 'available',
+        contentRefId: fixture.contentRefId,
+        digestSha256: fixture.contentDigest,
+        family: 'contentRefs',
+        keyVersion: 1,
+        messageId: null,
+        revision: 1,
+        taskId: fixture.taskId,
+        workspaceId: fixture.workspaceId,
+      },
+      {
+        availability: 'available',
+        contentRefId: fixture.messageContentRefId,
+        digestSha256: 'e'.repeat(64),
+        family: 'contentRefs',
+        keyVersion: 1,
+        messageId: fixture.memberMessageId,
+        revision: 1,
+        taskId: null,
+        workspaceId: fixture.workspaceId,
+      },
+    ].toSorted((left, right) => left.contentRefId.localeCompare(right.contentRefId))
   )
-  expect(refs).toEqual([
-    {
-      availability: 'available',
-      contentRefId: fixture.contentRefId,
-      digestSha256: fixture.contentDigest,
-      family: 'contentRefs',
-      keyVersion: 1,
-      messageId: null,
-      revision: 1,
-      taskId: fixture.taskId,
-      workspaceId: fixture.workspaceId,
-    },
-  ])
-  expect(replicas).toEqual([
+  expect(inWorkspace(sections.contentReplicas?.records)).toEqual([
     {
       availability: 'available',
       contentRefId: fixture.contentRefId,
@@ -421,6 +582,75 @@ function assertContentEvidence(document: MigrationSnapshotDocument, fixture: Fix
       workspaceId: fixture.workspaceId,
     },
   ])
+
+  // Channels and their rosters: both legacy groups, with every legacy participant row still on record.
+  expect(
+    inWorkspace(sections.channels?.records)
+      .map((row) => `${row.channelId}:${row.visibility}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.sharedChannelId}:participants`,
+      `${fixture.archivedChannelId}:participants`,
+    ].toSorted()
+  )
+  expect(
+    inWorkspace(sections.channelParticipants?.records)
+      .map((row) => `${row.channelId}:${row.principalKind}:${row.principalId}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.sharedChannelId}:user:${fixture.owner.userId}`,
+      `${fixture.sharedChannelId}:user:${fixture.member.userId}`,
+      `${fixture.sharedChannelId}:user:${fixture.removed.userId}`,
+      `${fixture.sharedChannelId}:agent:${fixture.foreignAgentId}`,
+      `${fixture.archivedChannelId}:user:${fixture.owner.userId}`,
+      `${fixture.archivedChannelId}:user:${fixture.member.userId}`,
+    ].toSorted()
+  )
+
+  // Messages: three on the shared channel (one pinned by id) and one on the archived channel, none deleted.
+  const messages = inWorkspace(sections.messages?.records)
+  expect(messages.filter((row) => row.channelId === fixture.sharedChannelId)).toHaveLength(3)
+  expect(messages.filter((row) => row.channelId === fixture.archivedChannelId)).toHaveLength(1)
+  expect(messages.some((row) => row.messageId === fixture.memberMessageId)).toBe(true)
+  expect(messages.every((row) => row.deleted === false && row.threadRootMessageId === null)).toBe(
+    true
+  )
+
+  // Read state: each reader's exact position, including the member who is behind and the removed user.
+  expect(
+    inWorkspace(sections.readState?.records)
+      .map(
+        (row) =>
+          `${row.userId}:${row.channelId}:${row.lastReadSequence}:${row.manuallyUnread}:${row.threadRootMessageId}`
+      )
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.owner.userId}:${fixture.sharedChannelId}:${fixture.ownerReadSequence}:false:null`,
+      `${fixture.member.userId}:${fixture.sharedChannelId}:${fixture.ownerReadSequence}:false:null`,
+      `${fixture.removed.userId}:${fixture.sharedChannelId}:${fixture.removedReadSequence}:false:null`,
+    ].toSorted()
+  )
+
+  // Active attempts: attempt 2 is the highest on the retried task; the second task has only attempt 1.
+  expect(
+    inWorkspace(sections.executionAttempts?.records)
+      .map((row) => `${row.taskId}:${row.attempt}:${row.locationKind}:${row.runtimeNodeId}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.taskId}:1:agent_hq_cloud:null`,
+      `${fixture.taskId}:2:agent_hq_cloud:null`,
+      `${fixture.secondTaskId}:1:agent_hq_cloud:null`,
+    ].toSorted()
+  )
+  expect(
+    inWorkspace(sections.tasks?.records)
+      .map((row) => row.taskId)
+      .toSorted()
+  ).toEqual([fixture.taskId, fixture.secondTaskId].toSorted())
 }
 
 async function grantRowCount(connection: DatabaseConnection, grantId: string): Promise<number> {
@@ -435,6 +665,199 @@ async function artifactRowCount(connection: DatabaseConnection, artifactId: stri
     sql`select count(*)::int as count from app.artifacts where id = ${artifactId}`
   )
   return rows[0]?.count ?? -1
+}
+
+type Settled<T> = { value: T } | { denied: string }
+
+/** The product's own answer, including its refusal message, without throwing into the test. */
+async function settle<T>(run: () => Promise<T>): Promise<Settled<T>> {
+  try {
+    return { value: await run() }
+  } catch (error) {
+    return { denied: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Every message in an error's cause chain: a driver failure names its database refusal only as the cause. */
+function messageChain(error: unknown): string {
+  const parts: string[] = []
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
+    parts.push(current instanceof Error ? current.message : String(current))
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return parts.join(' | ')
+}
+
+async function count(connection: DatabaseConnection, statement: ReturnType<typeof sql>) {
+  const [row] = (await connection.db.execute<{ count: number }>(statement)) as unknown as {
+    count: number
+  }[]
+  return Number(row?.count ?? 0)
+}
+
+/** Everything a refused write must leave untouched: messages, roster rows, admissions, version. */
+async function writeFootprint(connection: DatabaseConnection, fixture: Fixture) {
+  const channelId = fixture.sharedChannelId
+  const workspaceId = fixture.workspaceId
+  return {
+    admissions: await count(
+      connection,
+      sql`select count(*)::int as count from ${groupAdmissions} where channel_id = ${channelId}::uuid and workspace_id = ${workspaceId}::uuid`
+    ),
+    messages: await count(
+      connection,
+      sql`select count(*)::int as count from app.messages where channel_id = ${channelId}::uuid`
+    ),
+    rosterRows: await count(
+      connection,
+      sql`select count(*)::int as count from ${channelParticipants} where channel_id = ${channelId}::uuid and workspace_id = ${workspaceId}::uuid`
+    ),
+    version: await count(
+      connection,
+      sql`select version::int as count from app.channels where id = ${channelId}::uuid`
+    ),
+  }
+}
+
+function channelUpdatedEvent(channelId: string): WorkspaceEventView {
+  return {
+    actor: null,
+    aggregateId: channelId,
+    aggregateType: 'channel',
+    correlationId: null,
+    eventId: crypto.randomUUID(),
+    eventType: 'channel.updated',
+    occurredAt: new Date('2026-01-05T00:00:00.000Z'),
+    payload: { channelId },
+    schemaVersion: 1,
+    workspaceSequence: 1,
+  }
+}
+
+const OBSERVED_AT = '2026-01-05T00:00:00.000Z'
+
+/**
+ * Every product handler a stale legacy audience member can reach on the shared group, run as that
+ * member with workspace membership restored, so the only thing left to refuse them is the group's
+ * canonical admission. Refusals are values; every refused write is checked for zero footprint.
+ */
+async function probeStaleAudience(
+  connection: DatabaseConnection,
+  fixture: Fixture,
+  stale: Principal
+) {
+  const { db } = connection
+  const { workspaceId, sharedChannelId: channelId } = fixture
+  const read = {
+    channel: await settle(() => getChannelForUser(db, workspaceId, channelId, stale)),
+    channels: ids(await view(() => listChannelsForUser(db, workspaceId, stale))),
+    messages: await settle(() => listMessagesForUser(db, workspaceId, channelId, stale)),
+    message: await settle(() => getMessageForUser(db, workspaceId, fixture.memberMessageId, stale)),
+    inbox: (await accountConversationInbox(db, stale)).conversations.map((entry) => entry.id),
+    readState: (await listReadStateForUser(db, workspaceId, stale)).map((entry) => entry.channelId),
+    unreadChannels: (await accountWorkspaceSummaries(db, stale)).find(
+      (row) => row.workspaceId === workspaceId
+    )?.unreadChannels,
+    searchChannels: (
+      await searchWorkspaceForUser(db, workspaceId, stale, 'Shared rehearsal channel')
+    ).results.filter((hit) => hit.kind === 'channel'),
+    searchMessages: (
+      await searchWorkspaceForUser(db, workspaceId, stale, 'rehearsal-shared-body')
+    ).results.filter((hit) => hit.kind === 'message'),
+    events: (
+      await classifyWorkspaceEventsForUser(db, workspaceId, stale.userId, [
+        channelUpdatedEvent(channelId),
+      ])
+    )?.[0]?.kind,
+  }
+  const footprintBefore = await writeFootprint(connection, fixture)
+  const version = footprintBefore.version
+  const append = {
+    create: await settle(() =>
+      createMessage(db, workspaceId, channelId, stale, {
+        bodyText: 'stale append through the legacy writer',
+        idempotencyKey: `stale-create-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: stale.userId },
+      })
+    ),
+    post: await settle(() =>
+      postGroupChannelMessage(db, workspaceId, channelId, stale, stale, {
+        message: {
+          bodyText: 'stale canonical post',
+          idempotencyKey: `stale-post-${crypto.randomUUID()}`,
+        },
+        mode: 'direct',
+      })
+    ),
+    rename: await settle(() =>
+      updateChannel(
+        db,
+        workspaceId,
+        channelId,
+        stale,
+        { title: 'renamed by stale audience' },
+        version
+      )
+    ),
+    archive: await settle(() => archiveChannel(db, workspaceId, channelId, stale, version)),
+  }
+  const current = await getChannelForUser(db, workspaceId, channelId, fixture.owner)
+  const rejoin = await setChannelParticipants(
+    db,
+    workspaceId,
+    channelId,
+    fixture.owner,
+    [
+      { kind: 'user', userId: fixture.owner.userId },
+      { kind: 'user', userId: fixture.member.userId },
+      { kind: 'user', userId: stale.userId },
+    ],
+    current.version
+  ).then(
+    () => 'written',
+    (error: unknown) => messageChain(error)
+  )
+  return {
+    read,
+    append,
+    rejoin,
+    footprintBefore,
+    footprintAfter: await writeFootprint(connection, fixture),
+    admission: await loadGroupAdmission(db, workspaceId, channelId, {
+      kind: 'user',
+      userId: stale.userId,
+    }),
+  }
+}
+
+/** The clean member's reads on the same channel: the positive control for every refusal above. */
+async function probeCleanMember(connection: DatabaseConnection, fixture: Fixture) {
+  const { db } = connection
+  const { workspaceId, sharedChannelId: channelId, member } = fixture
+  return {
+    channel: await settle(() => getChannelForUser(db, workspaceId, channelId, member)),
+    channels: ids(await view(() => listChannelsForUser(db, workspaceId, member))),
+    messages: await settle(() => listMessagesForUser(db, workspaceId, channelId, member)),
+    message: await settle(() =>
+      getMessageForUser(db, workspaceId, fixture.memberMessageId, member)
+    ),
+    inbox: (await accountConversationInbox(db, member)).conversations.map((entry) => entry.id),
+    searchChannels: (
+      await searchWorkspaceForUser(db, workspaceId, member, 'Shared rehearsal channel')
+    ).results.filter((hit) => hit.kind === 'channel'),
+    searchMessages: (
+      await searchWorkspaceForUser(db, workspaceId, member, 'rehearsal-shared-body')
+    ).results.filter((hit) => hit.kind === 'message'),
+    events: (
+      await classifyWorkspaceEventsForUser(db, workspaceId, member.userId, [
+        channelUpdatedEvent(channelId),
+      ])
+    )?.[0]?.kind,
+    admission: await loadGroupAdmission(db, workspaceId, channelId, {
+      kind: 'user',
+      userId: member.userId,
+    }),
+  }
 }
 
 type Scenario = Awaited<ReturnType<typeof executeScenario>>
@@ -561,6 +984,64 @@ async function executeScenario() {
     revision: registration.state.revision,
   })
 
+  // Audience phase: the canonical admissions and grants the cutover created from the populated legacy
+  // roster, the real 0050 backfill replayed on that populated data, the quarantine of the ambiguous
+  // audience, and the product's answer to the principals it excludes.
+  const groupDb = connection.db
+  await installLegacyAudienceQuarantine(groupDb)
+  const audienceState = async () => ({
+    reconciliation: await reconcileLegacyAudience(groupDb),
+    participants: await captureGroupAudienceParticipants(groupDb, fixture.workspaceId),
+  })
+  const audienceAtCutover = await audienceState()
+  await replayCanonicalBackfill(groupDb)
+  const audienceAfterReplay = await audienceState()
+  const afterReplayCapture = await captureMigrationSnapshot(groupDb, {
+    identity: identity('after-backfill-replay'),
+    requestedDomains: COMPARED_FAMILIES,
+  })
+  const replayComparison = compareMigrationSnapshots({
+    after: afterReplayCapture.document,
+    before: after.document,
+  })
+  const quarantine = await quarantineLegacyAudience(groupDb, {
+    observedAt: OBSERVED_AT,
+    profile: legacyBackfillProfile(),
+  })
+  const audienceQuarantined = await audienceState()
+  const quarantineRepeat = await quarantineLegacyAudience(groupDb, {
+    observedAt: OBSERVED_AT,
+    profile: legacyBackfillProfile(),
+  })
+  await replayCanonicalBackfill(groupDb)
+  const audienceFinal = await audienceState()
+  const finalCapture = await captureMigrationSnapshot(groupDb, {
+    identity: identity('after-quarantine'),
+    requestedDomains: COMPARED_FAMILIES,
+  })
+  const quarantineComparison = compareMigrationSnapshots({
+    after: finalCapture.document,
+    before: after.document,
+  })
+  // The departed user is re-invited, so only the canonical admission stands between them and the group.
+  await groupDb
+    .insert(workspaceMemberships)
+    .values({ role: 'member', userId: fixture.removed.userId, workspaceId: fixture.workspaceId })
+  const denial = await probeStaleAudience(connection, fixture, fixture.removed)
+  const control = await probeCleanMember(connection, fixture)
+  const audience = {
+    atCutover: audienceAtCutover,
+    afterReplay: audienceAfterReplay,
+    replayComparison,
+    quarantine,
+    quarantined: audienceQuarantined,
+    quarantineRepeat,
+    final: audienceFinal,
+    quarantineComparison,
+    denial,
+    control,
+  }
+
   // Sensitivity: the comparator must still see a removed record after cutover.
   const mutated = structuredClone(after.document) as typeof after.document
   const messages = mutated.sections.messages
@@ -584,6 +1065,7 @@ async function executeScenario() {
     cutoverComparison,
     repeatComparison,
     sensitivity,
+    audience,
     grants: {
       registration,
       outsiderRegistration,
@@ -624,8 +1106,8 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
 
   test('on the same populated pre-0046 database, the legacy capture equals the canonical typed capture', async () => {
     const { before, typedBefore, fixture } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(typedBefore.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(typedBefore.document, fixture)
     expect(before.document.sections).toEqual(typedBefore.document.sections)
     expect(Object.keys(before.document.sections).toSorted()).toEqual(
       [...COMPARED_FAMILIES].toSorted()
@@ -644,9 +1126,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       again,
       fixture,
     } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(after.document, fixture)
-    assertContentEvidence(again.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(after.document, fixture)
+    assertHistoricalEvidence(again.document, fixture)
     expect(cutover.applied).toBe(journalLength)
     expect(cutover.grantsTablePresent).toBe(true)
     expect(cutover.artifactRows).toBe(1)
@@ -663,7 +1145,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     // The pre-0046 product baseline is unavailable evidence (see the capture test); after cutover the
     // product answers, and the document comparison carries the audience and identity facts.
     expect('unavailable' in baselineReads).toBe(true)
-    expect(afterReads.owner.sharedMessages).toHaveLength(2)
+    expect(afterReads.owner.sharedMessages).toHaveLength(3)
   }, 300_000)
 
   test('the capture covers the legacy families, records absent and unread families explicitly, and keeps audience facts', async () => {
@@ -702,9 +1184,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       before,
       fixture,
     } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(after.document, fixture)
-    assertContentEvidence(again.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(after.document, fixture)
+    assertHistoricalEvidence(again.document, fixture)
     expect(after.document.sections.contentRefs).toEqual(before.document.sections.contentRefs)
     expect(again.document.sections.contentRefs).toEqual(after.document.sections.contentRefs)
     expect(after.document.sections.contentReplicas).toEqual(
@@ -771,6 +1253,196 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(grants.revoked?.revoked).toBe(true)
     expect(grants.revokedCurrent?.revoked).toBe(true)
     expect(grants.staleAfterRevoke?.revoked).toBe(true)
+  }, 300_000)
+
+  test('the cutover admits the populated legacy roster exactly, and replaying the real 0050 backfill changes nothing', async () => {
+    const { audience, fixture } = await runScenario()
+    const channel = fixture.sharedChannelId
+    const admitted = [
+      `${channel}:agent:${fixture.foreignAgentId}`,
+      `${channel}:user:${fixture.owner.userId}`,
+      `${channel}:user:${fixture.member.userId}`,
+      `${channel}:user:${fixture.removed.userId}`,
+    ].toSorted()
+    const grantKey = (userId: string) => `${channel}:user:${userId}:implicit:member:${userId}:1:`
+    // Exact participants and grants. The canonical backfill is the only writer: it admits every active
+    // legacy participant, including the two ambiguous ones, which is why the quarantine step exists.
+    expect(audience.atCutover.participants).toEqual({
+      admissions: admitted,
+      audienceGrants: [
+        grantKey(fixture.owner.userId),
+        grantKey(fixture.member.userId),
+        grantKey(fixture.removed.userId),
+      ].toSorted(),
+      enlistmentGrants: [
+        `${channel}:agent:${fixture.foreignAgentId}:implicit:member:${fixture.foreignAgentId}:1:`,
+      ],
+    })
+    // Six legacy roster rows, two admissible; the other four are not yet recorded as ambiguous.
+    expect(audience.atCutover.reconciliation).toMatchObject({
+      sourceRows: 6,
+      admissibleRows: 2,
+      quarantined: 0,
+      admissions: 4,
+      audienceGrants: 3,
+      enlistmentGrants: 1,
+      unrecordedClassifications: 4,
+    })
+    // Replaying the real 0050 statements on the populated data is a no-op: same rows, same digests.
+    expect(audience.afterReplay).toEqual(audience.atCutover)
+    // Families both sides prove stay equal to the cutover capture; the rest stay unknown.
+    expect(audience.replayComparison.findings.map((finding) => finding.findingClass)).toEqual(
+      UNPROVEN_FAMILIES.map(() => 'unknown_domain')
+    )
+    expect(audience.replayComparison.verdict).toBe('inconclusive')
+  }, 300_000)
+
+  test('the quarantine records exactly the ambiguous audiences, withdraws only their grants, and is idempotent', async () => {
+    const { audience, fixture } = await runScenario()
+    const channel = fixture.sharedChannelId
+    expect(audience.quarantine).toEqual({
+      recordedNow: 4,
+      withdrawnNow: { admissions: 2, audienceGrants: 1, enlistmentGrants: 1 },
+    })
+    expect(audience.quarantined.reconciliation).toMatchObject({
+      sourceRows: 6,
+      admissibleRows: 2,
+      quarantined: 4,
+      quarantinedByReason: {
+        group_channel_not_active: 2,
+        user_not_workspace_member: 1,
+        agent_workspace_mismatch: 1,
+      },
+      admissions: 2,
+      audienceGrants: 2,
+      enlistmentGrants: 0,
+      unrecordedClassifications: 0,
+      invariants: {
+        admissionsEqualAdmissible: true,
+        admissionsPlusQuarantinedEqualSource: true,
+        quarantineCoversClassification: true,
+      },
+    })
+    // Only the clean owner and member keep an admission; the removed user and foreign Agent are gone.
+    expect(audience.quarantined.participants.admissions).toEqual(
+      [
+        `${channel}:user:${fixture.owner.userId}`,
+        `${channel}:user:${fixture.member.userId}`,
+      ].toSorted()
+    )
+    expect(audience.quarantined.participants.admissions).not.toContain(
+      `${channel}:user:${fixture.removed.userId}`
+    )
+    expect(audience.quarantined.participants.enlistmentGrants).toEqual([])
+    // The original legacy record is never edited: the source digest is identical at every stage.
+    const digests = new Set(
+      [audience.atCutover, audience.afterReplay, audience.quarantined, audience.final].map(
+        (stage) => stage.reconciliation.sourceDigest
+      )
+    )
+    expect(digests.size).toBe(1)
+    // Repeating the quarantine records and withdraws nothing, and re-running the real backfill after it
+    // does not resurrect a withdrawn admission or grant.
+    expect(audience.quarantineRepeat).toEqual({
+      recordedNow: 0,
+      withdrawnNow: { admissions: 0, audienceGrants: 0, enlistmentGrants: 0 },
+    })
+    expect(audience.final).toEqual(audience.quarantined)
+    expect(audience.quarantineComparison.findings.map((finding) => finding.findingClass)).toEqual(
+      UNPROVEN_FAMILIES.map(() => 'unknown_domain')
+    )
+    expect(audience.quarantineComparison.verdict).toBe('inconclusive')
+  }, 300_000)
+
+  test('a quarantined principal gets no product access even after being re-added to the workspace', async () => {
+    const { audience, fixture } = await runScenario()
+    const { denial, control } = audience
+    // Every read path refuses the removed user, or returns nothing and withholds events.
+    expect(denial.read.channel).toEqual({ denied: 'Channel unavailable' })
+    expect(denial.read.messages).toEqual({ denied: 'Channel unavailable' })
+    expect(denial.read.message).toEqual({ denied: 'Channel unavailable' })
+    expect(denial.read.channels).toEqual([])
+    expect(denial.read.inbox).toEqual([])
+    expect(denial.read.readState).toEqual([])
+    expect(denial.read.unreadChannels).toBe(0)
+    expect(denial.read.searchChannels).toEqual([])
+    expect(denial.read.searchMessages).toEqual([])
+    expect(denial.read.events).toBe('withheld')
+    // Every write path refuses them too.
+    for (const outcome of Object.values(denial.append)) {
+      expect(outcome).toEqual({ denied: 'Channel unavailable' })
+    }
+    // The owner re-adding them to the roster cannot recreate the admission: the quarantine trigger refuses it by reason.
+    expect(denial.rejoin).toContain('legacy audience is quarantined (user_not_workspace_member)')
+    expect(denial.admission).toBeNull()
+    // A refused write leaves messages, roster rows, admissions and the channel version untouched.
+    expect(denial.footprintAfter).toEqual(denial.footprintBefore)
+    // Positive control: the clean member, through the same paths, is served in full. Each read must
+    // succeed with the exact seeded content, so a blanket denial cannot satisfy this test.
+    if (!('value' in control.channel)) throw new Error('clean member channel read was denied')
+    if (!('value' in control.messages)) throw new Error('clean member message list was denied')
+    if (!('value' in control.message)) throw new Error('clean member message read was denied')
+    expect(control.channel.value).toMatchObject({
+      id: fixture.sharedChannelId,
+      kind: 'group',
+      lifecycleState: 'active',
+      title: 'Shared rehearsal channel',
+      workspaceId: fixture.workspaceId,
+    })
+    expect(control.channel.value.participants.map((entry) => entry.userId).toSorted()).toEqual(
+      [fixture.owner.userId, fixture.member.userId].toSorted()
+    )
+    const listed = control.messages.value.messages
+    expect(
+      listed.map((entry) => [entry.sequence, entry.bodyText, entry.sender.userId, entry.deleted])
+    ).toEqual([
+      [1, 'rehearsal-shared-body-1', fixture.owner.userId, false],
+      [2, 'rehearsal-shared-body-2', fixture.owner.userId, false],
+      [3, 'rehearsal-shared-body-3', fixture.member.userId, false],
+    ])
+    expect(listed.every((entry) => entry.channelId === fixture.sharedChannelId)).toBe(true)
+    expect(listed[2]?.id).toBe(fixture.memberMessageId)
+    expect(control.message.value).toMatchObject({
+      bodyText: 'rehearsal-shared-body-3',
+      channelId: fixture.sharedChannelId,
+      id: fixture.memberMessageId,
+      sequence: 3,
+    })
+    expect(control.searchChannels.map((hit) => hit.id)).toEqual([fixture.sharedChannelId])
+    expect(control.searchMessages.map((hit) => hit.messageId).toSorted()).toEqual(
+      listed.map((entry) => entry.id).toSorted()
+    )
+    expect(control.searchMessages.every((hit) => hit.channelId === fixture.sharedChannelId)).toBe(
+      true
+    )
+    expect(control.channels).toEqual([fixture.sharedChannelId])
+    expect(control.inbox).toEqual([fixture.sharedChannelId])
+    expect(control.events).toBe('deliver')
+    expect(control.admission?.participant).toEqual({ kind: 'user', userId: fixture.member.userId })
+    expect(control.admission?.grant.revokedAt).toBeNull()
+  }, 300_000)
+
+  test('inventory the audience comparison cannot prove is named and stays unknown', async () => {
+    const { audience } = await runScenario()
+    const replayComparison = audience.replayComparison
+    // The group admission, grant and quarantine tables are not registered snapshot families, so the
+    // cutover comparison cannot see them. Their exact participants and digests are asserted by the
+    // dedicated reconciliation above; here the gap is pinned so a new family registration is noticed.
+    const unregisteredAudienceTables = [
+      'app.group_admissions',
+      'app.group_audience_grants',
+      'app.group_enlistment_grants',
+      'app.legacy_audience_quarantine',
+    ]
+    for (const table of unregisteredAudienceTables) {
+      const bare = table.split('.')[1]!.replaceAll(/_(\w)/g, (_, c: string) => c.toUpperCase())
+      expect((migrationSnapshotFamilies as readonly string[]).includes(bare)).toBe(false)
+    }
+    expect(UNPROVEN_FAMILIES).toEqual(['artifactReferenceGrants', 'nativeSessions'])
+    expect(
+      replayComparison.findings.every((finding) => finding.findingClass === 'unknown_domain')
+    ).toBe(true)
+    expect(audience.atCutover.reconciliation.unrecordedClassifications).toBe(4)
   }, 300_000)
 
   test('the comparator still reports a removed record after cutover', async () => {

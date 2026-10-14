@@ -97,6 +97,27 @@ export function memorySourceLabel(entry: WorkspaceMemoryEntry): string {
   return entry.source === 'agent' ? 'Agent' : 'You'
 }
 
+function shortId(id: string): string {
+  return id.slice(0, 8)
+}
+
+/**
+ * Where an entry came from, in words, or undefined for a note you wrote. Only
+ * what the desktop store recorded is stated: an agent entry from before runs
+ * were recorded says so instead of guessing a session.
+ */
+export function memoryOriginDetail(entry: WorkspaceMemoryEntry): string | undefined {
+  const { origin } = entry
+  if (origin.kind === 'user') return undefined
+  if (origin.provenance === 'unknown') {
+    return 'Origin not recorded (added before agent runs were tracked)'
+  }
+  const harness = origin.harnessId
+    ? origin.harnessId.charAt(0).toUpperCase() + origin.harnessId.slice(1)
+    : 'an agent'
+  return `Proposed by ${harness} in session ${shortId(origin.runtimeSessionId)} (run ${shortId(origin.runId)})`
+}
+
 /** A short, locale-formatted date for an entry row. */
 export function memoryDateLabel(iso: string, locale?: string): string {
   const date = new Date(iso)

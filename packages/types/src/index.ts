@@ -493,11 +493,34 @@ export type WorkspaceMemoryEntry = Readonly<{
   workspaceId: string
   text: string
   source: 'user' | 'agent'
+  /** Who created the entry, as the desktop store recorded it. Immutable. */
+  origin: WorkspaceMemoryOrigin
   status: 'active' | 'pending'
   createdAt: string
   updatedAt: string
   revision: number
 }>
+
+/**
+ * Where a memory entry came from (ADR 0012). The desktop store derives it from
+ * the trusted path that created the entry, never from caller input: a note
+ * written in Workspace settings is `user`; an agent proposal records the
+ * harness run that submitted it. An agent entry stored before runs were
+ * recorded is `provenance: 'unknown'` and stays so; nothing infers a run for it.
+ */
+export type WorkspaceMemoryOrigin =
+  | Readonly<{ kind: 'user' }>
+  | Readonly<{
+      kind: 'agent'
+      provenance: 'recorded'
+      /** The harness family of the installation that ran, or null when it could not be resolved. */
+      harnessId: string | null
+      /** The agent profile the run launched with. */
+      agentProfileId: string
+      runtimeSessionId: string
+      runId: string
+    }>
+  | Readonly<{ kind: 'agent'; provenance: 'unknown' }>
 
 /** One authorized workspace's memory as the desktop store reports it. */
 export type WorkspaceMemorySnapshot = Readonly<{

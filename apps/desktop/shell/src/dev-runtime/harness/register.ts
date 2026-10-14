@@ -58,6 +58,7 @@ import {
   type ResolvedHarnessInstallation,
 } from './acp-lane'
 import type { MemoryPreamble } from '../../memory/preamble'
+import type { MemoryAgentTrace } from '../../memory/provenance'
 import type { HarnessAccountResolution } from '../connections/register'
 import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
@@ -133,7 +134,8 @@ export type HarnessRuntimeInput = {
    */
   proposeMemory?: (
     workspaceId: string,
-    text: string
+    text: string,
+    origin: MemoryAgentTrace
   ) => Readonly<{ id: string; status: 'active' | 'pending'; createdAt: string }>
   /**
    * Workspace connections (ADR 0012): resolves the active workspace's harness
@@ -1704,7 +1706,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     // written into the SESSION'S workspace — the body carries no workspace
     // and cannot name one. The entry lands `pending`; it becomes memory only
     // when the user accepts it in Workspace settings › Memory. The reply and
-    // every fact carry the entry id, never the proposed text.
+    // every fact carry the entry id, never the proposed text. The store records
+    // the proposing run (harness family, agent profile, session and run ids)
+    // as the entry's origin so Workspace settings can say where it came from.
     'dev.memory.propose': (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.memory.propose'].request(command.body)
@@ -1712,7 +1716,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       requireSessionResource(command, session)
       requireGeneration(command, session)
       requireLaunchableSession(session)
-      if (!activeRunFor(session.id)) {
+      const run = activeRunFor(session.id)
+      if (!run) {
         throw devError('invalid_state', 'memory proposals require an active harness run')
       }
       if (!input.proposeMemory) {
@@ -1724,7 +1729,16 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       }
       let proposal: ReturnType<NonNullable<HarnessRuntimeInput['proposeMemory']>>
       try {
-        proposal = input.proposeMemory(session.scope.workspaceId, body.text as string)
+        // The origin is what the host resolved for THIS session and run, never
+        // anything the request body carried: the body names neither.
+        const resolution = resolveInstallation(run.installationId)
+        proposal = input.proposeMemory(session.scope.workspaceId, body.text as string, {
+          harnessId:
+            resolution?.kind === 'connection' ? (resolution.installation.family ?? null) : null,
+          agentProfileId: run.agentProfile.id,
+          runtimeSessionId: session.id,
+          runId: run.id,
+        })
       } catch (error) {
         const code = (error as { code?: unknown } | undefined)?.code
         input.audit?.append({
