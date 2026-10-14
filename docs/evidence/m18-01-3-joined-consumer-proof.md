@@ -50,8 +50,18 @@ catalog and command bindings), and Adea's lead-turn intents, runtime binding and
 compared whole.
 
 Result: a refusal leaves everything unchanged except one thing. **A refused mutating command records its own
-idempotency binding** in `pi_lead_commands` when it is refused after the binding step. That is a stored change
-and the tests assert it exactly, by key:
+idempotency binding** in `pi_lead_commands` when it is refused after the binding step. That is a stored change,
+and it is asserted at full precision:
+
+- Rows are indexed by the complete stored key, `[workspace, principal, idempotency key]`, never by the
+  idempotency key alone.
+- Every row that existed before is still present with the same complete key and the same digest, and no
+  complete key appears twice.
+- The new rows are exactly the expected ones, each with its exact workspace, principal, idempotency key and
+  digest. The expected digest is recomputed from the first envelope the test issued under that key
+  (operation, payload, workspace, project and `issuedAt`) and matches what the service stored.
+- The row count is the previous count plus the expected new rows, so an extra row under the same idempotency
+  key and another scope cannot pass.
 
 | Refused command                                                               | Binding recorded                               |
 | ----------------------------------------------------------------------------- | ---------------------------------------------- |
@@ -87,10 +97,11 @@ ADEA_CONTROL_PLANE_SOURCE=<checkout at the pinned revision> bun run test:integra
 ```
 
 The lane builds the Adea packages, provisions Postgres, and runs the directory from the control-plane
-checkout. Locally the run was the two joined test files together on a freshly migrated database: 15 pass, 0
-fail (11 in this proof, 4 in `management-current`). The proof alone ran 11 pass, 285 assertions.
+checkout. Locally the run was the two joined test files together on a freshly migrated database: 21 pass, 0
+fail (17 in this proof, 4 in `management-current`), 770 assertions. The 17 are the 11 proof tests plus 6
+regressions for the command-binding comparison itself.
 
-Mutation checks, run against the Adea reader and then reverted:
+Mutation checks, all reverted afterwards:
 
 - Serving the unfenced body for a fenced product failed 6 of 11 tests.
 - Adding a principal to the fenced audience failed 6 of 11 tests.
@@ -100,6 +111,14 @@ Mutation checks, run against the Adea reader and then reverted:
 - A control-plane observation that rewrites the receipt failed 6 of 11 tests, and a refused resolution that
   writes a budget row failed the refusal and uncertain-effect tests. Run against a modified control-plane
   checkout with the pin check relaxed for that run only, then reverted.
+- Command-binding comparison. Six regressions feed the comparison synthetic snapshots and require it to reject a
+  changed digest on an existing row, an existing row replaced by the same idempotency key under another
+  workspace or principal, an extra row that reuses an idempotency key under another scope, a new row with the
+  wrong digest, scope or count, a duplicate complete key, a removed row and a change to any other table. With
+  the comparison reduced to the idempotency key alone, four of the six fail. Against the pinned control plane
+  with its binding store modified (pin check relaxed for that run only), each of three changes failed 7 of
+  the 17 tests: rewriting the digest of existing rows, replacing the principal in existing keys, and writing
+  an extra row under the same idempotency key for another principal.
 - Removing the `dispatchPermitted !== false` check in the reader's fence envelope parser was **not** caught
   here. That check is covered by the Adea-side reader tests (`lead-product-reader-fence`,
   `lead-product-fence-envelope-*`); the joined path cannot produce that internal state.

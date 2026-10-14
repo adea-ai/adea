@@ -242,6 +242,8 @@ interface NoEffectRun {
     dispatch: (key: string) => Promise<unknown>
     resolve: (operation?: string, as?: never) => Promise<unknown>
     counts: () => Promise<unknown>
+    /** The exact binding the control plane stores for a command it received under this key. */
+    commandBinding: (idempotencyKey: string) => Binding
   }
   runtime: { effects: () => unknown }
   response: { dispatchId: string }
@@ -257,31 +259,64 @@ interface Stored {
   adea: unknown
 }
 
-/** The idempotency keys of the command bindings in a snapshot (key is `[workspace, principal, key]`). */
-const bindingKeys = (snapshot: Stored) =>
-  (snapshot.controlPlane['pi_lead_commands'] ?? []).map(
-    (row) => JSON.parse(JSON.parse(row).key)[2] as string
-  )
+/** One row of `pi_lead_commands`: the complete scoped key and the digest bound to it. */
+interface Binding {
+  workspaceId: string
+  principalId: string
+  idempotencyKey: string
+  digest: string
+}
+
+/** The stored form of a binding's complete key: `[workspace, principal, idempotency key]`. */
+const bindingKey = (binding: Pick<Binding, 'workspaceId' | 'principalId' | 'idempotencyKey'>) =>
+  JSON.stringify([binding.workspaceId, binding.principalId, binding.idempotencyKey])
+
+/** Every `pi_lead_commands` row of a snapshot as `[complete key, digest]`, in stored order. */
+const bindingRows = (snapshot: Stored) =>
+  (snapshot.controlPlane['pi_lead_commands'] ?? []).map((row) => {
+    const parsed = JSON.parse(row) as { key: string; digest: string }
+    expect(Object.keys(parsed).toSorted()).toEqual(['digest', 'key'])
+    const scope = JSON.parse(parsed.key) as unknown
+    expect(Array.isArray(scope) && scope.length === 3).toBe(true)
+    return [parsed.key, parsed.digest] as const
+  })
 
 /**
- * Between two snapshots the control plane may add command bindings for exactly `addedKeys` and
- * nothing else: every other table (receipts, retained markers, admission bindings, budgets, plans,
- * executions, usage, catalog) is identical row for row. With `elsewhere`, the runtime effects, the
- * provider counts and every Adea row are identical too.
+ * Between two snapshots the control plane may add command bindings and nothing else.
+ *
+ * Bindings are compared by their complete scoped key, never by the idempotency key alone, and with
+ * their digests:
+ * - every existing row is still present, with the same key and the same digest;
+ * - no complete key appears twice;
+ * - the rows that are new are exactly `added`, each with its exact workspace, principal,
+ *   idempotency key and digest, so a replaced scope, an extra row under the same idempotency key
+ *   or a changed digest cannot pass;
+ * - every other table (receipts, retained markers, admission bindings, budgets, plans, executions,
+ *   usage, catalog) is identical row for row.
+ * With `elsewhere`, the runtime effects, the provider counts and every Adea row are identical too.
  */
 function expectOnlyCommandBindings(
   before: Stored,
   after: Stored,
-  addedKeys: string[],
+  added: Binding[],
   elsewhere = true
 ) {
   const { pi_lead_commands: _before, ...beforeRest } = before.controlPlane
   const { pi_lead_commands: _after, ...afterRest } = after.controlPlane
   expect(afterRest).toEqual(beforeRest)
-  const previous = bindingKeys(before)
-  const added = bindingKeys(after).filter((key) => !previous.includes(key))
-  expect(added.toSorted()).toEqual([...addedKeys].toSorted())
-  expect(previous.every((key) => bindingKeys(after).includes(key))).toBe(true)
+
+  const previous = bindingRows(before)
+  const current = bindingRows(after)
+  expect(new Set(current.map(([key]) => key)).size).toBe(current.length)
+  const currentByKey = new Map(current)
+  for (const [key, digest] of previous) expect(currentByKey.get(key)).toBe(digest)
+  const previousKeys = new Set(previous.map(([key]) => key))
+  const fresh = current.filter(([key]) => !previousKeys.has(key))
+  expect(fresh.toSorted()).toEqual(
+    added.map((binding) => [bindingKey(binding), binding.digest] as const).toSorted()
+  )
+  expect(current).toHaveLength(previous.length + added.length)
+
   if (elsewhere) {
     expect(after.effects).toEqual(before.effects)
     expect(after.counts).toEqual(before.counts)
@@ -305,8 +340,115 @@ async function expectNoEffect(run: NoEffectRun) {
   const dispatchKey = `transport:${randomUUID()}`
   await expect(host.cancel(response.dispatchId, cancelKey)).rejects.toThrow()
   await expect(host.dispatch(dispatchKey)).rejects.toThrow()
-  expectOnlyCommandBindings(before, (await snapshot()) as Stored, [dispatchKey])
+  expectOnlyCommandBindings(before, (await snapshot()) as Stored, [
+    host.commandBinding(dispatchKey),
+  ])
 }
+
+const commandRow = (binding: Binding) =>
+  JSON.stringify({ key: bindingKey(binding), digest: binding.digest })
+
+const commandSnapshot = (...bindings: Binding[]): Stored => ({
+  effects: { start: 1 },
+  counts: { commands: 1 },
+  controlPlane: { pi_lead_commands: bindings.map(commandRow), pi_lead_receipts: ['receipt'] },
+  adea: ['row'],
+})
+
+/** Regressions for the helper itself: each broken snapshot below must be rejected. */
+describe('joined #1220 × expectOnlyCommandBindings rejects what it must', () => {
+  const WORKSPACE = 'wsp_01JAAAAAAAAAAAAAAAAAAAAAAA'
+  const OTHER_WORKSPACE = 'wsp_01JBBBBBBBBBBBBBBBBBBBBBBB'
+  const bind = (
+    idempotencyKey: string,
+    overrides: Partial<Binding> = {},
+    digest = `sha256:${'a'.repeat(64)}`
+  ): Binding => ({
+    workspaceId: WORKSPACE,
+    principalId: SERVICE_PRINCIPAL,
+    idempotencyKey,
+    digest,
+    ...overrides,
+  })
+  const snapshot = commandSnapshot
+  const existing = bind('existing')
+  const fresh = bind('fresh', {}, `sha256:${'b'.repeat(64)}`)
+
+  test('accepts exactly the expected new scoped row and nothing else', () => {
+    expectOnlyCommandBindings(snapshot(existing), snapshot(existing), [])
+    expectOnlyCommandBindings(snapshot(existing), snapshot(existing, fresh), [fresh])
+  })
+
+  test('rejects a changed digest on an existing row', () => {
+    const tampered = bind('existing', {}, `sha256:${'c'.repeat(64)}`)
+    expect(() => expectOnlyCommandBindings(snapshot(existing), snapshot(tampered), [])).toThrow()
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(tampered, fresh), [fresh])
+    ).toThrow()
+  })
+
+  test('rejects an existing row replaced by the same idempotency key under another scope', () => {
+    for (const overrides of [
+      { workspaceId: OTHER_WORKSPACE },
+      { principalId: 'svc_someone-else' },
+    ]) {
+      const moved = bind('existing', overrides, existing.digest)
+      expect(() => expectOnlyCommandBindings(snapshot(existing), snapshot(moved), [])).toThrow()
+      expect(() =>
+        expectOnlyCommandBindings(snapshot(existing), snapshot(moved), [moved])
+      ).toThrow()
+    }
+  })
+
+  test('rejects an extra row that reuses an idempotency key under another scope', () => {
+    for (const overrides of [
+      { workspaceId: OTHER_WORKSPACE },
+      { principalId: 'svc_someone-else' },
+    ]) {
+      const extra = bind('existing', overrides, existing.digest)
+      expect(() =>
+        expectOnlyCommandBindings(snapshot(existing), snapshot(existing, extra), [])
+      ).toThrow()
+      // Also when the expected row is right and a same-id extra rides along.
+      expect(() =>
+        expectOnlyCommandBindings(snapshot(existing, fresh), snapshot(existing, fresh, extra), [])
+      ).toThrow()
+      const extraFresh = bind('fresh', overrides, fresh.digest)
+      expect(() =>
+        expectOnlyCommandBindings(snapshot(existing), snapshot(existing, fresh, extraFresh), [
+          fresh,
+        ])
+      ).toThrow()
+    }
+  })
+
+  test('rejects a new row with the wrong digest, scope or count, and a duplicate complete key', () => {
+    const wrongDigest = bind('fresh', {}, `sha256:${'d'.repeat(64)}`)
+    const wrongScope = bind('fresh', { workspaceId: OTHER_WORKSPACE }, fresh.digest)
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(existing, wrongDigest), [fresh])
+    ).toThrow()
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(existing, wrongScope), [fresh])
+    ).toThrow()
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(existing), [fresh])
+    ).toThrow()
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(existing, fresh), [])
+    ).toThrow()
+    expect(() =>
+      expectOnlyCommandBindings(snapshot(existing), snapshot(existing, fresh, fresh), [fresh])
+    ).toThrow()
+  })
+
+  test('rejects a removed existing row and a change to any other table', () => {
+    expect(() => expectOnlyCommandBindings(snapshot(existing), snapshot(), [])).toThrow()
+    const touched = snapshot(existing)
+    touched.controlPlane['pi_lead_receipts'] = ['receipt changed']
+    expect(() => expectOnlyCommandBindings(snapshot(existing), touched, [])).toThrow()
+  })
+})
 
 describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
   beforeAll(async () => {
@@ -630,11 +772,25 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       return { authority, receipts, service }
     }
     let current = build()
+    /** The first envelope seen under each (principal, idempotency key): what a binding digests. */
+    const issued = new Map<string, { operation: string; payload: unknown; issuedAt: string }>()
     const envelope = (
       operation: string,
       payload: unknown,
       idempotencyKey: string,
       caller: { principalId: string } = principal
+    ) => {
+      const issuedAt = now()
+      const scoped = JSON.stringify([caller.principalId, idempotencyKey])
+      if (!issued.has(scoped)) issued.set(scoped, { operation, payload, issuedAt })
+      return commandEnvelope(operation, payload, idempotencyKey, caller, issuedAt)
+    }
+    const commandEnvelope = (
+      operation: string,
+      payload: unknown,
+      idempotencyKey: string,
+      caller: { principalId: string },
+      issuedAt: string
     ) => ({
       caller: { servicePrincipalId: caller.principalId },
       contractVersion: { major: 1, minor: 0 },
@@ -645,7 +801,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       idempotencyKey,
       payloadHash: sha256(canonicalJsonStringify(payload)),
       operation,
-      issuedAt: now(),
+      issuedAt,
       payload,
     })
     const readEnvelope = (
@@ -709,6 +865,28 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
        * Every row of every table in the control-plane SQLite file: receipts, command bindings, retained
        * markers, admission bindings, budgets, plans, executions and the rest. Compared whole.
        */
+      /**
+       * The binding the service stores for a command under this idempotency key: the scoped key and the
+       * digest of the operation, payload, workspace, project and `issuedAt` of the first envelope seen.
+       */
+      commandBinding: (idempotencyKey: string, as: typeof principal = principal): Binding => {
+        const first = issued.get(JSON.stringify([as.principalId, idempotencyKey]))
+        if (!first) throw new Error(`no command was issued under ${idempotencyKey}`)
+        return {
+          workspaceId: tenant.cpWorkspaceId,
+          principalId: as.principalId,
+          idempotencyKey,
+          digest: `sha256:${sha256(
+            canonicalJsonStringify({
+              operation: first.operation,
+              payload: first.payload,
+              workspaceId: tenant.cpWorkspaceId,
+              projectId: undefined,
+              issuedAt: first.issuedAt,
+            })
+          )}`,
+        }
+      },
       stored: () => {
         const tables = database
           .prepare(
@@ -1006,7 +1184,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       expectOnlyCommandBindings(
         storedBefore,
         await snapshot(),
-        [`lead-cancel:${binding.dispatchId}`],
+        [host.commandBinding(`lead-cancel:${binding.dispatchId}`)],
         false
       )
       const after = await rollbackState(tenant)
@@ -1046,8 +1224,8 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           Response.json(body, { headers: { 'cache-control': 'private, no-store' } })
       }
       let baseline = (await snapshot()) as Stored
-      const unchanged = async (...addedKeys: string[]) => {
-        expectOnlyCommandBindings(baseline, (await snapshot()) as Stored, addedKeys)
+      const unchanged = async (...added: Binding[]) => {
+        expectOnlyCommandBindings(baseline, (await snapshot()) as Stored, added)
         expect((await rollbackState(tenant)).fenced).toBe(true)
       }
       const denied = 'PI_LEAD_SCOPE_REJECTED'
@@ -1143,7 +1321,9 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       // The refused dispatch stored its own command binding; the resolver and lookup stored nothing,
       // and no receipt, marker, admission binding or Adea row moved.
       const afterControlPlane = (await snapshot()) as Stored
-      expectOnlyCommandBindings(fencedAndRestarted, afterControlPlane, ['transport:dispatch-again'])
+      expectOnlyCommandBindings(fencedAndRestarted, afterControlPlane, [
+        host.commandBinding('transport:dispatch-again'),
+      ])
 
       // Adea product: no new preparation, dispatch or publication, before any control-plane call.
       const product = adeaProduct(tenant, host)
@@ -1238,9 +1418,9 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       // and Adea's rows and the runtime effects are exactly as before.
       const afterRefusals = (await snapshot()) as Stored
       expectOnlyCommandBindings(fencedAndRestarted, afterRefusals, [
-        'transport:cancel-unproven',
-        'transport:dispatch-retry-1',
-        'transport:dispatch-retry-2',
+        host.commandBinding('transport:cancel-unproven'),
+        host.commandBinding('transport:dispatch-retry-1'),
+        host.commandBinding('transport:dispatch-retry-2'),
       ])
       expect((await host.receipts.get(dispatchId))?.state).toBe('dispatching')
 
