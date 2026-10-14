@@ -159,6 +159,32 @@ function writeAtomic(file: string, value: unknown): void {
   renameSync(temp, file)
 }
 
+// The names `writeAtomic` gives its temp files. A crash between the write and
+// the rename strands one; it is never read as a record, so the committed file
+// it was meant to replace is still the truth and the stranded copy is garbage.
+const ABANDONED_RECORD_WRITE = /^[0-9a-f-]{36}\.json\.[0-9a-f]{12}\.tmp$/
+const ABANDONED_SETTINGS_WRITE = /^memory-settings\.json\.[0-9a-f]{12}\.tmp$/
+
+/** Removes writes a crash left behind; returns how many it removed. */
+function sweepAbandonedWrites(directory: string, pattern: RegExp): number {
+  let removed = 0
+  let names: string[]
+  try {
+    names = readdirSync(directory)
+  } catch {
+    return 0
+  }
+  for (const name of names) {
+    if (!pattern.test(name)) continue
+    const file = join(directory, name)
+    // Only plain files: never follow or remove anything else under this name.
+    if (!lstatSync(file).isFile()) continue
+    rmSync(file, { force: true })
+    removed += 1
+  }
+  return removed
+}
+
 function toEntry(record: StoredRecord, text: string): WorkspaceMemoryEntry {
   return {
     id: record.id,
@@ -194,6 +220,10 @@ export function createMemoryStore(options: {
   const settingsFile = join(options.contentDir, 'memory-settings.json')
   const now = options.now ?? Date.now
   mkdirSync(dir, { recursive: true, mode: 0o700 })
+  // A write interrupted by a crash must not keep sealed text on disk past the
+  // next start: committed records are unaffected, stranded copies are removed.
+  sweepAbandonedWrites(dir, ABANDONED_RECORD_WRITE)
+  sweepAbandonedWrites(options.contentDir, ABANDONED_SETTINGS_WRITE)
 
   function iso(): string {
     return new Date(now()).toISOString()
@@ -467,6 +497,10 @@ export function createMemoryStore(options: {
       const id = assertMemoryWorkspaceId(workspaceId)
       const records = purgeRecords(id)
       for (const record of records) rmSync(recordFile(record.id), { force: true })
+      // A retry after a crash also drops writes the crash stranded. They name
+      // no workspace, but none is live, so removing them cannot lose a record.
+      sweepAbandonedWrites(dir, ABANDONED_RECORD_WRITE)
+      sweepAbandonedWrites(options.contentDir, ABANDONED_SETTINGS_WRITE)
       const settings = readSettings()
       delete settings.injection[id]
       writeAtomic(settingsFile, settings)
