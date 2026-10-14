@@ -3981,6 +3981,56 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await planRows(f)).toHaveLength(1)
   })
 
+  test('50 released citations create, read and revise in order at positions 0 through 49', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const jobs = [f]
+    for (let index = 1; index < COORDINATION_PLAN_MAX_CITATIONS; index += 1)
+      jobs.push(await anotherCompletedJob(f))
+
+    const jobIds = jobs.map((job) => job.task.id)
+    expect(new Set(jobIds).size).toBe(COORDINATION_PLAN_MAX_CITATIONS)
+
+    const created = await createPlan(f, f.recipient.principal, jobIds)
+    expect(created.jobIds).toEqual(jobIds)
+
+    const citationRows = async (revision: number) =>
+      connection.db
+        .select({
+          jobId: coordinationPlanCitations.jobId,
+          position: coordinationPlanCitations.position,
+        })
+        .from(coordinationPlanCitations)
+        .where(
+          and(
+            eq(coordinationPlanCitations.planId, created.planId),
+            eq(coordinationPlanCitations.revision, revision)
+          )
+        )
+        .then((rows) => rows.toSorted((left, right) => left.position - right.position))
+
+    const firstPositions = await citationRows(1)
+    expect(firstPositions).toEqual(jobIds.map((jobId, position) => ({ jobId, position })))
+    const firstRead = await readPlan(f, f.recipient.principal, created.planId, 1)
+    expect(firstRead.references).toHaveLength(COORDINATION_PLAN_MAX_CITATIONS)
+    expect(firstRead.references.map((reference) => reference.jobId)).toEqual(jobIds)
+    expect(firstRead.references.every((reference) => reference.availability === 'available')).toBe(
+      true
+    )
+
+    const revisedJobIds = [...jobIds].reverse()
+    const revised = await revisePlan(f, f.recipient.principal, created.planId, 1, revisedJobIds)
+    expect(revised).toMatchObject({ jobIds: revisedJobIds, revision: 2 })
+    const revisedPositions = await citationRows(2)
+    expect(revisedPositions).toEqual(revisedJobIds.map((jobId, position) => ({ jobId, position })))
+    const revisedRead = await readPlan(f, f.recipient.principal, created.planId, 2)
+    expect(revisedRead.references).toHaveLength(COORDINATION_PLAN_MAX_CITATIONS)
+    expect(revisedRead.references.map((reference) => reference.jobId)).toEqual(revisedJobIds)
+    expect(
+      revisedRead.references.every((reference) => reference.availability === 'available')
+    ).toBe(true)
+  })
+
   test('an empty plan is allowed, and the stored position and uniqueness bounds hold at the database', async () => {
     const f = await fixture()
     const empty = await createPlan(f, f.recipient.principal, [])
@@ -4440,22 +4490,36 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     // A second connection revokes the grant and holds the revocation open. The plan write must
     // wait for it instead of validating against the grant as it was before.
     const revoker = postgres(url!, { max: 1, prepare: false })
+    let transactionOpen = false
+    let pending: Promise<string | null> | undefined
+    let settled = false
     try {
       await revoker.unsafe('begin')
+      transactionOpen = true
       await revoker.unsafe(
         'update app.group_sharing_grants set revoked_at = $1 where channel_id = $2 and grant_id = $3',
         [new Date(Date.now() - 1000).toISOString(), f.channelA.id, grantId]
       )
-      let settled = false
-      const pending = rejection(() => createPlan(f, reader, [f.task.id])).finally(() => {
+      pending = rejection(() => createPlan(f, reader, [f.task.id])).finally(() => {
         settled = true
       })
       await new Promise((resolve) => setTimeout(resolve, 750))
       expect(settled).toBe(false)
       await revoker.unsafe('commit')
+      transactionOpen = false
       expect(await pending).toBe('Plan citation unavailable')
     } finally {
-      await revoker.end({ timeout: 5 })
+      try {
+        if (transactionOpen) await revoker.unsafe('commit')
+      } finally {
+        try {
+          await revoker.end({ timeout: 5 })
+        } finally {
+          // A failed unsettled assertion still commits the revocation and drains the blocked write
+          // before this test can finish, so neither its lock nor its request leaks into later tests.
+          if (pending) await pending
+        }
+      }
     }
     // The refused write left nothing behind, and the revoked release cannot be added by a revision.
     expect(await planRows(f)).toHaveLength(1)
