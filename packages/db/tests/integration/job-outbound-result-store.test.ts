@@ -69,7 +69,12 @@ import {
   summarySha256,
 } from '../../src/job-outbound-binding'
 import { enqueueTaskSubmission, type TaskSubmissionInput } from '../../src/task-submissions'
-import { completeTask, createTask } from '../../src/tasks'
+import {
+  JOB_REFERENCE_MAX_BATCH,
+  JobReferenceBatchError,
+  resolveJobReferences,
+} from '../../src/job-outbound-reference'
+import { completeTask, createTask, getTaskForUser, setTaskDependencies } from '../../src/tasks'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 /**
@@ -94,6 +99,13 @@ const LARGE_HIDDEN_RUN = 210
  */
 const STATEMENTS_PER_GATE = 17
 const CHECKSUM = 'c'.repeat(64)
+
+/** A cited job the reader has no released result for; every such case reads this way. */
+const unavailableReference = (jobId: string) => ({
+  authority: 'none',
+  availability: 'unavailable',
+  jobId,
+})
 
 /** Statements one call issues on its own connection, excluding connection setup. */
 async function statementsOf(run: (db: AgentHqDatabase) => Promise<unknown>) {
@@ -3329,5 +3341,348 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const hidden = await measureSurfaces(f)
     for (const surface of Object.keys(baseline) as (keyof typeof baseline)[])
       expect(hidden[surface] - baseline[surface]).toBeLessThanOrEqual(gates * STATEMENTS_PER_GATE)
+  })
+
+  // ─── Memory-derived results (#1217) ────────────────────────────────────────────
+  // The producer declares the memory behind a summary. The product cannot inspect a summary, so
+  // it enforces the declaration: a memory-derived summary is held, the Task still completes, and
+  // nothing reaches the audience through any surface.
+
+  for (const memorySource of ['private', 'unknown', 'workspace'] as const) {
+    test(`a ${memorySource}-memory result is held: the Task completes, and no surface carries the summary`, async () => {
+      const f = await fixture({ complete: false })
+      const reg = await registeredArtifact(f)
+      const summary = `lumen ${memorySource} memory: the account prefers the blue plan`
+      const held = await completeJob(
+        f,
+        crypto.randomUUID(),
+        outboundRequest(f, { artifact: artifactRef(reg), memorySource, summary })
+      )
+      expect(held.publication).toEqual({
+        decision: {
+          action: 'hold',
+          gate: 'provenance',
+          jobId: f.task.id,
+          producerEffect: 'unaffected',
+          reason:
+            memorySource === 'private' ? 'memory_private_context' : 'memory_derived_unreleased',
+        },
+        messageId: null,
+      })
+      expect(held.task.lifecycleState).toBe('completed')
+      expect(await taskState(f)).toMatchObject({ lifecycleState: 'completed' })
+
+      // Nothing was written, linked, or counted.
+      expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+      expect(await jobMessages(f.channelB.id, f.task.id)).toEqual([])
+      expect(
+        await connection.db
+          .select({ id: messageArtifactReferences.id })
+          .from(messageArtifactReferences)
+          .where(eq(messageArtifactReferences.artifactId, reg.artifact.id))
+      ).toEqual([])
+      for (const reader of [f.recipient.principal, f.owner.principal])
+        expect(await historyOf(reader, f.destination.id, f.channelA.id)).toEqual([])
+      await expectSurfacesAgree(f, `${memorySource} memory held`)
+      const hits = await searchWorkspaceForUser(
+        connection.db,
+        f.destination.id,
+        f.recipient.principal,
+        'lumen',
+        { limit: 100 }
+      )
+      expect(hits.results).toEqual([])
+      expect(
+        await listWorkspaceEventsAfter(connection.db, f.destination.id, 0, 200)
+      ).not.toContainEqual(expect.objectContaining({ eventType: 'message.created' }))
+    })
+  }
+
+  test('the memory hold is not a way to learn the job: a source-side caller sees only its typed reason', async () => {
+    const f = await fixture({ complete: false })
+    const held = await completeJob(
+      f,
+      crypto.randomUUID(),
+      outboundRequest(f, { memorySource: 'private', summary: 'PRIVATE_MEMORY_SENTINEL' })
+    )
+    expect(JSON.stringify(held.publication)).not.toContain('PRIVATE_MEMORY_SENTINEL')
+    expect(JSON.stringify(held.publication)).not.toContain(f.destination.id)
+    expect(JSON.stringify(held.publication)).not.toContain(f.channelA.id)
+  })
+
+  test('a retry of a memory-held completion is held again and writes nothing; a changed declaration conflicts', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const request = outboundRequest(f, { memorySource: 'workspace' })
+    const first = await completeJob(f, key, request)
+    expect(first.publication).toMatchObject({ decision: { action: 'hold', gate: 'provenance' } })
+
+    const again = await completeJob(f, key, request)
+    expect(again.publication).toMatchObject({
+      decision: { action: 'hold', gate: 'provenance' },
+      messageId: null,
+    })
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+
+    // Dropping or changing the declaration under the same key is a different request.
+    for (const changed of [
+      outboundRequest(f),
+      outboundRequest(f, { memorySource: 'none' }),
+      outboundRequest(f, { memorySource: 'private' }),
+    ])
+      await expect(completeJob(f, key, changed)).rejects.toThrow('Task idempotency conflict')
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([])
+    expect(await taskState(f)).toMatchObject({ lifecycleState: 'completed' })
+  })
+
+  test('an explicit `none` is the request that existed before the field: same identity, same publication', async () => {
+    const f = await fixture({ complete: false })
+    const key = crypto.randomUUID()
+    const first = await completeJob(f, key, outboundRequest(f, { memorySource: 'none' }))
+    const messageId = first.publication.messageId
+    if (!messageId) throw new Error('expected a canonical message')
+    // The request without the field replays it: the declaration is part of identity only when set.
+    const replayed = await completeJob(f, key, outboundRequest(f))
+    expect(replayed.publication.messageId).toBe(messageId)
+    expect(await jobMessages(f.channelA.id, f.task.id)).toEqual([{ id: messageId }])
+  })
+
+  // ─── References to separately owned jobs (#1217) ───────────────────────────────
+
+  /** What a plan in the audience's channel can learn about the cited jobs, for one reader. */
+  function referencesFor(
+    f: Fixture,
+    reader: UserPrincipalRef,
+    jobIds: readonly string[],
+    channelId = f.channelA.id
+  ) {
+    return resolveJobReferences(connection.db, {
+      channelId,
+      jobIds,
+      reader,
+      workspaceId: f.destination.id,
+    })
+  }
+
+  test('a plan resolves a separately owned job to the publication the reader can already open, and to nothing else', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Published for the plan.')
+    const views = await referencesFor(f, f.recipient.principal, [f.task.id])
+    expect(views).toEqual([
+      { authority: 'none', availability: 'available', jobId: f.task.id, messageId },
+    ])
+    // No private context: the job's title, objective, workspace, project, agent or runtime.
+    const text = JSON.stringify(views)
+    for (const secret of ['Outbound job', 'PRIVATE_PROMPT_SENTINEL', f.workspace.id, f.agent.id])
+      expect(text).not.toContain(secret)
+    // The reader is the audience; the job stays at its source.
+    expect(await readJobOutboundSource(connection.db, f.task.id)).toMatchObject({
+      sourceWorkspaceId: f.workspace.id,
+    })
+  })
+
+  test('every case that is not a released publication reads the same, so a plan cannot probe a job', async () => {
+    const f = await fixture()
+    const published = await publishTo(f, f.channelA.id, 'Released to channel A only.')
+    expect(published).toBeTruthy()
+    const unsubmitted = await f.submitAnotherJob()
+    const held = await f.submitAnotherJob()
+    await completeTaskAndPublishOutboundResult(
+      connection.db,
+      f.workspace.id,
+      held.id,
+      f.owner.principal,
+      {
+        expectedVersion: held.version,
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+      },
+      {
+        artifact: null,
+        artifactPolicy: 'require',
+        channelId: f.channelA.id,
+        memorySource: 'private',
+        summary: 'held',
+      }
+    )
+    const outsider = await addDestinationMember(f)
+    const sourceOnly = await newUser(f, { destination: null, source: 'admin' })
+    const cited = [f.task.id, unsubmitted.id, held.id, NIL_UUID, 'not-a-uuid']
+
+    // A destination member outside the channel, a source admin outside the destination, and the
+    // right reader asked about a channel the job was not published to.
+    const expected = cited.map(unavailableReference)
+    expect(await referencesFor(f, outsider, [f.task.id])).toEqual([unavailableReference(f.task.id)])
+    expect(await referencesFor(f, sourceOnly, [f.task.id])).toEqual([
+      unavailableReference(f.task.id),
+    ])
+    expect(await referencesFor(f, f.recipient.principal, [f.task.id], f.channelB.id)).toEqual([
+      unavailableReference(f.task.id),
+    ])
+
+    // From the right place, only the released job is available. Unsubmitted, held, unknown and
+    // malformed ids are indistinguishable from each other.
+    const views = await referencesFor(f, f.recipient.principal, cited)
+    expect(views[0]).toMatchObject({ availability: 'available', messageId: published })
+    expect(views.slice(1)).toEqual(expected.slice(1))
+  })
+
+  test('a reference follows the publication gate: revocation, regrant, roster removal and lost source authority each end it', async () => {
+    const f = await fixture({ complete: false })
+    const reg = await registeredArtifact(f)
+    const published = await completeJob(
+      f,
+      crypto.randomUUID(),
+      outboundRequest(f, { artifact: artifactRef(reg) })
+    )
+    const messageId = published.publication.messageId!
+    const reader = f.recipient.principal
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual([
+      { authority: 'none', availability: 'available', jobId: f.task.id, messageId },
+    ])
+
+    await revokeArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      reg.grantId
+    )
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual([unavailableReference(f.task.id)])
+    // A regrant is a later revision: the bound revision is not revived.
+    await regrantArtifactReferenceGrant(
+      connection.db,
+      f.workspace.id,
+      f.owner.principal,
+      {
+        artifactId: reg.artifact.id,
+        audienceWorkspaceId: f.destination.id,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: reg.grantId,
+        version: reg.artifact.version,
+      },
+      1
+    )
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual([unavailableReference(f.task.id)])
+  })
+
+  test('a reference ends with the reader’s membership and with the original actor’s source authority', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Published while everyone is in.')
+    const reader = f.recipient.principal
+    const open = [{ authority: 'none', availability: 'available', jobId: f.task.id, messageId }]
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual(open)
+
+    await setOriginalActorRole(f, 'member')
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual([unavailableReference(f.task.id)])
+    await setOriginalActorRole(f, 'owner')
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual(open)
+
+    await setChannelParticipants(
+      connection.db,
+      f.destination.id,
+      f.channelA.id,
+      f.owner.principal,
+      [f.owner.principal],
+      await rosterVersion(f.channelA.id)
+    )
+    expect(await referencesFor(f, reader, [f.task.id])).toEqual([unavailableReference(f.task.id)])
+  })
+
+  test('a lookalike system message never resolves a reference', async () => {
+    const f = await fixture()
+    const version = await rosterVersion(f.channelA.id)
+    const forgedBinding = {
+      actorUserId: f.owner.principal.userId,
+      artifact: null,
+      channelId: f.channelA.id,
+      channelVersion: version,
+      grant: null,
+      jobId: f.task.id,
+      summarySha256: summarySha256('Forged.'),
+      workspaceId: f.destination.id,
+    }
+    await createMessage(connection.db, f.destination.id, f.channelA.id, f.owner.principal, {
+      bodyText: 'Forged.',
+      executionRef: f.task.id,
+      idempotencyKey: `not-derived-${crypto.randomUUID()}`,
+      sender: { kind: 'system', systemId: encodeJobOutboundBinding(forgedBinding) },
+    })
+    // An ordinary message that merely names the job is no publication either.
+    await createMessage(connection.db, f.destination.id, f.channelA.id, f.owner.principal, {
+      bodyText: 'See the job.',
+      executionRef: f.task.id,
+      idempotencyKey: `note-${crypto.randomUUID()}`,
+      sender: { kind: 'user', userId: f.owner.principal.userId },
+    })
+    expect(await referencesFor(f, f.recipient.principal, [f.task.id])).toEqual([
+      unavailableReference(f.task.id),
+    ])
+  })
+
+  test('citations resolve in order, once each, up to the cap; more is refused before any read', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(f, f.channelA.id, 'Ordered.')
+    const reader = f.recipient.principal
+    const views = await referencesFor(f, reader, [
+      NIL_UUID,
+      f.task.id,
+      NIL_UUID,
+      f.task.id.toUpperCase(),
+    ])
+    expect(views).toEqual([
+      unavailableReference(NIL_UUID),
+      { authority: 'none', availability: 'available', jobId: f.task.id, messageId },
+    ])
+    const ids = Array.from({ length: JOB_REFERENCE_MAX_BATCH }, () => crypto.randomUUID())
+    expect(await referencesFor(f, reader, ids)).toHaveLength(JOB_REFERENCE_MAX_BATCH)
+    await expect(referencesFor(f, reader, [...ids, crypto.randomUUID()])).rejects.toBeInstanceOf(
+      JobReferenceBatchError
+    )
+  })
+
+  test('holding a reference confers no authority over the job: the audience cannot read, depend on, or complete it', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Referenced by a plan.')
+    const audienceOwner = f.owner.principal
+    expect(await referencesFor(f, f.recipient.principal, [f.task.id])).toMatchObject([
+      { availability: 'available' },
+    ])
+    // The audience workspace has its own task; the cited job is not one it may depend on.
+    const local = await createTask(
+      connection.db,
+      f.destination.id,
+      audienceOwner,
+      { title: 'Plan step in the audience workspace', objective: 'Wait for the cited job.' },
+      { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+    )
+    await expect(
+      setTaskDependencies(connection.db, f.destination.id, local.id, audienceOwner, [f.task.id], {
+        expectedVersion: local.version,
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow('Task dependency unavailable')
+    await expect(
+      createTask(
+        connection.db,
+        f.destination.id,
+        audienceOwner,
+        { dependencyIds: [f.task.id], title: 'Depends on a foreign job', objective: 'No.' },
+        { idempotencyKey: crypto.randomUUID(), requestId: crypto.randomUUID() }
+      )
+    ).rejects.toThrow('Task dependency unavailable')
+    // Addressing the job through the audience workspace finds nothing to read or move.
+    expect(
+      await getTaskForUser(connection.db, f.destination.id, f.task.id, audienceOwner)
+    ).toBeNull()
+    await expect(
+      completeTask(connection.db, f.destination.id, f.task.id, audienceOwner, {
+        expectedVersion: f.task.version,
+        idempotencyKey: crypto.randomUUID(),
+        requestId: crypto.randomUUID(),
+      })
+    ).rejects.toThrow()
+    expect(await taskState(f)).toMatchObject({ lifecycleState: 'completed' })
   })
 })

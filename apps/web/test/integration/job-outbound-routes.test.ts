@@ -493,6 +493,103 @@ describe.skipIf(!url)(
       expect(await audienceEvents(f)).not.toContain('LATE_SUMMARY')
     })
 
+    test('a memory-derived result is held through the production routes, whatever the grant says: the job completes at source and no surface carries it', async () => {
+      const f = await setup()
+      const artifact = { artifactId: f.artifact.id, grantId: f.grantId }
+
+      // Positive control first: a result declared `none` publishes and is read. It carries no artifact, so
+      // the later revocation does not hide it.
+      const clean = await createJob(f, 'Clean job')
+      const cleanVersion = await startJob(f, clean)
+      const published = await completeJob(f, clean, cleanVersion, {
+        artifactPolicy: 'require',
+        channelId: f.channel.id,
+        memorySource: 'none',
+        summary: 'CLEAN_SUMMARY',
+      })
+      expect(published.status).toBe(200)
+      expect(
+        ((await published.json()) as { outboundPublication: { action: string } })
+          .outboundPublication.action
+      ).toBe('publish')
+      expect(await audienceMessages(f)).toContain('CLEAN_SUMMARY')
+
+      // Private memory and workspace memory are withheld while the grant is live, and still when it
+      // is revoked: the hold names the memory, not the grant, so the audience's access is no signal.
+      for (const [memorySource, reason, revoked] of [
+        ['private', 'memory_private_context', false],
+        ['workspace', 'memory_derived_unreleased', false],
+        ['unknown', 'memory_derived_unreleased', true],
+      ] as const) {
+        const job = await createJob(f, `Memory job ${memorySource}`)
+        const version = await startJob(f, job)
+        if (revoked)
+          await revokeArtifactReferenceGrant(
+            connection.db,
+            f.source.id,
+            f.owner.principal,
+            f.grantId
+          )
+        const marker = `MEMORY_${memorySource.toUpperCase()}_SUMMARY`
+        const completed = await completeJob(f, job, version, {
+          artifact,
+          artifactPolicy: 'omit_unauthorized',
+          channelId: f.channel.id,
+          memorySource,
+          summary: marker,
+        })
+        expect(completed.status).toBe(200)
+        const body = (await completed.json()) as {
+          outboundPublication: {
+            action: string
+            gate: string
+            messageId: string | null
+            reason: string
+          }
+          task: { lifecycleState: string }
+        }
+        expect(body.outboundPublication).toEqual({
+          action: 'hold',
+          gate: 'provenance',
+          messageId: null,
+          reason,
+        })
+        expect(body.task.lifecycleState).toBe('completed')
+        expect(JSON.stringify(body)).not.toContain(marker)
+        expect((await sourceTask(f, job.id)).task.workspaceId).toBe(f.source.id)
+
+        // Not in the audience's messages, search, counts, summary, inbox or event stream.
+        expect(await audienceMessages(f)).not.toContain(marker)
+        expect(await audienceSearch(f, marker)).not.toContain(marker)
+        expect(await audienceEvents(f)).not.toContain(marker)
+      }
+      const state = await audienceReadState(f)
+      expect(state.readState.find((row) => row.channelId === f.channel.id)).toMatchObject({
+        threadUnreadCount: 0,
+        topLevelUnreadCount: 1,
+      })
+      expect(
+        (await audienceSummary(f)).workspaces.find((row) => row.workspaceId === f.audience.id)
+      ).toMatchObject({ unreadChannels: 1 })
+      expect(await audienceInboxEntry(f)).toMatchObject({ threadUnreadCount: 0, unread: true })
+    })
+
+    test('a malformed memory declaration is refused before the job completes', async () => {
+      const f = await setup()
+      const job = await createJob(f, 'Declared job')
+      const version = await startJob(f, job)
+      for (const memorySource of ['secret', '', true, null]) {
+        const refused = await completeJob(f, job, version, {
+          channelId: f.channel.id,
+          memorySource,
+          summary: 'NEVER_PUBLISHED',
+        })
+        expect(refused.status).toBe(400)
+      }
+      expect((await sourceTask(f, job.id)).task.lifecycleState).toBe('in_progress')
+      expect(await audienceMessages(f)).not.toContain('NEVER_PUBLISHED')
+    })
+
     test('a late result under the omit policy publishes its summary without the artifact: no artifact identity reaches the audience', async () => {
       const f = await setup()
       const job = await createJob(f, 'Omitted job')
