@@ -137,12 +137,12 @@ export default defineConfig(({ command }) => ({
                   minShareCount: 2,
                 },
                 // Single-glyph chunks that only lazy panes import (Appearance,
-                // Resources, Terminal, Plugins, Settings and Source control).
-                // Each is otherwise its own request; grouped, none of them
-                // reaches a route's static graph.
+                // Plugins, Settings and Source control). Each is otherwise its
+                // own request; grouped, none of them reaches a route's static
+                // graph. Disjoint from the startup group above.
                 {
                   name: 'shared-pane-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(eye-off|git-commit-horizontal|shield-check|sliders-horizontal)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(eye-off|git-commit-horizontal|shield-check)\.jsx$/,
                   minShareCount: 2,
                 },
               ],
