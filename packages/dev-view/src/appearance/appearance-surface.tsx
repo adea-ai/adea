@@ -32,10 +32,10 @@ import { MonitorCog } from 'lucide-solid'
 import { For, Show } from 'solid-js'
 import { themeAccentPresets } from '@adea-ai/themes'
 
-import { AdeaAppearanceEditor, AdeaAppearancePopover } from './appearance-editor'
 import { draftVariants } from './composition'
 import { createAppearanceEditor } from './editor'
-import { importCustomTheme } from './custom-theme-import'
+import { AdeaAppearanceEditor, AdeaAppearancePopover } from './appearance-editor'
+import { createThemeFileImporter } from './theme-file-importer'
 import {
   allThemeRecords,
   appearanceThemeForPreview,
@@ -104,6 +104,29 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     return allThemeRecords()
   }
   const [importStatus, setImportStatus] = createSignal('')
+  const [importPending, setImportPending] = createSignal(false)
+  // The parsing and projection code loads when a file is chosen, not when the
+  // editor opens. A newer file, a closed dialog or an unmounted panel drops an
+  // import still in flight before it stores or selects anything.
+  const themeImporter = createThemeFileImporter({
+    load: async () => {
+      const { importCustomTheme } = await import('./custom-theme-import')
+      return (text) =>
+        importCustomTheme(text, window.localStorage, readCustomThemeLibrary(window.localStorage))
+    },
+    onPending: setImportPending,
+    onStatus: setImportStatus,
+    // Select the imported theme for its appearance so the user sees it land.
+    onImported: (theme) =>
+      setDraft(
+        theme.appearance === 'dark' ? { darkThemeId: theme.id } : { lightThemeId: theme.id }
+      ),
+  })
+  onCleanup(themeImporter.cancel)
+  const closeLibrary = () => {
+    themeImporter.cancel()
+    setLibraryOpen(false)
+  }
 
   const themeAccentOptions = createMemo(() => {
     const draft = editor.draft()
@@ -113,28 +136,6 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     return light && dark ? themeAccentPresets(light, dark) : []
   })
 
-  const importThemeFile = async (file: File) => {
-    const text = await file.text()
-    const result = importCustomTheme(
-      text,
-      typeof window === 'undefined' ? undefined : window.localStorage,
-      readCustomThemeLibrary(window.localStorage)
-    )
-    if (result.ok) {
-      setImportStatus(
-        `Imported “${result.theme.name}”.` +
-          (result.theme.notes.length > 0 ? ` ${result.theme.notes.join(' ')}` : '')
-      )
-      // Select the imported theme for its appearance so the user sees it land.
-      setDraft(
-        result.theme.appearance === 'dark'
-          ? { darkThemeId: result.theme.id }
-          : { lightThemeId: result.theme.id }
-      )
-    } else {
-      setImportStatus(result.error)
-    }
-  }
   const publishedDraft = createMemo<AppearanceDraft>(() => {
     const draft = editor.draft()
     return {
@@ -168,7 +169,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     setCustomAccent(customAccentValue(reverted.accent))
     setRawCustomAccent(customAccentValue(reverted.accent))
     setAccentStatus('')
-    setLibraryOpen(false)
+    closeLibrary()
   }
 
   const setDraft = (patch: Partial<AppearancePreferencesV2>) => {
@@ -244,7 +245,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
     setCustomAccent(customAccentValue(committed.accent))
     setRawCustomAccent(customAccentValue(committed.accent))
     setAccentStatus('')
-    setLibraryOpen(false)
+    closeLibrary()
   }
 
   onMount(openDraft)
@@ -343,7 +344,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
       <ModalDialog
         modal={props.popover !== undefined}
         open={libraryOpen()}
-        onClose={() => setLibraryOpen(false)}
+        onClose={closeLibrary}
         title="Manage themes"
         description="Import a theme file. Imported themes appear in the Light and Dark theme menus and stay on this device."
         class="max-h-full w-full max-w-104 overflow-y-auto"
@@ -357,13 +358,13 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0]
                 event.currentTarget.value = ''
-                if (file) void importThemeFile(file)
+                if (file) void themeImporter.importFile(file)
               }}
             />
             Import a theme file (.json)
           </Button>
           <Show when={importStatus()}>
-            <p class="conventional-theme-library__status" role="status">
+            <p class="conventional-theme-library__status" role="status" aria-busy={importPending()}>
               {importStatus()}
             </p>
           </Show>
@@ -398,7 +399,7 @@ function AppearanceHost(props: { popover?: AppearanceControlProps }) {
           </Show>
         </div>
         <footer class="flex justify-end">
-          <Button type="button" variant="outline" onClick={() => setLibraryOpen(false)}>
+          <Button type="button" variant="outline" onClick={() => closeLibrary()}>
             Close
           </Button>
         </footer>

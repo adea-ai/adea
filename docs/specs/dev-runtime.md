@@ -6142,7 +6142,12 @@ the appearance editor mounted beneath the dialog, so live preview and the
 uncommitted draft survive Close and Escape; dismissal restores focus to
 Manage themes without closing the containing Settings dialog or Appearance
 popover. No application
-copy of the dialog primitives remains.
+copy of the dialog primitives remains. The import parsing and projection code
+(`custom-theme-import.ts`) loads by dynamic import when a theme file is chosen,
+not when Appearance opens; the dialog shows a pending status while it loads,
+reports a failed load or read as an error, and drops the result of a run that a
+newer selection, closing the dialog, or leaving Appearance has superseded before
+anything is stored or selected (`theme-file-importer.ts`).
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
