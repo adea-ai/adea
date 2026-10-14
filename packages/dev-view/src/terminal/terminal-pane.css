@@ -39,6 +39,13 @@
   font-size: var(--text-xs);
 }
 
+.dev-terminal-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: auto;
+}
+
 .dev-terminal-pane-status {
   color: var(--muted-foreground);
 }

@@ -503,11 +503,18 @@ const restPr = (summary: GitHubPullRequestSummary) => ({
   observedAt: summary.observedAt,
 })
 let pendingPlan: { operation: string; body: Record<string, unknown> } | undefined
+const readFailures = new Map<string, string>()
+const emptyReads = new Set<string>()
 
 async function execute(command: DevCommand): Promise<DevReply> {
   const body = command.body as Record<string, unknown>
   state.commands.push({ operation: command.operation, body })
   await new Promise((resolve) => setTimeout(resolve, 20))
+  const failure = readFailures.get(command.operation)
+  if (failure !== undefined) {
+    return fail(command, 'remote_unavailable', failure)
+  }
+  if (emptyReads.delete(command.operation)) return ok(command, page([]))
   if (command.operation === 'dev.gitlab.account')
     return scenario === 'gitlab-disconnected' || scenario === 'disconnected'
       ? fail(command, 'unauthenticated', 'glab is not authenticated for this operation')
@@ -851,6 +858,9 @@ declare global {
   interface Window {
     sourceControlHarness: {
       commands(): { operation: string; body: Record<string, unknown> }[]
+      failReads(operation: string, message: string): void
+      allowReads(operation: string): void
+      emptyNext(operation: string): void
       setFonts(settings: AppearanceEditorFontSettings): void
       resetFonts(): void
       /** Moves the app's clock past its 10 s focus re-sync gate. */
@@ -860,6 +870,13 @@ declare global {
 }
 window.sourceControlHarness = {
   commands: () => state.commands,
+  failReads: (operation, message) => readFailures.set(operation, message),
+  allowReads: (operation) => {
+    readFailures.delete(operation)
+  },
+  emptyNext: (operation) => {
+    emptyReads.add(operation)
+  },
   setFonts: (settings) => applyAppearanceFontSettings(document.documentElement, settings),
   resetFonts: () =>
     applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS),

@@ -281,6 +281,57 @@ describe('terminal runtime over the m10 gate', () => {
     }
   })
 
+  test('create honours an advertised shellProfileId and refuses an unknown one', async () => {
+    const harness = await makeHarness()
+    const profilesReply = await harness.execute('dev.terminal.shellProfiles', {})
+    if (!profilesReply.ok) throw new Error('shell profiles unavailable')
+    const profiles = (profilesReply.value as { items: Array<{ id: string }> }).items
+    expect(profiles.length).toBeGreaterThan(0)
+    const chosen = profiles.at(-1)!
+
+    const explicit = await harness.execute('dev.terminal.create', {
+      runtimeSessionId,
+      worktreeId,
+      cols: 80,
+      rows: 24,
+      shellProfileId: chosen.id,
+    })
+    expect(explicit.ok).toBe(true)
+    if (explicit.ok) {
+      devOperationDecoders['dev.terminal.create'].reply(explicit)
+      expect((explicit.value as { shellProfileId?: string }).shellProfileId).toBe(chosen.id)
+    }
+
+    // Without a profile the host default (first advertised profile) runs.
+    const implicit = await harness.execute('dev.terminal.create', {
+      runtimeSessionId,
+      worktreeId,
+      cols: 80,
+      rows: 24,
+    })
+    expect(implicit.ok).toBe(true)
+    if (implicit.ok) {
+      expect((implicit.value as { shellProfileId?: string }).shellProfileId).toBe(profiles[0]!.id)
+    }
+
+    const listReply = await harness.execute('dev.terminal.list', { worktreeId })
+    if (!listReply.ok) throw new Error('list failed')
+    devOperationDecoders['dev.terminal.list'].reply(listReply)
+    const listed = (listReply.value as { items: Array<{ shellProfileId?: string }> }).items
+    expect(listed.map((terminal) => terminal.shellProfileId)).toContain(chosen.id)
+
+    // An unknown profile never falls back to another shell.
+    const unknown = await harness.execute('dev.terminal.create', {
+      runtimeSessionId,
+      worktreeId,
+      cols: 80,
+      rows: 24,
+      shellProfileId: '00000000-0000-4000-8000-0000000000ee',
+    })
+    expect(unknown.ok).toBe(false)
+    if (!unknown.ok) expect(unknown.error.code).toBe('not_found')
+  })
+
   test('create, list, resize, signal, and detach round-trip through the sidecar', async () => {
     const harness = await makeHarness()
     const terminalId = await harness.createTerminal()
