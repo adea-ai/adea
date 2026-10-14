@@ -2,7 +2,10 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { afterEach, expect, test } from 'bun:test'
 import { startConnectedFixtureChild } from './lead-role-choices-connected-client.mjs'
-import { safeTransportFailureDiagnostic } from './lead-role-choices-connected-process.mjs'
+import {
+  closeFactoryResources,
+  safeTransportFailureDiagnostic,
+} from './lead-role-choices-connected-process.mjs'
 
 const children = new Set()
 
@@ -251,4 +254,24 @@ test('close awaits confirmed exit after SIGKILL escalation', async () => {
 
   expect(child.signals).toEqual(['SIGTERM', 'SIGKILL'])
   expect(child.closed).toBe(true)
+})
+test('fixture cleanup attempts reader, database and environment restoration after host failure', async () => {
+  const calls = []
+  const hostFailure = new Error('HOST_REAP_TIMEOUT')
+  await expect(
+    closeFactoryResources([
+      () => calls.push('api'),
+      async () => {
+        calls.push('host')
+        throw hostFailure
+      },
+      () => {
+        calls.push('reader')
+        throw new Error('reader cleanup failed')
+      },
+      async () => calls.push('database'),
+      () => calls.push('environment'),
+    ])
+  ).rejects.toBe(hostFailure)
+  expect(calls).toEqual(['api', 'host', 'reader', 'database', 'environment'])
 })

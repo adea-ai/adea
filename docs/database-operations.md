@@ -77,8 +77,6 @@ runs every integration case. To run against Neon instead, export the three
 canonical URLs for an isolated development/preview branch; never point the
 write-heavy suite at a production or owner connection.
 
-The runner's local target follows `ADEA_POSTGRES_PORT`, so the tests and the compose service agree on the port. The compose project name is fixed to `agent-hq` in `compose.yml`, so a second checkout that must not share that instance should also set `COMPOSE_PROJECT_NAME` and its own `ADEA_POSTGRES_PORT`. The runner refuses before any build when a running local postgres publishes a different host port than `ADEA_POSTGRES_PORT`, so it never connects to an instance it did not match. In CI the lane fails before any build when Docker is unavailable: the migration-snapshot capture proofs and the cutover rehearsals must not skip.
-
 `ADEA_INTEGRATION_SHARD=<index>/<total>` (for example `1/2`) runs one explicit half of the package suites. Shard 1 also runs the route-flow suite, so it is never run twice. `bun scripts/test-integration.mjs --plan` prints the selection without touching a database or Docker.
 
 ## Health and configuration validation
@@ -169,8 +167,9 @@ Order of operations:
 
 1. Announce the window. Nothing durable is lost, but room/project requests fail
    while the window is open.
-2. Run the production migration workflow (or `db:migrate` with
-   `DATABASE_MIGRATION_URL`) and confirm it finished and `db:verify` passed.
+2. Run the production migration workflow through the guarded `db:verify`
+   entrypoint and confirm it finished. The developer `db:migrate` package
+   command routes through the same guarded runner.
 3. Deploy the Worker built from the same commit immediately afterwards.
 4. Smoke-check the hosted host: list projects, create one, open its primary
    channel, and confirm the workspace event stream delivers `project.created`.

@@ -143,6 +143,8 @@ export * from './schema'
 export {
   appendWorkspaceEvent,
   inTransaction,
+  ReadSnapshotIsolationError,
+  lockWorkspaceEventSequence,
   type WorkspaceEventInput,
   type WorkspaceEventRecord,
 } from './transactions'
@@ -369,7 +371,14 @@ export {
   type AgentPersonaPlan,
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
-export { createLeadTurn, getLeadTurnForUser, getLatestLeadTurnForChannel } from './lead-turns'
+export {
+  createLeadTurn,
+  getLatestLeadTurnForTarget,
+  getLeadTurnForUser,
+  getLatestLeadTurnForChannel,
+  parseHandoffTarget,
+  type HandoffTarget,
+} from './lead-turns'
 export {
   readCurrentLeadTurnProduct,
   withCurrentLeadTurnProduct,
@@ -426,5 +435,41 @@ export {
   setChannelParticipants,
   updateChannel,
 } from './conversations'
+export {
+  exportPortableWorkspace,
+  type PortableExportHooks,
+  readCompletePortableContent,
+} from './portable-export'
+export {
+  PORTABLE_SYSTEM_SENDER_ID,
+  PortableExportError,
+  type PortableExportFailureCode,
+  portableContentDigest,
+} from './portable-export-content'
+export { importPortableWorkspace, type PortableImportResult } from './portable-import'
+export { PortableImportError, type PortableImportFailureCode } from './portable-import-guards'
+
+export {
+  completeTaskAndPublishOutboundResult,
+  createJobOutboundStoreService,
+  type JobOutboundCompletionOutcome,
+  type JobOutboundCompletionRequest,
+} from './job-outbound-result-store'
+export type {
+  JobOutboundArtifactPolicy,
+  JobOutboundDeliveryDecision,
+} from './job-outbound-result-policy'
+export {
+  completeTaskFromRequest,
+  type TaskCompletionInput,
+  type TaskCompletionOutcome,
+} from './task-completion-request'
+export {
+  parseOutboundCompletion,
+  summarizePublication,
+  type TaskCompletionPublication,
+} from './task-completion-parse'
 
 export * from './lead-model-selections'
+
+export { withWorkspaceManagementAuthority } from './management-workspace-authority'

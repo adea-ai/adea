@@ -149,3 +149,25 @@ test('dispatch refuses a stored preparation that no longer matches the requested
   expect(f.calls).not.toContain('pending')
   expect(f.calls.some((call) => call.startsWith('dispatch:'))).toBe(false)
 })
+
+test('confirmed-start selection or revision substitution is refused before pending or dispatch', async () => {
+  const accepted = preparedFor(requested.selectionRef, requested.selectionRevision)
+  for (const substituted of [
+    { ...accepted, selectionRef: `msel_${'b'.repeat(32)}` },
+    { ...accepted, selectionRevision: requested.selectionRevision + 1 },
+  ]) {
+    const f = fixture(requested, substituted, {
+      stored: {
+        ...accepted,
+        state: 'prepared',
+        preparationExpiresAt: accepted.expiresAt,
+      },
+    })
+    const result = await f.service.dispatch(scope)
+    expect(result.reasonCode).toBe('RUNTIME_RESPONSE_INVALID')
+    expect(result.selectionRef).toBe(requested.selectionRef)
+    expect(result.selectionRevision).toBe(requested.selectionRevision)
+    expect(f.calls).not.toContain('pending')
+    expect(f.calls.some((call) => call.startsWith('dispatch:'))).toBe(false)
+  }
+})

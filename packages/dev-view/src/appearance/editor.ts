@@ -18,7 +18,7 @@ import {
   defaultAppearancePreferences,
   normalizeAppearancePreferences,
   type AppearancePreferencesV2,
-} from '@adea-ai/app-ui/components/appearance'
+} from '@adea-ai/app-ui/components/appearance-codec'
 
 export type AppearanceEditor = Readonly<{
   /** The edited draft, reactive so dialog UI tracks every change. */

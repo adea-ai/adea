@@ -6,6 +6,15 @@ import {
 const lead = { selectionRef: `msel_${'a'.repeat(32)}`, selectionRevision: 1 }
 const child = { selectionRef: `msel_${'b'.repeat(32)}`, selectionRevision: 2 }
 describe('canonical requested role model choices', () => {
+  test('requested references reject trailing line terminators for either role', () => {
+    for (const role of ['lead', 'child'])
+      for (const suffix of ['\n', '\r', '\r\n', '\u2028', '\u2029'])
+        expect(() =>
+          parseRequestedRoleModelSelections({
+            [role]: { ...lead, selectionRef: lead.selectionRef + suffix },
+          })
+        ).toThrow('Invalid requested model selections')
+  })
   test('omission preserves defaults and explicit child never inherits lead', () => {
     expect(parseRequestedRoleModelSelections(undefined)).toBeUndefined()
     expect(parseRequestedRoleModelSelections({ lead })).toEqual({ lead })

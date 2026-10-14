@@ -7,6 +7,7 @@ import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { Brain, LockKeyhole, Settings2, Sparkles } from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, Show, Suspense, type Accessor } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
@@ -23,6 +24,7 @@ import {
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
 import { WorkspaceArchiveSettings } from './workspace-archive-settings'
 import { WorkspaceArchivedSettings } from './workspace-archived-settings'
+import { WorkspaceExportSettings, WorkspaceRestoreSettings } from './workspace-portable-settings'
 
 const sectionIcons = {
   general: Settings2,
@@ -75,6 +77,11 @@ export function WorkspaceDetailsDialog(props: {
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
   onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
+  /**
+   * Takes the user into a workspace they just restored, resolving true once it is open and false
+   * when it could not be opened yet; omitted offers only Done.
+   */
+  onOpenWorkspace?: (workspaceId: string) => Promise<boolean>
   workspaceOrder?: readonly WorkspaceSummary[]
   open: boolean
   /** The control to restore focus to on close; the shared dialog otherwise
@@ -98,14 +105,30 @@ export function WorkspaceDetailsDialog(props: {
     })[section()]
   const [moving, setMoving] = createSignal(false)
   const [orderError, setOrderError] = createSignal('')
+  // Home always leads the sidebar, so it is the fixed first slot of this order.
+  const orderedWorkspaces = () => {
+    const order = props.workspaceOrder ?? []
+    return [
+      ...order.filter(({ isPersonal }) => isPersonal),
+      ...order.filter(({ isPersonal }) => !isPersonal),
+    ]
+  }
+  const firstMovableIndex = () => orderedWorkspaces().filter(({ isPersonal }) => isPersonal).length
   const workspacePosition = () =>
-    props.workspaceOrder?.findIndex((workspace) => workspace.id === props.workspace.id) ?? -1
+    orderedWorkspaces().findIndex((workspace) => workspace.id === props.workspace.id)
+  const canMove = (direction: -1 | 1) => {
+    const next = workspacePosition() + direction
+    return (
+      !props.workspace.isPersonal &&
+      next >= firstMovableIndex() &&
+      next < orderedWorkspaces().length
+    )
+  }
   const moveWorkspace = async (direction: -1 | 1) => {
-    if (moving() || !props.onReorderWorkspaces || !props.workspaceOrder) return
-    const ids = props.workspaceOrder.map((workspace) => workspace.id)
+    if (moving() || !props.onReorderWorkspaces || !canMove(direction)) return
+    const ids = orderedWorkspaces().map((workspace) => workspace.id)
     const position = workspacePosition()
     const next = position + direction
-    if (position < 0 || next < 0 || next >= ids.length) return
     ;[ids[position], ids[next]] = [ids[next]!, ids[position]!]
     setMoving(true)
     setOrderError('')
@@ -196,7 +219,9 @@ export function WorkspaceDetailsDialog(props: {
                 <header>
                   <Dynamic component={sectionIcons[panelSection]} aria-hidden="true" />
                   <div>
-                    <h3>{workspaceSettingsSectionLabels[panelSection]}</h3>
+                    <Heading as="h3" size="card">
+                      {workspaceSettingsSectionLabels[panelSection]}
+                    </Heading>
                     <p>{sectionDescription()}</p>
                   </div>
                 </header>
@@ -209,20 +234,21 @@ export function WorkspaceDetailsDialog(props: {
                     <SettingsRow label="Workspace order">
                       <div class="flex flex-col gap-2">
                         <p role="status" aria-label="Workspace order position">
-                          Position {workspacePosition() + 1} of {props.workspaceOrder?.length ?? 0}
+                          Position {workspacePosition() + 1} of {orderedWorkspaces().length}
                         </p>
+                        <Show when={props.workspace.isPersonal}>
+                          <Text variant="caption" tone="muted">
+                            Home always stays first. Your other workspaces can be reordered below
+                            it.
+                          </Text>
+                        </Show>
                         <div class="flex items-center gap-2">
                           <For each={[-1, 1] as const}>
                             {(direction) => (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                disabled={
-                                  moving() ||
-                                  workspacePosition() + direction < 0 ||
-                                  workspacePosition() + direction >=
-                                    (props.workspaceOrder?.length ?? 0)
-                                }
+                                disabled={moving() || !canMove(direction)}
                                 onClick={() => void moveWorkspace(direction)}
                               >
                                 Move {direction === -1 ? 'up' : 'down'}
@@ -239,9 +265,22 @@ export function WorkspaceDetailsDialog(props: {
                     </SettingsRow>
                   </Show>
                   <Show when={props.workspace.isPersonal}>
-                    <p class="conventional-settings-note">
+                    <Text variant="caption" tone="muted" class="mt-4">
                       Your personal workspace stays with your account.
-                    </p>
+                    </Text>
+                  </Show>
+                  <Show when={apiClient()}>
+                    {(client) => (
+                      <>
+                        <WorkspaceExportSettings client={client()} workspace={props.workspace} />
+                        <WorkspaceRestoreSettings
+                          client={client()}
+                          {...(props.onOpenWorkspace
+                            ? { onOpenWorkspace: props.onOpenWorkspace }
+                            : {})}
+                        />
+                      </>
+                    )}
                   </Show>
                   <Show when={!props.workspace.isPersonal && props.workspace.canDelete}>
                     <SettingsRow

@@ -16,6 +16,7 @@ import { Input } from '@adea-ai/ui/components/ui/input'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { Switch as Toggle } from '@adea-ai/ui/components/ui/switch'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 import { FALLBACK_PREFERENCES, KNOWN_HARNESSES } from './resources-view-model'
 
@@ -79,7 +80,9 @@ export function ResourceSettings(props: {
       </Show>
 
       <section class="dev-resources__settings-group" aria-label="What to show">
-        <h3 class="dev-resources__group-title">What to show</h3>
+        <Text as="h3" variant="overline">
+          What to show
+        </Text>
         <Toggle
           checked={prefs().coverage === 'machine'}
           disabled={disabled()}
@@ -143,7 +146,9 @@ export function ResourceSettings(props: {
       </section>
 
       <section class="dev-resources__settings-group" aria-label="Memory alerts">
-        <h3 class="dev-resources__group-title">Memory alerts</h3>
+        <Text as="h3" variant="overline">
+          Memory alerts
+        </Text>
         <div class="dev-resources__field-pair">
           <NumberField
             label="Over (GB)"
@@ -184,7 +189,9 @@ export function ResourceSettings(props: {
       </section>
 
       <section class="dev-resources__settings-group" aria-label="Clean up">
-        <h3 class="dev-resources__group-title">Clean up</h3>
+        <Text as="h3" variant="overline">
+          Clean up
+        </Text>
         <FormField
           label="When something qualifies"
           hint="Automatic clean-up needs an approved clean-up policy runner, which this version does not have."
@@ -224,7 +231,9 @@ export function ResourceSettings(props: {
       </section>
 
       <section class="dev-resources__settings-group" aria-label="Protected processes">
-        <h3 class="dev-resources__group-title">Protected processes</h3>
+        <Text as="h3" variant="overline">
+          Protected processes
+        </Text>
         <span class="dev-resources__row-detail">
           Never offered a stop button. System processes, Adea itself, and other users’ processes are
           always protected.
@@ -284,7 +293,9 @@ export function ResourceSettings(props: {
       </section>
 
       <section class="dev-resources__settings-group" aria-label="Sampling">
-        <h3 class="dev-resources__group-title">Sampling</h3>
+        <Text as="h3" variant="overline">
+          Sampling
+        </Text>
         <FormField label="While this sheet is open" controlId="dev-resources-sampling">
           <NativeSelect
             id="dev-resources-sampling"

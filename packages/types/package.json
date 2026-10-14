@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.88.0",
+  "version": "0.91.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -50,6 +50,11 @@
       "types": "./dist/account-directory.d.ts",
       "development": "./src/account-directory.ts",
       "import": "./dist/account-directory.js"
+    },
+    "./portable-export": {
+      "types": "./dist/portable-export.d.ts",
+      "development": "./src/portable-export.ts",
+      "import": "./dist/portable-export.js"
     },
     "./desktop-permissions": {
       "types": "./dist/desktop-permissions.d.ts",

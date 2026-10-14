@@ -10,6 +10,7 @@ import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 import { cn } from '@adea-ai/ui/lib/utils'
 
 import { Sparkline } from './resources-charts'
@@ -173,18 +174,20 @@ export function ServersTab(props: {
             const preview = () => listPreview(group.rows, sectionExpanded(group.id))
             return (
               <section class="dev-resources__group" aria-label={group.title}>
-                <h3 class="dev-resources__group-header">
+                <div class="dev-resources__group-header">
                   <Show when={group.kind === 'worktree' || group.kind === 'missing_worktree'}>
                     <GitBranch class="dev-resources__icon" aria-hidden="true" />
                   </Show>
                   <Show when={group.kind === 'protected'}>
                     <Lock class="dev-resources__icon" aria-hidden="true" />
                   </Show>
-                  <span class="dev-resources__group-title">{group.title}</span>
+                  <Text as="h3" variant="overline">
+                    {group.title}
+                  </Text>
                   <span class="dev-resources__row-detail">{group.subtitle}</span>
                   <span class="dev-resources__spacer" />
                   <span class="dev-resources__row-detail">{formatSize(group.totalBytes)}</span>
-                </h3>
+                </div>
                 <ul class="dev-resources__list">
                   <For each={preview().visible}>
                     {(row) => <ServerRowView row={row} actions={props.actions} />}

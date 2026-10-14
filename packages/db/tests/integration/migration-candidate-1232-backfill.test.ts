@@ -1,6 +1,15 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { readdirSync, readFileSync, rmSync } from 'node:fs'
-import { sql } from 'drizzle-orm'
+import {
+  copyFileSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { and, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
@@ -14,18 +23,19 @@ import {
   resolveMigrationSnapshotCaptureDomains,
 } from '../../src/migration-snapshot-capture'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
-import { channelParticipants, workspaceMemberships } from '../../src/schema'
+import { channelParticipants, messages, workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
   CANONICAL_BASE_TAG,
   canonicalChainFolders,
   CANONICAL_DIR,
+  assertCanonicalOverlayMatchesLive,
   timestampOrderViolations,
   verifiedCanonicalChain,
 } from '../fixtures/canonical-chain'
 import {
-  DRIZZLE_DIR,
   type RehearsalResources,
+  disposeRehearsal,
   settleAndDispose,
   view,
 } from '../fixtures/cutover-rehearsal'
@@ -38,9 +48,9 @@ import { insertLegacyGroup, insertLegacyMessage } from '../fixtures/legacy-audie
 // 0049/0050 backfill on top. Each recorded migration is checked against the journal, so an entry
 // drizzle skips is a failure here, not a silent success.
 //
-// What it does NOT prove: the group join-point gate and its read paths (the product read functions
-// here are main's), and any quarantine of ambiguous group records. The chain has no quarantine
-// surface, so the test records that absence instead of passing as coverage.
+// This rehearsal checks legacy-message visibility after the canonical chain is applied; it does
+// not replace the focused group join-point authorization tests. The chain has no quarantine surface,
+// so the test records that absence instead of passing as coverage.
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
@@ -151,12 +161,40 @@ async function executeScenario() {
     userId: member.userId,
     workspaceId,
   })
-  await insertLegacyMessage(connection.db, {
+  const seededMessageId = await insertLegacyMessage(connection.db, {
     bodyText: 'candidate-active-body',
     channelId: activeId,
     sender: owner,
     workspaceId,
   })
+  // The candidate product read path uses 0049 group-grant tables, so it cannot be called on this
+  // deliberate pre-0049 schema. Capture the legacy participant/message relation as the baseline;
+  // after migration, the real product read path below must preserve that visibility.
+  const legacyVisibleMessageIds = async (principal: UserPrincipalRef) =>
+    (
+      await connection.db
+        .select({ id: messages.id })
+        .from(messages)
+        .innerJoin(
+          channelParticipants,
+          and(
+            eq(channelParticipants.workspaceId, messages.workspaceId),
+            eq(channelParticipants.channelId, messages.channelId),
+            eq(channelParticipants.principalKind, 'user'),
+            eq(channelParticipants.userId, principal.userId)
+          )
+        )
+        .where(and(eq(messages.workspaceId, workspaceId), eq(messages.channelId, activeId)))
+        .orderBy(messages.sequence)
+    ).map((row) => row.id)
+  const ownerLegacyMessages = await legacyVisibleMessageIds(owner)
+  const memberLegacyMessages = await legacyVisibleMessageIds(member)
+  const outsiderLegacyMessages = await legacyVisibleMessageIds(outsider)
+  const readsBefore = {
+    ownerActive: ownerLegacyMessages,
+    memberActive: memberLegacyMessages,
+    outsiderActive: outsiderLegacyMessages.length === 0 ? 'denied' : outsiderLegacyMessages,
+  }
   const archivedId = await insertLegacyGroup(
     connection.db,
     workspaceId,
@@ -189,7 +227,8 @@ async function executeScenario() {
   }
   const afterBackfill = {
     admissions: await admissionRows(connection, workspaceId),
-    grants: await implicitGrantCount(connection, workspaceId),
+    audienceGrants: await audienceGrantRows(connection, workspaceId),
+    enlistmentGrants: await enlistmentGrantRows(connection, workspaceId),
     quarantineSurfaces: await quarantineSurfaces(connection),
   }
 
@@ -199,7 +238,8 @@ async function executeScenario() {
   }
   const afterRepeat = {
     admissions: await admissionRows(connection, workspaceId),
-    grants: await implicitGrantCount(connection, workspaceId),
+    audienceGrants: await audienceGrantRows(connection, workspaceId),
+    enlistmentGrants: await enlistmentGrantRows(connection, workspaceId),
   }
 
   const after = await captureMigrationSnapshot(connection.db, {
@@ -208,7 +248,7 @@ async function executeScenario() {
   })
   const comparison = compareMigrationSnapshots({ after: after.document, before: before.document })
 
-  const reads = {
+  const readsAfter = {
     ownerActive: await view(async () =>
       (await listMessagesForUser(connection.db, workspaceId, activeId, owner)).messages.map(
         (message) => message.id
@@ -232,37 +272,46 @@ async function executeScenario() {
     activeChannelId: activeId,
     archivedChannelId: archivedId,
     participantsBefore,
+    seededMessageId,
     afterBackfill,
     afterRepeat,
     comparison,
-    reads,
+    readsBefore,
+    readsAfter,
   }
 }
 
 type Row = Record<string, unknown>
 
+function principalTuple(row: Row): string {
+  return `${row.channel_id}:${row.principal_kind}:${row.user_id ?? row.agent_id}`
+}
+
 async function participantRows(connection: DatabaseConnection, workspaceId: string) {
   return (await connection.db.execute<Row>(
-    sql`select cp.channel_id, cp.user_id from app.channel_participants cp
+    sql`select cp.channel_id, cp.principal_kind, cp.user_id, cp.agent_id from app.channel_participants cp
         join app.channels c on c.id = cp.channel_id
-        where cp.workspace_id = ${workspaceId} and c.kind = 'group' and c.lifecycle_state = 'active' and cp.principal_kind = 'user'
-        order by cp.channel_id, cp.user_id`
+        where cp.workspace_id = ${workspaceId} and c.kind = 'group' and c.lifecycle_state = 'active'
+        order by cp.channel_id, cp.principal_kind, cp.user_id, cp.agent_id`
   )) as unknown as Row[]
 }
 
 async function admissionRows(connection: DatabaseConnection, workspaceId: string) {
   return (await connection.db.execute<Row>(
-    sql`select channel_id, user_id, joined_sequence, auth_grant_id from app.group_admissions
-        where workspace_id = ${workspaceId} order by channel_id, user_id`
+    sql`select * from app.group_admissions where workspace_id = ${workspaceId} order by id`
   )) as unknown as Row[]
 }
 
-async function implicitGrantCount(connection: DatabaseConnection, workspaceId: string) {
-  const rows = await connection.db.execute<{ count: number }>(
-    sql`select count(*)::int as count from app.group_audience_grants
-        where workspace_id = ${workspaceId} and grant_id like 'implicit:member:%'`
-  )
-  return rows[0]?.count ?? -1
+async function audienceGrantRows(connection: DatabaseConnection, workspaceId: string) {
+  return (await connection.db.execute<Row>(
+    sql`select * from app.group_audience_grants where workspace_id = ${workspaceId} order by id`
+  )) as unknown as Row[]
+}
+
+async function enlistmentGrantRows(connection: DatabaseConnection, workspaceId: string) {
+  return (await connection.db.execute<Row>(
+    sql`select * from app.group_enlistment_grants where workspace_id = ${workspaceId} order by id`
+  )) as unknown as Row[]
 }
 
 async function quarantineSurfaces(connection: DatabaseConnection): Promise<string[]> {
@@ -340,6 +389,32 @@ describe('incoming canonical chain (no database)', () => {
     expect(pins.excluded.map((entry) => entry.tag)).toEqual(['0047_huge_hitman'])
   })
 
+  test('a same-tag live migration must match its pinned journal entry and SQL bytes', () => {
+    const { entries } = verifiedCanonicalChain()
+    const entry = entries[0]!
+    const live = mkdtempSync(join(tmpdir(), 'canonical-live-overlay-'))
+    try {
+      copyFileSync(`${CANONICAL_DIR}/${entry.tag}.sql`, join(live, `${entry.tag}.sql`))
+      expect(() =>
+        assertCanonicalOverlayMatchesLive([entry], entries, live, CANONICAL_DIR)
+      ).not.toThrow()
+      expect(() =>
+        assertCanonicalOverlayMatchesLive(
+          [{ ...entry, when: entry.when + 1 }],
+          entries,
+          live,
+          CANONICAL_DIR
+        )
+      ).toThrow(`live journal entry ${entry.tag} differs`)
+      writeFileSync(join(live, `${entry.tag}.sql`), '-- same-tag drift\n')
+      expect(() =>
+        assertCanonicalOverlayMatchesLive([entry], entries, live, CANONICAL_DIR)
+      ).toThrow(`live migration ${entry.tag}.sql differs`)
+    } finally {
+      rmSync(live, { recursive: true, force: true })
+    }
+  })
+
   test('the assembled chain holds each migration once, on top of main through 0046', () => {
     const chain = canonicalChainFolders()
     try {
@@ -405,10 +480,14 @@ describe.skipIf(!provisioningUrl && !inCi)(
         for (const mode of ['fresh', 'upgrade-from-main'] as const) {
           const scratch = `${SCRATCH_PREFIX}${mode.replaceAll('-', '_')}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
           await adminExecute(`create database "${scratch}"`)
-          const connection = createDatabase(urlForDatabase(scratch))
+          const scratchResources: RehearsalResources = { scratch }
           try {
+            // Record the database before constructing the connection so a constructor failure
+            // still reaches the scratch database cleanup below.
+            const connection = createDatabase(urlForDatabase(scratch))
+            scratchResources.connection = connection
             if (mode === 'upgrade-from-main')
-              await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
+              await migrate(connection.db, { migrationsFolder: chain.base })
             await migrate(connection.db, { migrationsFolder: chain.full })
             const result = appliedAgainstJournal(
               chain.fullEntries,
@@ -422,8 +501,11 @@ describe.skipIf(!provisioningUrl && !inCi)(
             })
             expect(result.recordedCount).toBe(result.expectedCount)
           } finally {
-            await connection.close()
-            await adminExecute(`drop database if exists "${scratch}" with (force)`)
+            await disposeRehearsal(scratchResources, async (database) => {
+              if (!database.startsWith(SCRATCH_PREFIX))
+                throw new Error(`refusing to drop ${database}`)
+              await adminExecute(`drop database if exists "${database}" with (force)`)
+            })
           }
         }
       } finally {
@@ -432,25 +514,48 @@ describe.skipIf(!provisioningUrl && !inCi)(
     })
 
     test('the backfill admits exactly the active group participants, once each', async () => {
-      const { participantsBefore, afterBackfill, activeChannelId, archivedChannelId } =
-        await runScenario()
-      expect(afterBackfill.admissions).toHaveLength(participantsBefore.length)
+      const { participantsBefore, afterBackfill, archivedChannelId } = await runScenario()
       expect(afterBackfill.admissions.map((row) => row.channel_id)).not.toContain(archivedChannelId)
-      const activeRows = afterBackfill.admissions.filter(
-        (row) => row.channel_id === activeChannelId
+      expect(afterBackfill.admissions.map(principalTuple).toSorted()).toEqual(
+        participantsBefore.map(principalTuple).toSorted()
       )
-      expect(activeRows).toHaveLength(2)
-      for (const row of activeRows) {
+      const expectedAudienceGrants = participantsBefore.filter(
+        (row) => row.principal_kind === 'user'
+      )
+      const expectedEnlistmentGrants = participantsBefore.filter(
+        (row) => row.principal_kind === 'agent'
+      )
+      expect(
+        afterBackfill.audienceGrants.map((row) => `${row.channel_id}:${row.user_id}`).toSorted()
+      ).toEqual(expectedAudienceGrants.map((row) => `${row.channel_id}:${row.user_id}`).toSorted())
+      expect(
+        afterBackfill.enlistmentGrants.map((row) => `${row.channel_id}:${row.agent_id}`).toSorted()
+      ).toEqual(
+        expectedEnlistmentGrants.map((row) => `${row.channel_id}:${row.agent_id}`).toSorted()
+      )
+      for (const row of afterBackfill.admissions) {
         expect(row.joined_sequence).toBe('0')
-        expect(String(row.auth_grant_id)).toMatch(/^implicit:member:/)
+        const principalId = String(row.user_id ?? row.agent_id)
+        expect(row.auth_grant_id).toBe(`implicit:member:${principalId}`)
+        const grants =
+          row.principal_kind === 'user'
+            ? afterBackfill.audienceGrants.filter(
+                (grant) => grant.channel_id === row.channel_id && grant.user_id === row.user_id
+              )
+            : afterBackfill.enlistmentGrants.filter(
+                (grant) => grant.channel_id === row.channel_id && grant.agent_id === row.agent_id
+              )
+        expect(grants).toHaveLength(1)
+        expect(grants[0]?.workspace_id).toBe(row.workspace_id)
+        expect(grants[0]?.grant_id).toBe(`implicit:member:${principalId}`)
       }
-      expect(afterBackfill.grants).toBe(participantsBefore.length)
     })
 
     test('the 0050 backfill is idempotent: re-running its statements changes no row', async () => {
       const { afterBackfill, afterRepeat } = await runScenario()
       expect(afterRepeat.admissions).toEqual(afterBackfill.admissions)
-      expect(afterRepeat.grants).toBe(afterBackfill.grants)
+      expect(afterRepeat.audienceGrants).toEqual(afterBackfill.audienceGrants)
+      expect(afterRepeat.enlistmentGrants).toEqual(afterBackfill.enlistmentGrants)
     })
 
     test('the main capture families are unchanged across the canonical chain', async () => {
@@ -464,12 +569,16 @@ describe.skipIf(!provisioningUrl && !inCi)(
       expect(comparison.verdict).toBe('inconclusive')
     })
 
-    test('the existing read paths on main are unchanged for members and deny the outsider', async () => {
-      const { reads, activeChannelId } = await runScenario()
-      expect(reads.ownerActive).not.toBe('denied')
-      expect(reads.memberActive).not.toBe('denied')
-      expect(reads.outsiderActive).toBe('denied')
-      expect(activeChannelId).toBeTruthy()
+    test('the seeded message remains visible to both members through the existing read paths', async () => {
+      const { readsBefore, readsAfter, seededMessageId } = await runScenario()
+      expect(readsBefore.ownerActive).toContain(seededMessageId)
+      expect(readsBefore.memberActive).toContain(seededMessageId)
+      expect(readsAfter.ownerActive).toContain(seededMessageId)
+      expect(readsAfter.memberActive).toContain(seededMessageId)
+      expect(readsAfter.ownerActive).toEqual(readsBefore.ownerActive)
+      expect(readsAfter.memberActive).toEqual(readsBefore.memberActive)
+      expect(readsBefore.outsiderActive).toBe('denied')
+      expect(readsAfter.outsiderActive).toBe(readsBefore.outsiderActive)
     })
 
     test('no quarantine surface exists for ambiguous group records: the acceptance is unproven', async () => {

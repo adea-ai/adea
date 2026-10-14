@@ -235,7 +235,7 @@ export const managementOperations: Readonly<
     capability: null,
     confirmation: 'explicit',
     domain: 'config',
-    lanes: { web: notImplemented, desktop: notImplemented, lead: notImplemented },
+    lanes: cloudLanes,
     permission: 'workspace.archive',
     recovery: 'idempotent',
     revision: 'none',

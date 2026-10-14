@@ -7740,6 +7740,11 @@
       "schema": "app",
       "values": ["workspace", "sensitive", "restricted"]
     },
+    "app.channel_archive_source": {
+      "name": "channel_archive_source",
+      "schema": "app",
+      "values": ["individual", "project_cascade"]
+    },
     "app.channel_kind": {
       "name": "channel_kind",
       "schema": "app",

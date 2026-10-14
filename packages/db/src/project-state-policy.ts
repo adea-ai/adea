@@ -28,16 +28,10 @@
 //   step back, so a retry after a crash re-reads and either promotes once or
 //   reports the conflict; it never half-restores.
 //
-// The project revision token is the row's `updatedAt` because the projects
-// table has no version column yet; the row lock plus the compare-and-swap is
-// exact for this flow. `docs/plans/m14-03-management-action-contract.md`
-// records the proposed `projects.version` hardening.
-import type {
-  ProjectLifecycleState,
-  ProjectSummary,
-  ProjectVisibility,
-  UserPrincipalRef,
-} from '@adea-ai/types'
+// The project revision token is its monotonic `projects.version`. Promotion
+// reads that version under the project-row lock and compares it in the same
+// transaction as the channel cascade and event writes.
+import type { ProjectSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
@@ -45,59 +39,22 @@ import { requireProjectAccessScope, requireProjectWrite } from './project-access
 import { projectSummary } from './project-summary'
 import { channels, projects } from './schema'
 import { appendWorkspaceEvent } from './transactions'
+import {
+  decideProjectStatePromotion,
+  ProjectStatePromotionError,
+  type ProjectStatePromotionRefusal,
+} from './project-state-decisions'
+
+export {
+  decideProjectStatePromotion,
+  ProjectStatePromotionError,
+  type ProjectStatePromotionRefusal,
+  type ProjectStatePromotionObservation,
+  type ProjectStatePromotionPlan,
+  type ProjectStatePromotionDecision,
+} from './project-state-decisions'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-export type ProjectStatePromotionRefusal =
-  /** Absent, foreign or deleted: deliberately indistinguishable outside. */
-  | 'project_unavailable'
-  | 'promotion_deleted'
-  | 'promotion_state_invalid'
-  | 'promotion_stale'
-  | 'promotion_not_confirmed'
-
-/** The exact project state a promotion decision may observe. */
-export type ProjectStatePromotionObservation = Readonly<{
-  id: string
-  workspaceId: string
-  lifecycleState: ProjectLifecycleState
-  visibility: ProjectVisibility
-  /** The monotonic `projects.version`; the only revision authority. */
-  version: number
-  deletedAt: string | null
-}>
-
-export type ProjectStatePromotionPlan = Readonly<{
-  projectId: string
-  /** The workspace whose project is promoted; never re-derived from input. */
-  audienceWorkspaceId: string
-  /** The visibility is carried through promotion unchanged. */
-  retainedVisibility: ProjectVisibility
-  from: 'archived'
-  to: 'active'
-  expectedVersion: number
-}>
-
-export type ProjectStatePromotionDecision =
-  | Readonly<{ allowed: true; plan: ProjectStatePromotionPlan }>
-  | Readonly<{ allowed: false; reason: ProjectStatePromotionRefusal }>
-
-const REFUSAL_MESSAGE: Readonly<Record<ProjectStatePromotionRefusal, string>> = {
-  project_unavailable: 'Project unavailable',
-  promotion_deleted: 'Project unavailable',
-  promotion_state_invalid: 'Project state unchanged',
-  promotion_stale: 'Project promotion conflict',
-  promotion_not_confirmed: 'Project promotion not confirmed',
-}
-
-export class ProjectStatePromotionError extends Error {
-  readonly reason: ProjectStatePromotionRefusal
-  constructor(reason: ProjectStatePromotionRefusal) {
-    super(REFUSAL_MESSAGE[reason])
-    this.name = 'ProjectStatePromotionError'
-    this.reason = reason
-  }
-}
 
 /**
  * A project or channel row moved between the observation and its versioned
@@ -117,48 +74,6 @@ function refuse(reason: ProjectStatePromotionRefusal): never {
 
 function isProjectId(value: string): boolean {
   return UUID_PATTERN.test(value)
-}
-
-/**
- * The one promotion decision. Deterministic order: audience/non-disclosure
- * first, then lifecycle, then the stale-write token, then explicit opt-in, so
- * the same input always produces the same typed refusal.
- */
-export function decideProjectStatePromotion(input: {
-  project: ProjectStatePromotionObservation | null
-  authorizedWorkspaceId: string
-  expectedVersion: number
-  confirmed: boolean
-}): ProjectStatePromotionDecision {
-  const { project } = input
-  if (!project || project.workspaceId !== input.authorizedWorkspaceId) {
-    return { allowed: false, reason: 'project_unavailable' }
-  }
-  if (project.deletedAt !== null) return { allowed: false, reason: 'promotion_deleted' }
-  if (project.lifecycleState !== 'archived') {
-    return { allowed: false, reason: 'promotion_state_invalid' }
-  }
-  // A non-safe-integer, zero/negative or mismatched revision is unprovable:
-  // it never counts as current.
-  if (
-    !Number.isSafeInteger(input.expectedVersion) ||
-    input.expectedVersion < 1 ||
-    project.version !== input.expectedVersion
-  ) {
-    return { allowed: false, reason: 'promotion_stale' }
-  }
-  if (input.confirmed !== true) return { allowed: false, reason: 'promotion_not_confirmed' }
-  return {
-    allowed: true,
-    plan: Object.freeze({
-      projectId: project.id,
-      audienceWorkspaceId: project.workspaceId,
-      retainedVisibility: project.visibility,
-      from: 'archived',
-      to: 'active',
-      expectedVersion: project.version,
-    }),
-  }
 }
 
 /**
@@ -297,7 +212,7 @@ export async function restoreProjectChannels(
  * `version` atomically with the CAS, so no later write can reuse the token.
  */
 export async function promoteProjectState(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,

@@ -340,6 +340,15 @@ describe('workspaces', () => {
     expect(activeWorkspace({ activeWorkspaceId: 'b', workspaces, needsYou: 0 })?.id).toBe('b')
     expect(activeWorkspace({ activeWorkspaceId: 'z', workspaces, needsYou: 0 })).toBeUndefined()
   })
+
+  test('Home leads the list even when its stored order is later', () => {
+    const workspaces = [
+      workspace('a', 1),
+      { ...workspace('home', 9), isHome: true },
+      workspace('b', 2),
+    ]
+    expect(sortWorkspaces(workspaces).map((entry) => entry.id)).toEqual(['home', 'a', 'b'])
+  })
 })
 
 describe('navTimeAgo', () => {

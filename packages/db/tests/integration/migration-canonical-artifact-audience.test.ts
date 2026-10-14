@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { createHash } from 'node:crypto'
-import { readFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -21,27 +20,17 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { resolveMigrationSnapshotCaptureDomains } from '../../src/migration-snapshot-capture'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { canonicalChainFolders } from '../fixtures/canonical-chain'
-import { DRIZZLE_DIR } from '../fixtures/cutover-rehearsal'
 
 // Audience-side artifact publication and retrieval after the canonical cutover (#1222 acceptance,
 // backed by the #1216 service). The decisions come from the real service and policy on main; the
 // fixture below only creates principals, workspaces, artifacts and grants through the product
-// functions. No authorization logic is copied here. Source pins are in
-// tests/fixtures/artifact-reference-pins.json and are verified before any decision runs.
+// functions. No authorization logic is copied here. #1246 is merged, so the service and policy are
+// the repository's own current modules; their drift is covered by their own suites, not by digests.
 //
 // Not proved here: ambiguous-audience quarantine (no product surface exists) and any audience
 // decision beyond the registered grant and audience list. Artifact capture is not a migration
 // snapshot family yet: #1219's capture domains are tracked separately and this file reports the
 // artifact-grant domain as unknown until that proof lands.
-
-const PINS_PATH = `${import.meta.dir}/../fixtures/artifact-reference-pins.json`
-const REPOSITORY_ROOT = `${import.meta.dir}/../../../..`
-
-type Pins = {
-  dependency: { pullRequest: number; status: string; mergeCommit: string }
-  sourceCommit: string
-  files: Record<string, { sha256: string }>
-}
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
@@ -49,21 +38,7 @@ const SCRATCH_PREFIX = 'rehearsal_1246_'
 const CHECKSUM = 'c'.repeat(64)
 const LOCATION_MARKER = 'outputs/'
 
-function sha256(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex')
-}
-
-describe('audience-side pins (no database)', () => {
-  test('the source is the merged #1246 commit, byte for byte, and the dependency is declared merged', () => {
-    const pins = JSON.parse(readFileSync(PINS_PATH, 'utf8')) as Pins
-    expect(pins.dependency).toMatchObject({ pullRequest: 1246, status: 'merged' })
-    expect(pins.dependency.mergeCommit).toBe(pins.sourceCommit)
-    for (const [path, pin] of Object.entries(pins.files)) {
-      const digest = sha256(readFileSync(`${REPOSITORY_ROOT}/${path}`))
-      expect({ path, digest }).toEqual({ path, digest: pin.sha256 })
-    }
-  })
-
+describe('audience-side capture domain (no database)', () => {
   test('the artifact-grant capture domain is captured now that #1219 has landed (#1248)', () => {
     expect(resolveMigrationSnapshotCaptureDomains(['artifactReferenceGrants'])).toEqual([
       {
@@ -119,9 +94,9 @@ describe.skipIf(!provisioningUrl && !inCi)(
       await adminExecute(`create database "${scratch}"`)
       connection = createDatabase(adminUrl(scratch))
       // Main through 0046, then the canonical cutover: the pinned #1229, #1230, #1232 chain.
-      await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
       const chain = canonicalChainFolders()
       chainRoot = chain.root
+      await migrate(connection.db, { migrationsFolder: chain.base })
       expectedAfterCutover = chain.fullEntries.length
       await migrate(connection.db, { migrationsFolder: chain.full })
       const rows = await connection.db.execute<{ count: number }>(

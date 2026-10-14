@@ -1,5 +1,6 @@
 import { Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export function VirtualUnavailable(props: {
   sceneLabel?: string
@@ -13,7 +14,9 @@ export function VirtualUnavailable(props: {
       role="status"
       aria-label="Virtual view unavailable"
     >
-      <h1 class="text-xl font-semibold">Virtual view lives in Agent Sim</h1>
+      <Heading as="h1" size="page">
+        Virtual view lives in Agent Sim
+      </Heading>
       <p class="max-w-md text-sm text-muted-foreground">
         {props.sceneLabel ? `The ${props.sceneLabel} scene is` : 'The spatial sim is'} part of the
         private Agent Sim engine, which is not included in this build. Chat, tasks, and the rest of

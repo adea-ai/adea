@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/data",
-  "version": "0.88.0",
+  "version": "0.91.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -29,6 +29,12 @@
       "solid": "./src/events.ts",
       "development": "./src/events.ts",
       "import": "./dist/events.js"
+    },
+    "./project-restore": {
+      "types": "./dist/project-restore.d.ts",
+      "solid": "./src/project-restore.ts",
+      "development": "./src/project-restore.ts",
+      "import": "./dist/project-restore.js"
     },
     "./dev-runtime": {
       "types": "./dist/dev-runtime.d.ts",

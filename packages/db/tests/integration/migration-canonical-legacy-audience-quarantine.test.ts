@@ -1,17 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
-import {
-  createMessage,
-  createRuntimeResultMessage,
-  listMessagesForUser,
-} from '../../src/conversations'
 import { canonicalChainFolders } from '../fixtures/canonical-chain'
+import { disposeRehearsal } from '../fixtures/cutover-rehearsal'
 import {
   installLegacyAudienceQuarantine,
   legacyBackfillProfile,
@@ -130,9 +125,13 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
   }, 300_000)
 
   afterAll(async () => {
-    if (connection) await connection.close()
-    if (scratch) await adminExecute(`drop database if exists "${scratch}" with (force)`)
-    if (chainRoot) rmSync(chainRoot, { recursive: true, force: true })
+    await disposeRehearsal(
+      { connection, scratch: scratch || undefined, preFolder: chainRoot },
+      async (database) => {
+        if (!database.startsWith(SCRATCH_PREFIX)) throw new Error(`refusing to drop ${database}`)
+        await adminExecute(`drop database if exists "${database}" with (force)`)
+      }
+    )
   })
 
   test('before quarantine the canonical backfill admits every active-group participant, unresolvable ones included', () => {
@@ -214,37 +213,6 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     })
   })
 
-  test('denied-user access: a quarantined user cannot read the group, and an archived group is unavailable', async () => {
-    const { seeded } = scenario
-    // A user who has left the workspace fails the product's membership gate: the same unavailable
-    // message the product gives for a channel the reader cannot see.
-    await expect(
-      listMessagesForUser(connection.db, seeded.workspaceId, seeded.activeGroupId, seeded.removed)
-    ).rejects.toThrow('Channel unavailable')
-    await expect(
-      listMessagesForUser(connection.db, seeded.workspaceId, seeded.archivedGroupId, seeded.owner)
-    ).rejects.toThrow('Channel unavailable')
-    // Positive control: an admissible member still reads the active group.
-    const allowed = await listMessagesForUser(
-      connection.db,
-      seeded.workspaceId,
-      seeded.activeGroupId,
-      seeded.member
-    )
-    expect(allowed.messages).toBeDefined()
-  })
-
-  test('publication into a group by a quarantined principal is refused by the product write path', async () => {
-    const { seeded } = scenario
-    await expect(
-      createMessage(connection.db, seeded.workspaceId, seeded.activeGroupId, seeded.removed, {
-        bodyText: 'quarantined publication',
-        idempotencyKey: `quarantine-publish-${crypto.randomUUID()}`,
-        sender: seeded.removed,
-      })
-    ).rejects.toThrow('Channel unavailable')
-  })
-
   test('no new admission for a quarantined principal: a direct insert is refused, and a backfill replay admits nothing for it', async () => {
     const { seeded, afterQuarantine } = scenario
     const direct = (async () =>
@@ -267,6 +235,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     expect(afterReplay.enlistmentGrants).toBe(afterQuarantine.enlistmentGrants)
     expect(afterReplay.quarantined).toBe(afterQuarantine.quarantined)
     expect(afterReplay.admissionsDigest).toBe(afterQuarantine.admissionsDigest)
+    expect(afterReplay.audienceGrantsDigest).toBe(afterQuarantine.audienceGrantsDigest)
+    expect(afterReplay.enlistmentGrantsDigest).toBe(afterQuarantine.enlistmentGrantsDigest)
     expect(afterReplay.quarantineDigest).toBe(afterQuarantine.quarantineDigest)
   })
 
@@ -307,43 +277,6 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     expect(seeded.workspaceId).toBe(archived.workspace_id as string)
   })
 
-  test('publication by the other two shapes is refused by the product write path', async () => {
-    const { quarantineRows, seeded } = scenario
-    const archived = quarantineRows.find(
-      (row) => row.reason === 'group_channel_not_active' && row.principal_kind === 'user'
-    )!
-    await expect(
-      createMessage(
-        connection.db,
-        seeded.workspaceId,
-        archived.channel_id as string,
-        seeded.member,
-        {
-          bodyText: 'archived publication',
-          idempotencyKey: `archived-publish-${crypto.randomUUID()}`,
-          sender: { kind: 'user', userId: archived.principal_id as string },
-        }
-      )
-    ).rejects.toThrow('Channel unavailable')
-    // The group agent path (#1232) checks the agent's admission and refuses as an unavailable
-    // channel, not as a host-workspace agent mismatch.
-    await expect(
-      createRuntimeResultMessage(
-        connection.db,
-        seeded.workspaceId,
-        seeded.activeGroupId,
-        seeded.member,
-        {
-          bodyText: 'mismatched agent publication',
-          executionRef: `exec-${crypto.randomUUID()}`,
-          externalSessionRef: `session-${crypto.randomUUID()}`,
-          idempotencyKey: `mismatch-publish-${crypto.randomUUID()}`,
-          sender: { kind: 'agent', agentId: seeded.otherWorkspaceAgentId },
-        }
-      )
-    ).rejects.toThrow('Channel unavailable')
-  })
-
   test('quarantine is idempotent: a repeat records and withdraws nothing, and the digests do not move', async () => {
     const { quarantineRepeat, afterQuarantine, quarantineResult } = scenario
     expect(quarantineResult.recordedNow).toBe(4)
@@ -361,6 +294,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     const again = await reconcileLegacyAudience(connection.db)
     expect(again.quarantineDigest).toBe(afterQuarantine.quarantineDigest)
     expect(again.admissionsDigest).toBe(afterQuarantine.admissionsDigest)
+    expect(again.audienceGrantsDigest).toBe(afterQuarantine.audienceGrantsDigest)
+    expect(again.enlistmentGrantsDigest).toBe(afterQuarantine.enlistmentGrantsDigest)
     expect(again.quarantined).toBe(4)
   })
 

@@ -77,10 +77,23 @@ import {
   type RepoRegistryRow,
   type RepoRegistryState,
 } from './repo-registry-model'
+import { Alert, AlertAction, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge, type BadgeProps } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@adea-ai/ui/components/ui/collapsible'
+import {
+  ItemDescription,
+  ItemGroup,
+  ItemGroupEntry,
+  ItemTitle,
+} from '@adea-ai/ui/components/ui/item'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type RepoRegistryPanelProps = Readonly<{
   scope: Scope
@@ -352,305 +365,330 @@ export function RepoRegistryPanel(props: RepoRegistryPanelProps) {
   }
 
   return (
-    <details class="dev-tree-group">
-      <summary class="dev-tree-row dev-tree-row--group">
-        Repositories
+    <Collapsible>
+      <CollapsibleTrigger as={Button} variant="ghost" size="sm" class="w-full justify-start">
+        <Text variant="overline">Repositories</Text>
         <Show when={state().rows.length > 0}>
-          <span class="dev-tree-row__count">{state().rows.length}</span>
+          <Badge class="ms-auto" size="sm" variant="secondary">
+            {state().rows.length}
+          </Badge>
         </Show>
-      </summary>
-      <Show when={notice()}>
-        {(shown) => (
-          <p class="dev-tree-empty" role={shown().tone === 'alert' ? 'alert' : 'status'}>
-            {shown().text}
-          </p>
-        )}
-      </Show>
-      <Show
-        when={state().status === 'ready' || state().status === 'error'}
-        fallback={
-          <p class="dev-tree-empty" role="status">
-            {state().status === 'loading'
-              ? 'Loading repository registry…'
-              : (state().reason ?? 'Repositories are unavailable.')}
-          </p>
-        }
-      >
-        <Show
-          when={state().rows.length > 0}
-          fallback={
-            <p class="dev-tree-empty">No repository bindings yet. Import a project first.</p>
-          }
-        >
-          <ul aria-label="Registered repositories">
-            <For each={state().rows}>
-              {(row) => {
-                const badge = () => lifecycleBadge(row.lifecycle)
-                const host = () => row.record?.remote?.host
-                const pickerCredentials = () =>
-                  host() === undefined ? [] : credentialRefsForHost(credentials(), host()!)
-                return (
-                  <li class="dev-tree-row dev-tree-row--project" data-repo-id={row.repoId}>
-                    <span class="dev-tree-row__title" title={row.canonicalRoot}>
-                      {repoBaseName(row.canonicalRoot)}
-                    </span>
-                    <Badge size="sm" variant={LIFECYCLE_BADGE_VARIANT[badge().tone ?? 'plain']}>
-                      {badge().label}
-                    </Badge>
-                    <Show when={row.record?.remote}>
-                      <p class="dev-tree-empty">
-                        {row.record?.remote?.displayUrl}
-                        <Show when={row.record?.defaultRef}> · {row.record?.defaultRef}</Show>
-                      </p>
-                    </Show>
-                    <Show when={row.inspection}>
-                      <p class="dev-tree-empty" role="status">
-                        {inspectionLine(row.inspection!)}
-                      </p>
-                    </Show>
-                    <Show
-                      when={adoptPickerRepo() === row.repoId}
-                      fallback={
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div class="flex flex-col gap-2 pt-2">
+          <Show when={notice()}>
+            {(shown) => (
+              <Alert
+                variant={shown().tone === 'alert' ? 'destructive' : 'default'}
+                role={shown().tone === 'alert' ? 'alert' : 'status'}
+              >
+                <AlertDescription>{shown().text}</AlertDescription>
+              </Alert>
+            )}
+          </Show>
+          <Show
+            when={state().status === 'ready' || state().status === 'error'}
+            fallback={
+              <Text variant="caption" tone="muted" role="status">
+                {state().status === 'loading'
+                  ? 'Loading repository registry…'
+                  : (state().reason ?? 'Repositories are unavailable.')}
+              </Text>
+            }
+          >
+            <Show
+              when={state().rows.length > 0}
+              fallback={
+                <Text variant="caption" tone="muted">
+                  No repository bindings yet. Import a project first.
+                </Text>
+              }
+            >
+              <ItemGroup listLabel="Registered repositories">
+                <For each={state().rows}>
+                  {(row) => {
+                    const badge = () => lifecycleBadge(row.lifecycle)
+                    const host = () => row.record?.remote?.host
+                    const pickerCredentials = () =>
+                      host() === undefined ? [] : credentialRefsForHost(credentials(), host()!)
+                    return (
+                      <ItemGroupEntry
+                        variant="outline"
+                        data-repo-id={row.repoId}
+                        trailing={
+                          <Badge
+                            size="sm"
+                            variant={LIFECYCLE_BADGE_VARIANT[badge().tone ?? 'plain']}
+                          >
+                            {badge().label}
+                          </Badge>
+                        }
+                      >
+                        <ItemTitle title={row.canonicalRoot}>
+                          {repoBaseName(row.canonicalRoot)}
+                        </ItemTitle>
+                        <Show when={row.record?.remote}>
+                          <ItemDescription clamp={false}>
+                            {row.record?.remote?.displayUrl}
+                            <Show when={row.record?.defaultRef}> · {row.record?.defaultRef}</Show>
+                          </ItemDescription>
+                        </Show>
+                        <Show when={row.inspection}>
+                          <ItemDescription clamp={false} role="status">
+                            {inspectionLine(row.inspection!)}
+                          </ItemDescription>
+                        </Show>
                         <Show
-                          when={state().pendingRemoveRepoId === row.repoId}
+                          when={adoptPickerRepo() === row.repoId}
                           fallback={
-                            <span class="dev-archive-shelf__actions">
-                              <Show
-                                when={row.lifecycle === 'binding-only'}
-                                fallback={
-                                  <>
+                            <Show
+                              when={state().pendingRemoveRepoId === row.repoId}
+                              fallback={
+                                <div class="flex flex-wrap items-center gap-1">
+                                  <Show
+                                    when={row.lifecycle === 'binding-only'}
+                                    fallback={
+                                      <>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={busy() !== ''}
+                                          onClick={() => void inspect(row)}
+                                        >
+                                          Inspect
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          disabled={busy() !== ''}
+                                          onClick={() => void refresh(row)}
+                                        >
+                                          Refresh
+                                        </Button>
+                                        <Show when={host() !== undefined}>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={busy() !== ''}
+                                            onClick={() => openAuthorizePicker(row)}
+                                          >
+                                            Authorize…
+                                          </Button>
+                                        </Show>
+                                        <Show when={removable(row)}>
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={busy() !== ''}
+                                            onClick={() =>
+                                              setState(requestRemove(state(), row.repoId))
+                                            }
+                                          >
+                                            Remove…
+                                          </Button>
+                                        </Show>
+                                      </>
+                                    }
+                                  >
                                     <Button
                                       type="button"
                                       variant="outline"
                                       size="sm"
                                       disabled={busy() !== ''}
-                                      onClick={() => void inspect(row)}
+                                      onClick={() => openAdoptPicker(row)}
                                     >
-                                      Inspect
+                                      Adopt…
                                     </Button>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      disabled={busy() !== ''}
-                                      onClick={() => void refresh(row)}
-                                    >
-                                      Refresh
-                                    </Button>
-                                    <Show when={host() !== undefined}>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={busy() !== ''}
-                                        onClick={() => openAuthorizePicker(row)}
-                                      >
-                                        Authorize…
-                                      </Button>
-                                    </Show>
-                                    <Show when={removable(row)}>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={busy() !== ''}
-                                        onClick={() => setState(requestRemove(state(), row.repoId))}
-                                      >
-                                        Remove…
-                                      </Button>
-                                    </Show>
-                                  </>
-                                }
+                                  </Show>
+                                </div>
+                              }
+                            >
+                              <Alert
+                                variant="warning"
+                                role="alert"
+                                aria-label={`Confirm removing ${repoBaseName(row.canonicalRoot)}`}
                               >
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={busy() !== ''}
-                                  onClick={() => openAdoptPicker(row)}
-                                >
-                                  Adopt…
-                                </Button>
-                              </Show>
-                            </span>
+                                <AlertDescription>
+                                  {removeConfirmLine(row.canonicalRoot)}
+                                </AlertDescription>
+                                <AlertAction>
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    disabled={busy() !== ''}
+                                    onClick={() => {
+                                      const commit = confirmPendingRemove(state())
+                                      setState(commit.state)
+                                      if (commit.repoId !== undefined) void remove(row)
+                                    }}
+                                  >
+                                    Remove
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setState(cancelPendingRemove(state()))}
+                                  >
+                                    Keep
+                                  </Button>
+                                </AlertAction>
+                              </Alert>
+                            </Show>
                           }
                         >
-                          <span
-                            class="dev-archive-shelf__confirm"
-                            role="alert"
-                            aria-label={`Confirm removing ${repoBaseName(row.canonicalRoot)}`}
+                          <div
+                            class="flex flex-wrap items-center gap-1.5"
+                            role="group"
+                            aria-label="Adopt repository"
                           >
-                            {removeConfirmLine(row.canonicalRoot)}
+                            <Label>
+                              <span class="sr-only">Authorized bookmark for adoption</span>
+                              <NativeSelect
+                                value={adoptBookmarkId()}
+                                onChange={(event) => setAdoptBookmarkId(event.currentTarget.value)}
+                                options={bookmarks()
+                                  .filter(
+                                    (bookmark) =>
+                                      bookmark.state === 'active' && bookmark.kind === 'repository'
+                                  )
+                                  .map((bookmark) => ({
+                                    value: bookmark.id,
+                                    label: bookmark.label,
+                                  }))}
+                              />
+                            </Label>
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="outline"
                               size="sm"
                               disabled={busy() !== ''}
-                              onClick={() => {
-                                const commit = confirmPendingRemove(state())
-                                setState(commit.state)
-                                if (commit.repoId !== undefined) void remove(row)
-                              }}
+                              onClick={() => void adopt(row)}
                             >
-                              Remove
+                              Adopt
                             </Button>
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => setState(cancelPendingRemove(state()))}
+                              onClick={() => setAdoptPickerRepo('')}
                             >
-                              Keep
+                              Cancel
                             </Button>
-                          </span>
+                          </div>
                         </Show>
-                      }
-                    >
-                      <span
-                        class="dev-archive-shelf__confirm"
-                        role="group"
-                        aria-label="Adopt repository"
-                      >
-                        <Label>
-                          <span class="sr-only">Authorized bookmark for adoption</span>
-                          <NativeSelect
-                            value={adoptBookmarkId()}
-                            onChange={(event) => setAdoptBookmarkId(event.currentTarget.value)}
-                            options={bookmarks()
-                              .filter(
-                                (bookmark) =>
-                                  bookmark.state === 'active' && bookmark.kind === 'repository'
-                              )
-                              .map((bookmark) => ({
-                                value: bookmark.id,
-                                label: bookmark.label,
-                              }))}
-                          />
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy() !== ''}
-                          onClick={() => void adopt(row)}
-                        >
-                          Adopt
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setAdoptPickerRepo('')}
-                        >
-                          Cancel
-                        </Button>
-                      </span>
-                    </Show>
-                    <Show when={authorizePickerRepo() === row.repoId}>
-                      <span
-                        class="dev-archive-shelf__confirm"
-                        role="group"
-                        aria-label="Authorize credential"
-                      >
-                        <Label>
-                          <span class="sr-only">Vault credential reference</span>
-                          <NativeSelect
-                            value={authorizeCredentialId()}
-                            onChange={(event) =>
-                              setAuthorizeCredentialId(event.currentTarget.value)
-                            }
-                            options={pickerCredentials().map((ref) => ({
-                              value: ref.id,
-                              label: `${ref.label} (${ref.kind})`,
-                            }))}
-                          />
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy() !== '' || authorizeCredentialId() === ''}
-                          onClick={() => void authorize(row)}
-                        >
-                          Authorize
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setAuthorizePickerRepo('')}
-                        >
-                          Cancel
-                        </Button>
-                      </span>
-                    </Show>
-                  </li>
-                )
-              }}
-            </For>
-          </ul>
-        </Show>
-        <Show when={state().projects.length > 0}>
-          <p class="dev-tree-empty" role="presentation">
-            Project archive
-          </p>
-          <ul aria-label="Project archive">
-            <For each={state().projects}>
-              {(project) => {
-                const archived = () => project.lifecycle === 'archived'
-                const pending = () => state().pendingArchiveProjectId === project.id
-                const name = () => devProjectDisplayName(project.id, props.projectNames)
-                return (
-                  <li class="dev-tree-row dev-tree-row--project" data-project-id={project.id}>
-                    <span class="dev-tree-row__title">{name()}</span>
-                    <Show
-                      when={!pending()}
-                      fallback={
-                        <span
-                          class="dev-archive-shelf__confirm"
-                          role="alert"
-                          aria-label={`Confirm archiving ${name()}`}
-                        >
-                          Archive this project?
-                          <Button
-                            type="button"
-                            variant={archived() ? 'outline' : 'destructive'}
-                            size="sm"
-                            disabled={busy() !== ''}
-                            onClick={() => confirmArchive(project.id)}
+                        <Show when={authorizePickerRepo() === row.repoId}>
+                          <div
+                            class="flex flex-wrap items-center gap-1.5"
+                            role="group"
+                            aria-label="Authorize credential"
                           >
-                            {archived() ? 'Unarchive' : 'Archive'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setState(cancelPendingArchive(state()))}
+                            <Label>
+                              <span class="sr-only">Vault credential reference</span>
+                              <NativeSelect
+                                value={authorizeCredentialId()}
+                                onChange={(event) =>
+                                  setAuthorizeCredentialId(event.currentTarget.value)
+                                }
+                                options={pickerCredentials().map((ref) => ({
+                                  value: ref.id,
+                                  label: `${ref.label} (${ref.kind})`,
+                                }))}
+                              />
+                            </Label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy() !== '' || authorizeCredentialId() === ''}
+                              onClick={() => void authorize(row)}
+                            >
+                              Authorize
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setAuthorizePickerRepo('')}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </Show>
+                      </ItemGroupEntry>
+                    )
+                  }}
+                </For>
+              </ItemGroup>
+            </Show>
+            <Show when={state().projects.length > 0}>
+              <ItemGroup label="Project archive">
+                <For each={state().projects}>
+                  {(project) => {
+                    const archived = () => project.lifecycle === 'archived'
+                    const pending = () => state().pendingArchiveProjectId === project.id
+                    const name = () => devProjectDisplayName(project.id, props.projectNames)
+                    return (
+                      <ItemGroupEntry
+                        variant="outline"
+                        data-project-id={project.id}
+                        trailing={
+                          <Show when={!pending()}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy() !== ''}
+                              onClick={() => setState(requestArchive(state(), project.id))}
+                            >
+                              {archived() ? 'Unarchive' : 'Archive…'}
+                            </Button>
+                          </Show>
+                        }
+                      >
+                        <ItemTitle>{name()}</ItemTitle>
+                        <Show when={pending()}>
+                          <Alert
+                            variant="warning"
+                            role="alert"
+                            aria-label={`Confirm archiving ${name()}`}
                           >
-                            Keep
-                          </Button>
-                        </span>
-                      }
-                    >
-                      <span class="dev-archive-shelf__actions">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy() !== ''}
-                          onClick={() => setState(requestArchive(state(), project.id))}
-                        >
-                          {archived() ? 'Unarchive' : 'Archive…'}
-                        </Button>
-                      </span>
-                    </Show>
-                  </li>
-                )
-              }}
-            </For>
-          </ul>
-        </Show>
-      </Show>
-    </details>
+                            <AlertDescription>Archive this project?</AlertDescription>
+                            <AlertAction>
+                              <Button
+                                type="button"
+                                variant={archived() ? 'outline' : 'destructive'}
+                                size="sm"
+                                disabled={busy() !== ''}
+                                onClick={() => confirmArchive(project.id)}
+                              >
+                                {archived() ? 'Unarchive' : 'Archive'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setState(cancelPendingArchive(state()))}
+                              >
+                                Keep
+                              </Button>
+                            </AlertAction>
+                          </Alert>
+                        </Show>
+                      </ItemGroupEntry>
+                    )
+                  }}
+                </For>
+              </ItemGroup>
+            </Show>
+          </Show>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

@@ -185,8 +185,8 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         historical
       ))!.every(({ kind }) => kind === 'deliver')
     ).toBe(true)
-    // A group stays participants-visible: a workspace-visibility change is refused, so the archive
-    // below is the group change that moves the audience. A removed owner cannot change the group.
+    // Groups remain participants-visible. A workspace-visibility edit is refused,
+    // and the remaining admitted member can still archive the group.
     await expect(
       updateChannel(
         connection.db,
@@ -225,7 +225,7 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
   })
 
   test('workspace-to-private transition gives former readers an ID-free audience resync', async () => {
-    // Visibility transitions are a non-group rule: a group is always participants-visible.
+    // Visibility transitions remain available for non-group conversations.
     const f = await fixture()
     const agent = await createAgent(connection.db, f.workspace.id, f.owner, {
       name: 'Formerly public agent',
@@ -237,10 +237,7 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
       f.workspace.id,
       agent.id,
       f.member,
-      {
-        idempotencyKey: 'formerly-public',
-        title: 'Formerly public',
-      }
+      { idempotencyKey: 'formerly-public', title: 'Formerly public' }
     )
     const group = await updateChannel(
       connection.db,
@@ -422,13 +419,14 @@ describe.skipIf(!connectionUrl)('current conversation event audiences', () => {
         f.events
       )
       expect(small!.every(({ kind }) => kind === 'withheld')).toBe(true)
-      expect(queries).toBe(6)
+      // Six indexed data reads plus begin, isolation setup and commit.
+      expect(queries).toBe(9)
       queries = 0
       const page = Array.from({ length: 24 }, () => f.events).flat()
       const large = await classifyWorkspaceEventsForUser(db, f.workspace.id, f.owner.userId, page)
       expect(large).toHaveLength(120)
       expect(large!.every(({ kind }) => kind === 'withheld')).toBe(true)
-      expect(queries).toBe(6)
+      expect(queries).toBe(9)
     } finally {
       await counting.end({ timeout: 5 })
     }

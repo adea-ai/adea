@@ -75,6 +75,37 @@ function archiveFixtureClient(): AgentHqApiClient {
       ]
       return { archived: true as const, workspaceId }
     },
+    async exportWorkspace(workspaceId: string) {
+      countCall('data-export-calls')
+      harnessRoot().setAttribute('data-export-target', workspaceId)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const mode = harnessRoot().getAttribute('data-export-mode')
+      if (mode === 'too_large') throw new ApiClientError('Too large', 413, 'too_large')
+      if (mode === 'unavailable')
+        throw new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
+      if (mode === 'error') throw new ApiClientError('Server error', 500)
+      const text = JSON.stringify({ format: 'adea.portable-workspace-export', formatVersion: 1 })
+      return {
+        bytes: text.length,
+        fileName: `workspace-${workspaceId}.portable.json`,
+        text,
+      }
+    },
+    async importWorkspace(text: string) {
+      countCall('data-import-calls')
+      harnessRoot().setAttribute('data-import-length', String(text.length))
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const refusal = harnessRoot().getAttribute('data-import-refusal')
+      // A refusal is staged for the first attempt only, so the retry path is reachable.
+      if (refusal && harnessRoot().getAttribute('data-import-calls') === '1')
+        throw new ApiClientError('Refused', 422, refusal)
+      return {
+        contentDigest: 'fixture-digest',
+        counts: { agents: 4, channels: 12, messages: 842, projects: 3, tasks: 57 },
+        deferred: [],
+        workspaceId: 'restored-workspace',
+      }
+    },
     async listArchivedWorkspaces() {
       return { workspaces: archivedRows }
     },
@@ -154,6 +185,7 @@ function Harness() {
       sortOrder,
     }))
   let reorderCalls = 0
+  let openCalls = 0
   let deleteCalls = 0
   const workspaceDialog = workspaceSettingsSectionFromHash(window.location.hash) !== undefined
   // A versioned in-memory workspace store: a stale version is refused the way
@@ -226,6 +258,16 @@ function Harness() {
             client={client()}
             onClose={() => setOpen(false)}
             workspaceOrder={workspaceOrder()}
+            onOpenWorkspace={async (id) => {
+              const root = document.querySelector('#harness-root')!
+              openCalls += 1
+              root.setAttribute('data-open-calls', String(openCalls))
+              await new Promise((resolve) => setTimeout(resolve, 100))
+              // A staged failure covers the first attempt only, so the retry is reachable.
+              if (root.hasAttribute('data-open-failure') && openCalls === 1) return false
+              root.setAttribute('data-opened-workspace', id)
+              return true
+            }}
             onReorderWorkspaces={async (ids) => {
               reorderCalls += 1
               const root = document.querySelector('#harness-root')!

@@ -49,7 +49,7 @@ import {
 } from '../fixtures/cutover-rehearsal'
 import {
   insertLegacyGroup,
-  insertLegacyMessage,
+  insertLegacyMessageSequence,
   insertLegacyProject,
   insertLegacyProjectMember,
   insertLegacyReadState,
@@ -184,7 +184,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
   )
   let latestShared = 0
   for (const body of ['rehearsal-shared-body-1', 'rehearsal-shared-body-2']) {
-    latestShared = await insertLegacyMessage(connection.db, {
+    latestShared = await insertLegacyMessageSequence(connection.db, {
       bodyText: body,
       channelId: sharedId,
       sender: owner,
@@ -205,7 +205,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     'Archived participant-only channel',
     { archived: true }
   )
-  await insertLegacyMessage(connection.db, {
+  await insertLegacyMessageSequence(connection.db, {
     bodyText: 'rehearsal-closed-body',
     channelId: closedId,
     sender: owner,

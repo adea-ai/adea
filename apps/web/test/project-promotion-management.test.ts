@@ -43,13 +43,21 @@ function harness(caller: ManagementCaller, options: Readonly<{ allowed?: boolean
   const calls: ExecutorCall[] = []
   const authorized: Readonly<{ permission: string; workspaceId: string }>[] = []
   const audited: ManagementAuditDecision[] = []
+  async function record(name: string, args: unknown[]) {
+    const assertEffectCurrent = args.at(-1)
+    if (typeof assertEffectCurrent === 'function') await assertEffectCurrent()
+    calls.push({ args: args.slice(0, -1), name })
+  }
   const executors: ManagementExecutors = {
+    archiveWorkspace: async (...args: unknown[]) => {
+      calls.push({ args, name: 'archiveWorkspace' })
+    },
     archiveProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'archiveProject' })
+      await record('archiveProject', args)
     },
     createProject: async () => project,
     promoteProjectState: async (...args: unknown[]) => {
-      calls.push({ args, name: 'promoteProjectState' })
+      await record('promoteProjectState', args)
       return project
     },
     removeProjectMember: async () => true,
@@ -65,7 +73,7 @@ function harness(caller: ManagementCaller, options: Readonly<{ allowed?: boolean
     }),
     setProjectVisibility: async () => project,
     softDeleteProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'softDeleteProject' })
+      await record('softDeleteProject', args)
     },
     updateProject: async () => project,
     updateWorkspace: async () => ({ ...project, version: 2 }),

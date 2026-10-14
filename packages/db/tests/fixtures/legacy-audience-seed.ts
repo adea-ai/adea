@@ -151,10 +151,39 @@ export async function insertLegacyGroup(
 }
 
 /**
+ * A legacy user message in a group channel: the row the pre-#1232 product wrote. Returns its stable
+ * product ID while advancing the channel's denormalized latest sequence as the product did.
+ */
+export async function insertLegacyMessage(
+  migration: AgentHqDatabase,
+  input: Readonly<{
+    bodyText: string
+    channelId: string
+    sender: UserPrincipalRef
+    workspaceId: string
+  }>
+): Promise<string> {
+  const [row] = (await migration.execute<{ id: string }>(sql`
+    with inserted as (
+      insert into app.messages (workspace_id, channel_id, sender_kind, sender_user_id, body_text,
+        idempotency_key, create_payload_hash)
+      values (${input.workspaceId}::uuid, ${input.channelId}::uuid, 'user', ${input.sender.userId}::uuid,
+        ${input.bodyText}, ${`legacy-message-${crypto.randomUUID()}`}, ${`legacy-${crypto.randomUUID()}`})
+      returning id, sequence
+    ), latest as (
+      update app.channels set latest_message_sequence = (select sequence from inserted)
+      where id = ${input.channelId}::uuid
+    )
+    select id::text as id from inserted`)) as unknown as { id: string }[]
+  if (!row) throw new Error('legacy message insert returned no row')
+  return row.id
+}
+
+/**
  * A legacy user message in a group channel: the row the pre-#1232 product wrote. The sequence is the
  * table's identity, and the channel's denormalized latest sequence follows it as the product did.
  */
-export async function insertLegacyMessage(
+export async function insertLegacyMessageSequence(
   migration: AgentHqDatabase,
   input: Readonly<{
     bodyText: string

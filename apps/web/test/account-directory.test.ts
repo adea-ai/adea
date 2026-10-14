@@ -24,11 +24,9 @@ import {
   conversationOpenPatch,
   directoryAgentStatus,
   directoryErrorCopy,
-  directoryTitle,
   inboxEntryLabel,
   inboxKindLabel,
   inboxUnreadModel,
-  parseDirectorySection,
   unreadBadgeText,
   watchAccountIdentity,
 } from '../src/lib/account-directory'
@@ -95,21 +93,6 @@ if (isServer) {
     expect(output).toContain('0 fail')
   }, 25_000)
 } else {
-  describe('directory sections and titles', () => {
-    test('parses only the two real sections', () => {
-      expect(parseDirectorySection('agents')).toBe('agents')
-      expect(parseDirectorySection('inbox')).toBe('inbox')
-      expect(parseDirectorySection('library')).toBeUndefined()
-      expect(parseDirectorySection('')).toBeUndefined()
-      expect(parseDirectorySection(undefined)).toBeUndefined()
-    })
-
-    test('titles name the section', () => {
-      expect(directoryTitle('agents')).toBe('Agents directory')
-      expect(directoryTitle('inbox')).toBe('Conversations inbox')
-    })
-  })
-
   describe('row models', () => {
     test('workspace labels stay neutral for unknown or revoked ids', () => {
       const workspaces = [{ id: 'workspace-1', name: 'Studio' }] as readonly WorkspaceSummary[]

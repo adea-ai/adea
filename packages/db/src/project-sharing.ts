@@ -62,7 +62,7 @@ async function requireProjectRow(
 }
 
 export async function setProjectVisibility(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,
@@ -128,7 +128,7 @@ export async function listProjectMembersForUser(
 
 /** Add a workspace member to a project, or change their role. */
 export async function setProjectMember(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,
@@ -178,7 +178,7 @@ export async function setProjectMember(
 }
 
 export async function removeProjectMember(
-  database: AgentHqDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
   projectId: string,
   principal: UserPrincipalRef,

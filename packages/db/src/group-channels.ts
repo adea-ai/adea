@@ -67,7 +67,7 @@ import { createLeadTurn } from './lead-turns'
 import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
-import { createMessage, getMessageForUser, listMessagesForUser } from './conversations'
+import { createMessageInGroupFence, getMessageForUser, listMessagesForUser } from './conversations'
 import { validateGroupCreation } from './group-participation-policy'
 import {
   admissionForParticipant,
@@ -506,14 +506,10 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   }
   const direct = (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>)
     .message
-  const posted = await createMessage(
-    transaction,
-    workspaceId,
-    channelId,
-    principal,
-    { ...direct, sender },
-    { now: readNow() }
-  )
+  const posted = await createMessageInGroupFence(transaction, workspaceId, channelId, principal, {
+    ...direct,
+    sender,
+  })
   const settledDirect =
     participant === null
       ? null
@@ -683,7 +679,8 @@ export async function createGroupChannelWithGrants(
           transaction,
           candidateIndex,
           candidate.agentId,
-          candidate.workspaceId
+          candidate.workspaceId,
+          principal
         )
     }
     // No conflict arbiter: concurrent retries carry the same explicit id,
@@ -798,6 +795,8 @@ export async function setGroupChannelParticipantsWithGrants(
 /** Test barrier hooks for the roster rewrite; production callers omit them. */
 export type GroupRosterBarrier = Readonly<{
   afterChannelLock?: () => Promise<void>
+  afterSourceAuthorityLocks?: () => Promise<void>
+  afterAgentLock?: () => Promise<void>
 }>
 
 /**
@@ -840,7 +839,12 @@ export async function setGroupChannelParticipantsInTransaction(
         transaction,
         candidateIndex,
         candidate.agentId,
-        candidate.workspaceId
+        candidate.workspaceId,
+        principal,
+        {
+          afterSourceAuthorityLocks: barrier.afterSourceAuthorityLocks,
+          afterAgentLock: barrier.afterAgentLock,
+        }
       )
   }
   const stored = await loadGroupRoster(transaction, workspaceId, channelId)
@@ -1160,15 +1164,16 @@ export async function publishGroupLeadResult(
     principal,
     input.binding,
     input.bodyText,
-    async () => {
-      // Plain reads by design: the service transaction already holds the
-      // admission/grant locks through its own authority check, so
-      // re-locking them here deadlocked this check against the service. A
-      // concurrent revocation still orders outside the service transaction,
-      // and expiry is covered by the fresh trusted instant below.
+    async (transaction) => {
+      // The check reads through the service transaction, so it joins the locks
+      // the service already holds (channel, roster and grants, the lead Agent,
+      // the lead turn row) and checks out no second pool connection. Its
+      // artifact locks last until the publication commits. A revocation
+      // therefore orders wholly before or after this publication, and expiry is
+      // judged at the fresh trusted instant below.
       const freshNow = options.clock?.() ?? options.now ?? liveGroupClock()
-      const gate = await loadChannelGate(database, workspaceId, input.channelId)
-      const roster = await loadGroupRoster(database, workspaceId, input.channelId)
+      const gate = await loadChannelGate(transaction, workspaceId, input.channelId)
+      const roster = await loadGroupRoster(transaction, workspaceId, input.channelId)
       const decision = authorizeGroupChannelPublication(gate, {
         admission: admissionForParticipant(roster, publisher),
         job: bound,
@@ -1176,7 +1181,7 @@ export async function publishGroupLeadResult(
         publisher,
       })
       if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
-      await requireGroupResultArtifacts(database, workspaceId, intent.messageId, {
+      await requireGroupResultArtifacts(transaction, workspaceId, intent.messageId, {
         forUpdate: true,
       })
     }

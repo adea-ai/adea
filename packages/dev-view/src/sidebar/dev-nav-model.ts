@@ -25,7 +25,7 @@
  *   `dev.summary.workspaces` counts; "Needs you" sums mentions and
  *   input-needing runs across every workspace.
  */
-import type { TaskLifecycleState, WorkspaceAccentId, WorkspaceLogo } from '@adea-ai/types'
+import type { TaskLifecycleState, WorkspaceAccent, WorkspaceLogo } from '@adea-ai/types'
 import type { HarnessRun, WorktreeKind } from '@adea-ai/types/dev-runtime'
 import {
   sortProjectLeaves,
@@ -52,7 +52,7 @@ export type DevNavWorkspaceInput = Readonly<{
   id: string
   name: string
   logo: WorkspaceLogo
-  accent: WorkspaceAccentId | null
+  accent: WorkspaceAccent | null
   sortOrder: number
 }>
 

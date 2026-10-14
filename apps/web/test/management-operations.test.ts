@@ -7,7 +7,7 @@ import {
   type ManagementAuditDecision,
   type ManagementCaller,
 } from '../src/server/management-gateway'
-import type { ManagementAuthorityDecision } from '@adea-ai/types/management'
+import type { ManagementAuthorityDecision, ManagementOperationId } from '@adea-ai/types/management'
 import {
   createManagementOperations,
   type ManagementExecutors,
@@ -52,17 +52,25 @@ function harness(caller: ManagementCaller) {
   const audited: ManagementAuditDecision[] = []
   const authorized: Readonly<{ permission: string; workspaceId: string }>[] = []
   const overrides: Partial<ManagementExecutors> = {}
+  async function record(name: string, args: unknown[]) {
+    const assertEffectCurrent = args.at(-1)
+    if (typeof assertEffectCurrent === 'function') await assertEffectCurrent()
+    calls.push({ args: args.slice(0, -1), name })
+  }
   function recorded(name: string, result: unknown) {
     return async (...args: unknown[]) => {
-      calls.push({ args, name })
+      await record(name, args)
       return result
     }
   }
   const executor = <Key extends keyof ManagementExecutors>(key: Key, result: unknown) =>
     (overrides[key] ?? recorded(key, result)) as ManagementExecutors[Key]
   const executors: ManagementExecutors = {
+    archiveWorkspace: async (...args: unknown[]) => {
+      await record('archiveWorkspace', args)
+    },
     archiveProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'archiveProject' })
+      await record('archiveProject', args)
     },
     createProject: executor('createProject', project),
     removeProjectMember: executor('removeProjectMember', true),
@@ -79,7 +87,7 @@ function harness(caller: ManagementCaller) {
     }),
     setProjectVisibility: executor('setProjectVisibility', project),
     softDeleteProject: async (...args: unknown[]) => {
-      calls.push({ args, name: 'softDeleteProject' })
+      await record('softDeleteProject', args)
     },
     updateProject: executor('updateProject', project),
     updateWorkspace: executor('updateWorkspace', { ...project, version: 2 }),
@@ -299,5 +307,219 @@ describe('shared management operations (#1215)', () => {
       args: [DATABASE, WORKSPACE, PRINCIPAL],
       name: 'reopenWorkspace',
     })
+  })
+
+  test('workspace archive requires confirmation and executes through the shared gateway', async () => {
+    const run = harness({ kind: 'human' })
+    const unconfirmed = await run.operations.workspaceArchive({
+      confirmed: false,
+      principal: PRINCIPAL,
+      workspaceId: WORKSPACE,
+    })
+    expect(unconfirmed).toEqual({
+      ok: false,
+      failure: {
+        code: 'conflict',
+        message: 'Management target requires explicit confirmation',
+        operation: 'config.workspace.archive',
+      },
+    })
+    expect(run.authorized).toEqual([])
+    expect(run.calls).toEqual([])
+
+    const archived = await run.operations.workspaceArchive({
+      confirmed: true,
+      principal: PRINCIPAL,
+      workspaceId: WORKSPACE,
+    })
+    expect(archived).toEqual({ ok: true, operation: 'config.workspace.archive', value: null })
+    expect(run.authorized).toEqual([
+      { permission: 'workspace.archive', workspaceId: WORKSPACE },
+      { permission: 'workspace.archive', workspaceId: WORKSPACE },
+    ])
+    expect(run.calls).toEqual([
+      { args: [DATABASE, WORKSPACE, PRINCIPAL], name: 'archiveWorkspace' },
+    ])
+  })
+
+  test('every advertised lead operation takes the identical authorization and executor path', async () => {
+    const USER = '0f3a2e1c-0000-4000-8000-0000000000cc'
+    const cases: ReadonlyArray<{
+      operation: ManagementOperationId
+      targetId: string | null
+      input: Record<string, unknown>
+      invoke: (
+        operations: ManagementOperations,
+        binding: ManagementAuthorityDecision['binding']
+      ) => Promise<unknown>
+    }> = [
+      {
+        operation: 'config.workspace.update',
+        targetId: WORKSPACE,
+        input: { expectedVersion: 2, update: { name: 'Renamed' } },
+        invoke: (operations, binding) =>
+          operations.workspaceUpdate(
+            {
+              expectedVersion: 2,
+              principal: PRINCIPAL,
+              update: { name: 'Renamed' },
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'config.workspace.reopen',
+        targetId: WORKSPACE,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.workspaceReopen({ principal: PRINCIPAL, workspaceId: WORKSPACE }, binding),
+      },
+      {
+        operation: 'config.workspace.archive',
+        targetId: WORKSPACE,
+        input: { confirmed: true },
+        invoke: (operations, binding) =>
+          operations.workspaceArchive(
+            { confirmed: true, principal: PRINCIPAL, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.create',
+        targetId: null,
+        input: { iconKey: 'box', name: 'Created' },
+        invoke: (operations, binding) =>
+          operations.projectCreate(
+            { iconKey: 'box', name: 'Created', principal: PRINCIPAL, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.update',
+        targetId: PROJECT,
+        input: { name: 'Renamed' },
+        invoke: (operations, binding) =>
+          operations.projectUpdate(
+            { name: 'Renamed', principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.archive',
+        targetId: PROJECT,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.projectArchive(
+            { principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.promote',
+        targetId: PROJECT,
+        input: { confirmed: true, expectedVersion: 1 },
+        invoke: (operations, binding) =>
+          operations.projectPromote(
+            {
+              confirmed: true,
+              expectedVersion: 1,
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.delete',
+        targetId: PROJECT,
+        input: {},
+        invoke: (operations, binding) =>
+          operations.projectDelete(
+            { principal: PRINCIPAL, projectId: PROJECT, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.reorder',
+        targetId: null,
+        input: { projectIds: [PROJECT] },
+        invoke: (operations, binding) =>
+          operations.projectReorder(
+            { principal: PRINCIPAL, projectIds: [PROJECT], workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+      {
+        operation: 'project.visibility.set',
+        targetId: PROJECT,
+        input: { visibility: 'workspace' },
+        invoke: (operations, binding) =>
+          operations.projectVisibilitySet(
+            {
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              visibility: 'workspace',
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.member.set',
+        targetId: USER,
+        input: { projectId: PROJECT, role: 'editor' },
+        invoke: (operations, binding) =>
+          operations.projectMemberSet(
+            {
+              principal: PRINCIPAL,
+              projectId: PROJECT,
+              role: 'editor',
+              userId: USER,
+              workspaceId: WORKSPACE,
+            },
+            binding
+          ),
+      },
+      {
+        operation: 'project.member.remove',
+        targetId: USER,
+        input: { projectId: PROJECT },
+        invoke: (operations, binding) =>
+          operations.projectMemberRemove(
+            { principal: PRINCIPAL, projectId: PROJECT, userId: USER, workspaceId: WORKSPACE },
+            binding
+          ),
+      },
+    ]
+
+    for (const entry of cases) {
+      const decision = await managementAuthorityDecision({
+        input: entry.input,
+        operation: entry.operation,
+        targetId: entry.targetId,
+        workspaceId: WORKSPACE,
+      })
+      const human = harness({ kind: 'human' })
+      const humanOutcome = await entry.invoke(human.operations, decision.binding)
+      const lead = harness(leadCaller(decision))
+      const leadOutcome = await entry.invoke(lead.operations, decision.binding)
+      // The lead path must not add, skip or reorder any authorization or
+      // executor step: only the caller identity and its audit row differ.
+      expect(lead.authorized, entry.operation).toEqual(human.authorized)
+      expect(lead.calls, entry.operation).toEqual(human.calls)
+      expect(leadOutcome, entry.operation).toEqual(humanOutcome)
+      expect(lead.audited, entry.operation).toHaveLength(1)
+      expect(lead.audited[0], entry.operation).toMatchObject({
+        decision: 'allowed',
+        operation: entry.operation,
+        // The lead audit attributes exactly the permission the human path
+        // authorized for the same operation.
+        permission: human.authorized[0]?.permission,
+        reason: 'lead_management_allowed',
+        workspaceId: WORKSPACE,
+      })
+    }
   })
 })

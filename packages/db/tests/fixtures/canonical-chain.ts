@@ -107,14 +107,46 @@ export function timestampOrderViolations(entries: { tag: string; when: number }[
   return violations
 }
 
+/** A live copy of a pinned tag must remain byte-for-byte and journal-for-journal identical. */
+export function assertCanonicalOverlayMatchesLive(
+  liveEntries: JournalEntry[],
+  canonicalEntries: JournalEntry[],
+  liveDirectory = DRIZZLE_DIR,
+  canonicalDirectory = CANONICAL_DIR
+): void {
+  const canonicalByTag = new Map(canonicalEntries.map((entry) => [entry.tag, entry]))
+  for (const liveEntry of liveEntries) {
+    const canonicalEntry = canonicalByTag.get(liveEntry.tag)
+    if (!canonicalEntry) continue
+    const journalFields = ['idx', 'version', 'when', 'tag', 'breakpoints'] as const
+    if (journalFields.some((field) => liveEntry[field] !== canonicalEntry[field])) {
+      throw new Error(`live journal entry ${liveEntry.tag} differs from its pinned canonical entry`)
+    }
+    let liveSql: Buffer
+    try {
+      liveSql = readFileSync(`${liveDirectory}/${liveEntry.tag}.sql`)
+    } catch {
+      throw new Error(`live journal entry ${liveEntry.tag} has no matching migration file`)
+    }
+    const canonicalSql = readFileSync(`${canonicalDirectory}/${liveEntry.tag}.sql`)
+    if (!liveSql.equals(canonicalSql)) {
+      throw new Error(
+        `live migration ${liveEntry.tag}.sql differs from its pinned canonical source`
+      )
+    }
+  }
+}
+
 export type CanonicalChainFolders = {
+  /** Main through the pinned base alone: the state a database holds before any canonical entry. */
+  base: string
   /** Main plus #1229 and #1230: the state a database holds before #1232 lands. */
   stageOne: string
   /** Main plus the whole canonical chain, in the approved order. */
   full: string
   /** Every journal entry of `full`, in order, for comparison against the recorded migrations. */
   fullEntries: { tag: string; when: number }[]
-  /** Removes both folders. */
+  /** Removes every assembled folder. */
   root: string
 }
 
@@ -131,16 +163,23 @@ export function canonicalChainFolders(): CanonicalChainFolders {
     version: string
     entries: JournalEntry[]
   }
+  assertCanonicalOverlayMatchesLive(working.entries, canonical)
   // Once #1232 is forward-merged into this branch, the working tree's journal already carries its
-  // canonical entries. The base is everything up to the pinned main tag. Anything after it must be a
-  // pinned canonical entry; any other entry means main advanced and the chain must be re-pinned.
+  // canonical entries. The base is everything up to the pinned main tag. Anything between it and the
+  // last pinned canonical entry must be a pinned canonical entry; any other entry there means main
+  // advanced underneath the chain and it must be re-pinned. Entries after the last canonical entry
+  // are later migrations on top of the landed chain: they are outside this rehearsal and ignored.
   const baseIndex = working.entries.findIndex((entry) => entry.tag === CANONICAL_BASE_TAG)
   if (baseIndex === -1) {
     throw new Error(`main's journal does not contain ${CANONICAL_BASE_TAG}`)
   }
   const pinnedTags = new Set(canonical.map((entry) => entry.tag))
+  const lastPinnedIndex = working.entries.reduce(
+    (last, entry, index) => (pinnedTags.has(entry.tag) ? index : last),
+    baseIndex
+  )
   const advanced = working.entries
-    .slice(baseIndex + 1)
+    .slice(baseIndex + 1, lastPinnedIndex + 1)
     .filter((entry) => !pinnedTags.has(entry.tag))
     .map((entry) => entry.tag)
   if (advanced.length > 0) {
@@ -170,6 +209,7 @@ export function canonicalChainFolders(): CanonicalChainFolders {
   }
 
   return {
+    base: assemble('base', []),
     stageOne: assemble('stage-one', canonical.slice(0, STAGE_ONE_COUNT)),
     full: assemble('full', canonical),
     fullEntries: [...live.entries, ...canonical].map((entry) => ({

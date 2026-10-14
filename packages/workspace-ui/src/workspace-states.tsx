@@ -10,6 +10,7 @@ import {
 } from '@adea-ai/ui/components/ui/empty'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 export function WorkspaceSkeleton(props: { label?: string }) {
   return (
@@ -60,7 +61,9 @@ export function WorkspaceError(props: { error: unknown; retry?: () => void }) {
     <section class="conventional-error" role="alert">
       <AlertTriangle aria-hidden="true" />
       <div>
-        <h2>Something interrupted the workspace</h2>
+        <Heading as="h2" size="card" tone="foreground">
+          Something interrupted the workspace
+        </Heading>
         <p>{errorCopy(props.error)}</p>
       </div>
       <Show when={props.retry}>

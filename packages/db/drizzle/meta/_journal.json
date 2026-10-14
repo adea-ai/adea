@@ -358,6 +358,20 @@
       "when": 1791602651135,
       "tag": "0050_group_legacy_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791898192145,
+      "tag": "0051_workspace_custom_accent",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791912761448,
+      "tag": "0052_lead_handoff_target",
+      "breakpoints": true
     }
   ]
 }

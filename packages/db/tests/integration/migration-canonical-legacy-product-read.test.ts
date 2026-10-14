@@ -117,11 +117,15 @@ async function rolledBack<T>(
 ): Promise<T> {
   let captured: T | undefined
   await runtime
-    .transaction(async (tx) => {
-      // The transaction is handed to the product functions as their database.
-      captured = await probe(tx as unknown as AgentHqDatabase)
-      throw new ProbeRollback()
-    })
+    .transaction(
+      async (tx) => {
+        // The transaction is handed to the product functions as their database.
+        captured = await probe(tx as unknown as AgentHqDatabase)
+        throw new ProbeRollback()
+      },
+      // Coherent product reads refuse a weaker isolation level than a snapshot.
+      { isolationLevel: 'repeatable read' }
+    )
     .catch((error: unknown) => {
       if (!(error instanceof ProbeRollback)) throw error
     })
