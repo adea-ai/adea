@@ -1,6 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
+import { enableKanbanApp } from './helpers/kanban-app'
 import {
   changeAgentProfile,
   createAgent,
@@ -677,6 +678,8 @@ test.describe('the account directory and inbox driven through their UI', () => {
       task.id
     )
 
+    // The linked job opens on the Kanban app, which is optional.
+    await enableKanbanApp(page)
     await openSignedInApp(page)
 
     // The account search stays in force while its result switches to the owner

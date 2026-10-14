@@ -1,6 +1,6 @@
 import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import { Play, Plus, Search, X } from 'lucide-solid'
-import { createMemo, createSignal, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -18,10 +18,12 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { keyedRows, type KeyedRow } from './keyed-rows'
+import { createLazyModule } from './lazy-module'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
 import { ProjectIcon } from './project-icon'
-import { cancelTaskBackgroundLease, TaskPanel } from './task-detail'
+import { cancelTaskBackgroundLease } from './task-background-lease'
+import type { TaskPanel } from './task-detail'
 import {
   kindOption,
   priorityOption,
@@ -67,6 +69,12 @@ type Props = Readonly<{
   tasks: readonly TaskSummary[]
 }>
 
+// The panel and its form controls are off the board's static graph: they load
+// when a task is created or opened, so showing the board downloads neither.
+const taskPanelModule = createLazyModule(() =>
+  import('./task-detail').then((module) => module.TaskPanel)
+)
+
 export function TaskBoard(props: Props) {
   // The board releases any post-close background repair when it unmounts.
   // Solid disposes parent cleanups before child ones, so a lease created by a
@@ -78,6 +86,35 @@ export function TaskBoard(props: Props) {
   const [query, setQuery] = createSignal('')
   const [boardError, setBoardError] = createSignal<string | null>(null)
   const selected = createMemo(() => props.tasks.find(({ id }) => id === props.selectedTaskId))
+  const [panel, setPanel] = createSignal<typeof TaskPanel | undefined>(taskPanelModule.current())
+  // The element focused when the person asked for a panel. The panel loads
+  // asynchronously and focus can move meanwhile, so the request records it and
+  // the next panel to mount takes it; a panel opened without a request (a
+  // deep link) restores to whatever was focused when it mounted.
+  let opener: HTMLElement | undefined
+  const requestPanel = () => {
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+  }
+  const takeOpener = () => {
+    const element = opener
+    opener = undefined
+    return element
+  }
+  const panelWanted = createMemo(() => creating() || selected() !== undefined)
+  createEffect(() => {
+    if (!panelWanted() || panel()) return
+    taskPanelModule.load().then(
+      (component) => setPanel(() => component),
+      () => {
+        opener = undefined
+        setCreating(false)
+        props.onSelect(null)
+        setBoardError(
+          'Task details could not be loaded. Check your connection, then reload to try again.'
+        )
+      }
+    )
+  })
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const projectById = createMemo(
     () => new Map(props.projects.map((project) => [project.id, project]))
@@ -154,6 +191,7 @@ export function TaskBoard(props: Props) {
   }
 
   const openTask = (taskId: string) => {
+    requestPanel()
     setCreating(false)
     setBoardError(null)
     props.onSelect(taskId)
@@ -191,6 +229,7 @@ export function TaskBoard(props: Props) {
           type="button"
           class="ms-auto"
           onClick={() => {
+            requestPanel()
             props.onSelect(null)
             setCreating(true)
           }}
@@ -303,29 +342,39 @@ export function TaskBoard(props: Props) {
           )
         }}
       </Board>
-      <Show when={creating()}>
-        <TaskPanel
-          {...props}
-          mode="create"
-          onClose={() => setCreating(false)}
-          onError={setBoardError}
-          onCreate={props.onCreate}
-        />
-      </Show>
-      {/* Keyed on the task's id, not the task object. The panel's draft is
-          initialised once at setup, so a different task must remount it — but
-          every write hands back a fresh object for the *same* task, and keying
-          on the object remounted the open panel on each one: it flickered shut
-          and open on Save. */}
-      <Show when={selected()?.id} keyed>
-        {(taskId) => (
-          <TaskPanel
-            {...props}
-            mode="edit"
-            task={props.tasks.find(({ id }) => id === taskId)!}
-            onClose={() => props.onSelect(null)}
-            onError={setBoardError}
-          />
+      <Show when={panel()}>
+        {(Panel) => (
+          <>
+            <Show when={creating()}>
+              <Dynamic
+                component={Panel()}
+                {...props}
+                mode="create"
+                opener={takeOpener()}
+                onClose={() => setCreating(false)}
+                onError={setBoardError}
+                onCreate={props.onCreate}
+              />
+            </Show>
+            {/* Keyed on the task's id, not the task object. The panel's draft is
+                initialised once at setup, so a different task must remount it — but
+                every write hands back a fresh object for the *same* task, and keying
+                on the object remounted the open panel on each one: it flickered shut
+                and open on Save. */}
+            <Show when={selected()?.id} keyed>
+              {(taskId) => (
+                <Dynamic
+                  component={Panel()}
+                  {...props}
+                  mode="edit"
+                  opener={takeOpener()}
+                  task={props.tasks.find(({ id }) => id === taskId)!}
+                  onClose={() => props.onSelect(null)}
+                  onError={setBoardError}
+                />
+              )}
+            </Show>
+          </>
         )}
       </Show>
     </section>

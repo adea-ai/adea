@@ -6274,14 +6274,21 @@ alone is insufficient.
 [Owner correction #757](../research/shell-app-library-owner-corrections.md)
 separates **App Library** from the external **Plugins** marketplace. Library is
 an always-reachable full-screen destination directly below the rail's app
-icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
-Source control is a compiled optional destination, enabled explicitly. Kanban
-is the only full task list (the workspace sidebar has no Tasks entry; open tasks
+icons. Virtual, Chat and Dev are bundled and enabled by default; Kanban and
+Source control are compiled optional destinations, enabled explicitly. Kanban
+is the full task list (the workspace sidebar has no Tasks entry; open tasks
 appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
-result or link to a task opens Kanban; with Kanban disabled, the board opens
-inside Chat instead. Library retains rail reorder and reset controls.
+result or link to a task opens Kanban once it is enabled; otherwise the board
+opens inside Chat instead. A person whose stored rail record already placed
+Kanban keeps it; the default record no longer lists it. The board and the task
+panel are lazy: the Tasks surface loads the board chunk on entry (a skeleton
+shows meanwhile, and a failed load offers Retry, which reloads the page because a
+browser keeps a failed module fetch for the life of the page), and the panel chunk
+loads when a task is created or opened (a failed load closes the request and says
+so on the board). Neither is in Chat's initial graph.
+Library retains rail reorder and reset controls.
 Chat’s central conversation surface uses the canonical theme background in
 both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled

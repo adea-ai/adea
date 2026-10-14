@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 // The visual helpers install transition suppression for every capture; see
 // helpers/visual.ts for the race this closes.
 import { expect, test, type Locator, type Page } from './helpers/visual'
+import { enableKanbanApp } from './helpers/kanban-app'
 
 import {
   accentRolesForSelection,
@@ -1747,6 +1748,7 @@ test('restores a channel reading position without rearming transcript follow', a
 
 test('opens the Task panel beside the board and restores focus on dismissal', async ({ page }) => {
   await mockWorkspace(page)
+  await enableKanbanApp(page)
   await page.goto('/?view=chat&app=kanban')
   const taskTrigger = page.getByRole('button', { name: 'Launch planning', exact: true })
   await taskTrigger.click()
@@ -1808,6 +1810,7 @@ test('opens the Task panel beside the board and restores focus on dismissal', as
 
 test('creates a Task from a side panel without moving the board', async ({ page }) => {
   await mockWorkspace(page)
+  await enableKanbanApp(page)
   const created: unknown[] = []
   const boardTasks = tasks.map((task) => ({ ...task }))
   const refetch = { released: false, waiting: new Set<() => void>() }
@@ -1861,10 +1864,91 @@ test('creates a Task from a side panel without moving the board', async ({ page 
   }
 })
 
+test('a failed board load offers Retry, which reloads into the board', async ({ page }) => {
+  await mockWorkspace(page)
+  await enableKanbanApp(page)
+  // The board implementation is its own chunk; fail it until the person retries.
+  // A browser keeps a failed module fetch for the life of the page, so Retry
+  // reloads the page.
+  let failBoard = true
+  await page.route('**/task-board.tsx*', (route) =>
+    failBoard ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const failure = page.getByRole('alert').filter({ hasText: 'Something interrupted the workspace' })
+  await expect(failure).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toHaveCount(0)
+  failBoard = false
+  await failure.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(failure).toHaveCount(0)
+})
+
+test('a failed Task panel load reports on the board and a reload recovers', async ({ page }) => {
+  await mockWorkspace(page)
+  await enableKanbanApp(page)
+  let failPanel = true
+  await page.route('**/task-detail.tsx*', (route) =>
+    failPanel ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const card = page.getByRole('button', { name: 'Launch planning', exact: true })
+  await card.click()
+  await expect(page.getByText('Task details could not be loaded.')).toBeVisible()
+  // The board stays usable: no panel opened and nothing is left selected.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
+  failPanel = false
+  await page.reload()
+  await card.click()
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+})
+
+test('Chat does not fetch the board or the Task panel until Tasks opens', async ({ page }) => {
+  await mockWorkspace(page)
+  await enableKanbanApp(page)
+  const fetched: string[] = []
+  page.on('request', (request) => {
+    const match = /\/(task-board(?:-surface)?|task-detail)\.tsx/.exec(request.url())
+    if (match) fetched.push(match[1]!)
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
+  expect(fetched.filter((name) => name !== 'task-board-surface')).toEqual([])
+  // Opening the board downloads it, and the panel only when a task opens.
+  await page.goto('/?view=chat&app=kanban')
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-board')
+  expect(fetched).not.toContain('task-detail')
+  await page.getByRole('button', { name: 'Launch planning', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit task', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-detail')
+})
+
+test('a task link opens the lazy board and panel inside Chat while Kanban is off', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  // Kanban is off by default: the link opens the board inside Chat.
+  await page.goto('/?view=chat&task=task-launch')
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+  await expect(page).not.toHaveURL(/app=kanban/)
+  await detail.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(detail).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
+})
+
 test('edits a Task with first-click selects and closes on Save without reopening', async ({
   page,
 }) => {
   await mockWorkspace(page)
+  await enableKanbanApp(page)
   const updates: unknown[] = []
   const boardTasks = tasks.map((task) => ({ ...task }))
   await page.route('**/api/v1/workspaces/**/tasks**', async (route) => {
@@ -1946,6 +2030,7 @@ test('Task board preserves task data and moves cards with keyboard and drag', as
   page,
 }, testInfo) => {
   await mockWorkspace(page)
+  await enableKanbanApp(page)
   let boardTasks = tasks.map((task) => ({ ...task }))
   const taskActions: string[] = []
   const nextStateByAction = {
@@ -3701,7 +3786,10 @@ test('optional apps open actual task and source control views without hiding the
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  // Kanban is on by default: it is the only place tasks are listed.
+  // Kanban is optional: it is off until the person enables it. Tasks stay
+  // reachable from Chat's own Tasks surface in the meantime.
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
   await expect(library.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
   await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
   await expect(page).toHaveURL(/app=kanban/)
@@ -3737,7 +3825,7 @@ test('all-off stale links remain in Library while enabling the first app', async
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  for (const name of ['Virtual', 'Chat', 'Dev', 'Kanban'])
+  for (const name of ['Virtual', 'Chat', 'Dev'])
     await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
   await page.goto('/?view=dev')
   await expect(page).toHaveURL(/app=library/)
@@ -3760,12 +3848,13 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   // Alt+Arrow moves the focused rail view; the live region announces it.
   await views.getByRole('button', { name: 'Chat view', exact: true }).click()
   await page.keyboard.press('Alt+ArrowUp')
-  await expect(rail.getByRole('status')).toHaveText('Chat moved to position 1 of 4')
+  await expect(rail.getByRole('status')).toHaveText('Chat moved to position 1 of 3')
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
   await page.reload()
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
   await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Kanban', exact: true })).toBeVisible()
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
@@ -3778,8 +3867,8 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
   await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Virtual view')
-  // Reset restores the defaults, and Kanban is one of them.
-  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(1)
+  // Reset restores the defaults; Kanban is optional, so it leaves the rail.
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
 })
 
 test('App Library drag and keyboard ordering shares rail placements and persists hidden apps', async ({
@@ -3812,16 +3901,16 @@ test('App Library drag and keyboard ordering shares rail placements and persists
   // An enabled-only filter must not replace the canonical order with its
   // partial list. Move Dev with a keyboard-activated shared ActionButton.
   await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
-  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev', 'kanban'])
+  await expect.poll(appOrder).toEqual(['virtual', 'chat', 'dev'])
   const moveDevLeft = library.getByRole('button', { name: 'Move Dev left', exact: true })
   await moveDevLeft.focus()
   await page.keyboard.press('Enter')
-  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
+  await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat'])
   await expect(library.getByRole('button', { name: 'Move Dev left', exact: true })).toBeFocused()
   await expect(library.getByRole('status')).toHaveText('Dev moved to position 2 of 5')
   await library.getByRole('button', { name: 'Show enabled only', exact: true }).click()
   await expect.poll(appOrder).toEqual(['virtual', 'dev', 'chat', 'kanban', 'source-control'])
-  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
 
   // Drag the optional, currently hidden app before Virtual. Reordering keeps
   // it hidden until the explicit Enable action and retains the remaining apps.
@@ -3840,14 +3929,14 @@ test('App Library drag and keyboard ordering shares rail placements and persists
   await expect(
     library.getByRole('button', { name: 'Enable Source control', exact: true })
   ).toBeVisible()
-  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat', 'kanban'])
+  await expect.poll(railOrder).toEqual(['virtual', 'dev', 'chat'])
 
   await library.getByRole('button', { name: 'Enable Source control', exact: true }).click()
   await expect
     .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
     .toEqual({
-      enabledApps: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
-      rail: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
+      enabledApps: ['source-control', 'virtual', 'dev', 'chat'],
+      rail: ['source-control', 'virtual', 'dev', 'chat'],
     })
   await page.reload()
   await expect(library).toBeVisible()
@@ -3858,8 +3947,8 @@ test('App Library drag and keyboard ordering shares rail placements and persists
   await expect
     .poll(async () => ({ enabledApps: await enabledAppOrder(), rail: await railOrder() }))
     .toEqual({
-      enabledApps: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
-      rail: ['source-control', 'virtual', 'dev', 'chat', 'kanban'],
+      enabledApps: ['source-control', 'virtual', 'dev', 'chat'],
+      rail: ['source-control', 'virtual', 'dev', 'chat'],
     })
 })
 
