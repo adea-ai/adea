@@ -428,6 +428,61 @@ describe('test suite boundaries', () => {
     expect(runner).toContain('plan.routeFiles.length > 0')
   })
 
+  test('reports the visual and host lanes on every ready pull request through required gates', () => {
+    type Workflow = {
+      on: { pull_request: { paths?: string[]; types: string[] } }
+      jobs: Record<string, { name?: string; needs?: string | string[]; if?: string }>
+    }
+    const ruleset = JSON.parse(
+      readFileSync(resolve(root, '.github/rulesets/code-foundry-main.json'), 'utf8')
+    ) as {
+      rules: {
+        type: string
+        parameters?: { required_status_checks: { context: string }[] }
+      }[]
+    }
+    const required = ruleset.rules
+      .find((rule) => rule.type === 'required_status_checks')!
+      .parameters!.required_status_checks.map((check) => check.context)
+
+    for (const [file, gateName, laneJob] of [
+      ['visual-lane.yml', 'Visual gate', 'visual'],
+      ['tanstack-start.yml', 'Host gate', 'verify'],
+    ] as const) {
+      const source = readFileSync(resolve(root, `.github/workflows/${file}`), 'utf8')
+      const workflow = Bun.YAML.parse(source) as Workflow
+      // A path filter never reports on an unrelated pull request, so a required check cannot have
+      // one; applicability is decided inside the run instead.
+      expect(workflow.on.pull_request.paths).toBeUndefined()
+      // Never-draft pull requests (release automation) emit only opened/reopened, so the required
+      // gate must trigger on them; drafts are still kept off the runners by the draft guard below.
+      expect(workflow.on.pull_request.types).toEqual([
+        'opened',
+        'reopened',
+        'synchronize',
+        'ready_for_review',
+      ])
+      expect(workflow.jobs.changes!.if).toContain('github.event.pull_request.draft == false')
+      expect(workflow.jobs.gate!.if).toContain('github.event.pull_request.draft == false')
+      expect(workflow.jobs.gate!.name).toBe(gateName)
+      expect(workflow.jobs.gate!.needs).toEqual(['changes', laneJob])
+      expect(workflow.jobs.gate!.if).toContain('always()')
+      expect(workflow.jobs[laneJob]!.needs).toBe('changes')
+      expect(source).toContain(
+        `node scripts/ci-lane-selection.mjs ${laneJob === 'visual' ? 'visual' : 'host'}`
+      )
+      expect(required).toContain(gateName)
+    }
+    expect(required).toContain('Validation / Gate')
+
+    // The pixel suites are chosen from the change, never by pull-request number parity.
+    const visualLane = readFileSync(resolve(root, '.github/workflows/visual-lane.yml'), 'utf8')
+    expect(visualLane).not.toContain('PR_NUMBER')
+    expect(visualLane).not.toContain('% 2')
+    expect(visualLane).toContain('RUN_WORKSPACE: ${{ needs.changes.outputs.workspace }}')
+    expect(visualLane).toContain('RUN_CHAT: ${{ needs.changes.outputs.chat }}')
+  })
+
   test('builds desktop releases entirely on GitHub-hosted runners', () => {
     const workflow = readFileSync(resolve(root, '.github/workflows/release-assets.yml'), 'utf8')
     expect(workflow).not.toContain('self-hosted')
