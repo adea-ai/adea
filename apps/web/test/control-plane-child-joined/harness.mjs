@@ -15,7 +15,11 @@ const binary = process.env.PI_FACTORY_BUN
 const url = process.env.DATABASE_URL && new URL(process.env.DATABASE_URL)
 if (!root || !binary || !url || url.hostname !== '127.0.0.1' || url.port !== '55432')
   throw new Error('EXPLICIT_LOCAL_ADEA_DATABASE_AND_CP_RUNTIME_REQUIRED')
-export const pin = JSON.parse(readFileSync(new URL('./source.json', import.meta.url), 'utf8'))
+// The default pin is the merged CP commit. The child-allowance boundary suite names its own pin file
+// (a CP draft head) so it never moves the default proof off merged source.
+const pinFile = process.env.PI_FACTORY_SOURCE_PIN ?? 'source.json'
+if (!/^source[a-z-]*\.json$/.test(pinFile)) throw new Error('INVALID_SOURCE_PIN_FILE')
+export const pin = JSON.parse(readFileSync(new URL(`./${pinFile}`, import.meta.url), 'utf8'))
 const git = (...args) => {
   const r = Bun.spawnSync(['git', '-C', root, ...args], { stdout: 'pipe', stderr: 'pipe' })
   if (r.exitCode !== 0) throw new Error('CP_SOURCE_VERIFICATION_FAILED')

@@ -205,23 +205,55 @@ Run hygiene: the host is terminated if graceful cleanup stalls; its owned dispos
 removed only after the process is reaped. Adea's fixture workspace is archived and its temporary
 session expires.
 
+## Child allowance boundary (CP draft #1136)
+
+CP #1136 adds an optional `childAllowance` (`stated` with USD microunits and tokens, or
+`not_stated`) to the lead `prepare` response. The preparation schema in the SDK is strict, so the
+SDK that accepts the field must be released and Adea bumped to it **before** the CP change is
+deployed. `child-allowance-boundary.test.mjs` measures that boundary instead of assuming it. Adea's
+product prepares (and, where the field is accepted, dispatches) the lead through the installed
+SDK over HTTP to CP's control API at the #1136 head, for a profile that states an allowance and one
+that states none, and asserts what Adea must do either way:
+
+- installed SDK rejects the field: the turn is `blocked` / `RUNTIME_UNAVAILABLE`, nothing starts,
+  0 physical sends. This is the failure rollout must avoid.
+- installed SDK accepts it: prepare returns `prepared`, the typed field equals the pinned profile
+  version's statement (or `not_stated`), a response without the field still parses, a half
+  statement is rejected, and dispatch runs the lead.
+
+```sh
+# Pin to the #1136 head; the manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>`
+# in the clean, built CP checkout at that head.
+PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json \
+DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at d0cc27c3> PI_FACTORY_BUN=<bun 1.4.2> \
+PI_FACTORY_MANIFEST=<candidate>/manifest.json \
+  bun run test:integration:control-plane-child-allowance
+```
+
+`PI_FACTORY_INSTALL` selects what is under test, and the suite prints it with every result:
+
+| Install                                                                                  | Result at `d0cc27c3` (local, 2026-10-14)                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| default `registry-predating-candidate`: Adea's lockfile (sdk 1.18.0, runtime-sdk 1.15.1) | 8 of 8 pass; `installedAccepts: false`, `blocked` / `RUNTIME_UNAVAILABLE` in both modes. Seven files differ from the candidate: runtime-sdk `dist/pi-durable-lead.{js,d.ts}` and their maps, sdk `dist/operations.d.ts{,.map}` and `openapi/control-plane.v3.json`. |
+| `candidate-overlay`: the packed candidate archives in a throwaway checkout               | 8 of 8 pass, twice; `installedAccepts: true`, `prepared`, typed field equal to the profile statement, dispatch runs. Archive digests and the installed payload are checked against the manifest.                                                                    |
+
+The overlay is pre-release evidence for a change no published package carries. It is not evidence
+about Adea's lockfile or a release: the candidate keeps the published version numbers (sdk 1.18.0,
+runtime-sdk 1.15.1), which a release will change, and Adea's own checks (clean install, lockfile,
+typecheck, unit lanes) have not run against it. The qualification is complete only when the same
+suite reports `installedAccepts: true` on the default registry install after the bump.
+
 ## Remaining dependencies
 
 - Repin `source.json` to a published CP release once one carries #1123 and #1131 (CP main
   `7d36f9bb` is a source revision). Neither changed a published package's version, so the installed
   SDK checks above do not depend on it.
 - Backend contract: CP draft #1136 (head `d0cc27c3`) adds an optional `childAllowance` to the lead
-  `prepare` response (`stated` with USD microunits and tokens, or `not_stated`), read from the
-  accepted plan and bound to the plan digest and the pinned profile version. Until it merges and a
-  release carries it, nothing discloses the allowance to Adea, so the UI must keep showing nothing
-  about it. Not consumable yet: the installed SDK's preparation schema is strict, and a probe of
-  this harness against `d0cc27c3` showed the installed runtime-sdk rejecting the response with
-  `unrecognized_keys: childAllowance`, so Adea's `prepare` came back `blocked` /
-  `RUNTIME_UNAVAILABLE`. Adea must bump the SDK before a control plane emits the field; after
-  that, Adea carries the parsed field on the prepared selection (persisting it needs its own
-  schema change) and shows it next to the payer confirmation. Authoring and publishing production
-  lead profile definitions with a stated allowance is CP catalog work, not Adea's. This proof is
-  still pinned to the merged `7d36f9bb`, which predates the field.
+  `prepare` response. See "Child allowance boundary" above. This proof stays pinned to the merged
+  `7d36f9bb`, which predates the field. Adea has not shipped any display of it: that needs a
+  published SDK, a persistence change (the prepare record has no JSON column), a line beside the
+  payer confirmation and the canvas update. Authoring and publishing production lead profile
+  definitions with a stated allowance is CP catalog work, not Adea's.
 - Open design point from CP #1123 (CP-owned): whether a child's plan ceiling must fit within the
   parent's stated allowance.
 - No CP composition root builds `CanonicalDelegationRuntimeBridge` or passes

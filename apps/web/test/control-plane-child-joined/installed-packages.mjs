@@ -20,7 +20,26 @@ const webManifestUrl = new URL('../../package.json', import.meta.url)
 // compared.
 const loadFields = ['name', 'version', 'type', 'main', 'module', 'types', 'exports', 'files']
 
-export async function verifyInstalledPackages({ manifestPath, expectedHead, cpRoot, port }) {
+/**
+ * installKind 'registry' (default): the packages are registry installs from Adea's lockfile, with
+ * exact pins. 'candidate-overlay': a throwaway checkout whose manifest points at the packed
+ * candidate archives themselves (file: tarballs). That is pre-release evidence for a CP change no
+ * published package carries yet; it is never evidence about Adea's lockfile or a release.
+ * 'registry-predating-candidate': registry installs as above, but the candidate is expected to
+ * differ (it carries a CP change no release has yet). The payload is not asserted equal; the files
+ * that differ are returned so the gap a release must close is on the record.
+ */
+export async function verifyInstalledPackages({
+  manifestPath,
+  expectedHead,
+  cpRoot,
+  port,
+  installKind = 'registry',
+}) {
+  assert.ok(
+    ['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind),
+    'UNKNOWN_INSTALL_KIND'
+  )
   const manifest = verifyFactoryArchives(manifestPath, expectedHead)
   const source = verifyFactorySource(cpRoot, manifest)
   const webManifest = JSON.parse(readFileSync(webManifestUrl, 'utf8'))
@@ -37,13 +56,22 @@ export async function verifyInstalledPackages({ manifestPath, expectedHead, cpRo
     const installedRoot = resolve(dirname(entry), '..')
     const installed = JSON.parse(readFileSync(resolve(installedRoot, 'package.json'), 'utf8'))
     assert.equal(installed.name, artifact.name)
-    // A registry install in Adea's dependency graph, not a file: or workspace link.
-    assert.match(installedRoot, /node_modules\/\.bun\/@adea-ai\+[a-z-]+@[0-9.]+\/node_modules\//)
+    if (installKind !== 'candidate-overlay') {
+      // A registry install in Adea's dependency graph, not a file: or workspace link.
+      assert.match(installedRoot, /node_modules\/\.bun\/@adea-ai\+[a-z-]+@[0-9.]+\/node_modules\//)
+    } else {
+      // The overlay installs exactly the packed archive the manifest names.
+      assert.match(installedRoot, /node_modules\/\.bun\/@adea-ai\+[a-z-]+@/)
+      assert.equal(sha256(readFileSync(artifact.archivePath)), artifact.sha256, 'ARCHIVE_DIGEST')
+      if (artifact.name !== '@adea-ai/runtime-sdk')
+        assert.equal(webManifest.dependencies[artifact.name], `file:${artifact.archivePath}`)
+    }
     // A patch version can differ when the release changed nothing a consumer loads (CP's contracts
     // 1.21.1 changed tests only). The identity claim is the payload comparison below, and the
     // version difference is reported, never hidden.
     for (const field of loadFields.filter((key) => key !== 'version'))
       assert.deepEqual(installed[field], artifact.declared[field], `${artifact.name} ${field}`)
+    const differing = []
     const tarEntries = execFileSync('tar', ['-tf', artifact.archivePath], { encoding: 'utf8' })
       .split('\n')
       .filter((name) => name && !name.endsWith('/') && name !== 'package/package.json')
@@ -54,6 +82,10 @@ export async function verifyInstalledPackages({ manifestPath, expectedHead, cpRo
         maxBuffer: 20 * 1024 * 1024,
       })
       const actual = readFileSync(resolve(installedRoot, name.slice('package/'.length)))
+      if (installKind === 'registry-predating-candidate') {
+        if (sha256(actual) !== sha256(built)) differing.push(name.slice('package/'.length))
+        continue
+      }
       assert.equal(
         sha256(actual),
         sha256(built),
@@ -64,10 +96,18 @@ export async function verifyInstalledPackages({ manifestPath, expectedHead, cpRo
       name: artifact.name,
       version: installed.version,
       comparedFiles: tarEntries.length,
+      ...(installKind === 'registry-predating-candidate'
+        ? { candidateVersion: artifact.version, differingFiles: differing.toSorted() }
+        : {}),
     })
   }
-  for (const name of ['@adea-ai/sdk', '@adea-ai/contracts'])
-    assert.match(webManifest.dependencies[name], /^\d+\.\d+\.\d+$/, `${name} must be an exact pin`)
+  if (installKind !== 'candidate-overlay')
+    for (const name of ['@adea-ai/sdk', '@adea-ai/contracts'])
+      assert.match(
+        webManifest.dependencies[name],
+        /^\d+\.\d+\.\d+$/,
+        `${name} must be an exact pin`
+      )
   assert.equal(port.supported, true, 'PI_FACTORY_PROOF_UNSUPPORTED_INSTALLED_SDK')
   const actualSdk = await import(sdkEntry)
   for (const method of leadFactoryMethods) {
@@ -75,5 +115,11 @@ export async function verifyInstalledPackages({ manifestPath, expectedHead, cpRo
     assert.equal(typeof actualSdk.ControlApiOperations[method].requestSchema.parse, 'function')
     assert.equal(typeof actualSdk.ControlApiOperations[method].responseSchema.parse, 'function')
   }
-  return { head: manifest.head, sourceDigest: source.sourceDigest, tree: source.tree, packages }
+  return {
+    head: manifest.head,
+    sourceDigest: source.sourceDigest,
+    tree: source.tree,
+    installKind,
+    packages,
+  }
 }

@@ -815,6 +815,16 @@ input.on('line', (line) => {
       const leadRun = await adoptSdkDispatch(request.intentId, request)
       data = leadRun.ok ? { ok: true, ...(await leadEvidence()) } : leadRun
     } else if (request.command === 'provenance') data = await profileProvenance()
+    else if (request.command === 'profile-statement')
+      // The pinned profile version as CP's catalog fixture holds it, readable before any dispatch.
+      data = {
+        source: host.childAllowanceSource,
+        profileId: host.profile.profileId,
+        profileVersionId: host.profile.profileVersionId,
+        version: host.profile.version,
+        revision: host.profile.revision,
+        allowance: stated(host.profile.definition.executionConstraints),
+      }
     else if (request.command === 'authority') {
       setAuthority(request.mode)
       data = { mode: request.mode }
