@@ -89,7 +89,14 @@ function Harness() {
     <>
       <div class="h-96">
         <HistoryPane
-          status={params.get('status') === 'loading' ? 'loading' : 'ready'}
+          status={
+            params.get('status') === 'loading'
+              ? 'loading'
+              : params.get('status') === 'stale'
+                ? 'stale'
+                : 'ready'
+          }
+          onRetry={() => setJumps((current) => [...current, 'retry'])}
           events={[...base, ...filler]}
           session={session}
           runs={[run]}

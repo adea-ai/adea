@@ -206,7 +206,9 @@ export function searchConversationHistory(input: ConversationSearchInput): Conve
   )
   for (const [runtimeSessionId, source] of input.events) {
     const session = sessions.get(runtimeSessionId)
-    for (const event of [...source]
+    // Credential-classified events never reach a surface, search included.
+    for (const event of source
+      .filter((candidate) => candidate.classification !== 'credential')
       .toSorted((left, right) => (sequence(right) < sequence(left) ? -1 : 1))
       .slice(0, MAX_EVENT_WINDOW)) {
       const row = eventRow(event, session)

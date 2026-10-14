@@ -2,642 +2,304 @@
 // docs/specs/dev-runtime-operations.json. Do not edit by hand.
 // Browser-safe operation metadata; request DSL and reply schema names stay in the server registry.
 
-import * as operationMetadata from './dev-runtime-operation-metadata/index'
-
 export * from './dev-runtime-operation-metadata/index'
 
-// Keep the dynamic compatibility map compact without widening its public shape.
-function commandMetadata<T extends { capabilities: unknown; resource: unknown }>(
-  definition: T
-): Pick<T, 'capabilities' | 'resource'> {
-  return { capabilities: definition.capabilities, resource: definition.resource }
-}
+const resource0 = { kind: 'browser_lane', idField: 'browserLaneId' } as const
+const resource1 = { kind: 'cleanup_policy', idField: 'cleanupPolicyId' } as const
+const resource2 = { kind: 'computeruse_lane', idField: 'computerUseLaneId' } as const
+const resource3 = { kind: 'device_session', idField: 'deviceSessionId' } as const
+const resource4 = { kind: 'device_inventory', idField: 'inventoryId' } as const
+const resource5 = { kind: 'workspace_root', idField: 'worktreeId' } as const
+const resource6 = { kind: 'worktree', idField: 'worktreeId' } as const
+const resource7 = { kind: 'repository', idField: 'repoId' } as const
+const resource8 = { kind: 'pull_request', idField: 'pullRequestId' } as const
+const resource9 = { kind: 'acp_connection', idField: 'acpConnectionId' } as const
+const resource10 = { kind: 'runtime_session', idField: 'runtimeSessionId' } as const
+const resource11 = { kind: 'project', idField: 'projectId' } as const
+const resource12 = { kind: 'foreign_process', idField: 'foreignProcessId' } as const
+const resource13 = { kind: 'janitor_plan', idField: 'planId' } as const
+const resource14 = { kind: 'process', idField: 'processRecordId' } as const
+const resource15 = { kind: 'terminal', idField: 'terminalId' } as const
+const capabilities0 = ['dev.browser.control'] as const
+const capabilities1 = ['dev.browser.read'] as const
+const capabilities2 = ['dev.browser.cookies'] as const
+const capabilities3 = [] as const
+const capabilities4 = ['dev.cleanup.approve'] as const
+const capabilities5 = ['dev.resources.read'] as const
+const capabilities6 = ['dev.computeruse.read'] as const
+const capabilities7 = ['dev.computeruse.control'] as const
+const capabilities8 = ['dev.harness.read', 'dev.repo.read'] as const
+const capabilities9 = ['dev.repo.manage'] as const
+const capabilities10 = ['dev.harness.manage'] as const
+const capabilities11 = ['dev.device.read'] as const
+const capabilities12 = ['dev.device.control'] as const
+const capabilities13 = ['dev.files.write'] as const
+const capabilities14 = ['dev.files.read'] as const
+const capabilities15 = ['dev.git.write'] as const
+const capabilities16 = ['dev.git.read'] as const
+const capabilities17 = ['dev.github.read'] as const
+const capabilities18 = ['dev.github.write'] as const
+const capabilities19 = ['dev.gitlab.read'] as const
+const capabilities20 = ['dev.gitlab.write'] as const
+const capabilities21 = ['dev.harness.read'] as const
+const capabilities22 = ['dev.memory.propose'] as const
+const capabilities23 = ['dev.project.manage'] as const
+const capabilities24 = ['dev.project.read'] as const
+const capabilities25 = ['dev.project.manage', 'dev.repo.manage'] as const
+const capabilities26 = ['dev.files.read', 'dev.project.read'] as const
+const capabilities27 = ['dev.repo.read'] as const
+const capabilities28 = ['dev.resources.stopForeign'] as const
+const capabilities29 = ['dev.resources.janitor'] as const
+const capabilities30 = ['dev.resources.configure'] as const
+const capabilities31 = ['dev.resources.stop'] as const
+const capabilities32 = ['dev.session.manage'] as const
+const capabilities33 = ['dev.session.read'] as const
+const capabilities34 = ['dev.summary.read'] as const
+const capabilities35 = ['dev.terminal.attach'] as const
+const capabilities36 = ['dev.terminal.manage'] as const
+const capabilities37 = ['dev.terminal.input'] as const
+const capabilities38 = ['dev.worktree.manage'] as const
+const capabilities39 = ['dev.cleanup.approve', 'dev.worktree.manage'] as const
+const capabilities40 = ['dev.git.read', 'dev.worktree.read'] as const
+const capabilities41 = ['dev.worktree.read'] as const
 
 export const devOperationMetadata = {
-  'dev.browser.annotate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_annotate
-  ),
-  'dev.browser.attach': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_attach
-  ),
-  'dev.browser.cookieImportCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_cookieImportCommit
-  ),
-  'dev.browser.cookieImportPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_cookieImportPlan
-  ),
-  'dev.browser.cookieSources': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_cookieSources
-  ),
-  'dev.browser.diagnostics': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_diagnostics
-  ),
-  'dev.browser.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_browser_input),
-  'dev.browser.inspect': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_inspect
-  ),
-  'dev.browser.laneClose': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_laneClose
-  ),
-  'dev.browser.laneCreate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_laneCreate
-  ),
-  'dev.browser.lanes': commandMetadata(operationMetadata.devOperationMetadataFor_dev_browser_lanes),
-  'dev.browser.navigate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_navigate
-  ),
-  'dev.browser.profilePolicies': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_profilePolicies
-  ),
-  'dev.browser.profileReset': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_profileReset
-  ),
-  'dev.browser.release': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_release
-  ),
-  'dev.browser.screenshot': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_screenshot
-  ),
-  'dev.browser.takeover': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_takeover
-  ),
-  'dev.browser.targets': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_targets
-  ),
-  'dev.browser.viewport': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_browser_viewport
-  ),
-  'dev.capability.snapshot': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_capability_snapshot
-  ),
-  'dev.cleanupPolicy.approve': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_approve
-  ),
-  'dev.cleanupPolicy.createDraft': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_createDraft
-  ),
-  'dev.cleanupPolicy.disable': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_disable
-  ),
-  'dev.cleanupPolicy.evaluate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_evaluate
-  ),
-  'dev.cleanupPolicy.list': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_cleanupPolicy_list
-  ),
-  'dev.computeruse.attach': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_attach
-  ),
-  'dev.computeruse.capabilities': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_capabilities
-  ),
-  'dev.computeruse.consent': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_consent
-  ),
-  'dev.computeruse.input': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_input
-  ),
-  'dev.computeruse.laneClose': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_laneClose
-  ),
-  'dev.computeruse.laneCreate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_laneCreate
-  ),
-  'dev.computeruse.lanes': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_lanes
-  ),
-  'dev.computeruse.release': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_release
-  ),
-  'dev.computeruse.takeover': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_computeruse_takeover
-  ),
-  'dev.connections.get': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_connections_get
-  ),
-  'dev.connections.setGitHosting': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_connections_setGitHosting
-  ),
-  'dev.connections.setHarnessAccount': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_connections_setHarnessAccount
-  ),
-  'dev.device.attach': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_attach),
-  'dev.device.input': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_input),
-  'dev.device.capabilities': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_device_capabilities
-  ),
-  'dev.device.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_list),
-  'dev.device.screenshot': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_device_screenshot
-  ),
-  'dev.device.sessions': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_device_sessions
-  ),
-  'dev.device.start': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_start),
-  'dev.device.stop': commandMetadata(operationMetadata.devOperationMetadataFor_dev_device_stop),
-  'dev.files.copy': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_copy),
-  'dev.files.copyTreeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_copyTreeCommit
-  ),
-  'dev.files.copyTreePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_copyTreePlan
-  ),
-  'dev.files.create': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_create),
-  'dev.files.delete': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_delete),
-  'dev.files.deleteTreeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_deleteTreeCommit
-  ),
-  'dev.files.deleteTreePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_deleteTreePlan
-  ),
-  'dev.files.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_list),
-  'dev.files.openExternal': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_openExternal
-  ),
-  'dev.files.read': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_read),
-  'dev.files.readStream': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_readStream
-  ),
-  'dev.files.rename': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_rename),
-  'dev.files.renameOverwriteCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_renameOverwriteCommit
-  ),
-  'dev.files.renameOverwritePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_renameOverwritePlan
-  ),
-  'dev.files.search': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_search),
-  'dev.files.stat': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_stat),
-  'dev.files.write': commandMetadata(operationMetadata.devOperationMetadataFor_dev_files_write),
-  'dev.files.writeStream': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_files_writeStream
-  ),
-  'dev.git.checkpoint': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_checkpoint
-  ),
-  'dev.git.checkpointPrune': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_checkpointPrune
-  ),
-  'dev.git.commit': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_commit),
-  'dev.git.diff': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_diff),
-  'dev.git.discardCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_discardCommit
-  ),
-  'dev.git.discardPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_discardPlan
-  ),
-  'dev.git.fetch': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_fetch),
-  'dev.git.history': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_history),
-  'dev.git.hunkStagingCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_hunkStagingCommit
-  ),
-  'dev.git.hunkStagingPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_hunkStagingPlan
-  ),
-  'dev.git.restoreCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_restoreCommit
-  ),
-  'dev.git.restorePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_git_restorePlan
-  ),
-  'dev.git.stage': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_stage),
-  'dev.git.status': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_status),
-  'dev.git.unstage': commandMetadata(operationMetadata.devOperationMetadataFor_dev_git_unstage),
-  'dev.github.account': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_account
-  ),
-  'dev.github.assignableUsers': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_assignableUsers
-  ),
-  'dev.github.autoMergeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_autoMergeCommit
-  ),
-  'dev.github.autoMergePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_autoMergePlan
-  ),
-  'dev.github.branches': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_branches
-  ),
-  'dev.github.checkLog': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_checkLog
-  ),
-  'dev.github.checks': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_checks),
-  'dev.github.comment': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_comment
-  ),
-  'dev.github.commits': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_commits
-  ),
-  'dev.github.compare': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_compare
-  ),
-  'dev.github.createPullRequest': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_createPullRequest
-  ),
-  'dev.github.files': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_files),
-  'dev.github.issues': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_issues),
-  'dev.github.labels': commandMetadata(operationMetadata.devOperationMetadataFor_dev_github_labels),
-  'dev.github.mergeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_mergeCommit
-  ),
-  'dev.github.mergePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_mergePlan
-  ),
-  'dev.github.metadataUpdate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_metadataUpdate
-  ),
-  'dev.github.milestones': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_milestones
-  ),
-  'dev.github.pullRequest': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pullRequest
-  ),
-  'dev.github.pullRequestSummaries': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummaries
-  ),
-  'dev.github.pullRequestSummary': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pullRequestSummary
-  ),
-  'dev.github.pullRequests': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pullRequests
-  ),
-  'dev.github.pushCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pushCommit
-  ),
-  'dev.github.pushPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_pushPlan
-  ),
-  'dev.github.repositories': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_repositories
-  ),
-  'dev.github.repository': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_repository
-  ),
-  'dev.github.rerunFailedJobs': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_rerunFailedJobs
-  ),
-  'dev.github.submitReview': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_submitReview
-  ),
-  'dev.github.syncBranchCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_syncBranchCommit
-  ),
-  'dev.github.syncBranchPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_syncBranchPlan
-  ),
-  'dev.github.threadReply': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_threadReply
-  ),
-  'dev.github.threadResolve': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_threadResolve
-  ),
-  'dev.github.timeline': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_timeline
-  ),
-  'dev.github.updateBranchCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_updateBranchCommit
-  ),
-  'dev.github.updateBranchPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_updateBranchPlan
-  ),
-  'dev.github.updateCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_updateCommit
-  ),
-  'dev.github.updatePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_github_updatePlan
-  ),
-  'dev.gitlab.account': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_account
-  ),
-  'dev.gitlab.assignableUsers': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_assignableUsers
-  ),
-  'dev.gitlab.autoMergeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergeCommit
-  ),
-  'dev.gitlab.autoMergePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_autoMergePlan
-  ),
-  'dev.gitlab.branches': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_branches
-  ),
-  'dev.gitlab.checkLog': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_checkLog
-  ),
-  'dev.gitlab.checks': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_checks),
-  'dev.gitlab.comment': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_comment
-  ),
-  'dev.gitlab.commits': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_commits
-  ),
-  'dev.gitlab.compare': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_compare
-  ),
-  'dev.gitlab.createPullRequest': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_createPullRequest
-  ),
-  'dev.gitlab.files': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_files),
-  'dev.gitlab.labels': commandMetadata(operationMetadata.devOperationMetadataFor_dev_gitlab_labels),
-  'dev.gitlab.mergeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_mergeCommit
-  ),
-  'dev.gitlab.mergePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_mergePlan
-  ),
-  'dev.gitlab.metadataUpdate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_metadataUpdate
-  ),
-  'dev.gitlab.pullRequest': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequest
-  ),
-  'dev.gitlab.pullRequestSummaries': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummaries
-  ),
-  'dev.gitlab.pullRequestSummary': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_pullRequestSummary
-  ),
-  'dev.gitlab.repository': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_repository
-  ),
-  'dev.gitlab.rerunFailedJobs': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_rerunFailedJobs
-  ),
-  'dev.gitlab.submitReview': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_submitReview
-  ),
-  'dev.gitlab.syncBranchCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchCommit
-  ),
-  'dev.gitlab.syncBranchPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_syncBranchPlan
-  ),
-  'dev.gitlab.threadReply': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_threadReply
-  ),
-  'dev.gitlab.threadResolve': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_threadResolve
-  ),
-  'dev.gitlab.timeline': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_timeline
-  ),
-  'dev.gitlab.updateCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_updateCommit
-  ),
-  'dev.gitlab.updatePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_gitlab_updatePlan
-  ),
-  'dev.harness.accountProfiles.create': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_create
-  ),
-  'dev.harness.accountProfiles.delete': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_delete
-  ),
-  'dev.harness.accountProfiles.list': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_accountProfiles_list
-  ),
-  'dev.harness.acpClose': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_acpClose
-  ),
-  'dev.harness.acpConnect': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_acpConnect
-  ),
-  'dev.harness.acpConnections': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_acpConnections
-  ),
-  'dev.harness.deviceDefault': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_deviceDefault
-  ),
-  'dev.harness.deviceDefaultUpdate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_deviceDefaultUpdate
-  ),
-  'dev.harness.inventory': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_inventory
-  ),
-  'dev.harness.inventoryRefresh': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_inventoryRefresh
-  ),
-  'dev.harness.managedPiInstall': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_managedPiInstall
-  ),
-  'dev.harness.managedPiStatus': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_managedPiStatus
-  ),
-  'dev.harness.preferenceReset': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_preferenceReset
-  ),
-  'dev.harness.preferenceUpdate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_preferenceUpdate
-  ),
-  'dev.harness.preferences': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_preferences
-  ),
-  'dev.harness.runStatus': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_harness_runStatus
-  ),
-  'dev.harness.runs': commandMetadata(operationMetadata.devOperationMetadataFor_dev_harness_runs),
-  'dev.memory.propose': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_memory_propose
-  ),
-  'dev.project.archive': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_archive
-  ),
-  'dev.project.authorizeRoot': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_authorizeRoot
-  ),
-  'dev.project.bookmarks': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_bookmarks
-  ),
-  'dev.project.clone': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_clone),
-  'dev.project.create': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_create
-  ),
-  'dev.project.get': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_get),
-  'dev.project.import': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_import
-  ),
-  'dev.project.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_list),
-  'dev.project.scan': commandMetadata(operationMetadata.devOperationMetadataFor_dev_project_scan),
-  'dev.project.unbind': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_unbind
-  ),
-  'dev.project.update': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_project_update
-  ),
-  'dev.repo.adopt': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_adopt),
-  'dev.repo.authorize': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_repo_authorize
-  ),
-  'dev.repo.credentialRefs': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_repo_credentialRefs
-  ),
-  'dev.repo.inspect': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_inspect),
-  'dev.repo.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_list),
-  'dev.repo.refresh': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_refresh),
-  'dev.repo.remove': commandMetadata(operationMetadata.devOperationMetadataFor_dev_repo_remove),
-  'dev.resources.foreignStopCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopCommit
-  ),
-  'dev.resources.foreignStopPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_foreignStopPlan
-  ),
-  'dev.resources.janitorCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_janitorCommit
-  ),
-  'dev.resources.janitorMeasure': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_janitorMeasure
-  ),
-  'dev.resources.janitorPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_janitorPlan
-  ),
-  'dev.resources.janitorScan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_janitorScan
-  ),
-  'dev.resources.metrics': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_metrics
-  ),
-  'dev.resources.ports': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_ports
-  ),
-  'dev.resources.preferences': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_preferences
-  ),
-  'dev.resources.preferencesUpdate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_preferencesUpdate
-  ),
-  'dev.resources.processes': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_processes
-  ),
-  'dev.resources.restartCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_restartCommit
-  ),
-  'dev.resources.restartPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_restartPlan
-  ),
-  'dev.resources.retainedData': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_retainedData
-  ),
-  'dev.resources.snapshot': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_snapshot
-  ),
-  'dev.resources.stopCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_stopCommit
-  ),
-  'dev.resources.stopPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_stopPlan
-  ),
-  'dev.resources.usage': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_usage
-  ),
-  'dev.resources.worktreeStorage': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_resources_worktreeStorage
-  ),
-  'dev.session.archive': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_archive
-  ),
-  'dev.session.cancelHarness': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_cancelHarness
-  ),
-  'dev.session.create': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_create
-  ),
-  'dev.session.events': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_events
-  ),
-  'dev.session.get': commandMetadata(operationMetadata.devOperationMetadataFor_dev_session_get),
-  'dev.session.launchDefault': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_launchDefault
-  ),
-  'dev.session.launchHarness': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_launchHarness
-  ),
-  'dev.session.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_session_list),
-  'dev.session.resumeHarness': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_resumeHarness
-  ),
-  'dev.session.transferInput': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_transferInput
-  ),
-  'dev.session.unarchive': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_session_unarchive
-  ),
-  'dev.summary.workspaces': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_summary_workspaces
-  ),
-  'dev.terminal.attach': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_attach
-  ),
-  'dev.terminal.checkpoint': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_checkpoint
-  ),
-  'dev.terminal.create': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_create
-  ),
-  'dev.terminal.detach': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_detach
-  ),
-  'dev.terminal.historyDelete': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_historyDelete
-  ),
-  'dev.terminal.input': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_input
-  ),
-  'dev.terminal.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_terminal_list),
-  'dev.terminal.resize': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_resize
-  ),
-  'dev.terminal.search': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_search
-  ),
-  'dev.terminal.shellProfiles': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_shellProfiles
-  ),
-  'dev.terminal.signal': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_signal
-  ),
-  'dev.terminal.terminate': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_terminal_terminate
-  ),
-  'dev.worktree.archive': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_archive
-  ),
-  'dev.worktree.cleanupCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupCommit
-  ),
-  'dev.worktree.cleanupJobs': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupJobs
-  ),
-  'dev.worktree.cleanupPlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupPlan
-  ),
-  'dev.worktree.cleanupResume': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_cleanupResume
-  ),
-  'dev.worktree.create': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_create
-  ),
-  'dev.worktree.diffSummary': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_diffSummary
-  ),
-  'dev.worktree.lease': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_lease
-  ),
-  'dev.worktree.list': commandMetadata(operationMetadata.devOperationMetadataFor_dev_worktree_list),
-  'dev.worktree.mergeCommit': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_mergeCommit
-  ),
-  'dev.worktree.mergePlan': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_mergePlan
-  ),
-  'dev.worktree.releaseLease': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_releaseLease
-  ),
-  'dev.worktree.rename': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_rename
-  ),
-  'dev.worktree.retryBootstrap': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_retryBootstrap
-  ),
-  'dev.worktree.unarchive': commandMetadata(
-    operationMetadata.devOperationMetadataFor_dev_worktree_unarchive
-  ),
+  'dev.browser.annotate': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.attach': { capabilities: capabilities1, resource: resource0 },
+  'dev.browser.cookieImportCommit': { capabilities: capabilities2, resource: resource0 },
+  'dev.browser.cookieImportPlan': { capabilities: capabilities2, resource: resource0 },
+  'dev.browser.cookieSources': { capabilities: capabilities2, resource: null },
+  'dev.browser.diagnostics': { capabilities: capabilities1, resource: resource0 },
+  'dev.browser.input': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.inspect': { capabilities: capabilities1, resource: resource0 },
+  'dev.browser.laneClose': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.laneCreate': { capabilities: capabilities0, resource: null },
+  'dev.browser.lanes': { capabilities: capabilities1, resource: null },
+  'dev.browser.navigate': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.profilePolicies': { capabilities: capabilities1, resource: null },
+  'dev.browser.profileReset': { capabilities: capabilities2, resource: resource0 },
+  'dev.browser.release': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.screenshot': { capabilities: capabilities1, resource: resource0 },
+  'dev.browser.takeover': { capabilities: capabilities0, resource: resource0 },
+  'dev.browser.targets': { capabilities: capabilities1, resource: resource0 },
+  'dev.browser.viewport': { capabilities: capabilities0, resource: resource0 },
+  'dev.capability.snapshot': { capabilities: capabilities3, resource: null },
+  'dev.cleanupPolicy.approve': { capabilities: capabilities4, resource: resource1 },
+  'dev.cleanupPolicy.createDraft': { capabilities: capabilities4, resource: null },
+  'dev.cleanupPolicy.disable': { capabilities: capabilities4, resource: resource1 },
+  'dev.cleanupPolicy.evaluate': { capabilities: capabilities4, resource: resource1 },
+  'dev.cleanupPolicy.list': { capabilities: capabilities5, resource: null },
+  'dev.computeruse.attach': { capabilities: capabilities6, resource: resource2 },
+  'dev.computeruse.capabilities': { capabilities: capabilities6, resource: null },
+  'dev.computeruse.consent': { capabilities: capabilities7, resource: resource2 },
+  'dev.computeruse.input': { capabilities: capabilities7, resource: resource2 },
+  'dev.computeruse.laneClose': { capabilities: capabilities7, resource: resource2 },
+  'dev.computeruse.laneCreate': { capabilities: capabilities7, resource: null },
+  'dev.computeruse.lanes': { capabilities: capabilities6, resource: null },
+  'dev.computeruse.release': { capabilities: capabilities7, resource: resource2 },
+  'dev.computeruse.takeover': { capabilities: capabilities7, resource: resource2 },
+  'dev.connections.get': { capabilities: capabilities8, resource: null },
+  'dev.connections.setGitHosting': { capabilities: capabilities9, resource: null },
+  'dev.connections.setHarnessAccount': { capabilities: capabilities10, resource: null },
+  'dev.device.attach': { capabilities: capabilities11, resource: resource3 },
+  'dev.device.input': { capabilities: capabilities12, resource: resource3 },
+  'dev.device.capabilities': { capabilities: capabilities11, resource: null },
+  'dev.device.list': { capabilities: capabilities11, resource: null },
+  'dev.device.screenshot': { capabilities: capabilities11, resource: resource3 },
+  'dev.device.sessions': { capabilities: capabilities11, resource: null },
+  'dev.device.start': { capabilities: capabilities12, resource: resource4 },
+  'dev.device.stop': { capabilities: capabilities12, resource: resource3 },
+  'dev.files.copy': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.copyTreeCommit': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.copyTreePlan': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.create': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.delete': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.deleteTreeCommit': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.deleteTreePlan': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.list': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.openExternal': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.read': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.readStream': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.rename': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.renameOverwriteCommit': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.renameOverwritePlan': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.search': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.stat': { capabilities: capabilities14, resource: resource5 },
+  'dev.files.write': { capabilities: capabilities13, resource: resource5 },
+  'dev.files.writeStream': { capabilities: capabilities13, resource: resource5 },
+  'dev.git.checkpoint': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.checkpointPrune': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.commit': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.diff': { capabilities: capabilities16, resource: resource6 },
+  'dev.git.discardCommit': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.discardPlan': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.fetch': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.history': { capabilities: capabilities16, resource: resource6 },
+  'dev.git.hunkStagingCommit': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.hunkStagingPlan': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.restoreCommit': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.restorePlan': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.stage': { capabilities: capabilities15, resource: resource6 },
+  'dev.git.status': { capabilities: capabilities16, resource: resource6 },
+  'dev.git.unstage': { capabilities: capabilities15, resource: resource6 },
+  'dev.github.account': { capabilities: capabilities17, resource: null },
+  'dev.github.assignableUsers': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.autoMergeCommit': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.autoMergePlan': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.branches': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.checkLog': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.checks': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.comment': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.commits': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.compare': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.createPullRequest': { capabilities: capabilities18, resource: resource7 },
+  'dev.github.files': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.issues': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.labels': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.mergeCommit': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.mergePlan': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.metadataUpdate': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.milestones': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.pullRequest': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.pullRequestSummaries': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.pullRequestSummary': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.pullRequests': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.pushCommit': { capabilities: capabilities18, resource: resource7 },
+  'dev.github.pushPlan': { capabilities: capabilities18, resource: resource7 },
+  'dev.github.repositories': { capabilities: capabilities17, resource: null },
+  'dev.github.repository': { capabilities: capabilities17, resource: resource7 },
+  'dev.github.rerunFailedJobs': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.submitReview': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.syncBranchCommit': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.syncBranchPlan': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.threadReply': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.threadResolve': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.timeline': { capabilities: capabilities17, resource: resource8 },
+  'dev.github.updateBranchCommit': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.updateBranchPlan': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.updateCommit': { capabilities: capabilities18, resource: resource8 },
+  'dev.github.updatePlan': { capabilities: capabilities18, resource: resource8 },
+  'dev.gitlab.account': { capabilities: capabilities19, resource: null },
+  'dev.gitlab.assignableUsers': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.autoMergeCommit': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.autoMergePlan': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.branches': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.checkLog': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.checks': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.comment': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.commits': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.compare': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.createPullRequest': { capabilities: capabilities20, resource: resource7 },
+  'dev.gitlab.files': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.labels': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.mergeCommit': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.mergePlan': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.metadataUpdate': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.pullRequest': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.pullRequestSummaries': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.pullRequestSummary': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.repository': { capabilities: capabilities19, resource: resource7 },
+  'dev.gitlab.rerunFailedJobs': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.submitReview': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.syncBranchCommit': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.syncBranchPlan': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.threadReply': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.threadResolve': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.timeline': { capabilities: capabilities19, resource: resource8 },
+  'dev.gitlab.updateCommit': { capabilities: capabilities20, resource: resource8 },
+  'dev.gitlab.updatePlan': { capabilities: capabilities20, resource: resource8 },
+  'dev.harness.accountProfiles.create': { capabilities: capabilities10, resource: null },
+  'dev.harness.accountProfiles.delete': { capabilities: capabilities10, resource: null },
+  'dev.harness.accountProfiles.list': { capabilities: capabilities21, resource: null },
+  'dev.harness.acpClose': { capabilities: capabilities10, resource: resource9 },
+  'dev.harness.acpConnect': { capabilities: capabilities10, resource: resource10 },
+  'dev.harness.acpConnections': { capabilities: capabilities21, resource: null },
+  'dev.harness.deviceDefault': { capabilities: capabilities21, resource: null },
+  'dev.harness.deviceDefaultUpdate': { capabilities: capabilities10, resource: null },
+  'dev.harness.inventory': { capabilities: capabilities21, resource: null },
+  'dev.harness.inventoryRefresh': { capabilities: capabilities10, resource: null },
+  'dev.harness.managedPiInstall': { capabilities: capabilities10, resource: null },
+  'dev.harness.managedPiStatus': { capabilities: capabilities21, resource: null },
+  'dev.harness.preferenceReset': { capabilities: capabilities10, resource: null },
+  'dev.harness.preferenceUpdate': { capabilities: capabilities10, resource: null },
+  'dev.harness.preferences': { capabilities: capabilities21, resource: null },
+  'dev.harness.runStatus': { capabilities: capabilities10, resource: resource10 },
+  'dev.harness.runs': { capabilities: capabilities21, resource: null },
+  'dev.memory.propose': { capabilities: capabilities22, resource: resource10 },
+  'dev.project.archive': { capabilities: capabilities23, resource: resource11 },
+  'dev.project.authorizeRoot': { capabilities: capabilities23, resource: null },
+  'dev.project.bookmarks': { capabilities: capabilities24, resource: null },
+  'dev.project.clone': { capabilities: capabilities25, resource: null },
+  'dev.project.create': { capabilities: capabilities23, resource: null },
+  'dev.project.get': { capabilities: capabilities24, resource: resource11 },
+  'dev.project.import': { capabilities: capabilities23, resource: null },
+  'dev.project.list': { capabilities: capabilities24, resource: null },
+  'dev.project.scan': { capabilities: capabilities26, resource: null },
+  'dev.project.unbind': { capabilities: capabilities23, resource: resource11 },
+  'dev.project.update': { capabilities: capabilities23, resource: resource11 },
+  'dev.repo.adopt': { capabilities: capabilities9, resource: resource7 },
+  'dev.repo.authorize': { capabilities: capabilities9, resource: resource7 },
+  'dev.repo.credentialRefs': { capabilities: capabilities27, resource: null },
+  'dev.repo.inspect': { capabilities: capabilities27, resource: resource7 },
+  'dev.repo.list': { capabilities: capabilities27, resource: null },
+  'dev.repo.refresh': { capabilities: capabilities9, resource: resource7 },
+  'dev.repo.remove': { capabilities: capabilities9, resource: resource7 },
+  'dev.resources.foreignStopCommit': { capabilities: capabilities28, resource: resource12 },
+  'dev.resources.foreignStopPlan': { capabilities: capabilities28, resource: resource12 },
+  'dev.resources.janitorCommit': { capabilities: capabilities29, resource: resource13 },
+  'dev.resources.janitorMeasure': { capabilities: capabilities5, resource: null },
+  'dev.resources.janitorPlan': { capabilities: capabilities29, resource: null },
+  'dev.resources.janitorScan': { capabilities: capabilities5, resource: null },
+  'dev.resources.metrics': { capabilities: capabilities5, resource: null },
+  'dev.resources.ports': { capabilities: capabilities5, resource: null },
+  'dev.resources.preferences': { capabilities: capabilities5, resource: null },
+  'dev.resources.preferencesUpdate': { capabilities: capabilities30, resource: null },
+  'dev.resources.processes': { capabilities: capabilities5, resource: null },
+  'dev.resources.restartCommit': { capabilities: capabilities31, resource: resource14 },
+  'dev.resources.restartPlan': { capabilities: capabilities31, resource: resource14 },
+  'dev.resources.retainedData': { capabilities: capabilities5, resource: null },
+  'dev.resources.snapshot': { capabilities: capabilities5, resource: null },
+  'dev.resources.stopCommit': { capabilities: capabilities31, resource: resource14 },
+  'dev.resources.stopPlan': { capabilities: capabilities31, resource: resource14 },
+  'dev.resources.usage': { capabilities: capabilities5, resource: null },
+  'dev.resources.worktreeStorage': { capabilities: capabilities5, resource: null },
+  'dev.session.archive': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.cancelHarness': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.create': { capabilities: capabilities32, resource: null },
+  'dev.session.events': { capabilities: capabilities33, resource: resource10 },
+  'dev.session.get': { capabilities: capabilities33, resource: resource10 },
+  'dev.session.launchDefault': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.launchHarness': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.list': { capabilities: capabilities33, resource: null },
+  'dev.session.resumeHarness': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.transferInput': { capabilities: capabilities32, resource: resource10 },
+  'dev.session.unarchive': { capabilities: capabilities32, resource: resource10 },
+  'dev.summary.workspaces': { capabilities: capabilities34, resource: null },
+  'dev.terminal.attach': { capabilities: capabilities35, resource: resource15 },
+  'dev.terminal.checkpoint': { capabilities: capabilities35, resource: resource15 },
+  'dev.terminal.create': { capabilities: capabilities36, resource: null },
+  'dev.terminal.detach': { capabilities: capabilities35, resource: resource15 },
+  'dev.terminal.historyDelete': { capabilities: capabilities36, resource: resource15 },
+  'dev.terminal.input': { capabilities: capabilities37, resource: resource15 },
+  'dev.terminal.list': { capabilities: capabilities35, resource: null },
+  'dev.terminal.resize': { capabilities: capabilities36, resource: resource15 },
+  'dev.terminal.search': { capabilities: capabilities35, resource: resource15 },
+  'dev.terminal.shellProfiles': { capabilities: capabilities35, resource: null },
+  'dev.terminal.signal': { capabilities: capabilities36, resource: resource15 },
+  'dev.terminal.terminate': { capabilities: capabilities36, resource: resource15 },
+  'dev.worktree.archive': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.cleanupCommit': { capabilities: capabilities39, resource: resource6 },
+  'dev.worktree.cleanupJobs': { capabilities: capabilities5, resource: resource6 },
+  'dev.worktree.cleanupPlan': { capabilities: capabilities39, resource: resource6 },
+  'dev.worktree.cleanupResume': { capabilities: capabilities39, resource: resource6 },
+  'dev.worktree.create': { capabilities: capabilities38, resource: null },
+  'dev.worktree.diffSummary': { capabilities: capabilities40, resource: null },
+  'dev.worktree.lease': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.list': { capabilities: capabilities41, resource: null },
+  'dev.worktree.mergeCommit': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.mergePlan': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.releaseLease': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.rename': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.retryBootstrap': { capabilities: capabilities38, resource: resource6 },
+  'dev.worktree.unarchive': { capabilities: capabilities38, resource: resource6 },
 } as const
