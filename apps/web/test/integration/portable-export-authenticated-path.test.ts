@@ -43,6 +43,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import {
   addWorkspaceMembership,
   artifacts,
+  authIdentities,
   channelParticipants,
   channels,
   contentRefs,
@@ -250,6 +251,13 @@ const preflight = (origin: string) =>
     request: new Request('http://localhost/x', { headers: { origin }, method: 'OPTIONS' }),
   })
 
+/**
+ * Every user this file creates in the lane database, in creation order. Teardown deletes exactly
+ * these, so a test that adds a person needs no cleanup of its own. Destination persons live in a
+ * scratch database that is dropped whole, so they are not tracked here.
+ */
+const sourcePeople: Person[] = []
+
 async function createPerson(
   database: DatabaseConnection['db'],
   name: string,
@@ -267,10 +275,12 @@ async function createPerson(
   } else {
     principal = await createUserWithAuthIdentity(database, {
       identity: { provider: 'authpath-fixture', subject: `${name}-${run}-${randomUUID()}` },
-      profile: { displayName: name },
+      profile: { displayName: `${name} ${run}` },
     })
   }
-  return { ...(await issue(principal, email)), email, name, principal }
+  const person = { ...(await issue(principal, email)), email, name, principal }
+  if (!id) sourcePeople.push(person)
+  return person
 }
 
 describe('authenticated portable export and import request path', () => {
@@ -542,15 +552,29 @@ describe('authenticated portable export and import request path', () => {
       }
     }
     if (source) {
-      if (workspaceId) await removeSource(workspaceId)
-      const ids = people()
-        .filter(Boolean)
-        .map((person) => person.principal.userId)
-      if (ids.length) {
-        await source.db.delete(desktopSessions).where(inArray(desktopSessions.userId, ids))
-        await source.db.delete(users).where(inArray(users.id, ids))
+      try {
+        if (workspaceId) await removeSource(workspaceId)
+      } finally {
+        // Sessions and identities reference the user, so they go first; then every tracked user.
+        const ids = sourcePeople.map((person) => person.principal.userId)
+        if (ids.length) {
+          await source.db.delete(desktopSessions).where(inArray(desktopSessions.userId, ids))
+          await source.db.delete(authIdentities).where(inArray(authIdentities.userId, ids))
+          await source.db.delete(users).where(inArray(users.id, ids))
+        }
+        // Independent of the tracking list: anything this run created that teardown missed fails the
+        // lane instead of piling up in a shared database.
+        const [left] = (await source.db.execute(sql`
+          select
+            (select count(*)::int from app.users where display_name like ${`% ${run}`}) as users,
+            (select count(*)::int from app.auth_identities
+              where provider = 'authpath-fixture' and subject like ${`%-${run}-%`}) as identities,
+            (select count(*)::int from app.desktop_sessions
+              where email like ${`%-${run}@example.test`}) as sessions
+        `)) as unknown as { identities: number; sessions: number; users: number }[]
+        await source.close()
+        expect(left).toEqual({ identities: 0, sessions: 0, users: 0 })
       }
-      await source.close()
     }
   }, 300_000)
 

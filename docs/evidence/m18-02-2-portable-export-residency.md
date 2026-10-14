@@ -482,6 +482,13 @@ What it adds to the helper-level proofs above:
   positive control counts one. This is still a fetch-only probe: it does not see Postgres sockets
   or other transports, so it is evidence about JavaScript fetch egress, not network residency.
 
+Teardown deletes every user the file created in the lane database (each person is recorded when
+created, so a later test needs no cleanup of its own), together with their desktop sessions and
+auth identities, and then fails the file if any user, identity or session carrying this run's
+marker remains. Destination persons live in scratch databases that are dropped whole. Two
+consecutive local runs left 0 users, identities, sessions, workspaces and scratch databases; with
+the tracking removed, the guard failed with 12 leftovers.
+
 Mutation checks run while writing the file (each reverted afterwards; the expected cases failed):
 allowlist ignored (1 failure), origin guard disabled (1), denied callers answered 403 with the id
 (2), a credential echoed in a response header (2), session revocation ignored (4), disabled-account
