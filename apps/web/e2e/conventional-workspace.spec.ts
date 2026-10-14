@@ -485,6 +485,12 @@ async function mockWorkspace(page: Page, empty = false) {
       json: { activeWorkspace: workspace, principal: { temporary: true }, workspaces: [workspace] },
     })
   )
+  // Group conversations qualify each Agent by the workspace list's names.
+  await page.route('**/api/workspaces', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ contentType: 'application/json', json: [workspace] })
+      : route.fallback()
+  )
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
@@ -1661,6 +1667,17 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'People in this conversation' })).toBeVisible()
   await expect(
     page.getByRole('group', { name: 'Agents your next message addresses' })
+  ).toBeVisible()
+  // The Agent belongs to this workspace, which the mocked workspace list names.
+  await expect(
+    page
+      .getByRole('navigation', { name: 'People in this conversation' })
+      .getByRole('listitem', { name: 'Research Agent · Work' })
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('group', { name: 'Agents your next message addresses' })
+      .getByRole('button', { name: 'Research Agent · Work' })
   ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 
