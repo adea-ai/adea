@@ -22,8 +22,15 @@ import {
  * inventory names every executor whose evidence is required; a missing member
  * fails closed. Deletion and read-back happen in the gate's transaction, so holds, revocations, reference
  * registrations, and reconciliation changes for the subject wait for the commit.
- * Receipts are submitted after the commit, through the caller's signed submission
- * port, and only once the database clock has passed each observation.
+ * Before each store is called, the same transaction records a durable deletion
+ * dispatch mark (`retention_deletion_dispatches`), which commits or rolls back with the
+ * deletion. Receipts are submitted after the commit, through the caller's signed
+ * submission port, and only once the database clock has passed each observation, but
+ * the mark does not depend on them: it is the evidence the artifact registration fence
+ * relies on when a generation is revoked before any receipt is accepted.
+ * Stores are expected to act inside the gate transaction. A store with effects outside
+ * it (an object store, an external index) must report them itself: a thrown error rolls
+ * the mark back with the rest of the transaction.
  *
  * A pending generation can be retried after an unreachable or failed store, or
  * after receipt submission was interrupted. No receipt from a retry replaces
@@ -210,6 +217,9 @@ export async function runRetentionCleanupExecutor(
           halt = { coverage, reason: 'authorization_not_current' }
           break
         }
+        // Durable evidence first, in this transaction: the mark commits with whatever the
+        // store deleted, so no committed deletion can leave the database without a trace.
+        await context.markDeletionDispatched(coverage)
         const deletedMs = await databaseClockMs(context.transaction)
         const outcome: unknown = await store.deleteSubject(context.transaction, subject)
         // An unrecognised result is unknown, not a failure report. It gets no receipt.

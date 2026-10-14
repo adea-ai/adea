@@ -28,6 +28,7 @@ import {
   placeRetentionHold,
   retentionCleanupReceipts,
   retentionDeletionAuthorizations,
+  retentionDeletionDispatches,
   retentionHolds,
   revokeRetentionDeletionAuthorization,
   runRetentionCleanupExecutor,
@@ -64,6 +65,25 @@ const TABLE_FOR_COVERAGE: Record<CleanupCoverageKind, string> = {
   primary: 'primary_rows',
   replica: 'replica_rows',
   runtime_state: 'runtime_state_rows',
+}
+
+/**
+ * Dispatch marks are append-only for the application role, so test cleanup disables the trigger
+ * as the table owner inside one transaction. The disable is invisible to other sessions: the
+ * same transaction enables it again before it commits.
+ */
+async function purgeDispatchMarks(owner: DatabaseConnection, workspaceId: string): Promise<void> {
+  await owner.db.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`alter table app.retention_deletion_dispatches disable trigger retention_deletion_dispatches_append_only`
+    )
+    await transaction
+      .delete(retentionDeletionDispatches)
+      .where(eq(retentionDeletionDispatches.workspaceId, workspaceId))
+    await transaction.execute(
+      sql`alter table app.retention_deletion_dispatches enable trigger retention_deletion_dispatches_append_only`
+    )
+  })
 }
 
 function sleep(ms: number): Promise<void> {
@@ -215,6 +235,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         await connection.db
           .delete(retentionHolds)
           .where(eq(retentionHolds.workspaceId, workspaceId))
+        await purgeDispatchMarks(migration, workspaceId)
         await connection.db
           .delete(retentionDeletionAuthorizations)
           .where(eq(retentionDeletionAuthorizations.workspaceId, workspaceId))
@@ -499,6 +520,59 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       })
     }
 
+    async function dispatchedCoverage(subjectId: string) {
+      const rows = await connection.db
+        .select({ coverage: retentionDeletionDispatches.coverage })
+        .from(retentionDeletionDispatches)
+        .where(eq(retentionDeletionDispatches.subjectId, subjectId))
+      return rows.map((row) => row.coverage).toSorted()
+    }
+
+    /** A live artifact in the fixture's workspace, with replicas seeded in every artifact store. */
+    async function seededArtifact(f: Awaited<ReturnType<typeof fixture>>) {
+      const artifact = await createArtifact(connection.db, f.workspaceId, f.owner, {
+        availability: 'available',
+        checksumSha256: CHECKSUM,
+        filename: 'deleted.txt',
+        location: { reference: `outputs/${crypto.randomUUID()}`, type: 'object_store' },
+        mediaType: 'text/plain',
+        sizeBytes: 32,
+        sourceArtifactRef: `runtime-output:${crypto.randomUUID()}`,
+        sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
+      })
+      await seed(
+        f.workspaceId,
+        [artifact.id],
+        ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows']
+      )
+      return artifact
+    }
+
+    async function audienceWorkspace(name: string) {
+      const audience = await createWorkspaceWithOwner(connection.db, {
+        idempotencyKey: `cleanup-audience-${name}-${crypto.randomUUID()}`,
+        name: `cleanup executor audience ${name}`,
+        owner: await principal(`${name}-audience`),
+      })
+      workspaceIds.push(audience.workspace.id)
+      return audience.workspace
+    }
+
+    function registerReference(
+      f: Awaited<ReturnType<typeof fixture>>,
+      audienceId: string,
+      artifactId: string
+    ) {
+      return registerArtifactReferenceGrant(connection.db, f.workspaceId, f.owner, {
+        artifactId,
+        audienceWorkspaceId: audienceId,
+        checksumSha256: CHECKSUM,
+        expiresAt: null,
+        grantId: `grant-${crypto.randomUUID()}`,
+        version: 1,
+      })
+    }
+
     /**
      * Polls until the racing operation is queued behind the executor's own backend. A
      * waiter counts only if the executor's backend blocks it and its statement contains
@@ -548,6 +622,8 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       }
       expect(responses.map((response) => response.status)).toEqual(Array(8).fill(200))
       expect(responses.every((response) => response.body.outcome === 'recorded')).toBe(true)
+      // One durable dispatch mark per store, written in the deleting transaction.
+      expect(await dispatchedCoverage(subject)).toEqual(['cache', 'index', 'primary', 'replica'])
       expect(await statusOf(f, subject)).toEqual({
         coverage: ['primary', 'index', 'cache', 'replica'],
         outcome: 'verified_complete',
@@ -1010,6 +1086,168 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         outcome: 'refused',
         reason: 'active_reference_retained',
       })
+    })
+
+    test('a deletion whose generation is revoked before any receipt is accepted still fences registration', async () => {
+      const f = await fixture('revoked-before-receipt')
+      const audience = await audienceWorkspace('revoked-before-receipt')
+      const artifact = await seededArtifact(f)
+      const record = await grant(f, artifact.id, 'artifacts')
+      let revoked = false
+      const { execution, responses } = await execute(f, artifact.id, {
+        beforeSubmit: async () => {
+          // The administrator revokes between the committed deletion and the first accepted receipt.
+          if (revoked) return
+          revoked = true
+          await revokeRetentionDeletionAuthorization(connection.db, {
+            actor: f.owner,
+            authorizationId: record.id,
+            workspaceId: f.workspaceId,
+          })
+        },
+        category: 'artifacts',
+        stores: portsFor('artifacts'),
+      })
+      expect(execution.status).toBe('executed')
+      // The data is really gone, and every receipt was refused: the database holds no receipt.
+      for (const table of ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows'])
+        expect(await rowCount(f.workspaceId, table, artifact.id)).toBe(0)
+      expect(responses.length).toBeGreaterThan(0)
+      expect(
+        responses.every((response) => response.body.code === 'retention_authorization_not_current')
+      ).toBe(true)
+      expect(
+        await connection.db
+          .select({ id: retentionCleanupReceipts.id })
+          .from(retentionCleanupReceipts)
+          .where(eq(retentionCleanupReceipts.subjectId, artifact.id))
+      ).toHaveLength(0)
+      // The dispatch marks were committed with the deletion, so the artifact stays fenced.
+      expect(await dispatchedCoverage(artifact.id)).toEqual([
+        'cache',
+        'object_version',
+        'primary',
+        'replica',
+      ])
+      let code: string | undefined
+      try {
+        await registerReference(f, audience.id, artifact.id)
+      } catch (error) {
+        code = (error as { code?: string }).code
+      }
+      expect(code).toBe('grant_artifact_retention_fenced')
+      expect(
+        await connection.db
+          .select({ id: artifactReferenceGrants.id })
+          .from(artifactReferenceGrants)
+          .where(eq(artifactReferenceGrants.artifactId, artifact.id))
+      ).toHaveLength(0)
+    })
+
+    test('a registration and a revocation queued behind a deletion are both fenced by its marks', async () => {
+      const f = await fixture('queued-race')
+      const audience = await audienceWorkspace('queued-race')
+      const artifact = await seededArtifact(f)
+      const record = await grant(f, artifact.id, 'artifacts')
+      const point = pausePoint()
+      const running = execute(f, artifact.id, {
+        beforeSubmit: () => revocation,
+        category: 'artifacts',
+        stores: portsFor('artifacts', { primary: { pause: point.pause } }),
+      })
+      const runningOutcome = observePromise(running)
+      let revocation!: Promise<'settled' | 'failed'>
+      let revocationOutcome: Promise<PromiseOutcome<'settled' | 'failed'>> | undefined
+      let registrationOutcome: Promise<PromiseOutcome<'settled' | 'failed'>> | undefined
+      try {
+        const holderPid = await awaitReadiness(
+          point.reached,
+          runningOutcome,
+          'executor delete-pause readiness'
+        )
+        // Nothing is visible before the commit: the mark was written in the open transaction.
+        expect(await dispatchedCoverage(artifact.id)).toEqual([])
+        registrationOutcome = observePromise(
+          registerReference(f, audience.id, artifact.id).then(
+            () => 'settled' as const,
+            () => 'failed' as const
+          )
+        )
+        revocation = revokeRetentionDeletionAuthorization(connection.db, {
+          actor: f.owner,
+          authorizationId: record.id,
+          workspaceId: f.workspaceId,
+        }).then(
+          () => 'settled' as const,
+          () => 'failed' as const
+        )
+        revocationOutcome = observePromise(revocation)
+        await awaitReadiness(
+          waitForQueuedOperation(holderPid, 'for update'),
+          runningOutcome,
+          'executor artifact-lock wait'
+        )
+        await awaitReadiness(
+          waitForQueuedOperation(holderPid, 'pg_advisory_xact_lock'),
+          runningOutcome,
+          'executor revocation-lock wait'
+        )
+      } finally {
+        point.open()
+        await settleWithin(runningOutcome, 'cleanup executor run')
+        if (registrationOutcome)
+          await settleWithin(registrationOutcome, 'artifact reference registration')
+        if (revocationOutcome) await settleWithin(revocationOutcome, 'authorization revocation')
+      }
+      const runOutcome = await runningOutcome
+      if (runOutcome.status === 'rejected') throw runOutcome.reason
+      const registrationResult = await registrationOutcome!
+      const revocationResult = await revocationOutcome!
+      expect(registrationResult).toEqual({ status: 'fulfilled', value: 'failed' })
+      expect(revocationResult).toEqual({ status: 'fulfilled', value: 'settled' })
+      expect(
+        runOutcome.value.responses.every(
+          (response) => response.body.code === 'retention_authorization_not_current'
+        )
+      ).toBe(true)
+      expect(await dispatchedCoverage(artifact.id)).toHaveLength(4)
+      expect(
+        await connection.db
+          .select({ id: artifactReferenceGrants.id })
+          .from(artifactReferenceGrants)
+          .where(eq(artifactReferenceGrants.artifactId, artifact.id))
+      ).toHaveLength(0)
+    })
+
+    test('a store that throws rolls back its deletion and every dispatch mark, so the artifact is not fenced', async () => {
+      const f = await fixture('mark-rollback')
+      const audience = await audienceWorkspace('mark-rollback')
+      const artifact = await seededArtifact(f)
+      const record = await grant(f, artifact.id, 'artifacts')
+      const stores = portsFor('artifacts').map((port) =>
+        port.coverage === 'cache'
+          ? ({
+              ...port,
+              async deleteSubject() {
+                throw new Error('store crashed')
+              },
+            } satisfies RetentionCleanupStorePort)
+          : port
+      )
+      await expect(execute(f, artifact.id, { category: 'artifacts', stores })).rejects.toThrow(
+        'store crashed'
+      )
+      // The earlier stores deleted and marked inside the same transaction, and all of it rolled back.
+      for (const table of ['primary_rows', 'object_version_rows', 'cache_rows', 'replica_rows'])
+        expect(await rowCount(f.workspaceId, table, artifact.id)).toBe(1)
+      expect(await dispatchedCoverage(artifact.id)).toEqual([])
+      // With the generation revoked, nothing was deleted or marked, so a reference registers.
+      await revokeRetentionDeletionAuthorization(connection.db, {
+        actor: f.owner,
+        authorizationId: record.id,
+        workspaceId: f.workspaceId,
+      })
+      expect((await registerReference(f, audience.id, artifact.id)).outcome).toBe('registered')
     })
 
     test('authority that expires while the first store call is in flight: the call finishes, no later store runs, and nothing further is claimed', async () => {

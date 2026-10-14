@@ -42,8 +42,8 @@ import {
   groupParticipantsInForce,
   listChannelIdsForUser,
   listChannelsForUserPage,
-  listMessagesForUser,
-  readMessagesForUserIds,
+  listMessagesForUserForPortableExport,
+  readMessagesForUserIdsForPortableExport,
   type ChannelPageCursor,
 } from './conversations'
 import {
@@ -85,6 +85,8 @@ import {
 const MESSAGE_PAGE = 100
 const TASK_PAGE = 25
 const REFERENCE_PAGE = 100
+const TASK_TEXT_FIELDS_JSON_OVERHEAD_BYTES =
+  portableJsonUtf8ByteLength({ objective: '', title: '' }) - 4
 
 type ExportReadBudget = { bytes: number }
 
@@ -110,6 +112,29 @@ export type PortableExportHooks = Readonly<{
   ) => void | Promise<void>
   afterAgentPage?: (
     page: Readonly<{ nameJsonBytes: number; roleSummaryJsonBytes: number }>
+  ) => void | Promise<void>
+  afterMessagePage?: (
+    page: Readonly<{
+      bodyTextByteBudget: number
+      bodyTextJsonBytes: number
+      withheldBodyTextRows: number
+    }>
+  ) => void | Promise<void>
+  afterMessageProofPage?: (
+    page: Readonly<{
+      bodyTextByteBudget: number
+      bodyTextJsonBytes: number
+      messageCount: number
+      withheldBodyTextRows: number
+    }>
+  ) => void | Promise<void>
+  afterTaskPage?: (
+    page: Readonly<{
+      objectiveJsonBytes: number
+      textByteBudget: number
+      titleJsonBytes: number
+      withheldRows: number
+    }>
   ) => void | Promise<void>
   beforeChannelPage?: (
     page: Readonly<{ afterChannelId: string | undefined }>
@@ -253,11 +278,18 @@ async function readVisibleMessages(
     for (;;) {
       await hooks?.beforeMessagePage?.({ afterSequence, channelId: channel.id })
       await assertAccess(transaction, workspaceId, principal, start)
-      const page = await listMessagesForUser(transaction, workspaceId, channel.id, principal, {
-        afterSequence,
-        authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
-        limit: MESSAGE_PAGE,
-      }).catch(async (error: unknown) => {
+      const page = await listMessagesForUserForPortableExport(
+        transaction,
+        workspaceId,
+        channel.id,
+        principal,
+        {
+          afterSequence,
+          authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+          bodyTextByteBudget: Math.max(0, PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - budget.bytes),
+          limit: MESSAGE_PAGE,
+        }
+      ).catch(async (error: unknown) => {
         await assertStanding(transaction, workspaceId, principal, start)
         if (error instanceof ChannelParticipantOverflowError)
           throw new PortableExportError(
@@ -266,6 +298,13 @@ async function readVisibleMessages(
           )
         throw error
       })
+      await hooks?.afterMessagePage?.({
+        bodyTextByteBudget: page.bodyTextByteBudget,
+        bodyTextJsonBytes: page.bodyTextJsonBytes,
+        withheldBodyTextRows: page.bodyTextWithheldRows,
+      })
+      if (!page.bodyTextWithinByteBudget)
+        throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
       for (const message of page.messages) {
         // Text bodies and mentions are guaranteed to remain in every exported
         // text/deleted message. Their encoded JSON is a lower bound for the final
@@ -399,6 +438,20 @@ async function readRequesterInputs(
       TASK_PAGE,
       PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS + 1 - taskRows.length
     )
+    const textByteBudget = Math.max(0, PORTABLE_WORKSPACE_EXPORT_MAX_BYTES - readBudget.bytes)
+    // Count the same compact JSON lower bound as the Worker, using SQL's UTF-8 byte
+    // lengths and JSON scalar escaping before either unbounded text column is returned.
+    const cumulativeTaskTextBytes = sql`
+      sum(
+        coalesce(octet_length(to_json(${tasks.objective})::text), 4)
+          + octet_length(to_json(${tasks.title})::text)
+          + ${TASK_TEXT_FIELDS_JSON_OVERHEAD_BYTES}
+      ) over (
+        order by ${tasks.id}
+        rows between unbounded preceding and current row
+      )
+    `
+    const withinByteBound = sql<boolean>`${cumulativeTaskTextBytes} <= ${textByteBudget}`
     const page = await readExportRows(transaction, (readTransaction) =>
       readTransaction
         .select({
@@ -410,14 +463,17 @@ async function readRequesterInputs(
           kind: tasks.kind,
           lifecycleState: tasks.lifecycleState,
           messageId: tasks.messageId,
-          objective: tasks.objective,
+          objective: sql<
+            string | null
+          >`case when ${withinByteBound} then ${tasks.objective} else null end`,
           objectiveContentRefId: tasks.objectiveContentRefId,
           priority: tasks.priority,
           projectId: tasks.projectId,
           threadRootMessageId: tasks.threadRootMessageId,
-          title: tasks.title,
+          title: sql<string>`case when ${withinByteBound} then ${tasks.title} else null end`,
           updatedAt: tasks.updatedAt,
           version: tasks.version,
+          withinByteBound,
         })
         .from(tasks)
         .where(
@@ -432,15 +488,31 @@ async function readRequesterInputs(
         .limit(pageLimit)
     )
 
+    const projectedRows = page.filter((row) => row.withinByteBound)
+    await hooks?.afterTaskPage?.({
+      objectiveJsonBytes: projectedRows.reduce(
+        (total, row) => total + portableJsonUtf8ByteLength(row.objective),
+        0
+      ),
+      textByteBudget,
+      titleJsonBytes: projectedRows.reduce(
+        (total, row) => total + portableJsonUtf8ByteLength(row.title),
+        0
+      ),
+      withheldRows: page.length - projectedRows.length,
+    })
     for (const row of page) {
       // Objective and title are always included by the mapper. Their encoded JSON
       // bytes are a lower bound for this task's final contribution, so reject as
-      // soon as the accumulated tasks alone cannot fit in the portable bundle.
+      // soon as the accumulated task text alone cannot fit in the portable bundle.
+      const { withinByteBound: taskWithinByteBound, ...task } = row
+      if (!taskWithinByteBound)
+        throw new PortableExportError('too_large', 'portable export exceeds the byte bound')
       accountExportLowerBound(readBudget, {
-        objective: row.objective,
-        title: row.title,
+        objective: task.objective,
+        title: task.title,
       })
-      taskRows.push(row)
+      taskRows.push(task)
       bounded(taskRows, 'tasks')
     }
     if (page.length < pageLimit) break
@@ -964,7 +1036,7 @@ export async function exportPortableWorkspace(
   return database.transaction(async (snapshot) => {
     await assertStanding(snapshot, input.workspaceId, input.principal, start)
     try {
-      await proveRetainedRecords(snapshot, input.workspaceId, input.principal, inputs)
+      await proveRetainedRecords(snapshot, input.workspaceId, input.principal, inputs, input.hooks)
     } catch (error) {
       if (
         error instanceof Error &&
@@ -998,7 +1070,8 @@ async function proveRetainedRecords(
   snapshot: AgentHqTransaction,
   workspaceId: string,
   principal: UserPrincipalRef,
-  inputs: ReadInputs
+  inputs: ReadInputs,
+  hooks?: PortableExportHooks
 ): Promise<void> {
   const expectedChannels = new Map(inputs.channels.map((channel) => [channel.id, channel]))
   const channelIds = [...expectedChannels.keys()].toSorted()
@@ -1065,17 +1138,36 @@ async function proveRetainedRecords(
   }
   const byChannel = groupBy(retainedMessages, (message) => message.channelId)
   const provedMessages = new Set<string>()
+  let remainingMessageBodyTextBytes = retainedMessages.reduce(
+    (total, message) =>
+      message.deleted || message.bodyContentRefId
+        ? total
+        : total + portableJsonUtf8ByteLength(message.bodyText ?? ''),
+    0
+  )
   for (const [channelId, messages] of byChannel) {
     for (let offset = 0; offset < messages.length; offset += MESSAGE_PAGE) {
       const expected = messages.slice(offset, offset + MESSAGE_PAGE)
-      const current = await readMessagesForUserIds(
+      const page = await readMessagesForUserIdsForPortableExport(
         snapshot,
         workspaceId,
         channelId,
         principal,
         expected.map((message) => message.id),
-        { authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS }
+        {
+          authorizationRecordLimit: PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+          bodyTextByteBudget: remainingMessageBodyTextBytes,
+        }
       ).catch(rethrowOverflowAsTooLarge)
+      await hooks?.afterMessageProofPage?.({
+        bodyTextByteBudget: page.bodyTextByteBudget,
+        bodyTextJsonBytes: page.bodyTextJsonBytes,
+        messageCount: page.messages.length,
+        withheldBodyTextRows: page.bodyTextWithheldRows,
+      })
+      if (!page.bodyTextWithinByteBudget) denyRetainedExport()
+      remainingMessageBodyTextBytes -= page.bodyTextJsonBytes
+      const current = page.messages
       const byId = new Map(current.map((message) => [message.id, message]))
       for (const message of expected) {
         if (JSON.stringify(message) !== JSON.stringify(byId.get(message.id))) denyRetainedExport()

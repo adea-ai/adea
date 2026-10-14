@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
+import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
+  portableJsonUtf8ByteLength,
+} from '@adea-ai/types/portable-export'
 
 import type { AgentHqDatabase } from '../../src/connection'
 import { createDatabase } from '../../src/connection'
@@ -322,6 +326,93 @@ describe.skipIf(!url)('portable export isolation and canonical final proof', () 
       })
     ).rejects.toMatchObject({ code: 'denied' })
   })
+
+  test('an oversized body written before final proof is withheld before worker transfer', async () => {
+    const f = await fixture(1)
+    const proofPages: {
+      bodyTextByteBudget: number
+      bodyTextJsonBytes: number
+      messageCount: number
+      withheldBodyTextRows: number
+    }[] = []
+    await expect(
+      exportPortableWorkspace(database, {
+        workspaceId: f.workspace.id,
+        principal: f.reader,
+        hooks: {
+          beforeStep: async (step) => {
+            if (step.name === 'final')
+              await control.db
+                .update(messages)
+                .set({ bodyText: 'x'.repeat(PORTABLE_WORKSPACE_EXPORT_MAX_BYTES + 1), version: 2 })
+                .where(eq(messages.id, f.rows[0]!.id))
+          },
+          afterMessageProofPage: (page) => proofPages.push(page),
+        },
+      })
+    ).rejects.toMatchObject({ code: 'denied' })
+    expect(proofPages).toEqual([
+      {
+        bodyTextByteBudget: portableJsonUtf8ByteLength('Note 0'),
+        bodyTextJsonBytes: 0,
+        messageCount: 1,
+        withheldBodyTextRows: 1,
+      },
+    ])
+  }, 30_000)
+
+  test('final proof does not materialize messages hidden by a revoked earlier-history grant', async () => {
+    const f = await fixture()
+    await database
+      .update(groupAdmissions)
+      .set({ joinedSequence: f.rows.at(-1)!.sequence })
+      .where(
+        and(eq(groupAdmissions.channelId, f.channelId), eq(groupAdmissions.userId, f.reader.userId))
+      )
+    const grantId = randomUUID()
+    await database.insert(groupSharingGrants).values({
+      workspaceId: f.workspace.id,
+      channelId: f.channelId,
+      userId: f.reader.userId,
+      principalKind: 'user',
+      grantId,
+      revision: 1,
+      scope: 'earlier_history',
+      issuedAt: f.issuedAt,
+      expiresAt: null,
+      revokedAt: null,
+    })
+    const proofPages: {
+      bodyTextByteBudget: number
+      bodyTextJsonBytes: number
+      messageCount: number
+      withheldBodyTextRows: number
+    }[] = []
+    await expect(
+      exportPortableWorkspace(database, {
+        workspaceId: f.workspace.id,
+        principal: f.reader,
+        hooks: {
+          beforeStep: async (step) => {
+            if (step.name === 'final')
+              await control.db
+                .update(groupSharingGrants)
+                .set({ revokedAt: new Date().toISOString() })
+                .where(eq(groupSharingGrants.grantId, grantId))
+          },
+          afterMessageProofPage: (page) => proofPages.push(page),
+        },
+      })
+    ).rejects.toMatchObject({ code: 'denied' })
+    expect(proofPages).toEqual([
+      {
+        bodyTextByteBudget: 3 * portableJsonUtf8ByteLength('Note 0'),
+        bodyTextJsonBytes: portableJsonUtf8ByteLength('Note 2'),
+        messageCount: 1,
+        withheldBodyTextRows: 0,
+      },
+    ])
+  }, 30_000)
 
   test('canonical pages reuse a coherent snapshot and a later snapshot sees revocation', async () => {
     const f = await fixture()
