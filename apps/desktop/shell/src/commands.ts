@@ -116,7 +116,12 @@ function memoryCommand<T>(run: () => T): T {
     return run()
   } catch (error) {
     if (error instanceof MemoryStoreError) throw error
-    if (error instanceof Error && error.message === 'memory_workspace_unauthorized') throw error
+    if (
+      error instanceof Error &&
+      (error.message === 'memory_workspace_unauthorized' ||
+        error.message === 'workspace_cleanup_pending')
+    )
+      throw error
     throw new Error('memory_unavailable', { cause: error })
   }
 }
@@ -245,6 +250,10 @@ export function createCommandSurface(
     if (!authorized || authorized !== requested) {
       throw new Error('memory_workspace_unauthorized')
     }
+    // A workspace whose device cleanup has been prepared accepts no memory
+    // read or write, exactly like its local content; the shell's invoke
+    // wrapper applies the same fence ahead of this one.
+    options?.assertWorkspaceActive?.(requested)
     return requested
   }
   const handlers: Record<string, (args?: Record<string, unknown>) => unknown> = {

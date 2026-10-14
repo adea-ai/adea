@@ -74,6 +74,15 @@ describe('workspace memory settings model', () => {
     expect(memoryErrorNeedsRefresh('memory_limit_exceeded')).toBe(false)
   })
 
+  test('a workspace whose device cleanup is prepared reads as paused, not as unreadable memory', () => {
+    const code = memoryErrorCode(new Error('workspace_cleanup_pending'))
+    expect(code).toBe('workspace_cleanup_pending')
+    expect(memoryErrorMessage(code)).toContain('memory is paused')
+    expect(memoryErrorMessage(code)).not.toBe(memoryErrorMessage('memory_unavailable'))
+    // The shell changed nothing, so there is nothing to re-read.
+    expect(memoryErrorNeedsRefresh(code)).toBe(false)
+  })
+
   test('labels sources and dates, and names the desktop-only unavailable state', () => {
     expect(memorySourceLabel(entry('a', '2026-10-01T00:00:00.000Z'))).toBe('You')
     expect(memorySourceLabel(entry('a', '2026-10-01T00:00:00.000Z', { source: 'agent' }))).toBe(

@@ -92,11 +92,13 @@ function fixture(): ClientChunk[] {
     chunk('other-pane-helper.js', 'export const pane = true;', 4, 2),
     chunk(
       'terminal-pane-main.js',
-      'import "./shared-shell.js"; import "./terminal-helper.js";',
+      'import "./shared-shell.js"; import "./terminal-helper.js"; import("./addon-webgl-main.js"); import("./addon-search-main.js");',
       15,
       8
     ),
     chunk('terminal-helper.js', 'export const terminal = true;', 8, 4),
+    chunk('addon-webgl-main.js', 'export const webgl = true;', 60, 30),
+    chunk('addon-search-main.js', 'export const search = true;', 20, 10),
     chunk(
       'runtime-terminal-pane-main.js',
       'import("./terminal-pane-main.js"); export const runtime = true;',
@@ -127,6 +129,37 @@ test('measures the workspace startup graph separately from each lazy view', () =
   expect(report.views.devTerminal).toMatchObject({ rawBytes: 68, gzipBytes: 35 })
   expect(report.views.devEditor).toMatchObject({ rawBytes: 82, gzipBytes: 43 })
   expect(report.total.fileCount).toBe(fixture().length)
+})
+
+test('the terminal WebGL and search addons stay on demand, outside the terminal route and startup', () => {
+  const report = inspectClientBundle(fixture())
+  expect(report.views.devTerminal.files).not.toContain('addon-webgl-main.js')
+  expect(report.views.devTerminal.files).not.toContain('addon-search-main.js')
+  expect(report.startup.files).not.toContain('addon-webgl-main.js')
+  expect(report.startup.files).not.toContain('addon-search-main.js')
+  // They are still shipped, so the aggregate caps keep counting them.
+  expect(report.total.fileCount).toBe(fixture().length)
+
+  for (const addon of ['addon-webgl-main.js', 'addon-search-main.js']) {
+    // A static import folds the addon back into the pane's initial download.
+    const staticallyImported = fixture().map((item) =>
+      item.file === 'terminal-pane-main.js'
+        ? { ...item, source: `${item.source} import "./${addon}";` }
+        : item
+    )
+    expect(() => inspectClientBundle(staticallyImported)).toThrow(`${addon} must load on demand`)
+    // Merging it into the pane chunk (an inlined import) is also caught.
+    expect(() => inspectClientBundle(fixture().filter(({ file }) => file !== addon))).toThrow(
+      'Expected one'
+    )
+  }
+  // An unexpected extra dynamic edge from the pane is still attributed.
+  const extraEdge = fixture().map((item) =>
+    item.file === 'terminal-pane-main.js'
+      ? { ...item, source: `${item.source} import("./terminal-helper.js");` }
+      : item
+  )
+  expect(() => inspectClientBundle(extraEdge)).toThrow('dynamic chunk attribution changed')
 })
 
 test('fails closed when a required route chunk cannot be attributed', () => {
