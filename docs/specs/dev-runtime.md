@@ -1418,12 +1418,15 @@ sessions. There is no second store and no server-side index.
   replies, tool names, approvals, questions and statuses and never the session
   title. Credential-classified events are dropped before matching, exactly as the Turns tab drops them. Results page 100 at a time; "Load more" extends the list from the
   previous cursor. Matches are highlighted. A result's "Go to" button shows the
-  event: in Chat the transcript scrolls to the event's row and marks it
-  (`event-reveal.ts`, a one-slot request the mounted `ChatTranscript` answers); in
-  Dev, which renders no transcript, the pane clears the search and scrolls to and
-  marks the event's turn in its own list. Neither host invents a position: an
-  event the window no longer holds is reported ("That event is no longer shown in
-  the conversation.").
+  event: the mounted `ChatTranscript` scrolls to the event's row and marks it
+  (`event-reveal.ts`, a one-slot request the transcript answers). In Dev, which
+  renders no transcript, the section keeps the target (session and event) while
+  the host opens the session; the pane acts only once the feed of that session is
+  ready, then clears the search and scrolls to and marks the event's turn in its
+  own list. Until then it judges nothing, because the events it holds belong to the
+  session being left; a target nothing answers is dropped after 6 seconds. An
+  event the window does not hold is reported ("That prompt is no longer in the
+  retained history." or "That event is no longer shown in the conversation.").
 - **All sessions.** `scanAllSessions` (`all-sessions-scan.ts`) lists open
   (non-archived) sessions (`dev.session.list`, 200 per page, at most 3 pages) and
   runs (`dev.harness.runs`, 500 per page, at most 2 pages), ranks sessions by the
@@ -1442,17 +1445,19 @@ sessions. There is no second store and no server-side index.
   match first) with whole-result match counts, pages 50 rows at a time and never
   shows more than 1,000 ("Showing the first 1,000 of N matches. Narrow your search
   to see the rest."). An empty query lists the three most recent prompts per
-  session. The session title matches in this scope. "Go to" in another session
-  opens it through the host (`onOpenSession`: Dev resolves the deep link, Chat
-  selects the session in the shared store) before showing the event.
+  session. The session title matches in this scope, and the session open in the
+  pane is marked "Open session". "Go to" in another session opens it through the
+  host (`onOpenSession`: Dev resolves the deep link, Chat selects the session in
+  the shared store) before showing the event.
 - **Resume.** A group's newest run decides: resumable (`completed`,
   `disconnected` or `failed` with a recorded start) shows "Resume"; otherwise the
   reason is shown verbatim (cancelled, still active, no recorded start, unknown
-  state). "Resume" opens a confirmation that names the session, the run and what
-  stays and starts; confirming re-reads the session's runs and refuses (with the
+  state). "Resume" opens a confirmation in the group (not a modal dialog, which would
+  put its code in the pane's bundle budget) that names the session and the generation
+  it starts; Escape or Cancel closes it; confirming re-reads the session's runs and refuses (with the
   reason) unless the same run is still the newest and resumable, then calls
   `dev.session.resumeHarness` with the session's generation, opens the session
-  and says which generation started. A refusal keeps the dialog open with "Try
+  and says which generation started. A refusal keeps the confirmation open with "Try
   again".
 - **Runs tab.** The existing `RunHistoryPane` for the session.
 - **Truthful states.** A `terminal_fallback` projection has no structured feed, so

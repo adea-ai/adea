@@ -9,6 +9,8 @@ import {
   RESUME_BLOCKED_COPY,
   buildAllSessionsView,
 } from '../src/history/all-sessions-model'
+import { turnIdForEvent } from '../src/history/history-pane'
+import { buildHistoryTurns } from '../src/history/turns-model'
 import {
   SCAN_MAX_SESSIONS,
   readEventWindow,
@@ -16,8 +18,6 @@ import {
   type AllSessionsScan,
   type AllSessionsScanIO,
 } from '../src/history/all-sessions-scan'
-import { turnIdForEvent } from '../src/history/history-pane'
-import { buildHistoryTurns } from '../src/history/turns-model'
 
 const SCOPE: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -231,7 +231,6 @@ describe('buildAllSessionsView', () => {
         target: {
           runtimeSessionId: 'a',
           harnessRunId: 'run-1',
-          runGeneration: 6,
           nextGeneration: 7,
           title: 'Shell switcher',
         },
@@ -461,6 +460,22 @@ describe('readEventWindow', () => {
     }
   })
 
+  test('a replay still running at the timeout is kept but reported as bounded', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 30, timeoutMs: 60 })
+    fake.push({ expectedSequence: '1' })
+    let sequence = 1
+    const feed = setInterval(() => {
+      sequence += 1
+      fake.push({ events: [eventOf('a', sequence - 1)], expectedSequence: String(sequence) })
+    }, 10)
+    const result = await window
+    clearInterval(feed)
+    expect(result?.bounded).toBe(true)
+    expect(result?.events.length).toBeGreaterThan(0)
+    expect(fake.closed()).toBe(1)
+  })
+
   test('reports a window retention cut short as bounded', async () => {
     const fake = fakeStream()
     const window = readEventWindow(fake.stream, { quietMs: 5, timeoutMs: 500 })
@@ -478,17 +493,16 @@ describe('turnIdForEvent', () => {
     eventOf('a', 2, { kind: 'tool.requested', payload: { name: 'bash' } }),
     eventOf('a', 3, { kind: 'turn.result', payload: { summary: 'done' } }),
     eventOf('a', 4, { payload: { text: 'second ask' } }),
-    eventOf('a', 5, { kind: 'turn.result', payload: { summary: 'done again' } }),
   ]
   const turns = buildHistoryTurns(events)
 
   test('a prompt maps to its own turn and later events to the latest prompt before them', () => {
     expect(turnIdForEvent(turns, events, 'a-event-1')).toBe('a-event-1')
     expect(turnIdForEvent(turns, events, 'a-event-3')).toBe('a-event-1')
-    expect(turnIdForEvent(turns, events, 'a-event-5')).toBe('a-event-4')
+    expect(turnIdForEvent(turns, events, 'a-event-4')).toBe('a-event-4')
   })
 
-  test('an event the window no longer holds has no turn', () => {
+  test('an event the window does not hold has no turn', () => {
     expect(turnIdForEvent(turns, events, 'gone')).toBeUndefined()
   })
 })

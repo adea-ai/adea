@@ -147,6 +147,21 @@ const allSessions = (page: Page) => page.getByRole('button', { name: 'All sessio
 const search = (page: Page) => page.getByRole('textbox', { name: 'Search all sessions' })
 
 // #716: searching every session, jumping to a result, and resuming a run.
+test.describe('showing an event in the pane', () => {
+  test('waits for the opened session’s feed instead of judging the old one', async ({ page }) => {
+    await mount(page, '?focus=event-5')
+    await expect(page.getByRole('status', { name: 'Loading history' })).toBeVisible()
+    await expect(page.getByTestId('jumps')).toHaveText('')
+    await expect(page.getByTestId('jumps')).toHaveText('focus:found')
+    await expect(page.locator('[data-revealed]')).toContainText('write the release notes')
+  })
+
+  test('says so once the feed is ready and does not hold the event', async ({ page }) => {
+    await mount(page, '?focus=event-gone')
+    await expect(page.getByTestId('jumps')).toHaveText('focus:missing')
+  })
+})
+
 test.describe('all sessions', () => {
   test('the scope switch keeps the query and defaults to this session', async ({ page }) => {
     await mount(page, '?scopes=1')
@@ -169,7 +184,7 @@ test.describe('all sessions', () => {
   test('groups results by session with counts, a jump per row and the partial note', async ({
     page,
   }) => {
-    await mount(page, '?scope=all&partial=1')
+    await mount(page, '?scope=all&partial=1&bound=shell')
     await search(page).fill('terminal')
     await expect(page.getByRole('status').filter({ hasText: 'results in' })).toHaveText(
       '7 results in 3 sessions'
@@ -187,8 +202,14 @@ test.describe('all sessions', () => {
 
     await shell.getByRole('button', { name: /^Go to Shell switcher, prompt:/ }).click()
     await expect(page.getByTestId('jumps')).toHaveText('shell-event-1')
-    await page.getByRole('button', { name: 'Open session Fix terminal resize on Windows' }).click()
-    await expect(page.getByTestId('jumps')).toHaveText('shell-event-1,session:resize')
+    // The session open in the pane is marked; the others are reached by a row's Go to.
+    await expect(page.getByText('Open session', { exact: true })).toHaveCount(1)
+    const resize = page.getByRole('list', { name: 'Matches in Fix terminal resize on Windows' })
+    await resize
+      .getByRole('button', { name: /^Go to / })
+      .first()
+      .click()
+    await expect(page.getByTestId('jumps')).toContainText('shell-event-1,')
   })
 
   test('an empty query lists the most recent prompts across sessions', async ({ page }) => {
@@ -229,16 +250,19 @@ test.describe('all sessions', () => {
     await expect(page.getByRole('button', { name: /^Resume Fix terminal resize/ })).toHaveCount(0)
   })
 
-  test('resume asks first, can be cancelled, and retries after a refusal', async ({ page }) => {
+  test('resume asks first in place, can be cancelled, and retries after a refusal', async ({
+    page,
+  }) => {
     await mount(page, '?scope=all&resumeFails=1')
     await search(page).fill('terminal')
     await page.getByRole('button', { name: 'Resume Shell switcher' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Resume “Shell switcher”?' })
+    const dialog = page.getByRole('group', { name: 'Resume “Shell switcher”?' })
     await expect(dialog).toBeVisible()
     await expect(
-      dialog.getByText('This starts a new generation in the same session.')
+      dialog.getByText(
+        'Starts generation 7 of run 1 in this session. Nothing already recorded is changed.'
+      )
     ).toBeVisible()
-    await expect(dialog.getByText('Generation 7 of run 1 in this session.')).toBeVisible()
 
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toHaveCount(0)

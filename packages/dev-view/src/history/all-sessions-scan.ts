@@ -20,7 +20,7 @@ const RUN_MAX_PAGES = 2
 
 export type SessionWindow = Readonly<{
   events: readonly RuntimeEvent[]
-  /** Retention dropped older events before the window the runtime replayed. */
+  /** Older events are missing: retention cut the window, or the replay was still running at the timeout. */
   bounded: boolean
 }>
 
@@ -158,7 +158,7 @@ export function readEventWindow(
     let hard: ReturnType<typeof setTimeout> | undefined
     let unsubscribe: (() => void) | undefined
     let done = false
-    const finish = (readable: boolean) => {
+    const finish = (readable: boolean, replaying = false) => {
       if (done) return
       done = true
       clearTimeout(quiet)
@@ -168,7 +168,7 @@ export function readEventWindow(
       const state = stream.state()
       resolve(
         readable && !transcriptIsStale(state.availability)
-          ? { events: state.events, bounded: !state.retention.complete }
+          ? { events: state.events, bounded: replaying || !state.retention.complete }
           : undefined
       )
     }
@@ -180,7 +180,8 @@ export function readEventWindow(
       quiet = setTimeout(() => finish(true), quietMs)
     }
     unsubscribe = stream.subscribe(observe)
-    hard = setTimeout(() => finish(opened()), timeoutMs)
+    // Still receiving frames at the timeout: what arrived is kept, as partial.
+    hard = setTimeout(() => finish(opened(), true), timeoutMs)
     observe()
   })
 }

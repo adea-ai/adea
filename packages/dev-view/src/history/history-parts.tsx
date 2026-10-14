@@ -79,7 +79,7 @@ export function ResultRow(props: {
   row: ConversationSearchRow
   query: string
   nowMs: number
-  onGo?: (jump: ConversationSearchJump) => void
+  onGo?: ((jump: ConversationSearchJump) => void) | undefined
 }): JSX.Element {
   return (
     <Entry

@@ -7,7 +7,13 @@
  * confirmed resume of a session's run. The section keeps no store of its own:
  * closing the pane closes every stream and drops the scan.
  */
-import type { HarnessRun, RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
+import type {
+  DevOperation,
+  HarnessRun,
+  RuntimeEvent,
+  RuntimeSession,
+  Scope,
+} from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 
@@ -52,6 +58,10 @@ const SCAN_FRESH_MS = 30_000
 /** How long History waits for a transcript to show an event before saying so. */
 const REVEAL_WAIT_MS = 6_000
 const NOTICE_MS = 8_000
+
+// Timers only clear a notice or settle a stale reveal request; firing after the
+// pane closed changes nothing visible.
+const later = (run: () => void, ms: number) => void setTimeout(run, ms)
 
 function readScope(): HistoryScope {
   try {
@@ -112,21 +122,13 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
   const [all, setAll] = createSignal<AllSessionsFeed>({ status: 'loading' })
   const [scanAttempt, setScanAttempt] = createSignal(0)
   const [notice, setNotice] = createSignal<{ title: string; detail?: string }>()
-  const [focusEventId, setFocusEventId] = createSignal<string>()
+  // The event a Dev "Go to" asked for; kept until its session's feed shows it.
+  const [focus, setFocus] = createSignal<{ sessionId: string; eventId: string }>()
   const workspaceKey = () => scanKey(context())
   let disposed = false
   let scannedFor: { key: string; attempt: number; scan: AllSessionsScan } | undefined
-  const timers = new Set<ReturnType<typeof setTimeout>>()
-  const later = (run: () => void, ms: number) => {
-    const timer = setTimeout(() => {
-      timers.delete(timer)
-      run()
-    }, ms)
-    timers.add(timer)
-  }
   onCleanup(() => {
     disposed = true
-    for (const timer of timers) clearTimeout(timer)
   })
   const say = (value: { title: string; detail?: string }) => {
     setNotice(value)
@@ -149,35 +151,25 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
   const scan = async (fence: DevUtilityFence, soft: boolean) => {
     const { runtime, scope: workspace } = fence.context
     if (!soft) setAll({ status: 'loading' })
+    const list =
+      <T extends { scope: Scope }>(command: DevOperation, base: object) =>
+      async (cursor: string | undefined) => {
+        const page = await executeDevUtilityCommand<{
+          items: readonly T[]
+          nextCursor?: string
+        }>(fence, command, { ...base, ...(cursor ? { cursor } : {}) })
+        return {
+          ...page,
+          items: page.items.filter((item) => sameDevUtilityScope(item.scope, workspace)),
+        }
+      }
     try {
       const result = await scanAllSessions({
         assertCurrent: () => {
           if (!fence.isCurrent()) throw new DevUtilityContextChangedError()
         },
-        listSessions: async (cursor) => {
-          const page = await executeDevUtilityCommand<{
-            items: readonly RuntimeSession[]
-            nextCursor?: string
-          }>(fence, 'dev.session.list', {
-            archived: false,
-            limit: 200,
-            ...(cursor ? { cursor } : {}),
-          })
-          return {
-            ...page,
-            items: page.items.filter((item) => sameDevUtilityScope(item.scope, workspace)),
-          }
-        },
-        listRuns: async (cursor) => {
-          const page = await executeDevUtilityCommand<{
-            items: readonly HarnessRun[]
-            nextCursor?: string
-          }>(fence, 'dev.harness.runs', { limit: 500, ...(cursor ? { cursor } : {}) })
-          return {
-            ...page,
-            items: page.items.filter((item) => sameDevUtilityScope(item.scope, workspace)),
-          }
-        },
+        listSessions: list<RuntimeSession>('dev.session.list', { archived: false, limit: 200 }),
+        listRuns: list<HarnessRun>('dev.harness.runs', { limit: 500 }),
         readWindow: async (session) =>
           readEventWindow(
             await openRuntimeEventStream({
@@ -230,8 +222,12 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
     const eventId = jump.eventId
     if (!eventId) return
     if (!hasEventRevealConsumer()) {
-      setFocusEventId(eventId)
-      return later(() => setFocusEventId(undefined), REVEAL_WAIT_MS)
+      const target = { sessionId: jump.runtimeSessionId, eventId }
+      setFocus(target)
+      return later(
+        () => setFocus((current) => (current === target ? undefined : current)),
+        REVEAL_WAIT_MS
+      )
     }
     const token = requestEventReveal(jump.runtimeSessionId, eventId)
     later(() => {
@@ -386,7 +382,7 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
             : (current()?.status ?? 'loading')
         }
         events={current()?.events ?? []}
-        {...(current()?.session ? { session: current()!.session } : {})}
+        session={current()?.session}
         runs={current()?.runs ?? []}
         bounded={current()?.bounded ?? false}
         runActive={newestRunActive(current()?.runs ?? [])}
@@ -394,14 +390,16 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
         onGo={go}
         scope={historyScope()}
         onScopeChange={chooseScope}
-        {...(workspaceKey() ? { all: all() } : {})}
-        {...(context().runtimeSessionId ? { boundSessionId: context().runtimeSessionId! } : {})}
-        onRetryAll={() => setScanAttempt((count) => count + 1)}
+        all={workspaceKey() ? all() : undefined}
+        boundSessionId={context().runtimeSessionId}
+        onRetryAll={() => void setScanAttempt((count) => count + 1)}
         onResume={resume}
-        {...(notice() ? { notice: notice()! } : {})}
-        {...(focusEventId() ? { focusEventId: focusEventId()! } : {})}
+        notice={notice()}
+        focusEventId={
+          focus()?.sessionId === context().runtimeSessionId ? focus()?.eventId : undefined
+        }
         onFocusResult={(found) => {
-          setFocusEventId(undefined)
+          setFocus(undefined)
           if (!found) say({ title: 'That prompt is no longer in the retained history.' })
         }}
       />

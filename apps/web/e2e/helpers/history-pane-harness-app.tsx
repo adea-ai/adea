@@ -171,6 +171,10 @@ function Harness() {
     params.get('scope') === 'all' ? 'all' : 'session'
   )
   const [attempts, setAttempts] = createSignal(0)
+  // `?focus=<eventId>` opens like a Dev "Go to" into another session: the feed is
+  // still loading (the session being left) for a moment, then ready.
+  const [loaded, setLoaded] = createSignal(!params.has('focus'))
+  if (params.has('focus')) setTimeout(() => setLoaded(true), 600)
   const scopes = params.has('scopes') || params.has('scope')
   const allStatus = params.get('all') ?? 'ready'
   let refuse = params.get('resumeFails') === '1'
@@ -179,13 +183,17 @@ function Harness() {
       <div class="h-96">
         <HistoryPane
           status={
-            params.get('status') === 'loading'
+            params.get('status') === 'loading' || !loaded()
               ? 'loading'
               : params.get('status') === 'stale'
                 ? 'stale'
                 : 'ready'
           }
           onRetry={() => setJumps((current) => [...current, 'retry'])}
+          focusEventId={params.get('focus') ?? undefined}
+          onFocusResult={(found) =>
+            setJumps((current) => [...current, found ? 'focus:found' : 'focus:missing'])
+          }
           events={[...base, ...filler]}
           session={session}
           runs={[run]}
@@ -198,7 +206,7 @@ function Harness() {
             ? {
                 scope: chosen(),
                 onScopeChange: setChosen,
-                boundSessionId: session.id,
+                boundSessionId: params.get('bound') ?? session.id,
                 all:
                   allStatus === 'ready'
                     ? { status: 'ready' as const, scan: buildScan() }

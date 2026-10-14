@@ -39,7 +39,7 @@ export type HistoryScope = 'session' | 'all'
 export type HistoryPaneProps = Readonly<{
   status: HistoryPaneStatus
   events: readonly RuntimeEvent[]
-  session?: RuntimeSession
+  session?: RuntimeSession | undefined
   runs: readonly HarnessRun[]
   /** True when retention dropped older events from the window. */
   bounded?: boolean
@@ -48,24 +48,53 @@ export type HistoryPaneProps = Readonly<{
   nowMs?: () => number
   onRetry?: () => void
   /** Show one event or open one session; a result's "Go to" calls it. */
-  onGo?: (jump: ConversationSearchJump) => void
+  onGo?: ((jump: ConversationSearchJump) => void) | undefined
   /** Searching the open session or every session; the switch shows with the handler. */
-  scope?: HistoryScope
-  onScopeChange?: (scope: HistoryScope) => void
-  all?: AllSessionsFeed
+  scope?: HistoryScope | undefined
+  onScopeChange?: ((scope: HistoryScope) => void) | undefined
+  all?: AllSessionsFeed | undefined
   /** The bound session's live events replace its scanned window in All sessions. */
-  boundSessionId?: string
-  onRetryAll?: () => void
+  boundSessionId?: string | undefined
+  onRetryAll?: (() => void) | undefined
   /** Resolves when the resume started; rejects when the runtime refused it. */
-  onResume?: (target: ResumeTarget) => Promise<void>
+  onResume?: ((target: ResumeTarget) => Promise<void>) | undefined
   /** A one-line outcome shown above the list, e.g. a finished resume. */
-  notice?: Readonly<{ title: string; detail?: string }>
-  /** Reveal this event's turn here; the host has no transcript to scroll. */
-  focusEventId?: string
-  onFocusResult?: (found: boolean) => void
+  notice?: Readonly<{ title: string; detail?: string }> | undefined
+  /** Show this event's turn here once the feed is ready; the host has no transcript to scroll. */
+  focusEventId?: string | undefined
+  onFocusResult?: ((found: boolean) => void) | undefined
 }>
 
 const SEARCH_PAGE = 100
+
+// What the pane says when it has no feed to show. No `action` means no retry.
+const STATE_COPY: Partial<
+  Record<HistoryPaneStatus, { title: string; detail: string; action?: string }>
+> = {
+  not_ready: {
+    title: 'The runtime is not ready',
+    detail: 'History is available once the runtime has connected.',
+  },
+  stale: {
+    title: 'History is out of date',
+    detail:
+      'Some events were missed or this feed belongs to an older run of the session. Reload to read the current history.',
+    action: 'Reload',
+  },
+  unavailable: {
+    title: 'History is unavailable',
+    detail: 'The conversation could not be read from this runtime.',
+    action: 'Try again',
+  },
+}
+const TABS: readonly (readonly ['turns' | 'runs', string])[] = [
+  ['turns', 'Turns'],
+  ['runs', 'Runs'],
+]
+const SCOPES: readonly (readonly [HistoryScope, string])[] = [
+  ['session', 'This session'],
+  ['all', 'All sessions'],
+]
 
 const TURN_STATUS: Record<HistoryTurn['state'], { label: string; tone: StatusTone }> = {
   working: { label: 'Working', tone: 'pending' },
@@ -159,38 +188,50 @@ export function turnIdForEvent(
   events: readonly RuntimeEvent[],
   eventId: string
 ): string | undefined {
-  const target = events.find((event) => event.eventId === eventId)
-  if (!target) return undefined
-  let best: HistoryTurn | undefined
-  for (const turn of turns) {
-    if (turn.id === eventId) return turn.id
-    try {
-      if (
-        BigInt(turn.jump.sequence ?? '-1') <= BigInt(target.seq) &&
-        (!best || BigInt(turn.jump.sequence ?? '-1') > BigInt(best.jump.sequence ?? '-1'))
-      )
-        best = turn
-    } catch {
-      continue
-    }
+  const prompts = new Set(turns.map((turn) => turn.id))
+  let turnId: string | undefined
+  for (const event of events) {
+    if (prompts.has(event.eventId)) turnId = event.eventId
+    if (event.eventId === eventId) return turnId
   }
-  return best?.id
+  return undefined
 }
 
 const REVEAL_MS = 2_400
 
+function Segmented<T extends string>(props: {
+  label: string
+  options: readonly (readonly [T, string])[]
+  value: T
+  onChange: (value: T) => void
+}): JSX.Element {
+  return (
+    <div role="group" aria-label={props.label} class="flex gap-1">
+      <For each={props.options}>
+        {([value, text]) => (
+          <Button
+            type="button"
+            size="sm"
+            variant={props.value === value ? 'secondary' : 'ghost'}
+            aria-pressed={props.value === value}
+            onClick={() => props.onChange(value)}
+          >
+            {text}
+          </Button>
+        )}
+      </For>
+    </div>
+  )
+}
+
 export function HistoryPane(props: HistoryPaneProps): JSX.Element {
-  const [tab, setTab] = createSignal('turns')
+  const [tab, setTab] = createSignal<'turns' | 'runs'>('turns')
   const [query, setQuery] = createSignal('')
   const [pageCount, setPageCount] = createSignal(1)
   const [highlightedTurn, setHighlightedTurn] = createSignal<string>()
   // A reveal in this list answers a "Go to" without persisting a scope change.
   const [scopeOverride, setScopeOverride] = createSignal<HistoryScope>()
   const scope = () => scopeOverride() ?? props.scope ?? 'session'
-  const chooseScope = (next: HistoryScope) => {
-    setScopeOverride(undefined)
-    props.onScopeChange?.(next)
-  }
   const nowMs = () => props.nowMs?.() ?? Date.now()
   const idPrefix = `dev-history-${Math.random().toString(36).slice(2, 8)}`
   const allSessions = () => scope() === 'all' && props.all !== undefined && tab() === 'turns'
@@ -228,23 +269,20 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
     setPageCount(1)
   }
 
-  // The host has no transcript to scroll, so a "Go to" in the bound session
-  // shows the event's turn in this list: clear the search, scroll, and mark it.
+  // Waits for the feed of the session the host is opening: until it is ready the
+  // events here belong to the session being left, so nothing is judged missing.
   createEffect(() => {
     const eventId = props.focusEventId
     if (!eventId || props.status !== 'ready') return
     const turnId = turnIdForEvent(turns(), props.events, eventId)
-    if (turnId === undefined) {
-      props.onFocusResult?.(false)
-      return
-    }
+    props.onFocusResult?.(turnId !== undefined)
+    if (turnId === undefined) return
     setTab('turns')
     updateQuery('')
     setScopeOverride('session')
     const frame = requestAnimationFrame(() => {
       body?.querySelector(`[id="${idPrefix}-${turnId}-row"]`)?.scrollIntoView({ block: 'center' })
       setHighlightedTurn(turnId)
-      props.onFocusResult?.(true)
     })
     const clear = setTimeout(() => setHighlightedTurn(undefined), REVEAL_MS)
     onCleanup(() => {
@@ -281,39 +319,26 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
           when={props.status === 'loading'}
           fallback={
             <Show
-              when={props.status === 'no_feed'}
+              when={STATE_COPY[props.status]}
               fallback={
                 <EmptyState
-                  announceAs="status"
                   icon={<History aria-hidden="true" />}
-                  title={
-                    props.status === 'not_ready'
-                      ? 'The runtime is not ready'
-                      : props.status === 'stale'
-                        ? 'History is out of date'
-                        : 'History is unavailable'
-                  }
-                  detail={
-                    props.status === 'not_ready'
-                      ? 'History is available once the runtime has connected.'
-                      : props.status === 'stale'
-                        ? 'Some events were missed or this feed belongs to an older run of the session. Reload to read the current history.'
-                        : 'The conversation could not be read from this runtime.'
-                  }
-                  {...(props.onRetry && props.status !== 'not_ready'
-                    ? {
-                        action: props.onRetry,
-                        actionLabel: props.status === 'stale' ? 'Reload' : 'Try again',
-                      }
-                    : {})}
+                  title="No prompts recorded"
+                  detail="This session runs in the terminal without a structured event feed, so prompts and replies are not recorded here. Run history is still available under Runs."
                 />
               }
             >
-              <EmptyState
-                icon={<History aria-hidden="true" />}
-                title="No prompts recorded"
-                detail="This session runs in the terminal without a structured event feed, so prompts and replies are not recorded here. Run history is still available under Runs."
-              />
+              {(copy) => (
+                <EmptyState
+                  announceAs="status"
+                  icon={<History aria-hidden="true" />}
+                  title={copy().title}
+                  detail={copy().detail}
+                  {...(props.onRetry && copy().action
+                    ? { action: props.onRetry, actionLabel: copy().action! }
+                    : {})}
+                />
+              )}
             </Show>
           }
         >
@@ -366,14 +391,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
           <div class="p-3">
             <EntryList label="Search results">
               <For each={page()?.items ?? []}>
-                {(row) => (
-                  <ResultRow
-                    row={row}
-                    query={query()}
-                    nowMs={nowMs()}
-                    {...(props.onGo ? { onGo: props.onGo } : {})}
-                  />
-                )}
+                {(row) => <ResultRow row={row} query={query()} nowMs={nowMs()} onGo={props.onGo} />}
               </For>
             </EntryList>
           </div>
@@ -421,47 +439,17 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
             </ActionButton>
           </Show>
         </div>
-        <div role="group" aria-label="History view" class="flex gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={tab() === 'turns' ? 'secondary' : 'ghost'}
-            aria-pressed={tab() === 'turns'}
-            onClick={() => setTab('turns')}
-          >
-            Turns
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={tab() === 'runs' ? 'secondary' : 'ghost'}
-            aria-pressed={tab() === 'runs'}
-            onClick={() => setTab('runs')}
-          >
-            Runs
-          </Button>
-        </div>
+        <Segmented label="History view" options={TABS} value={tab()} onChange={setTab} />
         <Show when={props.onScopeChange && tab() === 'turns'}>
-          <div role="group" aria-label="Search scope" class="flex gap-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={scope() !== 'all' ? 'secondary' : 'ghost'}
-              aria-pressed={scope() !== 'all'}
-              onClick={() => chooseScope('session')}
-            >
-              This session
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={scope() === 'all' ? 'secondary' : 'ghost'}
-              aria-pressed={scope() === 'all'}
-              onClick={() => chooseScope('all')}
-            >
-              All sessions
-            </Button>
-          </div>
+          <Segmented
+            label="Search scope"
+            options={SCOPES}
+            value={scope()}
+            onChange={(next) => {
+              setScopeOverride(undefined)
+              props.onScopeChange?.(next)
+            }}
+          />
           <Show when={scope() !== 'all' && searching()}>
             <Text variant="caption" tone="muted">
               Searching this session. Switch to All sessions to search the whole workspace.
@@ -515,14 +503,16 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
               query={query()}
               pageCount={pageCount()}
               nowMs={nowMs()}
-              {...(props.boundSessionId ? { boundSessionId: props.boundSessionId } : {})}
-              {...(props.session && props.status === 'ready'
-                ? { overrides: new Map([[props.session.id, props.events]]) }
-                : {})}
+              boundSessionId={props.boundSessionId}
+              overrides={
+                props.session && props.status === 'ready'
+                  ? new Map([[props.session.id, props.events]])
+                  : undefined
+              }
               onGo={(jump) => props.onGo?.(jump)}
-              {...(props.onResume ? { onResume: props.onResume } : {})}
+              onResume={props.onResume}
               onLoadMore={() => setPageCount((count) => count + 1)}
-              {...(props.onRetryAll ? { onRetry: props.onRetryAll } : {})}
+              onRetry={props.onRetryAll}
             />
           </Show>
         </Show>

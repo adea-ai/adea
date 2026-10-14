@@ -9,7 +9,6 @@ import {
   searchConversationHistory,
   type ConversationSearchRow,
 } from '../chat/search/conversation-search-model'
-import { harnessStatusLabel } from '../agents/harness-status-model'
 import type { AllSessionsScan } from './all-sessions-scan'
 import { isResumable, resumeReason, type RunHistoryRow } from './run-history-model'
 import { newestRun } from './turns-model'
@@ -44,9 +43,6 @@ export type ResumeTarget = Readonly<{
   harnessRunId: string
   /** Position of the run in the session's run history, oldest first. */
   runNumber: number
-  runGeneration: number
-  stateLabel: string
-  startedAt?: string
   /** The generation a resume starts. */
   nextGeneration: number
 }>
@@ -99,9 +95,6 @@ function sessionResume(
       title,
       harnessRunId: run.id,
       runNumber: history.findIndex((candidate) => candidate.id === run.id) + 1,
-      runGeneration: run.generation,
-      stateLabel: harnessStatusLabel(run.state),
-      ...(run.startedAt !== undefined ? { startedAt: run.startedAt } : {}),
       nextGeneration: Math.max(...runs.map((candidate: HarnessRun) => candidate.generation)) + 1,
     },
   }
