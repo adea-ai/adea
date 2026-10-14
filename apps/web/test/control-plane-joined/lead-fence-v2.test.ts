@@ -54,7 +54,7 @@ import {
   withCurrentLeadTurnProduct,
   workspaces,
 } from '@adea-ai/db'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { createLeadProductReaderHandler } from '../../src/server/lead-product-reader'
 import { createLeadProductServiceVerifier } from '../../src/server/lead-product-service-auth'
 import { createLeadTurnProduct } from '../../src/server/lead-turn-product'
@@ -245,20 +245,67 @@ interface NoEffectRun {
   }
   runtime: { effects: () => unknown }
   response: { dispatchId: string }
+  /** Runtime effects plus every stored row on both sides, from `stored`. */
+  snapshot: () => Promise<unknown>
 }
 
-/** Every consumer operation fails and none reaches the runtime or the control-plane stores. */
+/** One snapshot of everything a refusal must leave alone, from `stored`. */
+interface Stored {
+  effects: unknown
+  counts: unknown
+  controlPlane: Record<string, string[]>
+  adea: unknown
+}
+
+/** The idempotency keys of the command bindings in a snapshot (key is `[workspace, principal, key]`). */
+const bindingKeys = (snapshot: Stored) =>
+  (snapshot.controlPlane['pi_lead_commands'] ?? []).map(
+    (row) => JSON.parse(JSON.parse(row).key)[2] as string
+  )
+
+/**
+ * Between two snapshots the control plane may add command bindings for exactly `addedKeys` and
+ * nothing else: every other table (receipts, retained markers, admission bindings, budgets, plans,
+ * executions, usage, catalog) is identical row for row. With `elsewhere`, the runtime effects, the
+ * provider counts and every Adea row are identical too.
+ */
+function expectOnlyCommandBindings(
+  before: Stored,
+  after: Stored,
+  addedKeys: string[],
+  elsewhere = true
+) {
+  const { pi_lead_commands: _before, ...beforeRest } = before.controlPlane
+  const { pi_lead_commands: _after, ...afterRest } = after.controlPlane
+  expect(afterRest).toEqual(beforeRest)
+  const previous = bindingKeys(before)
+  const added = bindingKeys(after).filter((key) => !previous.includes(key))
+  expect(added.toSorted()).toEqual([...addedKeys].toSorted())
+  expect(previous.every((key) => bindingKeys(after).includes(key))).toBe(true)
+  if (elsewhere) {
+    expect(after.effects).toEqual(before.effects)
+    expect(after.counts).toEqual(before.counts)
+    expect(after.adea).toEqual(before.adea)
+  }
+}
+
+/**
+ * Every consumer operation fails. Reads and the resolver change nothing at all. A refused dispatch
+ * records only its own new command binding; the runtime, every other control-plane row and every
+ * Adea row stay as they were.
+ */
 async function expectNoEffect(run: NoEffectRun) {
-  const { host, runtime, response } = run
-  const effects = runtime.effects()
-  const counts = await host.counts()
+  const { host, response, snapshot } = run
+  const before = (await snapshot()) as Stored
   await expect(host.status(response.dispatchId)).rejects.toThrow()
   await expect(host.progress(response.dispatchId)).rejects.toThrow()
-  await expect(host.cancel(response.dispatchId, `transport:${randomUUID()}`)).rejects.toThrow()
-  await expect(host.dispatch(`transport:${randomUUID()}`)).rejects.toThrow()
   await expect(host.resolve('prepare')).rejects.toThrow()
-  expect(runtime.effects()).toEqual(effects)
-  expect(await host.counts()).toEqual(counts)
+  expect(await snapshot()).toEqual(before)
+  const cancelKey = `transport:${randomUUID()}`
+  const dispatchKey = `transport:${randomUUID()}`
+  await expect(host.cancel(response.dispatchId, cancelKey)).rejects.toThrow()
+  await expect(host.dispatch(dispatchKey)).rejects.toThrow()
+  expectOnlyCommandBindings(before, (await snapshot()) as Stored, [dispatchKey])
 }
 
 describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
@@ -302,6 +349,34 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     await primary?.close()
     for (const connection of spare) await connection.close()
   })
+
+  /** Adea's stored rows for the tenant: its lead turn, runtime binding and messages, whole. */
+  async function adeaStored(tenant: Tenant) {
+    const { db } = tenant.connection
+    const rows = async (query: ReturnType<typeof sql>) =>
+      ((await db.execute(query)) as unknown as { row: unknown }[]).map((r) => JSON.stringify(r.row))
+    return {
+      intents: await rows(
+        sql`SELECT to_jsonb(t) AS row FROM app.lead_turn_intents t WHERE workspace_id = ${tenant.workspace.id} ORDER BY id`
+      ),
+      runtime: await rows(
+        sql`SELECT to_jsonb(t) AS row FROM app.lead_turn_runtime t WHERE intent_id = ${tenant.intentId}`
+      ),
+      messages: await rows(
+        sql`SELECT to_jsonb(t) AS row FROM app.messages t WHERE workspace_id = ${tenant.workspace.id} ORDER BY id`
+      ),
+    }
+  }
+
+  /** Everything a refusal must leave alone: runtime effects, every control-plane row, every Adea row. */
+  async function stored(tenant: Tenant, host: Host, runtime: Runtime) {
+    return {
+      effects: runtime.effects(),
+      counts: await host.counts(),
+      controlPlane: host.stored(),
+      adea: await adeaStored(tenant),
+    }
+  }
 
   /** One Adea tenant with one admitted direct lead turn, plus the signing identity for its reader. */
   async function adeaTenant() {
@@ -630,6 +705,33 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           principal: as,
           operation,
         }),
+      /**
+       * Every row of every table in the control-plane SQLite file: receipts, command bindings, retained
+       * markers, admission bindings, budgets, plans, executions and the rest. Compared whole.
+       */
+      stored: () => {
+        const tables = database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+          )
+          .all()
+          .map((row) => String(row['name']))
+          .toSorted()
+        return Object.fromEntries(
+          tables.map((name) => [
+            name,
+            database
+              .prepare(`SELECT * FROM "${name}"`)
+              .all()
+              .map((row) =>
+                JSON.stringify(row, (_key, value) =>
+                  typeof value === 'bigint' ? String(value) : value
+                )
+              )
+              .toSorted(),
+          ])
+        )
+      },
       counts: () =>
         provider.transaction(async (transaction: any) => ({
           commands: (await transaction.list('command-inbox')).length,
@@ -766,7 +868,8 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     await prepareAndPend(tenant, host)
     const unfenced = await emitted(tenant)
     const dispatched = await dispatchAndBind(tenant, host)
-    return { tenant, runtime, host, unfenced, ...dispatched }
+    const snapshot = () => stored(tenant, host, runtime)
+    return { tenant, runtime, host, unfenced, snapshot, ...dispatched }
   }
 
   // ---- provenance ----------------------------------------------------------------------------
@@ -843,10 +946,12 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
   // ---- continuation after fence and restart --------------------------------------------------
 
   test('continuation: after the fence and a restart of both sides, status, progress and original-actor cancel reach the original handle and start nothing', async () => {
-    const { tenant, runtime, host, unfenced, response, binding } = await runningAdmission()
+    const { tenant, runtime, host, unfenced, response, binding, snapshot } =
+      await runningAdmission()
     try {
       const receiptBefore = await host.receipts.get(response.dispatchId)
       const countsBefore = await host.counts()
+      const storedBefore = await snapshot()
       expect((await fence(tenant)).disposition).toBe('in_flight_fenced')
 
       // Both sides restart: Adea gets a new connection and handler, the control plane reopens SQLite.
@@ -896,6 +1001,14 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       expect(runtime.effects().start).toBe(1)
       expect(await host.receipts.get(response.dispatchId)).toEqual(receiptBefore)
       expect(await host.counts()).toEqual(countsBefore)
+      // Permitted observation and cancel store nothing but the cancel's own command binding: the
+      // receipt, retained marker, admission binding and every other control-plane row are identical.
+      expectOnlyCommandBindings(
+        storedBefore,
+        await snapshot(),
+        [`lead-cancel:${binding.dispatchId}`],
+        false
+      )
       const after = await rollbackState(tenant)
       expect(after).toMatchObject({
         fenced: true,
@@ -922,7 +1035,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
   }, 60_000)
 
   test('continuation: the fence audience check denies a principal the fence does not name, and nothing changes', async () => {
-    const { tenant, runtime, host, response } = await runningAdmission()
+    const { tenant, host, response, snapshot } = await runningAdmission()
     try {
       await fence(tenant)
       // Adea names exactly the principal that read the fence. Record that body for replay.
@@ -932,14 +1045,9 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
         tenant.hop.intercept = () =>
           Response.json(body, { headers: { 'cache-control': 'private, no-store' } })
       }
-      const snapshot = async () => ({
-        effects: runtime.effects(),
-        counts: await host.counts(),
-        receipt: await host.receipts.get(response.dispatchId),
-      })
-      let baseline = await snapshot()
-      const unchanged = async () => {
-        expect(await snapshot()).toEqual(baseline)
+      let baseline = (await snapshot()) as Stored
+      const unchanged = async (...addedKeys: string[]) => {
+        expectOnlyCommandBindings(baseline, (await snapshot()) as Stored, addedKeys)
         expect((await rollbackState(tenant)).fenced).toBe(true)
       }
       const denied = 'PI_LEAD_SCOPE_REJECTED'
@@ -953,6 +1061,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       await expect(host.progress(response.dispatchId)).rejects.toThrow(denied)
       await expect(host.cancel(response.dispatchId, 'transport:not-named')).rejects.toThrow(denied)
       expect(tenant.hop.reads).toBeGreaterThan(reads)
+      // The audience check refuses during resolution, before any command binding is written.
       await unchanged()
 
       // 2. A principal that is not the audience, with its caller made consistent, reads the fence
@@ -971,7 +1080,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       }
       expect((await host.status(response.dispatchId)).data.state).toBe('running')
       tenant.hop.intercept = undefined
-      baseline = await snapshot()
+      baseline = (await snapshot()) as Stored
 
       // 3. Over the real signed hop the outsider is refused earlier still: its receipt does not list it,
       // so the control plane never reads Adea for it. This is a separate defence, not the audience check.
@@ -1019,20 +1128,22 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
   // ---- new effects stay refused --------------------------------------------------------------
 
   test('refusal: prepare, dispatch, lookup and publication are refused on both sides, with zero new effects, across a restart', async () => {
-    const { tenant, runtime, host, response, binding } = await runningAdmission()
+    const { tenant, host, binding, snapshot } = await runningAdmission()
     try {
-      const receiptBefore = await host.receipts.get(response.dispatchId)
-      const countsBefore = await host.counts()
-      const effectsBefore = runtime.effects()
       await fence(tenant)
       await restartAdea(tenant)
       await host.restart()
+      const fencedAndRestarted = (await snapshot()) as Stored
 
       // Control-plane consumer.
       for (const operation of [undefined, 'prepare', 'dispatch'])
         await expect(host.resolve(operation)).rejects.toThrow('PI_LEAD_UNAVAILABLE')
       await expect(host.dispatch('transport:dispatch-again')).rejects.toThrow('PI_LEAD_UNAVAILABLE')
       await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+      // The refused dispatch stored its own command binding; the resolver and lookup stored nothing,
+      // and no receipt, marker, admission binding or Adea row moved.
+      const afterControlPlane = (await snapshot()) as Stored
+      expectOnlyCommandBindings(fencedAndRestarted, afterControlPlane, ['transport:dispatch-again'])
 
       // Adea product: no new preparation, dispatch or publication, before any control-plane call.
       const product = adeaProduct(tenant, host)
@@ -1046,6 +1157,8 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           attemptId: `att_${crockford(26)}`,
         })
       ).rejects.toThrow('LEAD_TURN_FENCED')
+      // Refused on Adea's side: not one control-plane or Adea row, command binding or effect moved.
+      expect(await snapshot()).toEqual(afterControlPlane)
       await observeLeadTurnRuntime(
         db,
         tenant.workspace.id,
@@ -1057,6 +1170,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           observedAt: new Date().toISOString(),
         }
       )
+      const beforePublication = await snapshot()
       await expect(
         publishLeadTurnResult(
           db,
@@ -1069,9 +1183,8 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
         )
       ).rejects.toThrow('LEAD_TURN_FENCED')
 
-      expect(runtime.effects()).toEqual(effectsBefore)
-      expect(await host.receipts.get(response.dispatchId)).toEqual(receiptBefore)
-      expect(await host.counts()).toEqual(countsBefore)
+      // Refused publication: no message, runtime row or control-plane row moved.
+      expect(await snapshot()).toEqual(beforePublication)
       expect((await rollbackState(tenant)).fenced).toBe(true)
     } finally {
       await host.close()
@@ -1084,6 +1197,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     const tenant = await adeaTenant()
     const runtime = createRuntime()
     const host = await controlPlaneHost(tenant, runtime)
+    const snapshot = () => stored(tenant, host, runtime)
     try {
       await prepareAndPend(tenant, host)
       // The control plane starts the runtime and crashes before it records the handle.
@@ -1104,8 +1218,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       expect((await fence(tenant)).disposition).toBe('reconcile_uncertain_effect')
       await restartAdea(tenant)
       await host.restart()
-      const effectsFenced = runtime.effects()
-      const countsFenced = await host.counts()
+      const fencedAndRestarted = (await snapshot()) as Stored
 
       // Retry of the dispatch, and every observation or cancel of the unproven handle, is refused.
       await expect(host.dispatch('transport:dispatch-retry-1')).rejects.toThrow(
@@ -1120,8 +1233,15 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
         'PI_LEAD_UNAVAILABLE'
       )
       await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
-      expect(runtime.effects()).toEqual(effectsFenced)
-      expect(await host.counts()).toEqual(countsFenced)
+      // Only the three refused mutating commands stored anything, their own command bindings. The receipt is
+      // still `dispatching` with no handle, the retained marker and admission binding are unchanged,
+      // and Adea's rows and the runtime effects are exactly as before.
+      const afterRefusals = (await snapshot()) as Stored
+      expectOnlyCommandBindings(fencedAndRestarted, afterRefusals, [
+        'transport:cancel-unproven',
+        'transport:dispatch-retry-1',
+        'transport:dispatch-retry-2',
+      ])
       expect((await host.receipts.get(dispatchId))?.state).toBe('dispatching')
 
       // Adea's own reconciliation cannot resolve it either: the lookup it needs is refused while
@@ -1131,6 +1251,8 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       expect(status).toMatchObject({ availability: 'unavailable', state: 'dispatch_pending' })
       expect(status.dispatchId).toBeUndefined()
       await expect(product.dispatch(tenant.scope)).rejects.toThrow('LEAD_TURN_FENCED')
+      // Adea's reconciliation attempt and refused dispatch stored nothing on either side.
+      expect(await snapshot()).toEqual(afterRefusals)
       const settled = await rollbackState(tenant)
       expect(settled).toMatchObject({ fenced: true, disposition: 'reconcile_uncertain_effect' })
       expect(settled.runtime?.dispatchId).toBeUndefined()
@@ -1196,10 +1318,10 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
 
     test('stale: a retained revision or scope that no longer matches the fence conflicts, and Adea refuses a participant change outright', async () => {
       const run = await runningAdmission()
-      const { tenant, host, runtime } = run
+      const { tenant, host, snapshot } = run
       try {
         await fence(tenant)
-        const effectsBefore = runtime.effects()
+        const pristine = (await snapshot()) as Stored
         // The control plane's retained marker is behind the fence: revision, then scope.
         const record = host.database
           .prepare('SELECT record FROM pi_lead_intent_admissions WHERE intent_id = ?')
@@ -1214,17 +1336,21 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
               "UPDATE pi_lead_intent_admissions SET record = json_set(record, '$.intent.' || ?, ?) WHERE intent_id = ?"
             )
             .run(field, value, tenant.intentId)
+          const tampered = (await snapshot()) as Stored
           await expect(host.status(run.response.dispatchId)).rejects.toThrow(
             'PI_LEAD_AUTHORITY_CONFLICT'
           )
           await expect(
             host.cancel(run.response.dispatchId, `transport:${randomUUID()}`)
           ).rejects.toThrow('PI_LEAD_AUTHORITY_CONFLICT')
+          // The conflict is raised before any command is bound: nothing at all was stored.
+          expectOnlyCommandBindings(tampered, (await snapshot()) as Stored, [])
           host.database
             .prepare('UPDATE pi_lead_intent_admissions SET record = ? WHERE intent_id = ?')
             .run(original, tenant.intentId)
         }
-        expect(runtime.effects()).toEqual(effectsBefore)
+        // With the marker restored, the stores equal what they were before the tamper.
+        expectOnlyCommandBindings(pristine, (await snapshot()) as Stored, [])
 
         // Adea's own authority moves under the fence: a participant joins, so the pinned audience
         // changes. The reader then refuses outright and the consumer learns nothing.
