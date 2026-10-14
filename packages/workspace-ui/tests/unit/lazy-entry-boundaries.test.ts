@@ -15,19 +15,33 @@ function sourceFile(module: string): string {
   throw new Error(`No source file for ./${module}`)
 }
 
-/** Modules this one loads when it runs: static imports and re-exports, not type-only ones. */
-function staticImports(module: string): string[] {
-  const code = readFileSync(sourceFile(module), 'utf8')
+/**
+ * Relative modules a source text loads when it runs: static imports and re-exports, not
+ * type-only ones. Each statement is read on its own (the source has no semicolons, so a
+ * clause that spans statements would hide the runtime import after a type import).
+ */
+function runtimeImports(code: string): string[] {
   const found: string[] = []
-  for (const match of code.matchAll(/^(?:import|export)\s+([^;]*?)\s*from\s*'\.\/([^']+)'/gms)) {
+  for (const statement of code.split(/^(?=(?:import|export)\b)/m)) {
+    const sideEffect = statement.match(/^import\s*'\.\/([^']+)'/)
+    if (sideEffect) {
+      found.push(sideEffect[1]!)
+      continue
+    }
+    const match = statement.match(/^(?:import|export)\s+([^'"]*?)\s*from\s*'\.\/([^']+)'/)
+    if (!match) continue
     const clause = match[1]!
-    if (/^type\s/.test(clause)) continue
+    if (/^type[\s{*]/.test(clause)) continue
     // `import { type A }` alone is erased; `import { type A, B }` keeps B.
     if (clause.startsWith('{') && clause.split(',').every((part) => /^[{\s]*type\s/.test(part)))
       continue
     found.push(match[2]!)
   }
   return found
+}
+
+function staticImports(module: string): string[] {
+  return runtimeImports(readFileSync(sourceFile(module), 'utf8'))
 }
 
 function dynamicImports(module: string): string[] {
@@ -104,4 +118,45 @@ test('the conversation surface and settings dialog load every entry on demand', 
   expect(dynamicImports('workspace-details-dialog')).toEqual(
     expect.arrayContaining(['control-plane-catalog', 'control-plane-hosts'])
   )
+})
+
+test('the import scanner keeps runtime imports that follow type and package imports', () => {
+  const code = [
+    "import type { Client } from '@adea-ai/api-client'",
+    "import { Pane } from './pane'",
+    "import type { Choices } from './choices'",
+    "import { type Row } from '@adea-ai/types'",
+    "import { helper } from './helper'",
+    "import { type OnlyType, type AlsoType } from './types-only'",
+    "import { type Kept, value } from './mixed'",
+    "import Default, { type Named } from './default'",
+    "import './side-effect'",
+    'export type Alias = { a: 1 }',
+    "export { Exported } from './exported'",
+    "export type { Shape } from './shape'",
+    "export type * from './all-types'",
+    "export * from './all'",
+    '',
+  ].join('\n')
+  expect(runtimeImports(code)).toEqual([
+    'pane',
+    'helper',
+    'mixed',
+    'default',
+    'side-effect',
+    'exported',
+    'all',
+  ])
+})
+
+test('the import scanner reads multi-line clauses', () => {
+  const code = `import {
+  type Row,
+  Pane,
+} from './pane'
+import type {
+  Choices,
+} from './choices'
+`
+  expect(runtimeImports(code)).toEqual(['pane'])
 })
