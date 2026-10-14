@@ -32,8 +32,8 @@
 // archive or prepared-update filename for reading would otherwise block until
 // a writer appears, hanging startup indefinitely. A non-blocking open returns
 // at once, and anything that is not a regular file is skipped.
-import { dlopen, FFIType } from 'bun:ffi'
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs'
+import { dlopen, FFIType, read } from 'bun:ffi'
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** The extractor only accepts hashes of this shape when it names the tar. */
@@ -48,29 +48,82 @@ export type InstallerArchiveOutcome =
   | { state: 'absent' }
   | { state: 'skipped'; reason: string }
 
+/** `ENOENT` is 2 on both Linux and macOS. */
+const ENOENT = 2
+
+/** What a descriptor-relative lookup of one name proved. */
+export type EntryProbe = 'present' | 'absent' | 'unknown'
+
 /** Descriptor-relative file operations; the seam the race tests use. */
 export interface DescriptorOps {
   /** `openat`; returns a descriptor or -1. */
   openAt(dirFd: number, name: string, flags: number): number
   /** `unlinkat(dirFd, name, 0)`; returns 0 or -1. */
   unlinkAt(dirFd: number, name: string): number
+  /**
+   * Whether `name` exists in the directory, without following a final symlink
+   * (a dangling symlink is `present`). `absent` only when the kernel positively
+   * reported "no such entry"; any other failure is `unknown`, never `absent`.
+   */
+  probe(dirFd: number, name: string): EntryProbe
 }
 
 let nativeOps: DescriptorOps | null | undefined
 
 const cstring = (value: string) => Buffer.from(`${value}\0`)
 
-/** libc `openat`/`unlinkat` through Bun's FFI, or null when unavailable. */
-function loadNativeOps(): DescriptorOps | null {
+/** `AT_SYMLINK_NOFOLLOW` differs between macOS and Linux. */
+const AT_SYMLINK_NOFOLLOW = process.platform === 'darwin' ? 0x20 : 0x100
+const F_OK = 0
+
+/** libc `openat`/`unlinkat`/`faccessat` through Bun's FFI, or null when unavailable. */
+export function loadNativeOps(): DescriptorOps | null {
   if (nativeOps !== undefined) return nativeOps
   try {
     const library = dlopen(process.platform === 'darwin' ? 'libSystem.B.dylib' : 'libc.so.6', {
       openat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
       unlinkat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
+      faccessat: {
+        args: [FFIType.i32, FFIType.cstring, FFIType.i32, FFIType.i32],
+        returns: FFIType.i32,
+      },
+      [process.platform === 'darwin' ? '__error' : '__errno_location']: {
+        args: [],
+        returns: FFIType.ptr,
+      },
     })
+    const symbols = library.symbols as Record<string, (...args: never[]) => unknown>
+    const errnoLocation = symbols[
+      process.platform === 'darwin' ? '__error' : '__errno_location'
+    ] as () => number | null
+    const errno = (): number | undefined => {
+      const location = errnoLocation()
+      return location ? read.i32(location) : undefined
+    }
+    const openAt = (dirFd: number, name: string, flags: number) =>
+      library.symbols.openat(dirFd, cstring(name), flags)
     nativeOps = {
-      openAt: (dirFd, name, flags) => library.symbols.openat(dirFd, cstring(name), flags),
+      openAt,
       unlinkAt: (dirFd, name) => library.symbols.unlinkat(dirFd, cstring(name), 0),
+      probe: (dirFd, name) => {
+        // Two independent lookups must both report "no such entry". Either one
+        // succeeding, or failing for any other reason (a symlink loop, a
+        // permission error, an unsupported flag), is not proof of absence.
+        const access = library.symbols.faccessat(dirFd, cstring(name), F_OK, AT_SYMLINK_NOFOLLOW)
+        if (access === 0) return 'present'
+        const accessErrno = errno()
+        const open = openAt(
+          dirFd,
+          name,
+          constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
+        )
+        if (open >= 0) {
+          closeSync(open)
+          return 'present'
+        }
+        const openErrno = errno()
+        return accessErrno === ENOENT && openErrno === ENOENT ? 'absent' : 'unknown'
+      },
     }
   } catch {
     nativeOps = null
@@ -85,18 +138,10 @@ export interface RetireInstallerArchiveOptions {
   /** The user's `Library/Application Support` (the one trusted root). */
   applicationSupportDir: string
   ops?: DescriptorOps | null
-  /** Runs after the directory chain is verified, immediately before unlinking. */
+  /** Runs once the directory chain is verified, before the prepared-record check. */
+  afterDirectoryVerified?: () => void
+  /** Runs immediately before unlinking. */
   beforeUnlink?: () => void
-}
-
-/** True when `path` exists in any form, including a dangling symlink. */
-function entryExists(path: string): boolean {
-  try {
-    lstatSync(path)
-    return true
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -153,22 +198,26 @@ export function retireInstallerArchive(
       dirFd = next
     }
 
-    // A prepared-update record, of any kind, means hands off.
-    const recordFd = ops.openAt(dirFd, PREPARED_UPDATE_RECORD, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-    if (recordFd >= 0) {
-      held.push(recordFd)
-      return { state: 'skipped', reason: 'a prepared update record exists' }
-    }
-    if (entryExists(join(walked, PREPARED_UPDATE_RECORD))) {
-      return { state: 'skipped', reason: 'a prepared update record exists' }
+    options.afterDirectoryVerified?.()
+
+    // A prepared-update record, of any kind (even a dangling symlink or a pipe),
+    // means hands off. Looked up in the directory we hold, never by pathname,
+    // and only a positive "no such entry" lets the removal go ahead.
+    if (ops.probe(dirFd, PREPARED_UPDATE_RECORD) !== 'absent') {
+      return { state: 'skipped', reason: 'a prepared update record exists or cannot be ruled out' }
     }
 
     const name = `${hash}.tar`
     const fileFd = ops.openAt(dirFd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
     if (fileFd < 0) {
-      return entryExists(join(walked, name))
-        ? { state: 'skipped', reason: 'not a regular file' }
-        : { state: 'absent' }
+      switch (ops.probe(dirFd, name)) {
+        case 'absent':
+          return { state: 'absent' }
+        case 'present':
+          return { state: 'skipped', reason: 'not a regular file' }
+        default:
+          return { state: 'skipped', reason: 'the archive could not be inspected' }
+      }
     }
     held.push(fileFd)
     if (!fstatSync(fileFd).isFile()) return { state: 'skipped', reason: 'not a regular file' }

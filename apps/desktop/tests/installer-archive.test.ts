@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { retireInstallerArchive } from '../shell/src/installer-archive'
+import { loadNativeOps, retireInstallerArchive } from '../shell/src/installer-archive'
 
 const roots: string[] = []
 afterAll(() => {
@@ -86,7 +86,7 @@ describe('retireInstallerArchive', () => {
     })
     expect(retireInstallerArchive(f)).toEqual({
       state: 'skipped',
-      reason: 'a prepared update record exists',
+      reason: 'a prepared update record exists or cannot be ruled out',
     })
     expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
   })
@@ -256,7 +256,10 @@ describe('retireInstallerArchive', () => {
       mkfifo(join(f.extractionDir, '.electrobun-prepared-update.json'))
       const { timedOut, outcome } = retireInChild(f)
       expect(timedOut).toBe(false)
-      expect(outcome).toEqual({ state: 'skipped', reason: 'a prepared update record exists' })
+      expect(outcome).toEqual({
+        state: 'skipped',
+        reason: 'a prepared update record exists or cannot be ruled out',
+      })
       expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
     })
 
@@ -267,6 +270,98 @@ describe('retireInstallerArchive', () => {
       const { timedOut, outcome } = retireInChild(f)
       expect(timedOut).toBe(false)
       expect(outcome?.state).toBe('skipped')
+    })
+  })
+
+  describe('the prepared-update check is descriptor-relative and fails closed', () => {
+    const RECORD = '.electrobun-prepared-update.json'
+
+    test('a dangling prepared-record symlink counts as a record', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      symlinkSync(join(f.root, 'does-not-exist'), join(f.extractionDir, RECORD))
+      expect(retireInstallerArchive(f)).toEqual({
+        state: 'skipped',
+        reason: 'a prepared update record exists or cannot be ruled out',
+      })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a parent directory renamed and replaced mid-check cannot hide a record', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      // The directory we verified holds a dangling prepared-record symlink.
+      symlinkSync(join(f.root, 'does-not-exist'), join(f.extractionDir, RECORD))
+      const moved = `${f.extractionDir}.moved`
+      const outcome = retireInstallerArchive({
+        ...f,
+        // After verification, the real directory is renamed away and a fresh
+        // one with its own archive and no record takes its place. A pathname
+        // lookup would see the replacement and proceed; the check must stay
+        // on the directory already held.
+        afterDirectoryVerified: () => {
+          renameSync(f.extractionDir, moved)
+          mkdirSync(f.extractionDir)
+          writeFileSync(join(f.extractionDir, 'abc123.tar'), 'replacement archive')
+        },
+      })
+      expect(outcome.state).toBe('skipped')
+      expect(existsSync(join(moved, 'abc123.tar'))).toBe(true)
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a parent directory replaced by a symlink mid-check is not followed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const outside = join(f.root, 'outside')
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'abc123.tar'), 'must survive')
+      const outcome = retireInstallerArchive({
+        ...f,
+        afterDirectoryVerified: () => {
+          renameSync(f.extractionDir, `${f.extractionDir}.moved`)
+          symlinkSync(outside, f.extractionDir)
+        },
+      })
+      // The held directory is the original one; the outside file is untouched.
+      expect(outcome.state).toBe('removed')
+      expect(existsSync(join(outside, 'abc123.tar'))).toBe(true)
+    })
+
+    test('an inconclusive lookup of the record never lets the removal proceed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const real = loadNativeOps()
+      expect(real).not.toBeNull()
+      const failing = { ...real!, probe: () => 'unknown' as const }
+      expect(retireInstallerArchive({ ...f, ops: failing }).state).toBe('skipped')
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('an inconclusive lookup of a missing archive is not reported as absent', () => {
+      const f = stage({ hash: 'abc123' })
+      const real = loadNativeOps()!
+      // Record lookup is conclusive; the archive lookup is not.
+      let calls = 0
+      const flaky = {
+        ...real,
+        probe: (fd: number, name: string) => (calls++ === 0 ? real.probe(fd, name) : 'unknown'),
+      } as typeof real
+      expect(retireInstallerArchive({ ...f, ops: flaky })).toEqual({
+        state: 'skipped',
+        reason: 'the archive could not be inspected',
+      })
+    })
+
+    test('the real lookup tells absent, present and dangling apart', () => {
+      const f = stage({ hash: 'abc123', archives: ['here.tar'] })
+      symlinkSync(join(f.root, 'nowhere'), join(f.extractionDir, 'dangling.tar'))
+      const ops = loadNativeOps()!
+      const { O_RDONLY, O_DIRECTORY } = require('node:fs').constants
+      const fd = require('node:fs').openSync(f.extractionDir, O_RDONLY | O_DIRECTORY)
+      try {
+        expect(ops.probe(fd, 'missing.tar')).toBe('absent')
+        expect(ops.probe(fd, 'here.tar')).toBe('present')
+        expect(ops.probe(fd, 'dangling.tar')).toBe('present')
+      } finally {
+        require('node:fs').closeSync(fd)
+      }
     })
   })
 })

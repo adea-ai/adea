@@ -69,6 +69,11 @@ only controls patch generation at build time), so the shell retires it at boot
   for a symlink after the check cannot redirect the delete, and `unlinkat`
   never follows a final symlink. Without these native calls (Bun FFI to libc)
   the archive is left in place.
+- The prepared-update record is looked up in the held directory too (never by
+  pathname). Only a positive "no such entry" from two independent kernel
+  lookups (`faccessat` without following, and a non-following `openat`) lets
+  the removal proceed; a record of any kind, including a dangling symlink or a
+  pipe, or any inconclusive result, leaves the archive in place.
 - Every open is `O_NONBLOCK` and anything that is not a regular file is skipped,
   so a named pipe at the archive or prepared-update filename cannot block
   startup.
