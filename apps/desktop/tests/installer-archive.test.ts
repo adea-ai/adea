@@ -12,6 +12,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -208,6 +209,64 @@ describe('retireInstallerArchive', () => {
       const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
       expect(retireInstallerArchive({ ...f, ops: null }).state).toBe('skipped')
       expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+  })
+
+  describe('a named pipe can never hang boot', () => {
+    /**
+     * Run the retirement in a child process with a hard timeout: an in-process
+     * hang would freeze the test runner itself instead of failing the test.
+     */
+    function retireInChild(f: ReturnType<typeof stage>) {
+      const moduleUrl = new URL('../shell/src/installer-archive.ts', import.meta.url).href
+      const script = `
+        const { retireInstallerArchive } = await import(${JSON.stringify(moduleUrl)})
+        const outcome = retireInstallerArchive(${JSON.stringify({
+          resourcesDir: f.resourcesDir,
+          applicationSupportDir: f.applicationSupportDir,
+        })})
+        process.stdout.write(JSON.stringify(outcome))
+      `
+      const result = spawnSync(process.execPath, ['-e', script], {
+        encoding: 'utf8',
+        timeout: 8000,
+      })
+      return {
+        timedOut: result.error !== undefined || result.signal !== null,
+        outcome: result.stdout ? JSON.parse(result.stdout) : undefined,
+      }
+    }
+
+    function mkfifo(path: string) {
+      const made = spawnSync('mkfifo', [path])
+      expect(made.status).toBe(0)
+    }
+
+    test('a pipe at the archive name is skipped without blocking', () => {
+      const f = stage({ hash: 'abc123' })
+      mkfifo(join(f.extractionDir, 'abc123.tar'))
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome).toEqual({ state: 'skipped', reason: 'not a regular file' })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a pipe at the prepared-update record name is skipped without blocking', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      mkfifo(join(f.extractionDir, '.electrobun-prepared-update.json'))
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome).toEqual({ state: 'skipped', reason: 'a prepared update record exists' })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a pipe in place of an install directory is refused without blocking', () => {
+      const f = stage({ hash: 'abc123' })
+      rmSync(f.extractionDir, { recursive: true })
+      mkfifo(f.extractionDir)
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome?.state).toBe('skipped')
     })
   })
 })

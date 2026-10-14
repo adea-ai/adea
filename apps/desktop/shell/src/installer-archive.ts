@@ -27,6 +27,11 @@
 // delete; the kernel resolves the name inside the directory we are holding,
 // and `unlinkat` never follows a final symlink. If the native calls are not
 // available the archive is simply left in place.
+//
+// Boot safety. Every open here is `O_NONBLOCK`: opening a named pipe at the
+// archive or prepared-update filename for reading would otherwise block until
+// a writer appears, hanging startup indefinitely. A non-blocking open returns
+// at once, and anything that is not a regular file is skipped.
 import { dlopen, FFIType } from 'bun:ffi'
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -127,20 +132,20 @@ export function retireInstallerArchive(
     }
 
     const ops = options.ops === undefined ? loadNativeOps() : options.ops
-    const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW } = constants
-    if (!ops || O_DIRECTORY === undefined || O_NOFOLLOW === undefined) {
+    const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = constants
+    if (!ops || O_DIRECTORY === undefined || O_NOFOLLOW === undefined || O_NONBLOCK === undefined) {
       return { state: 'skipped', reason: 'descriptor-relative file operations are unavailable' }
     }
 
     // The root is trusted (it may itself be reached through a user symlink);
     // everything below it must be a real directory, opened without following.
     const chain = [identifier, channel, 'self-extraction']
-    let dirFd = openSync(options.applicationSupportDir, O_RDONLY | O_DIRECTORY)
+    let dirFd = openSync(options.applicationSupportDir, O_RDONLY | O_DIRECTORY | O_NONBLOCK)
     held.push(dirFd)
     let walked = options.applicationSupportDir
     for (const name of chain) {
       walked = join(walked, name)
-      const next = ops.openAt(dirFd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+      const next = ops.openAt(dirFd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK)
       if (next < 0) {
         return { state: 'skipped', reason: 'install directory is missing or not a real directory' }
       }
@@ -149,7 +154,7 @@ export function retireInstallerArchive(
     }
 
     // A prepared-update record, of any kind, means hands off.
-    const recordFd = ops.openAt(dirFd, PREPARED_UPDATE_RECORD, O_RDONLY | O_NOFOLLOW)
+    const recordFd = ops.openAt(dirFd, PREPARED_UPDATE_RECORD, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
     if (recordFd >= 0) {
       held.push(recordFd)
       return { state: 'skipped', reason: 'a prepared update record exists' }
@@ -159,7 +164,7 @@ export function retireInstallerArchive(
     }
 
     const name = `${hash}.tar`
-    const fileFd = ops.openAt(dirFd, name, O_RDONLY | O_NOFOLLOW)
+    const fileFd = ops.openAt(dirFd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
     if (fileFd < 0) {
       return entryExists(join(walked, name))
         ? { state: 'skipped', reason: 'not a regular file' }

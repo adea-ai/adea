@@ -69,6 +69,9 @@ only controls patch generation at build time), so the shell retires it at boot
   for a symlink after the check cannot redirect the delete, and `unlinkat`
   never follows a final symlink. Without these native calls (Bun FFI to libc)
   the archive is left in place.
+- Every open is `O_NONBLOCK` and anything that is not a regular file is skipped,
+  so a named pipe at the archive or prepared-update filename cannot block
+  startup.
 - Pending-update downloads and rollback assets live under the shell's own data
   directory (`updates/`, the previous bundle) and are not involved.
 
