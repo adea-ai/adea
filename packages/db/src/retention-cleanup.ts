@@ -8,6 +8,7 @@ import {
   artifacts,
   retentionCleanupReceipts,
   retentionDeletionAuthorizations,
+  retentionDeletionDispatches,
   retentionHolds,
   runtimeNodeKeys,
   runtimeNodes,
@@ -21,6 +22,7 @@ import {
   recordCleanupReceipt,
   RetentionPolicyError,
   UNSET_RETENTION_PERIODS,
+  type CleanupCoverageKind,
   type CleanupReceipt,
   type RetentionAuthorization,
   type RetentionCategory,
@@ -681,6 +683,17 @@ export type RetentionGateContext = Readonly<{
    * to the transaction.
    */
   isAuthorizationCurrent(): Promise<boolean>
+  /**
+   * Record, in this transaction, that deletion of the subject is about to be
+   * dispatched to the store for `coverage`. A caller that deletes anything under the
+   * gate MUST call this first, in the same transaction as the deletion. The mark
+   * commits or rolls back with the deletion, so a committed deletion always leaves
+   * durable evidence that outlives revocation or expiry of the generation, and the
+   * artifact registration fence reads it. Idempotent per generation and coverage.
+   * Refuses (`authorization_not_current`) when no generation was current at the
+   * decision.
+   */
+  markDeletionDispatched(coverage: CleanupCoverageKind): Promise<void>
   now: string
   transaction: AgentHqTransaction
 }>
@@ -827,6 +840,26 @@ export async function withRetentionDeletionGate<T>(
       if (!live || live.id !== generationId) return false
       return live.expiresAt.getTime() > (await databaseNowMs(transaction))
     }
+    const markDeletionDispatched = async (coverage: CleanupCoverageKind): Promise<void> => {
+      if (generationId === null) reject('authorization_not_current')
+      // The subject lock is held, so the generation cannot be revoked or replaced between
+      // this write and the deletion that follows it in this transaction.
+      await transaction
+        .insert(retentionDeletionDispatches)
+        .values({
+          authorizationId: generationId,
+          category: input.category,
+          coverage,
+          subjectId: input.subjectId,
+          workspaceId: input.workspaceId,
+        })
+        .onConflictDoNothing({
+          target: [
+            retentionDeletionDispatches.authorizationId,
+            retentionDeletionDispatches.coverage,
+          ],
+        })
+    }
     return callback(decision, {
       authorization: authority
         ? Object.freeze({
@@ -836,6 +869,7 @@ export async function withRetentionDeletionGate<T>(
           })
         : null,
       isAuthorizationCurrent,
+      markDeletionDispatched,
       now,
       transaction,
     })
