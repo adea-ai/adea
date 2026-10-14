@@ -9,7 +9,7 @@ const HARNESS_PATH = '/__history-pane'
 
 test.use({ headless: true })
 
-async function mount(page: Page, query = '') {
+async function mount(page: Page, query = '', harness = 'history-pane-harness-app.tsx') {
   await page.route(`**${HARNESS_PATH}*`, (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -21,7 +21,7 @@ async function mount(page: Page, query = '') {
     async (url) => {
       await import(url)
     },
-    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/history-pane-harness-app.tsx')
+    '/@fs' + resolve(process.cwd(), `apps/web/e2e/helpers/${harness}`)
   )
   await expect(page.getByRole('group', { name: 'History view' })).toBeVisible()
 }
@@ -331,5 +331,26 @@ test.describe('all sessions', () => {
     await first.focus()
     await page.keyboard.press('ArrowUp')
     await expect(search(page)).toBeFocused()
+  })
+})
+
+// The real section owns the focus request, so these run through its own
+// callback: the request is consumed after the reveal, never before it.
+test.describe('Go to across sessions through the section', () => {
+  test('scrolls to the event and highlights it until the reveal ends', async ({ page }) => {
+    await mount(page, '', 'history-section-harness-app.tsx')
+    await search(page).fill('needle')
+    await page.getByRole('button', { name: /^Go to Long session,/ }).click()
+    const revealed = page.locator('[data-revealed]')
+    await expect(revealed).toContainText('find the needle in the haystack')
+    // 41 prompts at 3 lines each cannot fit the pane: the row only shows if the
+    // scheduled scroll ran.
+    const pane = await page.locator('.h-96').boundingBox()
+    const row = await revealed.boundingBox()
+    expect(row!.y).toBeGreaterThanOrEqual(pane!.y)
+    expect(row!.y + row!.height).toBeLessThanOrEqual(pane!.y + pane!.height)
+    // The highlight ends on its own timer, which the consumed request must not cancel.
+    await expect(revealed).toHaveCount(0, { timeout: 5_000 })
+    await expect(page.getByText('That prompt is no longer in the retained history.')).toHaveCount(0)
   })
 })

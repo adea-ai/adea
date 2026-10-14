@@ -271,6 +271,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
     setPageCount(1)
   }
 
+  let highlightEnd: ReturnType<typeof setTimeout> | undefined
   // Waits for the feed of the session the host is opening: until it is ready the
   // events here belong to the session being left, so nothing is judged missing.
   createEffect(() => {
@@ -279,21 +280,22 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
     const turnId = turnIdForEvent(turns(), props.events, eventId)
     // Absent from a replay that is not proven finished is not absent: wait.
     if (turnId === undefined && props.confirmed === false) return
-    props.onFocusResult?.(turnId !== undefined)
-    if (turnId === undefined) return
+    if (turnId === undefined) return props.onFocusResult?.(false)
     setTab('turns')
     updateQuery('')
     setScopeOverride('session')
+    // The request is consumed once the row is shown: handing it back sooner
+    // re-runs this effect and cancels the scroll it scheduled.
     const frame = requestAnimationFrame(() => {
       body?.querySelector(`[id="${idPrefix}-${turnId}-row"]`)?.scrollIntoView({ block: 'center' })
       setHighlightedTurn(turnId)
+      clearTimeout(highlightEnd)
+      highlightEnd = setTimeout(() => setHighlightedTurn(undefined), REVEAL_MS)
+      props.onFocusResult?.(true)
     })
-    const clear = setTimeout(() => setHighlightedTurn(undefined), REVEAL_MS)
-    onCleanup(() => {
-      cancelAnimationFrame(frame)
-      clearTimeout(clear)
-    })
+    onCleanup(() => cancelAnimationFrame(frame))
   })
+  onCleanup(() => clearTimeout(highlightEnd))
 
   // Up and Down walk the "Go to" buttons; Enter and Space press the focused one.
   const moveThroughResults = (event: KeyboardEvent) => {

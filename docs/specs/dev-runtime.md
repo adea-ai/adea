@@ -1423,7 +1423,8 @@ sessions. There is no second store and no server-side index.
   renders no transcript, the section keeps the target (session and event) while
   the host opens the session; the pane acts once the feed of that session is
   ready, then clears the search and scrolls to and marks the event's turn in its
-  own list. Until then it judges nothing, because the events it holds belong to the
+  own list. The section consumes the target only after that scroll and mark have
+  run, so handing it back cannot cancel them. Until then it judges nothing, because the events it holds belong to the
   session being left. An event the feed already holds is shown at once; one it does
   not hold is reported missing ("That prompt is no longer in the retained history.")
   only after the host has proved the replay finished, never on a timer. While that
