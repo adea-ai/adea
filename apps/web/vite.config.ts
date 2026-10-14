@@ -126,6 +126,15 @@ export default defineConfig(({ command }) => ({
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
                 },
+                // The theme record helpers, their CSS projection and the
+                // defaults they read share every importer today. The lazy theme
+                // importer reaches only the records, which would otherwise split
+                // the projection into a request of its own.
+                {
+                  name: 'theme-records',
+                  test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
+                  includeDependenciesRecursively: false,
+                },
                 {
                   name: 'workspace-navigation-icons',
                   test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
