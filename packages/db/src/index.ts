@@ -535,9 +535,17 @@ export {
   type JobOutboundCompletionOutcome,
   type JobOutboundCompletionRequest,
 } from './job-outbound-result-store'
+export {
+  JOB_REFERENCE_MAX_BATCH,
+  JobReferenceBatchError,
+  resolveJobReferences,
+  type JobReferenceView,
+  type ResolveJobReferencesInput,
+} from './job-outbound-reference'
 export type {
   JobOutboundArtifactPolicy,
   JobOutboundDeliveryDecision,
+  JobOutboundMemorySource,
 } from './job-outbound-result-policy'
 export {
   completeTaskFromRequest,

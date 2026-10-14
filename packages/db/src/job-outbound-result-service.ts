@@ -30,6 +30,7 @@ import {
   type JobOutboundDeliveryDecision,
   type JobOutboundDestination,
   type JobOutboundJobSource,
+  type JobOutboundMemorySource,
   type JobOutboundPublication,
   type JobOutboundPublicationDecision,
   type SanitizedJobOutboundResult,
@@ -115,6 +116,8 @@ export type JobOutboundPublishInput = Readonly<{
   beforeWrite?: () => Promise<void>
   destination: JobOutboundDestination
   jobId: string
+  /** Memory the producer declares behind the summary. Defaults to `none`. */
+  memorySource?: JobOutboundMemorySource
   result: unknown
 }>
 
@@ -258,6 +261,7 @@ export function createJobOutboundResultService<TTransaction>(
             destination: input.destination,
             job,
             jobId: input.jobId,
+            memorySource: input.memorySource,
             // Sampled after the reads, inside the scope.
             now: clock(),
             result: input.result,

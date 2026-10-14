@@ -28,6 +28,30 @@ describe('outbound completion request parsing', () => {
     })
   })
 
+  test('memory provenance is declared in a closed set; none and an omitted field are the same request', () => {
+    expect(parseOutboundCompletion({ ...valid, memorySource: 'none' })).toEqual(
+      parseOutboundCompletion(valid)
+    )
+    for (const memorySource of ['private', 'unknown', 'workspace'] as const)
+      expect(parseOutboundCompletion({ ...valid, memorySource })).toEqual({
+        artifact: null,
+        artifactPolicy: 'require',
+        channelId: CHANNEL,
+        memorySource,
+        summary: 'Approved summary.',
+      })
+    expect(
+      parseOutboundCompletion({
+        ...valid,
+        artifact: { artifactId: ARTIFACT, grantId: 'grant-1' },
+        memorySource: 'workspace',
+      })
+    ).toMatchObject({ artifact: { grantId: 'grant-1' }, memorySource: 'workspace' })
+    // A value outside the set is never read as `none`: the request is refused.
+    for (const memorySource of ['', 'public', 'Private', true, 0, null, ['private'], {}])
+      expect(parseOutboundCompletion({ ...valid, memorySource })).toBeNull()
+  })
+
   test('refuses every malformed shape', () => {
     const refused: unknown[] = [
       null,
