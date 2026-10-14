@@ -434,6 +434,11 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
       'capability.restored',
     ])
 
+    // The replay ends with a heartbeat naming the newest sequence delivered, the
+    // only proof a reader gets that no earlier event is still on its way.
+    const caughtUp = await channel.next()
+    expect(caughtUp.frame).toMatchObject({ type: 'heartbeat', throughSequence: replayLatest })
+
     // Live push: an observed transition appends events and the stream carries
     // them without any re-attach.
     okValue(

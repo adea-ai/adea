@@ -3,11 +3,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
-import viteSolid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
 import { selectiveUiSourcePlugin } from './start/ui-tailwind-sources'
 import { publicFontAssetDirectories } from './start/public-font-assets'
+import { solidPlugins } from './start/solid-compile'
 import { authZodLite } from '@adea-ai/auth/vite-client-bundle'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
@@ -202,7 +202,7 @@ export default defineConfig(({ command }) => ({
       remoteBindings: false,
     }),
     tanstackStart({ srcDirectory: './src/start' }),
-    viteSolid({ ssr: true }),
+    ...solidPlugins(),
     trimZodLocales(),
     authZodLite(),
     // The same reachable source graph checks the curated dev shim before the

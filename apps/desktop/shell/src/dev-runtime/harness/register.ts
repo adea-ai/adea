@@ -1025,6 +1025,10 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     })) {
       sendEvent(event)
     }
+    // The replay's end marker: the log has no other way to tell a reader that
+    // nothing more is coming from the past. `throughSequence` is the newest
+    // sequence at attach ('0' for an empty log); everything after it is live.
+    stream.send({ type: 'heartbeat', observedAt: iso(), throughSequence: latest.toString() })
     const unsubscribe = events.subscribe(runtimeSessionId, (event) => {
       if (event.generation > generation) {
         // The session moved on (transfer/resume bumped the generation):

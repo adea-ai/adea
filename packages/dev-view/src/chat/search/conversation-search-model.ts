@@ -43,6 +43,8 @@ export type ConversationSearchPage = Readonly<{
   items: readonly ConversationSearchRow[]
   nextCursor?: string
   totalMatches: number
+  /** Matches per session over the whole result, not only the returned page. */
+  sessionMatches: ReadonlyMap<string, number>
 }>
 
 export type ConversationSearchInput = Readonly<{
@@ -57,6 +59,8 @@ export type ConversationSearchInput = Readonly<{
    * not return every row because the session title contains the word.
    */
   matchOn?: 'all' | 'preview'
+  /** Keep only these row kinds, e.g. prompts for a recent-prompts list. */
+  kinds?: readonly ConversationSearchKind[]
   cursor?: string
   limit?: number
 }>
@@ -218,6 +222,7 @@ export function searchConversationHistory(input: ConversationSearchInput): Conve
   const normalizedQuery = input.query?.trim().toLocaleLowerCase() ?? ''
   const filtered = rows
     .filter((row) => {
+      if (input.kinds && !input.kinds.includes(row.kind)) return false
       if (!normalizedQuery) return true
       const haystack =
         input.matchOn === 'preview'
@@ -229,6 +234,9 @@ export function searchConversationHistory(input: ConversationSearchInput): Conve
       const time = rowTime(right).localeCompare(rowTime(left))
       return time !== 0 ? time : right.id.localeCompare(left.id)
     })
+  const sessionMatches = new Map<string, number>()
+  for (const row of filtered)
+    sessionMatches.set(row.runtimeSessionId, (sessionMatches.get(row.runtimeSessionId) ?? 0) + 1)
   const offset = Math.min(cursorOffset(input.cursor), filtered.length)
   const limit = Math.min(Math.max(input.limit ?? 100, 1), MAX_PAGE)
   const items = filtered.slice(offset, offset + limit)
@@ -238,6 +246,7 @@ export function searchConversationHistory(input: ConversationSearchInput): Conve
       ? { nextCursor: nextCursor(offset + items.length, filtered.length) }
       : {}),
     totalMatches: filtered.length,
+    sessionMatches,
   }
 }
 

@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
@@ -6,6 +6,11 @@ import { ConversationSurface } from '@adea-ai/ui/components/conversation'
 import { TranscriptComposition } from '@adea-ai/ui/components/conversation/transcript-composition'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
+import {
+  eventRevealRequest,
+  registerEventRevealConsumer,
+  settleEventReveal,
+} from '../history/event-reveal'
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
 import type { TranscriptAccumulator } from './model'
 import { runtimeTranscriptRows } from './transcript-composition'
@@ -85,6 +90,27 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   const retention = () => props.transcript?.retention
   const rows = createMemo(() => runtimeTranscriptRows(items()))
 
+  // History asks to show one event. The request waits until this transcript
+  // holds the event (a session switch loads it a moment later), then scrolls to
+  // its row and marks it; History gives up on a request nothing answers.
+  let entries: HTMLDivElement | undefined
+  onCleanup(registerEventRevealConsumer())
+  createEffect(() => {
+    const request = eventRevealRequest()
+    if (!request || !items().some((item) => item.id === request.eventId)) return
+    const frame = requestAnimationFrame(() => {
+      const row = Array.from(entries?.querySelectorAll<HTMLElement>('[data-event-id]') ?? []).find(
+        (candidate) => candidate.dataset.eventId === request.eventId
+      )
+      if (!row) return
+      settleEventReveal(request.token)
+      row.scrollIntoView({ block: 'center' })
+      row.setAttribute('data-revealed', '')
+      setTimeout(() => row.removeAttribute('data-revealed'), 2_400)
+    })
+    onCleanup(() => cancelAnimationFrame(frame))
+  })
+
   return (
     <ConversationSurface
       data-dev-chat-stream=""
@@ -93,7 +119,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       initialReadingPosition={props.readingPosition}
       onReadingPositionChange={props.onReadingPositionChange}
     >
-      <div class="dev-chat__entries">
+      <div class="dev-chat__entries" ref={(element) => (entries = element)}>
         <Show when={availability()?.status === 'resync_required'}>
           <div class="dev-chat__notice" role="alert">
             <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
@@ -163,7 +189,11 @@ function ChatTranscriptRow(props: {
   const approvalReasonId = `dev-chat-approval-status-${props.item.id}`
   const questionReasonId = `dev-chat-question-status-${props.item.id}`
   return (
-    <article class={`dev-chat__row dev-chat__row--${props.item.role}`} title={props.item.kind}>
+    <article
+      class={`dev-chat__row dev-chat__row--${props.item.role}`}
+      title={props.item.kind}
+      data-event-id={props.item.id}
+    >
       <header class="dev-chat__row-header">
         <span>{rowTitle(props.item)}</span>
         <Show when={props.item.state}>

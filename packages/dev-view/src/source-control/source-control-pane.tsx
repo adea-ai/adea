@@ -190,13 +190,10 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      const reply = await executeOperation<GitStatusReply>(
-        props.runtime,
-        activeScope,
-        'dev.git.status',
-        { worktreeId: context.worktreeId, limit: 500 },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      const reply = await exec<GitStatusReply>(context, activeScope, 'dev.git.status', {
+        worktreeId: context.worktreeId,
+        limit: 500,
+      })
       setStatusCache(cacheStatus(reply, context.generation))
     } catch (reply) {
       // A failed read publishes nothing: the cache goes undefined (honest
@@ -206,18 +203,22 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     }
   }
 
+  const exec = <T = unknown,>(
+    context: WorktreeContext,
+    activeScope: Scope,
+    operation: Parameters<typeof executeOperation>[2],
+    body: Record<string, unknown>
+  ) => executeOperation<T>(props.runtime, activeScope, operation, body, worktreeTarget(context))
+
   async function stagePaths(paths: readonly string[]): Promise<void> {
     const context = worktree()
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.stage',
-        { worktreeId: context.worktreeId, paths: paths.map(toWorkspacePath(context)) },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.stage', {
+        worktreeId: context.worktreeId,
+        paths: paths.map(toWorkspacePath(context)),
+      })
       await refreshStatus()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -229,13 +230,10 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.unstage',
-        { worktreeId: context.worktreeId, paths: paths.map(toWorkspacePath(context)) },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.unstage', {
+        worktreeId: context.worktreeId,
+        paths: paths.map(toWorkspacePath(context)),
+      })
       await refreshStatus()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -256,31 +254,22 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     setConfirmDiscard(undefined)
     setNotice(undefined)
     try {
-      const plan = await executeOperation<{
+      const plan = await exec<{
         id: string
         digest: string
         blockers: readonly { message: string }[]
-      }>(
-        props.runtime,
-        activeScope,
-        'dev.git.discardPlan',
-        {
-          worktreeId: context.worktreeId,
-          paths: [toWorkspacePath(context)(entry.path.relativePath)],
-        },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      }>(context, activeScope, 'dev.git.discardPlan', {
+        worktreeId: context.worktreeId,
+        paths: [toWorkspacePath(context)(entry.path.relativePath)],
+      })
       if (plan.blockers.length > 0) {
         setNotice(plan.blockers.map((blocker) => blocker.message).join('; '))
         return
       }
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.discardCommit',
-        { planId: plan.id, planDigest: plan.digest },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.discardCommit', {
+        planId: plan.id,
+        planDigest: plan.digest,
+      })
       await refreshStatus()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -298,17 +287,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
       return
     }
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.commit',
-        {
-          worktreeId: context.worktreeId,
-          message: trimmed,
-          expectedIndexSha: current.indexSha,
-        },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.commit', {
+        worktreeId: context.worktreeId,
+        message: trimmed,
+        expectedIndexSha: current.indexSha,
+      })
       setMessage('')
       setNotice(undefined)
       await refreshStatus()
@@ -323,13 +306,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.fetch',
-        { worktreeId: context.worktreeId, remoteName: 'origin', prune: true },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.fetch', {
+        worktreeId: context.worktreeId,
+        remoteName: 'origin',
+        prune: true,
+      })
       setNotice('Fetch completed.')
     } catch (reply) {
       setNotice(describeError(reply))
@@ -341,15 +322,9 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      const page = await executeOperation<{
+      const page = await exec<{
         items: readonly { sha: string; subject: string; authorName: string }[]
-      }>(
-        props.runtime,
-        activeScope,
-        'dev.git.history',
-        { worktreeId: context.worktreeId, limit: 20 },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      }>(context, activeScope, 'dev.git.history', { worktreeId: context.worktreeId, limit: 20 })
       setHistory(page.items)
     } catch (reply) {
       setNotice(describeError(reply))
@@ -363,8 +338,8 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     setDiffTarget(relativePath)
     setDiffMode(mode)
     try {
-      const page = await executeOperation<{ items: readonly DiffHunk[] }>(
-        props.runtime,
+      const page = await exec<{ items: readonly DiffHunk[] }>(
+        context,
         activeScope,
         'dev.git.diff',
         {
@@ -372,8 +347,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           mode,
           path: toWorkspacePath(context)(relativePath),
           limit: 2000,
-        },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        }
       )
       setDiffHunks(page.items)
       setDiffRendered(undefined)
@@ -401,24 +375,20 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     try {
-      const plan = await executeOperation<{ id: string; digest: string }>(
-        props.runtime,
+      const plan = await exec<{ id: string; digest: string }>(
+        context,
         activeScope,
         'dev.git.hunkStagingPlan',
         {
           worktreeId: context.worktreeId,
           direction,
           hunks: [hunk],
-        },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+        }
       )
-      await executeOperation(
-        props.runtime,
-        activeScope,
-        'dev.git.hunkStagingCommit',
-        { planId: plan.id, planDigest: plan.digest },
-        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
-      )
+      await exec(context, activeScope, 'dev.git.hunkStagingCommit', {
+        planId: plan.id,
+        planDigest: plan.digest,
+      })
       setNotice(undefined)
       await refreshStatus()
       const target = diffTarget()
@@ -1091,6 +1061,12 @@ function StatusRow(props: {
     </div>
   )
 }
+
+const worktreeTarget = (context: WorktreeContext) => ({
+  kind: 'worktree',
+  id: context.worktreeId,
+  generation: context.generation,
+})
 
 function toWorkspacePath(
   context: WorktreeContext
