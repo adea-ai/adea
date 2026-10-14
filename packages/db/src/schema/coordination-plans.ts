@@ -74,6 +74,12 @@ export const coordinationPlanRevisions = appSchema.table(
     revision: integer('revision').notNull(),
     workspaceId: uuid('workspace_id').notNull(),
     channelId: uuid('channel_id').notNull(),
+    /**
+     * How many citations this revision holds, fixed when the revision is written. Citations may
+     * only occupy positions below it and must fill all of them by commit (migration 0056), so an
+     * accepted revision's set cannot grow after the fact.
+     */
+    citationCount: smallint('citation_count').notNull(),
     /** Derived server-side from the authenticated principal, never from the request body. */
     authorUserId: uuid('author_user_id')
       .notNull()
@@ -92,6 +98,7 @@ export const coordinationPlanRevisions = appSchema.table(
       name: 'coordination_plan_revisions_plan_scope_fk',
     }).onDelete('restrict'),
     check('coordination_plan_revisions_revision_valid', sql`${table.revision} >= 1`),
+    check('coordination_plan_revisions_count_valid', sql`${table.citationCount} between 0 and 50`),
   ]
 )
 

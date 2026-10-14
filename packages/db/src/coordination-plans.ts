@@ -120,6 +120,8 @@ async function requireReleasedCitations(
   const views = await resolveJobReferences(transaction, {
     channelId,
     jobIds,
+    // A sharing grant revoked before this transaction commits must not validate the citation.
+    lockHistory: true,
     reader: actor,
     workspaceId,
   })
@@ -139,6 +141,7 @@ async function insertRevision(
     .values({
       authorUserId,
       channelId: plan.channelId,
+      citationCount: jobIds.length,
       planId: plan.id,
       revision,
       workspaceId: plan.workspaceId,

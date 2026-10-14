@@ -1,5 +1,5 @@
 {
-  "id": "52cca99c-65f0-4292-8576-e1af8a26caf5",
+  "id": "76ef38e7-429f-4085-a60f-287917286e3e",
   "prevId": "2a5e8fce-b3ec-4dd2-bbc9-209dabdaa413",
   "version": "7",
   "dialect": "postgresql",
@@ -2757,6 +2757,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "citation_count": {
+          "name": "citation_count",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
         "author_user_id": {
           "name": "author_user_id",
           "type": "uuid",
@@ -2806,6 +2812,10 @@
         "coordination_plan_revisions_revision_valid": {
           "name": "coordination_plan_revisions_revision_valid",
           "value": "\"app\".\"coordination_plan_revisions\".\"revision\" >= 1"
+        },
+        "coordination_plan_revisions_count_valid": {
+          "name": "coordination_plan_revisions_count_valid",
+          "value": "\"app\".\"coordination_plan_revisions\".\"citation_count\" between 0 and 50"
         }
       },
       "isRLSEnabled": false

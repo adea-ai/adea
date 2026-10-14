@@ -54,6 +54,12 @@ export type ResolveJobReferencesInput = Readonly<{
   /** The group channel that carries the plan. */
   channelId: string
   jobIds: readonly string[]
+  /**
+   * Hold the reader's roster and history-sharing grants to the end of the surrounding transaction.
+   * A writer that records a citation sets it, so a sharing grant revoked before the writer commits
+   * cannot validate the citation with a value it no longer has. A plain read leaves it off.
+   */
+  lockHistory?: boolean
   reader: UserPrincipalRef
   /** The workspace that holds that channel. */
   workspaceId: string
@@ -87,9 +93,10 @@ async function historyAllowedFor(
     .limit(1)
   if (!channel) return () => false
   if (channel.kind !== 'group') return () => true
+  const lock = { forUpdate: input.lockHistory === true }
   const [roster, sharingGrants] = await Promise.all([
-    loadGroupRoster(database, input.workspaceId, input.channelId),
-    loadGroupSharingGrants(database, input.workspaceId, input.channelId),
+    loadGroupRoster(database, input.workspaceId, input.channelId, lock),
+    loadGroupSharingGrants(database, input.workspaceId, input.channelId, lock),
   ])
   const admission = admissionForParticipant(roster, { kind: 'user', userId: input.reader.userId })
   const now = new Date().toISOString()

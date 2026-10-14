@@ -139,12 +139,16 @@ key to tasks, so a citation neither moves the job nor constrains it.
   as posting a message to the group (workspace membership, project write access, a live
   participation grant under the channel lock). A citation that is new to a plan must
   already be released to that actor in this channel, checked in the write transaction
-  with the publication and grant locks held to commit. A citation carried over from the
+  with the publication and grant locks held to commit. The actor's roster and history-sharing
+  grants are locked too, so a sharing grant revoked before the plan commits cannot validate
+  a citation. A citation carried over from the
   previous revision is not rechecked: it is only a pointer, and each reader's resolution
   decides what it shows.
 - **Revisions.** They increase by one and are immutable: triggers in migration 0056 refuse
   any update or delete of a revision or its citations, and only allow the plan row to move
-  to the next revision.
+  to the next revision. A revision declares its citation count when it is written: citations
+  may only take positions below it, and the count must be filled exactly by commit, so a late
+  insert cannot grow an accepted revision.
 - **Summaries.** The summary of a cited job is the authorized outbound publication message
   (`messageId`). The plan stores no second summary, and model-generated text is never
   approval. Message content stays behind the message read path, which checks current

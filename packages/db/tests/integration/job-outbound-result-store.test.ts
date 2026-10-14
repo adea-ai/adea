@@ -4327,6 +4327,144 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await resolves(reader)).toBe(true)
   })
 
+  test('an accepted revision cannot grow: a late citation into any unused position, or an incomplete revision, is refused', async () => {
+    const f = await fixture()
+    await publishTo(f, f.channelA.id, 'Plan input.')
+    const g = await anotherCompletedJob(f)
+    const empty = await createPlan(f, f.recipient.principal, [])
+    const one = await createPlan(f, f.recipient.principal, [f.task.id])
+    const two = await revisePlan(f, f.recipient.principal, one.planId, 1, [f.task.id, g.task.id])
+    const snapshot = async () =>
+      JSON.stringify(
+        await connection.db
+          .select()
+          .from(coordinationPlanCitations)
+          .orderBy(
+            coordinationPlanCitations.planId,
+            coordinationPlanCitations.revision,
+            coordinationPlanCitations.position
+          )
+      )
+    const before = await snapshot()
+    const late = (planId: string, revision: number, position: number) =>
+      connection.db.insert(coordinationPlanCitations).values({
+        jobId: crypto.randomUUID(),
+        planId,
+        position,
+        revision,
+      })
+
+    // An empty revision takes nothing; a full one takes nothing beyond its last position; a filled
+    // position is taken already; a revision that does not exist has no position at all.
+    await refuses(late(empty.planId, 1, 0))
+    await refuses(late(one.planId, 1, 1))
+    await refuses(late(one.planId, 1, 0))
+    await refuses(late(one.planId, two.revision, 2))
+    await refuses(late(one.planId, two.revision, 49))
+    await refuses(late(one.planId, 3, 0))
+    expect(await snapshot()).toBe(before)
+
+    // A revision must hold exactly the citations it declares by the time it commits.
+    await refuses(
+      connection.db.insert(coordinationPlanRevisions).values({
+        authorUserId: f.owner.principal.userId,
+        channelId: f.channelA.id,
+        citationCount: 1,
+        planId: empty.planId,
+        revision: 2,
+        workspaceId: f.destination.id,
+      })
+    )
+    await refuses(
+      connection.db.transaction(async (transaction) => {
+        await transaction.insert(coordinationPlanRevisions).values({
+          authorUserId: f.owner.principal.userId,
+          channelId: f.channelA.id,
+          citationCount: 2,
+          planId: empty.planId,
+          revision: 2,
+          workspaceId: f.destination.id,
+        })
+        await transaction.insert(coordinationPlanCitations).values({
+          jobId: f.task.id,
+          planId: empty.planId,
+          position: 0,
+          revision: 2,
+        })
+      })
+    )
+    expect(await snapshot()).toBe(before)
+    expect(
+      await connection.db
+        .select({ revision: coordinationPlanRevisions.revision })
+        .from(coordinationPlanRevisions)
+        .where(eq(coordinationPlanRevisions.planId, empty.planId))
+    ).toEqual([{ revision: 1 }])
+    // The product path is unaffected: the same plan still takes its next revision.
+    expect(await revisePlan(f, f.recipient.principal, empty.planId, 1, [f.task.id])).toMatchObject({
+      jobIds: [f.task.id],
+      revision: 2,
+    })
+  })
+
+  test('a history-sharing grant revoked before the plan commits cannot validate the citation', async () => {
+    const f = await fixture()
+    const publishedId = await publishTo(f, f.channelA.id, 'Published before the reader joined.')
+    const reader = f.recipient.principal
+    // The reader's join point is after the publication, so only a sharing grant releases it.
+    const [message] = await connection.db
+      .select({ sequence: messages.sequence })
+      .from(messages)
+      .where(eq(messages.id, publishedId))
+    await connection.db
+      .update(groupAdmissions)
+      .set({ joinedSequence: message!.sequence + 1 })
+      .where(
+        and(eq(groupAdmissions.channelId, f.channelA.id), eq(groupAdmissions.userId, reader.userId))
+      )
+    const grantId = `share-${crypto.randomUUID()}`
+    await shareGroupHistory(connection.db, f.destination.id, f.channelA.id, f.owner.principal, {
+      expiresAt: null,
+      grantId,
+      groupId: f.channelA.id,
+      issuedAt: new Date(Date.now() - 1000).toISOString(),
+      participant: { kind: 'user', userId: reader.userId },
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_history',
+    })
+    // Positive control: the grant is what releases the result, and the plan is accepted with it.
+    const accepted = await createPlan(f, reader, [f.task.id])
+    expect(accepted.revision).toBe(1)
+
+    // A second connection revokes the grant and holds the revocation open. The plan write must
+    // wait for it instead of validating against the grant as it was before.
+    const revoker = postgres(url!, { max: 1, prepare: false })
+    try {
+      await revoker.unsafe('begin')
+      await revoker.unsafe(
+        'update app.group_sharing_grants set revoked_at = $1 where channel_id = $2 and grant_id = $3',
+        [new Date(Date.now() - 1000).toISOString(), f.channelA.id, grantId]
+      )
+      let settled = false
+      const pending = rejection(() => createPlan(f, reader, [f.task.id])).finally(() => {
+        settled = true
+      })
+      await new Promise((resolve) => setTimeout(resolve, 750))
+      expect(settled).toBe(false)
+      await revoker.unsafe('commit')
+      expect(await pending).toBe('Plan citation unavailable')
+    } finally {
+      await revoker.end({ timeout: 5 })
+    }
+    // The refused write left nothing behind, and the revoked release cannot be added by a revision.
+    expect(await planRows(f)).toHaveLength(1)
+    const bare = await createPlan(f, reader, [])
+    expect(await rejection(() => revisePlan(f, reader, bare.planId, 1, [f.task.id]))).toBe(
+      'Plan citation unavailable'
+    )
+  })
+
   test('a memory-derived result is held, so a plan cannot cite it and no reference reveals it', async () => {
     const f = await fixture({ complete: false })
     await completeJob(

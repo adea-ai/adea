@@ -13,10 +13,12 @@ CREATE TABLE "app"."coordination_plan_revisions" (
 	"revision" integer NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"channel_id" uuid NOT NULL,
+	"citation_count" smallint NOT NULL,
 	"author_user_id" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "coordination_plan_revisions_pk" PRIMARY KEY("plan_id","revision"),
-	CONSTRAINT "coordination_plan_revisions_revision_valid" CHECK ("app"."coordination_plan_revisions"."revision" >= 1)
+	CONSTRAINT "coordination_plan_revisions_revision_valid" CHECK ("app"."coordination_plan_revisions"."revision" >= 1),
+	CONSTRAINT "coordination_plan_revisions_count_valid" CHECK ("app"."coordination_plan_revisions"."citation_count" between 0 and 50)
 );
 --> statement-breakpoint
 CREATE TABLE "app"."coordination_plans" (
@@ -79,3 +81,37 @@ CREATE TRIGGER "coordination_plans_identity_immutable"
 CREATE TRIGGER "coordination_plans_no_delete"
   BEFORE DELETE ON "app"."coordination_plans"
   FOR EACH ROW EXECUTE FUNCTION "app"."coordination_plan_history_immutable"();
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION "app"."coordination_plan_citation_sealed"() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+DECLARE
+  declared smallint;
+BEGIN
+  SELECT r."citation_count" INTO declared
+    FROM "app"."coordination_plan_revisions" r
+    WHERE r."plan_id" = NEW."plan_id" AND r."revision" = NEW."revision";
+  IF declared IS NULL OR NEW."position" >= declared THEN
+    RAISE EXCEPTION 'a coordination plan revision cannot take a citation beyond its declared count'
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'coordination_plan_citation_sealed';
+  END IF;
+  RETURN NEW;
+END
+$$;--> statement-breakpoint
+CREATE TRIGGER "coordination_plan_citations_sealed"
+  BEFORE INSERT ON "app"."coordination_plan_citations"
+  FOR EACH ROW EXECUTE FUNCTION "app"."coordination_plan_citation_sealed"();--> statement-breakpoint
+CREATE OR REPLACE FUNCTION "app"."coordination_plan_revision_complete"() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+  IF (SELECT count(*) FROM "app"."coordination_plan_citations" c
+        WHERE c."plan_id" = NEW."plan_id" AND c."revision" = NEW."revision") <> NEW."citation_count" THEN
+    RAISE EXCEPTION 'a coordination plan revision must hold exactly its declared citations'
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'coordination_plan_revision_complete';
+  END IF;
+  RETURN NULL;
+END
+$$;--> statement-breakpoint
+CREATE CONSTRAINT TRIGGER "coordination_plan_revisions_complete"
+  AFTER INSERT ON "app"."coordination_plan_revisions"
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION "app"."coordination_plan_revision_complete"();
