@@ -135,6 +135,14 @@ export default defineConfig(({ command }) => ({
                   test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
                   includeDependenciesRecursively: false,
                 },
+                // The shared appearance editor reaches Kobalte's radio internals
+                // directly, which would otherwise split them from the radio
+                // group into a second request for the same panel.
+                {
+                  name: 'radio-group',
+                  test: /(@kobalte\/core\/dist\/chunk\/H7BK6JF7\.jsx|@adea-ai\/ui\/src\/components\/ui\/radio-group\/radio-group\.tsx)$/,
+                  includeDependenciesRecursively: false,
+                },
                 {
                   name: 'workspace-navigation-icons',
                   test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
