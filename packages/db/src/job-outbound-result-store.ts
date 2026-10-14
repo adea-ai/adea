@@ -23,6 +23,7 @@ import {
 import {
   sourceAccessCurrent,
   type JobOutboundArtifactPolicy,
+  type JobOutboundMemorySource,
   type JobOutboundPublicationDecision,
 } from './job-outbound-result-policy'
 import {
@@ -287,6 +288,8 @@ export type JobOutboundCompletionRequest = Readonly<{
   artifact: Readonly<{ artifactId: string; grantId: string }> | null
   artifactPolicy: JobOutboundArtifactPolicy
   channelId: string
+  /** Memory the producer declares behind the summary. Absent means `none`. */
+  memorySource?: JobOutboundMemorySource
   summary: string
 }>
 
@@ -346,6 +349,7 @@ export async function completeTaskAndPublishOutboundResult(
       artifactPolicy: request.artifactPolicy,
       destination: { channelId: channel.id, workspaceId: channel.workspaceId },
       jobId: taskId,
+      memorySource: request.memorySource,
       result: {
         ...(registration
           ? {
@@ -414,6 +418,10 @@ function canonicalOutboundRequest(request: JobOutboundCompletionRequest, actorUs
       : null,
     artifactPolicy: request.artifactPolicy,
     channelId: request.channelId,
+    // Named only when declared, so completions recorded before the field existed keep their hash.
+    ...(request.memorySource && request.memorySource !== 'none'
+      ? { memorySource: request.memorySource }
+      : {}),
     summary: request.summary,
   }
 }

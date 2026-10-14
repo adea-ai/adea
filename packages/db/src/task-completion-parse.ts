@@ -9,7 +9,14 @@ import type {
 } from './job-outbound-result-store'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const OUTBOUND_COMPLETION_KEYS = ['artifact', 'artifactPolicy', 'channelId', 'summary'] as const
+const OUTBOUND_COMPLETION_KEYS = [
+  'artifact',
+  'artifactPolicy',
+  'channelId',
+  'memorySource',
+  'summary',
+] as const
+const MEMORY_SOURCES = ['none', 'private', 'unknown', 'workspace'] as const
 const OUTBOUND_SUMMARY_MAX_LENGTH = 16_384
 
 function isUuid(value: unknown): value is string {
@@ -31,12 +38,21 @@ export function parseOutboundCompletion(value: unknown): JobOutboundCompletionRe
   if (input.summary.length > OUTBOUND_SUMMARY_MAX_LENGTH) return null
   const policy = input.artifactPolicy ?? 'require'
   if (policy !== 'require' && policy !== 'omit_unauthorized') return null
+  // Omitted means `none`. A present value outside the closed set refuses the request: the
+  // declaration is never guessed at, and the Task is not completed on a malformed one.
+  const memory = input.memorySource === undefined ? 'none' : input.memorySource
+  if (typeof memory !== 'string' || !(MEMORY_SOURCES as readonly string[]).includes(memory))
+    return null
+  const memorySource = memory as (typeof MEMORY_SOURCES)[number]
+  // Named only when it is not `none`, so a request without the field keeps its exact shape.
+  const declared = memorySource === 'none' ? {} : { memorySource }
   const artifact = input.artifact ?? null
   if (artifact === null)
     return {
       artifact: null,
       artifactPolicy: policy,
       channelId: input.channelId,
+      ...declared,
       summary: input.summary,
     }
   if (typeof artifact !== 'object' || Array.isArray(artifact)) return null
@@ -53,6 +69,7 @@ export function parseOutboundCompletion(value: unknown): JobOutboundCompletionRe
     artifact: { artifactId: named.artifactId, grantId: named.grantId },
     artifactPolicy: policy,
     channelId: input.channelId,
+    ...declared,
     summary: input.summary,
   }
 }
