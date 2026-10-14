@@ -267,6 +267,11 @@ publication paths refuse fenced results. The typed consumer proposal and the imm
 6. **Error codes the CP path must mirror:** `LEAD_TURN_FENCED`, `ROLLBACK_FENCE_FORBIDDEN`,
    `INVALID_ROLLBACK_FENCE_REQUEST`, `LEAD_TURN_FENCE_EVIDENCE_INVALID`.
 
+A joined source-level proof of the v2 consumer contract (retained identity, uncertain-effect refusal across
+restart and retry, and unknown, stale or unavailable evidence) runs against a pinned control-plane revision.
+It is recorded in [m18-01-3-joined-consumer-proof.md](m18-01-3-joined-consumer-proof.md) and is not a
+production qualification.
+
 The two CP changes that gate fenced reads (the split evidence gate and fence-only acceptance) are
 implemented in #1066 and exercised by the contract tests above. The rollback window is still **not declared
 safe** here. CP claim-time enforcement, fence persistence, disposition handling and the lock-order obligation
