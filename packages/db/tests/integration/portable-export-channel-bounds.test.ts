@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { randomBytes, randomUUID } from 'node:crypto'
 
 import {
+  PORTABLE_WORKSPACE_EXPORT_MAX_MESSAGE_TEXT_LENGTH,
   PORTABLE_WORKSPACE_EXPORT_MAX_BYTES,
   PORTABLE_WORKSPACE_EXPORT_MAX_RECORDS,
+  portableJsonUtf8ByteLength,
 } from '@adea-ai/types/portable-export'
 import type { ChannelSummary } from '@adea-ai/types'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
@@ -21,6 +23,8 @@ import {
   agents,
   channelParticipants,
   channels,
+  messages,
+  tasks,
   temporaryUserSessions,
   users,
   workspaces,
@@ -109,6 +113,30 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
   let agentIds: string[] = []
   let trace = emptyTrace()
   let traceEnabled = true
+
+  async function insertBoundTask(title: string, objective: string): Promise<string> {
+    const [task] = await db
+      .insert(tasks)
+      .values({ creatorUserId: ownerUserId!, objective, title, workspaceId: workspaceId! })
+      .returning({ id: tasks.id })
+    return task!.id
+  }
+
+  async function insertBoundMessage(bodyText: string, idempotencyKey: string): Promise<string> {
+    const [message] = await db
+      .insert(messages)
+      .values({
+        bodyText,
+        channelId: visibleControlChannelId,
+        createPayloadHash: 'b'.repeat(64),
+        idempotencyKey,
+        senderKind: 'user',
+        senderUserId: ownerUserId!,
+        workspaceId: workspaceId!,
+      })
+      .returning({ id: messages.id })
+    return message!.id
+  }
 
   beforeAll(async () => {
     client = postgres(connectionUrl!, {
@@ -327,6 +355,230 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
         .where(eq(agents.id, agentId))
     }
   }, 180_000)
+
+  test('task titles and objectives preserve multibyte UTF-8 text without truncation', async () => {
+    const title = '漢字🧪🚀'.repeat(50)
+    const objective = 'Objective ' + '重要🛠️'.repeat(1_024)
+    const taskId = await insertBoundTask(title, objective)
+    const pageProjections: {
+      objectiveJsonBytes: number
+      textByteBudget: number
+      titleJsonBytes: number
+      withheldRows: number
+    }[] = []
+    try {
+      const document = await exportPortableWorkspace(db, {
+        hooks: { afterTaskPage: (page) => pageProjections.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      })
+      const exportedTask = document.content.tasks.find((task) => task.taskId === taskId)
+
+      expect(exportedTask?.title).toBe(title)
+      expect(exportedTask?.objective).toBe(objective)
+      expect(pageProjections).toHaveLength(1)
+      expect(pageProjections[0]!.titleJsonBytes).toBe(portableJsonUtf8ByteLength(title))
+      expect(pageProjections[0]!.objectiveJsonBytes).toBe(portableJsonUtf8ByteLength(objective))
+      expect(pageProjections[0]!.withheldRows).toBe(0)
+    } finally {
+      await db.delete(tasks).where(eq(tasks.id, taskId))
+    }
+  })
+
+  test('task text at the exact and near byte boundary is complete; one over-budget row is refused', async () => {
+    const title = 'Boundary task'
+    const longObjective = 'x'.repeat(PORTABLE_WORKSPACE_EXPORT_MAX_MESSAGE_TEXT_LENGTH)
+    const inserted = await db
+      .insert(tasks)
+      .values(
+        Array.from({ length: 84 }, () => ({
+          creatorUserId: ownerUserId!,
+          objective: longObjective,
+          title,
+          workspaceId: workspaceId!,
+        }))
+      )
+      .returning({ id: tasks.id })
+    const taskIds = inserted.map(({ id }) => id)
+    try {
+      const initialPages: {
+        objectiveJsonBytes: number
+        textByteBudget: number
+        titleJsonBytes: number
+        withheldRows: number
+      }[] = []
+      await exportPortableWorkspace(db, {
+        hooks: { afterTaskPage: (page) => initialPages.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      }).catch((error: unknown) => {
+        if (!(error instanceof PortableExportError) || error.code !== 'too_large') throw error
+      })
+      const orderedTasks = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.id, taskIds))
+        .orderBy(asc(tasks.id))
+      const lastTaskId = orderedTasks.at(-1)!.id
+      const lastPage = initialPages.at(-1)!
+      const largeTaskTextBytes = portableJsonUtf8ByteLength({
+        objective: longObjective,
+        title,
+      })
+      const lastTaskTextByteBudget = lastPage.textByteBudget - largeTaskTextBytes * 8
+      const emptyObjectiveBytes = portableJsonUtf8ByteLength({ objective: '', title })
+      expect(lastTaskTextByteBudget).toBeGreaterThan(emptyObjectiveBytes)
+      expect(lastTaskTextByteBudget - emptyObjectiveBytes).toBeLessThanOrEqual(
+        PORTABLE_WORKSPACE_EXPORT_MAX_MESSAGE_TEXT_LENGTH
+      )
+
+      for (const offset of [-1, 0]) {
+        const currentObjective = 'x'.repeat(lastTaskTextByteBudget + offset - emptyObjectiveBytes)
+        await db.update(tasks).set({ objective: currentObjective }).where(eq(tasks.id, lastTaskId))
+        const projections: {
+          objectiveJsonBytes: number
+          textByteBudget: number
+          titleJsonBytes: number
+          withheldRows: number
+        }[] = []
+        const outcome = await exportPortableWorkspace(db, {
+          hooks: { afterTaskPage: (page) => projections.push(page) },
+          principal: { kind: 'user', userId: ownerUserId! },
+          workspaceId: workspaceId!,
+        }).then(
+          () => 'exported',
+          (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+        )
+
+        expect(outcome).toBe('too_large')
+        expect(projections).toHaveLength(4)
+        expect(projections[3]!.textByteBudget).toBe(lastPage.textByteBudget)
+        expect(projections[3]!.objectiveJsonBytes).toBe(
+          8 * portableJsonUtf8ByteLength(longObjective) +
+            portableJsonUtf8ByteLength(currentObjective)
+        )
+        expect(projections[3]!.titleJsonBytes).toBe(9 * portableJsonUtf8ByteLength(title))
+        expect(
+          8 * largeTaskTextBytes +
+            portableJsonUtf8ByteLength({ objective: currentObjective, title })
+        ).toBe(lastPage.textByteBudget + offset)
+        expect(projections[3]!.withheldRows).toBe(0)
+      }
+
+      const oversizedObjective = 'x'.repeat(lastTaskTextByteBudget + 1 - emptyObjectiveBytes)
+      await db.update(tasks).set({ objective: oversizedObjective }).where(eq(tasks.id, lastTaskId))
+      const projections: {
+        objectiveJsonBytes: number
+        textByteBudget: number
+        titleJsonBytes: number
+        withheldRows: number
+      }[] = []
+      const outcome = await exportPortableWorkspace(db, {
+        hooks: { afterTaskPage: (page) => projections.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      }).then(
+        () => 'exported',
+        (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+      )
+
+      expect(outcome).toBe('too_large')
+      expect(projections).toHaveLength(4)
+      expect(projections[3]!.withheldRows).toBe(1)
+      expect(projections[3]!.titleJsonBytes).toBe(8 * portableJsonUtf8ByteLength(title))
+      expect(projections[3]!.objectiveJsonBytes).toBe(8 * portableJsonUtf8ByteLength(longObjective))
+    } finally {
+      await db.delete(tasks).where(inArray(tasks.id, taskIds))
+    }
+  }, 180_000)
+
+  test('message bodies at the exact and near byte boundary are complete; one over-budget row is refused', async () => {
+    const messageId = await insertBoundMessage('boundary seed', 'portable-body-bound-' + run)
+    try {
+      const initialPages: { bodyTextByteBudget: number }[] = []
+      await exportPortableWorkspace(db, {
+        hooks: { afterMessagePage: (page) => initialPages.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      })
+      const bodyTextByteBudget = initialPages[0]!.bodyTextByteBudget
+
+      for (const offset of [-1, 0]) {
+        const bodyText = 'x'.repeat(bodyTextByteBudget + offset - 2)
+        await db.update(messages).set({ bodyText }).where(eq(messages.id, messageId))
+        const projections: {
+          bodyTextByteBudget: number
+          bodyTextJsonBytes: number
+          withheldBodyTextRows: number
+        }[] = []
+        const outcome = await exportPortableWorkspace(db, {
+          hooks: { afterMessagePage: (page) => projections.push(page) },
+          principal: { kind: 'user', userId: ownerUserId! },
+          workspaceId: workspaceId!,
+        }).then(
+          () => 'exported',
+          (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+        )
+
+        expect(outcome).toBe('too_large')
+        expect(projections).toHaveLength(1)
+        expect(projections[0]!.bodyTextByteBudget).toBe(bodyTextByteBudget)
+        expect(projections[0]!.bodyTextJsonBytes).toBe(portableJsonUtf8ByteLength(bodyText))
+        expect(projections[0]!.bodyTextJsonBytes).toBe(bodyTextByteBudget + offset)
+        expect(projections[0]!.withheldBodyTextRows).toBe(0)
+      }
+
+      const oversizedBody = 'x'.repeat(bodyTextByteBudget - 1)
+      await db.update(messages).set({ bodyText: oversizedBody }).where(eq(messages.id, messageId))
+      const projections: {
+        bodyTextByteBudget: number
+        bodyTextJsonBytes: number
+        withheldBodyTextRows: number
+      }[] = []
+      const outcome = await exportPortableWorkspace(db, {
+        hooks: { afterMessagePage: (page) => projections.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      }).then(
+        () => 'exported',
+        (error: unknown) => (error instanceof PortableExportError ? error.code : 'other')
+      )
+
+      expect(outcome).toBe('too_large')
+      expect(projections).toHaveLength(1)
+      expect(projections[0]!.withheldBodyTextRows).toBe(1)
+      expect(projections[0]!.bodyTextJsonBytes).toBe(0)
+    } finally {
+      await db.delete(messages).where(eq(messages.id, messageId))
+    }
+  }, 180_000)
+
+  test('message bodies preserve multibyte UTF-8 text without truncation', async () => {
+    const bodyText = 'Message body ' + '漢字🧪🚀'.repeat(1_024)
+    const messageId = await insertBoundMessage(bodyText, 'portable-body-utf8-' + run)
+    const pageProjections: {
+      bodyTextByteBudget: number
+      bodyTextJsonBytes: number
+      withheldBodyTextRows: number
+    }[] = []
+    try {
+      const document = await exportPortableWorkspace(db, {
+        hooks: { afterMessagePage: (page) => pageProjections.push(page) },
+        principal: { kind: 'user', userId: ownerUserId! },
+        workspaceId: workspaceId!,
+      })
+      const exportedMessage = document.content.messages.find(
+        (message) => message.messageId === messageId
+      )
+
+      expect(exportedMessage?.body).toEqual({ kind: 'text', text: bodyText })
+      expect(pageProjections).toHaveLength(1)
+      expect(pageProjections[0]!.bodyTextJsonBytes).toBe(portableJsonUtf8ByteLength(bodyText))
+      expect(pageProjections[0]!.withheldBodyTextRows).toBe(0)
+    } finally {
+      await db.delete(messages).where(eq(messages.id, messageId))
+    }
+  })
 
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {

@@ -80,11 +80,28 @@ check. The requester's access is checked at these points:
   join the same byte budget; SQL withholds both agent text columns once their cumulative
   lower bound exceeds the remaining budget. User-name byte lengths are also checked in SQL before
   name values are transferred to the Worker.
-- These byte checks bound retained accumulation and stop later reads once the lower bound exceeds
-  the document limit; they are not an 8 MiB process-heap ceiling. Task and message pages are
-  materialized before row-by-row accounting, so a single oversized task or message value can
-  transiently exceed the limit before refusal. Agent names and role summaries are now projected
-  conditionally in SQL before transfer to the Worker.
+- Task title/objective and message body text are projected in SQL against the remaining document
+  byte budget before either text value reaches the Worker. For each task page (at most 25 rows), SQL
+  sums the compact JSON UTF-8 lower bound in task-ID order and returns title/objective only for rows
+  within that budget; the first and later over-budget rows return null text with
+  `withinByteBound = false` and cause `too_large` before retention or document construction.
+  Message pages first fetch row metadata with
+  `bodyText = NULL`, apply the canonical membership, channel, job-visibility and group-history
+  gates, then project only visible, nondeleted, non-content-ref bodies whose cumulative JSON UTF-8
+  bytes fit. An over-budget body is withheld and causes refusal; text is never truncated or
+  returned as a complete partial export. The final retained-message proof repeats the bounded body
+  projection after current visibility checks and denies if a body is withheld before exact summary
+  comparison.
+- Final retained-task proof selects only `id`, `version`, `projectId` and `objectiveContentRefId`
+  for the retained task IDs. It does not select title/objective, so oversized text edits are not
+  materialized in that proof. A task edit through `updateTask` increments `version` and is denied by
+  the proof; a text edit that bypasses version increments is not detected because the proof does
+  not re-read or compare those text fields.
+- These checks bound exported text contributions and prevent the task title/objective and message
+  body columns from being transferred to the Worker beyond the remaining byte budget; they do not
+  impose an 8 MiB process-heap or source-database work ceiling. Bounded pages, row metadata,
+  references, other included fields, and runtime/driver overhead still consume memory. Agent names
+  and role summaries are also conditionally projected in SQL before transfer to the Worker.
 - Before the task pages begin, before the content references are checked, and before the final
   check: each is a test seam (`beforeStep`) so that revocations can be placed there.
 - After the last read and before the document is built: the start checks again, plus every
