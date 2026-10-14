@@ -3,22 +3,7 @@
 // terminal and the runtime grants `dev.terminal.manage`, the close ends the
 // runtime terminal instance instead of leaving it running headless. No PTY
 // is created or stopped here without the runtime's own command gate.
-import type {
-  DevCommand,
-  DevErrorCode,
-  DevReply,
-  PaneLeaf,
-  PaneNode,
-  Scope,
-  TerminalRecord,
-} from '@adea-ai/types/dev-runtime'
-import {
-  devOperationMetadataFor_dev_terminal_create,
-  devOperationMetadataFor_dev_terminal_terminate,
-} from '@adea-ai/types/dev-runtime-operation-metadata'
-
-import { buildDevCommandFromMetadata } from '../browser/command-core'
-import { resolveSelectedTerminal } from './selected-terminal'
+import type { PaneLeaf, PaneNode } from '@adea-ai/types/dev-runtime'
 
 /** The layout model's close placeholder: closing the last center leaf swaps
  *  in one of these terminal leaves, and the pane renderer shows the
@@ -55,84 +40,23 @@ export function terminatesOnLastClose(input: {
 }
 
 /**
- * End one runtime terminal instance: revalidate the exact record (the
- * terminate command binds its generation), then issue the privileged
- * `dev.terminal.terminate` with an explicit confirmation id. Resolves false
- * without issuing anything when the record can no longer be verified.
+ * A single-flight guard: `run` starts the task unless one is already in
+ * flight, and resolves `undefined` for the ignored call. The flag is set
+ * synchronously, so two picks in the same tick cannot both pass.
  */
-export async function terminateSessionTerminal(options: {
-  execute: (command: DevCommand) => Promise<DevReply>
-  scope: Scope
-  runtimeSessionId: string
-  worktreeId: string
-  terminalId: string
-}): Promise<boolean> {
-  const resolved = await resolveSelectedTerminal({
-    execute: options.execute,
-    scope: options.scope,
-    selection: {
-      runtimeSessionId: options.runtimeSessionId,
-      worktreeId: options.worktreeId,
-      terminalId: options.terminalId,
+export function createExclusiveRunner() {
+  let running = false
+  return {
+    running: () => running,
+    async run<T>(task: () => Promise<T>): Promise<T | undefined> {
+      if (running) return undefined
+      running = true
+      try {
+        return await task()
+      } finally {
+        running = false
+      }
     },
-  })
-  if (resolved.status !== 'ready') return false
-  const terminal = resolved.terminal
-  const command = buildDevCommandFromMetadata(devOperationMetadataFor_dev_terminal_terminate, {
-    scope: options.scope,
-    body: {
-      terminalId: terminal.id,
-      expectedGeneration: terminal.generation,
-      confirmationId: `close-${terminal.id}-${terminal.generation}`,
-    },
-    resource: { kind: 'terminal', id: terminal.id, generation: terminal.generation },
-  })
-  try {
-    const reply = await options.execute(command)
-    return reply.ok
-  } catch {
-    return false
-  }
-}
-
-/**
- * Create a fresh terminal instance for the selected session's worktree. The
- * standard first-unbound binding cannot resurrect a terminated primary (its
- * projected id fails resolution), so the new-terminal action binds the
- * created record explicitly on the leaf.
- */
-export async function createSessionTerminal(options: {
-  execute: (command: DevCommand) => Promise<DevReply>
-  scope: Scope
-  runtimeSessionId: string
-  worktreeId: string
-}): Promise<
-  | Readonly<{ status: 'ready'; terminal: TerminalRecord }>
-  | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
-> {
-  const command = buildDevCommandFromMetadata(devOperationMetadataFor_dev_terminal_create, {
-    scope: options.scope,
-    body: {
-      runtimeSessionId: options.runtimeSessionId,
-      worktreeId: options.worktreeId,
-      cols: 80,
-      rows: 24,
-    },
-  })
-  try {
-    const reply = await options.execute(command)
-    if (!reply.ok) return { status: 'unavailable', reason: 'unavailable' }
-    const terminal = reply.value as TerminalRecord
-    if (
-      !terminal ||
-      typeof terminal.id !== 'string' ||
-      terminal.id.length === 0 ||
-      !Number.isSafeInteger(terminal.generation)
-    )
-      return { status: 'unavailable', reason: 'incompatible' }
-    return { status: 'ready', terminal }
-  } catch {
-    return { status: 'unavailable', reason: 'unavailable' }
   }
 }
 

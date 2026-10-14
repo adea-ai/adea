@@ -1,8 +1,11 @@
-import { readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // Helpers for the #1222 cutover rehearsal. Kept out of the `.test.ts` file so the
 // strictness and disposal rules can be tested directly, without a database.
 
+export const CUTOVER_TAG = '0046_artifact_reference_grants'
 export const DRIZZLE_DIR = `${import.meta.dir}/../../drizzle`
 
 /**
@@ -41,6 +44,24 @@ type Journal = { entries: { idx: number; tag: string }[]; dialect: string; versi
 
 export function readJournal(): Journal {
   return JSON.parse(readFileSync(`${DRIZZLE_DIR}/meta/_journal.json`, 'utf8')) as Journal
+}
+
+/** The journal entries before `tag`, with their SQL copied verbatim, as a migrations folder. */
+export function migrationsFolderBefore(tag: string): string {
+  const journal = readJournal()
+  const cut = journal.entries.findIndex((entry) => entry.tag === tag)
+  if (cut < 0) throw new Error(`cutover tag ${tag} is not in the journal`)
+  const folder = mkdtempSync(join(tmpdir(), 'rehearsal-1222-pre-'))
+  mkdirSync(join(folder, 'meta'))
+  const kept = journal.entries.slice(0, cut)
+  writeFileSync(
+    join(folder, 'meta', '_journal.json'),
+    JSON.stringify({ ...journal, entries: kept })
+  )
+  for (const entry of kept) {
+    copyFileSync(`${DRIZZLE_DIR}/${entry.tag}.sql`, join(folder, `${entry.tag}.sql`))
+  }
+  return folder
 }
 
 export type RehearsalResources = {

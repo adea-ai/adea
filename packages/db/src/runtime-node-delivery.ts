@@ -1,6 +1,8 @@
 import {
   parseRuntimeNodePullRequest,
+  parseRuntimeNodeRetentionReceiptRequest,
   verifyRuntimeNodePull,
+  verifyRuntimeNodeRetentionReceipt,
   RUNTIME_NODE_PULL_WINDOW_MS,
   RUNTIME_NODE_PULL_FUTURE_MS,
   RUNTIME_NODE_PULLS_PER_MINUTE,
@@ -30,6 +32,8 @@ import {
   TaskSubmissionError,
 } from './task-submissions'
 import { appendWorkspaceEvent } from './transactions'
+import { recordRuntimeNodeRetentionCleanupReceipt } from './retention-cleanup'
+import type { RetentionCategory } from './retention-policy'
 
 export class RuntimeNodeDeliveryError extends Error {
   constructor(readonly code: 'unavailable' | 'replayed' | 'rate_limited') {
@@ -384,4 +388,79 @@ export async function pullRuntimeNodeCommand(
     if (!withinWindow(input, Date.now())) throw new RuntimeNodeDeliveryError('unavailable')
     return command
   })
+}
+
+/**
+ * Node-authenticated trusted cleanup receipt (#1221). Envelope authentication is
+ * the pull path's: the node's active signing key, the bounded issuance window,
+ * and a signature over the body digest. Every envelope failure gives the same
+ * `unavailable` answer as a pull, so an unknown, unpaired, or revoked node looks
+ * like a bad signature. The envelope nonce is the receipt's idempotency key, so
+ * a replay of the same body is a replay and a different body under that nonce
+ * conflicts.
+ */
+export async function recordRuntimeNodeRetentionReceipt(
+  database: AgentHqDatabase,
+  scope: RuntimeNodeDeliveryScope,
+  value: unknown
+) {
+  const body = parseRuntimeNodeRetentionReceiptRequest(value)
+  if (!body || !withinWindow(body.envelope, Date.now()))
+    throw new RuntimeNodeDeliveryError('unavailable')
+  const key = await signingKey(database, scope, body.envelope.keyId)
+  if (!key || !(await verifyRuntimeNodeRetentionReceipt(scope, body, key.publicKey)))
+    throw new RuntimeNodeDeliveryError('unavailable')
+  return recordRuntimeNodeRetentionCleanupReceipt(
+    database,
+    {
+      category: body.category as RetentionCategory,
+      executor: { kind: 'runtime_node', runtimeNodeId: scope.runtimeNodeId },
+      idempotencyKey: body.envelope.nonce,
+      receipt: { ...body.receipt, category: body.category },
+      workspaceId: scope.workspaceId,
+    },
+    async (transaction, runtimeNodeId) => {
+      if (runtimeNodeId !== scope.runtimeNodeId) throw new RuntimeNodeDeliveryError('unavailable')
+      // Match the pull path's lock order. The subject lock is already held by
+      // receipt admission; then serialize node transport, workspace, node, keys.
+      await transaction.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`adea-node-pull:${runtimeNodeId}`}, 0))`
+      )
+      const [workspace] = await transaction
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(and(eq(workspaces.id, scope.workspaceId), isNull(workspaces.deletedAt)))
+        .for('share')
+      const [node] = await transaction
+        .select()
+        .from(runtimeNodes)
+        .where(
+          and(eq(runtimeNodes.workspaceId, scope.workspaceId), eq(runtimeNodes.id, runtimeNodeId))
+        )
+        .for('update')
+      if (!workspace || !node || node.pairingState !== 'paired')
+        throw new RuntimeNodeDeliveryError('unavailable')
+      const keys = await transaction
+        .select()
+        .from(runtimeNodeKeys)
+        .where(eq(runtimeNodeKeys.runtimeNodeId, runtimeNodeId))
+        .for('share')
+      const admittedKey = keys.find(
+        (candidate) =>
+          candidate.id === body.envelope.keyId &&
+          candidate.role === 'signing' &&
+          candidate.algorithm === 'ed25519' &&
+          candidate.verifiedAt !== null &&
+          candidate.retiredAt === null
+      )
+      if (
+        !admittedKey ||
+        !withinWindow(body.envelope, Date.now()) ||
+        !(await verifyRuntimeNodeRetentionReceipt(scope, body, admittedKey.publicKey)) ||
+        !withinWindow(body.envelope, Date.now())
+      )
+        throw new RuntimeNodeDeliveryError('unavailable')
+      return admittedKey.fingerprint
+    }
+  )
 }

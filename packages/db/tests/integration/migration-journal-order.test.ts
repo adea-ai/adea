@@ -78,10 +78,10 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       databaseUrl = url.toString()
       // Stage the predecessor-only chain: every migration through 0051 with
       // the journal truncated there, like a database migrated before 0052
-      // existed.
+      // existed. Later migrations (0053 retention onward) are upgrade steps too.
       staged = mkdtempSync(join(tmpdir(), 'pi-1177-mig-'))
       const sqlFiles = (await Array.fromAsync(new Bun.Glob('00*.sql').scan(repoDrizzle))).toSorted()
-      const predecessor = sqlFiles.filter((file) => !file.startsWith('0052_'))
+      const predecessor = sqlFiles.filter((file) => Number.parseInt(file.slice(0, 4), 10) <= 51)
       expect(predecessor.length).toBeGreaterThan(0)
       for (const file of predecessor) cpSync(join(repoDrizzle, file), join(staged, file))
       const journal = JSON.parse(
@@ -141,7 +141,16 @@ describe.skipIf(!connectionUrl)('migration journal timestamp order', () => {
       const appliedJournal = await second.db.execute(
         sql`SELECT count(*)::int AS n FROM app.__drizzle_migrations`
       )
-      expect(appliedJournal[0]!.n as number).toBe(54)
+      // Every journal entry applied exactly once, whatever follows 0052.
+      expect(appliedJournal[0]!.n as number).toBe(journal.entries.length)
+      const retention = await second.db.execute(sql`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'app' AND table_name LIKE 'retention\_%' ORDER BY 1`)
+      expect(retention.map((row) => row.table_name as string)).toEqual([
+        'retention_cleanup_receipts',
+        'retention_deletion_authorizations',
+        'retention_holds',
+      ])
       const dupes = await second.db.execute(sql`
       SELECT hash FROM app.__drizzle_migrations GROUP BY hash HAVING count(*) > 1`)
       expect(dupes).toHaveLength(0)
