@@ -166,13 +166,11 @@ export function HarnessStatusPane(props: {
       </Show>
       <Show when={props.defaultSummary?.deviceDefaultMissing}>
         <p role="status" class="text-xs">
-          <Show
-            when={props.defaultSummary?.source === 'workspace'}
-            fallback="Your device default is not installed and ready on this device, so new sessions cannot start with it. Rescan, or choose another harness."
-          >
-            Your device default is not installed and ready on this device, so workspaces without
-            their own default cannot start with it. Rescan, or choose another harness.
-          </Show>
+          Your device default is not installed and ready on this device, so{' '}
+          {props.defaultSummary?.source === 'workspace'
+            ? 'workspaces without their own default'
+            : 'new sessions'}{' '}
+          cannot start with it. Rescan, or choose another harness.
         </p>
       </Show>
       <Show when={status().terminalFallback}>

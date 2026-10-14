@@ -38,10 +38,14 @@ async function recordedRequests(page: Page): Promise<RecordedRequest[]> {
 }
 
 /**
- * General reads the owner's archived workspaces (#1175) and nothing else. Asserted exactly, so any
- * other request from General fails the test rather than being filtered out.
+ * General reads the owner's archived workspaces (#1175) and this workspace's archived projects, and
+ * nothing else. Asserted exactly, so any other request from General fails the test rather than being
+ * filtered out.
  */
-const GENERAL_REQUESTS: RecordedRequest[] = [{ method: 'GET', path: '/api/workspaces/archived' }]
+const GENERAL_REQUESTS: RecordedRequest[] = [
+  { method: 'GET', path: '/api/workspaces/archived' },
+  { method: 'GET', path: '/api/v1/workspaces/workspace-settings-e2e/projects' },
+]
 /**
  * Per-host reads (runtime inventory, health and grants) live under one host's `runtime-nodes/:id`
  * route. The bare `runtime-nodes` path is the host list the Connections tab renders before any host
