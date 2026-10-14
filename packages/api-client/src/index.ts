@@ -35,6 +35,7 @@ import type {
   TaskSummary,
   WorkspaceInvitationRole,
   WorkspaceInvitationSummary,
+  WorkspaceMemberRole,
   WorkspaceMemberSummary,
   WorkspaceSummary,
   WorkspaceUpdate,
@@ -319,6 +320,18 @@ export type ApiWorkspaceInvitationResponse = Readonly<{ invitation: WorkspaceInv
 export type ApiWorkspaceInvitationAcceptResponse = Readonly<{
   joined: boolean
   workspaceId: string
+}>
+/**
+ * What an invitee sees before accepting: the workspace, its owner, how many people are in it, and
+ * the role they would hold, which for an existing member is the role they already have.
+ */
+export type ApiWorkspaceInvitationPreviewResponse = Readonly<{
+  alreadyMember: boolean
+  expiresAt: string
+  memberCount: number
+  ownerName: string | null
+  role: WorkspaceMemberRole
+  workspaceName: string
 }>
 export type ApiProjectArchiveResponse = Readonly<{ archived: true }>
 export type ApiProjectDeleteResponse = Readonly<{ deleted: true }>
@@ -1053,6 +1066,15 @@ export class AgentHqApiClient {
     )
   }
 
+  /** Read what an invitation grants without accepting it; the token travels in the body only. */
+  async previewWorkspaceInvitation(token: string): Promise<ApiWorkspaceInvitationPreviewResponse> {
+    return this.request<ApiWorkspaceInvitationPreviewResponse>('/workspace-invitations/preview', {
+      body: JSON.stringify({ token }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
   /** Accept an invitation as the signed-in account; the token travels in the body only. */
   async acceptWorkspaceInvitation(token: string): Promise<ApiWorkspaceInvitationAcceptResponse> {
     return this.request<ApiWorkspaceInvitationAcceptResponse>('/workspace-invitations/accept', {
@@ -1117,6 +1139,17 @@ export class AgentHqApiClient {
     return this.request<readonly ProjectSummary[]>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects`
     )
+  }
+
+  /**
+   * The archived projects this caller may read, for the explicit restore flow. The server lists
+   * archived rows beside active ones on request; only the archived ones are returned here.
+   */
+  async listArchivedProjects(workspaceId: string): Promise<readonly ProjectSummary[]> {
+    const projects = await this.request<readonly ProjectSummary[]>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects?includeArchived=true`
+    )
+    return projects.filter((project) => project.lifecycleState === 'archived')
   }
 
   async getProject(workspaceId: string, projectId: string): Promise<ApiProjectResponse> {

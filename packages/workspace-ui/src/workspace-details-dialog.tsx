@@ -23,6 +23,7 @@ import {
 } from './workspace-settings-section'
 import { WorkspaceIdentitySettings } from './workspace-identity-settings'
 import { WorkspaceArchiveSettings } from './workspace-archive-settings'
+import { WorkspaceArchivedProjectsSettings } from './workspace-archived-projects-settings'
 import { WorkspaceArchivedSettings } from './workspace-archived-settings'
 import { WorkspaceExportSettings, WorkspaceRestoreSettings } from './workspace-portable-settings'
 
@@ -266,7 +267,7 @@ export function WorkspaceDetailsDialog(props: {
                   </Show>
                   <Show when={props.workspace.isPersonal}>
                     <Text variant="caption" tone="muted" class="mt-4">
-                      Your personal workspace stays with your account.
+                      Home can’t be archived or deleted. It stays with your account.
                     </Text>
                   </Show>
                   <Show when={apiClient()}>
@@ -299,6 +300,14 @@ export function WorkspaceDetailsDialog(props: {
                   </Show>
                   <Show when={apiClient()}>
                     {(client) => <WorkspaceArchivedSettings client={client()} />}
+                  </Show>
+                  <Show when={apiClient()}>
+                    {(client) => (
+                      <WorkspaceArchivedProjectsSettings
+                        client={client()}
+                        workspace={props.workspace}
+                      />
+                    )}
                   </Show>
                 </Show>
                 <Show when={panelSection === 'memory'}>

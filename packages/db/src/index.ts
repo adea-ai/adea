@@ -36,6 +36,7 @@ export {
 export {
   pullRuntimeNodeCommand,
   pruneRuntimeNodeDeliveryRequests,
+  recordRuntimeNodeRetentionReceipt,
   RuntimeNodeDeliveryError,
 } from './runtime-node-delivery'
 
@@ -46,6 +47,64 @@ export {
   inspectExpiredTaskSubmissionCiphertext,
   purgeExpiredTaskSubmissionCiphertext,
 } from './task-submission-retention'
+export {
+  runRetentionCleanupExecutor,
+  type RetentionCleanupExecution,
+  type RetentionCleanupHalt,
+  type RetentionCleanupHaltReason,
+  type RetentionCleanupStorePort,
+  type RetentionCleanupStoreOutcome,
+  type RetentionCleanupSubject,
+  type RetentionReceiptDraft,
+} from './retention-cleanup-executor'
+export {
+  CLEANUP_COVERAGE_KINDS,
+  evaluateRetentionDeletion,
+  MAX_RETENTION_PERIOD_DAYS,
+  parseRetentionPeriods,
+  RETENTION_CATEGORIES,
+  RETENTION_COVERAGE_RULES,
+  RetentionPolicyError,
+  recordCleanupReceipt,
+  UNSET_RETENTION_PERIODS,
+  type CleanupCoverageKind,
+  type CleanupReceipt,
+  type CleanupReceiptOperation,
+  type CleanupReceiptOutcome,
+  type RetentionAuthorization,
+  type RetentionBlocker,
+  type RetentionCandidate,
+  type RetentionCategory,
+  type RetentionDecision,
+  type RetentionEvaluationInput,
+  type RetentionHold,
+  type RetentionPeriods,
+  type RetentionCoverageInventory,
+  type RetentionPolicyErrorCode,
+  type RetentionRefusalReason,
+  type TrustedCleanupExecutor,
+} from './retention-policy'
+export {
+  evaluateStoredRetentionDeletion,
+  grantRetentionDeletionAuthorization,
+  placeRetentionHold,
+  readLiveRetentionDeletionAuthorization,
+  recordRetentionCleanupReceipt,
+  releaseRetentionHold,
+  retentionCleanupErrorCodes,
+  RetentionCleanupError,
+  readRetentionStatus,
+  revokeRetentionDeletionAuthorization,
+  withRetentionDeletionGate,
+  type RetentionStatusView,
+  type RetentionAuthorizationRecord,
+  type RetentionCleanupErrorCode,
+  type RetentionGateContext,
+  type RetentionGateInput,
+  type RetentionHoldRecord,
+  type StoredCleanupReceiptInput,
+  type StoredCleanupReceiptRecord,
+} from './retention-cleanup'
 export {
   enqueueTaskSubmission,
   getTaskSubmissionForUser,
@@ -289,8 +348,10 @@ export {
   listWorkspaceInvitationsForUser,
   listWorkspaceMembersForUser,
   normalizeInvitationEmail,
+  previewWorkspaceInvitation,
   revokeWorkspaceInvitation,
   type WorkspaceInvitationAcceptance,
+  type WorkspaceInvitationPreview,
 } from './workspace-invitations'
 export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './event-visibility'
 export {
@@ -397,7 +458,26 @@ export {
   type LeadTurnAcceptedSelection,
   type LeadTurnRuntimeBinding,
   type LeadTurnObservedState,
+  type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
+export {
+  assertLeadTurnRollbackFenceRequest,
+  classifyLeadTurnRollback,
+  fenceLeadTurnForRollback,
+  leadTurnRollbackFenceReasons,
+  parseLeadTurnRollbackAuthority,
+  readLeadTurnRollbackState,
+  type LeadTurnRollbackAttribution,
+  type LeadTurnRollbackDisposition,
+  type LeadTurnRollbackEvidence,
+  type LeadTurnRollbackFence,
+  type LeadTurnRollbackFenceActor,
+  type LeadTurnRollbackFenceAuthority,
+  type LeadTurnRollbackFenceEmission,
+  type LeadTurnRollbackFenceReason,
+  type LeadTurnRollbackFenceRequest,
+  type LeadTurnRollbackState,
+} from './lead-turn-rollback'
 export {
   archiveTask,
   assignTask,
@@ -473,3 +553,7 @@ export {
 export * from './lead-model-selections'
 
 export { withWorkspaceManagementAuthority } from './management-workspace-authority'
+export {
+  withCurrentSourceLeadTurnProduct,
+  type CurrentSourceLeadTurnProduct,
+} from './lead-source-product'

@@ -8,6 +8,7 @@ import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
 import { selectiveUiSourcePlugin } from './start/ui-tailwind-sources'
 import { publicFontAssetDirectories } from './start/public-font-assets'
+import { authZodLite } from '@adea-ai/auth/vite-client-bundle'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/')
@@ -118,6 +119,13 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
+                // The runtime contract's decoders are imported by the Dev shell
+                // and by lazy panes; left to automatic splitting the wire and
+                // validation modules each become their own request.
+                {
+                  name: 'dev-runtime-contract',
+                  test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
+                },
                 {
                   name: 'workspace-navigation-icons',
                   test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
@@ -125,7 +133,7 @@ export default defineConfig(({ command }) => ({
                 },
                 {
                   name: 'shared-lazy-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(download|external-link|file-text|mic|pencil|play|rotate-ccw|square-terminal|upload)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(archive|arrow-up|book-open|bot|download|external-link|file-text|message-square|lock-keyhole|mic|pencil|play|rotate-ccw|square-terminal|upload)\.jsx$/,
                   minShareCount: 2,
                 },
               ],
@@ -196,6 +204,7 @@ export default defineConfig(({ command }) => ({
     tanstackStart({ srcDirectory: './src/start' }),
     viteSolid({ ssr: true }),
     trimZodLocales(),
+    authZodLite(),
     // The same reachable source graph checks the curated dev shim before the
     // web server starts, and again when source or shim files change.
     selectiveUiSourcePlugin(root, { checkLucideDevShim: true }),

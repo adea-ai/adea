@@ -75,6 +75,15 @@ export {
 } from './artifacts'
 export { artifactReferenceGrants } from './artifact-reference-grants'
 export {
+  retentionCategory,
+  retentionCleanupCoverage,
+  retentionCleanupOperation,
+  retentionCleanupOutcome,
+  retentionCleanupReceipts,
+  retentionDeletionAuthorizations,
+  retentionHolds,
+} from './retention-cleanup'
+export {
   channelArchiveSource,
   channelKind,
   channelLifecycleState,

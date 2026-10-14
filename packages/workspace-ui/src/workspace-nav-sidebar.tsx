@@ -841,7 +841,7 @@ export function WorkspaceNavSidebar(props: Props) {
       }
     return {
       title: `Archive ${target.project.name}?`,
-      description: `The ${nouns.project.toLowerCase()} leaves the sidebar. Its history is kept.`,
+      description: `The ${nouns.project.toLowerCase()} leaves the sidebar for everyone. Its history is kept, and you can restore it from workspace settings.`,
       confirmLabel: `Archive ${nouns.project.toLowerCase()}`,
       destructive: false,
       failure: `${nouns.project} could not be archived.`,

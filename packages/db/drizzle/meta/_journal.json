@@ -372,6 +372,20 @@
       "when": 1791912761448,
       "tag": "0052_lead_handoff_target",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791935267216,
+      "tag": "0053_retention_cleanup_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791942460947,
+      "tag": "0054_lead_turn_rollback_fence",
+      "breakpoints": true
     }
   ]
 }

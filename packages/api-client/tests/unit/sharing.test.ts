@@ -18,6 +18,7 @@ describe('Sharing API client', () => {
       role: 'member',
     })
     await client.revokeWorkspaceInvitation('workspace-1', 'invitation-1')
+    await client.previewWorkspaceInvitation('token-value')
     await client.acceptWorkspaceInvitation('token-value')
     await client.setProjectVisibility('workspace-1', 'project-1', 'members')
     await client.listProjectMembers('workspace-1', 'project-1')
@@ -29,6 +30,7 @@ describe('Sharing API client', () => {
       ['GET', '/api/v1/workspaces/workspace-1/invitations'],
       ['POST', '/api/v1/workspaces/workspace-1/invitations'],
       ['POST', '/api/v1/workspaces/workspace-1/invitations/invitation-1/revoke'],
+      ['POST', '/api/workspace-invitations/preview'],
       ['POST', '/api/workspace-invitations/accept'],
       ['PATCH', '/api/v1/workspaces/workspace-1/projects/project-1/visibility'],
       ['GET', '/api/v1/workspaces/workspace-1/projects/project-1/members'],
@@ -39,7 +41,9 @@ describe('Sharing API client', () => {
     // The token never rides in the URL.
     expect(requests[4]!.url).not.toContain('token-value')
     expect(await requests[4]!.json()).toEqual({ token: 'token-value' })
-    expect(await requests[5]!.json()).toEqual({ visibility: 'members' })
-    expect(await requests[7]!.json()).toEqual({ role: 'editor' })
+    expect(requests[5]!.url).not.toContain('token-value')
+    expect(await requests[5]!.json()).toEqual({ token: 'token-value' })
+    expect(await requests[6]!.json()).toEqual({ visibility: 'members' })
+    expect(await requests[8]!.json()).toEqual({ role: 'editor' })
   })
 })

@@ -26,7 +26,7 @@ export function Picker(props: {
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
-  const [options] = createReadResource(
+  const [options, { refetch }] = createReadResource(
     () => (open() ? { query: query() } : undefined),
     (source) => props.load(source.query)
   )
@@ -79,15 +79,28 @@ export function Picker(props: {
                 place: `options()` holds the previous page while `loading`, so
                 the Loading… caption is only for the first load — swapping the
                 menu for it on every keystroke read as the menu flickering. */}
+            <Show when={options.error}>
+              <span class="dev-scm-caption" role="alert">
+                {errorText(options.error)}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={props.disabled || options.loading}
+                onClick={() => void refetch()}
+              >
+                Try again
+              </Button>
+            </Show>
             <Show
-              when={options() !== undefined}
-              fallback={<span class="dev-scm-caption">Loading…</span>}
+              when={!options.error && options() !== undefined}
+              fallback={
+                <Show when={!options.error}>
+                  <span class="dev-scm-caption">Loading…</span>
+                </Show>
+              }
             >
-              <Show when={options.error}>
-                <span class="dev-scm-caption" role="alert">
-                  {errorText(options.error)}
-                </span>
-              </Show>
               <For each={options() ?? []}>
                 {(option) => {
                   const selected = () => props.selected.includes(option.value)

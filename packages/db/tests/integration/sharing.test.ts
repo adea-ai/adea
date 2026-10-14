@@ -47,12 +47,14 @@ import {
   INVITATION_LIFETIME_MS,
   listWorkspaceInvitationsForUser,
   listWorkspaceMembersForUser,
+  previewWorkspaceInvitation,
   revokeWorkspaceInvitation,
 } from '../../src/workspace-invitations'
 import {
   addWorkspaceMembership,
   createWorkspaceWithOwner,
   removeWorkspaceMembership,
+  updateWorkspace,
 } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
@@ -81,6 +83,175 @@ describe.skipIf(!connectionUrl)('workspace sharing', () => {
         owner,
       })
     ).workspace
+
+  test('an invitee previews the workspace, owner, audience and role under the acceptance gates, changing nothing', async () => {
+    const owner = await user('preview-owner')
+    const member = await user('preview-member')
+    const joiner = await user('preview-joiner')
+    const stranger = await user('preview-stranger')
+    const workspace = await workspaceFor(owner, 'Preview HQ')
+    await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
+    const created = await createWorkspaceInvitation(connection.db, workspace.id, owner, {
+      email: 'preview-joiner@example.com',
+      role: 'admin',
+    })
+
+    const preview = await previewWorkspaceInvitation(connection.db, joiner, {
+      email: 'Preview-Joiner@example.com',
+      token: created.token,
+    })
+    expect(preview).toEqual({
+      alreadyMember: false,
+      expiresAt: created.invitation.expiresAt,
+      memberCount: 2,
+      ownerName: 'preview-owner',
+      role: 'admin',
+      workspaceName: 'Preview HQ',
+    })
+    // Previewing is read-only: no membership, no settled invitation.
+    const afterPreview = await listWorkspaceMembersForUser(connection.db, workspace.id, owner)
+    expect(afterPreview).toHaveLength(2)
+    const [row] = await connection.db
+      .select()
+      .from(workspaceInvitations)
+      .where(eq(workspaceInvitations.id, created.invitation.id))
+    expect(row!.acceptedAt).toBeNull()
+
+    // The wrong account, a missing email, and a malformed or unknown token are refused alike.
+    for (const attempt of [
+      { email: 'other@example.com', token: created.token },
+      { email: null, token: created.token },
+      { email: 'preview-joiner@example.com', token: 'short' },
+      { email: 'preview-joiner@example.com', token: 'A'.repeat(43) },
+    ]) {
+      await expect(previewWorkspaceInvitation(connection.db, stranger, attempt)).rejects.toThrow(
+        'Invitation unavailable'
+      )
+    }
+    // Expired.
+    await expect(
+      previewWorkspaceInvitation(
+        connection.db,
+        joiner,
+        { email: 'preview-joiner@example.com', token: created.token },
+        new Date(Date.now() + INVITATION_LIFETIME_MS + 60_000)
+      )
+    ).rejects.toThrow('Invitation unavailable')
+
+    // After acceptance only the account that joined may still preview it.
+    await acceptWorkspaceInvitation(connection.db, joiner, {
+      email: 'preview-joiner@example.com',
+      token: created.token,
+    })
+    expect(
+      await previewWorkspaceInvitation(connection.db, joiner, {
+        email: 'preview-joiner@example.com',
+        token: created.token,
+      })
+    ).toMatchObject({ alreadyMember: true, memberCount: 3, role: 'admin' })
+    await expect(
+      previewWorkspaceInvitation(connection.db, stranger, {
+        email: 'preview-joiner@example.com',
+        token: created.token,
+      })
+    ).rejects.toThrow('Invitation unavailable')
+
+    // A revoked invitation and an archived workspace are not previewable.
+    const second = await createWorkspaceInvitation(connection.db, workspace.id, owner, {
+      email: 'preview-late@example.com',
+      role: 'member',
+    })
+    await revokeWorkspaceInvitation(connection.db, workspace.id, second.invitation.id, owner)
+    await expect(
+      previewWorkspaceInvitation(connection.db, stranger, {
+        email: 'preview-late@example.com',
+        token: second.token,
+      })
+    ).rejects.toThrow('Invitation unavailable')
+  })
+
+  test('a used token stops previewing once its account is removed, even as the workspace changes', async () => {
+    const owner = await user('replay-owner')
+    const joiner = await user('replay-joiner')
+    const workspace = await workspaceFor(owner, 'Replay HQ')
+    const created = await createWorkspaceInvitation(connection.db, workspace.id, owner, {
+      email: 'replay-joiner@example.com',
+      role: 'member',
+    })
+    const input = { email: 'replay-joiner@example.com', token: created.token }
+    await acceptWorkspaceInvitation(connection.db, joiner, input)
+    expect(await previewWorkspaceInvitation(connection.db, joiner, input)).toMatchObject({
+      alreadyMember: true,
+      workspaceName: 'Replay HQ',
+    })
+
+    // Membership ends, then the workspace changes: the old link must not show the new details.
+    await removeWorkspaceMembership(connection.db, workspace.id, joiner)
+    await updateWorkspace(connection.db, workspace.id, owner, {
+      expectedVersion: workspace.version,
+      update: { logo: workspace.logo, name: 'Replay Renamed', scene: workspace.scene },
+    })
+    await expect(previewWorkspaceInvitation(connection.db, joiner, input)).rejects.toThrow(
+      'Invitation unavailable'
+    )
+    // The same refusal an unknown token gets, so removal cannot be told apart from a dead link.
+    await expect(
+      previewWorkspaceInvitation(connection.db, joiner, {
+        email: input.email,
+        token: 'B'.repeat(43),
+      })
+    ).rejects.toThrow('Invitation unavailable')
+  })
+
+  test('an existing member previews the role they hold, not the role on the invitation', async () => {
+    const owner = await user('role-owner')
+    const admin = await user('role-admin')
+    const member = await user('role-member')
+    const workspace = await workspaceFor(owner, 'Role HQ')
+    await addWorkspaceMembership(connection.db, workspace.id, admin, 'admin')
+    await addWorkspaceMembership(connection.db, workspace.id, member, 'member')
+    // Invited as admin, but already a plain member: acceptance leaves them a member.
+    const promotion = await createWorkspaceInvitation(connection.db, workspace.id, owner, {
+      email: 'role-member@example.com',
+      role: 'admin',
+    })
+    const memberInput = { email: 'role-member@example.com', token: promotion.token }
+    expect(await previewWorkspaceInvitation(connection.db, member, memberInput)).toMatchObject({
+      alreadyMember: true,
+      memberCount: 3,
+      role: 'member',
+    })
+    expect(await acceptWorkspaceInvitation(connection.db, member, memberInput)).toMatchObject({
+      joined: false,
+    })
+    const [kept] = await connection.db
+      .select({ role: workspaceMemberships.role })
+      .from(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, workspace.id),
+          eq(workspaceMemberships.userId, member.userId)
+        )
+      )
+    expect(kept!.role).toBe('member')
+    // Replaying the used token still reports the role held now.
+    expect(await previewWorkspaceInvitation(connection.db, member, memberInput)).toMatchObject({
+      alreadyMember: true,
+      role: 'member',
+    })
+
+    // Invited as a member, but already an admin: they stay an admin.
+    const demotion = await createWorkspaceInvitation(connection.db, workspace.id, owner, {
+      email: 'role-admin@example.com',
+      role: 'member',
+    })
+    expect(
+      await previewWorkspaceInvitation(connection.db, admin, {
+        email: 'role-admin@example.com',
+        token: demotion.token,
+      })
+    ).toMatchObject({ alreadyMember: true, role: 'admin' })
+  })
 
   test('invitations store only a digest, are single use, expire, and can be revoked', async () => {
     const owner = await user('invite-owner')

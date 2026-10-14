@@ -5,6 +5,7 @@ const workspaceId = `wsp_${'0'.repeat(26)}`
 const intentId = crypto.randomUUID()
 const actorUserId = crypto.randomUUID()
 const now = Date.UTC(2026, 9, 8, 12)
+const adeaWorkspaceId = crypto.randomUUID()
 const selectors = { workspaceId, intentId, principalId: 'svc_control-plane' }
 const request = (body: unknown = selectors) =>
   new Request('https://adea.invalid/api/internal/pi-durable/lead-product/current', {
@@ -12,7 +13,8 @@ const request = (body: unknown = selectors) =>
     body: JSON.stringify(body),
   })
 const product: CurrentLeadTurnProduct = {
-  workspaceId: crypto.randomUUID(),
+  workspaceId: adeaWorkspaceId,
+  agentWorkspaceId: adeaWorkspaceId,
   controlPlaneWorkspaceId: workspaceId,
   intentId,
   intentCreatedAt: new Date(now - 1_000).toISOString(),
@@ -29,7 +31,28 @@ const product: CurrentLeadTurnProduct = {
   profileVersion: 'version-canonical',
   profileRevision: 1,
   prompt: 'Canonical message text',
+  rollbackFence: null,
+  dispatchPermitted: true,
 }
+test('a foreign Agent cannot turn host service scope into source profile or tool authority', async () => {
+  const foreign = { ...product, agentWorkspaceId: crypto.randomUUID() }
+  let disclosed = false
+  const handler = createLeadProductReaderHandler({
+    lifetimeMs: 300_000,
+    now: () => now,
+    verify: async () => true,
+    withCurrent: async (_w, _i, disclose) => {
+      const response = await disclose(foreign)
+      disclosed = response.status === 200
+      return response
+    },
+  })
+  const response = await handler(request())
+  expect(response.status).toBe(404)
+  expect(await response.json()).toEqual({ code: 'LEAD_PRODUCT_UNAVAILABLE' })
+  expect(disclosed).toBe(false)
+})
+
 test('private product read authenticates before DB work and rejects caller actor/model/profile assertions', async () => {
   let reads = 0
   const dependencies = {

@@ -300,14 +300,17 @@ test('closing the last terminal pane ends its runtime instance and offers a fres
   // New terminal creates a fresh instance and binds it — the pane never
   // reattaches the terminated record.
   await page.getByRole('button', { name: 'New terminal', exact: true }).click()
-  const state = await report(page)
-  const create = state.commands.find((item) => item.operation === 'dev.terminal.create')
-  expect(create).toEqual(
-    expect.objectContaining({ sessionId: '11111111-1111-4111-8111-111111111111' })
-  )
+  // The create waits on the shell-profile lookup and the lazily loaded terminal
+  // code, so it is not issued in the same tick as the click.
+  await expect
+    .poll(async () =>
+      (await report(page)).commands.find((item) => item.operation === 'dev.terminal.create')
+    )
+    .toEqual(expect.objectContaining({ sessionId: '11111111-1111-4111-8111-111111111111' }))
   await expect(
     page.locator('[data-pane-id^="dev-terminal-"] .dev-terminal-pane-status')
   ).toHaveAttribute('data-state', 'open', { timeout: 30_000 })
+  const state = await report(page)
   await expect(page.locator('[data-pane-id^="dev-terminal-"] .xterm-rows')).toContainText(
     'selected terminal 99999999-9994-4999-8999-000000000001'
   )
