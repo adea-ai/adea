@@ -1222,6 +1222,135 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
     expect(replay.map((turn) => turn.state)).toEqual(['superseded'])
   })
 
+  T('an identical retry of a human message does not supersede live work', async () => {
+    const f = await groupWithAgent()
+    const post = (key: string) =>
+      postGroupChannelMessage(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        f.owner,
+        { message: { bodyText: 'hold on', idempotencyKey: key }, mode: 'direct' },
+        { now: NOW }
+      )
+    const claim = () =>
+      claimAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        f.owner,
+        claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner),
+        { now: NOW }
+      )
+    const key = crypto.randomUUID()
+    expect((await claim()).status).toBe('claimed')
+    await post(key)
+    expect(
+      (await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)).map((t) => t.state)
+    ).toEqual(['superseded'])
+    // Fresh live work after the first send; the retried send must not touch it.
+    const next = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner, { dispatchRevision: 2 }),
+      { now: NOW }
+    )
+    expect(next.status).toBe('claimed')
+    await post(key)
+    const states = (await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)).map(
+      (t) => t.state
+    )
+    expect(states.filter((state) => state === 'claimed')).toHaveLength(1)
+    // A genuinely new message still supersedes it.
+    await post(crypto.randomUUID())
+    const after = (await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)).map(
+      (t) => t.state
+    )
+    expect(after.filter((state) => state === 'claimed')).toHaveLength(0)
+  })
+
+  T('lead-mode human posts supersede live work once; a lead replay does not', async () => {
+    const owner = await user('lead-supersede-owner')
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Lead supersede',
+      owner,
+    })
+    const lead = await ensureWorkspaceLead(connection.db, workspace.id, owner)
+    const channelId = crypto.randomUUID()
+    await createGroupChannelWithGrants(connection.db, workspace.id, owner, {
+      candidates: groupCreationCandidatesFromGrants(workspace.id, {
+        audienceGrants: [
+          {
+            expiresAt: null,
+            grantId: 'gra_owner',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            participant: owner,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+        enlistmentGrants: [
+          {
+            agent: { agentId: lead.id, workspaceId: workspace.id },
+            expiresAt: null,
+            grantId: 'gra_lead',
+            groupId: channelId,
+            issuedAt: ISSUED,
+            revision: 1,
+            revokedAt: null,
+          },
+        ],
+      }),
+      channelId,
+      idempotencyKey: crypto.randomUUID(),
+      now: NOW,
+      title: 'Group',
+    })
+    const trigger = await postGroupChannelMessage(
+      connection.db,
+      workspace.id,
+      channelId,
+      owner,
+      owner,
+      { message: { bodyText: 'ask', idempotencyKey: crypto.randomUUID() }, mode: 'direct' },
+      { now: NOW }
+    )
+    const postLead = (key: string) =>
+      postGroupChannelMessage(
+        connection.db,
+        workspace.id,
+        channelId,
+        owner,
+        owner,
+        { lead: { bodyText: 'lead it', idempotencyKey: key, mentions: [] }, mode: 'lead' },
+        { now: NOW }
+      )
+    const claim = (revision: number) =>
+      claimAddressedTurn(
+        connection.db,
+        workspace.id,
+        owner,
+        claimInput(channelId, trigger.id, lead.id, owner, { dispatchRevision: revision }),
+        { now: NOW }
+      )
+    const live = async () =>
+      (await loadAddressedTurns(connection.db, workspace.id, channelId)).filter(
+        (turn) => turn.state === 'claimed'
+      ).length
+    expect((await claim(1)).status).toBe('claimed')
+    const key = crypto.randomUUID()
+    await postLead(key)
+    expect(await live()).toBe(0)
+    expect((await claim(2)).status).toBe('claimed')
+    await postLead(key)
+    expect(await live()).toBe(1)
+    await postLead(crypto.randomUUID())
+    expect(await live()).toBe(0)
+  })
+
   T('cross-workspace addressed lead cancels cleanly with labels intact', async () => {
     const owner = await user('xws-owner')
     const { workspace } = await createWorkspaceWithOwner(connection.db, {

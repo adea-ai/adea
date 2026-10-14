@@ -131,6 +131,7 @@ import {
   groupEnlistmentGrants,
   groupSharingGrants,
   messageArtifactReferences,
+  messages,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -489,6 +490,31 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
         })
   const final = authorizeGroupChannelTurn(gate, { admission: current, now: readNow() })
   if (final.action !== 'allow') throw new Error('Channel unavailable')
+  // Genuinely new human input retires live addressed turns; a retry of a
+  // message that already exists (same channel + idempotency key) is a replay
+  // and must leave live work alone. The channel row is locked above, so the
+  // key cannot appear between this check and the write below.
+  const requestKey = (
+    input.mode === 'lead'
+      ? (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
+      : (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>).message
+  ).idempotencyKey?.trim()
+  const isNewInput =
+    sender.kind === 'user' &&
+    !!requestKey &&
+    (
+      await transaction
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.workspaceId, workspaceId),
+            eq(messages.channelId, channelId),
+            eq(messages.idempotencyKey, requestKey)
+          )
+        )
+        .limit(1)
+    ).length === 0
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
     const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead, {
@@ -504,6 +530,7 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
           })
     const settled = authorizeGroupChannelTurn(gate, { admission: settledLead, now: readNow() })
     if (settled.action !== 'allow') throw new Error('Channel unavailable')
+    if (isNewInput) await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
     return posted as T extends Readonly<{ mode: 'lead' }>
       ? Awaited<ReturnType<typeof createLeadTurn>>
       : MessageSummary
@@ -525,9 +552,9 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
   // Superseding human input (M15.02): a newer human message retires live
   // addressed turns in this same transaction, so stale claims never
   // outlive the conversation that replaced them. Agent posts never
-  // supersede — only human input prioritizes.
-  if (sender.kind === 'user')
-    await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
+  // supersede — only human input prioritizes — and neither does an
+  // idempotent retry of a message that already exists.
+  if (isNewInput) await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>
     : MessageSummary

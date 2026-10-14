@@ -29,6 +29,8 @@ const product: CurrentLeadTurnProduct = {
   profileVersion: 'version-canonical',
   profileRevision: 1,
   prompt: 'Canonical message text',
+  rollbackFence: null,
+  dispatchPermitted: true,
 }
 test('private product read authenticates before DB work and rejects caller actor/model/profile assertions', async () => {
   let reads = 0

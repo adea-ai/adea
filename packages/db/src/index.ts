@@ -477,7 +477,26 @@ export {
   type LeadTurnAcceptedSelection,
   type LeadTurnRuntimeBinding,
   type LeadTurnObservedState,
+  type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
+export {
+  assertLeadTurnRollbackFenceRequest,
+  classifyLeadTurnRollback,
+  fenceLeadTurnForRollback,
+  leadTurnRollbackFenceReasons,
+  parseLeadTurnRollbackAuthority,
+  readLeadTurnRollbackState,
+  type LeadTurnRollbackAttribution,
+  type LeadTurnRollbackDisposition,
+  type LeadTurnRollbackEvidence,
+  type LeadTurnRollbackFence,
+  type LeadTurnRollbackFenceActor,
+  type LeadTurnRollbackFenceAuthority,
+  type LeadTurnRollbackFenceEmission,
+  type LeadTurnRollbackFenceReason,
+  type LeadTurnRollbackFenceRequest,
+  type LeadTurnRollbackState,
+} from './lead-turn-rollback'
 export {
   archiveTask,
   assignTask,
