@@ -53,16 +53,16 @@ export function createLeadTurnProduct(
   const service = createLeadTurnRuntime({
     ...dependencies,
     store: {
-      authorize: (scope, mutation) =>
+      authorize: (scope, purpose) =>
         resolveLeadTurnAuthority(
           database,
           scope.workspaceId,
           scope.intentId,
           principal(scope),
-          mutation
+          purpose
         ),
-      read: (scope) =>
-        readLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope)),
+      read: (scope, purpose) =>
+        readLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope), purpose),
       prepare: (scope, pin) =>
         prepareLeadTurnRuntime(database, scope.workspaceId, scope.intentId, principal(scope), pin),
       pending: (scope, pin) =>
@@ -123,7 +123,7 @@ export function createLeadTurnProduct(
         workspaceId,
         intentId,
         principal({ userId }),
-        false
+        'read'
       )
       const value = (await adapter.lookup(authority)) as
         | {

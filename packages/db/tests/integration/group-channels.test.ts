@@ -1602,7 +1602,8 @@ async function completedLeadJob(
     f.local.db,
     f.workspace.id,
     intentId,
-    f.owner
+    f.owner,
+    'effect'
   )
   const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
   const selection = {
@@ -1650,7 +1651,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intent!.id,
-        f.owner
+        f.owner,
+        'effect'
       )
       expect(authority.requestedLeadSelection).toEqual(lead)
     } finally {
@@ -3467,7 +3469,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
       const selection = {
@@ -3590,7 +3593,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
       const selection = {
@@ -3725,7 +3729,8 @@ describe('durable binding, fences and shared read boundary', () => {
           f.local.db,
           f.workspace.id,
           intentId,
-          f.owner
+          f.owner,
+          'effect'
         )
         const { attemptId, dispatchId, executionId, runtimeSessionId } = uniqueRuntimeIds()
         const selection = {
@@ -3957,7 +3962,7 @@ describe('durable binding, fences and shared read boundary', () => {
           selectionRef: `msel_${'e'.repeat(32)}`,
           selectionRevision: 1,
           workspaceId: (
-            await resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.owner)
+            await resolveLeadTurnAuthority(f.local.db, f.workspace.id, intentId, f.owner, 'effect')
           ).controlPlaneWorkspaceId,
         }
         await prepareLeadTurnRuntime(f.local.db, f.workspace.id, intentId, f.owner, selection)
@@ -4351,7 +4356,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const selection = {
         attemptId,
@@ -4463,7 +4469,8 @@ describe('durable binding, fences and shared read boundary', () => {
         f.local.db,
         f.workspace.id,
         intentId,
-        f.owner
+        f.owner,
+        'effect'
       )
       const selection = {
         attemptId,

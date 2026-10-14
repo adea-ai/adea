@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "body": {
+    "schemaVersion": "pi-lead-intent-fence/v1",
+    "intentId": "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7",
+    "workspaceId": "wsp_0123456789ABCDEFGHJKMNPQRS",
+    "dispatchPermitted": false,
+    "rollbackFence": {
+      "fencedAt": "2026-10-09T11:59:59.500Z",
+      "reason": "rollback_cohort",
+      "actor": {
+        "kind": "user",
+        "userId": "0f8b7c2e-1a2b-4c3d-8e9f-001122334455"
+      }
+    }
+  }
+}

@@ -6,11 +6,16 @@ import {
 } from './lead-model-selections'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
+import { rollbackFenceEmission, type LeadTurnRollbackFenceEmission } from './lead-turn-rollback'
 import { leadTurnIntents } from './schema/lead-turns'
 import { agents } from './schema/agents'
 import { workspaces } from './schema/workspaces'
 
-/** Private canonical product evidence. This is not runtime, funding or transport authority. */
+/**
+ * Private canonical product evidence. This is not runtime, funding or transport authority.
+ * `rollbackFence` and `dispatchPermitted` are the fence fields CP must honour (see the evidence
+ * record's emitted-field contract). `dispatchPermitted` is false whenever `rollbackFence` is set.
+ */
 export type CurrentLeadTurnProduct = Readonly<{
   workspaceId: string
   /** Current home workspace of the pinned Agent, read under its existing row lock. */
@@ -32,6 +37,8 @@ export type CurrentLeadTurnProduct = Readonly<{
   profileRevision: number
   prompt: string
   requestedModelSelections?: RequestedRoleModelSelections
+  rollbackFence: LeadTurnRollbackFenceEmission | null
+  dispatchPermitted: boolean
 }>
 
 /**
@@ -126,6 +133,8 @@ export async function withCurrentLeadTurnProduct<T>(
                     intent.requestedModelSelections
                   ),
                 }),
+            rollbackFence: rollbackFenceEmission(intent),
+            dispatchPermitted: intent.rollbackFencedAt === null,
           })
         )
       }

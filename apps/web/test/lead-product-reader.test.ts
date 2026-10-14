@@ -31,6 +31,8 @@ const product: CurrentLeadTurnProduct = {
   profileVersion: 'version-canonical',
   profileRevision: 1,
   prompt: 'Canonical message text',
+  rollbackFence: null,
+  dispatchPermitted: true,
 }
 test('a foreign Agent cannot turn host service scope into source profile or tool authority', async () => {
   const foreign = { ...product, agentWorkspaceId: crypto.randomUUID() }
