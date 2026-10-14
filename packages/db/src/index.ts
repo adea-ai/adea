@@ -339,6 +339,24 @@ export {
   type GroupStoreDatabase,
 } from './group-channels'
 export {
+  AddressedTurnError,
+  cancelAddressedTurn,
+  causalIdForAddressedTurn,
+  claimAddressedTurn,
+  decideAddressedTurn,
+  DEFAULT_ADDRESSED_TURN_BUDGET,
+  dispatchAddressedTurn,
+  loadAddressedTurns,
+  recordAddressedTurnResponse,
+  supersedeAddressedTurns,
+  type AddressedAgentTurn,
+  type AddressedTurnBudget,
+  type AddressedTurnClaim,
+  type AddressedTurnClaimInput,
+  type AddressedTurnDecision,
+  type AddressedTurnStore,
+} from './group-turn-coordinator'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
@@ -348,8 +366,10 @@ export {
   listWorkspaceInvitationsForUser,
   listWorkspaceMembersForUser,
   normalizeInvitationEmail,
+  previewWorkspaceInvitation,
   revokeWorkspaceInvitation,
   type WorkspaceInvitationAcceptance,
+  type WorkspaceInvitationPreview,
 } from './workspace-invitations'
 export { classifyWorkspaceEventsForUser, type WorkspaceEventDelivery } from './event-visibility'
 export {
@@ -431,6 +451,7 @@ export {
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
 export {
+  admitAddressedLeadTurn,
   createLeadTurn,
   getLatestLeadTurnForTarget,
   getLeadTurnForUser,
@@ -456,7 +477,26 @@ export {
   type LeadTurnAcceptedSelection,
   type LeadTurnRuntimeBinding,
   type LeadTurnObservedState,
+  type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
+export {
+  assertLeadTurnRollbackFenceRequest,
+  classifyLeadTurnRollback,
+  fenceLeadTurnForRollback,
+  leadTurnRollbackFenceReasons,
+  parseLeadTurnRollbackAuthority,
+  readLeadTurnRollbackState,
+  type LeadTurnRollbackAttribution,
+  type LeadTurnRollbackDisposition,
+  type LeadTurnRollbackEvidence,
+  type LeadTurnRollbackFence,
+  type LeadTurnRollbackFenceActor,
+  type LeadTurnRollbackFenceAuthority,
+  type LeadTurnRollbackFenceEmission,
+  type LeadTurnRollbackFenceReason,
+  type LeadTurnRollbackFenceRequest,
+  type LeadTurnRollbackState,
+} from './lead-turn-rollback'
 export {
   archiveTask,
   assignTask,
@@ -532,3 +572,7 @@ export {
 export * from './lead-model-selections'
 
 export { withWorkspaceManagementAuthority } from './management-workspace-authority'
+export {
+  withCurrentSourceLeadTurnProduct,
+  type CurrentSourceLeadTurnProduct,
+} from './lead-source-product'

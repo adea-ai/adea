@@ -1,0 +1,59 @@
+{
+  "repository": "https://github.com/adea-ai/control-plane.git",
+  "commit": "6c296fbe561b755bda0fa87f7e1a05ab451bc2f7",
+  "packagePath": "packages/contracts",
+  "sourceFiles": {
+    "authentication.ts": {
+      "path": "packages/contracts/src/authentication.ts",
+      "sha256": "a095cdd1412ba2bfee8dd67f6b8a7b9a1c80f7b9eb8e09d3066297175583e351",
+      "gitBlob": "078b3b25c2df01de97da7399f612e9523679aab3"
+    },
+    "canonical-json.ts": {
+      "path": "packages/contracts/src/canonical-json.ts",
+      "sha256": "4d684bc041b98b3ba622319ce0ec9f2949dd68dfbf15e59302b686fa8b3fa35c",
+      "gitBlob": "67a79dcef3eadadb530f7e2c9524a0241e00586f"
+    },
+    "envelopes.ts": {
+      "path": "packages/contracts/src/envelopes.ts",
+      "sha256": "eb121117b2388724ffdd8561fa9ea806546bba1467c93fa784e708529df8cc53",
+      "gitBlob": "34bf651d76c2038ec40a4b1e8e595bef52c79755"
+    },
+    "identifiers.ts": {
+      "path": "packages/contracts/src/identifiers.ts",
+      "sha256": "7a87fdc888822e7d375908c81913b7adbaa745190dc126c073c6c9650deaa2d6",
+      "gitBlob": "d7b3568cf5b7a82e7e1fced46202231a8b6b0cab"
+    },
+    "model-connections.ts": {
+      "path": "packages/contracts/src/model-connections.ts",
+      "sha256": "336bc3210d71d9220d61eb7c0d983e9fde325b5180580bcb0bb22ac01c1250c5",
+      "gitBlob": "55318acab991a461f3181c114cd175002b1ffef5"
+    },
+    "pi-lead-publication.ts": {
+      "path": "packages/contracts/src/pi-lead-publication.ts",
+      "sha256": "0cc7c2f1853560f8c904f2aa8f406cf9d0e7bc426d8faab9825e9f177d6d2a6f",
+      "gitBlob": "3f6f8bfaa5725651068d982d95614215abdb088b"
+    },
+    "pi-lead-source-authority.ts": {
+      "path": "packages/contracts/src/pi-lead-source-authority.ts",
+      "sha256": "caad8c7deda4780ea521aa2c684ede0b712e214cf4e83b3c929d375e6f32f370",
+      "gitBlob": "7ee087ef0f6e281f5ab846fdff395b923665b28d"
+    },
+    "pi-lead-source-publication.ts": {
+      "path": "packages/contracts/src/pi-lead-source-publication.ts",
+      "sha256": "cf4939cc5b83ca4c4cd8584292fa2a6151b3d42737844122ab64cb2726d9d91f",
+      "gitBlob": "a0d31366bcc13595a1db3a5206d6d0918cb47e10"
+    },
+    "versioning.ts": {
+      "path": "packages/contracts/src/versioning.ts",
+      "sha256": "e0305e38848acb175260c11947e5758b9f18396727b5eb974d9b482d5801fb2f",
+      "gitBlob": "98132f7c980fdb8b492296da867ad24ef21ed5f0"
+    }
+  },
+  "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+  "zodVersion": "4.6.5",
+  "setupFiles": {
+    "index.ts": "46be6207ed5988b678f1e630122a2fbcd361b3f0a6ee5155b6a3c29718e2815f",
+    "package.json": "5e439b8b4589aaeaccf0cd3503e519cc94cc9c52d745c7acdd83b6e18a14b7b2",
+    "bun.lock": "5c15e108da84d15f1cb9dbe7f9c59640dd9e36e3f629a1cea4939de1edfddb35"
+  }
+}

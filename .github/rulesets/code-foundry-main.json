@@ -4,13 +4,17 @@
   "enforcement": "active",
   "conditions": {
     "ref_name": {
-      "include": ["refs/heads/main"],
-      "exclude": []
+      "exclude": [],
+      "include": ["refs/heads/main"]
     }
   },
   "rules": [
-    { "type": "deletion" },
-    { "type": "non_fast_forward" },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    },
     {
       "type": "pull_request",
       "parameters": {
@@ -34,8 +38,22 @@
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
-          { "context": "Validation / Gate", "integration_id": 15368 },
-          { "context": "Review Policy / Gate", "integration_id": 15368 }
+          {
+            "context": "Validation / Gate",
+            "integration_id": 15368
+          },
+          {
+            "context": "Review Policy / Gate",
+            "integration_id": 15368
+          },
+          {
+            "context": "Visual gate",
+            "integration_id": 15368
+          },
+          {
+            "context": "Host gate",
+            "integration_id": 15368
+          }
         ]
       }
     }

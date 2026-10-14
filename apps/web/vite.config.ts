@@ -8,6 +8,7 @@ import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.m
 import { selectiveUiSourcePlugin } from './start/ui-tailwind-sources'
 import { publicFontAssetDirectories } from './start/public-font-assets'
 import { solidPlugins } from './start/solid-compile'
+import { authZodLite } from '@adea-ai/auth/vite-client-bundle'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/')
@@ -203,6 +204,7 @@ export default defineConfig(({ command }) => ({
     tanstackStart({ srcDirectory: './src/start' }),
     ...solidPlugins(),
     trimZodLocales(),
+    authZodLite(),
     // The same reachable source graph checks the curated dev shim before the
     // web server starts, and again when source or shim files change.
     selectiveUiSourcePlugin(root, { checkLucideDevShim: true }),

@@ -31,6 +31,11 @@
       "development": "./src/server.ts",
       "import": "./dist/server.js"
     },
+    "./vite-client-bundle": {
+      "types": "./dist/vite-client-bundle.d.ts",
+      "development": "./src/vite-client-bundle.ts",
+      "import": "./dist/vite-client-bundle.js"
+    },
     "./start": {
       "types": "./dist/start.d.ts",
       "development": "./src/start.ts",

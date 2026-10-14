@@ -7737,10 +7737,8 @@ files in the same commit:
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
   `packages/dev-view/tests/selection.test.ts` pins selection enforcement
   (scope, generation, revocation, freshness, archive recovery);
-  `packages/dev-view/tests/sidebar-navigation-filter.test.ts` pins the
-  non-mutating project/session filter projection;
-  `apps/web/e2e/dev-sidebar-search.spec.ts` pins filtering and collapse-state
-  restoration through the returning Chat runtime harness;
+  `packages/dev-view/tests/dev-nav-model.test.ts` pins the cloud project
+  list, binding/worktree joins and session leaves in the shared navigation tree;
   `packages/dev-view/tests/archive-shelf-model.test.ts`
   pins the restore flow, the destructive-delete confirmation gate, and the
   explicit `dev.session.delete` handoff;

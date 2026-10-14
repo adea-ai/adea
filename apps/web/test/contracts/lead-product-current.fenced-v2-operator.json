@@ -1,0 +1,21 @@
+{
+  "status": 200,
+  "body": {
+    "schemaVersion": "pi-lead-intent-fence/v2",
+    "intentId": "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7",
+    "workspaceId": "wsp_0123456789ABCDEFGHJKMNPQRS",
+    "dispatchPermitted": false,
+    "rollbackFence": {
+      "fencedAt": "2026-10-09T11:59:59.500Z",
+      "reason": "operator_intervention",
+      "actor": {
+        "kind": "operator",
+        "operatorId": "ops.rollback-1"
+      }
+    },
+    "authorityRevision": 2,
+    "canonicalActorPrincipalId": "user:0f8b7c2e-1a2b-4c3d-8e9f-001122334455",
+    "scopeRef": "adea-product:sha256:ea73cb08e627299c49a4abc2ee6cff42550fc09f7eefff5a5878ccba067b28ce",
+    "allowedPrincipalIds": ["svc_control-plane"]
+  }
+}
