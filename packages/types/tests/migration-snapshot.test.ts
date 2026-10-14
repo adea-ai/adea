@@ -189,7 +189,8 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         expiresAt: null,
         family: 'groupAudienceGrants',
         grantId: 'grant-1',
-        revoked: false,
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        revokedAt: null,
         revision: 1,
         userId: 'user-1',
         workspaceId: 'wsp-1',
@@ -201,7 +202,8 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         expiresAt: null,
         family: 'groupEnlistmentGrants',
         grantId: 'grant-1',
-        revoked: false,
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        revokedAt: null,
         revision: 1,
         workspaceId: 'wsp-1',
       }
@@ -458,11 +460,15 @@ describe('migration snapshot record validation', () => {
       [withField(validRecord('groupAudienceGrants'), 'revision', 0), 'revision'],
       [withField(validRecord('groupAudienceGrants'), 'expiresAt', 'not-a-date'), 'expiresAt'],
       [withoutField(validRecord('groupAudienceGrants'), 'expiresAt'), 'expiresAt'],
-      [withField(validRecord('groupAudienceGrants'), 'revoked', 'no'), 'revoked'],
+      [withField(validRecord('groupAudienceGrants'), 'revokedAt', 'no'), 'revokedAt'],
+      [withField(validRecord('groupAudienceGrants'), 'revokedAt', true), 'revokedAt'],
+      [withoutField(validRecord('groupAudienceGrants'), 'issuedAt'), 'issuedAt'],
+      [withField(validRecord('groupAudienceGrants'), 'issuedAt', ''), 'issuedAt'],
       [withoutField(validRecord('groupEnlistmentGrants'), 'agentId'), 'agentId'],
       [withField(validRecord('groupEnlistmentGrants'), 'revision', 1.5), 'revision'],
       [withField(validRecord('groupEnlistmentGrants'), 'expiresAt', 42), 'expiresAt'],
-      [withoutField(validRecord('groupEnlistmentGrants'), 'revoked'), 'revoked'],
+      [withoutField(validRecord('groupEnlistmentGrants'), 'revokedAt'), 'revokedAt'],
+      [withField(validRecord('groupEnlistmentGrants'), 'issuedAt', 'not-a-date'), 'issuedAt'],
     ]
     for (const [record, field] of cases) {
       const issue = migrationSnapshotRecordIssue(record)

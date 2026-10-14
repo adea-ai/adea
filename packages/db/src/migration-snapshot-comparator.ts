@@ -163,16 +163,17 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     binding: ['authGrantId', 'authGroupId', 'workspaceId'],
     digests: ['authRevision'],
   },
-  // Group grants follow the artifact-reference grant shape: revocation and the persisted expiry are the
-  // grant's own state, compared verbatim (never against the capture clock); the subject and workspace
+  // Group grants carry their issue, expiry and revocation instants verbatim, compared as stored (never
+  // against the capture clock, never flattened to a flag): the policy compares those strings, so a
+  // moved instant can change what the grant authorizes; the subject and workspace
   // are identity bindings, so a grant moved to another subject is a remap, never a match.
   groupAudienceGrants: {
-    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    attributes: [{ field: 'expiresAt' }, { field: 'issuedAt' }, { field: 'revokedAt' }],
     binding: ['userId', 'workspaceId'],
     digests: ['revision'],
   },
   groupEnlistmentGrants: {
-    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    attributes: [{ field: 'expiresAt' }, { field: 'issuedAt' }, { field: 'revokedAt' }],
     binding: ['agentId', 'workspaceId'],
     digests: ['revision'],
   },

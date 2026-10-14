@@ -1518,9 +1518,13 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     )
     expect(
       section(proof.cutover, 'groupAudienceGrants').every(
-        (r) => r.revoked === false && r.revision === 1
+        (r) => r.revokedAt === null && r.revision === 1
       )
     ).toBe(true)
+    // Issue instants travel verbatim, so a changed issue time cannot hide behind an identical comparison.
+    expect(section(proof.cutover, 'groupAudienceGrants').every((r) => r.issuedAt.length > 0)).toBe(
+      true
+    )
     // The captured grants carry the grant owner; the removed user's grant is present until quarantined.
     expect(
       section(proof.cutover, 'groupAudienceGrants')

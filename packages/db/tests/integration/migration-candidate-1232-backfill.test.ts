@@ -238,6 +238,12 @@ async function executeScenario() {
     enlistmentGrants: await enlistmentGrantRows(connection, workspaceId),
     quarantineSurfaces: await quarantineSurfaces(connection),
   }
+  // Captured on the state the migration chain produced, before the 0050 statements are re-run, so the
+  // repeat capture below is a genuinely later state and the comparison between them proves idempotence.
+  const groupAfterBackfill = await captureMigrationSnapshot(connection.db, {
+    identity: identity('group-after-backfill'),
+    requestedDomains: GROUP_FAMILIES,
+  })
 
   // Idempotence: run the 0050 statements again. Row counts must not change.
   for (const statement of backfillStatements()) {
@@ -249,10 +255,6 @@ async function executeScenario() {
     enlistmentGrants: await enlistmentGrantRows(connection, workspaceId),
   }
 
-  const groupAfterBackfill = await captureMigrationSnapshot(connection.db, {
-    identity: identity('group-after-backfill'),
-    requestedDomains: GROUP_FAMILIES,
-  })
   const after = await captureMigrationSnapshot(connection.db, {
     identity: identity('after'),
     requestedDomains: mainFamilies,
@@ -285,7 +287,22 @@ async function executeScenario() {
     ),
   }
 
+  // Sensitivity on the real tables: moving a grant's stored issue or revocation instant, with the grant
+  // still unrevoked or revoked in the same flag sense, must be a determinate change, never identical.
+  await connection.db.execute(
+    sql`update app.group_audience_grants set issued_at = '2026-06-01T00:00:00.000Z', revoked_at = '2999-01-01T00:00:00.000Z' where id = (select id from app.group_audience_grants order by id limit 1)`
+  )
+  const groupAfterTimeMove = await captureMigrationSnapshot(connection.db, {
+    identity: identity('group-after-time-move'),
+    requestedDomains: GROUP_FAMILIES,
+  })
+  const groupTimeMoveComparison = compareMigrationSnapshots({
+    after: groupAfterTimeMove.document,
+    before: groupAfterRepeat.document,
+  })
+
   return {
+    groupTimeMoveComparison,
     chainApplied: applied,
     groupAfterBackfill,
     groupAfterRepeat,
@@ -615,6 +632,19 @@ describe.skipIf(!provisioningUrl && !inCi)(
       expect(afterRepeat.admissions).toEqual(afterBackfill.admissions)
       expect(afterRepeat.audienceGrants).toEqual(afterBackfill.audienceGrants)
       expect(afterRepeat.enlistmentGrants).toEqual(afterBackfill.enlistmentGrants)
+    })
+
+    test('a moved issue or revocation instant on a stored grant is a determinate change (#1222)', async () => {
+      const { groupTimeMoveComparison } = await runScenario()
+      const determinate = groupTimeMoveComparison.findings
+        .filter((finding) => finding.findingClass !== 'unknown_domain')
+        .map((finding) => `${finding.findingClass}:${finding.family}:${finding.detail.field}`)
+        .toSorted()
+      expect(determinate).toEqual([
+        'changed_attribute:groupAudienceGrants:issuedAt',
+        'changed_attribute:groupAudienceGrants:revokedAt',
+      ])
+      expect(groupTimeMoveComparison.verdict).toBe('divergent')
     })
 
     test('the main capture families are unchanged across the canonical chain', async () => {

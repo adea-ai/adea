@@ -386,20 +386,23 @@ export type GroupAdmissionSnapshotRecord = Readonly<{
   workspaceId: string
 }>
 
-/** A durable human audience grant for one group. Issue time never travels; the persisted expiry does. */
+/** A durable human audience grant for one group. Issue, expiry and revocation instants travel verbatim. */
 export type GroupAudienceGrantSnapshotRecord = Readonly<{
   family: 'groupAudienceGrants'
   channelId: string
   /** The persisted expiry, verbatim; `null` means the grant does not expire. */
   expiresAt: string | null
   grantId: string
+  /** The persisted issue instant, verbatim: the policy compares it as a string, so a change is a change in what the grant authorizes. */
+  issuedAt: string
   revision: number
-  revoked: boolean
+  /** The persisted revocation instant, verbatim; `null` means never revoked. A time is compared, never flattened to a flag. */
+  revokedAt: string | null
   userId: string
   workspaceId: string
 }>
 
-/** A durable Agent enlistment grant for one group. Issue time never travels; the persisted expiry does. */
+/** A durable Agent enlistment grant for one group. Issue, expiry and revocation instants travel verbatim. */
 export type GroupEnlistmentGrantSnapshotRecord = Readonly<{
   family: 'groupEnlistmentGrants'
   agentId: string
@@ -407,8 +410,11 @@ export type GroupEnlistmentGrantSnapshotRecord = Readonly<{
   /** The persisted expiry, verbatim; `null` means the grant does not expire. */
   expiresAt: string | null
   grantId: string
+  /** The persisted issue instant, verbatim: the policy compares it as a string, so a change is a change in what the grant authorizes. */
+  issuedAt: string
   revision: number
-  revoked: boolean
+  /** The persisted revocation instant, verbatim; `null` means never revoked. A time is compared, never flattened to a flag. */
+  revokedAt: string | null
   workspaceId: string
 }>
 
@@ -708,6 +714,11 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean'
+}
+
+/** A persisted instant: a non-empty string that parses as an instant. */
+function isTimestamp(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
 }
 
 /** A persisted expiry: `null` (never expires) or a non-empty string that parses as an instant. */
@@ -1087,9 +1098,10 @@ export function migrationSnapshotRecordIssue(
         identifierField('workspaceId', record.workspaceId),
         identifierField('grantId', record.grantId),
         identifierField('userId', record.userId),
+        check('issuedAt', isTimestamp(record.issuedAt)),
         check('expiresAt', isNullableTimestamp(record.expiresAt)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
         check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
-        check('revoked', isBoolean(record.revoked)),
       ])
     case 'groupEnlistmentGrants':
       return firstIssue([
@@ -1097,9 +1109,10 @@ export function migrationSnapshotRecordIssue(
         identifierField('workspaceId', record.workspaceId),
         identifierField('grantId', record.grantId),
         identifierField('agentId', record.agentId),
+        check('issuedAt', isTimestamp(record.issuedAt)),
         check('expiresAt', isNullableTimestamp(record.expiresAt)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
         check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
-        check('revoked', isBoolean(record.revoked)),
       ])
     case 'contentReplicas':
       return firstIssue([
