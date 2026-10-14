@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.92.0](https://github.com/adea-ai/adea/compare/v0.91.0...v0.92.0) (2026-10-14)
+
+
+### Features
+
+* **db,web:** coordination plans that cite separately owned jobs ([#1217](https://github.com/adea-ai/adea/issues/1217)) ([#1363](https://github.com/adea-ai/adea/issues/1363)) ([4145616](https://github.com/adea-ai/adea/commit/414561660ea65585d6011a636e03e8f851473727))
+* **db:** durable addressed agent turn coordinator ([#1179](https://github.com/adea-ai/adea/issues/1179)) ([#1247](https://github.com/adea-ai/adea/issues/1247)) ([28b301d](https://github.com/adea-ai/adea/commit/28b301d5945e3400ff480c8a13f8d966f048212a))
+* **db:** fence artifact grant registration against retention cleanup ([#1221](https://github.com/adea-ai/adea/issues/1221)) ([#1356](https://github.com/adea-ai/adea/issues/1356)) ([a979181](https://github.com/adea-ai/adea/commit/a97918139ef94b02551d4376b4583f2d7fcd9e95))
+* **db:** fence artifact registration on durable deletion dispatch marks ([#1221](https://github.com/adea-ai/adea/issues/1221)) ([#1362](https://github.com/adea-ai/adea/issues/1362)) ([bbc5bec](https://github.com/adea-ai/adea/commit/bbc5becacf84d0d41649121437e71a76b86936e6))
+* **db:** fence lead-turn admissions on rollback ([#1220](https://github.com/adea-ai/adea/issues/1220)) ([#1244](https://github.com/adea-ai/adea/issues/1244)) ([8b6eea1](https://github.com/adea-ai/adea/commit/8b6eea1e74d33e5ee05febbecbf5cb0d4fd88131))
+* **db:** hold memory-derived outbound results and resolve separately owned job references ([#1217](https://github.com/adea-ai/adea/issues/1217)) ([#1358](https://github.com/adea-ai/adea/issues/1358)) ([b676c2d](https://github.com/adea-ai/adea/commit/b676c2d175d47fe4fdbe16c53c23c151c1d686a6))
+* **db:** retention holds, deletion authority, and trusted cleanup receipts ([#1221](https://github.com/adea-ai/adea/issues/1221)) ([#1243](https://github.com/adea-ai/adea/issues/1243)) ([0e43f9f](https://github.com/adea-ai/adea/commit/0e43f9f78d32d4e82a57f0ca119db8780bd5d49a))
+* **dev-view:** mount the History tab with prompts, reply summaries and search ([#1346](https://github.com/adea-ai/adea/issues/1346)) ([457d910](https://github.com/adea-ai/adea/commit/457d9103a9b82c1ed16f9c231bc2e84eb91dc613)), closes [#716](https://github.com/adea-ai/adea/issues/716)
+* **dev-view:** search, jump to and resume across sessions from History ([#1352](https://github.com/adea-ai/adea/issues/1352)) ([f7ac27f](https://github.com/adea-ai/adea/commit/f7ac27ff8b307a8c90bc0c8239b92a94b8d0e138))
+* **dev-view:** terminal toolbar with a shell menu and device default shell ([#1347](https://github.com/adea-ai/adea/issues/1347)) ([ffb1f5d](https://github.com/adea-ai/adea/commit/ffb1f5da9401df9a81b5a601b2d111b016279b4d))
+* **memory:** record verified agent/session/run origin on workspace memory ([#1218](https://github.com/adea-ai/adea/issues/1218)) ([#1359](https://github.com/adea-ai/adea/issues/1359)) ([ebce82e](https://github.com/adea-ai/adea/commit/ebce82e44701a9a750f0f4682bb3f6d3f10fa6af))
+* **web:** connect addressed group turns to the product API and replay ([#1179](https://github.com/adea-ai/adea/issues/1179)) ([#1360](https://github.com/adea-ai/adea/issues/1360)) ([3a1895a](https://github.com/adea-ai/adea/commit/3a1895adc659063bf31e0bf95def1c10850b09a1))
+* **workspace-ui:** close the workspace lifecycle UX acceptance gaps ([#1175](https://github.com/adea-ai/adea/issues/1175), [#1214](https://github.com/adea-ai/adea/issues/1214), [#1218](https://github.com/adea-ai/adea/issues/1218)) ([#1350](https://github.com/adea-ai/adea/issues/1350)) ([126956c](https://github.com/adea-ai/adea/commit/126956c4347f15f0e80d6d6e0fe91a08bcce116a))
+
+
+### Bug Fixes
+
+* **auth:** guard foreign lead execution evidence ([#1178](https://github.com/adea-ai/adea/issues/1178) WIP) ([#1327](https://github.com/adea-ai/adea/issues/1327)) ([813e609](https://github.com/adea-ai/adea/commit/813e6098015961197005431650d627a0a3d50ab0))
+* **db:** bound a group's authorization records before the first read access check ([#1339](https://github.com/adea-ai/adea/issues/1339)) ([522f00c](https://github.com/adea-ai/adea/commit/522f00c2af89e580b42b297271457ff5fc55de89))
+* **db:** bound addressed turn history replay ([#1366](https://github.com/adea-ai/adea/issues/1366)) ([0c85d4e](https://github.com/adea-ai/adea/commit/0c85d4eddf2633bc2791100ee39133e10846504c))
+* **db:** bound portable export text projection ([#1364](https://github.com/adea-ai/adea/issues/1364)) ([2be099c](https://github.com/adea-ai/adea/commit/2be099c414b83b526ffb6e313f29af328d981d37))
+* **db:** pin canonical Home first in workspace ordering ([#1302](https://github.com/adea-ai/adea/issues/1302)) ([f1c38ca](https://github.com/adea-ai/adea/commit/f1c38ca96d445d2f1b0865e45d660e89de224d2d))
+* **db:** preserve deletion marks on store errors ([#1365](https://github.com/adea-ai/adea/issues/1365)) ([42a11ca](https://github.com/adea-ai/adea/commit/42a11ca29a87215bd7cf14cb3ef93ac7173c5002))
+* **deps:** update dependency @adea-ai/contracts to v1.21.1 ([#1319](https://github.com/adea-ai/adea/issues/1319)) ([6cf9ec5](https://github.com/adea-ai/adea/commit/6cf9ec5a13caa81cb1409f12a300f4a313a483ad))
+* **dev-view:** render source control read failures and retry ([#1335](https://github.com/adea-ai/adea/issues/1335)) ([8a5e183](https://github.com/adea-ai/adea/commit/8a5e183b4f3995213aa2c3fd80d5e5b2883a41f5))
+* **dev-view:** repair History search, run ordering and stale feeds ([#1348](https://github.com/adea-ai/adea/issues/1348)) ([fe99d36](https://github.com/adea-ai/adea/commit/fe99d367020c750b14e2f5c4454e3e9e020ba345))
+
+
+### Performance
+
+* **web:** drop zod core from the startup chunk ([#1351](https://github.com/adea-ai/adea/issues/1351)) ([2c8db72](https://github.com/adea-ai/adea/commit/2c8db72fe06e1e00bb0305658036e31c30fb6ba7))
+
+
+### Documentation
+
+* **agents:** tailor repository guidance and draft WIP workflow ([#1323](https://github.com/adea-ai/adea/issues/1323)) ([8290eb8](https://github.com/adea-ai/adea/commit/8290eb88e0098f1fa6155afa5e3ca5beca08d305))
+
+
+### Tests
+
+* **auth:** make zod stand-in guard fixtures valid and assert why each is rejected ([#1357](https://github.com/adea-ai/adea/issues/1357)) ([1429c92](https://github.com/adea-ai/adea/commit/1429c920ad0a4b2b279fdc6484e12154c9126b91))
+* connect child allocation factories for [#1211](https://github.com/adea-ai/adea/issues/1211) (source proof, pins merged CP [#1123](https://github.com/adea-ai/adea/issues/1123)) ([#1297](https://github.com/adea-ai/adea/issues/1297)) ([0a9f7de](https://github.com/adea-ai/adea/commit/0a9f7de0c4489fd8399730b9705e6e8e7ffa3135))
+* **db:** accept shared deadline timeout labels ([#1368](https://github.com/adea-ai/adea/issues/1368)) ([3cd47ce](https://github.com/adea-ai/adea/commit/3cd47ce3d33cabdc5b48d8ed12490b087a311f62))
+* **db:** populated historical cutover proof, audience quarantine and product denial ([#1355](https://github.com/adea-ai/adea/issues/1355)) ([7fcb2ae](https://github.com/adea-ai/adea/commit/7fcb2ae7c6a76a8ecda893eac8ccbabc29e4558a))
+* **db:** rehearse additive cutover on a disposable database ([#1222](https://github.com/adea-ai/adea/issues/1222)) ([#1241](https://github.com/adea-ai/adea/issues/1241)) ([1862ede](https://github.com/adea-ai/adea/commit/1862ededfbd0665ab1a22c5fd294bf3cf47b2936))
+* **web:** add portable export fetch egress tripwire ([#1367](https://github.com/adea-ai/adea/issues/1367)) ([7d38b41](https://github.com/adea-ai/adea/commit/7d38b41fe614ce6da626644d59fd98fd8c1d7081))
+* **web:** give the fenced lead-product fixtures their agent workspace ([#1220](https://github.com/adea-ai/adea/issues/1220)) ([#1354](https://github.com/adea-ai/adea/issues/1354)) ([f0bfac6](https://github.com/adea-ai/adea/commit/f0bfac6ab99e4241935509e72cc05a5268ffa33d))
+* **web:** pin the Agent customization backdrop's scroll offset ([#1344](https://github.com/adea-ai/adea/issues/1344)) ([4ad3bc6](https://github.com/adea-ai/adea/commit/4ad3bc64733a4a44ca60e786b1883eab1af0804a))
+* **web:** prove fence-v2 lead rollback against the signed control-plane reader ([#1361](https://github.com/adea-ai/adea/issues/1361)) ([b05d340](https://github.com/adea-ai/adea/commit/b05d3405e5cd73f1c467fd99f70404a5739be8cb))
+
+
+### CI
+
+* gate merges on the visual and host lanes and run every affected pixel suite ([#1333](https://github.com/adea-ai/adea/issues/1333)) ([bff6ee9](https://github.com/adea-ai/adea/commit/bff6ee988bb26a3c62cfc1f45677be5568eb7300))
+* mirror the live branch ruleset and add the Visual and Host gates ([#1353](https://github.com/adea-ai/adea/issues/1353)) ([8ae039d](https://github.com/adea-ai/adea/commit/8ae039d96f10944cec8609827422a30e1e425b7e))
+
 ## [0.91.0](https://github.com/adea-ai/adea/compare/v0.90.0...v0.91.0) (2026-10-13)
 
 

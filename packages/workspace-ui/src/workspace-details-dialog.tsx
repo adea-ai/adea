@@ -40,19 +40,20 @@ const MemoryPane = lazy(() => import('./memory-pane'))
 const ConnectionsPane = lazy(() =>
   import('./connections-pane').then((module) => ({ default: module.ConnectionsPane }))
 )
-// The Control Plane catalog and vault panes (ADR 0013) load only when Skills
-// or Connections opens.
+// The Control Plane panes (ADR 0013) load from two entries: the catalog and vault panes (Skills,
+// Cloud connections) and the host and model panes (Runtime nodes, Lead model). Neither reaches
+// Lead chat's code, which has its own entry in `lead-chat.ts`.
 const SkillsPane = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.SkillsPane }))
+  import('./control-plane-catalog').then((module) => ({ default: module.SkillsPane }))
 )
 const CloudConnectionsPane = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.CloudConnectionsPane }))
+  import('./control-plane-catalog').then((module) => ({ default: module.CloudConnectionsPane }))
 )
 const RuntimeNodesPane = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.RuntimeNodesPane }))
+  import('./control-plane-hosts').then((module) => ({ default: module.RuntimeNodesPane }))
 )
 const LeadModelPane = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.LeadModelPane }))
+  import('./control-plane-hosts').then((module) => ({ default: module.LeadModelPane }))
 )
 
 /**
