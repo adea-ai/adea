@@ -58,9 +58,17 @@ only controls patch generation at build time), so the shell retires it at boot
   runs a bundle with a different hash, so the archive left by the original
   installer is historical user data and is never touched.
 - It acts only on a regular file under that identity's `self-extraction`
-  directory, never on a symlink, and never while Electrobun's
-  `.electrobun-prepared-update.json` exists. Failures are silent and cannot
-  block a boot.
+  directory, and never while Electrobun's `.electrobun-prepared-update.json`
+  exists. Failures are silent and cannot block a boot.
+- Deletion is descriptor-relative, not path-based. The `Application Support`
+  root is the one trusted starting point; the identifier, channel and
+  `self-extraction` directories are each opened with
+  `openat(O_NOFOLLOW | O_DIRECTORY)` from the descriptor already held, so a
+  symlink at any level refuses to open, and the file is removed with
+  `unlinkat` on the verified directory's descriptor. Swapping a path component
+  for a symlink after the check cannot redirect the delete, and `unlinkat`
+  never follows a final symlink. Without these native calls (Bun FFI to libc)
+  the archive is left in place.
 - Pending-update downloads and rollback assets live under the shell's own data
   directory (`updates/`, the previous bundle) and are not involved.
 

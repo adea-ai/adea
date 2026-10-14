@@ -13,11 +13,22 @@
 // - an install that was later replaced by an Adea update runs a bundle with a
 //   different hash, so the archive left by the original installer (historical
 //   user data) never matches and is never touched;
-// - only a regular file under the identity's own `self-extraction` directory,
-//   never a symlink, and never while an Electrobun prepared-update record
-//   exists;
 // - best effort: nothing here can throw or block a boot.
-import { existsSync, lstatSync, readFileSync, rmSync } from 'node:fs'
+//
+// Deletion safety. A path check followed by `unlink(path)` is not safe: any
+// directory above the file may be a symlink (or be swapped for one between the
+// check and the delete), which would delete a matching file outside the
+// install. So the path is never handed to the kernel as a whole. The trusted
+// root (`Application Support`) is opened once; every directory below it is
+// opened with `openat(…, O_NOFOLLOW | O_DIRECTORY)` relative to the descriptor
+// already held, so a symlink at any level refuses to open, and the file is
+// removed with `unlinkat(dirfd, name)` on the descriptor of the directory that
+// was verified. Replacing a path component afterwards cannot redirect the
+// delete; the kernel resolves the name inside the directory we are holding,
+// and `unlinkat` never follows a final symlink. If the native calls are not
+// available the archive is simply left in place.
+import { dlopen, FFIType } from 'bun:ffi'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** The extractor only accepts hashes of this shape when it names the tar. */
@@ -32,22 +43,74 @@ export type InstallerArchiveOutcome =
   | { state: 'absent' }
   | { state: 'skipped'; reason: string }
 
+/** Descriptor-relative file operations; the seam the race tests use. */
+export interface DescriptorOps {
+  /** `openat`; returns a descriptor or -1. */
+  openAt(dirFd: number, name: string, flags: number): number
+  /** `unlinkat(dirFd, name, 0)`; returns 0 or -1. */
+  unlinkAt(dirFd: number, name: string): number
+}
+
+let nativeOps: DescriptorOps | null | undefined
+
+const cstring = (value: string) => Buffer.from(`${value}\0`)
+
+/** libc `openat`/`unlinkat` through Bun's FFI, or null when unavailable. */
+function loadNativeOps(): DescriptorOps | null {
+  if (nativeOps !== undefined) return nativeOps
+  try {
+    const library = dlopen(process.platform === 'darwin' ? 'libSystem.B.dylib' : 'libc.so.6', {
+      openat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
+      unlinkat: { args: [FFIType.i32, FFIType.cstring, FFIType.i32], returns: FFIType.i32 },
+    })
+    nativeOps = {
+      openAt: (dirFd, name, flags) => library.symbols.openat(dirFd, cstring(name), flags),
+      unlinkAt: (dirFd, name) => library.symbols.unlinkat(dirFd, cstring(name), 0),
+    }
+  } catch {
+    nativeOps = null
+  }
+  return nativeOps
+}
+
+/** Test seams; production callers pass only the two directories. */
+export interface RetireInstallerArchiveOptions {
+  /** The running bundle's `Contents/Resources`. */
+  resourcesDir: string
+  /** The user's `Library/Application Support` (the one trusted root). */
+  applicationSupportDir: string
+  ops?: DescriptorOps | null
+  /** Runs after the directory chain is verified, immediately before unlinking. */
+  beforeUnlink?: () => void
+}
+
+/** True when `path` exists in any form, including a dangling symlink. */
+function entryExists(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Remove the installer's retained payload tar for the running build.
- *
- * `resourcesDir` is the running bundle's `Contents/Resources`;
- * `applicationSupportDir` is the user's `Library/Application Support`.
  */
-export function retireInstallerArchive(options: {
-  resourcesDir: string
-  applicationSupportDir: string
-}): InstallerArchiveOutcome {
+export function retireInstallerArchive(
+  options: RetireInstallerArchiveOptions
+): InstallerArchiveOutcome {
+  const held: number[] = []
   try {
     const versionFile = join(options.resourcesDir, 'version.json')
-    // Not a packaged install (dev runs, tests): there is no installer archive.
-    if (!existsSync(versionFile)) return { state: 'skipped', reason: 'not a packaged install' }
-
-    const identity: unknown = JSON.parse(readFileSync(versionFile, 'utf8'))
+    let raw: string
+    try {
+      raw = readFileSync(versionFile, 'utf8')
+    } catch {
+      // Not a packaged install (dev runs, tests): there is no installer archive.
+      return { state: 'skipped', reason: 'not a packaged install' }
+    }
+    const identity: unknown = JSON.parse(raw)
     if (typeof identity !== 'object' || identity === null) {
       return { state: 'skipped', reason: 'unreadable version identity' }
     }
@@ -63,31 +126,64 @@ export function retireInstallerArchive(options: {
       return { state: 'skipped', reason: 'unsafe version identity' }
     }
 
-    const extractionDir = join(
-      options.applicationSupportDir,
-      identifier,
-      channel,
-      'self-extraction'
-    )
-    if (existsSync(join(extractionDir, PREPARED_UPDATE_RECORD))) {
+    const ops = options.ops === undefined ? loadNativeOps() : options.ops
+    const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW } = constants
+    if (!ops || O_DIRECTORY === undefined || O_NOFOLLOW === undefined) {
+      return { state: 'skipped', reason: 'descriptor-relative file operations are unavailable' }
+    }
+
+    // The root is trusted (it may itself be reached through a user symlink);
+    // everything below it must be a real directory, opened without following.
+    const chain = [identifier, channel, 'self-extraction']
+    let dirFd = openSync(options.applicationSupportDir, O_RDONLY | O_DIRECTORY)
+    held.push(dirFd)
+    let walked = options.applicationSupportDir
+    for (const name of chain) {
+      walked = join(walked, name)
+      const next = ops.openAt(dirFd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+      if (next < 0) {
+        return { state: 'skipped', reason: 'install directory is missing or not a real directory' }
+      }
+      held.push(next)
+      dirFd = next
+    }
+
+    // A prepared-update record, of any kind, means hands off.
+    const recordFd = ops.openAt(dirFd, PREPARED_UPDATE_RECORD, O_RDONLY | O_NOFOLLOW)
+    if (recordFd >= 0) {
+      held.push(recordFd)
+      return { state: 'skipped', reason: 'a prepared update record exists' }
+    }
+    if (entryExists(join(walked, PREPARED_UPDATE_RECORD))) {
       return { state: 'skipped', reason: 'a prepared update record exists' }
     }
 
-    const archive = join(extractionDir, `${hash}.tar`)
-    let stat
-    try {
-      stat = lstatSync(archive)
-    } catch {
-      return { state: 'absent' }
+    const name = `${hash}.tar`
+    const fileFd = ops.openAt(dirFd, name, O_RDONLY | O_NOFOLLOW)
+    if (fileFd < 0) {
+      return entryExists(join(walked, name))
+        ? { state: 'skipped', reason: 'not a regular file' }
+        : { state: 'absent' }
     }
-    if (!stat.isFile()) return { state: 'skipped', reason: 'not a regular file' }
+    held.push(fileFd)
+    if (!fstatSync(fileFd).isFile()) return { state: 'skipped', reason: 'not a regular file' }
 
-    rmSync(archive, { force: true })
-    return { state: 'removed', path: archive }
+    options.beforeUnlink?.()
+    if (ops.unlinkAt(dirFd, name) !== 0)
+      return { state: 'skipped', reason: 'could not remove the archive' }
+    return { state: 'removed', path: join(walked, name) }
   } catch (error) {
     return {
       state: 'skipped',
       reason: error instanceof Error ? error.message : 'unexpected failure',
+    }
+  } finally {
+    for (const fd of held) {
+      try {
+        closeSync(fd)
+      } catch {
+        /* already closed */
+      }
     }
   }
 }

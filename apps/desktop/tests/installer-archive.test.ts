@@ -3,7 +3,15 @@
 // plus an installed bundle's Resources) and execute the removal, including the
 // stable -> dev upgrade shape where an earlier install's archive must survive.
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -121,5 +129,85 @@ describe('retireInstallerArchive', () => {
     writeFileSync(join(garbled.resourcesDir, 'version.json'), '{not json')
     expect(retireInstallerArchive(garbled).state).toBe('skipped')
     expect(existsSync(join(garbled.extractionDir, 'abc123.tar'))).toBe(true)
+  })
+
+  describe('deletion is confined to the verified install directories', () => {
+    /** An outside directory holding a file with the name the install would match. */
+    function outsideFile(f: ReturnType<typeof stage>, name = 'abc123.tar') {
+      const outside = join(f.root, 'outside')
+      mkdirSync(outside, { recursive: true })
+      const file = join(outside, name)
+      writeFileSync(file, 'must survive')
+      return { outside, file }
+    }
+
+    test('a symlinked identifier directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside, file } = outsideFile(f)
+      mkdirSync(join(outside, 'stable', 'self-extraction'), { recursive: true })
+      writeFileSync(join(outside, 'stable', 'self-extraction', 'abc123.tar'), 'must survive')
+      rmSync(join(f.applicationSupportDir, IDENTIFIER), { recursive: true })
+      symlinkSync(outside, join(f.applicationSupportDir, IDENTIFIER))
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(file)).toBe(true)
+      expect(existsSync(join(outside, 'stable', 'self-extraction', 'abc123.tar'))).toBe(true)
+    })
+
+    test('a symlinked channel directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside } = outsideFile(f)
+      mkdirSync(join(outside, 'self-extraction'), { recursive: true })
+      writeFileSync(join(outside, 'self-extraction', 'abc123.tar'), 'must survive')
+      rmSync(join(f.applicationSupportDir, IDENTIFIER, 'stable'), { recursive: true })
+      symlinkSync(outside, join(f.applicationSupportDir, IDENTIFIER, 'stable'))
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(join(outside, 'self-extraction', 'abc123.tar'))).toBe(true)
+    })
+
+    test('a symlinked self-extraction directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside, file } = outsideFile(f)
+      rmSync(f.extractionDir, { recursive: true })
+      symlinkSync(outside, f.extractionDir)
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(file)).toBe(true)
+    })
+
+    test('a directory swapped for a symlink after verification cannot redirect the delete', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const { outside, file } = outsideFile(f)
+      const outcome = retireInstallerArchive({
+        ...f,
+        // The moment between "verified" and "unlinked": replace the real
+        // directory with a symlink to the outside one. The delete must still
+        // act inside the directory it already holds.
+        beforeUnlink: () => {
+          renameSync(f.extractionDir, `${f.extractionDir}.moved`)
+          symlinkSync(outside, f.extractionDir)
+        },
+      })
+      expect(outcome.state).toBe('removed')
+      expect(existsSync(file)).toBe(true)
+      expect(existsSync(join(`${f.extractionDir}.moved`, 'abc123.tar'))).toBe(false)
+    })
+
+    test('the final name swapped for a symlink is unlinked as a link, not followed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const { file } = outsideFile(f)
+      retireInstallerArchive({
+        ...f,
+        beforeUnlink: () => {
+          rmSync(join(f.extractionDir, 'abc123.tar'))
+          symlinkSync(file, join(f.extractionDir, 'abc123.tar'))
+        },
+      })
+      expect(existsSync(file)).toBe(true)
+    })
+
+    test('without descriptor-relative operations nothing is deleted', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      expect(retireInstallerArchive({ ...f, ops: null }).state).toBe('skipped')
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
   })
 })
