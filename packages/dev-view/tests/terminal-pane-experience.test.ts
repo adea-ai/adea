@@ -28,6 +28,7 @@ import {
   searchPresentation,
   searchSetQuery,
   searchSetResults,
+  searchSetUnavailable,
   searchStep,
   searchToggleCaseSensitive,
 } from '../src/terminal/search-model'
@@ -124,6 +125,21 @@ describe('in-pane search state', () => {
     state = searchToggleCaseSensitive(searchSetQuery(searchOpen(state), 'x'))
     expect(state.caseSensitive).toBe(true)
     expect(state.results).toBeUndefined()
+  })
+
+  test('a failed addon load reports unavailable until the next query or reopen retries (lazy search)', () => {
+    let state = searchSetQuery(searchOpen(createSearchState()), 'needle')
+    state = searchSetUnavailable(state)
+    expect(searchPresentation(state)).toEqual({ count: 'Search unavailable', steppable: false })
+    // A closed search stays quiet: nothing is reported for a bar nobody sees.
+    expect(searchSetUnavailable(searchClose(state)).unavailable).toBeUndefined()
+    // Re-pressing the shortcut while open does not pretend a retry happened.
+    expect(searchOpen(state).unavailable).toBe(true)
+    // Typing, toggling case, reopening and real results all clear the notice.
+    expect(searchSetQuery(state, 'needle2').unavailable).toBeUndefined()
+    expect(searchToggleCaseSensitive(state).unavailable).toBeUndefined()
+    expect(searchOpen(searchClose(state)).unavailable).toBeUndefined()
+    expect(searchSetResults(state, { resultCount: 2, resultIndex: 0 }).unavailable).toBeUndefined()
   })
 
   test('the ordinal is pane-owned, wraps, and survives a -1 addon index (#594)', () => {

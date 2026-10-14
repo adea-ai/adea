@@ -143,9 +143,15 @@ export default defineConfig(({ command }) => ({
                   test: /(@kobalte\/core\/dist\/chunk\/H7BK6JF7\.jsx|@adea-ai\/ui\/src\/components\/ui\/radio-group\/radio-group\.tsx)$/,
                   includeDependenciesRecursively: false,
                 },
+                // arrow-down, plus and sliders-horizontal are imported by the
+                // startup entries and by terminal, App Library and Chat code;
+                // left alone each is a request of a few hundred bytes. Folding
+                // them into this startup-loaded group frees three files for the
+                // lazy terminal addon chunks without moving any bytes out of
+                // the measured graphs.
                 {
                   name: 'workspace-navigation-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right|arrow-down|plus|sliders-horizontal)\.jsx$/,
                   minShareCount: 2,
                 },
                 {
