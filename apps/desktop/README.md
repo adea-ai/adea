@@ -14,6 +14,8 @@ apps/web/dist-desktop       the SPA output the shell serves (built, not committe
 
 ## Build and run
 
+Run these package scripts from `apps/desktop`:
+
 ```sh
 # builds apps/web's desktop SPA output (and the workspace packages it needs)
 bun run shell:client:build
@@ -27,7 +29,7 @@ bun run shell:dev
 
 `shell:client:build` runs `apps/web`'s `desktop:build` with
 `ADEA_DESKTOP_CLOUD_ORIGIN` set from the canonical
-`scripts/cloud-config.mjs` value (release default `https://adea.dev`). The
+`apps/desktop/scripts/cloud-config.mjs` value (release default `https://adea.dev`). The
 shell itself never restates the cloud origin; `scripts/check-desktop-origins.mjs`
 enforces that.
 

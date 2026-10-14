@@ -20,6 +20,8 @@ export type LegacyAudienceSeed = Readonly<{
   member: UserPrincipalRef
   removed: UserPrincipalRef
   removedUserId: string
+  otherWorkspaceAgentId: string
+  otherWorkspaceId: string
 }>
 
 /**
@@ -110,6 +112,8 @@ export async function seedLegacyAudience(input: {
     activeGroupId,
     archivedGroupId,
     member,
+    otherWorkspaceAgentId: agent.id,
+    otherWorkspaceId: otherWorkspace.id,
     owner,
     removed,
     removedUserId: removed.userId,
@@ -172,5 +176,94 @@ export async function insertLegacyMessage(
     )
     select id::text as id from inserted`)) as unknown as { id: string }[]
   if (!row) throw new Error('legacy message insert returned no row')
+  return row.id
+}
+
+/**
+ * A legacy user message in a group channel: the row the pre-#1232 product wrote. The sequence is the
+ * table's identity, and the channel's denormalized latest sequence follows it as the product did.
+ */
+export async function insertLegacyMessageSequence(
+  migration: AgentHqDatabase,
+  input: Readonly<{
+    bodyText: string
+    channelId: string
+    sender: UserPrincipalRef
+    workspaceId: string
+  }>
+): Promise<number> {
+  const [row] = (await migration.execute<{ sequence: number }>(sql`
+    with inserted as (
+      insert into app.messages (workspace_id, channel_id, sender_kind, sender_user_id, body_text,
+        idempotency_key, create_payload_hash)
+      values (${input.workspaceId}::uuid, ${input.channelId}::uuid, 'user', ${input.sender.userId}::uuid,
+        ${input.bodyText}, ${`legacy-message-${crypto.randomUUID()}`}, ${`legacy-${crypto.randomUUID()}`})
+      returning sequence
+    ), latest as (
+      update app.channels set latest_message_sequence = (select sequence from inserted)
+      where id = ${input.channelId}::uuid
+    )
+    select sequence from inserted`)) as unknown as { sequence: number }[]
+  if (!row) throw new Error('legacy message insert returned no row')
+  return row.sequence
+}
+
+/** A legacy task row with the columns the pre-cutover state has; the product writer names more. */
+export async function insertLegacyTask(
+  migration: AgentHqDatabase,
+  input: Readonly<{ creatorUserId: string; objective: string; title: string; workspaceId: string }>
+): Promise<string> {
+  const [row] = (await migration.execute<{ id: string }>(sql`
+    insert into app.tasks (workspace_id, creator_user_id, title, objective)
+    values (${input.workspaceId}::uuid, ${input.creatorUserId}::uuid, ${input.title}, ${input.objective})
+    returning id`)) as unknown as { id: string }[]
+  if (!row) throw new Error('legacy task insert returned no row')
+  return row.id
+}
+
+/** A legacy channel read state at the latest sequence the owner had seen, as the read-state writer left it. */
+export async function insertLegacyReadState(
+  migration: AgentHqDatabase,
+  input: Readonly<{
+    channelId: string
+    lastReadSequence: number
+    userId: string
+    workspaceId: string
+  }>
+): Promise<void> {
+  await migration.execute(sql`
+    insert into app.channel_read_states (workspace_id, user_id, channel_id, last_read_sequence)
+    values (${input.workspaceId}::uuid, ${input.userId}::uuid, ${input.channelId}::uuid, ${input.lastReadSequence})`)
+}
+
+/** A legacy project membership row: the product writer's table and role, with no later columns. */
+export async function insertLegacyProjectMember(
+  migration: AgentHqDatabase,
+  input: Readonly<{
+    projectId: string
+    role: 'editor' | 'viewer'
+    userId: string
+    workspaceId: string
+  }>
+): Promise<void> {
+  await migration.execute(sql`
+    insert into app.project_members (workspace_id, project_id, user_id, role)
+    values (${input.workspaceId}::uuid, ${input.projectId}::uuid, ${input.userId}::uuid, ${input.role})`)
+}
+
+/**
+ * A legacy workspace project. The product writer also names `version` and `source_kind`, which
+ * 0048 adds after the pre-cutover state, so the legacy row names only the columns that existed then.
+ */
+export async function insertLegacyProject(
+  migration: AgentHqDatabase,
+  workspaceId: string,
+  name: string
+): Promise<string> {
+  const [row] = (await migration.execute<{ id: string }>(sql`
+    insert into app.projects (workspace_id, name, icon_key)
+    values (${workspaceId}::uuid, ${name}, 'folder')
+    returning id`)) as unknown as { id: string }[]
+  if (!row) throw new Error('legacy project insert returned no row')
   return row.id
 }

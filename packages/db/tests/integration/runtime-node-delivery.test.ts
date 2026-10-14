@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 import {
   runtimeNodePullMessage,
+  runtimeNodeRetentionReceiptMessage,
   RUNTIME_NODE_PULL_WINDOW_MS,
 } from '@adea-ai/types/runtime-node-delivery'
 
@@ -11,15 +12,17 @@ import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createProject } from '../../src/projects'
 import {
+  pullRuntimeNodeCommand,
+  pruneRuntimeNodeDeliveryRequests,
+  recordRuntimeNodeRetentionReceipt,
+} from '../../src/runtime-node-delivery'
+import {
   createRuntimeNodeChallenge,
   registerRuntimeNode,
   revokeRuntimeNode,
   rotateRuntimeNodeKeys,
 } from '../../src/runtime-nodes'
-import {
-  pullRuntimeNodeCommand,
-  pruneRuntimeNodeDeliveryRequests,
-} from '../../src/runtime-node-delivery'
+import { grantRetentionDeletionAuthorization } from '../../src/retention-cleanup'
 import {
   agents,
   commandOutbox,
@@ -30,6 +33,7 @@ import {
   runtimeNodeDeliveryRequests,
   runtimeNodeKeys,
   runtimeNodes,
+  retentionCleanupReceipts,
   workspaceEvents,
 } from '../../src/schema'
 import { enqueueTaskSubmission } from '../../src/task-submissions'
@@ -148,7 +152,102 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
       }
     }
     const pull = async () => pullRuntimeNodeCommand(connection.db, scope, await proof())
-    return { owner, workspace, agent, task, node, envelope, submission, scope, proof, pull }
+    return {
+      owner,
+      workspace,
+      agent,
+      task,
+      node,
+      signing,
+      envelope,
+      submission,
+      scope,
+      proof,
+      pull,
+    }
+  }
+
+  async function retentionReceiptFixture(
+    f: Awaited<ReturnType<typeof fixture>>,
+    subjectId = `retention-${crypto.randomUUID()}`
+  ) {
+    const authorization = await grantRetentionDeletionAuthorization(connection.db, {
+      actor: f.owner.principal,
+      category: 'messages',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      subjectId,
+      workspaceId: f.workspace.id,
+    })
+    return { authorization, subjectId }
+  }
+
+  async function signedRetentionReceipt(
+    f: Awaited<ReturnType<typeof fixture>>,
+    receipt: Awaited<ReturnType<typeof retentionReceiptFixture>>,
+    issuedAt = new Date().toISOString()
+  ) {
+    const body = {
+      category: 'messages',
+      envelope: {
+        version: 1 as const,
+        keyId: f.node.keys.find((key) => key.role === 'signing')!.keyId,
+        nonce: crypto.randomUUID(),
+        issuedAt,
+        signature: '',
+      },
+      receipt: {
+        coverage: 'primary',
+        observedAt: new Date().toISOString(),
+        operation: 'delete',
+        outcome: 'completed',
+        requestId: receipt.authorization.id,
+        residualCount: 0,
+        subjectId: receipt.subjectId,
+      },
+    }
+    const signature = Buffer.from(
+      await crypto.subtle.sign(
+        'Ed25519',
+        f.signing.privateKey,
+        new TextEncoder().encode(await runtimeNodeRetentionReceiptMessage(f.scope, body))
+      )
+    ).toString('base64url')
+    return { ...body, envelope: { ...body.envelope, signature } }
+  }
+
+  async function holdRetentionSubjectLock(
+    f: Awaited<ReturnType<typeof fixture>>,
+    subjectId: string
+  ) {
+    let announce!: (pid: number) => void
+    let release!: () => void
+    const acquired = new Promise<number>((resolve) => (announce = resolve))
+    const released = new Promise<void>((resolve) => (release = resolve))
+    const holder = connection.db.transaction(async (transaction) => {
+      await transaction.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`retention:${f.workspace.id}:messages:${subjectId}`}, 0))`
+      )
+      const [row] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+      announce(Number((row as { pid?: unknown } | undefined)?.pid))
+      await released
+    })
+    const pid = await acquired
+    return { holder, pid, release }
+  }
+
+  async function waitForBlockedSubjectAdmission(holderPid: number) {
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      const [row] = await connection.db.execute(
+        sql`select count(*)::int as n from pg_stat_activity as waiter
+          where waiter.wait_event = 'advisory'
+            and waiter.pid <> ${holderPid}
+            and ${holderPid}::int = any(pg_blocking_pids(waiter.pid))`
+      )
+      if (Number((row as { n?: unknown } | undefined)?.n) > 0) return
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    throw new Error(`receipt admission did not wait behind subject lock ${holderPid}`)
   }
 
   test('an expired purged command cannot be redelivered or erase the retained intent', async () => {
@@ -486,6 +585,91 @@ describe.skipIf(!process.env.DATABASE_URL)('authenticated outbound command deliv
       .set({ retiredAt: new Date() })
       .where(eq(runtimeNodeKeys.id, f.node.keys.find((key) => key.role === 'signing')!.keyId))
     await expect(f.pull()).rejects.toMatchObject({ code: 'unavailable' })
+  })
+
+  test('a valid current-key receipt is recorded with the fingerprint that verified it', async () => {
+    const f = await fixture()
+    const receipt = await retentionReceiptFixture(f)
+    const request = await signedRetentionReceipt(f, receipt)
+    const admitted = await recordRuntimeNodeRetentionReceipt(connection.db, f.scope, request)
+    expect(admitted.outcome).toBe('recorded')
+    expect(admitted.receipt.executorSigningFingerprint).toBe(
+      f.node.keys.find((key) => key.role === 'signing')!.fingerprint
+    )
+  })
+
+  test('a receipt waiting behind the subject lock is rejected if its signing key rotates', async () => {
+    const f = await fixture()
+    const receipt = await retentionReceiptFixture(f)
+    const request = await signedRetentionReceipt(f, receipt)
+    const lock = await holdRetentionSubjectLock(f, receipt.subjectId)
+    const pending = recordRuntimeNodeRetentionReceipt(connection.db, f.scope, request)
+    try {
+      await waitForBlockedSubjectAdmission(lock.pid)
+      const replacementSigning = await crypto.subtle.generateKey('Ed25519', false, [
+        'sign',
+        'verify',
+      ])
+      const challenge = await createRuntimeNodeChallenge(connection.db, {
+        createdByUserId: f.owner.principal.userId,
+        kind: 'remote_host',
+        nonce: crypto.randomUUID(),
+        purpose: 'rotate',
+        workspaceId: f.workspace.id,
+        runtimeNodeId: f.node.id,
+      })
+      await rotateRuntimeNodeKeys(connection.db, {
+        challengeId: challenge.challengeId,
+        ownerUserId: f.owner.principal.userId,
+        runtimeNodeId: f.node.id,
+        workspaceId: f.workspace.id,
+        keys: [
+          {
+            algorithm: 'ed25519',
+            role: 'signing',
+            publicKey: await publicKey(replacementSigning.publicKey),
+          },
+          {
+            algorithm: 'x25519',
+            role: 'command_encryption',
+            publicKey: f.node.keys.find((key) => key.role === 'command_encryption')!.publicKey,
+          },
+        ],
+      })
+    } finally {
+      lock.release()
+      await lock.holder
+    }
+    await expect(pending).rejects.toMatchObject({ code: 'unavailable' })
+    const stored = await connection.db
+      .select()
+      .from(retentionCleanupReceipts)
+      .where(eq(retentionCleanupReceipts.idempotencyKey, request.envelope.nonce))
+    expect(stored).toEqual([])
+  })
+
+  test('a receipt that expires while waiting for the subject lock is refused at admission', async () => {
+    const f = await fixture()
+    const receipt = await retentionReceiptFixture(f)
+    const issuedAt = new Date(Date.now() - RUNTIME_NODE_PULL_WINDOW_MS + 1_500).toISOString()
+    const request = await signedRetentionReceipt(f, receipt, issuedAt)
+    const lock = await holdRetentionSubjectLock(f, receipt.subjectId)
+    const pending = recordRuntimeNodeRetentionReceipt(connection.db, f.scope, request)
+    try {
+      await waitForBlockedSubjectAdmission(lock.pid)
+      const remainingMs =
+        Date.parse(request.envelope.issuedAt) + RUNTIME_NODE_PULL_WINDOW_MS - Date.now()
+      if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingMs + 25))
+    } finally {
+      lock.release()
+      await lock.holder
+    }
+    await expect(pending).rejects.toMatchObject({ code: 'unavailable' })
+    const stored = await connection.db
+      .select()
+      .from(retentionCleanupReceipts)
+      .where(eq(retentionCleanupReceipts.idempotencyKey, request.envelope.nonce))
+    expect(stored).toEqual([])
   })
 
   test('revoked submitter, changed profile/task and expired intent are withheld rather than silently replaced', async () => {

@@ -71,6 +71,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRouteImport } from 
 import { Route as ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/messages/$messageId'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/reorder'
+import { Route as ApiV1WorkspacesWorkspaceIdRetentionStatusRouteImport } from './routes/api/v1/workspaces/$workspaceId/retention/status'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/index'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId'
@@ -118,6 +119,7 @@ import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdDeprecateRouteI
 import { Route as ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRouteImport } from './routes/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -469,6 +471,12 @@ const ApiV1WorkspacesWorkspaceIdProjectsReorderRoute =
     path: '/reorder',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdProjectsRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdRetentionStatusRoute =
+  ApiV1WorkspacesWorkspaceIdRetentionStatusRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/retention/status',
+    path: '/api/v1/workspaces/$workspaceId/retention/status',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute =
   ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/runtime-nodes/',
@@ -760,6 +768,14 @@ const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute =
       getParentRoute: () => rootRouteImport,
     } as any,
   )
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRouteImport.update(
+    {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts',
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -824,6 +840,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
+  '/api/v1/workspaces/$workspaceId/retention/status': typeof ApiV1WorkspacesWorkspaceIdRetentionStatusRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
@@ -871,6 +888,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -935,6 +953,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
+  '/api/v1/workspaces/$workspaceId/retention/status': typeof ApiV1WorkspacesWorkspaceIdRetentionStatusRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
@@ -982,6 +1001,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -1047,6 +1067,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/projects/reorder': typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRoute
+  '/api/v1/workspaces/$workspaceId/retention/status': typeof ApiV1WorkspacesWorkspaceIdRetentionStatusRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
   '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke': typeof ApiWorkspacesWorkspaceIdCloudConnectionsCredentialIdRevokeRoute
@@ -1094,6 +1115,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke': typeof ApiWorkspacesWorkspaceIdSkillsProfilesProfileIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdMembersUserIdRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -1160,6 +1182,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId'
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
+    | '/api/v1/workspaces/$workspaceId/retention/status'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
@@ -1207,6 +1230,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1271,6 +1295,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId'
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
+    | '/api/v1/workspaces/$workspaceId/retention/status'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
@@ -1318,6 +1343,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
   id:
     | '__root__'
     | '/'
@@ -1382,6 +1408,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId'
     | '/api/v1/workspaces/$workspaceId/projects/reorder'
+    | '/api/v1/workspaces/$workspaceId/retention/status'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
     | '/api/workspaces/$workspaceId/cloud-connections/$credentialId/revoke'
@@ -1429,6 +1456,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/skills/profiles/$profileId/revoke'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/members/$userId'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1474,6 +1502,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdTasksRoute: typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRouteWithChildren
   ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute: typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
+  ApiV1WorkspacesWorkspaceIdRetentionStatusRoute: typeof ApiV1WorkspacesWorkspaceIdRetentionStatusRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
@@ -1482,6 +1511,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute
 }
 
 declare module '@tanstack/solid-router' {
@@ -1920,6 +1950,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsReorderRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdProjectsRoute
     }
+    '/api/v1/workspaces/$workspaceId/retention/status': {
+      id: '/api/v1/workspaces/$workspaceId/retention/status'
+      path: '/api/v1/workspaces/$workspaceId/retention/status'
+      fullPath: '/api/v1/workspaces/$workspaceId/retention/status'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRetentionStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/workspaces/$workspaceId/runtime-nodes/': {
       id: '/api/v1/workspaces/$workspaceId/runtime-nodes/'
       path: '/api/v1/workspaces/$workspaceId/runtime-nodes'
@@ -2247,6 +2284,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
       fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/commands/pull'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/retention/cleanup-receipts'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -2738,6 +2782,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute:
     ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute,
+  ApiV1WorkspacesWorkspaceIdRetentionStatusRoute:
+    ApiV1WorkspacesWorkspaceIdRetentionStatusRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute:
@@ -2754,6 +2800,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRetentionCleanupReceiptsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
