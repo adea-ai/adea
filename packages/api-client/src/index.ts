@@ -197,6 +197,20 @@ export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type {
+  ApiAddressedTurn,
+  ApiAddressedTurnCancelResponse,
+  ApiAddressedTurnInput,
+  ApiAddressedTurnPage,
+  ApiAddressedTurnResponse,
+  ApiAddressedTurnState,
+} from './addressed-turns'
+import type {
+  ApiAddressedTurnCancelResponse,
+  ApiAddressedTurnInput,
+  ApiAddressedTurnPage,
+  ApiAddressedTurnResponse,
+} from './addressed-turns'
+export type {
   ApiHandoffTarget,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
@@ -1699,6 +1713,49 @@ export class AgentHqApiClient {
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         method: 'POST',
       }
+    )
+  }
+
+  /** Address an Agent from a human message. Safe to repeat: the same request converges on one turn. */
+  async addressTurn(
+    workspaceId: string,
+    channelId: string,
+    input: ApiAddressedTurnInput
+  ): Promise<ApiAddressedTurnResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/turns`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  /** Reconnect and replay read: the channel's turns in committed order. */
+  async listAddressedTurns(
+    workspaceId: string,
+    channelId: string,
+    options: Readonly<{ after?: string; limit?: number }> = {}
+  ): Promise<ApiAddressedTurnPage> {
+    const query = new URLSearchParams()
+    if (options.after) query.set('after', options.after)
+    if (options.limit !== undefined)
+      query.set('limit', String(boundedInt(options.limit, 1, 200, 100)))
+    const suffix = query.size ? `?${query}` : ''
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/turns${suffix}`
+    )
+  }
+
+  async cancelAddressedTurn(
+    workspaceId: string,
+    channelId: string,
+    turnId: string
+  ): Promise<ApiAddressedTurnCancelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/turns/${encodeURIComponent(turnId)}/cancel`,
+      { body: '{}', headers: { 'Content-Type': 'application/json' }, method: 'POST' }
     )
   }
 
