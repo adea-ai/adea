@@ -58,7 +58,10 @@ function failureMessage(error: unknown, fallback: string): string {
   return typeof typed?.message === 'string' && typed.message.length > 0 ? typed.message : fallback
 }
 
-/** A failed read becomes `failure` data so the pane says so beside a retry instead of throwing. */
+/**
+ * A failed read becomes `failure` data so the pane says so beside a retry instead of throwing; a
+ * read that only lost its context is superseded, not failed.
+ */
 async function guarded<T extends object>(
   key: string,
   what: string,
@@ -68,7 +71,13 @@ async function guarded<T extends object>(
   try {
     return { contextKey: key, ...(await read()) }
   } catch (error) {
-    return { ...empty, contextKey: key, failure: failureMessage(error, `Couldn't read ${what}.`) }
+    return {
+      ...empty,
+      contextKey: key,
+      failure: isDevUtilityContextChanged(error)
+        ? undefined
+        : failureMessage(error, `Couldn't read ${what}.`),
+    }
   }
 }
 
