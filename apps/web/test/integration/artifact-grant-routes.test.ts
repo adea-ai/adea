@@ -27,8 +27,10 @@ import {
   createDatabase,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
+  grantRetentionDeletionAuthorization,
   readCurrentArtifactReferenceGrant,
   registerArtifactReferenceGrant,
+  revokeRetentionDeletionAuthorization,
   withArtifactReferenceGrantLocks,
   workspaceMemberships,
   type DatabaseConnection,
@@ -448,6 +450,40 @@ describe.skipIf(!url)('artifact sharing grants through the production routes', (
     expect(
       await readCurrentArtifactReferenceGrant(connection.db, { grantId: body.grantId, revision: 1 })
     ).toMatchObject({ revoked: true })
+  })
+
+  test('create and regrant are refused with 409 while the artifact is fenced by retention', async () => {
+    const f = await setup()
+    const live = grantBody(f)
+    expect((await createAs(f, f.owner, live)).status).toBe(201)
+    expect((await revokeAs(f.owner, f.source.id, live.grantId)).status).toBe(200)
+
+    const authority = await grantRetentionDeletionAuthorization(connection.db, {
+      actor: f.owner.principal,
+      category: 'artifacts',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      subjectId: f.artifact.id,
+      workspaceId: f.source.id,
+    })
+
+    const fresh = grantBody(f)
+    const created = await createAs(f, f.owner, fresh)
+    expect(created.status).toBe(409)
+    expect(await created.json()).toMatchObject({ code: 'grant_artifact_retention_fenced' })
+    expect(await rowsFor(fresh.grantId)).toHaveLength(0)
+
+    const regrant = await regrantAs(f, f.owner, live.grantId, regrantBody(f, live.grantId, 1))
+    expect(regrant.status).toBe(409)
+    expect(await regrant.json()).toMatchObject({ code: 'grant_artifact_retention_fenced' })
+    expect(await rowsFor(live.grantId)).toMatchObject([{ revision: 1 }])
+
+    // Withdrawing the authority lifts the fence: nothing was deleted.
+    await revokeRetentionDeletionAuthorization(connection.db, {
+      actor: f.owner.principal,
+      authorizationId: authority.id,
+      workspaceId: f.source.id,
+    })
+    expect((await createAs(f, f.owner, fresh)).status).toBe(201)
   })
 
   test('a revocation from a workspace the grant does not bind is refused and changes nothing', async () => {
