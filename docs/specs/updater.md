@@ -41,6 +41,29 @@ Two consequences, both intentional until notarization lands:
 - Development builds that need a stable identity must pin the recipe that
   works; re-signing a shipped bundle is not it.
 
+### The installer's retained payload tar
+
+The Electrobun extractor keeps the decompressed payload it installed at
+`~/Library/Application Support/<identifier>/<channel>/self-extraction/<hash>.tar`
+(about 700 MB) so Electrobun's own updater can build delta patches against it.
+Adea updates through its signed feed and never calls that updater. Electrobun
+2.0.x has no config or extractor option to skip the copy (`release.generatePatch`
+only controls patch generation at build time), so the shell retires it at boot
+(`apps/desktop/shell/src/installer-archive.ts`):
+
+- It removes only `<hash>.tar`, where `<hash>` is the hash in the running
+  bundle's own `Resources/version.json`: the installer run that produced this
+  bundle.
+- An install later replaced by an Adea update (full or slim, stable or dev)
+  runs a bundle with a different hash, so the archive left by the original
+  installer is historical user data and is never touched.
+- It acts only on a regular file under that identity's `self-extraction`
+  directory, never on a symlink, and never while Electrobun's
+  `.electrobun-prepared-update.json` exists. Failures are silent and cannot
+  block a boot.
+- Pending-update downloads and rollback assets live under the shell's own data
+  directory (`updates/`, the previous bundle) and are not involved.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
