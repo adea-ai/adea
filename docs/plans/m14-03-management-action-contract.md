@@ -207,8 +207,18 @@ Retention deletion stays outside this lane (#1221). What this follow-up added:
   stored, and that refused, stale, unauthorized and archived-Agent changes write
   nothing.
 
-Known gap, not changed here: when `git worktree prune` fails after a
-quarantine, the step restores the checkout from trash but does not journal the
-rollback or revert the record's `quarantined` lifecycle. The journal fix above
-makes a retry safe once a rollback is journaled; journaling it on that path
-needs a way to inject a failing prune in tests.
+Second follow-up (same day), from review of the first:
+
+- A retained-data-only (or any narrowed) cleanup plan used to record the live
+  worktree as `cleaned`. Only a plan that quarantined the checkout changes its
+  lifecycle now.
+- `resumeCleanup` run again after a rollback used to flag the restored, healthy
+  worktree `recovery_required`. A job whose journaled steps were all rolled back
+  now reports `partial` again and changes nothing.
+- A refused `git worktree prune` after a quarantine now restores the checkout,
+  journals the rollback (quarantine and the refused unregister step) and returns
+  the record to its planned lifecycle with a new generation, so the old plan is
+  `plan_stale` and a re-plan completes. When the folder cannot be restored the
+  record becomes `recovery_required`, the rollback is not journaled and the
+  entry stays in trash. `WorktreeServiceOptions.pruneRegistrations` is the test
+  seam for this.

@@ -9,7 +9,7 @@
 // or expired while facts are being read, and crash/retry.
 import { afterAll, describe, expect, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -145,6 +145,9 @@ describe('interactive gate: the preview and commitCleanup decide alike', () => {
         } else if (scenario.steps[0] === 'prune_retained_data') {
           // The narrowed plan ran, and left the dirty checkout in place.
           expect(existsSync(join(worktree.canonicalRoot, 'scratch.txt'))).toBe(true)
+          // A retained-data-only plan never removes the checkout, so the record
+          // must not claim it was cleaned.
+          expect(f.service.getWorktree(scope, worktree.id).lifecycle).toBe('ready')
         } else {
           expect(existsSync(worktree.canonicalRoot)).toBe(false)
         }
@@ -311,6 +314,36 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
     }
   })
 
+  test('resuming again after a rollback stays safe: the restored checkout keeps its lifecycle', async () => {
+    const f = fixture()
+    try {
+      const { worktree, plan, restarted, resumed } = await crashAfterQuarantine(f, 'proven')
+      expect(resumed.state).toBe('partial')
+      const before = restarted.getWorktree(scope, worktree.id)
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const again = await restarted.resumeCleanup({
+          scope,
+          worktreeId: worktree.id,
+          jobId: plan.planId,
+        })
+        expect(again.state).toBe('partial')
+        expect(again.stepResults[0]).toMatchObject({
+          step: 'quarantine_worktree',
+          state: 'rolled_back',
+        })
+        expect(restarted.getWorktree(scope, worktree.id)).toEqual(before)
+        expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
+      }
+      // And the retry still works after the repeated resumes.
+      expect((await restarted.commitCleanup({ scope, plan, digest: plan.digest })).state).toBe(
+        'completed'
+      )
+      expect(existsSync(worktree.canonicalRoot)).toBe(false)
+    } finally {
+      f.cleanup()
+    }
+  })
+
   test('an unprovable interruption stays recovery_required; the preview offers no automatic retry', async () => {
     const f = fixture()
     try {
@@ -341,6 +374,109 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
       ).not.toBe('ok')
       expect(existsSync(join(moved.trashPath, 'README.md'))).toBe(true)
       expect(existsSync(worktree.canonicalRoot)).toBe(false)
+    } finally {
+      f.cleanup()
+    }
+  })
+})
+
+describe('a refused registration cleanup rolls the quarantine back durably', () => {
+  function serviceWithPrune(
+    f: Fixture,
+    prune: (repoPath: string) => Promise<{ exitCode: number; stderr: string }>
+  ) {
+    return createWorktreeService({
+      dataDir: f.dataDir,
+      runtimeNodeId: scope.runtimeNodeId,
+      roots: f.roots,
+      clock: () => new Date(),
+      pruneRegistrations: prune,
+    })
+  }
+
+  test('the checkout returns, the record is ready again, the rollback is journaled, and a re-plan completes', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      const refusing = serviceWithPrune(f, async () => ({ exitCode: 1, stderr: 'prune refused' }))
+      const request = {
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: [...FULL_STEPS],
+      }
+      const plan = await refusing.planCleanup(request)
+      expect(await codeOf(() => refusing.commitCleanup({ scope, plan, digest: plan.digest }))).toBe(
+        'rollback_failed'
+      )
+      expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
+      const restored = refusing.getWorktree(scope, worktree.id)
+      expect(restored.lifecycle).toBe('ready')
+      expect(restored.quarantine).toBeUndefined()
+      const journal = createCleanupJournal({
+        file: join(f.dataDir, 'dev-runtime', 'worktrees', 'journal', `${plan.planId}.jsonl`),
+      })
+      expect(journal.latestSteps(plan.planId).get('quarantine')?.state).toBe('rolled_back')
+      expect(journal.completedSteps(plan.planId).has('quarantine')).toBe(false)
+
+      // The record moved on (generation), so the old plan is stale rather than
+      // silently re-run; a resume reports the rollback and changes nothing.
+      expect(await codeOf(() => refusing.commitCleanup({ scope, plan, digest: plan.digest }))).toBe(
+        'plan_stale'
+      )
+      const resumed = await refusing.resumeCleanup({
+        scope,
+        worktreeId: worktree.id,
+        jobId: plan.planId,
+      })
+      expect(resumed.state).toBe('partial')
+      expect(refusing.getWorktree(scope, worktree.id)).toEqual(restored)
+
+      // A fresh plan against a working Git completes normally.
+      const fresh = await f.service.planCleanup({
+        ...request,
+        expectedGeneration: restored.generation,
+      })
+      expect(fresh.blockers).toEqual([])
+      expect(
+        (await f.service.commitCleanup({ scope, plan: fresh, digest: fresh.digest })).state
+      ).toBe('completed')
+      expect(existsSync(worktree.canonicalRoot)).toBe(false)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('when the checkout cannot be restored nothing claims it was: recovery_required, entry kept in trash', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      const blocked = serviceWithPrune(f, async () => {
+        // Something took the original path while the checkout sat in trash.
+        mkdirSync(worktree.canonicalRoot)
+        writeFileSync(join(worktree.canonicalRoot, 'occupied.txt'), 'in the way\n')
+        return { exitCode: 1, stderr: 'prune refused' }
+      })
+      const plan = await blocked.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: [...FULL_STEPS],
+      })
+      expect(await codeOf(() => blocked.commitCleanup({ scope, plan, digest: plan.digest }))).toBe(
+        'rollback_failed'
+      )
+      const record = blocked.getWorktree(scope, worktree.id)
+      expect(record.lifecycle).toBe('recovery_required')
+      expect(record.quarantine).toBeDefined()
+      const journal = createCleanupJournal({
+        file: join(f.dataDir, 'dev-runtime', 'worktrees', 'journal', `${plan.planId}.jsonl`),
+      })
+      // No rollback was journaled, so nothing treats the quarantine as undone.
+      expect(journal.latestSteps(plan.planId).get('quarantine')?.state).toBe('completed')
+      expect(
+        existsSync(join(record.quarantine!.trashRoot, record.quarantine!.entryName, 'README.md'))
+      ).toBe(true)
     } finally {
       f.cleanup()
     }

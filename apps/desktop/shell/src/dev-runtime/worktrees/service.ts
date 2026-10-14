@@ -233,6 +233,9 @@ export type WorktreeServiceOptions = {
    *  selected step has no adapter the step fails closed. */
   stopResource?: (resource: { id: string; kind: string }) => Promise<void>
   protectedBranches?: (repo: RepoRecord) => ReadonlyArray<string>
+  /** Registration cleanup (`git worktree prune`). Defaults to Git itself; the
+   *  seam lets tests prove the rollback taken when Git refuses. */
+  pruneRegistrations?: (repoPath: string) => Promise<{ exitCode: number; stderr: string }>
   /** Trash-sweep staleness policy (entries younger than this are kept). */
   sweepStaleAfterMs?: number
 }
@@ -1748,6 +1751,54 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
           stepResults.push({ step: 'run_teardown', state: 'completed' })
         }
 
+        // Undo a completed quarantine after a later step refused. The restored
+        // checkout is exactly what the plan observed, so the rollback is
+        // journaled (a retry must rerun the quarantine, not replay it) and the
+        // record returns to its planned lifecycle. When the folder cannot be
+        // restored nothing is claimed: the record says so for an operator.
+        const undoQuarantine = (refusedStep?: string) => {
+          if (!trash) return
+          const restored = restoreWorktreeFromTrash(
+            join(trash.trashRoot, trash.entryName),
+            recordAtPlan.canonicalRoot
+          )
+          const current = findWorktree(input.scope, recordAtPlan.id)
+          if (!restored) {
+            putWorktree({ ...current, lifecycle: 'recovery_required', updatedAt: nowIso(clock) })
+            markJob('recovery_required')
+            return
+          }
+          journal.append({
+            jobId,
+            worktreeId: recordAtPlan.id,
+            seq: journal.lastSeq(jobId) + 1,
+            step: 'quarantine',
+            state: 'rolled_back',
+            result: { restored: true },
+          })
+          if (refusedStep) {
+            // The refusing step changed nothing; close its `started` entry so a
+            // later resume sees a fully rolled-back job, not an interrupted one.
+            journal.append({
+              jobId,
+              worktreeId: recordAtPlan.id,
+              seq: journal.lastSeq(jobId) + 1,
+              step: refusedStep,
+              state: 'rolled_back',
+              result: { refused: true },
+            })
+          }
+          const { quarantine: _quarantine, ...withoutQuarantine } = current
+          putWorktree({
+            ...withoutQuarantine,
+            lifecycle: recordAtPlan.lifecycle,
+            generation: current.generation + 1,
+            version: current.version + 1,
+            updatedAt: nowIso(clock),
+          })
+          markJob('partial')
+        }
+
         // 3. quarantine_worktree (rename into trash, double identity proof)
         let trash:
           | { trashRoot: string; entryName: string; identity: { device: string; inode: string } }
@@ -1798,26 +1849,18 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
               const adminEntry = trash
                 ? null
                 : await worktreeAdminEntryName(recordAtPlan.canonicalRoot).catch(() => null)
-              const prune = await runGit(['worktree', 'prune'], { cwd: repo.canonicalRoot })
+              const prune = options.pruneRegistrations
+                ? await options.pruneRegistrations(repo.canonicalRoot)
+                : await runGit(['worktree', 'prune'], { cwd: repo.canonicalRoot })
               if (prune.exitCode !== 0) {
-                if (trash) {
-                  restoreWorktreeFromTrash(
-                    join(trash.trashRoot, trash.entryName),
-                    recordAtPlan.canonicalRoot
-                  )
-                }
+                undoQuarantine('unregister')
                 throw new WorktreeError(
                   'rollback_failed',
                   `git worktree prune failed: ${prune.stderr.trim().slice(0, 256)}`
                 )
               }
               if (adminEntry && adminEntryExists(repoCommonDirFor(repo), adminEntry)) {
-                if (trash) {
-                  restoreWorktreeFromTrash(
-                    join(trash.trashRoot, trash.entryName),
-                    recordAtPlan.canonicalRoot
-                  )
-                }
+                undoQuarantine('unregister')
                 throw new WorktreeError(
                   'rollback_failed',
                   'git registration entry survived the prune'
@@ -1880,20 +1923,22 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
         }
 
         // Retire the directory name: harness stores key by cwd; never reuse.
-        if (trash) retireNames(repo.canonicalRoot, [recordAtPlan.name])
-        const finalLifecycle: WorktreeLifecycle =
-          trash === undefined
+        // Only a plan that actually removed the checkout changes its lifecycle.
+        // A narrowed plan (retained data only, a resource stop) leaves the live
+        // worktree exactly as it was; it must never be recorded as cleaned.
+        if (trash) {
+          retireNames(repo.canonicalRoot, [recordAtPlan.name])
+          const finalLifecycle: WorktreeLifecycle = selected.has('delete_quarantine')
             ? 'cleaned'
-            : selected.has('delete_quarantine')
-              ? 'cleaned'
-              : 'quarantined'
-        putWorktree({
-          ...recordAtPlan,
-          lifecycle: finalLifecycle,
-          generation: recordAtPlan.generation + 1,
-          version: recordAtPlan.version + 1,
-          updatedAt: nowIso(clock),
-        })
+            : 'quarantined'
+          putWorktree({
+            ...recordAtPlan,
+            lifecycle: finalLifecycle,
+            generation: recordAtPlan.generation + 1,
+            version: recordAtPlan.version + 1,
+            updatedAt: nowIso(clock),
+          })
+        }
         markJob('completed')
         return { planId: jobId, worktreeId: recordAtPlan.id, state: 'completed', stepResults }
       }
@@ -1984,6 +2029,24 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
           state: 'partial',
           stepResults: recoveryResults(),
         }
+      }
+    }
+
+    // Every journaled step was rolled back: the checkout is back where the plan
+    // found it, so a repeated resume reports that again and changes nothing.
+    // (Marking it recovery_required here would flag a healthy worktree.)
+    if (
+      latest.size > 0 &&
+      [...latest.values()].every((entry) => entry.state === 'rolled_back') &&
+      record.lifecycle !== 'quarantined' &&
+      record.lifecycle !== 'cleaned' &&
+      record.lifecycle !== 'recovery_required'
+    ) {
+      return {
+        planId: input.jobId,
+        worktreeId: input.worktreeId,
+        state: 'partial',
+        stepResults: recoveryResults(),
       }
     }
 
