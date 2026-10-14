@@ -360,9 +360,17 @@ test('current authority admits the child runtime once and a retry starts nothing
     distinctStarts: 1,
     childAttemptReservations: 1,
   })
-  expect(started.after.child.reservedMicrounits).toBe(started.after.child.maximumMicrounits)
-  expect(started.after.child.reservedTokens).toBe(started.after.child.maximumTokens)
-  expect(started.after.child.availableMicrounits).toBe(0)
+  // CP's production child admission reserves the child's funded budget less the allowance its own
+  // plan holds back for children; the funded budget here equals the plan ceiling, so no scaling.
+  expect(allocation.childAllowance.maximumMicrounits).toBeGreaterThan(0)
+  expect(started.after.child.reservedMicrounits).toBe(
+    started.after.child.maximumMicrounits - allocation.childAllowance.maximumMicrounits
+  )
+  expect(started.after.child.reservedTokens).toBe(
+    started.after.child.maximumTokens - allocation.childAllowance.maximumTokens
+  )
+  expect(started.after.child.availableMicrounits).toBe(allocation.childAllowance.maximumMicrounits)
+  expect(started.after.child.availableTokens).toBe(allocation.childAllowance.maximumTokens)
   expect(started.after.parent).toEqual(started.before.parent)
   const retried = await control('start-child')
   expect(retried.ok).toBe(true)

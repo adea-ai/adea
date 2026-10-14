@@ -17,6 +17,7 @@ const cp = {
   context: await import(cpPath('packages/context/src/index.ts')),
   orchestration: await import(cpPath('packages/orchestration/src/index.ts')),
   executionPlan: await import(cpPath('packages/execution-plan/src/index.ts')),
+  worker: await import(cpRequire.resolve('@control-plane/workflow-worker')),
 }
 const id = (prefix) => `${prefix}_01JBBCDEF0123456789ABCDEFG`
 let host, delegationService, toolService, toolCalls, childRecords, lifecycle
@@ -337,9 +338,17 @@ async function allocateBody(intentId) {
   childConstraints.limits.tokens.maximumTotal = Math.floor(
     plan.constraints.limits.tokens.maximumTotal / 2
   )
-  // The parent's depth limit is one, so this child may not delegate further. That is stricter than
-  // the parent and it drops the parent's own allowance, which a child does not inherit.
-  childConstraints.limits.childExecutions = { maximumTotal: 0, maximumDepth: 0 }
+  // The child is a restriction of its parent in every limit, and states its own allowance for its
+  // own children instead of inheriting the parent's number, which is as large as its whole budget.
+  const childAllowance = {
+    maximumMicrounits: Math.floor(childConstraints.limits.budget.maximumMicrounits / 4),
+    maximumTokens: Math.floor(childConstraints.limits.tokens.maximumTotal / 4),
+  }
+  childConstraints.limits.childExecutions = {
+    maximumTotal: 1,
+    maximumDepth: 1,
+    budgetAllowance: childAllowance,
+  }
   const before = await leadEvidence()
   try {
     const allocated = await delegationService.delegate({
@@ -383,6 +392,7 @@ async function allocateBody(intentId) {
       persistedChild: true,
       childPlanMaximumMicrounits: childConstraints.limits.budget.maximumMicrounits,
       childPlanMaximumTokens: childConstraints.limits.tokens.maximumTotal,
+      childAllowance,
       before,
       after: await leadEvidence(),
     }
@@ -476,42 +486,11 @@ const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
   runtime: scriptedChildRuntime,
   runtimeConnectionId: ids.runtimeConnection,
   assertAuthority: assertChildAuthority,
-  async reserveBudget(admission) {
-    const reservationKey = `runtime-attempt:${admission.attempt.attemptId}`
-    const budget = await host.repositories.usage.transaction(host.workspaceId, (tx) =>
-      tx.getBudget(admission.record.childExecutionId)
-    )
-    if (!budget) throw new Error('CHILD_BUDGET_REQUIRED')
-    // Replay recovers the same reservation; first dispatch reserves the child's whole ceiling.
-    const existing = budget.reservations.find((r) => r.reservationKey === reservationKey)
-    const maximumMicrounits = existing?.maximumMicrounits ?? budget.maximumMicrounits
-    const maximumTokens = existing?.maximumTokens ?? budget.maximumTokens
-    if (!existing)
-      await host.ledger.reserve({
-        workspaceId: host.workspaceId,
-        executionId: admission.record.childExecutionId,
-        attemptId: admission.attempt.attemptId,
-        reservationKey,
-        maximumMicrounits,
-        maximumTokens,
-        source: {
-          sourceId: 'child-runtime-admission',
-          idempotencyKey: `${reservationKey}:reserve`,
-        },
-      })
-    return {
-      schemaVersion: 1,
-      workspaceId: host.workspaceId,
-      executionId: admission.record.childExecutionId,
-      attemptId: admission.attempt.attemptId,
-      executionPlanId: admission.plan.executionPlanId,
-      executionPlanDigest: admission.plan.contentDigest,
-      reservationKey,
-      currency: 'USD',
-      maximumMicrounits,
-      maximumTokens,
-    }
-  },
+  // CP's production reservation for a delegated child, over the budget the transactional allocator
+  // opened and funded. Nothing about the reservation is mirrored in this host.
+  reserveBudget: new cp.worker.DurableChildRuntimeBudgetAdmission({
+    store: host.repositories.usage,
+  }).reserve,
 })
 async function startChild() {
   const before = await leadEvidence()

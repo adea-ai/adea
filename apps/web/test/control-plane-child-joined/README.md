@@ -27,16 +27,22 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP draft head `8996e003`)
+## Latest result (2026-10-14, CP draft head `74d10c49`)
 
-The pin is the head of CP draft PR #1123 (`8996e003`), which adds the explicit child allowance
+The pin is the head of CP draft PR #1123 (`74d10c49`), which adds the explicit child allowance
 designed for CP #1121 on top of the #1116 merge (`082c2c33`). That PR is unmerged, so this proof
 pins an unreleased CP revision. Result: 8 of 8 pass, stable across three consecutive runs.
 
 The fixture's lead plan states `limits.childExecutions.budgetAllowance` (half the money ceiling,
 and one child context window of tokens). The lead's attempt reserves only what is left after that
-allowance, so the child can be funded. Nothing here bypasses or loosens a budget check, and the
-child ceiling is still clamped to what the parent has available.
+allowance, so the child can be funded. The child plan states its own smaller allowance for its own
+children; CP no longer compares it with the parent's. Nothing here bypasses or loosens a budget
+check, and the child ceiling is still clamped to what the parent has available.
+
+The child's runtime attempt is reserved by CP's production `DurableChildRuntimeBudgetAdmission`
+(the bridge's `reserveBudget` seam), not by a reservation mirrored in this host. It checks the
+delegation record, the allocator's opening receipt and the parent's funding reservation, then
+reserves the child's funded budget less the allowance its own plan holds back.
 
 Passing:
 
@@ -44,7 +50,7 @@ Passing:
   location/current-payer refusal without fallback;
 - positive allocation: the child reaches CP's real `delegate` -> `dispatchChild` ->
   `CanonicalDelegationRuntimeBridge.startChild` path, which re-reads authority, reserves the child's
-  own budget and starts the child runtime once;
+  attempt through the production admission and starts the child runtime once;
 - independent budgets: the parent ceiling never changes, the parent holds exactly the child's
   ceiling as a reservation, nothing is spent, and the child's own spending and reservations never
   change the parent's attempt envelope;
@@ -61,9 +67,9 @@ Caveats, so the result is not read as more than it is:
 
 - The runtime port is a synthetic recorder that dedupes by idempotency key. It is not a live Pi
   child process, so this proves admission and retry behaviour, not live-provider qualification.
-- The child's ledger reservation (`reserveBudget`) mirrors CP's own child-budget-admission test.
-  Whether the production `DurableRuntimeBudgetAdmission` can serve a delegated child (it needs a
-  command-acceptance record) is not shown here.
+- The lead's attempt is reserved by CP's production root `DurableRuntimeBudgetAdmission` through the
+  factory, and the delegated child's by `DurableChildRuntimeBudgetAdmission`; neither reservation
+  is written by this host. The child's own runtime, however, is the synthetic recorder above.
 - CP #1123 has not been merged, and neither its PostgreSQL integration suites nor its CI have run.
 - Account evidence, scope policy, the tool registry/policy and the provider transport are explicit
   synthetic host ports. No credentials, live accounts, devices, deployments or packages are used.
