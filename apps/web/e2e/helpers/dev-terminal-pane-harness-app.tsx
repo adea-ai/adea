@@ -140,7 +140,14 @@ function subscribeToObservations(handler: ObservationHandler): () => void {
   return () => undefined
 }
 
+let disposePane: (() => void) | undefined
+
 const harness = {
+  /** Unmounts the pane, as closing the terminal tab does. */
+  unmount() {
+    disposePane?.()
+    disposePane = undefined
+  },
   setCodeFont(family: AppearanceEditorFontFamilyId, size: number) {
     applyAppearanceFontSettings(document.documentElement, {
       ...DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS,
@@ -187,13 +194,19 @@ const BASH_PROFILE_ID = '00000000-0000-4000-8000-00000000d0a2'
 function mount() {
   const container = document.getElementById('harness-root')
   if (!container) throw new Error('harness root missing')
+  // Mirror the app's prepaint theme: production paints the canonical
+  // `--terminal-*` roles from the `[data-theme]` rule in theme-variants.css.
+  // Without the attribute every role is empty, xterm gets no cursor or
+  // selection colour, and search never receives the decoration options it
+  // needs to report match counts (the count sat on "Searching…").
+  document.documentElement.dataset.theme = 'adea-dark'
   // Mirror the app's prepaint System defaults before xterm measures glyphs.
   applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS)
   const shellProfiles: readonly ShellProfile[] = [
     { id: SH_PROFILE_ID, label: 'sh', argv: ['/bin/sh'] },
     { id: BASH_PROFILE_ID, label: 'bash', argv: ['/bin/bash'] },
   ]
-  render(
+  disposePane = render(
     () => (
       <TerminalPane
         connect={scriptedConnect}

@@ -24,8 +24,8 @@ export function createRendererPolicy(maxWebglRecoveries = 2) {
       return state
     },
 
-    /** Called after the DOM terminal mounts. First choice is lazy WebGL. */
-    mounted(): RendererPolicyState {
+    /** The lazy WebGL addon loaded and is drawing. Until then DOM is active. */
+    webglLoaded(): RendererPolicyState {
       state = state.webglDisabled ? state : { ...state, active: 'webgl' }
       return state
     },

@@ -17,8 +17,6 @@ import {
 } from 'solid-js'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { SearchAddon } from '@xterm/addon-search'
-import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 // xterm's own structural stylesheet: the pane depends on the `.xterm`,
 // `.xterm-rows`, and `.xterm-viewport` layout rules, so it loads them itself
@@ -58,6 +56,7 @@ import {
   reduceIntegration,
 } from './integration'
 import { isImeComposing, routePaneKey } from './pane-keys'
+import { attachLazyWebgl, createLazySearch } from './lazy-addons'
 import { createRendererPolicy } from './renderer-policy'
 import {
   createSearchState,
@@ -67,6 +66,7 @@ import {
   searchPresentation,
   searchSetQuery,
   searchSetResults,
+  searchSetUnavailable,
   searchStep,
   searchToggleCaseSensitive,
 } from './search-model'
@@ -206,7 +206,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     },
   })
   const fit = new FitAddon()
-  const searchAddon = new SearchAddon()
+  let terminalDisposed = false
   const searchDecorations = () => {
     const theme = terminal.options.theme
     if (!theme?.cursor || !theme.selectionBackground) return undefined
@@ -222,7 +222,22 @@ export function TerminalPane(props: TerminalPaneProps) {
     }
   }
   terminal.loadAddon(fit)
-  terminal.loadAddon(searchAddon)
+  // Search loads on first open, not with the terminal: the addon chunk stays
+  // out of the pane's initial download and the terminal is usable without it.
+  const lazySearch = createLazySearch({
+    terminal,
+    load: async () => {
+      const { SearchAddon } = await import('@xterm/addon-search')
+      return new SearchAddon()
+    },
+    isDisposed: () => terminalDisposed,
+    decorations: searchDecorations,
+    onResults: (results) => setSearch((state) => searchSetResults(state, results)),
+    onUnavailable: () => {
+      setSearch((state) => searchSetUnavailable(state))
+      setAnnouncement('Terminal search could not be loaded')
+    },
+  })
 
   const transport = createTerminalTransport({
     connect: props.connect,
@@ -341,8 +356,11 @@ export function TerminalPane(props: TerminalPaneProps) {
       decorations: searchDecorations(),
       noScroll: false,
     }
-    if (direction === 'next') void searchAddon.findNext(state.query, options)
-    else void searchAddon.findPrevious(state.query, options)
+    // A step before the addon has loaded is a no-op: the load applies the
+    // current query itself, and stepping is disabled until results exist.
+    const addon = lazySearch.current()
+    if (direction === 'next') void addon?.findNext(state.query, options)
+    else void addon?.findPrevious(state.query, options)
   }
 
   // The search signal changes on every results event too, so the effect must
@@ -350,23 +368,20 @@ export function TerminalPane(props: TerminalPaneProps) {
   // Previous stepper (every step's findPrevious is undone by the effect's
   // findNext) and eventually overflow the stack. Re-find only when the search
   // inputs themselves changed. (Found by the dev-view-terminal-pane
-  // Playwright lane, #538.)
+  // Playwright lane, #538.) The controller applies the latest inputs once the
+  // lazily loaded addon is attached.
   let lastFindKey = ''
   createEffect(() => {
     const state = search()
     const key = `${state.open}\u0000${state.query}\u0000${state.caseSensitive}`
     if (key === lastFindKey) return
     lastFindKey = key
-    if (!state.open) {
-      searchAddon.clearDecorations()
-      return
-    }
-    if (state.query === '') {
-      searchAddon.clearDecorations()
-      return
-    }
-    runFind(state, 'next')
-    if (searchInputElement) searchInputElement.focus()
+    lazySearch.update({
+      open: state.open,
+      query: state.query,
+      caseSensitive: state.caseSensitive,
+    })
+    if (state.open && state.query !== '' && searchInputElement) searchInputElement.focus()
   })
 
   // ── Multiline paste (bracketed) with confirmation ─────────────────────────
@@ -420,7 +435,6 @@ export function TerminalPane(props: TerminalPaneProps) {
   })
 
   let resizeReported = false
-  let terminalDisposed = false
   function fitAndReportResize(updateFont?: () => void): void {
     if (terminalDisposed) return
     const cols = terminal.cols
@@ -462,7 +476,8 @@ export function TerminalPane(props: TerminalPaneProps) {
         terminal.options.theme = theme
         fontBinding.update(styles)
         const currentSearch = search()
-        if (currentSearch.open && currentSearch.query) {
+        const searchAddon = lazySearch.current()
+        if (searchAddon && currentSearch.open && currentSearch.query) {
           const selection = terminal.getSelectionPosition()
           const viewportLine = terminal.buffer.active.viewportY
           searchAddon.findNext(currentSearch.query, {
@@ -487,32 +502,6 @@ export function TerminalPane(props: TerminalPaneProps) {
     // fit/refit ladder never runs and props.resize can never fire (found by
     // the dev-view-terminal-pane Playwright lane, #538).
     observer.observe(element)
-    // Lazy WebGL first; DOM is the fallback on any failure or context loss.
-    const next = policy.mounted()
-    setPolicyVersion((version) => version + 1)
-    if (next.active === 'webgl') {
-      try {
-        const webgl = new WebglAddon()
-        webgl.onContextLoss(() => {
-          const result = policy.contextLost()
-          webgl.dispose()
-          setPolicyVersion((version) => version + 1)
-          if (result.retryWebgl) {
-            try {
-              terminal.loadAddon(new WebglAddon())
-              policy.webglRestored()
-              setPolicyVersion((version) => version + 1)
-            } catch {
-              /* stays on DOM */
-            }
-          }
-        })
-        terminal.loadAddon(webgl)
-      } catch {
-        policy.webglInitFailed('addon unavailable')
-        setPolicyVersion((version) => version + 1)
-      }
-    }
     fitAndReportResize()
     // OSC 7 and standard OSC 133 arrive in the display stream only when the
     // user's own shell emits them (the Adea wrapper's frames are verified and
@@ -537,9 +526,6 @@ export function TerminalPane(props: TerminalPaneProps) {
     // the linkHandler above.
     terminal.loadAddon(new WebLinksAddon((_event, uri) => void openWithConsent(uri)))
     terminal.onSelectionChange(() => setHasSelection(terminal.hasSelection()))
-    searchAddon.onDidChangeResults((results) => {
-      setSearch((state) => searchSetResults(state, results))
-    })
     terminal.attachCustomKeyEventHandler(
       (event) => !runPaneKeyAction(routePaneKey(event, editor().mode), event)
     )
@@ -562,6 +548,16 @@ export function TerminalPane(props: TerminalPaneProps) {
       recordObservation(observation, transport.snapshot().nextOutputSeq)
     )
     onCleanup(unsubscribe ?? (() => undefined))
+    // WebGL is an enhancement over the DOM renderer that is already live: fetch
+    // it only now that the terminal is open, fitted and attached. A failed
+    // import, a failed context or an unmount mid-download leaves DOM drawing.
+    void attachLazyWebgl({
+      terminal,
+      policy,
+      load: () => import('@xterm/addon-webgl'),
+      isDisposed: () => terminalDisposed,
+      onPolicyChange: () => setPolicyVersion((version) => version + 1),
+    })
   })
 
   const observer = new ResizeObserver(() => {
