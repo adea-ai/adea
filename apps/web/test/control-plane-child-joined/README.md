@@ -27,9 +27,9 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP draft head `8d8843b4`)
+## Latest result (2026-10-14, CP draft head `41373c03`)
 
-The pin is the head of CP draft PR #1123 (`8d8843b4`), which adds the explicit child allowance
+The pin is the head of CP draft PR #1123 (`41373c03`), which adds the explicit child allowance
 designed for CP #1121 on top of the #1116 merge (`082c2c33`). That PR is unmerged, so this proof
 pins an unreleased CP revision. Result: 8 of 8 pass, stable across three consecutive runs.
 
