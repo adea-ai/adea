@@ -68,14 +68,14 @@ candidates throw `RetentionPolicyError` with a code only.
 
 Migration `0053_retention_cleanup_authority` adds three tables, and
 `packages/db/src/retention-cleanup.ts` composes the pure gate over them (a fourth,
-`retention_deletion_dispatches`, arrives with 0056, below):
+`retention_deletion_dispatches`, arrives with 0057, below):
 
 - `retention_holds`: active while `released_at` is null.
 - `retention_deletion_authorizations`: at most one unrevoked row per subject
   (partial unique index). Expiry is fixed, never open-ended.
 - `retention_cleanup_receipts`: append-only rows bound to the recording runtime
   node, unique per workspace idempotency key.
-- `retention_deletion_dispatches` (migration `0056_retention_deletion_dispatches`):
+- `retention_deletion_dispatches` (migration `0057_retention_deletion_dispatches`):
   append-only deletion dispatch marks, one per deletion generation and coverage,
   written inside the deleting gate transaction. See "Deletion dispatch marks".
 
@@ -106,8 +106,8 @@ transaction-scoped advisory lock. Artifact gates lock the artifact row first, in
 the order reference registration uses. Active references for artifacts are the
 live rows of `artifact_reference_grants`.
 
-Numbering: retention took 0053 and the dispatch table took 0056, the next free number
-on `main` when it was written (after `0055_addressed_agent_turns`). Each journal `when`
+Numbering: retention took 0053 and the dispatch table took 0057, the next free number
+on `main` when it was written (after `0056_coordination_plans`; it was renumbered from 0056 when that migration merged first). Each journal `when`
 is later than its predecessor's, which drizzle requires for the migration to be applied
 on an upgraded database, and each snapshot chains to the previous one. A migration that
 lands later must take the next free number, regenerate with `db:generate`, and keep
@@ -183,7 +183,7 @@ production store is wired, no period is chosen, and nothing is scheduled.
 
 ## Deletion dispatch marks
 
-`retention_deletion_dispatches` (migration `0056_retention_deletion_dispatches`) holds
+`retention_deletion_dispatches` (migration `0057_retention_deletion_dispatches`) holds
 one row per `(authorization_id, coverage)`: durable evidence that a deletion was
 dispatched to that store under that generation. Its writer is
 `context.markDeletionDispatched(coverage)` in `withRetentionDeletionGate`, and the
@@ -269,7 +269,7 @@ whose effects happen outside the gate transaction and survive its rollback (an o
 store, an external index), leaves no mark, and a thrown error rolls the mark back with
 the rest of the transaction. Stores with out-of-transaction effects must report them
 through their outcome rather than throw, and need their own evidence before production
-cleanup is enabled. A deletion that committed before migration 0056 is also unmarked;
+cleanup is enabled. A deletion that committed before migration 0057 is also unmarked;
 nothing deletes in production today, and the fence does not enable it.
 
 Retention periods stay unset and production deletion stays disabled; the fence changes

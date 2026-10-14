@@ -20,23 +20,13 @@ import {
   sameDevUtilityScope,
   type DevUtilityContextReader,
 } from '../utility-context'
-import { executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
+import { commandError, executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
 import { ACTIVITY_STATE_LABELS, activityRows, formatElapsed } from './activity-model'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 
 export type ActivityPaneProps = {
   context: DevUtilityContextReader
-}
-
-function commandError(error: unknown): DevError {
-  return (
-    (error as { error?: DevError })?.error ?? {
-      code: 'invalid_state',
-      retryable: false,
-      message: error instanceof Error ? error.message : 'command failed',
-    }
-  )
 }
 
 export function ActivityPane(props: ActivityPaneProps) {

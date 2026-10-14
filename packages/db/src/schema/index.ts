@@ -106,5 +106,11 @@ export {
 } from './group-participation'
 export { taskSubmissionState, taskSubmissions } from './task-submissions'
 export { addressedAgentTurns, type AddressedAgentTurn } from './addressed-agent-turns'
+export {
+  coordinationPlanCitations,
+  coordinationPlanRevisions,
+  coordinationPlans,
+  type CoordinationPlan,
+} from './coordination-plans'
 export { leadTurnIntents } from './lead-turns'
 export { leadTurnRuntime } from './lead-turn-runtime'

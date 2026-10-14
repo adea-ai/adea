@@ -37,7 +37,7 @@ import {
   type DevUtilityContextReader,
   type DevUtilityFence,
 } from '../utility-context'
-import { executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
+import { commandError, executeDevUtilityCommand, readDevUtilityCommand } from '../utility-command'
 import { resolveAnnotationSubmission } from './annotation-model'
 import {
   MAX_NOTE_LENGTH,
@@ -154,16 +154,6 @@ function screenshotContextKey(context: ScreenshotContext): string {
 function sameScreenshotContext(left: ScreenshotContext, right: ScreenshotContext): boolean {
   return (
     left.runtime === right.runtime && screenshotContextKey(left) === screenshotContextKey(right)
-  )
-}
-
-function commandError(error: unknown): DevError {
-  return (
-    (error as { error?: DevError })?.error ?? {
-      code: 'invalid_state',
-      retryable: false,
-      message: error instanceof Error ? error.message : 'command failed',
-    }
   )
 }
 

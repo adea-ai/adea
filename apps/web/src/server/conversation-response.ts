@@ -38,6 +38,15 @@ export function conversationErrorResponse(
       request,
       { status: 400 }
     )
+  // A plan request the database refused as malformed (a bad id, too many citations): nothing about
+  // any cited job is in the message, so it is answered as a plain invalid request without a log.
+  if (message === 'Plan citations invalid')
+    return workspaceJsonResponse(
+      { code: 'invalid_request', message: 'Invalid request' },
+      resolution,
+      request,
+      { status: 400 }
+    )
   if (message.endsWith('version conflict') || message.endsWith('idempotency conflict'))
     return workspaceJsonResponse({ code: 'conversation_conflict', message }, resolution, request, {
       status: 409,

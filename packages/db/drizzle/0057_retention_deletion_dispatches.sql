@@ -12,7 +12,8 @@ CREATE TABLE "app"."retention_deletion_dispatches" (
 ALTER TABLE "app"."retention_deletion_dispatches" ADD CONSTRAINT "retention_deletion_dispatches_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "app"."workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app"."retention_deletion_dispatches" ADD CONSTRAINT "retention_deletion_dispatches_authorization_fk" FOREIGN KEY ("authorization_id") REFERENCES "app"."retention_deletion_authorizations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "retention_deletion_dispatches_generation_uidx" ON "app"."retention_deletion_dispatches" USING btree ("authorization_id","coverage");--> statement-breakpoint
-CREATE INDEX "retention_deletion_dispatches_subject_idx" ON "app"."retention_deletion_dispatches" USING btree ("workspace_id","category","subject_id");--> statement-breakpoint
+CREATE INDEX "retention_deletion_dispatches_subject_idx" ON "app"."retention_deletion_dispatches" USING btree ("workspace_id","category","subject_id");
+--> statement-breakpoint
 CREATE OR REPLACE FUNCTION "app"."retention_deletion_dispatches_append_only"() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN

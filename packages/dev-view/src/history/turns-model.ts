@@ -90,11 +90,11 @@ const ACTIVE_RUN_STATES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Whether the session's newest harness run is still going. A later generation
- * always supersedes an earlier one: `version` only counts revisions within one
- * generation, so an older generation with a higher version must not win.
+ * The session's newest harness run. A later generation always supersedes an
+ * earlier one: `version` only counts revisions within one generation, so an
+ * older generation with a higher version must not win.
  */
-export function newestRunActive(runs: readonly HarnessRun[]): boolean {
+export function newestRun(runs: readonly HarnessRun[]): HarnessRun | undefined {
   let newest: HarnessRun | undefined
   for (const run of runs) {
     if (
@@ -104,6 +104,12 @@ export function newestRunActive(runs: readonly HarnessRun[]): boolean {
     )
       newest = run
   }
+  return newest
+}
+
+/** Whether the session's newest harness run is still going. */
+export function newestRunActive(runs: readonly HarnessRun[]): boolean {
+  const newest = newestRun(runs)
   return newest !== undefined && ACTIVE_RUN_STATES.has(newest.state)
 }
 

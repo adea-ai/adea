@@ -731,9 +731,11 @@ describe('runtime-events-v1 stream handler', () => {
       shell.capturedStreamProvider()(session as never)
 
       // Replay: three data frames whose CBOR bytes decode to the events and
-      // pass the strict wire decoder with host provenance.
-      expect(session.sent).toHaveLength(3)
-      session.sent.forEach((frame, index) => {
+      // pass the strict wire decoder with host provenance, then the heartbeat
+      // that marks the replay as finished.
+      expect(session.sent).toHaveLength(4)
+      expect(session.sent[3]).toMatchObject({ type: 'heartbeat', throughSequence: '3' })
+      session.sent.slice(0, 3).forEach((frame, index) => {
         const data = frame as { type: string; sequence: string; bytes: Uint8Array }
         expect(data.type).toBe('data')
         expect(data.sequence).toBe(String(index + 1))
@@ -752,7 +754,7 @@ describe('runtime-events-v1 stream handler', () => {
           sourceEventId: 'stream-live',
         })
       )
-      expect(session.sent).toHaveLength(4)
+      expect(session.sent).toHaveLength(5)
 
       // A NEWER generation event closes the stream stale_generation: grants
       // minted under an old generation are inert, never ambiguous.
@@ -795,7 +797,29 @@ describe('runtime-events-v1 stream handler', () => {
       expect(session.sent.map((frame) => (frame as { sequence: string }).sequence)).toEqual([
         '4',
         '5',
+        undefined,
       ])
+      expect(session.sent[2]).toMatchObject({ type: 'heartbeat', throughSequence: '5' })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a session with no events still ends its replay with a heartbeat at 0', async () => {
+    const shell = await boot()
+    try {
+      const session = scriptedSession(
+        makeGrant({
+          resource: {
+            kind: 'runtime_session',
+            id: '00000000-0000-4000-8000-0000000000c3',
+            generation: 1,
+          },
+        })
+      )
+      shell.capturedStreamProvider()(session as never)
+      expect(session.sent).toHaveLength(1)
+      expect(session.sent[0]).toMatchObject({ type: 'heartbeat', throughSequence: '0' })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

@@ -1,5 +1,5 @@
 {
-  "id": "a65c0463-8005-44a2-8739-758ed6e18528",
+  "id": "76ef38e7-429f-4085-a60f-287917286e3e",
   "prevId": "2a5e8fce-b3ec-4dd2-bbc9-209dabdaa413",
   "version": "7",
   "dialect": "postgresql",
@@ -2661,6 +2661,304 @@
         "content_replicas_deletion_consistent": {
           "name": "content_replicas_deletion_consistent",
           "value": "(\"app\".\"content_replicas\".\"availability\" = 'deleted' and \"app\".\"content_replicas\".\"deleted_at\" is not null) or (\"app\".\"content_replicas\".\"availability\" <> 'deleted' and \"app\".\"content_replicas\".\"deleted_at\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.coordination_plan_citations": {
+      "name": "coordination_plan_citations",
+      "schema": "app",
+      "columns": {
+        "plan_id": {
+          "name": "plan_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_id": {
+          "name": "job_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "coordination_plan_citations_revision_fk": {
+          "name": "coordination_plan_citations_revision_fk",
+          "tableFrom": "coordination_plan_citations",
+          "tableTo": "coordination_plan_revisions",
+          "schemaTo": "app",
+          "columnsFrom": ["plan_id", "revision"],
+          "columnsTo": ["plan_id", "revision"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "coordination_plan_citations_pk": {
+          "name": "coordination_plan_citations_pk",
+          "columns": ["plan_id", "revision", "position"]
+        }
+      },
+      "uniqueConstraints": {
+        "coordination_plan_citations_job_unique": {
+          "name": "coordination_plan_citations_job_unique",
+          "nullsNotDistinct": false,
+          "columns": ["plan_id", "revision", "job_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "coordination_plan_citations_position_valid": {
+          "name": "coordination_plan_citations_position_valid",
+          "value": "\"app\".\"coordination_plan_citations\".\"position\" between 0 and 49"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.coordination_plan_revisions": {
+      "name": "coordination_plan_revisions",
+      "schema": "app",
+      "columns": {
+        "plan_id": {
+          "name": "plan_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "citation_count": {
+          "name": "citation_count",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "author_user_id": {
+          "name": "author_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "coordination_plan_revisions_author_user_id_users_id_fk": {
+          "name": "coordination_plan_revisions_author_user_id_users_id_fk",
+          "tableFrom": "coordination_plan_revisions",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": ["author_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "coordination_plan_revisions_plan_scope_fk": {
+          "name": "coordination_plan_revisions_plan_scope_fk",
+          "tableFrom": "coordination_plan_revisions",
+          "tableTo": "coordination_plans",
+          "schemaTo": "app",
+          "columnsFrom": ["plan_id", "workspace_id", "channel_id"],
+          "columnsTo": ["id", "workspace_id", "channel_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "coordination_plan_revisions_pk": {
+          "name": "coordination_plan_revisions_pk",
+          "columns": ["plan_id", "revision"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "coordination_plan_revisions_revision_valid": {
+          "name": "coordination_plan_revisions_revision_valid",
+          "value": "\"app\".\"coordination_plan_revisions\".\"revision\" >= 1"
+        },
+        "coordination_plan_revisions_count_valid": {
+          "name": "coordination_plan_revisions_count_valid",
+          "value": "\"app\".\"coordination_plan_revisions\".\"citation_count\" between 0 and 50"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "app.coordination_plans": {
+      "name": "coordination_plans",
+      "schema": "app",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_revision": {
+          "name": "current_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "create_payload_hash": {
+          "name": "create_payload_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "coordination_plans_channel_idx": {
+          "name": "coordination_plans_channel_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "coordination_plans_workspace_id_workspaces_id_fk": {
+          "name": "coordination_plans_workspace_id_workspaces_id_fk",
+          "tableFrom": "coordination_plans",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "coordination_plans_channel_id_channels_id_fk": {
+          "name": "coordination_plans_channel_id_channels_id_fk",
+          "tableFrom": "coordination_plans",
+          "tableTo": "channels",
+          "schemaTo": "app",
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "coordination_plans_created_by_user_id_users_id_fk": {
+          "name": "coordination_plans_created_by_user_id_users_id_fk",
+          "tableFrom": "coordination_plans",
+          "tableTo": "users",
+          "schemaTo": "app",
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "coordination_plans_idempotency_unique": {
+          "name": "coordination_plans_idempotency_unique",
+          "nullsNotDistinct": false,
+          "columns": ["workspace_id", "channel_id", "idempotency_key"]
+        },
+        "coordination_plans_scope_unique": {
+          "name": "coordination_plans_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "workspace_id", "channel_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "coordination_plans_revision_valid": {
+          "name": "coordination_plans_revision_valid",
+          "value": "\"app\".\"coordination_plans\".\"current_revision\" between 1 and 2147483647"
+        },
+        "coordination_plans_idempotency_valid": {
+          "name": "coordination_plans_idempotency_valid",
+          "value": "length(\"app\".\"coordination_plans\".\"idempotency_key\") between 1 and 128"
         }
       },
       "isRLSEnabled": false
@@ -5893,140 +6191,6 @@
         "retention_deletion_authorizations_revocation_consistent": {
           "name": "retention_deletion_authorizations_revocation_consistent",
           "value": "(\"app\".\"retention_deletion_authorizations\".\"revoked_at\" is null) = (\"app\".\"retention_deletion_authorizations\".\"revoked_by_user_id\" is null)\n        and (\"app\".\"retention_deletion_authorizations\".\"revoked_at\" is null or \"app\".\"retention_deletion_authorizations\".\"revoked_at\" >= \"app\".\"retention_deletion_authorizations\".\"granted_at\")"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "app.retention_deletion_dispatches": {
-      "name": "retention_deletion_dispatches",
-      "schema": "app",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "authorization_id": {
-          "name": "authorization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "retention_category",
-          "typeSchema": "app",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "subject_id": {
-          "name": "subject_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "coverage": {
-          "name": "coverage",
-          "type": "retention_cleanup_coverage",
-          "typeSchema": "app",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "dispatched_at": {
-          "name": "dispatched_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "retention_deletion_dispatches_generation_uidx": {
-          "name": "retention_deletion_dispatches_generation_uidx",
-          "columns": [
-            {
-              "expression": "authorization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "coverage",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "retention_deletion_dispatches_subject_idx": {
-          "name": "retention_deletion_dispatches_subject_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "category",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "subject_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "retention_deletion_dispatches_workspace_id_workspaces_id_fk": {
-          "name": "retention_deletion_dispatches_workspace_id_workspaces_id_fk",
-          "tableFrom": "retention_deletion_dispatches",
-          "tableTo": "workspaces",
-          "schemaTo": "app",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "retention_deletion_dispatches_authorization_fk": {
-          "name": "retention_deletion_dispatches_authorization_fk",
-          "tableFrom": "retention_deletion_dispatches",
-          "tableTo": "retention_deletion_authorizations",
-          "schemaTo": "app",
-          "columnsFrom": ["authorization_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "retention_deletion_dispatches_subject_bounded": {
-          "name": "retention_deletion_dispatches_subject_bounded",
-          "value": "char_length(\"app\".\"retention_deletion_dispatches\".\"subject_id\") between 1 and 128"
         }
       },
       "isRLSEnabled": false

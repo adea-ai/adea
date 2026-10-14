@@ -40,6 +40,14 @@ Worker setup, secrets, and caching.
   being loaded or executed. Tailwind source discovery still follows selected
   exports, so unused barrel components do not expand the production CSS source
   list.
+- Solid compiles hydratable output only where a server-rendered page needs it
+  (`start/solid-compile.ts`). The workspace route is `ssr: false` inside
+  `ClientOnly`, so the browser build compiles `packages/dev-view` and the
+  published shared-UI components the sign-in and invite pages do not import
+  without the hydration helpers (about 11 KB raw in the Dev utility panes). The
+  production build fails if one of those modules lands in the server bundle; a
+  shared component that a server-rendered page starts using joins
+  `SERVER_RENDERED_UI` in that file.
 
 Tailwind source scanning for the published `@adea-ai/ui` package follows the
 web client entry's runtime imports, including nested component imports and
