@@ -68,14 +68,14 @@ export function buildRunHistoryRows(
     }))
 }
 
-function isResumable(run: HarnessRun): boolean {
+export function isResumable(run: HarnessRun): boolean {
   return (
     (run.state === 'completed' || run.state === 'disconnected' || run.state === 'failed') &&
     run.startedAt !== undefined
   )
 }
 
-function resumeReason(run: HarnessRun): RunHistoryRow['resumeReason'] {
+export function resumeReason(run: HarnessRun): RunHistoryRow['resumeReason'] {
   if (isResumable(run)) return 'available'
   if (run.state === 'cancelled') return 'cancelled'
   if (run.state === 'unknown') return 'unknown_state'

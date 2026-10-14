@@ -57,18 +57,18 @@ test('result buttons for one session carry distinct accessible names', async ({ 
 
   const jumps = page
     .getByRole('list', { name: 'Search results' })
-    .getByRole('button', { name: /^Jump to Deploy planning,/ })
+    .getByRole('button', { name: /^Go to Deploy planning,/ })
   const count = await jumps.count()
   expect(count).toBeGreaterThanOrEqual(2)
   const names = await jumps.evaluateAll((nodes) =>
     nodes.map((node) => node.getAttribute('aria-label'))
   )
   expect(new Set(names).size).toBe(count)
-  expect(names).toContain('Jump to Deploy planning, prompt: deploy the staging build')
-  expect(names).toContain('Jump to Deploy planning, approval: Deploy to production')
+  expect(names).toContain('Go to Deploy planning, prompt: deploy the staging build')
+  expect(names).toContain('Go to Deploy planning, approval: Deploy to production')
 
   await page
-    .getByRole('button', { name: 'Jump to Deploy planning, approval: Deploy to production' })
+    .getByRole('button', { name: 'Go to Deploy planning, approval: Deploy to production' })
     .click()
   await expect(page.getByTestId('jumps')).toHaveText('event-3')
 })
@@ -141,4 +141,151 @@ test('the Turns and Runs switch works from the keyboard', async ({ page }) => {
   await expect(runs).toHaveAttribute('aria-pressed', 'false')
   await expect(turnsList).toBeVisible()
   await expect(runHistory).toHaveCount(0)
+})
+
+const allSessions = (page: Page) => page.getByRole('button', { name: 'All sessions' })
+const search = (page: Page) => page.getByRole('textbox', { name: 'Search all sessions' })
+
+// #716: searching every session, jumping to a result, and resuming a run.
+test.describe('all sessions', () => {
+  test('the scope switch keeps the query and defaults to this session', async ({ page }) => {
+    await mount(page, '?scopes=1')
+    const group = page.getByRole('group', { name: 'Search scope' })
+    await expect(group.getByRole('button', { name: 'This session' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await page.getByRole('textbox', { name: 'Search this conversation' }).fill('deploy')
+    await expect(
+      page.getByText(
+        'Searching this session. Switch to All sessions to search the whole workspace.'
+      )
+    ).toBeVisible()
+    await allSessions(page).click()
+    await expect(search(page)).toHaveValue('deploy')
+    await expect(allSessions(page)).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('groups results by session with counts, a jump per row and the partial note', async ({
+    page,
+  }) => {
+    await mount(page, '?scope=all&partial=1')
+    await search(page).fill('terminal')
+    await expect(page.getByRole('status').filter({ hasText: 'results in' })).toHaveText(
+      '7 results in 3 sessions'
+    )
+    await expect(
+      page.getByText(
+        'Searched the most recent events of 3 sessions. Searching older history is not available yet.'
+      )
+    ).toBeVisible()
+    const shell = page.getByRole('list', { name: 'Matches in Shell switcher' })
+    await expect(shell.getByRole('listitem')).toHaveCount(3)
+    await expect(page.getByText('3 matches')).toBeVisible()
+    // A session whose title matches contributes every row, its run included.
+    await expect(page.getByText('2 matches')).toHaveCount(2)
+
+    await shell.getByRole('button', { name: /^Go to Shell switcher, prompt:/ }).click()
+    await expect(page.getByTestId('jumps')).toHaveText('shell-event-1')
+    await page.getByRole('button', { name: 'Open session Fix terminal resize on Windows' }).click()
+    await expect(page.getByTestId('jumps')).toHaveText('shell-event-1,session:resize')
+  })
+
+  test('an empty query lists the most recent prompts across sessions', async ({ page }) => {
+    await mount(page, '?scope=all')
+    await expect(page.getByText('Recent prompts across your sessions')).toBeVisible()
+    await expect(page.getByText('1 recent').first()).toBeVisible()
+    const rows = page.getByRole('list', { name: 'Matches in all sessions' }).getByText('Prompt')
+    await expect(rows.first()).toBeVisible()
+    await expect(page.getByText('Reply', { exact: true })).toHaveCount(0)
+  })
+
+  test('says when nothing matches, when loading and when the search failed', async ({ page }) => {
+    await mount(page, '?scope=all')
+    await search(page).fill('kubernetes')
+    await expect(page.getByText('No matches in 3 sessions')).toBeVisible()
+    await expect(
+      page.getByText('Search covers prompts, replies, tool calls, approvals and statuses.')
+    ).toBeVisible()
+
+    await mount(page, '?scope=all&all=loading')
+    await expect(page.getByRole('status', { name: 'Searching all sessions' })).toBeVisible()
+
+    await mount(page, '?scope=all&all=unavailable')
+    await expect(page.getByText('History search is unavailable')).toBeVisible()
+    await expect(
+      page.getByText('The sessions could not be searched from this runtime.')
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByTestId('attempts')).toHaveText('1')
+  })
+
+  test('resume names why a run cannot be resumed, in the design’s words', async ({ page }) => {
+    await mount(page, '?scope=all')
+    await search(page).fill('terminal')
+    await expect(page.getByText('This run was cancelled and cannot be resumed')).toBeVisible()
+    await expect(page.getByText('This run is still active')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Resume Shell switcher' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Resume Fix terminal resize/ })).toHaveCount(0)
+  })
+
+  test('resume asks first, can be cancelled, and retries after a refusal', async ({ page }) => {
+    await mount(page, '?scope=all&resumeFails=1')
+    await search(page).fill('terminal')
+    await page.getByRole('button', { name: 'Resume Shell switcher' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Resume “Shell switcher”?' })
+    await expect(dialog).toBeVisible()
+    await expect(
+      dialog.getByText('This starts a new generation in the same session.')
+    ).toBeVisible()
+    await expect(dialog.getByText('Generation 7 of run 1 in this session.')).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByTestId('jumps')).toHaveText('')
+
+    await page.getByRole('button', { name: 'Resume Shell switcher' }).click()
+    await dialog.getByRole('button', { name: 'Resume', exact: true }).click()
+    await expect(
+      dialog.getByText('The run could not be resumed: the runtime did not accept the request.')
+    ).toBeVisible()
+    await dialog.getByRole('button', { name: 'Try again' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByTestId('jumps')).toHaveText('resume:run-shell')
+  })
+
+  test('pages 50 at a time and stops at 1,000 rows, saying what is left', async ({ page }) => {
+    await mount(page, '?scope=all&cap=1')
+    await search(page).fill('terminal')
+    const rows = page.getByRole('list', { name: /^Matches in Bulk session/ }).getByRole('listitem')
+    await expect(rows).toHaveCount(50)
+    await expect(page.getByText('Showing 50 of 6,000 matches')).toBeVisible()
+    const more = page.getByRole('button', { name: 'Load more' })
+    for (let shown = 50; shown < 1_000; shown += 50) {
+      await more.click()
+      await expect(rows).toHaveCount(shown + 50)
+    }
+    await expect(page.getByText('Showing the first 1,000 of 6,000 matches')).toBeVisible()
+    await expect(page.getByText('Narrow your search to see the rest.')).toBeVisible()
+    await expect(more).toHaveCount(0)
+  })
+
+  test('Up and Down walk the results, Enter goes to one, Up from the first returns to search', async ({
+    page,
+  }) => {
+    await mount(page, '?scope=all')
+    await search(page).fill('terminal')
+    await search(page).press('ArrowDown')
+    const first = page.getByRole('button', { name: /^Go to / }).first()
+    await expect(first).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(page.getByRole('button', { name: /^Go to / }).nth(1)).toBeFocused()
+    await page.keyboard.press('ArrowUp')
+    await expect(first).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('jumps')).not.toHaveText('')
+    await first.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(search(page)).toBeFocused()
+  })
 })

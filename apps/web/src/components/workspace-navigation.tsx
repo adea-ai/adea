@@ -1245,6 +1245,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       hash: '',
     })
   }
+  // History's "Go to" and Resume open a session where the user already is: Dev
+  // resolves it through its deep link, Chat selects it in the shared store.
+  const openHistorySession = (target: { runtimeSessionId: string; projectId: string }) => {
+    if (view() !== 'chat') return openDevSession(target)
+    const store = workspaceStore.getState()
+    if (store.selectedDevProjectId !== target.projectId)
+      store.setSelectedDevProjectId(target.projectId)
+    store.setSelectedRuntimeSessionId(target.runtimeSessionId)
+  }
   // Tasks are listed on the Kanban app only. A search result or link to a Task
   // opens it there; with Kanban turned off the board opens inside Chat instead.
   const openTaskBoard = () =>
@@ -1751,7 +1760,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             </Show>
           </div>
           <Show when={contextualUtilitiesVisible() && utilityOwner.rightUtilityOpen()}>
-            <SharedDevUtilityHost owner={utilityOwner} restoreFocusRef={utilityOpener} />
+            <SharedDevUtilityHost
+              owner={utilityOwner}
+              restoreFocusRef={utilityOpener}
+              onOpenSession={openHistorySession}
+            />
           </Show>
         </div>
       </div>

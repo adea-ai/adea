@@ -25,6 +25,7 @@ import type { CanonicalRuntimeBinding } from './utility-context'
 import type { SharedDevUtilityOwner } from './utility-owner'
 import { defaultRightUtilitySize, utilityItems } from './utility-model'
 import { UtilityResizeHandle } from './utility-resize-handle'
+import type { HistorySessionTarget } from './history/session-history-section'
 
 const BrowserPane = lazy(() =>
   import('./browser/browser-pane').then((module) => ({ default: module.BrowserPane }))
@@ -66,6 +67,8 @@ function scopeKey(context: ReturnType<DevUtilityContextReader>): string | undefi
 export function SharedDevUtilityHost(props: {
   owner: SharedDevUtilityOwner
   restoreFocusRef?: () => HTMLElement | undefined
+  /** Select a session in the surrounding view; History's "Go to" and Resume use it. */
+  onOpenSession?: (target: HistorySessionTarget) => void
 }) {
   const context: DevUtilityContextReader = props.owner.context
   const fences = createDevUtilityFenceSource(context)
@@ -186,7 +189,10 @@ export function SharedDevUtilityHost(props: {
           />
         }
       >
-        <SessionHistorySection context={context} />
+        <SessionHistorySection
+          context={context}
+          {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
+        />
       </Suspense>
     ) : (
       <ProviderState

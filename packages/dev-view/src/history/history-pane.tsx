@@ -6,20 +6,16 @@
  */
 import type { HarnessRun, RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 import { ChevronDown, ChevronRight, History, Search, X } from 'lucide-solid'
-import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 
-import {
-  conversationSearchRowLabel,
-  searchConversationHistory,
-  type ConversationSearchJump,
-  type ConversationSearchKind,
-  type ConversationSearchRow,
-} from '../chat/search'
+import { searchConversationHistory, type ConversationSearchJump } from '../chat/search'
+import { AllSessionsResults, type AllSessionsFeed } from './all-sessions-results'
+import type { ResumeTarget } from './all-sessions-model'
+import { Entry, EntryList, ResultRow } from './history-parts'
 import { buildHistoryTurns, formatRelativeTime, type HistoryTurn } from './turns-model'
 import { RunHistoryPane } from './run-history-pane'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyState } from '@adea-ai/ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -35,6 +31,10 @@ export type HistoryPaneStatus =
   /** The stream lost events or belongs to an older generation; reopen to recover. */
   | 'stale'
   | 'unavailable'
+  /** The runtime has not connected, so nothing can be read yet. */
+  | 'not_ready'
+
+export type HistoryScope = 'session' | 'all'
 
 export type HistoryPaneProps = Readonly<{
   status: HistoryPaneStatus
@@ -47,21 +47,25 @@ export type HistoryPaneProps = Readonly<{
   runActive?: boolean
   nowMs?: () => number
   onRetry?: () => void
-  /** Only hosts that can reveal an event (Chat) supply it; Dev shows no jump. */
-  onJump?: (jump: ConversationSearchJump) => void
+  /** Show one event or open one session; a result's "Go to" calls it. */
+  onGo?: (jump: ConversationSearchJump) => void
+  /** Searching the open session or every session; the switch shows with the handler. */
+  scope?: HistoryScope
+  onScopeChange?: (scope: HistoryScope) => void
+  all?: AllSessionsFeed
+  /** The bound session's live events replace its scanned window in All sessions. */
+  boundSessionId?: string
+  onRetryAll?: () => void
+  /** Resolves when the resume started; rejects when the runtime refused it. */
+  onResume?: (target: ResumeTarget) => Promise<void>
+  /** A one-line outcome shown above the list, e.g. a finished resume. */
+  notice?: Readonly<{ title: string; detail?: string }>
+  /** Reveal this event's turn here; the host has no transcript to scroll. */
+  focusEventId?: string
+  onFocusResult?: (found: boolean) => void
 }>
 
 const SEARCH_PAGE = 100
-
-const KIND_LABELS: Record<ConversationSearchKind, string> = {
-  prompt: 'Prompt',
-  result: 'Reply',
-  tool: 'Tool',
-  approval: 'Approval',
-  question: 'Question',
-  status: 'Status',
-  run: 'Run',
-}
 
 const TURN_STATUS: Record<HistoryTurn['state'], { label: string; tone: StatusTone }> = {
   working: { label: 'Working', tone: 'pending' },
@@ -70,56 +74,19 @@ const TURN_STATUS: Record<HistoryTurn['state'], { label: string; tone: StatusTon
   unanswered: { label: 'No reply recorded', tone: 'neutral' },
 }
 
-function Highlighted(props: { text: string; query: string }): JSX.Element {
-  const parts = createMemo(() => {
-    const needle = props.query.trim()
-    if (needle.length === 0) return [{ text: props.text, match: false }]
-    const lower = props.text.toLocaleLowerCase()
-    const target = needle.toLocaleLowerCase()
-    const out: { text: string; match: boolean }[] = []
-    let from = 0
-    for (let at = lower.indexOf(target); at !== -1; at = lower.indexOf(target, from)) {
-      if (at > from) out.push({ text: props.text.slice(from, at), match: false })
-      out.push({ text: props.text.slice(at, at + target.length), match: true })
-      from = at + target.length
-    }
-    if (from < props.text.length) out.push({ text: props.text.slice(from), match: false })
-    return out
-  })
-  return (
-    <For each={parts()}>
-      {(part) =>
-        part.match ? <mark class="bg-primary-subtle text-foreground">{part.text}</mark> : part.text
-      }
-    </For>
-  )
-}
-
-// Plain list rows: the shared Item and Tabs compositions pull their own
-// primitives into the utility host for what is a bordered list and a switch.
-function EntryList(props: { label: string; children: JSX.Element }): JSX.Element {
-  return (
-    <ul role="list" aria-label={props.label} class="m-0 flex list-none flex-col gap-2 p-0">
-      {props.children}
-    </ul>
-  )
-}
-
-function Entry(props: { trailing?: JSX.Element; children: JSX.Element }): JSX.Element {
-  return (
-    <li class="flex items-start gap-2 rounded-md border border-border p-2">
-      <div class="min-w-0 flex-1">{props.children}</div>
-      {props.trailing}
-    </li>
-  )
-}
-
-function TurnRow(props: { turn: HistoryTurn; nowMs: number; id: string }): JSX.Element {
+function TurnRow(props: {
+  turn: HistoryTurn
+  nowMs: number
+  id: string
+  highlighted: boolean
+}): JSX.Element {
   const [expanded, setExpanded] = createSignal(false)
   const status = () => TURN_STATUS[props.turn.state]
   const bodyId = () => `${props.id}-body`
   return (
     <Entry
+      id={`${props.id}-row`}
+      highlighted={props.highlighted}
       trailing={
         <ActionButton
           type="button"
@@ -186,57 +153,49 @@ function TurnRow(props: { turn: HistoryTurn; nowMs: number; id: string }): JSX.E
   )
 }
 
-function ResultRow(props: {
-  row: ConversationSearchRow
-  query: string
-  nowMs: number
-  onJump?: (jump: ConversationSearchJump) => void
-}): JSX.Element {
-  return (
-    <Entry
-      trailing={
-        <Show when={props.onJump}>
-          {(jump) => (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label={`Jump to ${conversationSearchRowLabel(props.row)}`}
-              onClick={() => jump()(props.row.jump)}
-            >
-              Jump
-            </Button>
-          )}
-        </Show>
-      }
-    >
-      <div class="flex min-w-0 flex-col gap-1.5">
-        <div class="flex items-center gap-2">
-          <Badge variant="outline">{KIND_LABELS[props.row.kind]}</Badge>
-          <Show when={props.row.occurredAt}>
-            {(at) => (
-              <Text variant="caption" tone="muted" class="ms-auto">
-                <time datetime={at()}>{formatRelativeTime(at(), props.nowMs)}</time>
-              </Text>
-            )}
-          </Show>
-        </div>
-        <div class="line-clamp-3">
-          <Text as="span" variant="body">
-            <Highlighted text={props.row.preview} query={props.query} />
-          </Text>
-        </div>
-      </div>
-    </Entry>
-  )
+/** The turn an event belongs to: the latest prompt at or before it. */
+export function turnIdForEvent(
+  turns: readonly HistoryTurn[],
+  events: readonly RuntimeEvent[],
+  eventId: string
+): string | undefined {
+  const target = events.find((event) => event.eventId === eventId)
+  if (!target) return undefined
+  let best: HistoryTurn | undefined
+  for (const turn of turns) {
+    if (turn.id === eventId) return turn.id
+    try {
+      if (
+        BigInt(turn.jump.sequence ?? '-1') <= BigInt(target.seq) &&
+        (!best || BigInt(turn.jump.sequence ?? '-1') > BigInt(best.jump.sequence ?? '-1'))
+      )
+        best = turn
+    } catch {
+      continue
+    }
+  }
+  return best?.id
 }
+
+const REVEAL_MS = 2_400
 
 export function HistoryPane(props: HistoryPaneProps): JSX.Element {
   const [tab, setTab] = createSignal('turns')
   const [query, setQuery] = createSignal('')
   const [pageCount, setPageCount] = createSignal(1)
+  const [highlightedTurn, setHighlightedTurn] = createSignal<string>()
+  // A reveal in this list answers a "Go to" without persisting a scope change.
+  const [scopeOverride, setScopeOverride] = createSignal<HistoryScope>()
+  const scope = () => scopeOverride() ?? props.scope ?? 'session'
+  const chooseScope = (next: HistoryScope) => {
+    setScopeOverride(undefined)
+    props.onScopeChange?.(next)
+  }
   const nowMs = () => props.nowMs?.() ?? Date.now()
   const idPrefix = `dev-history-${Math.random().toString(36).slice(2, 8)}`
+  const allSessions = () => scope() === 'all' && props.all !== undefined && tab() === 'turns'
+  let body: HTMLDivElement | undefined
+  let searchInput: HTMLInputElement | undefined
 
   const turns = createMemo(() =>
     buildHistoryTurns(props.events, { runActive: props.runActive === true })
@@ -269,6 +228,51 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
     setPageCount(1)
   }
 
+  // The host has no transcript to scroll, so a "Go to" in the bound session
+  // shows the event's turn in this list: clear the search, scroll, and mark it.
+  createEffect(() => {
+    const eventId = props.focusEventId
+    if (!eventId || props.status !== 'ready') return
+    const turnId = turnIdForEvent(turns(), props.events, eventId)
+    if (turnId === undefined) {
+      props.onFocusResult?.(false)
+      return
+    }
+    setTab('turns')
+    updateQuery('')
+    setScopeOverride('session')
+    const frame = requestAnimationFrame(() => {
+      body?.querySelector(`[id="${idPrefix}-${turnId}-row"]`)?.scrollIntoView({ block: 'center' })
+      setHighlightedTurn(turnId)
+      props.onFocusResult?.(true)
+    })
+    const clear = setTimeout(() => setHighlightedTurn(undefined), REVEAL_MS)
+    onCleanup(() => {
+      cancelAnimationFrame(frame)
+      clearTimeout(clear)
+    })
+  })
+
+  // Up and Down walk the "Go to" buttons; Enter and Space press the focused one.
+  const moveThroughResults = (event: KeyboardEvent) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const buttons = Array.from(body?.querySelectorAll<HTMLElement>('[data-history-go]') ?? [])
+    if (buttons.length === 0) return
+    const at = buttons.indexOf(document.activeElement as HTMLElement)
+    if (at === -1) return
+    event.preventDefault()
+    const next = at + (event.key === 'ArrowDown' ? 1 : -1)
+    if (next < 0) searchInput?.focus()
+    else buttons[Math.min(next, buttons.length - 1)]?.focus()
+  }
+  const enterResults = (event: KeyboardEvent) => {
+    if (event.key !== 'ArrowDown') return
+    const first = body?.querySelector<HTMLElement>('[data-history-go]')
+    if (!first) return
+    event.preventDefault()
+    first.focus()
+  }
+
   const turnsBody = (): JSX.Element => (
     <Show
       when={props.status === 'ready'}
@@ -283,14 +287,20 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                   announceAs="status"
                   icon={<History aria-hidden="true" />}
                   title={
-                    props.status === 'stale' ? 'History is out of date' : 'History is unavailable'
+                    props.status === 'not_ready'
+                      ? 'The runtime is not ready'
+                      : props.status === 'stale'
+                        ? 'History is out of date'
+                        : 'History is unavailable'
                   }
                   detail={
-                    props.status === 'stale'
-                      ? 'Some events were missed or this feed belongs to an older run of the session. Reload to read the current history.'
-                      : 'The conversation could not be read from this runtime.'
+                    props.status === 'not_ready'
+                      ? 'History is available once the runtime has connected.'
+                      : props.status === 'stale'
+                        ? 'Some events were missed or this feed belongs to an older run of the session. Reload to read the current history.'
+                        : 'The conversation could not be read from this runtime.'
                   }
-                  {...(props.onRetry
+                  {...(props.onRetry && props.status !== 'not_ready'
                     ? {
                         action: props.onRetry,
                         actionLabel: props.status === 'stale' ? 'Reload' : 'Try again',
@@ -329,7 +339,14 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
             <div class="p-3">
               <EntryList label="Prompts and replies, newest first">
                 <For each={turns()}>
-                  {(turn) => <TurnRow turn={turn} nowMs={nowMs()} id={`${idPrefix}-${turn.id}`} />}
+                  {(turn) => (
+                    <TurnRow
+                      turn={turn}
+                      nowMs={nowMs()}
+                      id={`${idPrefix}-${turn.id}`}
+                      highlighted={highlightedTurn() === turn.id}
+                    />
+                  )}
                 </For>
               </EntryList>
             </div>
@@ -354,7 +371,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                     row={row}
                     query={query()}
                     nowMs={nowMs()}
-                    {...(props.onJump ? { onJump: props.onJump } : {})}
+                    {...(props.onGo ? { onGo: props.onGo } : {})}
                   />
                 )}
               </For>
@@ -382,12 +399,14 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
       <div class="flex flex-col gap-2 border-b border-border p-3">
         <div class="flex items-center gap-2">
           <Input
+            ref={(element) => (searchInput = element)}
             class="min-w-0 flex-1"
-            aria-label="Search this conversation"
+            aria-label={allSessions() ? 'Search all sessions' : 'Search this conversation'}
             placeholder="Search prompts, replies and tools"
             value={query()}
-            disabled={props.status !== 'ready'}
+            disabled={!allSessions() && props.status !== 'ready'}
             onInput={(event) => updateQuery(event.currentTarget.value)}
+            onKeyDown={enterResults}
           />
           <Show when={searching()}>
             <ActionButton
@@ -422,27 +441,90 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
             Runs
           </Button>
         </div>
-      </div>
-      <div class="min-h-0 flex-1 overflow-y-auto">
-        <Show when={tab() === 'turns'} fallback={<RunHistoryPane runs={props.runs} />}>
-          <Show when={searching() && page()}>
-            {(current) => (
-              <div class="px-3 pt-2">
-                <Text variant="caption" tone="muted" role="status">
-                  {current().totalMatches} result{current().totalMatches === 1 ? '' : 's'} for “
-                  {query().trim()}”
-                </Text>
-              </div>
-            )}
+        <Show when={props.onScopeChange && tab() === 'turns'}>
+          <div role="group" aria-label="Search scope" class="flex gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={scope() !== 'all' ? 'secondary' : 'ghost'}
+              aria-pressed={scope() !== 'all'}
+              onClick={() => chooseScope('session')}
+            >
+              This session
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={scope() === 'all' ? 'secondary' : 'ghost'}
+              aria-pressed={scope() === 'all'}
+              onClick={() => chooseScope('all')}
+            >
+              All sessions
+            </Button>
+          </div>
+          <Show when={scope() !== 'all' && searching()}>
+            <Text variant="caption" tone="muted">
+              Searching this session. Switch to All sessions to search the whole workspace.
+            </Text>
           </Show>
-          <Show when={props.bounded && props.status === 'ready' && !searching()}>
+        </Show>
+      </div>
+      <div
+        ref={(element) => (body = element)}
+        class="min-h-0 flex-1 overflow-y-auto"
+        onKeyDown={moveThroughResults}
+      >
+        <Show when={props.notice}>
+          {(notice) => (
             <div class="px-3 pt-2">
-              <Text variant="caption" tone="muted" role="status">
-                Showing the latest events only. Older prompts were dropped by retention.
+              <Text variant="caption" role="status">
+                {notice().title}
+                <Show when={notice().detail}> {notice().detail}</Show>
               </Text>
             </div>
+          )}
+        </Show>
+        <Show when={tab() === 'turns'} fallback={<RunHistoryPane runs={props.runs} />}>
+          <Show
+            when={allSessions()}
+            fallback={
+              <>
+                <Show when={searching() && page()}>
+                  {(current) => (
+                    <div class="px-3 pt-2">
+                      <Text variant="caption" tone="muted" role="status">
+                        {current().totalMatches} result{current().totalMatches === 1 ? '' : 's'} for
+                        “{query().trim()}”
+                      </Text>
+                    </div>
+                  )}
+                </Show>
+                <Show when={props.bounded && props.status === 'ready' && !searching()}>
+                  <div class="px-3 pt-2">
+                    <Text variant="caption" tone="muted" role="status">
+                      Showing the latest events only. Older prompts were dropped by retention.
+                    </Text>
+                  </div>
+                </Show>
+                {turnsBody()}
+              </>
+            }
+          >
+            <AllSessionsResults
+              feed={props.all!}
+              query={query()}
+              pageCount={pageCount()}
+              nowMs={nowMs()}
+              {...(props.boundSessionId ? { boundSessionId: props.boundSessionId } : {})}
+              {...(props.session && props.status === 'ready'
+                ? { overrides: new Map([[props.session.id, props.events]]) }
+                : {})}
+              onGo={(jump) => props.onGo?.(jump)}
+              {...(props.onResume ? { onResume: props.onResume } : {})}
+              onLoadMore={() => setPageCount((count) => count + 1)}
+              {...(props.onRetryAll ? { onRetry: props.onRetryAll } : {})}
+            />
           </Show>
-          {turnsBody()}
         </Show>
       </div>
     </div>

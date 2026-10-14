@@ -1393,8 +1393,10 @@ general project, room, and session navigation.
 
 The right-sidebar History tab (`DevUtilityPane` `history`, capability
 `dev.session.read`) answers "what did I ask last, and what did the agent say".
-It is bound to the one canonical session of the utility context; there is no
-cross-session search and no second store.
+Its Turns and Runs views are bound to the one canonical session of the utility
+context. A scope switch ("This session", the default, or "All sessions"; the
+choice is a device preference) extends the search across the workspace's open
+sessions. There is no second store and no server-side index.
 
 - **Data.** `SessionHistorySection` reads `dev.session.get` and `dev.harness.runs`
   through the captured utility fence, then opens a read-direction
@@ -1415,13 +1417,52 @@ cross-session search and no second store.
   `searchConversationHistory` with `matchOn: 'preview'`, so it matches prompts,
   replies, tool names, approvals, questions and statuses and never the session
   title. Credential-classified events are dropped before matching, exactly as the Turns tab drops them. Results page 100 at a time; "Load more" extends the list from the
-  previous cursor. Matches are highlighted. A result's Jump button appears only
-  where the host can reveal an event (Chat supplies `onJump`; Dev shows none).
+  previous cursor. Matches are highlighted. A result's "Go to" button shows the
+  event: in Chat the transcript scrolls to the event's row and marks it
+  (`event-reveal.ts`, a one-slot request the mounted `ChatTranscript` answers); in
+  Dev, which renders no transcript, the pane clears the search and scrolls to and
+  marks the event's turn in its own list. Neither host invents a position: an
+  event the window no longer holds is reported ("That event is no longer shown in
+  the conversation.").
+- **All sessions.** `scanAllSessions` (`all-sessions-scan.ts`) lists open
+  (non-archived) sessions (`dev.session.list`, 200 per page, at most 3 pages) and
+  runs (`dev.harness.runs`, 500 per page, at most 2 pages), ranks sessions by the
+  start of their newest run, and reads the retained event window of the 20 most
+  recent structured sessions, four at a time, through `openRuntimeEventStream`.
+  A stream is a live tail with no end marker, so its window is complete once frames
+  stop for 300 ms after it opened (4 s at most); the stream is closed at once. A
+  stale, conflicting or unopened stream is an unread session. The scan reports
+  `partial` when sessions beyond the 20, pages beyond the cap, bounded windows or
+  unread sessions were left out ("Searched the most recent events of N sessions.
+  Searching older history is not available yet."), and fails with "History search
+  is unavailable" only when no window could be read. The scan is kept for 30
+  seconds while the pane is open and is identified by the workspace scope alone,
+  so it survives a change of open session; the open session's live feed replaces
+  its scanned window. `buildAllSessionsView` groups matches by session (newest
+  match first) with whole-result match counts, pages 50 rows at a time and never
+  shows more than 1,000 ("Showing the first 1,000 of N matches. Narrow your search
+  to see the rest."). An empty query lists the three most recent prompts per
+  session. The session title matches in this scope. "Go to" in another session
+  opens it through the host (`onOpenSession`: Dev resolves the deep link, Chat
+  selects the session in the shared store) before showing the event.
+- **Resume.** A group's newest run decides: resumable (`completed`,
+  `disconnected` or `failed` with a recorded start) shows "Resume"; otherwise the
+  reason is shown verbatim (cancelled, still active, no recorded start, unknown
+  state). "Resume" opens a confirmation that names the session, the run and what
+  stays and starts; confirming re-reads the session's runs and refuses (with the
+  reason) unless the same run is still the newest and resumable, then calls
+  `dev.session.resumeHarness` with the session's generation, opens the session
+  and says which generation started. A refusal keeps the dialog open with "Try
+  again".
 - **Runs tab.** The existing `RunHistoryPane` for the session.
 - **Truthful states.** A `terminal_fallback` projection has no structured feed, so
   the Turns tab says so instead of showing an empty list; a window that retention
   dropped older events from says "Showing the latest events only"; a feed that lost events (`resync_required`), conflicts, or belongs to an older generation (`stale_generation`) is closed and shown as "History is out of date" with Reload, never as a partial list; an unreadable
-  feed offers Try again.
+  feed offers Try again; before the runtime connects the pane says "The runtime is
+  not ready".
+- **Keyboard.** Up and Down move focus through the "Go to" buttons (Down from the
+  search box enters them, Up from the first returns), Enter activates one, and
+  the result count is a polite status.
 - **Redaction.** Prompt and reply text pass `redactSearchText` (secrets, private
   paths, control characters, bounded length), and `credential`-classified events
   are skipped.

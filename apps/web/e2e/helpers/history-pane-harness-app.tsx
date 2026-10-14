@@ -6,7 +6,12 @@ import { render } from 'solid-js/web'
 // The History pane is mounted by the utility host behind a live runtime. The
 // harness mounts the pure pane directly over one session whose title repeats
 // across every match, so accessible names have to carry the kind and preview.
-import { HistoryPane } from '../../../../packages/dev-view/src/history/history-pane'
+import {
+  HistoryPane,
+  type HistoryScope,
+} from '../../../../packages/dev-view/src/history/history-pane'
+import { ResumeRefusedError } from '../../../../packages/dev-view/src/history/all-sessions-model'
+import type { AllSessionsScan } from '../../../../packages/dev-view/src/history/all-sessions-scan'
 
 const scope: Scope = {
   accountId: '11111111-1111-4111-8111-111111111111',
@@ -83,8 +88,92 @@ const filler = Array.from({ length: count }, (_, index) =>
   event(6 + index, { payload: { text: `filler prompt ${index}` } })
 )
 
+// #716 All sessions: three sessions that all mention "terminal", one resumable,
+// one cancelled, one still running. `?cap=1` swaps in six sessions with 1,000
+// matching events each, so the 1,000-row cap is reached from the real model.
+function otherSession(id: string, title: string, overrides: Partial<RuntimeSession> = {}) {
+  return { ...session, id, displayName: title, ...overrides } as RuntimeSession
+}
+function otherEvent(sessionId: string, seq: number, overrides: Partial<RuntimeEvent>) {
+  return event(seq, {
+    eventId: `${sessionId}-event-${seq}`,
+    sourceEventId: `${sessionId}-source-${seq}`,
+    runtimeSessionId: sessionId,
+    occurredAt: new Date(Date.UTC(2026, 8, 22, 10, 0, seq % 60, 0)).toISOString(),
+    ...overrides,
+  })
+}
+function otherRun(sessionId: string, state: HarnessRun['state'], extra: Partial<HarnessRun> = {}) {
+  return { ...run, id: `run-${sessionId}`, runtimeSessionId: sessionId, state, ...extra }
+}
+
+function buildScan(): AllSessionsScan {
+  if (params.get('cap') === '1') {
+    const sessions = Array.from({ length: 6 }, (_, index) =>
+      otherSession(`bulk-${index}`, `Bulk session ${index}`)
+    )
+    return {
+      sessions,
+      runs: [],
+      events: new Map(
+        sessions.map((bulk) => [
+          bulk.id,
+          Array.from({ length: 1_000 }, (_, index) =>
+            otherEvent(bulk.id, index + 1, { payload: { text: `terminal note ${index}` } })
+          ),
+        ])
+      ),
+      searched: 6,
+      partial: false,
+      scannedAt: 0,
+    }
+  }
+  const shell = otherSession('shell', 'Shell switcher')
+  const resize = otherSession('resize', 'Fix terminal resize on Windows')
+  const review = otherSession('review', 'Review the terminal search spec')
+  return {
+    sessions: [shell, resize, review],
+    runs: [
+      otherRun('shell', 'failed', { generation: 6 }),
+      otherRun('resize', 'cancelled'),
+      otherRun('review', 'working'),
+    ],
+    events: new Map([
+      [
+        'shell',
+        [
+          otherEvent('shell', 1, { payload: { text: 'add a terminal shell switcher' } }),
+          otherEvent('shell', 2, {
+            kind: 'turn.result',
+            payload: { summary: 'Added a Shell menu to the terminal toolbar' },
+          }),
+          otherEvent('shell', 3, {
+            kind: 'tool.requested',
+            payload: { name: 'bun test terminal' },
+          }),
+        ],
+      ],
+      [
+        'resize',
+        [otherEvent('resize', 4, { payload: { text: 'why does the terminal lose its size' } })],
+      ],
+      ['review', [otherEvent('review', 5, { payload: { text: 'review the search spec' } })]],
+    ]),
+    searched: 3,
+    partial: params.get('partial') === '1',
+    scannedAt: 0,
+  }
+}
+
 function Harness() {
   const [jumps, setJumps] = createSignal<string[]>([])
+  const [chosen, setChosen] = createSignal<HistoryScope>(
+    params.get('scope') === 'all' ? 'all' : 'session'
+  )
+  const [attempts, setAttempts] = createSignal(0)
+  const scopes = params.has('scopes') || params.has('scope')
+  const allStatus = params.get('all') ?? 'ready'
+  let refuse = params.get('resumeFails') === '1'
   return (
     <>
       <div class="h-96">
@@ -102,10 +191,35 @@ function Harness() {
           runs={[run]}
           bounded={params.get('bounded') === '1'}
           nowMs={() => Date.parse('2026-09-22T10:20:00.000Z')}
-          onJump={(jump) => setJumps((current) => [...current, jump.eventId ?? 'run'])}
+          onGo={(jump) =>
+            setJumps((current) => [...current, jump.eventId ?? `session:${jump.runtimeSessionId}`])
+          }
+          {...(scopes
+            ? {
+                scope: chosen(),
+                onScopeChange: setChosen,
+                boundSessionId: session.id,
+                all:
+                  allStatus === 'ready'
+                    ? { status: 'ready' as const, scan: buildScan() }
+                    : {
+                        status:
+                          allStatus === 'loading' ? ('loading' as const) : ('unavailable' as const),
+                      },
+                onRetryAll: () => setAttempts((tries) => tries + 1),
+                onResume: async (target: { harnessRunId: string }) => {
+                  if (refuse) {
+                    refuse = false
+                    throw new ResumeRefusedError('the runtime did not accept the request.')
+                  }
+                  setJumps((current) => [...current, `resume:${target.harnessRunId}`])
+                },
+              }
+            : {})}
         />
       </div>
       <p data-testid="jumps">{jumps().join(',')}</p>
+      <p data-testid="attempts">{attempts()}</p>
     </>
   )
 }
