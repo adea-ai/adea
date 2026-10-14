@@ -9,6 +9,7 @@ import {
   memoryErrorCode,
   memoryErrorMessage,
   memoryErrorNeedsRefresh,
+  memoryOriginDetail,
   memorySourceLabel,
   memoryView,
 } from '../../src/memory-model'
@@ -30,6 +31,7 @@ function entry(
     createdAt,
     updatedAt: createdAt,
     revision: 1,
+    origin: { kind: 'user' },
     ...overrides,
   }
 }
@@ -82,5 +84,32 @@ describe('workspace memory settings model', () => {
     expect(MEMORY_UNAVAILABLE_COPY).toBe(
       'Memory is stored on your desktop. Open Adea Desktop to manage it.'
     )
+  })
+
+  test('states the verified origin of an agent entry and nothing for a user note', () => {
+    const at = '2026-10-01T00:00:00.000Z'
+    expect(memoryOriginDetail(entry('a', at))).toBeUndefined()
+    expect(
+      memoryOriginDetail(
+        entry('b', at, { source: 'agent', origin: { kind: 'agent', provenance: 'unknown' } })
+      )
+    ).toBe('Origin not recorded (added before agent runs were tracked)')
+    const recorded = {
+      kind: 'agent',
+      provenance: 'recorded',
+      agentProfileId: 'profile-1',
+      runtimeSessionId: '11111111-2222-4333-8444-555555555555',
+      runId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    } as const
+    expect(
+      memoryOriginDetail(
+        entry('c', at, { source: 'agent', origin: { ...recorded, harnessId: 'pi' } })
+      )
+    ).toBe('Proposed by Pi in session 11111111 (run aaaaaaaa)')
+    expect(
+      memoryOriginDetail(
+        entry('d', at, { source: 'agent', origin: { ...recorded, harnessId: null } })
+      )
+    ).toBe('Proposed by an agent in session 11111111 (run aaaaaaaa)')
   })
 })

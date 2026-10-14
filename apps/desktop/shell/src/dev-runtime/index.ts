@@ -46,6 +46,7 @@ import { registerHarnessRuntime, type HarnessRuntimeRegistration } from './harne
 import type { HarnessDiscoverySource } from './discovery/types'
 import type { AcpLaneDriver } from './harness/acp-lane'
 import type { MemoryStore } from '../memory/store'
+import type { MemoryAgentTrace } from '../memory/provenance'
 import type { ManagedPiDriver } from './harness/managed-pi-driver'
 import { registerTerminalRuntime, type TerminalRuntimeRegistration } from './terminal/register'
 import type { SidecarClient } from './terminal/sidecar/client'
@@ -556,8 +557,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.memory
           ? {
               memoryPreamble: input.memory.preamble,
-              proposeMemory: (workspaceId: string, text: string) =>
-                input.memory!.propose(workspaceId, { text }),
+              proposeMemory: (workspaceId: string, text: string, origin: MemoryAgentTrace) =>
+                input.memory!.propose(workspaceId, { text, origin }),
             }
           : {}),
         ...(connections ? { resolveHarnessAccount: connections.resolveHarnessAccount } : {}),
