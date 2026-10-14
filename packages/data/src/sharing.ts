@@ -25,10 +25,11 @@ export const sharingQueryOptions = {
     queryFn: () => client.listProjectMembers(workspaceId!, projectId!),
     queryKey: sharingQueryKeys.projectMembers(workspaceId ?? '', projectId ?? ''),
   }),
-  workspaceMembers: (client: AgentHqApiClient, workspaceId?: string) => ({
+  workspaceMembers: (client: AgentHqApiClient, workspaceId?: string, staleTime?: number) => ({
     enabled: Boolean(workspaceId),
     queryFn: () => client.listWorkspaceMembers(workspaceId!),
     queryKey: sharingQueryKeys.workspaceMembers(workspaceId ?? ''),
+    ...(staleTime === undefined ? {} : { staleTime }),
   }),
 }
 
@@ -98,11 +99,13 @@ export const sharingMutationOptions = {
 
 type Accessor<T> = () => T
 
+/** `staleTime: 0` makes every enable read the list again, for a decision that must not use a cache. */
 export function useWorkspaceMembersQuery(
   client: AgentHqApiClient,
-  workspaceId: Accessor<string | undefined>
+  workspaceId: Accessor<string | undefined>,
+  staleTime?: number
 ) {
-  return useQuery(() => sharingQueryOptions.workspaceMembers(client, workspaceId()))
+  return useQuery(() => sharingQueryOptions.workspaceMembers(client, workspaceId(), staleTime))
 }
 
 export function useWorkspaceInvitationsQuery(

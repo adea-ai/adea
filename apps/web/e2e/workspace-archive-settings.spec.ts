@@ -45,14 +45,91 @@ const reopenRow = (page: Page, name: string) =>
   page.getByRole('button', { name: `Reopen ${name}`, exact: true })
 const root = (page: Page) => page.locator('#harness-root')
 
+test('the archive confirmation names its consequences and the live member count before committing', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  await archiveButton(page).click()
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await expect(consequences).toContainText('Work that is already running is not cancelled.')
+  await expect(consequences).toContainText(
+    'Nothing is erased. Its history, links, jobs and artifacts are kept'
+  )
+  await expect(consequences).toContainText(
+    'Permanent deletion stays unavailable until cleanup is verified.'
+  )
+  await expect(root(page)).not.toHaveAttribute('data-archive-calls')
+  expect(errors).toEqual([])
+})
+
+test('an unreadable member list never invents a count', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': 'error' })
+  await archiveButton(page).click()
+  await expect(page.getByRole('list', { name: 'Archive consequences' })).toContainText(
+    'Every member loses access until you reopen it.'
+  )
+  expect(errors).toEqual([])
+})
+
+test('a failed or running member refresh never reuses an earlier count', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // Membership changes, then the next read fails: the cached "2 other members" is no longer evidence.
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', 'error'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+  // The refresh runs its retries and settles as a failure; the generic warning holds throughout.
+  await expect(root(page)).toHaveAttribute('data-members-calls', '5', { timeout: 20_000 })
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+
+  // Once a read succeeds again, the new count is stated.
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', '2'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('1 other member loses access until you reopen it.')
+  expect(errors).toEqual([])
+})
+
+test('a member refresh paused offline never reuses an earlier count, and the new count appears on reconnect', async ({
+  context,
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '1')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // The connection drops and membership changes. The read on reopen is paused, not failed and not
+  // fetching, so the cached "2 other members" must not be stated.
+  await context.setOffline(true)
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', '2'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '1')
+
+  // Reconnecting resumes the paused read, and only then is the new count stated.
+  await context.setOffline(false)
+  await expect(consequences).toContainText('1 other member loses access until you reopen it.')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '2')
+  expect(errors).toEqual([])
+})
+
 test('the owner archives an optional workspace, finds it in the archived list, and reopens it', async ({
   page,
 }) => {
   const errors = await openArchiveHarness(page)
   await archiveButton(page).click()
-  await expect(
-    page.getByText('Archive Settings harness? It is hidden from your workspace list.')
-  ).toBeVisible()
+  await expect(page.getByText('Archive Settings harness?', { exact: true })).toBeVisible()
   await archiveButton(page).click()
   await expect(archivedToast(page)).toBeVisible()
   await expect(reopenRow(page, 'Settings harness')).toBeVisible()
@@ -93,9 +170,7 @@ test('the confirmation keeps its captured target when the active workspace chang
   await page
     .locator('#switch-fixture-workspace')
     .evaluate((element) => (element as HTMLElement).click())
-  await expect(
-    page.getByText('Archive Settings harness? It is hidden from your workspace list.')
-  ).toBeVisible()
+  await expect(page.getByText('Archive Settings harness?', { exact: true })).toBeVisible()
   await archiveButton(page).click()
   await expect(archivedToast(page)).toBeVisible()
   await expect(root(page)).toHaveAttribute('data-archive-target', 'workspace-settings-e2e')
@@ -137,5 +212,86 @@ test('a transient failure shows a retry message, and a double click archives onc
   await archiveButton(page).click()
   await expect(archivedToast(page)).toBeVisible()
   await expect(root(page)).toHaveAttribute('data-archive-calls', '2')
+  expect(errors).toEqual([])
+})
+
+const restoreButton = (page: Page, name: string) =>
+  page.getByRole('button', { name: `Restore ${name}`, exact: true })
+
+test('an archived project is restored only after an explicit confirmation at the listed revision', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archived-projects': '' })
+  await expect(restoreButton(page, 'Billing rebuild')).toBeVisible()
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  await restoreButton(page, 'Billing rebuild').click()
+  const consequences = page.getByRole('list', { name: 'Restore consequences' })
+  await expect(consequences).toContainText(
+    'It returns to the sidebar for everyone who can see it, with its conversations.'
+  )
+  await expect(consequences).toContainText('Who can see it does not change.')
+  // Opening the confirmation sends nothing.
+  await expect(root(page)).not.toHaveAttribute('data-restore-calls')
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Archived projects status' })).toHaveText(
+    'Billing rebuild is restored.'
+  )
+  await expect(root(page)).toHaveAttribute('data-restore-target', 'project-billing')
+  await expect(root(page)).toHaveAttribute('data-restore-version', '3')
+  await expect(root(page)).toHaveAttribute('data-restore-confirmed', 'true')
+  await expect(restoreButton(page, 'Billing rebuild')).toHaveCount(0)
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('cancelling the restore confirmation sends nothing', async ({ page }) => {
+  const errors = await openArchiveHarness(page, { 'data-archived-projects': '' })
+  await restoreButton(page, 'Mobile').click()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toHaveCount(0)
+  await expect(restoreButton(page, 'Mobile')).toBeVisible()
+  await expect(root(page)).not.toHaveAttribute('data-restore-calls')
+  expect(errors).toEqual([])
+})
+
+test('a project that changed since it was listed is refused, not forced, and the list is read again', async ({
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, {
+    'data-archived-projects': '',
+    'data-restore-mode': 'conflict',
+  })
+  await restoreButton(page, 'Billing rebuild').click()
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('This project changed since it was listed.')
+  await expect(root(page)).toHaveAttribute('data-restore-calls', '1')
+  // The conflict closes the confirmation: the owner reviews the refreshed row and decides again.
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toHaveCount(0)
+  await expect(restoreButton(page, 'Billing rebuild')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('a transient restore failure keeps the confirmation open for a retry', async ({ page }) => {
+  const errors = await openArchiveHarness(page, {
+    'data-archived-projects': '',
+    'data-restore-mode': 'error',
+  })
+  await restoreButton(page, 'Mobile').click()
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText(
+    'The project could not be restored. Try again.'
+  )
+  await expect(page.getByRole('list', { name: 'Restore consequences' })).toBeVisible()
+  await root(page).evaluate((element) => element.setAttribute('data-restore-mode', 'ok'))
+  await page.getByRole('button', { name: 'Restore project', exact: true }).click()
+  await expect(page.getByRole('status', { name: 'Archived projects status' })).toHaveText(
+    'Mobile is restored.'
+  )
+  expect(errors).toEqual([])
+})
+
+test('a workspace with no archived projects says so', async ({ page }) => {
+  const errors = await openArchiveHarness(page)
+  await expect(page.getByText('No archived projects.')).toBeVisible()
   expect(errors).toEqual([])
 })

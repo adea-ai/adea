@@ -88,3 +88,23 @@ describe('project API client', () => {
     expect(await request?.json()).toEqual({ confirmed: true, expectedVersion: 7 })
   })
 })
+
+describe('archived project listing', () => {
+  test('asks for archived rows explicitly and returns only the archived ones', async () => {
+    const requests: Request[] = []
+    const archived = { ...project, id: 'project-2', lifecycleState: 'archived' as const }
+    const client = createApiClient({
+      baseUrl: 'https://hq.example/api',
+      fetchImpl: async (input, init) => {
+        requests.push(new Request(input, init))
+        return Response.json([project, archived])
+      },
+    })
+
+    await expect(client.listArchivedProjects('workspace/1')).resolves.toEqual([archived])
+    expect(requests.map((request) => request.method)).toEqual(['GET'])
+    const url = new URL(requests[0]!.url)
+    expect(url.pathname).toBe('/api/v1/workspaces/workspace%2F1/projects')
+    expect(url.search).toBe('?includeArchived=true')
+  })
+})

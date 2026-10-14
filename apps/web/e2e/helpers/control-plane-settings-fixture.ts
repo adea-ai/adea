@@ -90,6 +90,9 @@ export function controlPlaneSettingsClient(mode: 'scoped' | 'unavailable'): Agen
       // empty; the request above is recorded like every other, and specs assert it by method and path.
       if (url.pathname === '/api/workspaces/archived' && method === 'GET')
         return Response.json({ workspaces: [] })
+      // General also reads the workspace's archived projects; the harness keeps none either.
+      if (/^\/api\/v1\/workspaces\/[^/]+\/projects$/u.test(url.pathname) && method === 'GET')
+        return Response.json([])
       const runtimeInventory = await runtimeInventoryFixtureResponse(url, init?.signal ?? undefined)
       if (runtimeInventory) return runtimeInventory
       const path = url.pathname.replace(/^\/api\/workspaces\/[^/]+\//u, '')

@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiProjectCreateInput, ApiProjectResponse } from '@adea-ai/api-client'
-import { isProjectId, isProjectSourceKind, listProjectsForUser } from '@adea-ai/db'
+import { isProjectId, isProjectSourceKind } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../server/database'
 import { runAfterResponse } from '../../../../../../server/background-task'
@@ -12,6 +12,7 @@ import {
   handleDesktopWorkspacePreflight,
 } from '../../../../../../server/desktop-workspace'
 import { applicationManagementOperations } from '../../../../../../server/management-composition'
+import { projectListGet } from '../../../../../../server/project-list-handler'
 import { authorizeWorkspace } from '../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../server/workspace-principal'
 import {
@@ -21,20 +22,12 @@ import {
   workspaceUnavailableResponse,
 } from '../../../../../../server/workspace-response'
 async function get(request: Request, { params }: { params: { workspaceId: string } }) {
-  const rejected = guardDesktopWorkspaceRequest(request)
-  if (rejected) return rejected
   const { workspaceId } = await params
-  const resolution = await resolveWorkspacePrincipal(request)
-  if (!resolution) return workspaceUnavailableResponse(request, 401)
-  const authorization = await authorizeWorkspace(
-    resolution.principal,
-    'workspace.read',
-    workspaceId
-  )
-  if (!authorization.allowed) return workspaceUnavailableResponse(request)
-  const result = await listProjectsForUser(applicationDatabase(), workspaceId, resolution.principal)
-  return workspaceJsonResponse(result, resolution, request, {
-    headers: { 'cache-control': 'private, no-store' },
+  return projectListGet(request, workspaceId, {
+    authorize: async (principal, permission, id) =>
+      (await authorizeWorkspace(principal, permission, id)).allowed,
+    database: applicationDatabase,
+    resolvePrincipal: resolveWorkspacePrincipal,
   })
 }
 
