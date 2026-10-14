@@ -2050,16 +2050,21 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       }
     }
 
-    if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {
-      putWorktree({ ...record, lifecycle: 'recovery_required', updatedAt: nowIso(clock) })
-    }
+    // A job that already completed has nothing to recover: report it before any
+    // recovery mutation, so a lost response or a restart followed by a resume
+    // cannot flag a healthy retained checkout (a narrowed plan leaves it live).
     if (job && job.state === 'completed') {
       return {
         planId: input.jobId,
         worktreeId: input.worktreeId,
         state: 'completed',
-        stepResults: recoveryResults(),
+        // Not every step journals (retained-data pruning does not), so a
+        // completed job reports its selected steps as done, never "not reached".
+        stepResults: selectedSteps.map((step) => ({ step, state: 'completed' as const })),
       }
+    }
+    if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {
+      putWorktree({ ...record, lifecycle: 'recovery_required', updatedAt: nowIso(clock) })
     }
     // Recovery state is a result, not an exception: the caller needs the
     // structured state to render re-plan/re-approve remediation.

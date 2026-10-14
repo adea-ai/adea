@@ -214,7 +214,7 @@ Second follow-up (same day), from review of the first:
   lifecycle now.
 - `resumeCleanup` run again after a rollback used to flag the restored, healthy
   worktree `recovery_required`. A job whose journaled steps were all rolled back
-  now reports `partial` again and changes nothing.
+  now reports `partial` again and changes nothing; a job that already completed is reported before any recovery mutation, so a lost response cannot flag a retained checkout.
 - A refused `git worktree prune` after a quarantine now restores the checkout,
   journals the rollback (quarantine and the refused unregister step) and returns
   the record to its planned lifecycle with a new generation, so the old plan is

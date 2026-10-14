@@ -360,6 +360,49 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
     }
   })
 
+  test('a completed retained-data-only job is resume-safe: lifecycle and directory stay as they were', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await readyWorktree(f)
+      writeFileSync(join(worktree.canonicalRoot, 'scratch.txt'), 'unsaved work\n')
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: ['prune_retained_data'],
+      })
+      const committed = await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+      expect(committed.state).toBe('completed')
+      const before = f.service.getWorktree(scope, worktree.id)
+      expect(before.lifecycle).toBe('ready')
+
+      const restarted = () =>
+        createWorktreeService({
+          dataDir: f.dataDir,
+          runtimeNodeId: scope.runtimeNodeId,
+          roots: f.roots,
+          clock: () => new Date(),
+        })
+      // The response was lost: the same service, then restarted ones, resume.
+      for (const service of [f.service, f.service, restarted(), restarted()]) {
+        const again = await service.resumeCleanup({
+          scope,
+          worktreeId: worktree.id,
+          jobId: plan.planId,
+        })
+        expect(again).toMatchObject({
+          state: 'completed',
+          stepResults: [{ step: 'prune_retained_data', state: 'completed' }],
+        })
+        expect(service.getWorktree(scope, worktree.id)).toEqual(before)
+        expect(existsSync(join(worktree.canonicalRoot, 'scratch.txt'))).toBe(true)
+        expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
+      }
+    } finally {
+      f.cleanup()
+    }
+  })
+
   test('an unprovable interruption stays recovery_required; the preview offers no automatic retry', async () => {
     const f = fixture()
     try {
