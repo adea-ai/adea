@@ -118,7 +118,8 @@ function visibilityGrew(before: string, after: string): boolean {
 // field missing from its family's entry would let drift report `identical`,
 // so the families added by #1219 compare every non-identity captured field:
 // artifactReferenceGrants, contentReplicas, leadTurnRuntime, nativeSessions,
-// runtimeNodes and taskSubmissions. Bindings are links (a change is a remap),
+// runtimeNodes and taskSubmissions, and so do the group families (#1222):
+// groupAdmissions, groupAudienceGrants and groupEnlistmentGrants. Bindings are links (a change is a remap),
 // digests are content/profile/version facts (drift), attributes are the row's
 // own state.
 const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyComparison>> = {
@@ -153,6 +154,27 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     attributes: [],
     binding: ['locationKind', 'runtimeNodeId', 'workspaceId'],
     digests: [],
+  },
+  // Group admission: the join frontier is the row's own state; the workspace and the authorizing
+  // (group, grant) are links, so re-pointing an admission at another grant is a remap. The grant
+  // revision it was admitted under is a digest-class fact: drift means the authorization changed.
+  groupAdmissions: {
+    attributes: [{ field: 'joinedSequence' }],
+    binding: ['authGrantId', 'authGroupId', 'workspaceId'],
+    digests: ['authRevision'],
+  },
+  // Group grants follow the artifact-reference grant shape: revocation and the persisted expiry are the
+  // grant's own state, compared verbatim (never against the capture clock); the subject and workspace
+  // are identity bindings, so a grant moved to another subject is a remap, never a match.
+  groupAudienceGrants: {
+    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    binding: ['userId', 'workspaceId'],
+    digests: ['revision'],
+  },
+  groupEnlistmentGrants: {
+    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    binding: ['agentId', 'workspaceId'],
+    digests: ['revision'],
   },
   identityBindings: { attributes: [], binding: ['userId'], digests: [] },
   invitations: {
@@ -284,6 +306,9 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
 const GRANT_FAMILIES: ReadonlySet<MigrationSnapshotFamily> = new Set([
   'artifactReferenceGrants',
   'channelParticipants',
+  'groupAdmissions',
+  'groupAudienceGrants',
+  'groupEnlistmentGrants',
   'memberships',
   'projectMembers',
 ])
@@ -393,6 +418,11 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.eventId
     case 'executionAttempts':
       return tupleKey(record.taskId, String(record.attempt))
+    case 'groupAdmissions':
+      return tupleKey(record.channelId, record.principalKind, record.principalId)
+    case 'groupAudienceGrants':
+    case 'groupEnlistmentGrants':
+      return tupleKey(record.channelId, record.grantId)
     case 'identityBindings':
       return tupleKey(record.provider, record.subject)
     case 'invitations':

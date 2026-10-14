@@ -79,6 +79,9 @@ import {
   channelReadStates,
   contentRefs,
   contentReplicas,
+  groupAdmissions,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
   leadTurnRuntime,
   messages,
   projectMembers,
@@ -643,6 +646,11 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.eventId
     case 'executionAttempts':
       return tupleKey(record.taskId, String(record.attempt))
+    case 'groupAdmissions':
+      return tupleKey(record.channelId, record.principalKind, record.principalId)
+    case 'groupAudienceGrants':
+    case 'groupEnlistmentGrants':
+      return tupleKey(record.channelId, record.grantId)
     case 'identityBindings':
       return tupleKey(record.provider, record.subject)
     case 'invitations':
@@ -1274,6 +1282,97 @@ async function captureFamilySectionByName(
           revision: row.revision,
           sourceWorkspaceId: row.sourceWorkspaceId,
           version: row.version,
+        }),
+      })
+    case 'groupAdmissions':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              agentId: groupAdmissions.agentId,
+              authGrantId: groupAdmissions.authGrantId,
+              authGroupId: groupAdmissions.authGroupId,
+              authRevision: groupAdmissions.authRevision,
+              channelId: groupAdmissions.channelId,
+              joinedSequence: groupAdmissions.joinedSequence,
+              principalKind: groupAdmissions.principalKind,
+              userId: groupAdmissions.userId,
+              workspaceId: groupAdmissions.workspaceId,
+            })
+            .from(groupAdmissions)
+            .orderBy(asc(groupAdmissions.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          authGrantId: row.authGrantId,
+          authGroupId: row.authGroupId,
+          authRevision: row.authRevision,
+          channelId: row.channelId,
+          family: 'groupAdmissions',
+          joinedSequence: row.joinedSequence,
+          // The principal id is the user or the Agent the admission names; a kind that names neither
+          // is carried as an empty id so the comparator quarantines it instead of capture repairing it.
+          principalId: (row.principalKind === 'agent' ? row.agentId : row.userId) ?? '',
+          principalKind: row.principalKind,
+          workspaceId: row.workspaceId,
+        }),
+      })
+    case 'groupAudienceGrants':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              channelId: groupAudienceGrants.channelId,
+              expiresAt: groupAudienceGrants.expiresAt,
+              grantId: groupAudienceGrants.grantId,
+              id: groupAudienceGrants.id,
+              revokedAt: groupAudienceGrants.revokedAt,
+              revision: groupAudienceGrants.revision,
+              userId: groupAudienceGrants.userId,
+              workspaceId: groupAudienceGrants.workspaceId,
+            })
+            .from(groupAudienceGrants)
+            .orderBy(asc(groupAudienceGrants.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          channelId: row.channelId,
+          expiresAt: row.expiresAt,
+          family: 'groupAudienceGrants',
+          grantId: row.grantId,
+          revoked: row.revokedAt !== null,
+          revision: row.revision,
+          userId: row.userId,
+          workspaceId: row.workspaceId,
+        }),
+      })
+    case 'groupEnlistmentGrants':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              agentId: groupEnlistmentGrants.agentId,
+              channelId: groupEnlistmentGrants.channelId,
+              expiresAt: groupEnlistmentGrants.expiresAt,
+              grantId: groupEnlistmentGrants.grantId,
+              id: groupEnlistmentGrants.id,
+              revokedAt: groupEnlistmentGrants.revokedAt,
+              revision: groupEnlistmentGrants.revision,
+              workspaceId: groupEnlistmentGrants.workspaceId,
+            })
+            .from(groupEnlistmentGrants)
+            .orderBy(asc(groupEnlistmentGrants.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          agentId: row.agentId,
+          channelId: row.channelId,
+          expiresAt: row.expiresAt,
+          family: 'groupEnlistmentGrants',
+          grantId: row.grantId,
+          revoked: row.revokedAt !== null,
+          revision: row.revision,
+          workspaceId: row.workspaceId,
         }),
       })
     case 'contentReplicas':
