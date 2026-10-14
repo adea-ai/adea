@@ -756,6 +756,27 @@ export async function getLeadTurnForUser(
   })
 }
 
+/**
+ * Re-reads an intent after its channel authority lock was granted. Under READ COMMITTED a row read
+ * before a lock wait can be stale once the wait ends; the writers that change an intent (the
+ * rollback fence among them) take the channel lock first, so a read made under that lock sees every
+ * committed change. The scope of the row must not have moved.
+ */
+async function reloadIntentUnderLock(tx: AgentHqTransaction, workspaceId: string, scoped: Intent) {
+  const [current] = await tx
+    .select()
+    .from(leadTurnIntents)
+    .where(and(eq(leadTurnIntents.id, scoped.id), eq(leadTurnIntents.workspaceId, workspaceId)))
+  if (
+    !current ||
+    current.channelId !== scoped.channelId ||
+    current.actorUserId !== scoped.actorUserId ||
+    current.messageId !== scoped.messageId
+  )
+    throw new Error('Lead turn unavailable')
+  return current
+}
+
 /** Trusted server repository boundary. Pins and current audience are held through operation commit. */
 export async function withAuthorizedLeadTurn<T>(
   database: Database,
@@ -771,13 +792,16 @@ export async function withAuthorizedLeadTurn<T>(
   ) => Promise<T>
 ) {
   return database.transaction(async (tx) => {
-    const [intent] = await tx
+    const [scoped] = await tx
       .select()
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
-    if (!intent || (mutation && intent.actorUserId !== principal.userId))
+    if (!scoped || (mutation && scoped.actorUserId !== principal.userId))
       throw new Error('Lead turn unavailable')
-    const authority = await lockAuthority(tx, workspaceId, intent.channelId, principal, mutation)
+    const authority = await lockAuthority(tx, workspaceId, scoped.channelId, principal, mutation)
+    // The row above was read before the authority lock was granted, so a rollback fence committed
+    // while this transaction waited is not in it. Everything below uses the row read under the lock.
+    const intent = await reloadIntentUnderLock(tx, workspaceId, scoped)
     assertPinned(intent, authority, mutation)
     const [message] = await tx
       .select()
@@ -855,20 +879,23 @@ export async function withHistoricalLeadTurn<T>(
   ) => Promise<T>
 ) {
   return database.transaction(async (tx) => {
-    const [intent] = await tx
+    const [scoped] = await tx
       .select()
       .from(leadTurnIntents)
       .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
-    if (!intent || (purpose === 'cancel' && intent.actorUserId !== principal.userId))
+    if (!scoped || (purpose === 'cancel' && scoped.actorUserId !== principal.userId))
       throw new Error('Lead turn unavailable')
     const access = await lockHistoricalChannel(
       tx,
       workspaceId,
-      intent.channelId,
+      scoped.channelId,
       principal,
       purpose,
-      intent.actorUserId
+      scoped.actorUserId
     )
+    // Reload under the channel lock: a rollback fence committed while this transaction waited for
+    // it must be visible to everything the operation reports.
+    const intent = await reloadIntentUnderLock(tx, workspaceId, scoped)
     assertHistoricalIntent(intent, access)
     const [message] = await tx
       .select()

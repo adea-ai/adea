@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { archiveChannel, createDirectAgentTopic } from '../../src/conversations'
@@ -529,6 +529,66 @@ describe.skipIf(!databaseUrl)('lead-turn historical reads and reconciliation', (
         actor: { kind: 'operator', operatorId: 'ops:rollback-1' },
       },
     })
+  })
+
+  /**
+   * Holds the channel authority lock on one connection, starts `read` on another so that it reads
+   * the still-unfenced intent and then waits for that lock, commits the fence on the first
+   * connection, and returns what the waiting read reports once the lock is released.
+   */
+  async function readWhileFenceCommitsUnderLock<T>(f: Fixture, read: () => Promise<T>) {
+    let waiting: Promise<T> | undefined
+    await connection.db.transaction(async (tx) => {
+      const [backend] = await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`)
+      await tx.execute(sql`select id from app.channels where id = ${f.topic.id} for update`)
+      waiting = read()
+      // Wait for PostgreSQL to report the reader blocked on this connection, not for a timer.
+      let blocked = false
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const [row] = await connection.client<{ blocked: boolean }[]>`
+          select exists (
+            select 1 from pg_stat_activity
+            where ${backend!.pid} = any(pg_blocking_pids(pid))
+          ) as blocked
+        `
+        if (row?.blocked) {
+          blocked = true
+          break
+        }
+        await Bun.sleep(10)
+      }
+      expect(blocked).toBe(true)
+      // The fence commits with the lock still held, so it is ordered before the blocked reader.
+      await fenceLeadTurnForRollback(
+        tx as unknown as typeof connection.db,
+        f.workspace.id,
+        f.pin.intentId,
+        ownerFence(f)
+      )
+    })
+    return waiting!
+  }
+
+  test('A31 the product reader that waited on the authority lock reports a fence committed meanwhile', async () => {
+    const f = await fixture()
+    const { pin } = f
+    const product = await readWhileFenceCommitsUnderLock(f, () =>
+      readCurrentLeadTurnProduct(connection.db, pin.workspaceId, pin.intentId)
+    )
+    expect(product).toMatchObject({
+      intentId: pin.intentId,
+      dispatchPermitted: false,
+      rollbackFence: { reason: 'rollback_cohort' },
+    })
+  })
+
+  test('A31 the historical read that waited on the channel lock reports a fence committed meanwhile', async () => {
+    const f = await fixture()
+    const { workspace, pin } = f
+    const state = await readWhileFenceCommitsUnderLock(f, () =>
+      readLeadTurnRollbackState(connection.db, workspace.id, pin.intentId, f.owner.principal)
+    )
+    expect(state).toMatchObject({ fenced: true })
   })
 
   test('A30 the signed product reader never emits an archived admission, fenced or not', async () => {

@@ -307,3 +307,7 @@ role setup. The packages were rebuilt before the web checks.
   built): 11 pass, 0 fail.
 - `oxfmt --check .` and `oxlint --deny-warnings` clean.
 - Not run: `apps/web` build and bundle checks, E2E, packaged and desktop suites, root `test:coverage`.
+
+## Lock-wait staleness (2026-10-14)
+
+`withAuthorizedLeadTurn` and `withHistoricalLeadTurn` read the intent before taking the channel authority lock. A rollback fence committed while the reader waited for that lock was therefore missing from the row it used, and the product reader could emit `dispatchPermitted: true` for an admission that was already fenced. Both now reload the intent after the lock is granted (the fence writer takes the same channel lock first) and refuse a row whose channel, actor or message moved. Two-connection regressions in `lead-turn-historical.test.ts` hold the channel lock on one connection, let the reader read the unfenced intent and block, commit the fence under the lock, and require the product and the rollback state to report the fence. Both fail against the previous ordering.
