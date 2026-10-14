@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 const root = process.env.ADEA_CONTROL_PLANE_SOURCE
 const config = JSON.parse(process.env.ADEA_CHILD_FACTORY_CONFIG)
 const cpPath = (path) => join(root, path)
@@ -14,9 +15,11 @@ const cp = {
   sqlite: await import(cpPath('packages/sqlite-persistence/src/index.ts')),
   tool: await import(cpPath('packages/tool-execution/src/index.ts')),
   context: await import(cpPath('packages/context/src/index.ts')),
+  orchestration: await import(cpPath('packages/orchestration/src/index.ts')),
 }
 const id = (prefix) => `${prefix}_01JBBCDEF0123456789ABCDEFG`
-let host, delegationService, toolService, childRecords, toolDefinitionId, toolVersionId
+let host, delegationService, toolService, toolCalls, childRecords, lifecycle
+let toolDefinitionId, toolVersionId
 let releaseProvider
 const held = new Promise((resolve) => {
   releaseProvider = resolve
@@ -83,7 +86,7 @@ host = await cp.factory.createProductionFactoryFixture({
     const interactions = new cp.domain.InMemoryInteractionRepository()
     toolService = new cp.tool.PolicyControlledToolExecutionService({
       gateway,
-      calls: new cp.sqlite.SqliteToolCallRepository(persistence, ws),
+      calls: (toolCalls = new cp.sqlite.SqliteToolCallRepository(persistence, ws)),
       authorizer: new cp.tool.StaticToolPolicyAuthorizer({
         effect: 'allow',
         decisionId: '1211-fixture',
@@ -114,7 +117,7 @@ host = await cp.factory.createProductionFactoryFixture({
       tools: { service: toolService, interactions },
       delegation: {
         records: childRecords,
-        lifecycle: new cp.domain.ExecutionLifecycleService(repositories.executions),
+        lifecycle: (lifecycle = new cp.domain.ExecutionLifecycleService(repositories.executions)),
         plans: repositories.plans,
         events: {
           publish: (event, key) =>
@@ -165,6 +168,61 @@ process.stdout.write(
   }) + '\n'
 )
 let prepared
+// Stable ids so a retry is the same delegation, not a new one.
+const ids = {
+  delegation: id('dlg'),
+  childExecution: id('exe'),
+  childAttempt: id('att'),
+  runtimeConnection: id('rtc'),
+}
+const ledgerView = (summary) =>
+  summary && {
+    maximumMicrounits: summary.maximumMicrounits,
+    reservedMicrounits: summary.reservedMicrounits,
+    spentMicrounits: summary.spentMicrounits,
+    availableMicrounits: summary.availableMicrounits,
+    maximumTokens: summary.maximumTokens,
+    reservedTokens: summary.reservedTokens,
+    spentTokens: summary.spentTokens,
+    availableTokens: summary.availableTokens,
+  }
+const summaryOf = async (executionId) => {
+  try {
+    return ledgerView(await host.ledger.summary(host.workspaceId, executionId))
+  } catch {
+    return undefined
+  }
+}
+// The child runtime is an explicit synthetic port: it records starts and dedupes by the
+// idempotency key the canonical bridge supplies. It is not a live Pi child process.
+const runtimeStarts = { calls: 0, sessions: new Map() }
+const scriptedChildRuntime = {
+  async start(request) {
+    runtimeStarts.calls++
+    const retained = runtimeStarts.sessions.get(request.idempotencyKey)
+    if (retained) return retained
+    const handle = {
+      handleId: `pi-durable:${'b'.repeat(32)}`,
+      attemptId: request.attemptId,
+      externalSessionId: id('ses'),
+      startedAt: host.at,
+    }
+    runtimeStarts.sessions.set(request.idempotencyKey, handle)
+    return handle
+  },
+}
+const runtimeEvidence = async () => {
+  const budget = await host.repositories.usage.transaction(host.workspaceId, (tx) =>
+    tx.getBudget(ids.childExecution)
+  )
+  return {
+    startCalls: runtimeStarts.calls,
+    distinctStarts: runtimeStarts.sessions.size,
+    childAttemptReservations:
+      budget?.reservations.filter((r) => r.reservationKey === `runtime-attempt:${ids.childAttempt}`)
+        .length ?? 0,
+  }
+}
 const evidence = () => ({
   canonical: host.canonicalCounts(),
   physicalSends: host.state.physicalSends,
@@ -172,7 +230,10 @@ const evidence = () => ({
   secretResolutions: host.models.secretProvider.resolveCount,
 })
 let allocationStage
-async function allocateBody(intentId) {
+let dispatched
+let toolAdmission
+async function dispatchLead(intentId) {
+  if (dispatched) return dispatched
   allocationStage = 'dispatch'
   const dispatch = (
     await host.composition.piDurableLeadService.dispatch(
@@ -185,17 +246,29 @@ async function allocateBody(intentId) {
   ).data
   allocationStage = 'parent-current'
   const deadline = Date.now() + 10000
-  let parent
+  let parent, parentAttempt
+  // The lead's own start must finish before any authority is changed: a revocation that lands
+  // while the attempt is still starting would stop the lead itself, not the child.
   do {
     parent = await host.repositories.executions.getExecution(dispatch.executionId)
-    if (parent.state === 'running') break
+    parentAttempt = await host.repositories.executions.getAttempt(dispatch.attemptId)
+    if (parent.state === 'running' && parentAttempt.state === 'running') break
     await new Promise((resolve) => setTimeout(resolve, 10))
   } while (Date.now() < deadline)
-  if (parent.state !== 'running')
-    return { ok: false, stage: 'parent-running', state: parent.state, ...evidence() }
-  allocationStage = 'child-allocation'
+  if (parent.state !== 'running' || parentAttempt.state !== 'running')
+    return {
+      ok: false,
+      stage: 'parent-running',
+      state: parent.state,
+      attemptState: parentAttempt.state,
+      ...evidence(),
+    }
   const plan = host.parentPlanForIntent(intentId)
-  const context = await host.repositories.contexts.get(plan.contextPackage)
+  dispatched = { ok: true, intentId, dispatch, plan }
+  return dispatched
+}
+async function admitTool({ dispatch, plan }) {
+  if (toolAdmission) return toolAdmission
   const toolCallId = id('tlc')
   const outcome = await toolService.execute({
     toolCallId,
@@ -222,6 +295,30 @@ async function allocateBody(intentId) {
     audit: { principalRef: host.actorPrincipalId, traceId: id('trc') },
   })
   if (outcome.state !== 'succeeded') throw new Error('TOOL_NOT_ADMITTED')
+  toolAdmission = toolCallId
+  return toolCallId
+}
+async function parentState() {
+  const execution = await host.repositories.executions.getExecution(dispatched.dispatch.executionId)
+  const attempt = await host.repositories.executions.getAttempt(dispatched.dispatch.attemptId)
+  return { execution: execution.state, attempt: attempt.state, version: execution.version }
+}
+async function leadEvidence() {
+  return {
+    ...evidence(),
+    parentState: await parentState(),
+    parent: await summaryOf(dispatched.dispatch.executionId),
+    child: await summaryOf(ids.childExecution),
+    runtime: await runtimeEvidence(),
+  }
+}
+async function allocateBody(intentId) {
+  const leadRun = await dispatchLead(intentId)
+  if (!leadRun.ok) return leadRun
+  allocationStage = 'child-allocation'
+  const { dispatch, plan } = leadRun
+  const toolCallId = await admitTool(leadRun)
+  const context = await host.repositories.contexts.get(plan.contextPackage)
   const childContext = cp.context.deriveContextPackage(context, {
     objective: 'Bounded child',
     allowedStateItemIds: [],
@@ -239,20 +336,20 @@ async function allocateBody(intentId) {
   childConstraints.limits.tokens.maximumTotal = Math.floor(
     plan.constraints.limits.tokens.maximumTotal / 2
   )
-  const before = host.canonicalCounts()
+  const before = await leadEvidence()
   try {
     const allocated = await delegationService.delegate({
-      delegationId: id('dlg'),
+      delegationId: ids.delegation,
       parentIntentId: intentId,
       parentExecutionId: dispatch.executionId,
       parentAttemptId: dispatch.attemptId,
       admittedToolCallId: toolCallId,
-      childExecutionId: id('exe'),
-      childAttemptId: id('att'),
+      childExecutionId: ids.childExecution,
+      childAttemptId: ids.childAttempt,
       initialDispatch: {
-        delegationId: id('dlg'),
-        childAttemptId: id('att'),
-        runtime: { runtimeConnectionId: id('rtc') },
+        delegationId: ids.delegation,
+        childAttemptId: ids.childAttempt,
+        runtime: { runtimeConnectionId: ids.runtimeConnection },
         dispatchedAt: host.at,
       },
       role: 'researcher',
@@ -279,22 +376,20 @@ async function allocateBody(intentId) {
     return {
       ok: true,
       childExecutionId: allocated.childExecutionId,
-      canonical: host.canonicalCounts(),
+      persistedChild: true,
+      childPlanMaximumMicrounits: childConstraints.limits.budget.maximumMicrounits,
+      childPlanMaximumTokens: childConstraints.limits.tokens.maximumTotal,
+      before,
+      after: await leadEvidence(),
     }
   } catch (error) {
-    const after = host.canonicalCounts()
-    const persisted = await childRecords.findByChild(id('exe'))
-    const allowance = await host.ledger.summary(host.workspaceId, dispatch.executionId)
     return {
       ok: false,
       stage: 'child-allocation',
-      code: error.code ?? 'UNKNOWN',
+      code: error.code ?? error.message ?? 'UNKNOWN',
+      persistedChild: Boolean(await childRecords.findByChild(ids.childExecution)),
       before,
-      after,
-      persistedChild: Boolean(persisted),
-      availableMicrounits: allowance.availableMicrounits,
-      availableTokens: allowance.availableTokens,
-      physicalSends: host.state.physicalSends,
+      after: await leadEvidence(),
     }
   }
 }
@@ -321,6 +416,107 @@ async function allocate(intentId) {
   } finally {
     clearTimeout(timer)
   }
+}
+// Child-runtime admission through the canonical bridge. Authority is re-read at every
+// start: the admitting tool call, then the same current account/product/readiness
+// resolution the allocator used. Budget is the child's own ledger reservation.
+const bridge = new cp.orchestration.CanonicalDelegationRuntimeBridge({
+  records: childRecords,
+  lifecycle,
+  plans: host.repositories.plans,
+  delegations: delegationService,
+  runtime: scriptedChildRuntime,
+  runtimeConnectionId: ids.runtimeConnection,
+  async assertAuthority(admission) {
+    const call = await toolCalls.get(admission.record.admittedToolCallId)
+    if (
+      !call ||
+      call.executionId !== admission.identity.parentExecutionId ||
+      call.attemptId !== admission.identity.parentAttemptId ||
+      !['executing', 'succeeded'].includes(call.status)
+    )
+      throw new Error('CHILD_TOOL_AUTHORITY_REJECTED')
+    await host.composition.resolveChildSelection(
+      {
+        schemaVersion: 'pi-lead-intent/v1',
+        workspaceId: host.workspaceId,
+        intentId: dispatched.intentId,
+        principalId: host.principal.principalId,
+      },
+      {
+        childRequestId: admission.plan.correlation.requestId,
+        childRequestDigest: `sha256:${createHash('sha256').update(admission.record.delegationId).digest('hex')}`,
+        canonicalActorPrincipalId: host.actorPrincipalId,
+        requestedSelection: ref(child),
+      }
+    )
+  },
+  async reserveBudget(admission) {
+    const reservationKey = `runtime-attempt:${admission.attempt.attemptId}`
+    const budget = await host.repositories.usage.transaction(host.workspaceId, (tx) =>
+      tx.getBudget(admission.record.childExecutionId)
+    )
+    if (!budget) throw new Error('CHILD_BUDGET_REQUIRED')
+    // Replay recovers the same reservation; first dispatch reserves the child's whole ceiling.
+    const existing = budget.reservations.find((r) => r.reservationKey === reservationKey)
+    const maximumMicrounits = existing?.maximumMicrounits ?? budget.maximumMicrounits
+    const maximumTokens = existing?.maximumTokens ?? budget.maximumTokens
+    if (!existing)
+      await host.ledger.reserve({
+        workspaceId: host.workspaceId,
+        executionId: admission.record.childExecutionId,
+        attemptId: admission.attempt.attemptId,
+        reservationKey,
+        maximumMicrounits,
+        maximumTokens,
+        source: {
+          sourceId: 'child-runtime-admission',
+          idempotencyKey: `${reservationKey}:reserve`,
+        },
+      })
+    return {
+      schemaVersion: 1,
+      workspaceId: host.workspaceId,
+      executionId: admission.record.childExecutionId,
+      attemptId: admission.attempt.attemptId,
+      executionPlanId: admission.plan.executionPlanId,
+      executionPlanDigest: admission.plan.contentDigest,
+      reservationKey,
+      currency: 'USD',
+      maximumMicrounits,
+      maximumTokens,
+    }
+  },
+})
+async function startChild() {
+  const before = await leadEvidence()
+  try {
+    const handle = await bridge.startChild({
+      schemaVersion: 'delegation-runtime-admission/v1',
+      parentExecutionId: dispatched.dispatch.executionId,
+      parentAttemptId: dispatched.dispatch.attemptId,
+      delegationId: ids.delegation,
+      childAttemptId: ids.childAttempt,
+    })
+    return { ok: true, handleAttemptId: handle.attemptId, before, after: await leadEvidence() }
+  } catch (error) {
+    return {
+      ok: false,
+      code: error.code ?? error.message ?? 'UNKNOWN',
+      before,
+      after: await leadEvidence(),
+    }
+  }
+}
+const baseline = () => host.models.currentAccountEvidence()
+let originalAccount
+function setAuthority(mode) {
+  originalAccount ??= baseline()
+  host.state.revoked = false
+  host.models.setCurrentAccount(originalAccount)
+  if (mode === 'quota-exhausted') host.models.setCurrentAccount({ quota: 'exhausted' })
+  else if (mode === 'workspace-revoked') host.state.revoked = true
+  else if (mode !== 'current') throw new Error('UNKNOWN_AUTHORITY_MODE')
 }
 let closing
 const close = () =>
@@ -387,7 +583,14 @@ input.on('line', (line) => {
         await writeFile(path, original, { mode: 0o600 })
       }
       data = { locationDenied, fundingState: funding.data.funding.state, ...evidence() }
+    } else if (request.command === 'dispatch') {
+      const leadRun = await dispatchLead(request.intentId)
+      data = leadRun.ok ? { ok: true, ...(await leadEvidence()) } : leadRun
+    } else if (request.command === 'authority') {
+      setAuthority(request.mode)
+      data = { mode: request.mode }
     } else if (request.command === 'allocate') data = await allocate(request.intentId)
+    else if (request.command === 'start-child') data = await startChild()
     else if (request.command === 'close') {
       await close()
       process.exit(0)

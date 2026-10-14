@@ -16,7 +16,7 @@ bun run test:integration:control-plane-child
 ```
 
 Missing configuration, a different CP head, or a dirty CP source tree fails the
-run. The source revision in `source.json` includes CP #1041. The default test
+run. The source revision in `source.json` includes CP #1041 and #1116. The default test
 lanes do not load this directory. This source proof does not replace the verified
 public-package candidate manifest required for full #1211 acceptance.
 
@@ -27,54 +27,54 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-The retained run at CP `c5387139f8aa20af498fa96f32fb24ca8248c5d4` passes signed
-host-workspace denial, exact requested-role preparation without inference, and
-location/current-payer refusal without fallback. The positive child allocation
-check fails: the actual allocator's current-authority recheck does not return
-within eight seconds. Its diagnostic records `allocator-authority-recheck`, zero
-physical sends and zero secret resolutions. The host is terminated if graceful
-cleanup stalls; its owned disposable directory is removed only after the process
-is reaped. Adea's fixture workspace is archived and its temporary session expires.
+## Latest result (2026-10-14, CP `082c2c33`)
 
-## Diagnosis of the blocked allocation (2026-10-14)
+The pin is the CP #1116 merge (`082c2c33`, release 1.96.2), which fences the allocator's
+current-authority recheck. The `allocator-authority-recheck` hang recorded earlier no longer
+reproduces: the in-transaction recheck returns and allocation reaches child funding.
 
-The failure reproduces at the pinned CP revision and at CP `main` (`d632197`, release 1.96.0,
-which includes #1111). Nothing in this directory was changed to obtain these readings.
+Passing (5 of 8):
 
-- Where it stops: tracing the production child admission authority shows `assertCurrent` runs
-  twice. The first run (the preflight, no reader) completes in about 100 ms. The second run is the
-  allocator's recheck inside the SQLite allocation transaction (a reader is supplied). It reads the
-  canonical request, then calls `product.resolveChildSelection`, and that call never returns.
-- Why it is a production contract gap and not a fixture gap: the recheck re-resolves the child's
-  model selection from the product (an HTTP read) and the role-selection services (which use the
-  funding database handle) while the allocation transaction holds the provider's write lock.
-  `createProductionLeadProductAuthority.resolveChildSelection` states that the canonical authority
-  must call it before allocation and retain the selection in the admission receipt. The in-transaction
-  `assertCurrent` does it again instead of comparing against the retained receipt.
-- Evidence that this is the cause (diagnostic edit in a scratch CP copy only, not committed anywhere):
-  when `assertCurrent` with a reader rechecks only the canonical current request against the receipt's
-  authority revision, the recheck returns in about 30 ms and the allocation proceeds to its next stage.
-- Next blocker after that, also observed only in the scratch copy: `BUDGET_EXHAUSTED` at
-  `child-allocation`, with 0 microunits and 0 tokens available on the parent. The lead's funded
-  attempt reserves the whole plan budget, so there is no headroom to reserve the child's half.
-  Doubling the plan maxima in the fixture did not change this, so the fixture sizing alone does not
-  explain it. Whether a parent lead should reserve its full plan budget, and how a child's reservation
-  is carved out of it, is a Control Plane decision (CP #1041 owns child budget reservation).
+- signed host-workspace denial, exact requested-role preparation without inference, and
+  location/current-payer refusal without fallback;
+- a revoked workspace grant (`CHILD_AUTHORITY_EXPANSION`) and an exhausted account quota
+  (`CHILD_ADMISSION_DENIED`) each admit no child: no execution, attempt, budget or ledger row,
+  parent budget unchanged, zero child-runtime reservations or starts, zero provider sends and
+  zero secret resolutions;
+- a retried denied allocation leaves the canonical counts and both ledgers identical.
 
-Owners: the in-transaction recheck and the budget reservation rule are Control Plane changes. This
-proof will pass its positive allocation only when CP lands them; it must not be changed to skip or
-loosen either check.
+Failing, and expected to keep failing until Control Plane changes (3 of 8):
+
+- positive allocation: `BUDGET_EXHAUSTED` at `child-allocation` with 0 microunits and 0 tokens
+  available, `persistedChild` false and zero provider sends. The cause is a Control Plane rule,
+  not this fixture: `DurableRuntimeBudgetAdmission` reserves the lead attempt's entire remaining
+  allowance, and `DurableUsageLedger.openBudget` funds a child only from the parent's unreserved
+  balance. Doubling the plan maxima does not help. Tracked as CP #1121 with three design options;
+  related CP #1018 and #931. Nothing here bypasses or loosens that check.
+- the two tests after it (post-allocation authority denial and child-runtime admission) cannot
+  run until a child exists, so they fail on `expect(allocation?.ok)`, never skip.
+
+Those later assertions are written but have not been exercised end to end. They use CP's own
+`CanonicalDelegationRuntimeBridge`: authority is re-read from the admitting tool call and the
+current account/product/readiness resolution; budget is the child's own ledger reservation of its
+whole ceiling under `runtime-attempt:<childAttemptId>`, as in CP's child-budget-admission test.
+The runtime port is a synthetic recorder that dedupes by idempotency key. It is not a live Pi
+child process, so a pass would prove admission and retry behaviour, not live-provider qualification.
+They may need adjusting once CP funds the child.
+
+Independence is asserted as: the parent ceiling never changes, the parent holds exactly the
+child's ceiling as a reservation, nothing is spent, and starting the child changes only the
+child's ledger, never the parent's.
+
+Run hygiene: the host is terminated if graceful cleanup stalls; its owned disposable directory is
+removed only after the process is reaped. Adea's fixture workspace is archived and its temporary
+session expires.
 
 ## Remaining dependencies
 
-- Resolve the CP current-authority recheck under the allocator transaction.
-  The model-selection repository and canonical allocator currently share the
-  fixture's SQLite provider. Re-entry through model readiness is a candidate
-  cause, not a confirmed diagnosis. Do not bypass the recheck to obtain a green
-  result.
-- Verify the parent/child budget policy, separately recorded child funding and
-  actual child-runtime admission after allocation completes. This run does not
-  reach those boundaries.
+- Control Plane must decide how a child is funded when the lead holds the whole allowance
+  (CP #1121). This proof turns green for allocation only when that lands.
+- Verify the post-allocation assertions above against the real funded child.
 - Produce and verify the updated public-package candidate manifest, then run
   the installed SDK consumer journey. This direct source proof makes no package,
   live-account, device, deployment, restart or publication qualification claim.

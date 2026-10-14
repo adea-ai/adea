@@ -35,14 +35,14 @@ const pending = new Map()
 let productRequests = 0,
   deniedReads = 0,
   closed
-async function control(command) {
+async function control(command, extra = {}) {
   const id = randomUUID()
   let timer
   const promise = new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject })
     timer = setTimeout(() => reject(new Error(`HOST_CONTROL_TIMEOUT:${command}`)), 15000)
   })
-  child.stdin.write(JSON.stringify({ id, command, intentId }) + '\n')
+  child.stdin.write(JSON.stringify({ id, command, intentId, ...extra }) + '\n')
   try {
     return await promise
   } finally {
@@ -254,18 +254,123 @@ test('child location refusal and revoked payer block without fallback', async ()
   expect(result.secretResolutions).toBe(0)
   expect(result.canonical).toMatchObject({ executions: 1, attempts: 1, budgets: 1 })
 }, 20000)
-test('prepared Adea lead allocates its selected child through the canonical factory', async () => {
-  const result = await control('allocate')
-  if (!result.ok)
-    console.error(
-      JSON.stringify({
-        schemaVersion: 'adea-child-allocation-blocker/v1',
-        cpHead: pin.revision,
-        ...result,
-        childRuntimeProven: false,
-        candidateManifestQualified: false,
+let dispatched, allocation
+const logBlocker = (result) =>
+  console.error(
+    JSON.stringify({
+      schemaVersion: 'adea-child-allocation-blocker/v1',
+      cpHead: pin.revision,
+      ...result,
+      childRuntimeProven: false,
+      candidateManifestQualified: false,
+    })
+  )
+test('revoked and quota-blocked authority admit no child and dispatch nothing', async () => {
+  dispatched = await control('dispatch')
+  expect(dispatched.ok).toBe(true)
+  expect(dispatched.physicalSends).toBe(0)
+  try {
+    for (const [mode, code] of [
+      ['workspace-revoked', 'CHILD_AUTHORITY_EXPANSION'],
+      ['quota-exhausted', 'CHILD_ADMISSION_DENIED'],
+    ]) {
+      await control('authority', { mode })
+      const denied = await control('allocate')
+      expect(denied.ok).toBe(false)
+      // Authority is rechecked before any funding is touched.
+      expect(denied.code).toBe(code)
+      expect(denied.persistedChild).toBe(false)
+      expect(denied.after.canonical).toEqual(dispatched.canonical)
+      expect(denied.after.parent).toEqual(dispatched.parent)
+      expect(denied.after.child).toBeUndefined()
+      expect(denied.after.runtime).toEqual({
+        startCalls: 0,
+        distinctStarts: 0,
+        childAttemptReservations: 0,
       })
-    )
-  expect(result.ok).toBe(true)
-  expect(result.canonical).toMatchObject({ executions: 2, attempts: 2, budgets: 2 })
+      expect(denied.after.physicalSends).toBe(0)
+      expect(denied.after.secretResolutions).toBe(0)
+    }
+  } finally {
+    await control('authority', { mode: 'current' })
+  }
+}, 30000)
+test('prepared Adea lead allocates its selected child through the canonical factory', async () => {
+  allocation = await control('allocate')
+  if (!allocation.ok) logBlocker(allocation)
+  expect(allocation.ok).toBe(true)
+  expect(allocation.after.canonical).toMatchObject({ executions: 2, attempts: 2, budgets: 2 })
+  const { before, after } = allocation
+  // Independent budgets: the child has its own ceiling, funded by exactly that hold on
+  // the parent. Nothing is spent, and the parent's own ceiling never changes.
+  expect(after.parent.maximumMicrounits).toBe(before.parent.maximumMicrounits)
+  expect(after.parent.maximumTokens).toBe(before.parent.maximumTokens)
+  expect(after.parent.spentMicrounits).toBe(0)
+  expect(after.child.maximumMicrounits).toBeGreaterThan(0)
+  expect(after.child.maximumMicrounits).toBeLessThanOrEqual(allocation.childPlanMaximumMicrounits)
+  expect(after.child.maximumTokens).toBeLessThanOrEqual(allocation.childPlanMaximumTokens)
+  expect(after.parent.reservedMicrounits - before.parent.reservedMicrounits).toBe(
+    after.child.maximumMicrounits
+  )
+  expect(after.parent.reservedTokens - before.parent.reservedTokens).toBe(after.child.maximumTokens)
+  expect(after.child.spentMicrounits).toBe(0)
+  expect(after.child.reservedMicrounits).toBe(0)
+  expect(after.physicalSends).toBe(0)
+  expect(after.runtime.startCalls).toBe(0)
 }, 20000)
+test('a retried allocation leaves no duplicate execution, budget or ledger effect', async () => {
+  const first = await control('allocate')
+  const second = await control('allocate')
+  expect(second.after.canonical).toEqual(first.after.canonical)
+  expect(second.after.parent).toEqual(first.after.parent)
+  expect(second.after.child).toEqual(first.after.child)
+  expect(second.after.physicalSends).toBe(0)
+  expect(second.after.runtime.startCalls).toBe(0)
+  expect(second.after.canonical.executions).toBeLessThanOrEqual(2)
+}, 30000)
+test('revoked and quota-blocked authority after allocation start no child runtime', async () => {
+  expect(allocation?.ok).toBe(true)
+  try {
+    for (const mode of ['workspace-revoked', 'quota-exhausted']) {
+      await control('authority', { mode })
+      const denied = await control('start-child')
+      expect(denied.ok).toBe(false)
+      expect(denied.after.runtime).toEqual({
+        startCalls: 0,
+        distinctStarts: 0,
+        childAttemptReservations: 0,
+      })
+      // No spend authority was minted for the child, and the parent is untouched.
+      expect(denied.after.child).toEqual(denied.before.child)
+      expect(denied.after.parent).toEqual(denied.before.parent)
+      expect(denied.after.physicalSends).toBe(0)
+    }
+  } finally {
+    await control('authority', { mode: 'current' })
+  }
+}, 30000)
+test('current authority admits the child runtime once and a retry starts nothing twice', async () => {
+  expect(allocation?.ok).toBe(true)
+  const started = await control('start-child')
+  expect(started.ok).toBe(true)
+  // Child-runtime admission reserved the child's own ceiling; the parent did not move.
+  expect(started.after.runtime).toEqual({
+    startCalls: 1,
+    distinctStarts: 1,
+    childAttemptReservations: 1,
+  })
+  expect(started.after.child.reservedMicrounits).toBe(started.after.child.maximumMicrounits)
+  expect(started.after.child.reservedTokens).toBe(started.after.child.maximumTokens)
+  expect(started.after.child.availableMicrounits).toBe(0)
+  expect(started.after.parent).toEqual(started.before.parent)
+  const retried = await control('start-child')
+  expect(retried.ok).toBe(true)
+  expect(retried.after.runtime.distinctStarts).toBe(1)
+  expect(retried.after.runtime.childAttemptReservations).toBe(1)
+  expect(retried.after.child).toEqual(started.after.child)
+  expect(retried.after.parent).toEqual(started.after.parent)
+  expect(retried.after.canonical).toEqual(started.after.canonical)
+  // The scripted runtime port never reaches a provider.
+  expect(retried.after.physicalSends).toBe(0)
+  expect(retried.after.secretResolutions).toBe(0)
+}, 30000)
