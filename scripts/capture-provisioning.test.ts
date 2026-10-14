@@ -23,7 +23,22 @@ const dockerShim = `#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 case "$1" in
   info) exit 0 ;;
-  run) exit 0 ;;
+  run)
+    # SHIM_RUN throttles the image pull the way a shared-runner registry does: "ecr" only on the
+    # canonical ECR Public reference, "all" on every registry, "fail" with an unrelated error.
+    for last; do :; done
+    case "$SHIM_RUN" in
+      ecr) case "$last" in public.ecr.aws/*) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;; esac ;;
+      all) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+      fail) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+      slow) sleep 5; echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+      mirror-fails)
+        case "$last" in
+          public.ecr.aws/*) echo "docker: Error response from daemon: toomanyrequests: Data limit exceeded" >&2; exit 125 ;;
+          mirror.gcr.io/*) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
+        esac ;;
+    esac
+    exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
   exec) exit 0 ;;
   rm)
@@ -47,7 +62,11 @@ if (mode === 'no-ready') {
   setInterval(() => {}, 1000)
   await new Promise(() => {})
 }
-const handle = startCaptureProvisioning(undefined, { removalTimeoutMs: 500 })
+const handle = startCaptureProvisioning(undefined, {
+  removalTimeoutMs: 500,
+  backoffMs: process.env.CHILD_BACKOFF ? JSON.parse(process.env.CHILD_BACKOFF) : [10, 10],
+  ...(process.env.CHILD_BUDGET_MS ? { budgetMs: Number(process.env.CHILD_BUDGET_MS) } : {}),
+})
 if (!handle) { console.log('NULL'); process.exit(3) }
 console.log('READY ' + handle.containerName)
 if (mode === 'normal') { handle.stop(); process.exit(0) }
@@ -198,7 +217,106 @@ async function startChild(
   }
 }
 
+function runImages(log: string) {
+  return calls(log)
+    .filter((line) => line.startsWith('run '))
+    .map((line) => line.split(' ').at(-1))
+}
+
 describe('capture provisioning helper', () => {
+  test('a rate-limited ECR pull falls over to the same digest on the mirror and removes that container', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'ecr' })
+    const { child, name } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const images = runImages(log)
+    const digest = '@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+    expect(images).toEqual([
+      `public.ecr.aws/docker/library/postgres:18-alpine${digest}`,
+      `mirror.gcr.io/library/postgres:18-alpine${digest}`,
+    ])
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('a failing mirror does not hide Docker Hub after ECR is rate-limited', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'mirror-fails' })
+    const { child, name } = await startChild('normal', environment)
+    expect(await child.exited).toBe(0)
+    const digest = '@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873'
+    expect(runImages(log)).toEqual([
+      `public.ecr.aws/docker/library/postgres:18-alpine${digest}`,
+      `mirror.gcr.io/library/postgres:18-alpine${digest}`,
+      `docker.io/library/postgres:18-alpine${digest}`,
+    ])
+    expect(removals(log)).toEqual([`rm -f ${name}`])
+  })
+
+  test('a slow start is cut off by the shared deadline, fails the start and still cleans up', async () => {
+    const { environment, log } = environmentFor('ok', {
+      SHIM_RUN: 'slow',
+      CHILD_BUDGET_MS: '800',
+    })
+    const startedAt = Date.now()
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    // The first attempt would sleep 5 s and the retries more; the deadline ends it far sooner.
+    expect(Date.now() - startedAt).toBeLessThan(4_000)
+    expect(runImages(log)).toHaveLength(1)
+    const removed = removals(log)
+    expect(removed).toHaveLength(1)
+    expect(removed[0]).toMatch(/^rm -f adea-capture-prov-[0-9a-f]+$/)
+  })
+
+  test('a backoff longer than the time left ends the retries instead of sleeping past the deadline', async () => {
+    const { environment, log } = environmentFor('ok', {
+      SHIM_RUN: 'all',
+      CHILD_BACKOFF: '[60000]',
+      CHILD_BUDGET_MS: '2000',
+    })
+    const startedAt = Date.now()
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    expect(Date.now() - startedAt).toBeLessThan(10_000)
+    // One pass over the three registries, then no wait.
+    expect(runImages(log)).toHaveLength(3)
+    expect(removals(log)).toHaveLength(1)
+  })
+
+  test('registries that stay rate-limited fail the start after bounded retries and nothing leaks', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'all' })
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    expect(await new Response(child.stderr).text()).toContain('toomanyrequests')
+    // Three registries on the first pass and again after each of the two retries.
+    expect(runImages(log)).toHaveLength(9)
+    const removed = removals(log)
+    expect(removed).toHaveLength(1)
+    expect(removed[0]).toMatch(/^rm -f adea-capture-prov-[0-9a-f]+$/)
+  })
+
+  test('an unrelated start failure is not retried or sent to another registry', async () => {
+    const { environment, log } = environmentFor('ok', { SHIM_RUN: 'fail' })
+    const child = Bun.spawn([process.execPath, childPath, 'normal'], {
+      env: environment,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    })
+    expect(await child.exited).toBe(1)
+    expect(await new Response(child.stderr).text()).toContain('manifest unknown')
+    expect(runImages(log)).toHaveLength(1)
+  })
+
   test('a normal exit removes exactly the container this invocation created', async () => {
     const { environment, log } = environmentFor('ok')
     const { child, name } = await startChild('normal', environment)
@@ -392,5 +510,58 @@ describe('capture provisioning helper', () => {
     }
     expect(removals(log).every((line) => line === `rm -f ${name}`)).toBe(true)
     expect(calls(log).some((line) => line.startsWith('ps'))).toBe(false)
+  })
+})
+
+describe('startFromCaptureImage deadline', () => {
+  const limitedReply = {
+    status: 125,
+    stdout: '',
+    stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+  }
+
+  test('each attempt is told how much of the budget is left, and waits are never longer than that', async () => {
+    const { startFromCaptureImage } = await import('./capture-provisioning.mjs')
+    let clock = 0
+    const told: number[] = []
+    const slept: number[] = []
+    const result = startFromCaptureImage(
+      (_image: string, remainingMs: number) => {
+        told.push(remainingMs)
+        clock += 100
+        return limitedReply
+      },
+      {
+        backoffMs: [1_000, 5_000, 90_000],
+        budgetMs: 20_000,
+        now: () => clock,
+        sleep: (ms: number) => {
+          slept.push(ms)
+          clock += ms
+        },
+      }
+    )
+    expect(result.status).toBe(125)
+    expect(told[0]).toBe(20_000)
+    expect(told.every((remaining, index) => index === 0 || remaining < told[index - 1]!)).toBe(true)
+    // The 90 s wait does not fit in what is left, so it is skipped rather than slept.
+    expect(slept).toEqual([1_000, 5_000])
+    expect(clock).toBeLessThanOrEqual(20_000)
+  })
+
+  test('an exhausted budget stops before the next registry is tried', async () => {
+    const { startFromCaptureImage } = await import('./capture-provisioning.mjs')
+    let clock = 0
+    let attempts = 0
+    startFromCaptureImage(
+      () => {
+        attempts += 1
+        clock += 600
+        return limitedReply
+      },
+      { backoffMs: [], budgetMs: 1_000, now: () => clock, sleep: () => {} }
+    )
+    // The canonical attempt uses 600 ms, one fallback uses 600 more, and then nothing is left.
+    expect(attempts).toBe(2)
   })
 })
