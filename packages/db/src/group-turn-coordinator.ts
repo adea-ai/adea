@@ -820,6 +820,22 @@ export async function requestPendingSupersededTurnCancellations(
   }
 }
 
+/** One retained turn by id, workspace-bound; null when unknown. Callers authorize before using it. */
+export async function loadAddressedTurn(
+  database: AgentHqDatabase | AgentHqTransaction,
+  workspaceId: string,
+  turnId: string
+): Promise<AddressedAgentTurn | null> {
+  const [turn] = await asStore(database)
+    .select()
+    .from(addressedAgentTurns)
+    .where(
+      and(eq(addressedAgentTurns.id, turnId), eq(addressedAgentTurns.workspaceId, workspaceId))
+    )
+    .limit(1)
+  return turn ?? null
+}
+
 /**
  * Reconnect read: every turn for the channel in committed order with its
  * workspace-qualified label, so a rejoining participant sees exactly who
