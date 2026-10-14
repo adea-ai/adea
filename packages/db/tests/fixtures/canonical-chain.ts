@@ -10,6 +10,9 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+
+import type { AgentHqDatabase } from '../../src/connection'
 import { DRIZZLE_DIR, readJournal } from './cutover-rehearsal'
 
 // The incoming canonical migration chain for the #1241 rehearsal: main through 0046, then the
@@ -218,4 +221,14 @@ export function canonicalChainFolders(): CanonicalChainFolders {
     })),
     root,
   }
+}
+
+/**
+ * Product code under test is today's, so it needs today's schema: the live migrations that landed
+ * after the pinned canonical chain. Call this after the chain (and its 0050 backfill) has been
+ * applied and before any product call. The drizzle migrator applies only the entries newer than
+ * the database's last applied one, so the pinned history is left exactly as it ran.
+ */
+export async function applyMigrationTail(db: AgentHqDatabase): Promise<void> {
+  await migrate(db, { migrationsFolder: DRIZZLE_DIR })
 }

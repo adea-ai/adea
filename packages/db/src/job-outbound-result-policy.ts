@@ -138,6 +138,22 @@ export type JobOutboundArtifactCurrent = Readonly<{
  */
 export type JobOutboundArtifactPolicy = 'require' | 'omit_unauthorized'
 
+/**
+ * What the producer declares about memory behind a result's summary. The product holds only
+ * what it can attest: it cannot inspect a summary for memory, so a result that declares nothing
+ * is `none`, and the Control Plane's attestation of the declaration is the producer's duty.
+ *
+ * - `none`: the summary draws on no memory.
+ * - `workspace`: it draws on memory scoped to the source workspace.
+ * - `private`: it draws on an Agent's private memory or a private conversation's facts.
+ * - `unknown`: the producer cannot say.
+ *
+ * Every value but `none` is withheld from an outbound destination: no memory-share grant exists
+ * yet, so there is no authority to release memory-derived text across workspaces (REQ 041,
+ * 054, 072).
+ */
+export type JobOutboundMemorySource = 'none' | 'private' | 'unknown' | 'workspace'
+
 export type JobOutboundPublicationInput = Readonly<{
   artifact: (JobOutboundArtifactClaim & JobOutboundArtifactCurrent) | null
   /** The actor's standing in the destination channel; its revision is bound into the publication. */
@@ -146,6 +162,8 @@ export type JobOutboundPublicationInput = Readonly<{
   destination: JobOutboundDestination
   job: JobOutboundJobSource | null
   jobId: string
+  /** Declared memory behind the summary. Absent means `none`. */
+  memorySource?: JobOutboundMemorySource
   now: string
   sourceAccess: JobOutboundAccess | null
   result: unknown
@@ -155,6 +173,7 @@ export type JobOutboundPublicationHoldGate =
   | 'artifact'
   | 'destination'
   | 'job'
+  | 'provenance'
   | 'publication'
   | 'result'
   | 'source'
@@ -169,6 +188,8 @@ export type JobOutboundPublicationHoldReason =
   | 'job_not_completed'
   | 'job_source_mismatch'
   | 'job_unavailable'
+  | 'memory_derived_unreleased'
+  | 'memory_private_context'
   | 'publication_replay_conflict'
   | 'recipient_not_destination_member'
   | 'source_access_lost'
@@ -425,8 +446,20 @@ function artifactPublicationRefusal(
 }
 
 /**
+ * The hold for a result whose summary draws on memory. An undeclared source is `none`; a value
+ * outside the closed set is treated as `unknown`, so a malformed declaration holds rather than
+ * passing. Private context is named apart from the rest so the source's own record says which.
+ */
+function memoryProvenanceHold(
+  source: JobOutboundMemorySource | undefined
+): 'memory_derived_unreleased' | 'memory_private_context' | null {
+  if (source === undefined || source === 'none') return null
+  return source === 'private' ? 'memory_private_context' : 'memory_derived_unreleased'
+}
+
+/**
  * Publication gate, in order: result, job identity and completion, the original
- * actor's source access, the destination (outbound, exact, and the actor a current
+ * actor's source access, memory provenance, the destination (outbound, exact, and the actor a current
  * member), and the artifact. An artifact refusal holds the publication, unless the
  * caller allowed omission: then the summary publishes without the artifact, the
  * binding and link carry no artifact identity, and the reason is reported.
@@ -457,6 +490,9 @@ export function decideJobOutboundPublication(
   const jobReason = jobDenial(input.job, jobId, input.now)
   if (jobReason || !input.job) return hold('job', jobReason ?? 'job_unavailable')
   if (!sourceAccessCurrent(input.sourceAccess)) return hold('source', 'source_access_lost')
+
+  const memoryReason = memoryProvenanceHold(input.memorySource)
+  if (memoryReason) return hold('provenance', memoryReason)
 
   if (
     destination.channelId.trim().length === 0 ||

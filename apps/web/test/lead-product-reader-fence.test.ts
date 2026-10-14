@@ -16,8 +16,10 @@ const request = () =>
     method: 'POST',
     body: JSON.stringify(selectors),
   })
+const hostWorkspaceId = crypto.randomUUID()
 const product: CurrentLeadTurnProduct = {
-  workspaceId: crypto.randomUUID(),
+  workspaceId: hostWorkspaceId,
+  agentWorkspaceId: hostWorkspaceId,
   controlPlaneWorkspaceId: workspaceId,
   intentId,
   intentCreatedAt: new Date(now - 1_000).toISOString(),
