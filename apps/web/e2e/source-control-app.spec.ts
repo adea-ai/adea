@@ -94,6 +94,9 @@ declare global {
   interface Window {
     sourceControlHarness: {
       commands(): { operation: string; body: Record<string, unknown> }[]
+      failReads(operation: string, message: string): void
+      allowReads(operation: string): void
+      emptyNext(operation: string): void
       setFonts(settings: AppearanceEditorFontSettings): void
       resetFonts(): void
     }
@@ -122,6 +125,118 @@ async function instrumentRemovals(page: Page, scopeSelector: string) {
 }
 
 test.describe('source control app', () => {
+  test('read recovery: picker shows initial and refetch failures, retries, and genuine empty results', async ({
+    page,
+  }) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await openHarness(page)
+    await settled(page)
+    await page.getByRole('button', { name: 'New pull request' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New pull request' })
+    await expect(dialog.getByRole('textbox', { name: 'Title' })).toHaveValue('New feature')
+    await page.evaluate(() =>
+      window.sourceControlHarness.failReads('dev.github.labels', 'Labels temporarily unavailable')
+    )
+    await dialog.getByRole('button', { name: 'Add labels' }).click()
+    const list = page.locator('.dev-scm-picker__list')
+    await expect(list.getByRole('alert')).toContainText('Labels temporarily unavailable')
+    await expect(list.getByText('Loading…', { exact: true })).toHaveCount(0)
+    await expect(list.getByText('No matches.', { exact: true })).toHaveCount(0)
+    await page.evaluate(() => window.sourceControlHarness.allowReads('dev.github.labels'))
+    await list.getByRole('button', { name: 'Try again', exact: true }).click()
+    await expect(list.getByRole('button', { name: 'migration', exact: true })).toBeVisible()
+    await expect(list.getByRole('alert')).toHaveCount(0)
+    await page.evaluate(() =>
+      window.sourceControlHarness.failReads('dev.github.labels', 'Label refresh failed')
+    )
+    await page.getByRole('searchbox', { name: 'Filter labels' }).fill('mi')
+    await expect(list.getByRole('alert')).toContainText('Label refresh failed')
+    await expect(list.getByText('Loading…', { exact: true })).toHaveCount(0)
+    await expect(list.getByText('No matches.', { exact: true })).toHaveCount(0)
+    await page.evaluate(() => window.sourceControlHarness.allowReads('dev.github.labels'))
+    await list.getByRole('button', { name: 'Try again', exact: true }).click()
+    await expect(list.getByRole('button', { name: 'migration', exact: true })).toBeVisible()
+    await expect(list.getByRole('alert')).toHaveCount(0)
+    await page.getByRole('searchbox', { name: 'Filter labels' }).fill('no-such-label')
+    await expect(list.getByText('No matches.', { exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+  })
+
+  test('read recovery: checks suppress successful-empty captions on initial and refresh failures', async ({
+    page,
+  }) => {
+    const errors: string[] = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    await openHarness(page)
+    await settled(page)
+    await page
+      .getByRole('button', { name: /Migrate workspace store to Solid signals/ })
+      .first()
+      .click()
+    await page.evaluate(() =>
+      window.sourceControlHarness.failReads('dev.github.checks', 'Checks temporarily unavailable')
+    )
+    await page.getByRole('tab', { name: /Checks/ }).click()
+    await expect(page.getByText('Checks could not be loaded', { exact: true })).toBeVisible()
+    await expect(page.getByText('No checks ran on this commit', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'No checks', exact: true })).toHaveCount(0)
+    await page.evaluate(() => window.sourceControlHarness.allowReads('dev.github.checks'))
+    await page.getByRole('button', { name: 'Refresh checks', exact: true }).click()
+    await expect(page.getByRole('list', { name: 'Check runs' }).getByRole('listitem')).toHaveCount(
+      5
+    )
+    await expect(page.getByText('Checks could not be loaded', { exact: true })).toHaveCount(0)
+    await page.evaluate(() =>
+      window.sourceControlHarness.failReads('dev.github.checks', 'Check refresh failed')
+    )
+    await page.getByRole('button', { name: 'Refresh checks', exact: true }).click()
+    await expect(page.getByText('Check refresh failed', { exact: true })).toBeVisible()
+    await expect(page.getByText('No checks ran on this commit', { exact: true })).toHaveCount(0)
+    await page.evaluate(() => {
+      window.sourceControlHarness.allowReads('dev.github.checks')
+      window.sourceControlHarness.emptyNext('dev.github.checks')
+    })
+    await page.getByRole('button', { name: 'Refresh checks', exact: true }).click()
+    await expect(page.getByText('No checks ran on this commit', { exact: true })).toBeVisible()
+    await expect(page.getByText('Checks could not be loaded', { exact: true })).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+
+  for (const scope of ['Merged', 'Closed'] as const) {
+    test(`read recovery: ${scope.toLowerCase()} history failure retries without a successful-empty fallback`, async ({
+      page,
+    }) => {
+      const errors: string[] = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await openHarness(page)
+      await settled(page)
+      await page.evaluate(() =>
+        window.sourceControlHarness.failReads(
+          'dev.github.pullRequestSummaries',
+          'History temporarily unavailable'
+        )
+      )
+      await page.getByRole('tab', { name: scope, exact: true }).click()
+      await expect(page.getByText('History temporarily unavailable', { exact: true })).toBeVisible()
+      await expect(
+        page.getByText(`No ${scope.toLowerCase()} pull requests`, { exact: true })
+      ).toHaveCount(0)
+      await page.evaluate(() => {
+        window.sourceControlHarness.allowReads('dev.github.pullRequestSummaries')
+        window.sourceControlHarness.emptyNext('dev.github.pullRequestSummaries')
+      })
+      await page.getByRole('button', { name: 'Try again', exact: true }).click()
+      await expect(
+        page.getByText(`No ${scope.toLowerCase()} pull requests`, { exact: true })
+      ).toBeVisible()
+      await expect(
+        page.getByText('Pull requests could not be loaded', { exact: true })
+      ).toHaveCount(0)
+      expect(errors).toEqual([])
+    })
+  }
+
   test('source control maps UI, Content, and Code preferences to captions, discussion, and diffs', async ({
     page,
   }) => {

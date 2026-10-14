@@ -1284,6 +1284,11 @@ export type TerminalRecord = Readonly<{
   /** Canonical unsigned decimal: next output sequence (last + 1). */
   lastSeq: string
   generation: number
+  /**
+   * The host-admitted shell profile the terminal was started with. Absent for
+   * a terminal the host did not start from a profile (older hosts).
+   */
+  shellProfileId?: string
 }>
 
 export type TerminalCheckpoint = Readonly<{
@@ -3965,7 +3970,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'lastSeq',
         'generation',
       ],
-      [],
+      ['shellProfileId'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
@@ -3985,6 +3990,11 @@ function namedType(name: string, value: unknown, path: string): unknown {
     literal(item.health, ['healthy', 'degraded', 'replay_required', 'faulted'], `${path}.health`)
     uint64String(item.lastSeq, `${path}.lastSeq`)
     integerValue(item.generation, `${path}.generation`, 0)
+    if (
+      item.shellProfileId !== undefined &&
+      !uuidPattern.test(stringValue(item.shellProfileId, `${path}.shellProfileId`))
+    )
+      fail(`${path}.shellProfileId`, 'expected lowercase UUID')
     return value
   }
   if (name === 'TerminalCheckpoint') {

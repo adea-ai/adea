@@ -235,6 +235,33 @@ describe('a failed read is local and retryable', () => {
   })
 })
 
+describe('a read that loses its context mid-flight', () => {
+  test('is superseded, not reported as a failed read', async () => {
+    const state = world()
+    const { runtime } = fakeRuntime(state)
+    let revision = 1
+    const execute = runtime.execute.bind(runtime)
+    // The context identity changes while the runs read is in flight, so the fence rejects its answer.
+    runtime.execute = async (command) => {
+      const reply = await execute(command)
+      if (command.operation === 'dev.harness.runs') revision += 1
+      return reply
+    }
+    await createRoot(async (dispose) => {
+      try {
+        const controller = createHarnessStatusController(() => ({
+          ...context(runtime)(),
+          revision,
+        }))
+        await settle()
+        expect(controller.readErrors()).toEqual([])
+      } finally {
+        dispose()
+      }
+    })
+  })
+})
+
 const missing = () =>
   world({
     items: [entry()],

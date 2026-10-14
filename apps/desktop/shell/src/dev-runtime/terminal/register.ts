@@ -63,6 +63,8 @@ export type TerminalRegistryEntry = {
   generation: number
   processRecordId: string
   sidecarId: string
+  /** The shell profile the terminal was created from; absent for adopted terminals. */
+  shellProfileId?: string
 }
 
 export type RegisterTerminalRuntimeInput = {
@@ -414,6 +416,7 @@ export function registerTerminalRuntime(
         : 'degraded',
       lastSeq: snapshot.nextSeq,
       generation: entry.generation,
+      ...(entry.shellProfileId !== undefined ? { shellProfileId: entry.shellProfileId } : {}),
     }
   }
 
@@ -434,6 +437,7 @@ export function registerTerminalRuntime(
         health: 'healthy',
         lastSeq: '0',
         generation: entry.generation,
+        ...(entry.shellProfileId !== undefined ? { shellProfileId: entry.shellProfileId } : {}),
       }
     }
     return recordFor(command.resource!.id, entry, snapshot)
@@ -517,7 +521,16 @@ export function registerTerminalRuntime(
         throw devError('not_found', 'worktree root is not authorized on this runtime node')
       }
       const profiles = builtinShellProfiles()
-      const shellPath = profiles[0]?.argv[0]
+      // An explicit profile id is honoured or refused; it never silently falls
+      // back to another shell. Without one the host default (first profile) runs.
+      const requestedProfileId = body.shellProfileId as string | undefined
+      const profile =
+        requestedProfileId === undefined
+          ? profiles[0]
+          : profiles.find((candidate) => candidate.id === requestedProfileId)
+      if (requestedProfileId !== undefined && !profile)
+        throw devError('not_found', 'shell profile is not available on this host')
+      const shellPath = profile?.argv[0]
       if (!shellPath)
         throw devError('unsupported_capability', 'no builtin shell is available on this host')
       const terminalId = randomUUID()
@@ -538,6 +551,7 @@ export function registerTerminalRuntime(
         generation: 1,
         processRecordId: randomUUID(),
         sidecarId: input.sidecar.welcome.pidStartIdentity,
+        ...(profile ? { shellProfileId: profile.id } : {}),
       }
       registry.set(terminalId, entry)
       inputAuthorities.set(terminalId, createInputAuthority(terminalId))
