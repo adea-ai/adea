@@ -2,10 +2,11 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
+import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
 import {
   ArtifactReferenceGrantError,
@@ -29,7 +30,7 @@ import {
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
 } from '../../src/migration-snapshot-legacy'
 import { listReadStateForUser } from '../../src/read-state'
-import { taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
+import { channelParticipants, taskExecutionAttempts, workspaceMemberships } from '../../src/schema'
 import { listTasksForUser } from '../../src/tasks'
 import {
   createWorkspaceInvitation,
@@ -49,6 +50,7 @@ import {
 } from '../fixtures/cutover-rehearsal'
 import {
   insertLegacyGroup,
+  insertLegacyMessage,
   insertLegacyMessageSequence,
   insertLegacyProject,
   insertLegacyProjectMember,
@@ -138,8 +140,21 @@ type Fixture = {
   audienceOwner: Principal
   collaborator: Principal
   outsider: Principal
+  /** A clean legacy participant: admissible, the positive control for every denial below. */
+  member: Principal
+  /** A legacy participant who has since left the workspace (an ambiguous audience record). */
+  removed: Principal
+  /** An Agent from another workspace on a legacy roster (an ambiguous audience record). */
+  foreignAgentId: string
   sharedChannelId: string
   archivedChannelId: string
+  /** Stable ids of the seeded records the exact-evidence assertions pin. */
+  memberMessageId: string
+  /** The highest sequence the owner, member and removed user had read on the shared channel. */
+  ownerReadSequence: number
+  removedReadSequence: number
+  messageContentRefId: string
+  secondTaskId: string
 }
 
 async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixture> {
@@ -156,6 +171,8 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
   const collaborator = await session('collaborator')
   const outsider = await session('outsider')
   const audienceOwner = await session('audience-owner')
+  const member = await session('member')
+  const removed = await session('removed')
 
   const { workspace } = await createWorkspaceWithOwner(connection.db, {
     idempotencyKey: `rehearsal-${suffix}`,
@@ -163,15 +180,21 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     owner,
   })
   const workspaceId = workspace.id
-  await connection.db.insert(workspaceMemberships).values({
-    role: 'member',
-    userId: collaborator.userId,
-    workspaceId,
-  })
+  await connection.db.insert(workspaceMemberships).values([
+    { role: 'member', userId: collaborator.userId, workspaceId },
+    { role: 'member', userId: member.userId, workspaceId },
+    { role: 'member', userId: removed.userId, workspaceId },
+  ])
   const { workspace: audience } = await createWorkspaceWithOwner(connection.db, {
     idempotencyKey: `rehearsal-audience-${suffix}`,
     name: 'Rehearsal audience',
     owner: audienceOwner,
+  })
+  // An Agent that lives in the audience workspace, later placed on the host workspace's legacy roster.
+  const foreignAgent = await createAgent(connection.db, audience.id, audienceOwner, {
+    name: 'Rehearsal foreign agent',
+    profileId: 'software-engineer',
+    profileVersion: '1.0.0',
   })
 
   // Legacy group rows, written as the pre-#1232 product wrote them: the group policy tables do not
@@ -197,6 +220,33 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     userId: owner.userId,
     workspaceId,
   })
+  // Ambiguous legacy audience on the shared group: a clean member, a user who is about to leave the
+  // workspace, and an Agent from another workspace. Their roster rows are the only record of them.
+  await connection.db.insert(channelParticipants).values([
+    { channelId: sharedId, principalKind: 'user', userId: member.userId, workspaceId },
+    { channelId: sharedId, principalKind: 'user', userId: removed.userId, workspaceId },
+    { channelId: sharedId, principalKind: 'agent', agentId: foreignAgent.id, workspaceId },
+  ])
+  // A third message from the clean member, with a stable id the exact-evidence assertions pin.
+  const memberMessageId = await insertLegacyMessage(connection.db, {
+    bodyText: 'rehearsal-shared-body-3',
+    channelId: sharedId,
+    sender: member,
+    workspaceId,
+  })
+  // Each participant has read part of the channel; the owner has read all of it.
+  await insertLegacyReadState(connection.db, {
+    channelId: sharedId,
+    lastReadSequence: latestShared,
+    userId: member.userId,
+    workspaceId,
+  })
+  await insertLegacyReadState(connection.db, {
+    channelId: sharedId,
+    lastReadSequence: Math.max(1, latestShared - 1),
+    userId: removed.userId,
+    workspaceId,
+  })
 
   const closedId = await insertLegacyGroup(
     connection.db,
@@ -211,6 +261,14 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     sender: owner,
     workspaceId,
   })
+  // The clean member also sits on the archived group, so the owner and member rows there are the
+  // 'group channel not active' shape once the canonical backfill declines to admit them.
+  await connection.db.insert(channelParticipants).values({
+    channelId: closedId,
+    principalKind: 'user',
+    userId: member.userId,
+    workspaceId,
+  })
 
   const taskId = await insertLegacyTask(connection.db, {
     creatorUserId: owner.userId,
@@ -223,6 +281,29 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     locationKind: 'agent_hq_cloud',
     runtimeNodeId: null,
     taskId,
+    workspaceId,
+  })
+  // The same task retried: attempt 2 is the active (highest) attempt, a sticky retry on the cloud.
+  await connection.db.insert(taskExecutionAttempts).values({
+    attempt: 2,
+    change: 'sticky_retry',
+    locationKind: 'agent_hq_cloud',
+    runtimeNodeId: null,
+    taskId,
+    workspaceId,
+  })
+  // A second task with a single initial attempt, so active-attempt ownership is per task.
+  const secondTaskId = await insertLegacyTask(connection.db, {
+    creatorUserId: member.userId,
+    objective: 'Rehearsal second objective',
+    title: 'Rehearsal second task',
+    workspaceId,
+  })
+  await connection.db.insert(taskExecutionAttempts).values({
+    attempt: 1,
+    locationKind: 'agent_hq_cloud',
+    runtimeNodeId: null,
+    taskId: secondTaskId,
     workspaceId,
   })
 
@@ -266,6 +347,30 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     schemaVersion: 1,
   })
 
+  // A message-linked ref: the link from the member's message to its encrypted body.
+  const messageContentRef = await createContentRef(connection.db, workspaceId, member, {
+    availability: 'available',
+    contentType: 'message_body',
+    digestSha256: 'e'.repeat(64),
+    id: crypto.randomUUID(),
+    keyVersion: 1,
+    messageId: memberMessageId,
+    schemaVersion: 1,
+    sensitivity: 'restricted',
+    storagePolicy: 'local_authority',
+    synchronizationPolicy: 'agent_hq_e2ee_sync',
+  })
+
+  // The user leaves the workspace; the legacy roster rows remain, as they did for real departures.
+  await connection.db
+    .delete(workspaceMemberships)
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, removed.userId)
+      )
+    )
+
   // Created before cutover: the artifact must survive the expansion unchanged.
   const artifact = await createArtifact(connection.db, workspaceId, owner, {
     availability: 'available',
@@ -290,8 +395,16 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     audienceOwner,
     collaborator,
     outsider,
+    member,
+    removed,
+    foreignAgentId: foreignAgent.id,
     sharedChannelId: sharedId,
     archivedChannelId: closedId,
+    memberMessageId,
+    ownerReadSequence: latestShared,
+    removedReadSequence: Math.max(1, latestShared - 1),
+    messageContentRefId: messageContentRef.id,
+    secondTaskId,
   }
 }
 
@@ -386,28 +499,47 @@ async function tablePresent(connection: DatabaseConnection, name: string): Promi
   return rows[0]?.present === true
 }
 
-/** Exact, bounded evidence for the task-linked ref and its physical replica. */
-function assertContentEvidence(document: MigrationSnapshotDocument, fixture: Fixture): void {
-  const refs = (document.sections.contentRefs?.records ?? []).filter(
-    (row) => row.workspaceId === fixture.workspaceId
+/**
+ * Exact, bounded evidence for the seeded historical records of the fixture workspace, pinned by stable id:
+ * the same assertion runs on the pre-cutover capture, the post-cutover capture and the repeat capture, so a
+ * dropped, duplicated or re-keyed record fails by name rather than by an aggregate count.
+ */
+function assertHistoricalEvidence(document: MigrationSnapshotDocument, fixture: Fixture): void {
+  const inWorkspace = <T extends { workspaceId?: string }>(rows: readonly T[] | undefined) =>
+    (rows ?? []).filter((row) => row.workspaceId === fixture.workspaceId)
+  const sections = document.sections
+
+  // Content: the task-linked ref and the message-linked ref, and the one replica.
+  const refs = inWorkspace(sections.contentRefs?.records).toSorted((left, right) =>
+    left.contentRefId.localeCompare(right.contentRefId)
   )
-  const replicas = (document.sections.contentReplicas?.records ?? []).filter(
-    (row) => row.workspaceId === fixture.workspaceId
+  expect(refs).toEqual(
+    [
+      {
+        availability: 'available',
+        contentRefId: fixture.contentRefId,
+        digestSha256: fixture.contentDigest,
+        family: 'contentRefs',
+        keyVersion: 1,
+        messageId: null,
+        revision: 1,
+        taskId: fixture.taskId,
+        workspaceId: fixture.workspaceId,
+      },
+      {
+        availability: 'available',
+        contentRefId: fixture.messageContentRefId,
+        digestSha256: 'e'.repeat(64),
+        family: 'contentRefs',
+        keyVersion: 1,
+        messageId: fixture.memberMessageId,
+        revision: 1,
+        taskId: null,
+        workspaceId: fixture.workspaceId,
+      },
+    ].toSorted((left, right) => left.contentRefId.localeCompare(right.contentRefId))
   )
-  expect(refs).toEqual([
-    {
-      availability: 'available',
-      contentRefId: fixture.contentRefId,
-      digestSha256: fixture.contentDigest,
-      family: 'contentRefs',
-      keyVersion: 1,
-      messageId: null,
-      revision: 1,
-      taskId: fixture.taskId,
-      workspaceId: fixture.workspaceId,
-    },
-  ])
-  expect(replicas).toEqual([
+  expect(inWorkspace(sections.contentReplicas?.records)).toEqual([
     {
       availability: 'available',
       contentRefId: fixture.contentRefId,
@@ -421,6 +553,75 @@ function assertContentEvidence(document: MigrationSnapshotDocument, fixture: Fix
       workspaceId: fixture.workspaceId,
     },
   ])
+
+  // Channels and their rosters: both legacy groups, with every legacy participant row still on record.
+  expect(
+    inWorkspace(sections.channels?.records)
+      .map((row) => `${row.channelId}:${row.visibility}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.sharedChannelId}:participants`,
+      `${fixture.archivedChannelId}:participants`,
+    ].toSorted()
+  )
+  expect(
+    inWorkspace(sections.channelParticipants?.records)
+      .map((row) => `${row.channelId}:${row.principalKind}:${row.principalId}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.sharedChannelId}:user:${fixture.owner.userId}`,
+      `${fixture.sharedChannelId}:user:${fixture.member.userId}`,
+      `${fixture.sharedChannelId}:user:${fixture.removed.userId}`,
+      `${fixture.sharedChannelId}:agent:${fixture.foreignAgentId}`,
+      `${fixture.archivedChannelId}:user:${fixture.owner.userId}`,
+      `${fixture.archivedChannelId}:user:${fixture.member.userId}`,
+    ].toSorted()
+  )
+
+  // Messages: three on the shared channel (one pinned by id) and one on the archived channel, none deleted.
+  const messages = inWorkspace(sections.messages?.records)
+  expect(messages.filter((row) => row.channelId === fixture.sharedChannelId)).toHaveLength(3)
+  expect(messages.filter((row) => row.channelId === fixture.archivedChannelId)).toHaveLength(1)
+  expect(messages.some((row) => row.messageId === fixture.memberMessageId)).toBe(true)
+  expect(messages.every((row) => row.deleted === false && row.threadRootMessageId === null)).toBe(
+    true
+  )
+
+  // Read state: each reader's exact position, including the member who is behind and the removed user.
+  expect(
+    inWorkspace(sections.readState?.records)
+      .map(
+        (row) =>
+          `${row.userId}:${row.channelId}:${row.lastReadSequence}:${row.manuallyUnread}:${row.threadRootMessageId}`
+      )
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.owner.userId}:${fixture.sharedChannelId}:${fixture.ownerReadSequence}:false:null`,
+      `${fixture.member.userId}:${fixture.sharedChannelId}:${fixture.ownerReadSequence}:false:null`,
+      `${fixture.removed.userId}:${fixture.sharedChannelId}:${fixture.removedReadSequence}:false:null`,
+    ].toSorted()
+  )
+
+  // Active attempts: attempt 2 is the highest on the retried task; the second task has only attempt 1.
+  expect(
+    inWorkspace(sections.executionAttempts?.records)
+      .map((row) => `${row.taskId}:${row.attempt}:${row.locationKind}:${row.runtimeNodeId}`)
+      .toSorted()
+  ).toEqual(
+    [
+      `${fixture.taskId}:1:agent_hq_cloud:null`,
+      `${fixture.taskId}:2:agent_hq_cloud:null`,
+      `${fixture.secondTaskId}:1:agent_hq_cloud:null`,
+    ].toSorted()
+  )
+  expect(
+    inWorkspace(sections.tasks?.records)
+      .map((row) => row.taskId)
+      .toSorted()
+  ).toEqual([fixture.taskId, fixture.secondTaskId].toSorted())
 }
 
 async function grantRowCount(connection: DatabaseConnection, grantId: string): Promise<number> {
@@ -624,8 +825,8 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
 
   test('on the same populated pre-0046 database, the legacy capture equals the canonical typed capture', async () => {
     const { before, typedBefore, fixture } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(typedBefore.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(typedBefore.document, fixture)
     expect(before.document.sections).toEqual(typedBefore.document.sections)
     expect(Object.keys(before.document.sections).toSorted()).toEqual(
       [...COMPARED_FAMILIES].toSorted()
@@ -644,9 +845,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       again,
       fixture,
     } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(after.document, fixture)
-    assertContentEvidence(again.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(after.document, fixture)
+    assertHistoricalEvidence(again.document, fixture)
     expect(cutover.applied).toBe(journalLength)
     expect(cutover.grantsTablePresent).toBe(true)
     expect(cutover.artifactRows).toBe(1)
@@ -663,7 +864,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     // The pre-0046 product baseline is unavailable evidence (see the capture test); after cutover the
     // product answers, and the document comparison carries the audience and identity facts.
     expect('unavailable' in baselineReads).toBe(true)
-    expect(afterReads.owner.sharedMessages).toHaveLength(2)
+    expect(afterReads.owner.sharedMessages).toHaveLength(3)
   }, 300_000)
 
   test('the capture covers the legacy families, records absent and unread families explicitly, and keeps audience facts', async () => {
@@ -702,9 +903,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       before,
       fixture,
     } = await runScenario()
-    assertContentEvidence(before.document, fixture)
-    assertContentEvidence(after.document, fixture)
-    assertContentEvidence(again.document, fixture)
+    assertHistoricalEvidence(before.document, fixture)
+    assertHistoricalEvidence(after.document, fixture)
+    assertHistoricalEvidence(again.document, fixture)
     expect(after.document.sections.contentRefs).toEqual(before.document.sections.contentRefs)
     expect(again.document.sections.contentRefs).toEqual(after.document.sections.contentRefs)
     expect(after.document.sections.contentReplicas).toEqual(
