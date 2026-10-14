@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
 import { createAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
@@ -156,6 +156,72 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     ).length
   const claimCount = async (f: Fixture) =>
     (await loadAddressedTurns(connection.db, f.workspace.id, f.channelId)).length
+
+  async function addOutsiderAfterTrigger(f: Fixture) {
+    const [channel] = await connection.db
+      .select({ version: schema.channels.version })
+      .from(schema.channels)
+      .where(eq(schema.channels.id, f.channelId))
+      .limit(1)
+    if (!channel) throw new Error('Test channel missing')
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audience(f.channelId, f.owner, 'gra_owner'),
+            audience(f.channelId, f.member, 'gra_member'),
+            audience(f.channelId, f.outsider, 'gra_outsider'),
+          ],
+          enlistmentGrants: [
+            enlistment(f.channelId, f.lead.id, f.workspace.id, 'gra_lead'),
+            enlistment(f.channelId, f.helper.id, f.workspace.id, 'gra_helper'),
+          ],
+        }),
+        expectedVersion: channel.version,
+        now: new Date().toISOString(),
+      }
+    )
+  }
+
+  async function insertReplayTurns(
+    f: Fixture,
+    count: number,
+    triggerMessageIdAt: (index: number) => string,
+    { idPrefix = crypto.randomUUID().slice(0, 24), startIndex = 0 } = {}
+  ) {
+    const createdAt = new Date(NOW)
+    const rows = Array.from({ length: count }, (_, index) => {
+      const sequence = startIndex + index
+      const revision = sequence + 1
+      const triggerMessageId = triggerMessageIdAt(sequence)
+      return {
+        addresserUserId: f.owner.userId,
+        addressedLabel: `${f.workspace.id}:${f.helper.id}`,
+        agentId: f.helper.id,
+        causalId: `turn:${triggerMessageId}:${f.helper.id}:${revision}`,
+        channelId: f.channelId,
+        createdAt,
+        depth: 0,
+        dispatchRevision: revision,
+        id: `${idPrefix}${sequence.toString(16).padStart(12, '0')}`,
+        intentId: null,
+        maxDepth: 2,
+        maxTurns: 8,
+        parentTurnId: null,
+        responseMessageId: null,
+        state: 'claimed',
+        triggerMessageId,
+        updatedAt: createdAt,
+        workspaceId: f.workspace.id,
+      }
+    })
+    await connection.db.insert(schema.addressedAgentTurns).values(rows)
+    return rows
+  }
 
   /** Drives a dispatched lead intent through the existing runtime path to a publishable result. */
   async function complete(f: Fixture, intentId: string) {
@@ -428,6 +494,67 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     }
   )
 
+  T(
+    'replay cursors preserve PostgreSQL microseconds and exact timestamp/id tie order',
+    async () => {
+      const f = await fixture()
+      const first = await address(f, f.helper.id, 1)
+      const second = await address(f, f.helper.id, 2)
+      const third = await address(f, f.helper.id, 3)
+      const tiedFirstId = 'ffffffff-ffff-4fff-8fff-fffffffffff3'
+      const tiedSecondId = '00000000-0000-4000-8000-000000000001'
+      const tiedThirdId = '00000000-0000-4000-8000-000000000002'
+
+      // All three JS Dates round to the same millisecond. PostgreSQL still orders the first row before
+      // the tied pair by its microseconds, then orders the tied pair by UUID.
+      await connection.db.execute(sql`
+      UPDATE app.addressed_agent_turns
+      SET id = ${tiedFirstId}::uuid, created_at = '2026-10-08 12:00:00.000100+00'::timestamptz
+      WHERE id = ${first.turn.id}::uuid
+    `)
+      await connection.db.execute(sql`
+      UPDATE app.addressed_agent_turns
+      SET id = ${tiedSecondId}::uuid, created_at = '2026-10-08 12:00:00.000900+00'::timestamptz
+      WHERE id = ${second.turn.id}::uuid
+    `)
+      await connection.db.execute(sql`
+      UPDATE app.addressed_agent_turns
+      SET id = ${tiedThirdId}::uuid, created_at = '2026-10-08 12:00:00.000900+00'::timestamptz
+      WHERE id = ${third.turn.id}::uuid
+    `)
+
+      const page1 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        { limit: 1 }
+      )
+      expect(page1.turns.map((turn) => turn.id)).toEqual([tiedFirstId])
+      expect(page1.nextAfter).toBe(tiedFirstId)
+
+      const page2 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        { after: page1.nextAfter!, limit: 1 }
+      )
+      expect(page2.turns.map((turn) => turn.id)).toEqual([tiedSecondId])
+      expect(page2.nextAfter).toBe(tiedSecondId)
+
+      const page3 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.owner,
+        { after: page2.nextAfter!, limit: 1 }
+      )
+      expect(page3.turns.map((turn) => turn.id)).toEqual([tiedThirdId])
+      expect(page3.nextAfter).toBeNull()
+    }
+  )
+
   T('replay omits turns whose trigger the reader joined too late to see', async () => {
     const f = await fixture()
     await address(f, f.helper.id)
@@ -479,6 +606,80 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       })
     ).rejects.toMatchObject({ reason: 'turn_cursor_invalid' })
   })
+
+  T(
+    'replay pages interleaved hidden turns across scan windows without skips or duplicate visible turns',
+    async () => {
+      const f = await fixture()
+      await addOutsiderAfterTrigger(f)
+      const visibleTrigger = await f.post(f.owner, 'visible after join')
+      const rows = await insertReplayTurns(f, 500, (index) =>
+        index % 2 === 0 ? visibleTrigger.id : f.trigger.id
+      )
+      const expected = rows.filter((_, index) => index % 2 === 0).map((turn) => turn.id)
+
+      const page1 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.outsider,
+        { limit: 90 }
+      )
+      expect(page1.turns.map((turn) => turn.id)).toEqual(expected.slice(0, 90))
+      expect(page1.nextAfter).toBe(expected[89])
+
+      const page2 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.outsider,
+        { after: page1.nextAfter!, limit: 90 }
+      )
+      expect(page2.turns.map((turn) => turn.id)).toEqual(expected.slice(90, 180))
+      expect(page2.nextAfter).toBe(expected[179])
+
+      const page3 = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.outsider,
+        { after: page2.nextAfter!, limit: 90 }
+      )
+      expect(page3.turns.map((turn) => turn.id)).toEqual(expected.slice(180))
+      expect(page3.nextAfter).toBeNull()
+
+      const allReturned = [...page1.turns, ...page2.turns, ...page3.turns].map((turn) => turn.id)
+      expect(allReturned).toEqual(expected)
+      expect(new Set(allReturned).size).toBe(expected.length)
+    }
+  )
+
+  T(
+    'an exactly exhausted 1,000-row hidden scan ends cleanly, while one more hidden row fails closed',
+    async () => {
+      const f = await fixture()
+      await addOutsiderAfterTrigger(f)
+      const idPrefix = crypto.randomUUID().slice(0, 24)
+      await insertReplayTurns(f, 1_000, () => f.trigger.id, { idPrefix })
+
+      const exhausted = await listAddressedTurnsForUser(
+        connection.db,
+        f.workspace.id,
+        f.channelId,
+        f.outsider,
+        { limit: 1 }
+      )
+      expect(exhausted.turns).toEqual([])
+      expect(exhausted.nextAfter).toBeNull()
+
+      await insertReplayTurns(f, 1, () => f.trigger.id, { idPrefix, startIndex: 1_000 })
+      await expect(
+        listAddressedTurnsForUser(connection.db, f.workspace.id, f.channelId, f.outsider, {
+          limit: 1,
+        })
+      ).rejects.toThrow('Addressed turn history scan exhausted')
+    }
+  )
 
   T('cancellation belongs to the addresser or a manager and is scoped to the channel', async () => {
     const f = await fixture()
