@@ -210,38 +210,56 @@ session expires.
 CP #1136 adds an optional `childAllowance` (`stated` with USD microunits and tokens, or
 `not_stated`) to the lead `prepare` response. The preparation schema in the SDK is strict, so the
 SDK that accepts the field must be released and Adea bumped to it **before** the CP change is
-deployed. `child-allowance-boundary.test.mjs` measures that boundary instead of assuming it. Adea's
-product prepares (and, where the field is accepted, dispatches) the lead through the installed
-SDK over HTTP to CP's control API at the #1136 head, for a profile that states an allowance and one
-that states none, and asserts what Adea must do either way:
+deployed. `child-allowance-boundary.test.mjs` prepares and dispatches the lead through the
+installed SDK over HTTP to CP's control API at the #1136 head, for a profile that states an
+allowance and one that states none.
 
-- installed SDK rejects the field: the turn is `blocked` / `RUNTIME_UNAVAILABLE`, nothing starts,
-  0 physical sends. This is the failure rollout must avoid.
-- installed SDK accepts it: prepare returns `prepared`, the typed field equals the pinned profile
-  version's statement (or `not_stated`), a response without the field still parses, a half
-  statement is rejected, and dispatch runs the lead.
+The expectation is explicit and required, so a broken SDK cannot pass by being measured and then
+excused. `PI_FACTORY_EXPECT_SDK` and `PI_FACTORY_INSTALL` have no defaults:
+
+- `accepts`: the measured acceptance must be true, prepare must return `prepared`, the typed field
+  must equal the pinned profile version's statement (or `not_stated`), a response without the field
+  must still parse, a half statement must not, and **dispatch must run the lead**. Nothing is
+  skipped.
+- `rejects`: the measured acceptance must be false and the turn must fail closed (`blocked` /
+  `RUNTIME_UNAVAILABLE`, no preparation reference, no dispatch, 0 physical sends). This is the
+  negative control for a registry SDK that predates the field.
+- `candidate-overlay` and the post-bump `registry` install may only be expected to `accept`; the
+  suite refuses to start otherwise.
+
+| `PI_FACTORY_INSTALL`           | What is installed                                                                                                | Allowed expectation                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `registry`                     | Adea's lockfile SDK, checked byte-identical to the candidate (every file but `package.json`): the post-bump gate | `accepts`                                    |
+| `registry-predating-candidate` | Adea's lockfile SDK, expected to differ from the candidate; the differing files are printed                      | `rejects`, or `accepts` to prove the failure |
+| `candidate-overlay`            | The packed candidate archives in a throwaway checkout (pre-release evidence only)                                | `accepts`                                    |
 
 ```sh
 # Pin to the #1136 head; the manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>`
 # in the clean, built CP checkout at that head.
-PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json \
 DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at d0cc27c3> PI_FACTORY_BUN=<bun 1.4.2> \
 PI_FACTORY_MANIFEST=<candidate>/manifest.json \
-  bun run test:integration:control-plane-child-allowance
+  bun run test:integration:control-plane-child-allowance            # registry + accepts: the post-bump gate
+  bun run test:integration:control-plane-child-allowance-predating  # lockfile SDK + rejects: negative control
 ```
 
-`PI_FACTORY_INSTALL` selects what is under test, and the suite prints it with every result:
+The first script is the gate that must pass after the SDK release and the Adea bump, and it fails
+until then (today the lockfile SDK is not byte-identical to the candidate, so it stops at the
+identity check). Local results at `d0cc27c3`, 2026-10-14:
 
-| Install                                                                                  | Result at `d0cc27c3` (local, 2026-10-14)                                                                                                                                                                                                                            |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| default `registry-predating-candidate`: Adea's lockfile (sdk 1.18.0, runtime-sdk 1.15.1) | 8 of 8 pass; `installedAccepts: false`, `blocked` / `RUNTIME_UNAVAILABLE` in both modes. Seven files differ from the candidate: runtime-sdk `dist/pi-durable-lead.{js,d.ts}` and their maps, sdk `dist/operations.d.ts{,.map}` and `openapi/control-plane.v3.json`. |
-| `candidate-overlay`: the packed candidate archives in a throwaway checkout               | 8 of 8 pass, twice; `installedAccepts: true`, `prepared`, typed field equal to the profile statement, dispatch runs. Archive digests and the installed payload are checked against the manifest.                                                                    |
+| Run                                                                                                                                    | Expectation | Result                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| lockfile SDK (sdk 1.18.0, runtime-sdk 1.15.1), `-predating` script                                                                     | `rejects`   | 8 of 8 pass: `blocked` / `RUNTIME_UNAVAILABLE`; seven files differ (runtime-sdk `dist/pi-durable-lead.*`, sdk `dist/operations.d.ts*`, `openapi/control-plane.v3.json`) |
+| packed candidate archives, throwaway checkout (`candidate-overlay`)                                                                    | `accepts`   | 8 of 8 pass, twice: `prepared`, typed field equal to the profile statement, dispatch runs                                                                               |
+| **negative** lockfile SDK, `registry-predating-candidate`                                                                              | `accepts`   | **fails**: the acceptance assertion, the typed-field test and the dispatch test fail in both modes                                                                      |
+| **negative** broken candidate: candidate whose runtime-sdk lacks the field, with a manifest that matches it so package identity passes | `accepts`   | **fails** at the same assertions with `installedAccepts: false` (the earlier either-outcome version would have passed)                                                  |
+| **negative** overlay, `rejects`; or no expectation / no install kind                                                                   | -           | the suite refuses to start (`CANDIDATE_OR_RELEASED_SDK_MUST_BE_EXPECTED_TO_ACCEPT`, `PI_FACTORY_EXPECT_SDK_REQUIRED`)                                                   |
 
 The overlay is pre-release evidence for a change no published package carries. It is not evidence
 about Adea's lockfile or a release: the candidate keeps the published version numbers (sdk 1.18.0,
 runtime-sdk 1.15.1), which a release will change, and Adea's own checks (clean install, lockfile,
-typecheck, unit lanes) have not run against it. The qualification is complete only when the same
-suite reports `installedAccepts: true` on the default registry install after the bump.
+typecheck, unit lanes) have not run against it. The qualification is complete only when
+`test:integration:control-plane-child-allowance` passes on the default registry install after the
+bump.
 
 ## Remaining dependencies
 

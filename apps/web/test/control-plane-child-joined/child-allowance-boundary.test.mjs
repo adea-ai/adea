@@ -1,14 +1,21 @@
 // Opt-in consumer-boundary proof for CP draft #1136's `childAllowance` on the lead prepare response.
-// Adea's product prepares and dispatches the lead through whichever @adea-ai SDK packages are
-// installed, over HTTP to CP's control API at the #1136 head. The suite measures whether the
-// installed SDK accepts the new field and asserts what Adea must do either way:
-//   - installed SDK rejects it: the turn fails closed (blocked, nothing started). This is today's
-//     registry SDK, and the reason the SDK must be released and bumped BEFORE CP is deployed.
-//   - installed SDK accepts it: prepare and dispatch work, and the field surfaces typed and equal
-//     to what the pinned profile version states (or `not_stated`).
-// Run with PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json. PI_FACTORY_INSTALL=
-// candidate-overlay is pre-release evidence from a throwaway checkout; it is not evidence about
-// Adea's lockfile. Scripted ports other than CP's, never live.
+// Adea's product prepares and dispatches the lead through the installed @adea-ai SDK packages, over
+// HTTP to CP's control API at the #1136 head. The expectation is explicit and required, so a
+// broken SDK cannot pass by being measured and then excused:
+//   PI_FACTORY_EXPECT_SDK=accepts  The installed SDK must accept the field. Prepare must return
+//     `prepared`, the typed field must equal the pinned profile version's statement, and dispatch
+//     must run the lead. Nothing is skipped; a rejecting SDK fails here.
+//   PI_FACTORY_EXPECT_SDK=rejects  The installed SDK must reject the field and the turn must fail
+//     closed (blocked, nothing started). This is the negative control for a registry SDK that
+//     predates the field, and the reason the SDK must be released and bumped BEFORE CP deploys.
+// PI_FACTORY_INSTALL says what is installed and is also required:
+//   registry                       Adea's lockfile SDK is byte-identical to the candidate (the
+//                                  post-bump gate: use with expect=accepts).
+//   registry-predating-candidate   Adea's lockfile SDK is expected to differ (use with rejects).
+//   candidate-overlay              The packed candidate archives in a throwaway checkout. Pre-release
+//                                  evidence only; it says nothing about Adea's lockfile.
+// Pin CP with PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json. Scripted ports other than CP's,
+// never live.
 import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
 import { describe, beforeAll, afterAll, test, expect } from 'bun:test'
@@ -22,17 +29,22 @@ const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
 if (pin.revision === '7d36f9bb78e32be9cb2e508884f010a9ad670c6b')
   throw new Error('SET_PI_FACTORY_SOURCE_PIN_TO_A_CP_HEAD_THAT_DISCLOSES_CHILD_ALLOWANCE')
-// registry-predating-candidate: the lockfile's registry SDK, which is expected to differ from the
-// candidate; overlay: the candidate archives installed in a throwaway checkout.
-const installKind = process.env.PI_FACTORY_INSTALL ?? 'registry-predating-candidate'
+const installKind = process.env.PI_FACTORY_INSTALL
+const expectation = process.env.PI_FACTORY_EXPECT_SDK
+if (!['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind))
+  throw new Error('PI_FACTORY_INSTALL_REQUIRED')
+if (!['accepts', 'rejects'].includes(expectation)) throw new Error('PI_FACTORY_EXPECT_SDK_REQUIRED')
+// An install that is the candidate itself, or the post-bump registry SDK, must accept the field.
+if (installKind !== 'registry-predating-candidate' && expectation !== 'accepts')
+  throw new Error('CANDIDATE_OR_RELEASED_SDK_MUST_BE_EXPECTED_TO_ACCEPT')
+const mustAccept = expectation === 'accepts'
 const webRequire = createRequire(new URL('../../package.json', import.meta.url))
 const sdkEntry = realpathSync(webRequire.resolve('@adea-ai/sdk'))
 const { ControlApiOperations } = await import(sdkEntry)
 const responseSchema = ControlApiOperations.preparePiDurableLead.responseSchema
 
 let installed
-// The same payload an older control plane sends, with and without the field, parsed by whichever
-// preparation schema is installed. This is the measurement; nothing below assumes its outcome.
+// The payload CP sent, with and without the field, parsed by the installed preparation schema.
 const probe = (data) => responseSchema.safeParse(data).success
 const sample = (captured, withField) => {
   const next = structuredClone(captured)
@@ -124,7 +136,7 @@ for (const mode of ['profile', 'none']) {
       }
     }, 30000)
 
-    test('the installed SDK schema either accepts the field or Adea fails closed', async () => {
+    test(`the installed SDK ${mustAccept ? 'accepts' : 'rejects'} the field, as expected`, async () => {
       const evidence = await control('evidence')
       expect(evidence.physicalSends).toBe(0)
       expect(evidence.secretResolutions).toBe(0)
@@ -132,6 +144,7 @@ for (const mode of ['profile', 'none']) {
         JSON.stringify({
           boundary: 'child-allowance',
           mode,
+          expectation,
           installKind: installed.installKind,
           differingFiles: installed.packages.flatMap((entry) =>
             (entry.differingFiles ?? []).map((file) => `${entry.name}:${file}`)
@@ -141,11 +154,14 @@ for (const mode of ['profile', 'none']) {
           reasonCode: prepared.reasonCode,
         })
       )
-      if (accepts) {
+      // The measurement must equal the stated expectation before anything else is judged.
+      expect(accepts).toBe(mustAccept)
+      if (mustAccept) {
         expect(prepared.state).toBe('prepared')
         expect(prepared.selectionRef).toBe(
           harness.choices.requestedModelSelections.lead.selectionRef
         )
+        expect(prepared.preparationRef).toMatch(/^prep_[a-f0-9]{32}$/)
       } else {
         // An older SDK refuses the response as a whole: the turn is blocked, never started.
         expect(prepared.state).toBe('blocked')
@@ -155,36 +171,54 @@ for (const mode of ['profile', 'none']) {
       }
     }, 30000)
 
-    test('an accepting SDK surfaces the typed field and still parses a control plane that omits it', () => {
-      if (!accepts) {
-        // The field is what the installed schema rejects, and nothing else in the response.
+    test(
+      mustAccept
+        ? 'the typed field survives, a response without it still parses, a half statement does not'
+        : 'the field is the only thing the installed SDK rejects',
+      () => {
         expect(probe(sample(captured, false))).toBe(true)
-        return
+        if (!mustAccept) {
+          expect(probe(captured)).toBe(false)
+          return
+        }
+        const parsed = responseSchema.parse(captured)
+        expect(parsed.data.childAllowance).toEqual(captured.data.childAllowance)
+        const half = sample(captured, true)
+        half.data.childAllowance =
+          mode === 'none'
+            ? { ...half.data.childAllowance, maximumMicrounits: 1 }
+            : { ...half.data.childAllowance, maximumTokens: 0 }
+        expect(probe(half)).toBe(false)
       }
-      const parsed = responseSchema.parse(captured)
-      expect(parsed.data.childAllowance).toEqual(captured.data.childAllowance)
-      expect(probe(sample(captured, false))).toBe(true)
-      const half = sample(captured, true)
-      half.data.childAllowance =
-        mode === 'none'
-          ? { ...half.data.childAllowance, maximumMicrounits: 1 }
-          : { ...half.data.childAllowance, maximumTokens: 0 }
-      expect(probe(half)).toBe(false)
-    })
+    )
 
-    test('with the field accepted, dispatch is unaffected and the lead runs', async () => {
-      if (!accepts) return
-      const started = await product.dispatch(scope)
-      expect(['starting', 'running']).toContain(started.state)
-      expect(started.dispatchId).toBeTruthy()
-      let status
-      const deadline = Date.now() + 15000
-      do {
-        status = await product.status(scope)
-        if (status.state === 'running' && status.executionId && status.attemptId) break
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      } while (Date.now() < deadline)
-      expect(status.state).toBe('running')
-    }, 40000)
+    test(
+      mustAccept
+        ? 'dispatch runs the lead with the field accepted'
+        : 'a blocked turn never dispatches and starts no runtime',
+      async () => {
+        if (!mustAccept) {
+          const evidence = await control('evidence')
+          expect(evidence.physicalSends).toBe(0)
+          expect(prepared.dispatchId).toBeUndefined()
+          expect(prepared.runtimeSessionId).toBeUndefined()
+          return
+        }
+        const started = await product.dispatch(scope)
+        expect(['starting', 'running']).toContain(started.state)
+        expect(started.dispatchId).toBeTruthy()
+        let status
+        const deadline = Date.now() + 15000
+        do {
+          status = await product.status(scope)
+          if (status.state === 'running' && status.executionId && status.attemptId) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        } while (Date.now() < deadline)
+        expect(status.state).toBe('running')
+        expect(status.executionId).toBeTruthy()
+        expect(status.attemptId).toBeTruthy()
+      },
+      40000
+    )
   })
 }
