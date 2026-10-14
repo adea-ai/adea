@@ -48,7 +48,7 @@ import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 
 const LeadTurnControls = lazy(() =>
-  import('./control-plane-settings').then((module) => ({ default: module.LeadTurnControls }))
+  import('./lead-chat').then((module) => ({ default: module.LeadTurnControls }))
 )
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
@@ -435,7 +435,7 @@ export function ConversationSurface(props: {
       const useLead = isWorkspaceLeadConversation(props.channel, directAgent())
       const choices = requestedChoices()
       if (useLead && (choices.lead || choices.child) && !modelRequests) {
-        const module = await import('./control-plane-settings')
+        const module = await import('./lead-chat')
         if (!stillCurrent()) return { clearDraft: false }
         modelRequests = module.createLeadModelRequestResolver(submittedClient)
         modelRequestClient = submittedClient
