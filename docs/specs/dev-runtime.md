@@ -1433,19 +1433,22 @@ sessions. There is no second store and no server-side index.
   start of their newest run, and reads the retained event window of the 20 most
   recent structured sessions, four at a time, through `openRuntimeEventStream`.
   A stream is a live tail with no end marker, so its window is complete once frames
-  stop for 300 ms after it opened (4 s at most); the stream is closed at once. A
-  stale, conflicting or unopened stream is an unread session. The scan reports
+  stop for 300 ms (1.2 s while no event has arrived yet, since the first frame can
+  trail the opening frame); a replay still delivering frames at 4 s is kept but
+  reported as partial. The stream is closed at once. A stale, conflicting or unopened stream is an unread session. The scan reports
   `partial` when sessions beyond the 20, pages beyond the cap, bounded windows or
   unread sessions were left out ("Searched the most recent events of N sessions.
   Searching older history is not available yet."), and fails with "History search
   is unavailable" only when no window could be read. The scan is kept for 30
   seconds while the pane is open and is identified by the workspace scope alone,
-  so it survives a change of open session; the open session's live feed replaces
+  so it survives a change of open session; when a scan starts while another is
+  still reading (retry, resume refresh, scope change) only the newest may publish; the open session's live feed replaces
   its scanned window. `buildAllSessionsView` groups matches by session (newest
   match first) with whole-result match counts, pages 50 rows at a time and never
   shows more than 1,000 ("Showing the first 1,000 of N matches. Narrow your search
-  to see the rest."). An empty query lists the three most recent prompts per
-  session. The session title matches in this scope, and the session open in the
+  to see the rest."); at the cap, every session with a match keeps its newest match
+  in place of surplus rows from busier sessions, so none disappears. An empty query
+  lists each session's three most recent prompts, however busy another session is. The session title matches in this scope, and the session open in the
   pane is marked "Open session". "Go to" in another session opens it through the
   host (`onOpenSession`: Dev resolves the deep link, Chat selects the session in
   the shared store) before showing the event.

@@ -16,7 +16,6 @@ import { newestRun } from './turns-model'
 export const RESULT_PAGE = 50
 /** The most rows one search shows; a narrower query is the way to the rest. */
 export const RESULT_CAP = 1_000
-const RECENT_PER_SESSION = 3
 const SEARCH_PAGE_LIMIT = 500
 
 type BlockedReason = Exclude<RunHistoryRow['resumeReason'], 'available'>
@@ -119,12 +118,27 @@ export function buildAllSessionsView(
     query,
     ...(searching ? {} : { kinds: ['prompt' as const] }),
   }
-  const wanted = searching ? Math.min(Math.max(count, 1), RESULT_CAP) : SEARCH_PAGE_LIMIT
+  // One session's newest matches, for the places a global ordering would leave
+  // a session without a row.
+  const newestOf = (runtimeSessionId: string, limit: number) =>
+    searchConversationHistory({
+      ...input,
+      runs: input.runs.filter((run) => run.runtimeSessionId === runtimeSessionId),
+      events: new Map([[runtimeSessionId, events.get(runtimeSessionId) ?? []]]),
+      limit,
+    }).items
+  const wanted = searching ? Math.min(Math.max(count, 1), RESULT_CAP) : 0
   const rows: ConversationSearchRow[] = []
   let cursor: string | undefined
   let total = 0
   let sessionMatches: ReadonlyMap<string, number> = new Map()
-  for (;;) {
+  // Recent prompts take each session's latest few, so one busy session cannot
+  // push the others out of the list.
+  if (!searching) {
+    for (const runtimeSessionId of events.keys()) rows.push(...newestOf(runtimeSessionId, 3))
+    rows.sort((left, right) => (right.occurredAt ?? '').localeCompare(left.occurredAt ?? ''))
+  }
+  for (let more = searching; more;) {
     const page = searchConversationHistory({
       ...input,
       limit: Math.min(SEARCH_PAGE_LIMIT, wanted - rows.length),
@@ -136,12 +150,29 @@ export function buildAllSessionsView(
     }
     rows.push(...page.items)
     cursor = page.nextCursor
-    if (!cursor || rows.length >= wanted) break
+    more = cursor !== undefined && rows.length < wanted
+  }
+  // At the cap no later page can show the sessions the newest rows left out, so
+  // each of them trades the oldest surplus row of a busier session for its own
+  // newest match: every session with a match stays listed.
+  if (searching && rows.length >= RESULT_CAP) {
+    const shown = new Map<string, number>()
+    for (const row of rows)
+      shown.set(row.runtimeSessionId, (shown.get(row.runtimeSessionId) ?? 0) + 1)
+    const absent = [...sessionMatches.keys()].filter((id) => !shown.has(id))
+    for (let index = rows.length - 1, room = absent.length; room > 0 && index >= 0; index -= 1) {
+      const id = rows[index]!.runtimeSessionId
+      if ((shown.get(id) ?? 0) < 2) continue
+      shown.set(id, shown.get(id)! - 1)
+      rows.splice(index, 1)
+      room -= 1
+    }
+    for (const id of absent) rows.push(...newestOf(id, 1))
   }
   const grouped = new Map<string, ConversationSearchRow[]>()
   for (const row of rows) {
     const list = grouped.get(row.runtimeSessionId) ?? []
-    if (searching || list.length < RECENT_PER_SESSION) list.push(row)
+    list.push(row)
     grouped.set(row.runtimeSessionId, list)
   }
   const groups = [...grouped].map(([runtimeSessionId, list]): SessionGroup => {

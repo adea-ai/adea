@@ -134,73 +134,34 @@ export function SharedDevUtilityHost(props: {
   const title = () => paneItems().find((item) => item.pane === selected())?.title ?? 'Utilities'
   const runtimeReady = () => context().runtime.state().status === 'ready'
 
-  const paneBody = (pane: DevUtilityPane) => {
-    if (pane === 'browser')
-      return runtimeReady() ? (
-        <BrowserPane context={context} />
-      ) : (
-        <ProviderState
-          title="Browser"
-          capability={paneCapabilities.browser}
-          state={capabilityOf('browser')}
-          runtimeUnavailable
-        />
-      )
-    if (pane === 'devices')
-      return runtimeReady() ? (
-        <DevicesPane context={context} />
-      ) : (
-        <ProviderState
-          title="Devices"
-          capability={paneCapabilities.devices}
-          state={capabilityOf('devices')}
-          runtimeUnavailable
-        />
-      )
+  const paneBody = (selectedPane: DevUtilityPane) => {
+    const pane =
+      selectedPane in PANE_TITLES ? (selectedPane as keyof typeof PANE_TITLES) : 'history'
+    const placeholder = (runtimeUnavailable: boolean) => (
+      <ProviderState
+        title={PANE_TITLES[pane]}
+        capability={paneCapabilities[pane]}
+        state={capabilityOf(pane)}
+        runtimeUnavailable={runtimeUnavailable}
+      />
+    )
+    if (!runtimeReady()) return placeholder(true)
+    if (pane === 'browser') return <BrowserPane context={context} />
+    if (pane === 'devices') return <DevicesPane context={context} />
     if (pane === 'agents')
-      return runtimeReady() ? (
-        <Suspense
-          fallback={
-            <ProviderState
-              title="Agents"
-              capability={paneCapabilities.agents}
-              state={capabilityOf('agents')}
-            />
-          }
-        >
+      return (
+        <Suspense fallback={placeholder(false)}>
           <HarnessStatusSection context={context} />
           <ActivityPane context={context} />
         </Suspense>
-      ) : (
-        <ProviderState
-          title="Agents"
-          capability={paneCapabilities.agents}
-          state={capabilityOf('agents')}
-          runtimeUnavailable
-        />
       )
-    return runtimeReady() ? (
-      <Suspense
-        fallback={
-          <ProviderState
-            title="History"
-            capability={paneCapabilities.history}
-            state={capabilityOf('history')}
-          />
-        }
-      >
+    return (
+      <Suspense fallback={placeholder(false)}>
         <SessionHistorySection
           context={context}
           {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
         />
       </Suspense>
-    ) : (
-      <ProviderState
-        title="History"
-        capability={paneCapabilities.history}
-        state={capabilityOf('history')}
-        runtimeUnavailable
-      />
     )
   }
 
@@ -331,6 +292,13 @@ export function SharedDevUtilityHost(props: {
     </aside>
   )
 }
+
+const PANE_TITLES = {
+  browser: 'Browser',
+  devices: 'Devices',
+  agents: 'Agents',
+  history: 'History',
+} as const
 
 function ProviderState(props: {
   title: string

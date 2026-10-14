@@ -17,6 +17,8 @@ export const SCAN_MAX_SESSIONS = 20
 const SCAN_CONCURRENCY = 4
 const LIST_MAX_PAGES = 3
 const RUN_MAX_PAGES = 2
+/** Until the first event arrives a quiet stream may still be starting its replay, so it is given this many times the quiet time. */
+const FIRST_FRAME_FACTOR = 4
 
 export type SessionWindow = Readonly<{
   events: readonly RuntimeEvent[]
@@ -45,6 +47,19 @@ export type AllSessionsScan = Readonly<{
   partial: boolean
   scannedAt: number
 }>
+
+/**
+ * A scan can be started again (retry, a resume, a changed scope) while an older
+ * one is still reading. `begin` returns a check that stays true only for the
+ * newest scan, so an older scan finishing last cannot replace a newer result.
+ */
+export function newestScanOnly(): () => () => boolean {
+  let latest = 0
+  return () => {
+    const mine = (latest += 1)
+    return () => mine === latest
+  }
+}
 
 async function allPages<T>(
   read: (cursor: string | undefined) => Promise<Page<T>>,
@@ -177,7 +192,8 @@ export function readEventWindow(
       if (transcriptIsStale(stream.state().availability)) return finish(false)
       if (!opened()) return
       clearTimeout(quiet)
-      quiet = setTimeout(() => finish(true), quietMs)
+      const first = stream.state().events.length === 0
+      quiet = setTimeout(() => finish(true), first ? quietMs * FIRST_FRAME_FACTOR : quietMs)
     }
     unsubscribe = stream.subscribe(observe)
     // Still receiving frames at the timeout: what arrived is kept, as partial.

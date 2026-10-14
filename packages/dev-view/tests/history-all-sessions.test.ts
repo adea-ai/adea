@@ -13,6 +13,7 @@ import { turnIdForEvent } from '../src/history/history-pane'
 import { buildHistoryTurns } from '../src/history/turns-model'
 import {
   SCAN_MAX_SESSIONS,
+  newestScanOnly,
   readEventWindow,
   scanAllSessions,
   type AllSessionsScan,
@@ -217,6 +218,45 @@ describe('buildAllSessionsView', () => {
     expect(new Set(past.groups.flatMap((group) => group.rows.map((row) => row.id))).size).toBe(
       RESULT_CAP
     )
+  })
+
+  test('at the cap a busy session cannot push the others out of the list', () => {
+    const busy = Array.from({ length: 1_000 }, (_, index) =>
+      eventOf('busy', index + 100, { payload: { text: `deploy note ${index}` } })
+    )
+    const quiet = [eventOf('quiet', 1, { payload: { text: 'deploy once, long ago' } })]
+    const other = [eventOf('other', 2, { payload: { text: 'deploy elsewhere' } })]
+    const scan = scanOf({
+      sessions: [sessionOf('busy'), sessionOf('quiet'), sessionOf('other')],
+      events: { busy, quiet, other },
+    })
+    const view = buildAllSessionsView(scan, 'deploy', 10_000)
+    expect(view.total).toBe(1_002)
+    expect(view.capped).toBe(true)
+    // The cap still holds, and every session with a match is listed.
+    expect(view.shown).toBe(RESULT_CAP)
+    expect(view.groups.map((group) => group.runtimeSessionId).toSorted()).toEqual([
+      'busy',
+      'other',
+      'quiet',
+    ])
+    expect(view.groups.find((group) => group.runtimeSessionId === 'quiet')!.rows).toHaveLength(1)
+    expect(view.groups.find((group) => group.runtimeSessionId === 'busy')!.matches).toBe(1_000)
+  })
+
+  test('recent prompts list every session, however busy one of them is', () => {
+    const busy = Array.from({ length: 600 }, (_, index) =>
+      eventOf('busy', index + 100, { payload: { text: `ask ${index}` } })
+    )
+    const quiet = [eventOf('quiet', 1, { payload: { text: 'the only ask here' } })]
+    const view = buildAllSessionsView(
+      scanOf({ sessions: [sessionOf('busy'), sessionOf('quiet')], events: { busy, quiet } }),
+      '',
+      RESULT_PAGE
+    )
+    expect(view.groups.map((group) => group.runtimeSessionId)).toEqual(['busy', 'quiet'])
+    expect(view.groups[0]!.rows).toHaveLength(3)
+    expect(view.groups[1]!.rows.map((row) => row.preview)).toEqual(['the only ask here'])
   })
 
   describe('resume', () => {
@@ -476,6 +516,23 @@ describe('readEventWindow', () => {
     expect(fake.closed()).toBe(1)
   })
 
+  test('a first frame that trails the opening frame is waited for, not skipped', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 20, timeoutMs: 500 })
+    fake.push({ expectedSequence: '1' })
+    // Longer than the quiet time between frames, shorter than the first-frame wait.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    fake.push({ events: [eventOf('a', 1)], expectedSequence: '2' })
+    await expect(window).resolves.toEqual({ events: [eventOf('a', 1)], bounded: false })
+  })
+
+  test('a session with no events settles empty once the first-frame wait passes', async () => {
+    const fake = fakeStream()
+    const window = readEventWindow(fake.stream, { quietMs: 10, timeoutMs: 500 })
+    fake.push({ expectedSequence: '1' })
+    await expect(window).resolves.toEqual({ events: [], bounded: false })
+  })
+
   test('reports a window retention cut short as bounded', async () => {
     const fake = fakeStream()
     const window = readEventWindow(fake.stream, { quietMs: 5, timeoutMs: 500 })
@@ -484,6 +541,29 @@ describe('readEventWindow', () => {
       retention: { maxEvents: 1_000, complete: false, reason: 'retention' },
     })
     await expect(window).resolves.toMatchObject({ bounded: true })
+  })
+})
+
+describe('newestScanOnly', () => {
+  test('an older scan finishing after a newer one is no longer current', async () => {
+    const begin = newestScanOnly()
+    let shown = 'none'
+    const run = async (label: string, delay: number) => {
+      const newest = begin()
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      if (newest()) shown = label
+    }
+    // The first scan is slow and finishes last: it must not replace the second.
+    await Promise.all([run('older', 30), run('newer', 5)])
+    expect(shown).toBe('newer')
+  })
+
+  test('the newest scan stays current until another begins', () => {
+    const begin = newestScanOnly()
+    const first = begin()
+    expect(first()).toBe(true)
+    const second = begin()
+    expect([first(), second()]).toEqual([false, true])
   })
 })
 

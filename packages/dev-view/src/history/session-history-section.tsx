@@ -21,7 +21,12 @@ import { openRuntimeEventStream } from '../chat/model/event-stream'
 import type { ConversationSearchJump } from '../chat/search'
 import { ResumeRefusedError, type ResumeTarget } from './all-sessions-model'
 import type { AllSessionsFeed } from './all-sessions-results'
-import { readEventWindow, scanAllSessions, type AllSessionsScan } from './all-sessions-scan'
+import {
+  newestScanOnly,
+  readEventWindow,
+  scanAllSessions,
+  type AllSessionsScan,
+} from './all-sessions-scan'
 import {
   eventRevealRequest,
   hasEventRevealConsumer,
@@ -126,6 +131,7 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
   const [focus, setFocus] = createSignal<{ sessionId: string; eventId: string }>()
   const workspaceKey = () => scanKey(context())
   let disposed = false
+  const beginScan = newestScanOnly()
   let scannedFor: { key: string; attempt: number; scan: AllSessionsScan } | undefined
   onCleanup(() => {
     disposed = true
@@ -150,6 +156,7 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
 
   const scan = async (fence: DevUtilityFence, soft: boolean) => {
     const { runtime, scope: workspace } = fence.context
+    const newest = beginScan()
     if (!soft) setAll({ status: 'loading' })
     const list =
       <T extends { scope: Scope }>(command: DevOperation, base: object) =>
@@ -181,10 +188,11 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
             })
           ),
       })
+      if (!newest()) return
       scannedFor = { key: fence.key, attempt: scanAttempt(), scan: result }
       setAll({ status: 'ready', scan: result })
     } catch (error) {
-      if (disposed || isDevUtilityContextChanged(error)) return
+      if (disposed || !newest() || isDevUtilityContextChanged(error)) return
       if (!soft) setAll({ status: 'unavailable' })
     }
   }
@@ -196,8 +204,10 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
         scannedFor?.key === identity &&
         scannedFor.attempt === tries &&
         Date.now() - scannedFor.scan.scannedAt < SCAN_FRESH_MS
-      )
+      ) {
+        beginScan()
         return setAll({ status: 'ready', scan: scannedFor.scan })
+      }
       const fence = workspaceFence()
       if (fence) void scan(fence, false)
     })
