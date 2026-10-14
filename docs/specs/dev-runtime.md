@@ -1388,6 +1388,43 @@ project/session sidebar uses that same owner and shelf. These surfaces continue
 to use the published shared navigation and its existing domain renderers for
 general project, room, and session navigation.
 
+#### History pane
+
+The right-sidebar History tab (`DevUtilityPane` `history`, capability
+`dev.session.read`) answers "what did I ask last, and what did the agent say".
+It is bound to the one canonical session of the utility context; there is no
+cross-session search and no second store.
+
+- **Data.** `SessionHistorySection` reads `dev.session.get` and `dev.harness.runs`
+  through the captured utility fence, then opens a read-direction
+  `runtime-events-v1` stream through `openRuntimeEventStream` (the same opener
+  Chat uses for its transcript) bound to the session generation. It folds frames
+  into the bounded transcript accumulator (1,000 events) and closes the stream
+  when the pane unmounts or the context changes.
+- **Turns tab.** One row per `turn.user_input`, newest first, from
+  `buildHistoryTurns`: the redacted prompt, a short summary of the reply
+  (`turn.result` summary, else the latest `turn.assistant_message`), the tool-call
+  count (`tool.requested`), generation and relative time. State is `Done` and
+  `Failed` only from the reply event itself (`isError`, or `status`
+  `failed`/`error`), `Working` only for the newest prompt while the newest
+  `HarnessRun` is working or awaiting input/approval, and otherwise
+  `No reply recorded`; nothing is inferred from silence. A row expands in place to
+  the full redacted prompt and reply.
+- **Search.** The search field filters the same retained window through
+  `searchConversationHistory` with `matchOn: 'preview'`, so it matches prompts,
+  replies, tool names, approvals, questions and statuses and never the session
+  title. Results page 100 at a time; "Load more" extends the list from the
+  previous cursor. Matches are highlighted. A result's Jump button appears only
+  where the host can reveal an event (Chat supplies `onJump`; Dev shows none).
+- **Runs tab.** The existing `RunHistoryPane` for the session.
+- **Truthful states.** A `terminal_fallback` projection has no structured feed, so
+  the Turns tab says so instead of showing an empty list; a window that retention
+  dropped older events from says "Showing the latest events only"; an unreadable
+  feed offers Try again.
+- **Redaction.** Prompt and reply text pass `redactSearchText` (secrets, private
+  paths, control characters, bounded length), and `credential`-classified events
+  are skipped.
+
 Archive command construction, pagination, and response validation load on demand;
 the shell owner retains shelf state, request revisions, and context fences.
 A pending load MUST capture existing authority before runtime readiness or code

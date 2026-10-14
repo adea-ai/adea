@@ -197,6 +197,9 @@ try {
     // runnable independently from a workspace-wide turbo build.
     if (plan.routeFiles.length > 0) {
       run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
+      // Data consumers import packages/data/src, whose state dependency resolves
+      // through its compiled package entry under the react-server condition.
+      run('bun', ['run', '--cwd', 'packages/state', 'build'], process.env)
       // The apps/web route-flow tests run under the react-server export condition, which the runner
       // supplies: the route modules carry the `server-only` marker and cannot initialize under bun's
       // default conditions. The shared database environment and the same latency-sized ceiling apply.
