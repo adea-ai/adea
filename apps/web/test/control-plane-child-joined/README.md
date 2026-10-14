@@ -37,16 +37,16 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP #1131 head `c68a8577`, on main `dbd9438`)
+## Latest result (2026-10-14, CP main `7d36f9bb`)
 
-The pin is the head of draft CP #1131, which adds one test-fixture option (`childAllowanceSource`)
-on top of CP main `dbd9438` (that includes #1123, the child allowance). It is a source revision,
-not a published package release. Repin to main once #1131 merges. Results on a CP tree built at
-exactly this commit (`bun install --frozen-lockfile`, `bun run build`):
+The pin is CP main commit `7d36f9bb`, the squash merge of CP #1131, which adds one test-fixture
+option (`childAllowanceSource`) on top of `dbd9438` (that includes #1123, the child allowance). The
+merged tree is byte-identical in content to the reviewed PR head `c68a8577` (same source digest).
+It is a source revision, not a published package release. Results on a CP tree built at exactly
+this commit (`bun install --frozen-lockfile`, `bun run build`):
 
-- `test:integration:control-plane-child`: 15 of 15 pass (12 stated-allowance, 3 omitted-allowance),
-  three consecutive runs.
-- `test:integration:control-plane-child-sdk`: 7 of 7 pass, three consecutive runs.
+- `test:integration:control-plane-child`: 15 of 15 pass (12 stated-allowance, 3 omitted-allowance).
+- `test:integration:control-plane-child-sdk`: 7 of 7 pass.
 
 ### How a lead profile states the allowance
 
@@ -85,7 +85,7 @@ reserves the child's funded budget less the allowance its own plan holds back.
 | Evidence                                                                                                                            | Source                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Adea intent, audience reader, signed service verifier, requested roles                                                              | Production Adea code over a real local PostgreSQL                       |
-| CP model selection, lead preparation and dispatch, root budget admission                                                            | Production CP code (main `dbd9438` plus draft #1131 fixture option)     |
+| CP model selection, lead preparation and dispatch, root budget admission                                                            | Production CP code (main `7d36f9bb`)                                    |
 | Child delegation service, transactional SQLite allocator, ledger cap, child budget admission (`DurableChildRuntimeBudgetAdmission`) | Production CP code                                                      |
 | Authority checks (admitting tool call, workspace grant, product readiness)                                                          | Production CP checks over scripted account, scope and tool-policy ports |
 | Child runtime                                                                                                                       | Synthetic recorder that dedupes by idempotency key                      |
@@ -174,9 +174,8 @@ tree and source digest, and the three archives' hashes; then, for `@adea-ai/sdk`
 `@adea-ai/contracts` and `@adea-ai/runtime-sdk`, that the package installed in Adea's dependency
 graph (a registry install, with exact pins in `apps/web/package.json`) has every file byte-identical
 to the archive built from the CP head, and the same `name`, `type`, `main`, `module`, `types`,
-`exports` and `files`. At `c68a8577`: sdk 1.18.0 (20 files), runtime-sdk 1.15.1 (77 files) and
-contracts 1.21.0 against the candidate's 1.21.1 (77 files; CP's changelog lists 1.21.1 as a tests-only
-change, and every file compares equal). Only `package.json` differs: the publish step rewrites
+`exports` and `files`. At `7d36f9bb`: sdk 1.18.0 (20 files), runtime-sdk 1.15.1 (77 files) and
+contracts 1.21.1 (77 files), all at the candidate's versions. Only `package.json` differs: the publish step rewrites
 dependency ranges and adds empty dev/peer maps. No pin, lockfile or override is changed, and the
 archives are never installed. All eight lead SDK methods and their schemas are present.
 
@@ -208,9 +207,9 @@ session expires.
 
 ## Remaining dependencies
 
-- Merge CP #1131 (fixture option only), then repin `source.json` to main. Repin again to a
-  published CP release once one carries #1123 and #1131; neither changed a published package's
-  version, so the installed SDK checks above do not depend on it.
+- Repin `source.json` to a published CP release once one carries #1123 and #1131 (CP main
+  `7d36f9bb` is a source revision). Neither changed a published package's version, so the installed
+  SDK checks above do not depend on it.
 - Backend contract missing: nothing discloses to Adea whether a pinned lead profile version states
   a child allowance. The product evidence and SDK responses carry no allowance or child-budget
   field, so Adea cannot show (or gate on) the budget a lead can delegate, and cannot flag a lead
