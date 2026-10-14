@@ -27,13 +27,14 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP draft head `4ad9fc11`)
+## Latest result (2026-10-14, CP draft head `1f8d735a`)
 
-The pin is the head of CP draft PR #1123 (`4ad9fc11`), which adds the explicit child allowance
+The pin is the head of CP draft PR #1123 (`1f8d735a`), which adds the explicit child allowance
 designed for CP #1121 on top of the #1116 merge (`082c2c33`). That PR is unmerged, so this proof
 pins an unreleased CP revision. Result: 11 of 11 pass, stable across three consecutive runs.
-`4ad9fc11` adds only a fixture option (`maximumChildren`) to CP's production-factory test fixture,
-so that the lead's plan can allow sibling children; no CP product code changed from `41373c03`.
+Since `41373c03`, CP #1123 changed only tests and docs: a fixture option (`maximumChildren`) in CP's
+production-factory test fixture so the lead's plan can allow siblings, and PostgreSQL and SQLite
+allowance tests. No CP product code changed.
 
 The fixture's lead plan states `limits.childExecutions.budgetAllowance` (half the money ceiling,
 and one child context window of tokens). The lead's attempt reserves only what is left after that
@@ -106,8 +107,8 @@ Passing, in addition:
 
 - CP #1123 is draft and unmerged; its CI is skipped on drafts and its PostgreSQL suites ran only
   on a scratch local database. This proof pins its draft head.
-- This journey runs on the SQLite allocator. The PostgreSQL allocator is covered by CP's
-  `child-budget-admission.integration.test.mjs`, not here.
+- This journey runs on the SQLite allocator. The PostgreSQL allocator and child admission are covered by CP's
+  own PostgreSQL integration suites (CP #1123), not here.
 - The installed-SDK consumer journey, the updated public-package candidate manifest, live-provider
   qualification, and devices, deployments, restart or publication are not covered.
 
