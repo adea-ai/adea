@@ -60,6 +60,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
  */
 
 const connectionUrl = process.env.DATABASE_URL
+const migrationUrl = process.env.DATABASE_MIGRATION_URL
 const CHECKSUM = 'e'.repeat(64)
 const DAY_MS = 86_400_000
 const FENCED = 'grant_artifact_retention_fenced'
@@ -69,6 +70,25 @@ const EXPIRED_ANCHOR = new Date(Date.now() - 3 * DAY_MS).toISOString()
 const ONE_DAY = parseRetentionPeriods(
   Object.fromEntries(Object.keys(UNSET_RETENTION_PERIODS).map((category) => [category, 1]))
 )
+
+/**
+ * Dispatch marks are append-only for the application role, so test cleanup disables the trigger
+ * as the table owner inside one transaction. The disable is invisible to other sessions: the
+ * same transaction enables it again before it commits.
+ */
+async function purgeDispatchMarks(owner: DatabaseConnection, workspaceId: string): Promise<void> {
+  await owner.db.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`alter table app.retention_deletion_dispatches disable trigger retention_deletion_dispatches_append_only`
+    )
+    await transaction
+      .delete(retentionDeletionDispatches)
+      .where(eq(retentionDeletionDispatches.workspaceId, workspaceId))
+    await transaction.execute(
+      sql`alter table app.retention_deletion_dispatches enable trigger retention_deletion_dispatches_append_only`
+    )
+  })
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -109,14 +129,26 @@ function sqlState(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined
 }
 
-describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
+/** The SQLSTATE a write is refused with, or 'accepted' when it was not refused. */
+async function refusalState(statement: () => Promise<unknown>): Promise<string> {
+  try {
+    await statement()
+  } catch (error) {
+    return sqlState(error) ?? String(error)
+  }
+  return 'accepted'
+}
+
+describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retention fence', () => {
   let connection: DatabaseConnection
+  let tableOwner: DatabaseConnection
   const workspaceIds: string[] = []
   const userIds: string[] = []
   const executorByWorkspace = new Map<string, string>()
 
   beforeAll(() => {
     connection = createDatabase(connectionUrl!)
+    tableOwner = createDatabase(migrationUrl!)
   })
 
   afterAll(async () => {
@@ -125,9 +157,7 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
         .delete(retentionCleanupReceipts)
         .where(eq(retentionCleanupReceipts.workspaceId, workspaceId))
       await connection.db.delete(retentionHolds).where(eq(retentionHolds.workspaceId, workspaceId))
-      await connection.db
-        .delete(retentionDeletionDispatches)
-        .where(eq(retentionDeletionDispatches.workspaceId, workspaceId))
+      await purgeDispatchMarks(tableOwner, workspaceId)
       await connection.db
         .delete(retentionDeletionAuthorizations)
         .where(eq(retentionDeletionAuthorizations.workspaceId, workspaceId))
@@ -159,6 +189,7 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
       await connection.db.delete(users).where(eq(users.id, userId))
     }
     await connection.close()
+    await tableOwner.close()
   })
 
   async function temporaryUser(name: string): Promise<UserPrincipalRef> {
@@ -576,6 +607,38 @@ describe.skipIf(!connectionUrl)('Artifact registration retention fence', () => {
     // Every generation is revoked and none has a receipt: the marks alone keep the fence closed.
     expect(await fenceOf(f)).toBe('deletion_dispatched')
     expect(await grantRefusal(() => register(f, registrationFor(f)))).toBe(FENCED)
+  })
+
+  test('dispatch marks are append-only for the application role: update, delete and truncate are refused and change nothing', async () => {
+    const f = await fixture('append-only')
+    const authority = await authorize(f)
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+    await revokeAuthority(f, authority)
+    const [mark] = await dispatchRows(f.artifact.id)
+    expect(mark).toBeDefined()
+    // check_violation, raised by the trigger, never an accepted write.
+    expect(
+      await refusalState(() =>
+        connection.db
+          .update(retentionDeletionDispatches)
+          .set({ subjectId: crypto.randomUUID() })
+          .where(eq(retentionDeletionDispatches.id, mark!.id))
+      )
+    ).toBe('23514')
+    expect(
+      await refusalState(() =>
+        connection.db
+          .delete(retentionDeletionDispatches)
+          .where(eq(retentionDeletionDispatches.id, mark!.id))
+      )
+    ).toBe('23514')
+    expect(
+      await refusalState(() =>
+        connection.db.execute(sql`truncate app.retention_deletion_dispatches`)
+      )
+    ).not.toBe('accepted')
+    expect(await dispatchRows(f.artifact.id)).toEqual([mark!])
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
   })
 
   test('a mark needs a generation that was current at the decision, and writes nothing without one', async () => {

@@ -200,8 +200,10 @@ cleanup executor calls it for every store before the store runs.
 - A repeat for the same generation and coverage (a retried pass) is the same row.
 - It refuses (`authorization_not_current`) when the decision had no live generation,
   and writes nothing then.
-- Rows are append-only by API only, like receipts. No trigger enforces it, and the
-  `restrict` foreign keys keep a workspace with marks from being deleted.
+- Rows are append-only in the database: a trigger refuses `UPDATE`, `DELETE` and
+  `TRUNCATE` (`check_violation`) for every role. Removing a mark takes a deliberate
+  act by the table owner, such as disabling the trigger in a migration. The `restrict`
+  foreign keys keep a workspace with marks from being deleted.
 
 Any code that deletes under the gate outside the executor must call it first, in the
 same transaction. The marks are classified with the other job, effect and approval
@@ -283,8 +285,8 @@ neither.
 - Non-artifact categories have no authoritative reference store yet, so their
   active-reference count is zero. The owning domain must supply
   `reconciliationOpen`.
-- Receipts and dispatch marks are append-only by API only. No database trigger
-  enforces it.
+- Receipts are append-only by API only. No database trigger enforces it. Dispatch
+  marks are enforced by a trigger.
 - Existing workspace deletion refuses to proceed while holds, authorities, or
   receipts exist (`restrict` foreign keys).
 - Changes to the existing relay ciphertext purge (`relay:purge`).
