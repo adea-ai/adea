@@ -59,13 +59,26 @@ function failureMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * A failed read becomes data so the pane can say so beside the controls and
- * offer a retry; a read that only lost its context is superseded, not failed.
+ * A failed read becomes `failure` data so the pane says so beside a retry instead of throwing; a
+ * read that only lost its context is superseded, not failed.
  */
-function readFailure(error: unknown, what: string): string | undefined {
-  return isDevUtilityContextChanged(error)
-    ? undefined
-    : failureMessage(error, `Couldn't read ${what}.`)
+async function guarded<T extends object>(
+  key: string,
+  what: string,
+  read: () => Promise<T>,
+  empty: T
+) {
+  try {
+    return { contextKey: key, ...(await read()) }
+  } catch (error) {
+    return {
+      ...empty,
+      contextKey: key,
+      failure: isDevUtilityContextChanged(error)
+        ? undefined
+        : failureMessage(error, `Couldn't read ${what}.`),
+    }
+  }
 }
 
 export function createHarnessStatusController(readContext: DevUtilityContextReader) {
@@ -97,118 +110,111 @@ export function createHarnessStatusController(readContext: DevUtilityContextRead
   const [runs] = createResource(staticKey, async ({ key }) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key)
-      return { items: [] as readonly HarnessRun[] }
-    try {
-      const page = await readDevUtilityCommand<{ items: readonly HarnessRun[] }>(
-        fence,
-        'dev.harness.runs',
-        {
-          runtimeSessionId: fence.context.runtimeSessionId!,
+      return { contextKey: undefined, items: [] as readonly HarnessRun[] }
+    return guarded(
+      key,
+      'the harness runs',
+      async () => {
+        const page = await readDevUtilityCommand<{ items: readonly HarnessRun[] }>(
+          fence,
+          'dev.harness.runs',
+          { runtimeSessionId: fence.context.runtimeSessionId! }
+        )
+        return {
+          items: (page?.items ?? []).filter(
+            (run) =>
+              run.runtimeSessionId === fence.context.runtimeSessionId &&
+              sameDevUtilityScope(run.scope, fence.context.scope)
+          ),
         }
-      )
-      return {
-        contextKey: key,
-        items: (page?.items ?? []).filter(
-          (run) =>
-            run.runtimeSessionId === fence.context.runtimeSessionId &&
-            sameDevUtilityScope(run.scope, fence.context.scope)
-        ),
-      }
-    } catch (error) {
-      return { contextKey: key, items: [], failure: readFailure(error, 'the harness runs') }
-    }
+      },
+      { items: [] as readonly HarnessRun[] }
+    )
   })
   const [preferences] = createResource(refetchKey, async ({ key }) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key)
-      return { items: [] as readonly HarnessPreference[] }
-    try {
-      const page = await readDevUtilityCommand<{ items: readonly HarnessPreference[] }>(
-        fence,
-        'dev.harness.preferences',
-        { projectId: fence.context.projectId! }
-      )
-      return {
-        contextKey: key,
-        items: (page?.items ?? []).filter(
-          (preference) =>
-            sameDevUtilityScope(preference.scope, fence.context.scope) &&
-            (preference.projectId === undefined || preference.projectId === fence.context.projectId)
-        ),
-      }
-    } catch (error) {
-      return {
-        contextKey: key,
-        items: [] as readonly HarnessPreference[],
-        failure: readFailure(error, 'the harness preferences'),
-      }
-    }
+      return { contextKey: undefined, items: [] as readonly HarnessPreference[] }
+    return guarded(
+      key,
+      'the harness preferences',
+      async () => {
+        const page = await readDevUtilityCommand<{ items: readonly HarnessPreference[] }>(
+          fence,
+          'dev.harness.preferences',
+          { projectId: fence.context.projectId! }
+        )
+        return {
+          items: (page?.items ?? []).filter(
+            (preference) =>
+              sameDevUtilityScope(preference.scope, fence.context.scope) &&
+              (preference.projectId === undefined ||
+                preference.projectId === fence.context.projectId)
+          ),
+        }
+      },
+      { items: [] as readonly HarnessPreference[] }
+    )
   })
+  // Reads never probe: a device that was never scanned lists nothing until the
+  // user rescans. Scanning is always an explicit action.
   const [inventory] = createResource(refetchKey, async ({ key }) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
-    // Reads never probe: a device that was never scanned lists nothing until
-    // the user rescans. Scanning is always an explicit action.
-    try {
-      const snapshot = await readDevUtilityCommand<RuntimeConnectionInventorySnapshot>(
-        fence,
-        'dev.harness.inventory',
-        {}
-      )
-      return {
-        contextKey: key,
-        snapshot:
-          snapshot && sameDevUtilityScope(snapshot.scope, fence.context.scope)
-            ? snapshot
-            : undefined,
-      }
-    } catch (error) {
-      return {
-        contextKey: key,
-        snapshot: undefined,
-        failure: readFailure(error, 'the installed harnesses'),
-      }
-    }
+    return guarded(
+      key,
+      'the installed harnesses',
+      async () => {
+        const snapshot = await readDevUtilityCommand<RuntimeConnectionInventorySnapshot>(
+          fence,
+          'dev.harness.inventory',
+          {}
+        )
+        return {
+          snapshot:
+            snapshot && sameDevUtilityScope(snapshot.scope, fence.context.scope)
+              ? snapshot
+              : undefined,
+        }
+      },
+      { snapshot: undefined }
+    )
   })
   const [deviceDefault] = createResource(refetchKey, async ({ key }) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
-    try {
-      const value = await readDevUtilityCommand<HarnessDeviceDefault>(
-        fence,
-        'dev.harness.deviceDefault',
-        {}
-      )
-      return { contextKey: key, value }
-    } catch (error) {
-      return {
-        contextKey: key,
-        value: undefined,
-        failure: readFailure(error, 'the device default'),
-      }
-    }
+    return guarded(
+      key,
+      'the device default',
+      async () => ({
+        value: await readDevUtilityCommand<HarnessDeviceDefault>(
+          fence,
+          'dev.harness.deviceDefault',
+          {}
+        ),
+      }),
+      { value: undefined }
+    )
   })
   const [managedPi] = createResource(staticKey, async ({ key }) => {
     const fence = fences.capture('session')
     if (!key || !fence || devUtilityContextKey(fence.context) !== key) return undefined
-    try {
-      const status = await readDevUtilityCommand<ManagedPiStatus>(
-        fence,
-        'dev.harness.managedPiStatus',
-        {}
-      )
-      return {
-        contextKey: key,
-        status:
-          status && sameDevUtilityScope(status.scope, fence.context.scope) ? status : undefined,
-      }
-    } catch (error) {
-      return {
-        contextKey: key,
-        status: undefined,
-        failure: readFailure(error, 'the managed Pi status'),
-      }
-    }
+    return guarded(
+      key,
+      'the managed Pi status',
+      async () => {
+        const status = await readDevUtilityCommand<ManagedPiStatus>(
+          fence,
+          'dev.harness.managedPiStatus',
+          {}
+        )
+        return {
+          status:
+            status && sameDevUtilityScope(status.scope, fence.context.scope) ? status : undefined,
+        }
+      },
+      { status: undefined }
+    )
   })
 
   const currentPreferences = (): readonly HarnessPreference[] =>
