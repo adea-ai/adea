@@ -31,14 +31,24 @@ function fakeDocker(
     throttleEcr?: boolean
     // With throttleEcr, also fails the mirror with an unrelated error so only Docker Hub answers.
     failMirror?: boolean
+    // Throttles every registry, so the start can only end by running out of its budget.
+    throttleAll?: boolean
   } = {}
 ) {
   const present = new Set<string>()
   const calls: string[][] = []
-  const docker = (args: string[]): DockerReply => {
+  const timeouts: number[] = []
+  const docker = (args: string[], timeoutMs?: number): DockerReply => {
     calls.push(args)
     if (args[0] === 'run') {
+      timeouts.push(timeoutMs ?? Number.POSITIVE_INFINITY)
       const name = args[args.indexOf('--name') + 1]!
+      if (plan.throttleAll)
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+          stdout: '',
+        }
       if (
         plan.throttleEcr &&
         args.includes('--entrypoint') &&
@@ -85,7 +95,7 @@ function fakeDocker(
     }
     throw new Error(`unexpected docker call: ${args.join(' ')}`)
   }
-  return { calls, docker, present }
+  return { calls, docker, present, timeouts }
 }
 
 type ChildOptions = {
@@ -217,6 +227,24 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     const images = fake.calls.filter((args) => args[0] === 'run').map((args) => args.at(-2))
     expect(images).toHaveLength(3)
     expect(images[2]).toStartWith('docker.io/library/postgres:18-alpine@sha256:')
+  })
+
+  test('a throttled sentinel start stays inside its budget and still removes the sentinel', async () => {
+    const fake = fakeDocker({ throttleAll: true })
+    const startedAt = Date.now()
+    const failure = await failureOf({
+      bounds: { ...fastBounds, startSentinelMs: 1_000 },
+      docker: fake.docker,
+      spawnChild: () => {
+        throw new Error('no child is spawned when the sentinel does not start')
+      },
+    })
+    expect(String(failure)).toContain('starting the sentinel container failed')
+    // The default 15 s backoff does not fit in a 1 s budget, so there is no wait and no further pass.
+    expect(Date.now() - startedAt).toBeLessThan(5_000)
+    expect(fake.timeouts.length).toBeGreaterThan(0)
+    expect(fake.timeouts.every((ms) => ms <= 1_000)).toBe(true)
+    expect(removalsOf(fake.calls)).toEqual([sentinelOf(fake.calls)])
   })
 
   test('a refused sentinel start still attempts the sentinel removal, and no child is spawned', async () => {

@@ -162,11 +162,13 @@ export async function runOwnedSmoke({
   }
   const startSentinel = () => {
     // The sentinel pulls the same pinned image as the helper, so it takes the same registry fallback.
-    const result = startFromCaptureImage((image) =>
-      docker(
-        ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', image, '600'],
-        bounds.startSentinelMs
-      )
+    const result = startFromCaptureImage(
+      (image, remainingMs) =>
+        docker(
+          ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', image, '600'],
+          Math.max(1, Math.min(bounds.startSentinelMs, remainingMs))
+        ),
+      { budgetMs: bounds.startSentinelMs }
     )
     if (result.error)
       throw new Error(`starting the sentinel container failed: ${result.error.message}`)
