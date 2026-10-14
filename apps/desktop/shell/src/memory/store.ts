@@ -29,7 +29,13 @@ import {
   type WorkspaceMemorySnapshot,
 } from '../../../../../packages/types/src/index'
 import { compileMemoryPreamble, type MemoryPreamble } from './preamble'
-import { decideMemoryPromotion, memoryProvenanceRecord } from './provenance'
+import {
+  decideMemoryPromotion,
+  memoryProvenanceRecord,
+  recordedAgentOrigin,
+  storedMemoryOrigin,
+  type MemoryAgentTrace,
+} from './provenance'
 
 export const MEMORY_CONTENT_TYPE = 'memory_entry'
 const SCHEMA_VERSION = 1
@@ -63,6 +69,8 @@ type StoredRecord = {
   id: string
   workspaceId: string
   source: WorkspaceMemoryEntry['source']
+  /** Absent on records written before origins existed; read through `storedMemoryOrigin`. */
+  origin?: WorkspaceMemoryEntry['origin']
   status: WorkspaceMemoryEntry['status']
   createdAt: string
   updatedAt: string
@@ -77,8 +85,13 @@ type Settings = { version: 1; injection: Record<string, boolean> }
 export type MemoryStore = Readonly<{
   list(workspaceId: string): WorkspaceMemorySnapshot
   create(workspaceId: string, input: { text: unknown }): WorkspaceMemoryEntry
-  /** An agent proposal: stored `pending` with source `agent`. */
-  propose(workspaceId: string, input: { text: unknown }): WorkspaceMemoryEntry
+  /** An agent proposal: stored `pending` with source `agent`. `origin` is the
+   *  host-resolved harness trace of the proposing run; it is validated, and a
+   *  malformed trace refuses `memory_invalid_input`. */
+  propose(
+    workspaceId: string,
+    input: { text: unknown; origin: MemoryAgentTrace }
+  ): WorkspaceMemoryEntry
   update(
     workspaceId: string,
     input: { entryId: unknown; expectedRevision: unknown; text: unknown }
@@ -152,6 +165,7 @@ function toEntry(record: StoredRecord, text: string): WorkspaceMemoryEntry {
     workspaceId: record.workspaceId,
     text,
     source: record.source,
+    origin: storedMemoryOrigin(record),
     status: record.status,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -317,7 +331,8 @@ export function createMemoryStore(options: {
     workspaceId: string,
     text: string,
     source: WorkspaceMemoryEntry['source'],
-    status: WorkspaceMemoryEntry['status']
+    status: WorkspaceMemoryEntry['status'],
+    origin: WorkspaceMemoryEntry['origin']
   ): WorkspaceMemoryEntry {
     const existing = workspaceRecords(workspaceId)
     if (existing.length >= workspaceMemoryLimits.entriesPerWorkspace) {
@@ -339,6 +354,7 @@ export function createMemoryStore(options: {
       id,
       workspaceId,
       source,
+      origin,
       status,
       createdAt: at,
       updatedAt: at,
@@ -374,11 +390,13 @@ export function createMemoryStore(options: {
     },
     create(workspaceId, input) {
       const id = assertMemoryWorkspaceId(workspaceId)
-      return insert(id, normalizeMemoryText(input.text), 'user', 'active')
+      return insert(id, normalizeMemoryText(input.text), 'user', 'active', { kind: 'user' })
     },
     propose(workspaceId, input) {
       const id = assertMemoryWorkspaceId(workspaceId)
-      return insert(id, normalizeMemoryText(input.text), 'agent', 'pending')
+      const origin = recordedAgentOrigin(input.origin)
+      if (!origin) throw new MemoryStoreError('memory_invalid_input')
+      return insert(id, normalizeMemoryText(input.text), 'agent', 'pending', origin)
     },
     update(workspaceId, input) {
       const id = assertMemoryWorkspaceId(workspaceId)
@@ -408,7 +426,7 @@ export function createMemoryStore(options: {
       // revision that becomes active, so a concurrent edit refuses instead
       // of being overwritten.
       const decision = decideMemoryPromotion({
-        entry: memoryProvenanceRecord(record),
+        entry: memoryProvenanceRecord({ ...record, origin: storedMemoryOrigin(record) }),
         authorizedWorkspaceId: id,
         expectedRevision: revisionOf(input.expectedRevision),
       })

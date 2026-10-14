@@ -26,6 +26,7 @@ import {
   memoryErrorCode,
   memoryErrorMessage,
   memoryErrorNeedsRefresh,
+  memoryOriginDetail,
   memorySourceLabel,
   memoryView,
   type MemoryErrorCode,
@@ -391,6 +392,9 @@ function EntryMeta(props: { entry: WorkspaceMemoryEntry; pending?: boolean }) {
         </Badge>
       </Show>
       <span>{memoryDateLabel(props.entry.updatedAt)}</span>
+      <Show when={memoryOriginDetail(props.entry)}>
+        {(detail) => <span data-memory-origin>{detail()}</span>}
+      </Show>
     </div>
   )
 }
