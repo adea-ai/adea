@@ -177,3 +177,38 @@ forbidden in body`; the parked-facts expiry regression now creates its
   policy through the surface. The stored malformed-record fail-closed
   regression stays, and `packages/types/tests/dev-runtime.test.ts` pins the
   request decoder contract.
+
+## Follow-up (2026-10-14): gaps found after #1350 and #1359
+
+Retention deletion stays outside this lane (#1221). What this follow-up added:
+
+- **Memory under a prepared device cleanup** — the `memory_*` command family now
+  asks the same `assertWorkspaceActive` fence as local content from inside the
+  command surface (the shell wrapper keeps its own check), so the refusal is
+  tested, and the Memory pane reads it as `workspace_cleanup_pending` instead
+  of "could not be read".
+- **Interrupted memory writes** — `memory/store.ts` removes the temp file an
+  interrupted write strands (record and settings) on open and on workspace
+  purge, so a crash cannot leave sealed text on disk after the workspace is
+  deleted. The committed record is the truth until the rename, so a retried
+  accept runs once at the revision the user saw.
+- **Cleanup journal** — a `rolled_back` entry now cancels the earlier
+  `completed` entry it undid. Before, a plan retried after a crash recovery
+  replayed the recorded quarantine, marked a live checkout `quarantined` and
+  failed later. `previewCleanupRecovery` reports `manual_recovery` for
+  `recovery_required` (nothing continues it automatically).
+- **Parity tests** — `cleanup-gate-parity.test.ts` drives the real worktree
+  service and the real policy authority and checks that the interactive and
+  automatic previews decide as the executors do, including stale plans, a policy
+  revoked or expired while facts are read, and crash/retry.
+- **Persona** — `agent-persona-grants.test.ts` proves against Postgres that a
+  profile re-pin or presentation edit leaves audience, enlistment, sharing,
+  admission and artifact-reference grants, placement and lead designation as
+  stored, and that refused, stale, unauthorized and archived-Agent changes write
+  nothing.
+
+Known gap, not changed here: when `git worktree prune` fails after a
+quarantine, the step restores the checkout from trash but does not journal the
+rollback or revert the record's `quarantined` lifecycle. The journal fix above
+makes a retry safe once a rollback is journaled; journaling it on that path
+needs a way to inject a failing prune in tests.

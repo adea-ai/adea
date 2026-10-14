@@ -65,14 +65,22 @@ export function createCleanupJournal(options: { file: string }) {
 
   /** Steps of one job that completed with exactly these inputs, keyed by step
    *  name. A started-but-not-completed entry is deliberately absent: the step
-   *  must rerun after a crash between its journal entries. */
+   *  must rerun after a crash between its journal entries. A later
+   *  `rolled_back` entry cancels the completion it undid: the side effect is
+   *  gone, so replaying its recorded result would skip work that must run
+   *  again. */
   function completedSteps(
     jobId: string,
     inputDigests?: Record<string, string>
   ): Map<string, JournalEntry> {
     const done = new Map<string, JournalEntry>()
     for (const entry of replay()) {
-      if (entry.jobId !== jobId || entry.state !== 'completed') continue
+      if (entry.jobId !== jobId) continue
+      if (entry.state === 'rolled_back') {
+        done.delete(entry.step)
+        continue
+      }
+      if (entry.state !== 'completed') continue
       if (inputDigests && entry.inputDigest !== inputDigests[entry.step]) continue
       done.set(entry.step, entry)
     }
