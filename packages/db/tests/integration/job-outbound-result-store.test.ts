@@ -4018,7 +4018,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
       true
     )
 
-    const revisedJobIds = [...jobIds].reverse()
+    const revisedJobIds = jobIds.toReversed()
     const revised = await revisePlan(f, f.recipient.principal, created.planId, 1, revisedJobIds)
     expect(revised).toMatchObject({ jobIds: revisedJobIds, revision: 2 })
     const revisedPositions = await citationRows(2)
