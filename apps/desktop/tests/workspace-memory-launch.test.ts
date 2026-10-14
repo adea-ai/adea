@@ -49,6 +49,13 @@ import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service
 import { createMemoryStore, type MemoryStore } from '../shell/src/memory/store'
 import { MEMORY_PREAMBLE_HEADER } from '../shell/src/memory/preamble'
 
+const TRACE = {
+  harnessId: 'pi',
+  agentProfileId: 'agent-profile-1',
+  runtimeSessionId: 'runtime-session-1',
+  runId: 'run-1',
+} as const
+
 const SHELL_HOST = '127.0.0.1'
 const SHELL_PORT = 4802
 const SHELL_ORIGIN = `http://${SHELL_HOST}:${SHELL_PORT}`
@@ -328,7 +335,7 @@ describe('workspace memory launch injection (ADR 0012)', () => {
       memory.create(SCOPE_A.workspaceId, { text: 'middle note\nwith a second line' })
       memory.create(SCOPE_A.workspaceId, { text: 'newest note' })
       // Never injected: a pending proposal and another workspace's entry.
-      memory.propose(SCOPE_A.workspaceId, { text: 'pending proposal text' })
+      memory.propose(SCOPE_A.workspaceId, { text: 'pending proposal text', origin: TRACE })
       memory.create(OTHER_WORKSPACE, { text: 'foreign workspace note' })
 
       const channel = await shell.openChannel()
@@ -490,6 +497,15 @@ describe('dev.memory.propose (ADR 0012 agent proposals)', () => {
           text: 'prefers bun',
           source: 'agent',
           status: 'pending',
+          // Host-derived: the session and run come from the live run, the profile from its launch.
+          origin: {
+            kind: 'agent',
+            provenance: 'recorded',
+            harnessId: expect.anything(),
+            agentProfileId: 'profile-1',
+            runtimeSessionId: session.id,
+            runId: expect.stringMatching(/^[A-Za-z0-9]/),
+          },
         }),
       ])
       expect(shell.memory().list(OTHER_WORKSPACE).entries).toHaveLength(0)
@@ -544,6 +560,21 @@ describe('dev.memory.propose (ADR 0012 agent proposals)', () => {
         )
       )
       expect(injected.ok).toBe(false)
+
+      // Nor can the body assert its own origin: provenance is derived by the host, never supplied.
+      const forged = await channel.execute(
+        commandFor(
+          'dev.memory.propose',
+          {
+            runtimeSessionId: live.id,
+            expectedGeneration: live.generation,
+            text: 'x',
+            origin: { kind: 'user' },
+          },
+          { resource: sessionResource(live) }
+        )
+      )
+      expect(forged.ok).toBe(false)
       expect(shell.memory().list(SCOPE_A.workspaceId).entries).toHaveLength(0)
       expect(shell.memory().list(OTHER_WORKSPACE).entries).toHaveLength(0)
     } finally {
