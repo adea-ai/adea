@@ -83,6 +83,15 @@ test('clearing the search returns to the turns list', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Prompts and replies, newest first' })).toBeVisible()
 })
 
+test('keeps the incomplete warning while searching a replay that is not proven', async ({
+  page,
+}) => {
+  await mount(page, '?unconfirmed=1')
+  await page.getByRole('textbox', { name: 'Search this conversation' }).fill('deploy')
+  await expect(page.getByRole('status').filter({ hasText: 'result' })).toContainText('for “deploy”')
+  await expect(page.getByText('Not confirmed complete')).toBeVisible()
+})
+
 test('pages through a full 1,000-event window without dropping rows', async ({ page }) => {
   await mount(page, '?turns=995&bounded=1')
   await expect(page.getByText('Showing the latest events only.')).toBeVisible()
@@ -352,5 +361,20 @@ test.describe('Go to across sessions through the section', () => {
     // The highlight ends on its own timer, which the consumed request must not cancel.
     await expect(revealed).toHaveCount(0, { timeout: 5_000 })
     await expect(page.getByText('That prompt is no longer in the retained history.')).toHaveCount(0)
+  })
+
+  test('keeps the scanned results while the open session is still replaying', async ({ page }) => {
+    await mount(page, '', 'history-section-harness-app.tsx')
+    await search(page).fill('needle')
+    const go = page.getByRole('button', { name: /^Go to Long session,/ })
+    await expect(go).toBeVisible()
+    // The session it opens attaches a replay that never arrives: its live window
+    // is empty and unproven, which must not replace the complete scanned one.
+    await page.evaluate(() => (window as unknown as { holdReplays(): void }).holdReplays())
+    await go.click()
+    await expect(page.getByText('Open session')).toBeVisible()
+    await expect(go).toBeVisible()
+    await expect(page.getByText('1 result in 1 session')).toBeVisible()
+    await expect(page.getByText('No matches in')).toHaveCount(0)
   })
 })

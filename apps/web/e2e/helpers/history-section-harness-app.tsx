@@ -82,6 +82,10 @@ const ok = (command: DevCommand, value: unknown) =>
     observedAt: '2026-09-22T10:00:00.000Z',
   }) as never
 
+// Once held, a newly attached stream stays silent: its replay never starts.
+let replaysHeld = false
+Object.assign(window, { holdReplays: () => (replaysHeld = true) })
+
 const runtime: DevRuntimeService = {
   state: () => ({ status: 'ready' }),
   capabilitySnapshot: async () => {
@@ -115,19 +119,20 @@ const runtime: DevRuntimeService = {
       const held = events.get(sessionId) ?? []
       // The replay arrives after the attach returns, then the host's replay-end
       // heartbeat, as `serveRuntimeEvents` sends them.
-      setTimeout(() => {
-        for (const event of held)
+      if (!replaysHeld)
+        setTimeout(() => {
+          for (const event of held)
+            handlers.onFrame({
+              type: 'data',
+              sequence: event.seq,
+              bytes: encodeCbor(event),
+            } as DevStreamFrame)
           handlers.onFrame({
-            type: 'data',
-            sequence: event.seq,
-            bytes: encodeCbor(event),
-          } as DevStreamFrame)
-        handlers.onFrame({
-          type: 'heartbeat',
-          observedAt: '2026-09-22T10:00:10.000Z',
-          throughSequence: held.at(-1)?.seq ?? '0',
-        })
-      }, 50)
+            type: 'heartbeat',
+            observedAt: '2026-09-22T10:00:10.000Z',
+            throughSequence: held.at(-1)?.seq ?? '0',
+          })
+        }, 50)
       return { open: true, send: () => undefined, close: () => undefined }
     },
   }),

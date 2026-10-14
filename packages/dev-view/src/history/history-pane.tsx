@@ -494,11 +494,7 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
                   )}
                 </Show>
                 <Show
-                  when={
-                    (props.bounded || props.confirmed === false) &&
-                    props.status === 'ready' &&
-                    !searching()
-                  }
+                  when={(props.bounded || props.confirmed === false) && props.status === 'ready'}
                 >
                   <div class="px-3 pt-2">
                     <Text variant="caption" tone="muted" role="status">
@@ -519,7 +515,9 @@ export function HistoryPane(props: HistoryPaneProps): JSX.Element {
               nowMs={nowMs()}
               boundSessionId={props.boundSessionId}
               overrides={
-                props.session && props.status === 'ready'
+                // A feed still replaying holds a partial (even empty) window: the
+                // complete scanned one stands until the host proves the replay.
+                props.session && props.status === 'ready' && props.confirmed !== false
                   ? new Map([[props.session.id, props.events]])
                   : undefined
               }

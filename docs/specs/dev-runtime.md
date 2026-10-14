@@ -1451,7 +1451,9 @@ sessions. There is no second store and no server-side index.
   seconds while the pane is open and is identified by the workspace scope alone,
   so it survives a change of open session; when a scan starts while another is
   still reading (retry, resume refresh, scope change) only the newest may publish; the open session's live feed replaces
-  its scanned window. `buildAllSessionsView` groups matches by session (newest
+  its scanned window only once the host has proved its replay (until then the
+  complete scanned window stands, and the feed's own note stays visible while
+  searching). `buildAllSessionsView` groups matches by session (newest
   match first) with whole-result match counts, pages 50 rows at a time and never
   shows more than 1,000 ("Showing the first 1,000 of N matches. Narrow your search
   to see the rest."); at the cap, every session with a match keeps its newest match
