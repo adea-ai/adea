@@ -210,13 +210,18 @@ session expires.
 - Repin `source.json` to a published CP release once one carries #1123 and #1131 (CP main
   `7d36f9bb` is a source revision). Neither changed a published package's version, so the installed
   SDK checks above do not depend on it.
-- Backend contract missing: nothing discloses to Adea whether a pinned lead profile version states
-  a child allowance. The product evidence and SDK responses carry no allowance or child-budget
-  field, so Adea cannot show (or gate on) the budget a lead can delegate, and cannot flag a lead
-  pinned to a profile that states none (legacy, uncapped behavior). The UI must keep showing only
-  backend-confirmed state; this needs CP to disclose the pinned profile version's stated allowance
-  (or its absence) through the existing product/funding disclosure. Authoring and publishing the
-  production lead profile definitions with a stated allowance is CP catalog work, not Adea's.
+- Backend contract: CP draft #1136 (head `d0cc27c3`) adds an optional `childAllowance` to the lead
+  `prepare` response (`stated` with USD microunits and tokens, or `not_stated`), read from the
+  accepted plan and bound to the plan digest and the pinned profile version. Until it merges and a
+  release carries it, nothing discloses the allowance to Adea, so the UI must keep showing nothing
+  about it. Not consumable yet: the installed SDK's preparation schema is strict, and a probe of
+  this harness against `d0cc27c3` showed the installed runtime-sdk rejecting the response with
+  `unrecognized_keys: childAllowance`, so Adea's `prepare` came back `blocked` /
+  `RUNTIME_UNAVAILABLE`. Adea must bump the SDK before a control plane emits the field; after
+  that, Adea carries the parsed field on the prepared selection (persisting it needs its own
+  schema change) and shows it next to the payer confirmation. Authoring and publishing production
+  lead profile definitions with a stated allowance is CP catalog work, not Adea's. This proof is
+  still pinned to the merged `7d36f9bb`, which predates the field.
 - Open design point from CP #1123 (CP-owned): whether a child's plan ceiling must fit within the
   parent's stated allowance.
 - No CP composition root builds `CanonicalDelegationRuntimeBridge` or passes
