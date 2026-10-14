@@ -36,6 +36,35 @@ physical sends and zero secret resolutions. The host is terminated if graceful
 cleanup stalls; its owned disposable directory is removed only after the process
 is reaped. Adea's fixture workspace is archived and its temporary session expires.
 
+## Diagnosis of the blocked allocation (2026-10-14)
+
+The failure reproduces at the pinned CP revision and at CP `main` (`d632197`, release 1.96.0,
+which includes #1111). Nothing in this directory was changed to obtain these readings.
+
+- Where it stops: tracing the production child admission authority shows `assertCurrent` runs
+  twice. The first run (the preflight, no reader) completes in about 100 ms. The second run is the
+  allocator's recheck inside the SQLite allocation transaction (a reader is supplied). It reads the
+  canonical request, then calls `product.resolveChildSelection`, and that call never returns.
+- Why it is a production contract gap and not a fixture gap: the recheck re-resolves the child's
+  model selection from the product (an HTTP read) and the role-selection services (which use the
+  funding database handle) while the allocation transaction holds the provider's write lock.
+  `createProductionLeadProductAuthority.resolveChildSelection` states that the canonical authority
+  must call it before allocation and retain the selection in the admission receipt. The in-transaction
+  `assertCurrent` does it again instead of comparing against the retained receipt.
+- Evidence that this is the cause (diagnostic edit in a scratch CP copy only, not committed anywhere):
+  when `assertCurrent` with a reader rechecks only the canonical current request against the receipt's
+  authority revision, the recheck returns in about 30 ms and the allocation proceeds to its next stage.
+- Next blocker after that, also observed only in the scratch copy: `BUDGET_EXHAUSTED` at
+  `child-allocation`, with 0 microunits and 0 tokens available on the parent. The lead's funded
+  attempt reserves the whole plan budget, so there is no headroom to reserve the child's half.
+  Doubling the plan maxima in the fixture did not change this, so the fixture sizing alone does not
+  explain it. Whether a parent lead should reserve its full plan budget, and how a child's reservation
+  is carved out of it, is a Control Plane decision (CP #1041 owns child budget reservation).
+
+Owners: the in-transaction recheck and the budget reservation rule are Control Plane changes. This
+proof will pass its positive allocation only when CP lands them; it must not be changed to skip or
+loosen either check.
+
 ## Remaining dependencies
 
 - Resolve the CP current-authority recheck under the allocator transaction.
