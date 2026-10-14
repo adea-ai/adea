@@ -240,7 +240,7 @@ interface NoEffectRun {
     progress: (dispatchId: string) => Promise<unknown>
     cancel: (dispatchId: string, key: string) => Promise<unknown>
     dispatch: (key: string) => Promise<unknown>
-    resolve: (operation?: string) => Promise<unknown>
+    resolve: (operation?: string, as?: never) => Promise<unknown>
     counts: () => Promise<unknown>
   }
   runtime: { effects: () => unknown }
@@ -555,8 +555,13 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       return { authority, receipts, service }
     }
     let current = build()
-    const envelope = (operation: string, payload: unknown, idempotencyKey: string) => ({
-      caller: { servicePrincipalId: principal.principalId },
+    const envelope = (
+      operation: string,
+      payload: unknown,
+      idempotencyKey: string,
+      caller: { principalId: string } = principal
+    ) => ({
+      caller: { servicePrincipalId: caller.principalId },
       contractVersion: { major: 1, minor: 0 },
       requestId: 'req_01JABCDEF0123456789ABCDEFG',
       workspaceId: tenant.cpWorkspaceId,
@@ -568,8 +573,12 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       issuedAt: now(),
       payload,
     })
-    const readEnvelope = (operation: string, parameters: unknown) => ({
-      caller: { servicePrincipalId: principal.principalId },
+    const readEnvelope = (
+      operation: string,
+      parameters: unknown,
+      caller: { principalId: string } = principal
+    ) => ({
+      caller: { servicePrincipalId: caller.principalId },
       contractVersion: { major: 1, minor: 0 },
       requestId: 'req_01JABCDEF0123456789ABCDEFG',
       workspaceId: tenant.cpWorkspaceId,
@@ -601,25 +610,24 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           envelope('pi-durable.lead.dispatch', { intentId: tenant.intentId }, key),
           principal
         ),
-      status: (dispatchId: string, as: unknown = principal) =>
-        current.service.status(readEnvelope('pi-durable.lead.status', { dispatchId }), as),
-      progress: (dispatchId: string) =>
-        current.service.progress(
-          readEnvelope('pi-durable.lead.progress', { dispatchId }),
-          principal
-        ),
-      cancel: (dispatchId: string, key: string, as: unknown = principal) =>
-        current.service.cancel(envelope('pi-durable.lead.cancel', { dispatchId }, key), as),
+      // `as` is both the request caller and the verified principal, so a call as another principal is
+      // consistent and reaches the fence audience check instead of an earlier identity mismatch.
+      status: (dispatchId: string, as: typeof principal = principal) =>
+        current.service.status(readEnvelope('pi-durable.lead.status', { dispatchId }, as), as),
+      progress: (dispatchId: string, as: typeof principal = principal) =>
+        current.service.progress(readEnvelope('pi-durable.lead.progress', { dispatchId }, as), as),
+      cancel: (dispatchId: string, key: string, as: typeof principal = principal) =>
+        current.service.cancel(envelope('pi-durable.lead.cancel', { dispatchId }, key, as), as),
       lookup: () =>
         current.service.lookup(
           readEnvelope('pi-durable.lead.lookup', { intentId: tenant.intentId }),
           principal
         ),
-      resolve: (operation?: string) =>
+      resolve: (operation?: string, as: typeof principal = principal) =>
         current.authority.resolveIntent({
           workspaceId: tenant.cpWorkspaceId,
           intentId: tenant.intentId,
-          principal,
+          principal: as,
           operation,
         }),
       counts: () =>
@@ -913,17 +921,67 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     }
   }, 60_000)
 
-  test('continuation: the control plane principal outside the fence audience is refused and the runtime is not touched', async () => {
+  test('continuation: the fence audience check denies a principal the fence does not name, and nothing changes', async () => {
     const { tenant, runtime, host, response } = await runningAdmission()
     try {
       await fence(tenant)
-      const before = runtime.effects()
-      const stranger = { ...host.principal, principalId: 'svc_intruder' }
-      await expect(host.status(response.dispatchId, stranger)).rejects.toThrow()
+      // Adea names exactly the principal that read the fence. Record that body for replay.
+      const fenced = await emitted(tenant)
+      expect(fenced.body.allowedPrincipalIds).toEqual([SERVICE_PRINCIPAL])
+      const replay = (body: unknown) => {
+        tenant.hop.intercept = () =>
+          Response.json(body, { headers: { 'cache-control': 'private, no-store' } })
+      }
+      const snapshot = async () => ({
+        effects: runtime.effects(),
+        counts: await host.counts(),
+        receipt: await host.receipts.get(response.dispatchId),
+      })
+      let baseline = await snapshot()
+      const unchanged = async () => {
+        expect(await snapshot()).toEqual(baseline)
+        expect((await rollbackState(tenant)).fenced).toBe(true)
+      }
+      const denied = 'PI_LEAD_SCOPE_REJECTED'
+
+      // 1. The permitted principal, whose receipt allows it, is handed a current and well formed
+      // fence that names someone else. Caller and verified principal are the same identity, the
+      // retained actor is intact, and only the fence audience check can refuse it.
+      replay({ ...fenced.body, allowedPrincipalIds: ['svc_someone-else'] })
+      const reads = tenant.hop.reads
+      await expect(host.status(response.dispatchId)).rejects.toThrow(denied)
+      await expect(host.progress(response.dispatchId)).rejects.toThrow(denied)
+      await expect(host.cancel(response.dispatchId, 'transport:not-named')).rejects.toThrow(denied)
+      expect(tenant.hop.reads).toBeGreaterThan(reads)
+      await unchanged()
+
+      // 2. A principal that is not the audience, with its caller made consistent, reads the fence
+      // that names the original audience. The resolver itself denies it, with no receipt involved.
+      const outsider = { ...host.principal, principalId: 'svc_intruder' }
+      replay(fenced.body)
+      for (const operation of ['status', 'progress', 'cancel']) {
+        await expect(host.resolve(operation, outsider as never)).rejects.toThrow(denied)
+      }
+      await unchanged()
+
+      // Control: the identical body is accepted for the principal it names, so the denials above are
+      // the audience and nothing else about the body or the transport.
+      for (const operation of ['status', 'progress', 'cancel']) {
+        expect(await host.resolve(operation)).toMatchObject({ schemaVersion: 'pi-lead-fenced/v1' })
+      }
+      expect((await host.status(response.dispatchId)).data.state).toBe('running')
+      tenant.hop.intercept = undefined
+      baseline = await snapshot()
+
+      // 3. Over the real signed hop the outsider is refused earlier still: its receipt does not list it,
+      // so the control plane never reads Adea for it. This is a separate defence, not the audience check.
+      const readsBefore = tenant.hop.reads
+      await expect(host.status(response.dispatchId, outsider)).rejects.toThrow(denied)
       await expect(
-        host.cancel(response.dispatchId, 'transport:stranger', stranger)
-      ).rejects.toThrow()
-      expect(runtime.effects()).toEqual(before)
+        host.cancel(response.dispatchId, 'transport:outsider', outsider)
+      ).rejects.toThrow(denied)
+      expect(tenant.hop.reads).toBe(readsBefore)
+      await unchanged()
     } finally {
       await host.close()
     }
