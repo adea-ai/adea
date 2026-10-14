@@ -339,6 +339,24 @@ export {
   type GroupStoreDatabase,
 } from './group-channels'
 export {
+  AddressedTurnError,
+  cancelAddressedTurn,
+  causalIdForAddressedTurn,
+  claimAddressedTurn,
+  decideAddressedTurn,
+  DEFAULT_ADDRESSED_TURN_BUDGET,
+  dispatchAddressedTurn,
+  loadAddressedTurns,
+  recordAddressedTurnResponse,
+  supersedeAddressedTurns,
+  type AddressedAgentTurn,
+  type AddressedTurnBudget,
+  type AddressedTurnClaim,
+  type AddressedTurnClaimInput,
+  type AddressedTurnDecision,
+  type AddressedTurnStore,
+} from './group-turn-coordinator'
+export {
   acceptWorkspaceInvitation,
   createWorkspaceInvitation,
   digestInvitationToken,
@@ -433,6 +451,7 @@ export {
   type AgentPersonaRefusalReason,
 } from './agent-persona-policy'
 export {
+  admitAddressedLeadTurn,
   createLeadTurn,
   getLatestLeadTurnForTarget,
   getLeadTurnForUser,

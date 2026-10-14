@@ -64,6 +64,10 @@ import { and, eq, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createLeadTurn } from './lead-turns'
+import {
+  requestPendingSupersededTurnCancellations,
+  supersedeAddressedTurns,
+} from './group-turn-coordinator'
 import { publishLeadTurnResult } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
@@ -127,6 +131,7 @@ import {
   groupEnlistmentGrants,
   groupSharingGrants,
   messageArtifactReferences,
+  messages,
 } from './schema'
 import { leadTurnIntents } from './schema/lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -485,6 +490,31 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
         })
   const final = authorizeGroupChannelTurn(gate, { admission: current, now: readNow() })
   if (final.action !== 'allow') throw new Error('Channel unavailable')
+  // Genuinely new human input retires live addressed turns; a retry of a
+  // message that already exists (same channel + idempotency key) is a replay
+  // and must leave live work alone. The channel row is locked above, so the
+  // key cannot appear between this check and the write below.
+  const requestKey = (
+    input.mode === 'lead'
+      ? (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
+      : (input as Readonly<{ message: GroupChannelDirectPostInput; mode: 'direct' }>).message
+  ).idempotencyKey?.trim()
+  const isNewInput =
+    sender.kind === 'user' &&
+    !!requestKey &&
+    (
+      await transaction
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.workspaceId, workspaceId),
+            eq(messages.channelId, channelId),
+            eq(messages.idempotencyKey, requestKey)
+          )
+        )
+        .limit(1)
+    ).length === 0
   if (input.mode === 'lead') {
     const lead = (input as Readonly<{ lead: GroupChannelLeadPostInput; mode: 'lead' }>).lead
     const posted = await createLeadTurn(transaction, workspaceId, channelId, principal, lead, {
@@ -500,6 +530,7 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
           })
     const settled = authorizeGroupChannelTurn(gate, { admission: settledLead, now: readNow() })
     if (settled.action !== 'allow') throw new Error('Channel unavailable')
+    if (isNewInput) await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
     return posted as T extends Readonly<{ mode: 'lead' }>
       ? Awaited<ReturnType<typeof createLeadTurn>>
       : MessageSummary
@@ -518,12 +549,21 @@ export async function postGroupChannelMessageInTransaction<T extends GroupChanne
         })
   const settled = authorizeGroupChannelTurn(gate, { admission: settledDirect, now: readNow() })
   if (settled.action !== 'allow') throw new Error('Channel unavailable')
+  // Superseding human input (M15.02): a newer human message retires live
+  // addressed turns in this same transaction, so stale claims never
+  // outlive the conversation that replaced them. Agent posts never
+  // supersede — only human input prioritizes — and neither does an
+  // idempotent retry of a message that already exists.
+  if (isNewInput) await supersedeAddressedTurns(transaction, workspaceId, channelId, principal)
   return posted as T extends Readonly<{ mode: 'lead' }>
     ? Awaited<ReturnType<typeof createLeadTurn>>
     : MessageSummary
 }
 
-/** Fenced group post: gate and write share one transaction (see above). */
+/**
+ * Fenced group post: gate and write share one transaction (see above). The
+ * post-commit wrapper also requests any eligible runtime cancellations.
+ */
 export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -535,7 +575,7 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
 ): Promise<
   T extends Readonly<{ mode: 'lead' }> ? Awaited<ReturnType<typeof createLeadTurn>> : MessageSummary
 > {
-  return database.transaction((transaction) =>
+  const posted = await database.transaction((transaction) =>
     postGroupChannelMessageInTransaction(
       transaction,
       workspaceId,
@@ -546,6 +586,13 @@ export async function postGroupChannelMessage<T extends GroupChannelPostInput>(
       options
     )
   )
+  // The claim flips with the message, but a runtime cancellation takes its
+  // own lead-intent transaction and must wait until that commit releases the
+  // channel lock. Retrying all pending superseded claims also repairs a
+  // process failure in the gap after commit.
+  if (sender.kind === 'user')
+    await requestPendingSupersededTurnCancellations(database, workspaceId, channelId, principal)
+  return posted
 }
 
 /**
