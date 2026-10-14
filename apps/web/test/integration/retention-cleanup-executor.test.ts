@@ -1144,7 +1144,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       ).toHaveLength(0)
     })
 
-    test('a registration and a revocation queued behind a deletion in flight both lose to its marks, in either order', async () => {
+    test('a registration and a revocation queued behind a deletion are both fenced by its marks', async () => {
       const f = await fixture('queued-race')
       const audience = await audienceWorkspace('queued-race')
       const artifact = await seededArtifact(f)

@@ -422,17 +422,25 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
     const acquired = new Promise<void>((resolve) => {
       ready = resolve
     })
+    let pid!: number
     const finished = connection.db
       .transaction(async (transaction) => {
         await acquire(transaction)
+        const [row] = await transaction.execute(sql`select pg_backend_pid() as pid`)
+        pid = Number((row as { pid?: unknown }).pid)
         ready()
         if ((await released) === 'rollback') throw new Error('rollback requested')
       })
       .catch((error: unknown) => {
         if (!(error instanceof Error) || error.message !== 'rollback requested') throw error
       })
-    await acquired
-    return { finished, release }
+    await Promise.race([
+      acquired,
+      finished.then(() => {
+        throw new Error('held transaction finished before acquiring its lock')
+      }),
+    ])
+    return { finished, pid, release }
   }
 
   async function waitUntilBlockedOnLock(queryFragment: string): Promise<void> {
@@ -446,6 +454,26 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
       await sleep(10)
     }
     throw new Error(`no session blocked on a lock for ${queryFragment}`)
+  }
+
+  /** Returns the waiter only after PostgreSQL reports it blocked by this exact backend. */
+  async function waitUntilBlockedBy(holderPid: number, queryFragment: string): Promise<number> {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(
+        sql`select waiter.pid::int as pid
+            from pg_stat_activity as waiter
+            where waiter.datname = current_database()
+              and waiter.wait_event_type = 'Lock'
+              and waiter.query ilike ${`%${queryFragment}%`}
+              and ${holderPid}::int = any(pg_blocking_pids(waiter.pid))
+            limit 1`
+      )
+      const pid = (rows[0] as { pid?: unknown } | undefined)?.pid
+      if (pid !== undefined) return Number(pid)
+      await sleep(10)
+    }
+    throw new Error(`no session blocked by backend ${holderPid} for ${queryFragment}`)
   }
 
   test('an artifact with no authority or evidence registers, and a live authority fences it until revoked', async () => {
@@ -878,7 +906,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
     expect(await grantRows(f.artifact.id)).toHaveLength(0)
   })
 
-  test('revocation racing a registration: either order leaves no grant to evidenced data', async () => {
+  test('revocation commits while registration waits: retained evidence keeps the artifact fenced', async () => {
     const f = await fixture('revoke-race')
     const authority = await authorize(f)
     await recordReceipt(f, authority, 'delete', 'completed', ARTIFACT_COVERAGE[0]!, 5)
@@ -901,7 +929,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
     expect(await grantRows(f.artifact.id)).toHaveLength(0)
   })
 
-  test('deletion in flight: a registration and a revocation queued behind the gate both end with the artifact fenced, in either order', async () => {
+  test('deletion mark commits before queued registration and revocation; both operations stay fenced', async () => {
     const f = await fixture('deletion-in-flight')
     const authority = await authorize(f)
 
@@ -913,37 +941,56 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
     const gateReleased = new Promise<void>((resolve) => {
       releaseGate = resolve
     })
+    let gatePid!: number
     // The deleting pass marks first, as the executor does, then holds its locks while the store works.
     const gate = withRetentionDeletionGate(
       connection.db,
       gateInput(f),
       async (decision, context) => {
         await context.markDeletionDispatched(ARTIFACT_COVERAGE[0]!)
+        const [row] = await context.transaction.execute(sql`select pg_backend_pid() as pid`)
+        gatePid = Number((row as { pid?: unknown }).pid)
         enteredGate()
         await gateReleased
         return decision
       }
     )
-    await gateEntered
+    let registration: Promise<string> | undefined
+    let revocation: ReturnType<typeof revokeAuthority> | undefined
+    try {
+      await Promise.race([
+        gateEntered,
+        gate.then(() => {
+          throw new Error('deleting gate returned before reaching its pause')
+        }),
+      ])
 
-    const input = registrationFor(f)
-    const registration = grantRefusal(() => register(f, input))
-    const revocation = revokeAuthority(f, authority)
-    await waitUntilBlockedOnLock('for update')
-    await waitUntilBlockedOnLock('pg_advisory_xact_lock')
-    expect(await stillPending(registration, 100)).toBe(true)
-    expect(await stillPending(revocation, 100)).toBe(true)
-    // Neither the mark nor the deletion is visible to anyone until the gate commits.
-    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+      const input = registrationFor(f)
+      registration = grantRefusal(() => register(f, input))
+      const registrationPid = await waitUntilBlockedBy(gatePid, 'for update')
+      expect(registrationPid).not.toBe(gatePid)
+      revocation = revokeAuthority(f, authority)
+      const revocationPid = await waitUntilBlockedBy(gatePid, 'pg_advisory_xact_lock')
+      expect(revocationPid).not.toBe(gatePid)
+      // Neither the mark nor the deletion is visible to anyone until the gate commits.
+      expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
 
-    releaseGate()
-    expect((await gate).outcome).toBe('cleanup_ready')
-    await revocation
-    // Whichever of the two ran first, the committed mark fences the artifact and no grant exists.
-    expect(await registration).toBe(FENCED)
-    expect(await fenceOf(f)).toBe('deletion_dispatched')
-    expect(await grantRows(f.artifact.id)).toHaveLength(0)
-    expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+      releaseGate()
+      expect((await gate).outcome).toBe('cleanup_ready')
+      await revocation
+      // The post-commit order of registration and revocation is unspecified here; both are fenced.
+      expect(await registration).toBe(FENCED)
+      expect(await fenceOf(f)).toBe('deletion_dispatched')
+      expect(await grantRows(f.artifact.id)).toHaveLength(0)
+      expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+    } finally {
+      releaseGate()
+      await Promise.allSettled([
+        gate,
+        ...(registration ? [registration] : []),
+        ...(revocation ? [revocation] : []),
+      ])
+    }
   })
 
   test('revocation commits while a registration is mid-flight: the mark, not a receipt, keeps the artifact fenced', async () => {
@@ -959,14 +1006,68 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
         .for('update')
     })
     const input = registrationFor(f)
-    const registration = grantRefusal(() => register(f, input))
-    expect(await stillPending(registration, 150)).toBe(true)
-    // The revocation takes the subject lock only and commits while the registration waits.
-    await revokeAuthority(f, authority)
-    expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
-    writer.release('commit')
-    await writer.finished
-    expect(await registration).toBe(FENCED)
+    let registration: Promise<string> | undefined
+    let revocation: ReturnType<typeof revokeAuthority> | undefined
+    try {
+      registration = grantRefusal(() => register(f, input))
+      const registrationPid = await waitUntilBlockedBy(writer.pid, 'for update')
+      expect(registrationPid).not.toBe(writer.pid)
+      // The revocation takes the subject lock only and commits while the registration waits.
+      revocation = revokeAuthority(f, authority)
+      await revocation
+      expect(await lateReceiptRefusal(f, authority)).toBe('authorization_not_current')
+      writer.release('commit')
+      await writer.finished
+      expect(await registration).toBe(FENCED)
+      expect(await grantRows(f.artifact.id)).toHaveLength(0)
+    } finally {
+      writer.release('rollback')
+      await Promise.allSettled([
+        writer.finished,
+        ...(registration ? [registration] : []),
+        ...(revocation ? [revocation] : []),
+      ])
+    }
+  })
+
+  test('registration resolves before a queued revocation, then the committed mark keeps the artifact fenced', async () => {
+    const f = await fixture('registration-before-revocation')
+    const authority = await authorize(f)
+    expect(await dispatchDeletion(f)).toBe('cleanup_ready')
+
+    // Hold the authority row so revocation takes its subject lock, then waits on this writer.
+    // Registration does not need that lock and must finish against the already committed mark.
+    const writer = await holdTransaction(async (transaction) => {
+      await transaction
+        .select({ id: retentionDeletionAuthorizations.id })
+        .from(retentionDeletionAuthorizations)
+        .where(eq(retentionDeletionAuthorizations.id, authority.id))
+        .for('update')
+    })
+    let revocation: ReturnType<typeof revokeAuthority> | undefined
+    let registration: Promise<string> | undefined
+    try {
+      revocation = revokeAuthority(f, authority)
+      const revocationPid = await waitUntilBlockedBy(
+        writer.pid,
+        'retention_deletion_authorizations'
+      )
+      expect(revocationPid).not.toBe(writer.pid)
+      registration = grantRefusal(() => register(f, registrationFor(f)))
+      expect(await registration).toBe(FENCED)
+      expect(await grantRows(f.artifact.id)).toHaveLength(0)
+    } finally {
+      writer.release('commit')
+      await Promise.allSettled([
+        writer.finished,
+        ...(registration ? [registration] : []),
+        ...(revocation ? [revocation] : []),
+      ])
+    }
+
+    await revocation
+    expect(await fenceOf(f)).toBe('deletion_dispatched')
+    expect(await grantRefusal(() => register(f, registrationFor(f)))).toBe(FENCED)
     expect(await grantRows(f.artifact.id)).toHaveLength(0)
   })
 
@@ -985,20 +1086,33 @@ describe.skipIf(!connectionUrl || !migrationUrl)('Artifact registration retentio
         version: 1,
       })
     })
-    const registration = register(f, input)
-    await waitUntilBlockedOnLock('artifact_reference_grants')
+    let registration: ReturnType<typeof register> | undefined
+    let deleting: ReturnType<typeof dispatchDeletion> | undefined
+    try {
+      registration = register(f, input)
+      const registrationPid = await waitUntilBlockedBy(holder.pid, 'artifact_reference_grants')
+      expect(registrationPid).not.toBe(holder.pid)
 
-    await authorize(f)
-    const deleting = dispatchDeletion(f)
-    expect(await stillPending(deleting)).toBe(true)
+      await authorize(f)
+      deleting = dispatchDeletion(f)
+      const deletingPid = await waitUntilBlockedBy(registrationPid, 'for update')
+      expect(deletingPid).not.toBe(registrationPid)
 
-    holder.release('rollback')
-    await holder.finished
-    expect((await registration).outcome).toBe('registered')
-    // The deleting pass waited for the artifact row, saw the committed reference, and refused.
-    expect(await deleting).toBe('refused')
-    expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
-    expect(await grantRows(f.artifact.id)).toHaveLength(1)
+      holder.release('rollback')
+      await holder.finished
+      expect((await registration).outcome).toBe('registered')
+      // The deleting pass waited for the artifact row, saw the committed reference, and refused.
+      expect(await deleting).toBe('refused')
+      expect(await dispatchRows(f.artifact.id)).toHaveLength(0)
+      expect(await grantRows(f.artifact.id)).toHaveLength(1)
+    } finally {
+      holder.release('rollback')
+      await Promise.allSettled([
+        holder.finished,
+        ...(registration ? [registration] : []),
+        ...(deleting ? [deleting] : []),
+      ])
+    }
   })
 
   test('lock order: registration holds the artifact row while it waits for the grant row; revocation never waits on the artifact', async () => {
