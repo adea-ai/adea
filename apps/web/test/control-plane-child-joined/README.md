@@ -46,6 +46,25 @@ The child's runtime attempt is reserved by CP's production `DurableChildRuntimeB
 delegation record, the allocator's opening receipt and the parent's funding reservation, then
 reserves the child's funded budget less the allowance its own plan holds back.
 
+### Production versus synthetic evidence
+
+| Evidence                                                                                                                            | Source                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Adea intent, audience reader, signed service verifier, requested roles                                                              | Production Adea code over a real local PostgreSQL                       |
+| CP model selection, lead preparation and dispatch, root budget admission                                                            | Production CP code (merged `dff15411`)                                  |
+| Child delegation service, transactional SQLite allocator, ledger cap, child budget admission (`DurableChildRuntimeBudgetAdmission`) | Production CP code                                                      |
+| Authority checks (admitting tool call, workspace grant, product readiness)                                                          | Production CP checks over scripted account, scope and tool-policy ports |
+| Child runtime                                                                                                                       | Synthetic recorder that dedupes by idempotency key                      |
+| Lead and child spending that gets settled                                                                                           | Synthetic: scripted ledger charges through the real ledger              |
+| Provider transport, account evidence, tool registry and policy, the admitted tool call                                              | Synthetic host ports                                                    |
+| `CanonicalDelegationRuntimeBridge` wiring                                                                                           | Built by this host; no CP composition root builds it yet                |
+| Lead plan and sibling count                                                                                                         | CP test fixture inputs                                                  |
+
+Assertions preserved from earlier rounds: authority (revoked grant, exhausted quota, before and
+after allocation), budget (independent budgets, parent ceiling unchanged, exact reservations),
+settlement (the allowance cases below) and retry (allocation, denial and child start add no rows
+and no starts).
+
 ### Allowance limits exercised by this journey
 
 Every allocation below goes through CP's real `delegate` service and transactional SQLite
