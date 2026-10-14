@@ -25,6 +25,7 @@ import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
 import { createCleanupJournal } from '../shell/src/dev-runtime/worktrees/journal'
 import { createWorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 import { quarantineWorktree } from '../shell/src/dev-runtime/worktrees/trash'
+import { workflowDigest } from '../shell/src/dev-runtime/worktrees/bootstrap'
 import { createCleanupPolicyAuthority } from '../shell/src/dev-runtime/resources/policy'
 import { fixture, git, projectIdA, scope } from './worktree-fixtures'
 
@@ -473,6 +474,66 @@ describe('crash and retry: the recovery preview follows resumeCleanup', () => {
       f.cleanup()
     }
   })
+
+  for (const selectedSteps of [['run_teardown'], ['run_teardown', ...FULL_STEPS]] as const) {
+    test(`a completed teardown resumes as completed, never skipped: ${selectedSteps.join(', ')}`, async () => {
+      const f = fixture()
+      try {
+        const { repo, worktree } = await readyWorktree(f)
+        const workflow = {
+          id: 'teardown',
+          version: 1,
+          steps: [{ id: 'ok', argv: [process.execPath, '-e', 'process.exit(0)'] }],
+        }
+        f.service.bindBootstrap({
+          worktreeId: worktree.id,
+          workflow,
+          approval: {
+            method: 'owner_dialog' as const,
+            reference: 'consent',
+            approvedAt: new Date().toISOString(),
+            canonicalRepoRoot: repo.canonicalRoot,
+            workflowDigest: workflowDigest(workflow),
+            workflowVersion: 1,
+            scope,
+          },
+        })
+        const plan = await f.service.planCleanup({
+          scope,
+          worktreeId: worktree.id,
+          expectedGeneration: worktree.generation,
+          selectedSteps: [...selectedSteps],
+        })
+        expect(plan.blockers).toEqual([])
+        const committed = await f.service.commitCleanup({ scope, plan, digest: plan.digest })
+        expect(committed.state).toBe('completed')
+        expect(committed.stepResults.find((r) => r.step === 'run_teardown')?.state).toBe(
+          'completed'
+        )
+        const before = f.service.getWorktree(scope, worktree.id)
+        const restarted = createWorktreeService({
+          dataDir: f.dataDir,
+          runtimeNodeId: scope.runtimeNodeId,
+          roots: f.roots,
+          clock: () => new Date(),
+        })
+        for (const service of [f.service, f.service, restarted, restarted]) {
+          const resumed = await service.resumeCleanup({
+            scope,
+            worktreeId: worktree.id,
+            jobId: plan.planId,
+          })
+          expect(resumed.state).toBe('completed')
+          expect(resumed.stepResults.find((r) => r.step === 'run_teardown')?.state).toBe(
+            'completed'
+          )
+          expect(service.getWorktree(scope, worktree.id)).toEqual(before)
+        }
+      } finally {
+        f.cleanup()
+      }
+    })
+  }
 
   test('an unprovable interruption stays recovery_required; the preview offers no automatic retry', async () => {
     const f = fixture()

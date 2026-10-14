@@ -115,6 +115,7 @@ export type WorktreeLifecycle =
 function cleanupJournalStepName(step: CleanupStepKind): string {
   if (step === 'quarantine_worktree') return 'quarantine'
   if (step === 'unregister_worktree') return 'unregister'
+  if (step === 'run_teardown') return 'teardown'
   return step
 }
 
