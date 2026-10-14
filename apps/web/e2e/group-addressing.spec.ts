@@ -217,3 +217,20 @@ test('changing recipients after a lost message response sends the new choice, no
   const rows = addressed(page).last().getByRole('listitem')
   await expect(rows).toHaveCount(2)
 })
+
+test('a 404 on refresh clears the turns and Cancel, where a 503 kept them', async ({ page }) => {
+  await open(page)
+  await aria(page).click()
+  await send(page, 'Please answer')
+  await expect(addressed(page)).toContainText('Dispatched')
+  await page.evaluate(() => window.addressingHarness.revokeReader(true))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByText('Addressed turns are no longer available to you')).toBeVisible()
+  await expect(addressed(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Cancel turn for/ })).toHaveCount(0)
+  // Access returns: a read restores what the server lists.
+  await page.evaluate(() => window.addressingHarness.revokeReader(false))
+  await page.getByRole('button', { name: 'Read again' }).click()
+  await expect(page.getByText('Addressed turns are no longer available to you')).toHaveCount(0)
+  await expect(addressed(page)).toContainText('Dispatched')
+})

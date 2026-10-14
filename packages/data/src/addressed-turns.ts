@@ -147,7 +147,25 @@ export type AddressedTurnReplay = Readonly<{
    */
   heldAtStart: readonly string[]
   turns: readonly ApiAddressedTurn[]
+  /**
+   * The server answered that this reader can no longer read the conversation (401, 403 or the uniform
+   * 404). The turns are then gone from the client, not kept: a transient failure keeps them, this does not.
+   */
+  unavailable?: boolean
 }>
+
+/**
+ * An answer that says the reader's access is gone, as against one that says nothing (a 503, a dropped
+ * connection). The server answers every authority failure with the same 404, so a revoked reader whose
+ * revocation event has not arrived yet learns it here.
+ */
+export function isAddressedTurnAccessLost(error: unknown): boolean {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status: unknown }).status)
+      : undefined
+  return status === 401 || status === 403 || status === 404
+}
 
 /** Reads every page of the channel's turns in committed order, from the start. */
 export async function replayAddressedTurns(
@@ -189,6 +207,7 @@ export function foldAddressedTurnCache(
     complete: incoming.complete,
     conversationAudienceEpoch: incoming.conversationAudienceEpoch,
     heldAtStart: incoming.heldAtStart,
+    unavailable: incoming.unavailable ?? false,
     turns: incoming.complete
       ? applyAddressedTurnReplay(current.turns, incoming.turns, new Set(incoming.heldAtStart))
       : foldAddressedTurns(current.turns, incoming.turns),
@@ -208,13 +227,26 @@ export const addressedTurnQueryOptions = {
       const held = queryClient.getQueryData<AddressedTurnCache>(
         addressedTurnQueryKeys.list(workspaceId!, channelId!)
       )
-      const replay = await replayAddressedTurns(client, workspaceId!, channelId!, {
-        heldAtStart:
-          held?.conversationAudienceEpoch === conversationAudienceEpoch
-            ? held.turns.map(({ causalId }) => causalId)
-            : [],
-      })
-      return { ...replay, conversationAudienceEpoch }
+      const heldAtStart =
+        held?.conversationAudienceEpoch === conversationAudienceEpoch
+          ? held.turns.map(({ causalId }) => causalId)
+          : []
+      try {
+        const replay = await replayAddressedTurns(client, workspaceId!, channelId!, {
+          heldAtStart,
+        })
+        return { ...replay, conversationAudienceEpoch }
+      } catch (error) {
+        if (!isAddressedTurnAccessLost(error)) throw error
+        // Access is gone: an authoritative empty answer, so nothing held for it lingers.
+        return {
+          complete: true,
+          conversationAudienceEpoch,
+          heldAtStart,
+          turns: [],
+          unavailable: true,
+        }
+      }
     },
     enabled: Boolean(workspaceId && channelId),
     // Every write to this cache (a replay, a reconnect, a second refetch, a mutation result) is folded
@@ -246,6 +278,7 @@ export function foldTurnIntoReplay(
     complete: current?.complete ?? false,
     conversationAudienceEpoch: audienceEpoch,
     heldAtStart: current?.heldAtStart ?? [],
+    unavailable: false,
     turns: foldAddressedTurns(current?.turns ?? [], [turn]),
   }
 }

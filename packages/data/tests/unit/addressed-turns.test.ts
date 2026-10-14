@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { ApiAddressedTurn, ApiAddressedTurnState } from '@adea-ai/api-client'
+import {
+  ApiClientError,
+  type ApiAddressedTurn,
+  type ApiAddressedTurnState,
+} from '@adea-ai/api-client'
 import { QueryClient } from '@tanstack/solid-query'
 
 import {
@@ -373,6 +377,58 @@ describe('addressedTurnQueryOptions.list', () => {
     await queryClient.fetchQuery({ ...options, staleTime: 0 })
     expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toEqual([])
   })
+
+  test.each([401, 403, 404])(
+    'a %i on refresh clears what was held and says it is unavailable; a later read restores it',
+    async (status) => {
+      const queryClient = new QueryClient()
+      const shown = [turn(), turn()]
+      let outcome: 'turns' | 'lost' = 'turns'
+      const client = {
+        listAddressedTurns: async () => {
+          if (outcome === 'lost') throw new ApiClientError('unavailable', status, 'unavailable')
+          return { nextAfter: null, turns: shown }
+        },
+      } as never
+      const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toHaveLength(2)
+      outcome = 'lost'
+      await queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+      const lost = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(lost.turns).toEqual([])
+      expect(lost.unavailable).toBe(true)
+      outcome = 'turns'
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      const back = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(back.turns).toHaveLength(2)
+      expect(back.unavailable).toBe(false)
+    }
+  )
+
+  test.each([429, 500, 503])(
+    'a %i on refresh keeps what was held and does not claim loss',
+    async (status) => {
+      const queryClient = new QueryClient()
+      const shown = [turn()]
+      let failing = false
+      const client = {
+        listAddressedTurns: async () => {
+          if (failing) throw new ApiClientError('unavailable', status)
+          return { nextAfter: null, turns: shown }
+        },
+      } as never
+      const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      failing = true
+      await expect(
+        queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+      ).rejects.toThrow()
+      const held = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(held.turns).toHaveLength(1)
+      expect(held.unavailable).not.toBe(true)
+    }
+  )
 
   test('a turn folded in while a read is in flight survives that read', async () => {
     const queryClient = new QueryClient()

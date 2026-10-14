@@ -87,7 +87,7 @@ the convergence ledger) and `packages/workspace-ui/src/group-addressing.tsx` (th
   replay omits is dropped, an empty replay included, so withdrawn history does not linger. Only a turn folded in
   while that read was running survives it (it may have committed after the server answered); the next read
   settles it. A failed refresh keeps the turns last read for the same audience, with their Cancel buttons, and
-  shows `Addressed turns could not be refreshed` with Retry; a replaced audience never shows them. An incomplete
+  shows `Addressed turns could not be refreshed` with Retry (a 429, 5xx or dropped connection says nothing about access); a replaced audience never shows them. A 401, 403 or the uniform 404 says access is gone: the held turns are cleared and `Addressed turns are no longer available to you, so none are shown.` appears with `Read again`, even when the revocation event has not arrived. An incomplete
   read keeps what was shown and offers `Read again`. Replays refetch every 3 seconds
   only while a turn is live, when the conversation's latest message changes, and on reconnect.
 - **Message retries.** The recipients are part of the message's submission identity, because a group message's

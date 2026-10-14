@@ -31,7 +31,10 @@ import {
   type DatabaseConnection,
   type UserPrincipalRef,
 } from '@adea-ai/db'
+import { QueryClient } from '@tanstack/solid-query'
 import {
+  addressedTurnQueryKeys,
+  addressedTurnQueryOptions,
   foldAddressedTurnCache,
   foldTurnIntoReplay,
   replayAddressedTurns,
@@ -370,6 +373,28 @@ describe.skipIf(!connectionUrl)('addressed turns: client convergence', () => {
     expect(await rows(f)).toHaveLength(1)
     expect(await intentCount(f)).toBe(intentsBefore)
     expect(tab.turns().map((entry) => entry.state)).toEqual(['superseded'])
+  })
+
+  test('a populated reader who is then revoked loses the held turns on the 404, not on a 503', async () => {
+    const f = await fixture()
+    const trigger = await f.post(f.owner, 'please answer')
+    await openTab(f, f.owner).address(f.lead.id, trigger.id)
+    const reader = openTab(f, f.member)
+    const queryClient = new QueryClient()
+    const options = addressedTurnQueryOptions.list(reader.client, f.workspace.id, f.channelId)
+    const key = addressedTurnQueryKeys.list(f.workspace.id, f.channelId)
+    await queryClient.fetchQuery({ ...options, staleTime: 0 })
+    expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toHaveLength(1)
+    await revokeGroupGrant(connection.db, f.workspace.id, f.channelId, f.owner, {
+      grantId: 'gra_member',
+      kind: 'audience',
+      revokedAt: new Date().toISOString(),
+    })
+    // No revocation event reached this tab: the refresh itself learns it from the real 404.
+    await queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+    const after = queryClient.getQueryData<AddressedTurnReplay>(key)!
+    expect(after.turns).toEqual([])
+    expect(after.unavailable).toBe(true)
   })
 
   test('a reader who lost the audience gets an error, not an empty or stale list, and learns nothing', async () => {

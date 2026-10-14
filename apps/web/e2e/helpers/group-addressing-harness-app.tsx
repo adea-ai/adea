@@ -58,6 +58,8 @@ type Harness = {
   failReplay: (value: boolean) => void
   /** The server stops listing every turn, as for a reader whose audience was withdrawn. */
   hideTurns: (value: boolean) => void
+  /** Reads answer with the uniform 404, as for a reader whose access was revoked. */
+  revokeReader: (value: boolean) => void
   humanMessage: (text: string) => void
   turns: () => ApiAddressedTurn[]
 }
@@ -80,6 +82,7 @@ function build() {
   let dropMessage = false
   let replayFails = false
   let turnsHidden = false
+  let readerRevoked = false
   const stamp = () => new Date(Date.now() + tick++).toISOString()
   const message = (sender: MessageSummary['sender'], bodyText: string): MessageSummary => {
     sequence += 1
@@ -128,6 +131,7 @@ function build() {
     }
     if (path.endsWith('/turns') && request.method === 'GET') {
       calls.list += 1
+      if (readerRevoked) return json({ code: 'unavailable', message: 'Unavailable' }, 404)
       if (replayFails) return json({ code: 'turns_read_failed', message: 'retry' }, 503)
       return json({ nextAfter: null, turns: turnsHidden ? [] : turns })
     }
@@ -223,6 +227,9 @@ function build() {
     },
     failReplay: (value) => {
       replayFails = value
+    },
+    revokeReader: (value) => {
+      readerRevoked = value
     },
     hideTurns: (value) => {
       turnsHidden = value

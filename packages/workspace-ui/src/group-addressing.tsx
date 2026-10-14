@@ -74,6 +74,8 @@ export type GroupAddressing = Readonly<{
   retry: (key: string) => Promise<void>
   /** The latest refresh failed; the turns shown are the last ones read. */
   stale: Accessor<boolean>
+  /** The server says this reader can no longer read the turns; none are kept or shown. */
+  unavailable: Accessor<boolean>
   roster: Accessor<readonly QualifiedAgent[]>
   setRecipients: (agentIds: readonly string[]) => void
   turns: Accessor<readonly ApiAddressedTurn[]>
@@ -188,6 +190,7 @@ export function GroupAddressingController(props: {
     dismiss: queue.dismiss,
     failed: () => turnsQuery.isError && !page(),
     stale: () => turnsQuery.isError && Boolean(page()),
+    unavailable: () => page()?.unavailable === true,
     intents,
     loaded: () => Boolean(page()),
     mode,
@@ -309,6 +312,16 @@ export function GroupRecipientPicker(props: { addressing: GroupAddressing }) {
             Addressed turns could not be read, so their status is not shown.{' '}
             <Button size="xs" variant="outline" onClick={() => addressing().refresh()}>
               Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </Show>
+      <Show when={addressing().unavailable()}>
+        <Alert>
+          <AlertDescription>
+            Addressed turns are no longer available to you, so none are shown.{' '}
+            <Button size="xs" variant="outline" onClick={() => addressing().refresh()}>
+              Read again
             </Button>
           </AlertDescription>
         </Alert>
