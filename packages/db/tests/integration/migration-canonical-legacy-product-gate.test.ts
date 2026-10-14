@@ -25,7 +25,7 @@ import { loadGroupAdmission } from '../../src/group-participation-store'
 import { listReadStateForUser } from '../../src/read-state'
 import { searchWorkspaceForUser } from '../../src/search'
 import { channelParticipants, groupAdmissions, workspaceMemberships } from '../../src/schema'
-import { applyAddressedTurnsMigration, canonicalChainFolders } from '../fixtures/canonical-chain'
+import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -183,7 +183,7 @@ describe.skipIf(!provisioned)(
         runtime: upgrade.runtime.db,
       })
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
-      await applyAddressedTurnsMigration(upgrade.migration.db)
+      await applyMigrationTail(upgrade.migration.db)
       await installLegacyAudienceQuarantine(upgrade.migration.db)
       const legacy = await postGroupChannelMessage(
         upgrade.runtime.db,

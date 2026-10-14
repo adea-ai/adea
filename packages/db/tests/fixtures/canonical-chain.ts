@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { sql } from 'drizzle-orm'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
 import type { AgentHqDatabase } from '../../src/connection'
 import { DRIZZLE_DIR, readJournal } from './cutover-rehearsal'
@@ -224,18 +224,11 @@ export function canonicalChainFolders(): CanonicalChainFolders {
 }
 
 /**
- * Product calls on a canonical-chain database run today's group post path, which retires live
- * addressed turns (#1179). That table is a later migration, outside the pinned rehearsal chain, so
- * the product tests add exactly it from the live migration file, unchanged.
+ * Product code under test is today's, so it needs today's schema: the live migrations that landed
+ * after the pinned canonical chain. Call this after the chain (and its 0050 backfill) has been
+ * applied and before any product call. The drizzle migrator applies only the entries newer than
+ * the database's last applied one, so the pinned history is left exactly as it ran.
  */
-export async function applyAddressedTurnsMigration(db: AgentHqDatabase): Promise<void> {
-  const tag = readJournal().entries.find((entry) =>
-    entry.tag.endsWith('_addressed_agent_turns')
-  )?.tag
-  if (!tag) throw new Error('the addressed agent turns migration is not in the journal')
-  const statements = readFileSync(`${DRIZZLE_DIR}/${tag}.sql`, 'utf8')
-    .split('--> statement-breakpoint')
-    .map((statement) => statement.trim())
-    .filter(Boolean)
-  for (const statement of statements) await db.execute(sql.raw(statement))
+export async function applyMigrationTail(db: AgentHqDatabase): Promise<void> {
+  await migrate(db, { migrationsFolder: DRIZZLE_DIR })
 }
