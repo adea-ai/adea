@@ -3,6 +3,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
+import ts from 'typescript6'
+
 import { ZOD_LITE_ID, authZodLite, zodLiteSource } from '../../src/vite-client-bundle'
 import { zodCompatibilityProblems } from './zod-lite-compat'
 
@@ -105,8 +107,21 @@ async function handle(responseData) {
 }
 `
 
+/** Syntax errors only: the same parse the checker runs on the adapter's files. */
+function syntaxErrors(source: string): string[] {
+  const { diagnostics } = ts.transpileModule(source, {
+    fileName: 'adapter.mjs',
+    reportDiagnostics: true,
+    compilerOptions: { allowJs: true, module: ts.ModuleKind.ESNext },
+  })
+  return (diagnostics ?? []).map((diagnostic) =>
+    ts.flattenDiagnosticMessageText(diagnostic.messageText, ' ')
+  )
+}
+
 describe('zod compatibility guard', () => {
   test('accepts the conforming shape', () => {
+    expect(syntaxErrors(conforming)).toEqual([])
     expect(zodCompatibilityProblems(conforming)).toEqual([])
   })
 
@@ -114,84 +129,157 @@ describe('zod compatibility guard', () => {
     expect(zodCompatibilityProblems('export const a = 1')).toEqual([])
   })
 
-  const mutations: Record<string, (source: string) => string> = {
-    'chained check on a field': (s) => s.replace('z.string()', 'z.string().min(1)'),
-    'chained modifier on a field': (s) => s.replace('z.number()', 'z.number().int()'),
-    'optional field': (s) => s.replace('z.string()', 'z.string().optional()'),
-    'nullable field': (s) => s.replace('z.number()', 'z.number().nullable()'),
-    'field with an argument': (s) => s.replace('z.string()', 'z.string("message")'),
-    'chained on the object': (s) => s.replace('\n});', '\n}).strict();'),
-    'extend on the object': (s) => s.replace('\n});', '\n}).extend({ more: z.string() });'),
-    'unsupported field kind': (s) => s.replace('z.number()', 'z.boolean()'),
-    'array field': (s) => s.replace('z.string()', 'z.array(z.string())'),
-    'union field': (s) => s.replace('z.number()', 'z.union([z.number(), z.string()])'),
-    'extra field': (s) => s.replace('z.number()', 'z.number(),\n\textra: z.string()'),
-    'missing field': (s) => s.replace('\ttoken: z.string(),\n', ''),
-    'renamed field': (s) => s.replace('expires_at', 'expiresAt'),
-    'spread in the shape': (s) => s.replace('\ttoken: z.string(),', '\t...base,'),
-    'shorthand field': (s) => s.replace('\ttoken: z.string(),', '\ttoken,'),
-    'computed field name': (s) => s.replace('\ttoken:', '\t["token"]:'),
-    'shape in a variable': (s) =>
-      s.replace('z.object({', 'z.object(shape); const shape = ({').replace('\n});', '\n});)'),
-    'object with two arguments': (s) => s.replace('\n});', '\n}, {});'),
-    'strict parse': (s) => s.replace('.safeParse(responseData)', '.parse(responseData)'),
-    'async parse': (s) => s.replace('.safeParse(responseData)', '.safeParseAsync(responseData)'),
-    'safeParse with a second argument': (s) =>
-      s.replace('.safeParse(responseData)', '.safeParse(responseData, {})'),
-    'schema read as a value': (s) => `${s}\nexport { anonymousTokenResponseSchema };`,
-    'schema passed along': (s) => `${s}\nregister(anonymousTokenResponseSchema);`,
-    'schema shape accessed': (s) => `${s}\nconst keys = anonymousTokenResponseSchema.shape;`,
-    'schema infer helper': (s) => `${s}\nconst again = anonymousTokenResponseSchema.parse;`,
-    'result error read': (s) => s.replace('cache(parsed.data)', 'log(parsed.error)'),
-    'result passed along': (s) => s.replace('cache(parsed.data)', 'cache(parsed)'),
-    'result destructured': (s) =>
-      s.replace('const parsed =', 'const { success, data } =').replace('parsed.success', 'success'),
-    'result not bound': (s) =>
-      s.replace(
-        'const parsed = anonymousTokenResponseSchema.safeParse(responseData);',
-        'cache(anonymousTokenResponseSchema.safeParse(responseData));'
-      ),
-    'schema not const': (s) =>
-      s.replace('const anonymousTokenResponseSchema', 'let anonymousTokenResponseSchema'),
-    'schema not bound': (s) =>
-      s
-        .replace('const anonymousTokenResponseSchema = z.object', 'register(z.object')
-        .replace('\n});', '\n}));'),
-    'alias of z': (s) => `${s}\nconst s = z;\nconst other = s.array(s.string());`,
-    'destructured from z': (s) => `${s}\nconst { array } = z;`,
-    'element access on z': (s) => `${s}\nconst a = z["array"];`,
-    'unsupported member of z': (s) => `${s}\nconst a = z.array(z.string());`,
-    'z called': (s) => `${s}\nz();`,
-    'z passed along': (s) => `${s}\nregister(z);`,
-    'z shadowed': (s) =>
-      s.replace('async function handle(responseData)', 'async function handle(z)'),
-    'z redeclared': (s) => `${s}\nfunction other() { const z = makeOther(); return z.string(); }`,
-    'field stored outside the object': (s) => `${s}\nconst loose = z.string();`,
-    'field chained after the object': (s) => `${s}\nconst loose = z.number().int();`,
-    'namespace import': (s) => s.replace('import z from "zod"', 'import * as z from "zod"'),
-    'named import': (s) => s.replace('import z from "zod"', 'import { z } from "zod"'),
-    'renamed default import': (s) => s.replace('import z from "zod"', 'import zod from "zod"'),
-    'default and named import': (s) =>
-      s.replace('import z from "zod"', 'import z, { ZodError } from "zod"'),
-    'type-only import': (s) => s.replace('import z from "zod"', 'import type z from "zod"'),
-    'second import': (s) => `${s}\nimport more from "zod";`,
-    'subpath import': (s) => `${s}\nimport mini from "zod/mini";`,
-    'v4 subpath import': (s) => `${s}\nimport { z as z4 } from "zod/v4";`,
-    're-export': (s) => `${s}\nexport { z } from "zod";`,
-    'export star': (s) => `${s}\nexport * from "zod";`,
-    'dynamic import': (s) => `${s}\nconst lazy = import("zod");`,
-    'dynamic import of a subpath': (s) => `${s}\nconst lazy = import("zod/v4");`,
-    'dynamic import of a computed name': (s) => `${s}\nconst lazy = import(name);`,
-    require: (s) => `${s}\nconst legacy = require("zod");`,
-    'require of a subpath': (s) => `${s}\nconst legacy = require("zod/v4");`,
-    'specifier kept as a string': (s) => `${s}\nconst name = "zod";`,
+  // What each mutation must be rejected for. A mutation that merely failed to
+  // parse, or tripped an unrelated rule, would pass a bare "has problems" check
+  // without showing the guard sees the thing it is named after.
+  const FIELD = 'a z.object field is not a plain z.string() or z.number()'
+  const FIELD_ARGUMENTS = 'a field takes arguments or type arguments'
+  const FIELDS = 'the schema fields are'
+  const LOOSE = 'a field is chained, stored or used outside z.object({ ... })'
+  const OBJECT_ARGUMENT = 'z.object must take exactly one object literal'
+  const SCHEMA_BOUND = 'a schema is not bound directly to a const'
+  const SCHEMA_USE = 'is used other than as anonymousTokenResponseSchema.safeParse(value)'
+  const RESULT_READ = 'parsed is read other than as .success or .data'
+  const RESULT_BOUND = 'a safeParse result is not bound to a plain variable'
+  const Z_USE = 'z is used other than as z.string(), z.number() or z.object({ ... })'
+  const Z_REDECLARED = 'z is redeclared, so uses of it cannot be traced'
+  const IMPORT = 'zod must be imported once as a default binding named z'
+  const REEXPORT = 'zod is re-exported'
+  const DYNAMIC = 'zod is loaded dynamically'
+  const STRING = 'the zod specifier is used as a value'
+
+  const mutations: Record<string, readonly [(source: string) => string, string]> = {
+    'chained check on a field': [(s) => s.replace('z.string()', 'z.string().min(1)'), FIELD],
+    'chained modifier on a field': [(s) => s.replace('z.number()', 'z.number().int()'), FIELD],
+    'optional field': [(s) => s.replace('z.string()', 'z.string().optional()'), FIELD],
+    'nullable field': [(s) => s.replace('z.number()', 'z.number().nullable()'), FIELD],
+    'field with an argument': [
+      (s) => s.replace('z.string()', 'z.string("message")'),
+      FIELD_ARGUMENTS,
+    ],
+    'chained on the object': [(s) => s.replace('\n});', '\n}).strict();'), SCHEMA_BOUND],
+    'extend on the object': [
+      (s) => s.replace('\n});', '\n}).extend({ more: z.string() });'),
+      SCHEMA_BOUND,
+    ],
+    'unsupported field kind': [(s) => s.replace('z.number()', 'z.boolean()'), Z_USE],
+    'array field': [(s) => s.replace('z.string()', 'z.array(z.string())'), Z_USE],
+    'union field': [(s) => s.replace('z.number()', 'z.union([z.number(), z.string()])'), Z_USE],
+    'extra field': [(s) => s.replace('z.number()', 'z.number(),\n\textra: z.string()'), FIELDS],
+    'missing field': [(s) => s.replace('\ttoken: z.string(),\n', ''), FIELDS],
+    'renamed field': [(s) => s.replace('expires_at', 'expiresAt'), FIELDS],
+    'spread in the shape': [(s) => s.replace('\ttoken: z.string(),', '\t...base,'), FIELD],
+    'shorthand field': [(s) => s.replace('\ttoken: z.string(),', '\ttoken,'), FIELD],
+    'computed field name': [(s) => s.replace('\ttoken:', '\t["token"]:'), FIELD],
+    'shape in a variable': [
+      (s) =>
+        s
+          .replace('const anonymousTokenResponseSchema = z.object({', 'const shape = {')
+          .replace('\n});', '\n};\nconst anonymousTokenResponseSchema = z.object(shape);'),
+      OBJECT_ARGUMENT,
+    ],
+    'object with two arguments': [(s) => s.replace('\n});', '\n}, {});'), OBJECT_ARGUMENT],
+    'strict parse': [
+      (s) => s.replace('.safeParse(responseData)', '.parse(responseData)'),
+      SCHEMA_USE,
+    ],
+    'async parse': [
+      (s) => s.replace('.safeParse(responseData)', '.safeParseAsync(responseData)'),
+      SCHEMA_USE,
+    ],
+    'safeParse with a second argument': [
+      (s) => s.replace('.safeParse(responseData)', '.safeParse(responseData, {})'),
+      SCHEMA_USE,
+    ],
+    'schema read as a value': [(s) => `${s}\nexport { anonymousTokenResponseSchema };`, SCHEMA_USE],
+    'schema passed along': [(s) => `${s}\nregister(anonymousTokenResponseSchema);`, SCHEMA_USE],
+    'schema shape accessed': [
+      (s) => `${s}\nconst keys = anonymousTokenResponseSchema.shape;`,
+      SCHEMA_USE,
+    ],
+    'schema infer helper': [
+      (s) => `${s}\nconst again = anonymousTokenResponseSchema.parse;`,
+      SCHEMA_USE,
+    ],
+    'result error read': [(s) => s.replace('cache(parsed.data)', 'log(parsed.error)'), RESULT_READ],
+    'result passed along': [(s) => s.replace('cache(parsed.data)', 'cache(parsed)'), RESULT_READ],
+    'result destructured': [
+      (s) =>
+        s
+          .replace('const parsed =', 'const { success, data } =')
+          .replace('if (parsed.success) cache(parsed.data);', 'if (success) cache(data);'),
+      RESULT_BOUND,
+    ],
+    'result not bound': [
+      (s) =>
+        s.replace(
+          'const parsed = anonymousTokenResponseSchema.safeParse(responseData);\n\tif (parsed.success) cache(parsed.data);',
+          'cache(anonymousTokenResponseSchema.safeParse(responseData));'
+        ),
+      RESULT_BOUND,
+    ],
+    'schema not const': [
+      (s) => s.replace('const anonymousTokenResponseSchema', 'let anonymousTokenResponseSchema'),
+      SCHEMA_BOUND,
+    ],
+    'schema not bound': [
+      (s) =>
+        s
+          .replace('const anonymousTokenResponseSchema = z.object', 'register(z.object')
+          .replace('\n});', '\n}));'),
+      SCHEMA_BOUND,
+    ],
+    'alias of z': [(s) => `${s}\nconst s = z;\nconst other = s.array(s.string());`, Z_USE],
+    'destructured from z': [(s) => `${s}\nconst { array } = z;`, Z_USE],
+    'element access on z': [(s) => `${s}\nconst a = z["array"];`, Z_USE],
+    'unsupported member of z': [(s) => `${s}\nconst a = z.array(z.string());`, Z_USE],
+    'z called': [(s) => `${s}\nz();`, Z_USE],
+    'z passed along': [(s) => `${s}\nregister(z);`, Z_USE],
+    'z shadowed': [
+      (s) => s.replace('async function handle(responseData)', 'async function handle(z)'),
+      Z_REDECLARED,
+    ],
+    'z redeclared': [
+      (s) => `${s}\nfunction other() { const z = makeOther(); return z.string(); }`,
+      Z_REDECLARED,
+    ],
+    'field stored outside the object': [(s) => `${s}\nconst loose = z.string();`, LOOSE],
+    'field chained after the object': [(s) => `${s}\nconst loose = z.number().int();`, LOOSE],
+    'namespace import': [
+      (s) => s.replace('import z from "zod"', 'import * as z from "zod"'),
+      IMPORT,
+    ],
+    'named import': [(s) => s.replace('import z from "zod"', 'import { z } from "zod"'), IMPORT],
+    'renamed default import': [
+      (s) => s.replace('import z from "zod"', 'import zod from "zod"'),
+      IMPORT,
+    ],
+    'default and named import': [
+      (s) => s.replace('import z from "zod"', 'import z, { ZodError } from "zod"'),
+      IMPORT,
+    ],
+    'second import': [(s) => `${s}\nimport more from "zod";`, IMPORT],
+    'subpath import': [(s) => `${s}\nimport mini from "zod/mini";`, IMPORT],
+    'v4 subpath import': [(s) => `${s}\nimport { z as z4 } from "zod/v4";`, IMPORT],
+    're-export': [(s) => `${s}\nexport { z } from "zod";`, REEXPORT],
+    'export star': [(s) => `${s}\nexport * from "zod";`, REEXPORT],
+    'dynamic import': [(s) => `${s}\nconst lazy = import("zod");`, DYNAMIC],
+    'dynamic import of a subpath': [(s) => `${s}\nconst lazy = import("zod/v4");`, DYNAMIC],
+    'dynamic import of a computed name': [(s) => `${s}\nconst lazy = import(name);`, DYNAMIC],
+    require: [(s) => `${s}\nconst legacy = require("zod");`, DYNAMIC],
+    'require of a subpath': [(s) => `${s}\nconst legacy = require("zod/v4");`, DYNAMIC],
+    'specifier kept as a string': [(s) => `${s}\nconst name = "zod";`, STRING],
   }
 
-  for (const [name, mutate] of Object.entries(mutations)) {
+  for (const [name, [mutate, problem]] of Object.entries(mutations)) {
     test(`rejects: ${name}`, () => {
       const mutated = mutate(conforming)
       expect(mutated).not.toBe(conforming)
-      expect(zodCompatibilityProblems(mutated).length).toBeGreaterThan(0)
+      // The checker reads broken source without complaint, so a malformed
+      // fixture would be rejected for the wrong reason; it has to be valid.
+      expect(syntaxErrors(mutated)).toEqual([])
+      const problems = zodCompatibilityProblems(mutated)
+      expect(problems.some((found) => found.includes(problem))).toBe(true)
     })
   }
 
