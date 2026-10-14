@@ -101,6 +101,7 @@ export const migrationSnapshotFamilies = [
   'groupAdmissions',
   'groupAudienceGrants',
   'groupEnlistmentGrants',
+  'groupSharingGrants',
   'identityBindings',
   'invitations',
   'leadTurnRuntime',
@@ -149,6 +150,10 @@ export type MigrationChannelVisibility = (typeof migrationChannelVisibilities)[n
 /** Channel participants are user or agent principals. */
 export const migrationParticipantKinds = ['agent', 'user'] as const
 export type MigrationParticipantKind = (typeof migrationParticipantKinds)[number]
+
+/** What a sharing grant lets its subject read of earlier group history (the table's own check list). */
+export const migrationGroupSharingScopes = ['earlier_history', 'earlier_summary'] as const
+export type MigrationGroupSharingScope = (typeof migrationGroupSharingScopes)[number]
 
 /** Mirrors `TaskLifecycleState` (kept local so this module stays dependency-free). */
 export const migrationTaskLifecycleStates = [
@@ -364,7 +369,8 @@ export type ArtifactReferenceGrantSnapshotRecord = Readonly<{
   expiresAt: string | null
   grantId: string
   revision: number
-  revoked: boolean
+  /** The persisted revocation instant (ISO 8601), never flattened to a flag; `null` means never revoked. */
+  revokedAt: string | null
   sourceWorkspaceId: string
   version: number
 }>
@@ -415,6 +421,24 @@ export type GroupEnlistmentGrantSnapshotRecord = Readonly<{
   revision: number
   /** The persisted revocation instant, verbatim; `null` means never revoked. A time is compared, never flattened to a flag. */
   revokedAt: string | null
+  workspaceId: string
+}>
+
+/** A durable sharing grant letting one human or Agent read earlier group history or its summary. */
+export type GroupSharingGrantSnapshotRecord = Readonly<{
+  family: 'groupSharingGrants'
+  channelId: string
+  /** The persisted expiry, verbatim; `null` means the grant does not expire. */
+  expiresAt: string | null
+  grantId: string
+  /** The persisted issue instant, verbatim. */
+  issuedAt: string
+  principalId: string
+  principalKind: MigrationParticipantKind
+  revision: number
+  /** The persisted revocation instant, verbatim; `null` means never revoked. */
+  revokedAt: string | null
+  scope: MigrationGroupSharingScope
   workspaceId: string
 }>
 
@@ -526,6 +550,7 @@ export type MigrationSnapshotRecord =
   | GroupAdmissionSnapshotRecord
   | GroupAudienceGrantSnapshotRecord
   | GroupEnlistmentGrantSnapshotRecord
+  | GroupSharingGrantSnapshotRecord
   | IdentityBindingSnapshotRecord
   | InvitationSnapshotRecord
   | LeadTurnRuntimeSnapshotRecord
@@ -1076,7 +1101,7 @@ export function migrationSnapshotRecordIssue(
         ),
         check('version', isNonNegativeSafeInteger(record.version) && record.version > 0),
         check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
-        check('revoked', isBoolean(record.revoked)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
       ])
     case 'groupAdmissions':
       return firstIssue([
@@ -1109,6 +1134,19 @@ export function migrationSnapshotRecordIssue(
         identifierField('workspaceId', record.workspaceId),
         identifierField('grantId', record.grantId),
         identifierField('agentId', record.agentId),
+        check('issuedAt', isTimestamp(record.issuedAt)),
+        check('expiresAt', isNullableTimestamp(record.expiresAt)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
+        check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
+      ])
+    case 'groupSharingGrants':
+      return firstIssue([
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('grantId', record.grantId),
+        enumField('principalKind', record.principalKind, migrationParticipantKinds),
+        identifierField('principalId', record.principalId),
+        enumField('scope', record.scope, migrationGroupSharingScopes),
         check('issuedAt', isTimestamp(record.issuedAt)),
         check('expiresAt', isNullableTimestamp(record.expiresAt)),
         check('revokedAt', isNullableTimestamp(record.revokedAt)),

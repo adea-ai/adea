@@ -247,7 +247,7 @@ const grant = (
   family: 'artifactReferenceGrants',
   grantId: 'grant-1',
   revision: 1,
-  revoked: false,
+  revokedAt: null,
   sourceWorkspaceId: 'wsp-1',
   version: 1,
   ...overrides,
@@ -279,6 +279,23 @@ const audienceGrant = (
   revokedAt: null,
   revision: 1,
   userId: 'user-1',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const sharingGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupSharingGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupSharingGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  principalId: 'user-1',
+  principalKind: 'user',
+  revision: 1,
+  revokedAt: null,
+  scope: 'earlier_history',
   workspaceId: 'wsp-1',
   ...overrides,
 })
@@ -380,7 +397,78 @@ const FIELD_DRIFT_CASES: ReadonlyArray<{
     family: 'artifactReferenceGrants',
     field: 'expiresAt',
   },
+  {
+    after: grant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: grant(),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'revokedAt',
+  },
+  {
+    // Both revoked, only the instant moved: a later revocation time is not a flag flip.
+    after: grant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: grant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'revokedAt',
+  },
   // Every captured non-identity field of the group families (#1222) has a drift case.
+  {
+    after: sharingGrant({ scope: 'earlier_summary' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'scope',
+  },
+  {
+    after: sharingGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: sharingGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: sharingGrant({ revokedAt: '2999-01-01T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: sharingGrant({ principalId: 'user-2' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'principalId',
+  },
+  {
+    after: sharingGrant({ principalId: 'user-1', principalKind: 'agent' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'principalKind',
+  },
+  {
+    after: sharingGrant({ workspaceId: 'wsp-2' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: sharingGrant({ revision: 2 }),
+    before: sharingGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupSharingGrants',
+    field: 'revision',
+  },
   {
     after: admission({ joinedSequence: 4 }),
     before: admission(),
@@ -881,7 +969,7 @@ describe('migration snapshot comparator', () => {
           expiresAt: null,
           family: 'artifactReferenceGrants',
           grantId: 'grant-1',
-          revoked: false,
+          revokedAt: null,
           revision: 1,
           sourceWorkspaceId: 'wsp-1',
           version: 1,
@@ -893,6 +981,7 @@ describe('migration snapshot comparator', () => {
       ]),
       groupAudienceGrants: section([audienceGrant()]),
       groupEnlistmentGrants: section([enlistmentGrant()]),
+      groupSharingGrants: section([sharingGrant()]),
       contentReplicas: section([
         {
           availability: 'available',
@@ -1885,6 +1974,25 @@ describe('group families in comparison (#1222)', () => {
     expect(familyClasses(withdrawn, 'groupAudienceGrants')).toEqual(['missing_record'])
     expect(familyClasses(withdrawn, 'groupEnlistmentGrants')).toEqual(['missing_record'])
     expect(withdrawn.verdict).toBe('divergent')
+  })
+
+  test('a new sharing grant is widened access, a withdrawn one is missing, and a malformed one is quarantined', () => {
+    const grew = compare(
+      { groupSharingGrants: section([]) },
+      { groupSharingGrants: section([sharingGrant()]) }
+    )
+    expect(familyClasses(grew, 'groupSharingGrants')).toEqual(['widened_access'])
+    const withdrawn = compare(
+      { groupSharingGrants: section([sharingGrant()]) },
+      { groupSharingGrants: section([]) }
+    )
+    expect(familyClasses(withdrawn, 'groupSharingGrants')).toEqual(['missing_record'])
+    const malformed = compare(
+      { groupSharingGrants: section([sharingGrant()]) },
+      { groupSharingGrants: section([sharingGrant({ scope: 'everything' as never })]) }
+    )
+    expect(familyClasses(malformed, 'groupSharingGrants')).not.toEqual([])
+    expect(malformed.verdict).not.toBe('identical')
   })
 
   test('an admission is identified by channel, principal kind and principal, never by grant', () => {

@@ -396,7 +396,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       expiresAt: null,
       family: 'artifactReferenceGrants',
       grantId,
-      revoked: false,
+      revokedAt: null,
       revision: 1,
       sourceWorkspaceId: source.id,
       version: 1,
@@ -616,14 +616,14 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       identity: identity('snapshot-mutations'),
       requestedDomains: [...domains],
     })
-    expect(grantRecordOf(revokedAfter.document, grantId)?.revoked).toBe(true)
+    expect(grantRecordOf(revokedAfter.document, grantId)?.revokedAt).toEqual(expect.any(String))
     const revokedComparison = compareMigrationSnapshots({
       after: revokedAfter.document,
       before: before.document,
     })
     expect(revokedComparison.findings).toContainEqual(
       expect.objectContaining({
-        detail: expect.objectContaining({ field: 'revoked' }),
+        detail: expect.objectContaining({ field: 'revokedAt' }),
         family: 'artifactReferenceGrants',
         findingClass: 'changed_attribute',
         stableId: grantId,
