@@ -317,6 +317,24 @@ describe('job outbound result service', () => {
     expect(h.events).not.toContain('write')
   })
 
+  test('a memory-derived publish is held at both judgements and writes nothing', async () => {
+    for (const memorySource of ['private', 'workspace', 'unknown'] as const) {
+      const h = harness(world())
+      const result = await h.service.publish(
+        { ...publishInput, beforeWrite: async () => void h.events.push('seam'), memorySource },
+        h.write
+      )
+      expect(result).toMatchObject({
+        decision: { action: 'hold', gate: 'provenance' },
+        messageId: null,
+      })
+      // The first judgement already holds, so the write seam is never reached.
+      expect(h.events).not.toContain('seam')
+      expect(h.events).not.toContain('write')
+      expect(h.writes).toEqual([])
+    }
+  })
+
   test('a failed publication write rejects, so nothing is committed and no id is returned', async () => {
     const state = world({ writeFails: true })
     const h = harness(state)
