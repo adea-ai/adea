@@ -9,7 +9,7 @@
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 
-import { captureProvisioningImage } from '../capture-provisioning.mjs'
+import { startFromCaptureImage } from '../capture-provisioning.mjs'
 
 export const smokeBounds = Object.freeze({
   dockerCommandMs: 60_000,
@@ -161,9 +161,14 @@ export async function runOwnedSmoke({
     throw new Error(`removing ${name} failed: ${failureText(result)}`)
   }
   const startSentinel = () => {
-    const result = docker(
-      ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', captureProvisioningImage, '600'],
-      bounds.startSentinelMs
+    // The sentinel pulls the same pinned image as the helper, so it takes the same registry fallback.
+    const result = startFromCaptureImage(
+      (image, remainingMs) =>
+        docker(
+          ['run', '-d', '--name', sentinel, '--entrypoint', 'sleep', image, '600'],
+          Math.max(1, Math.min(bounds.startSentinelMs, remainingMs))
+        ),
+      { budgetMs: bounds.startSentinelMs }
     )
     if (result.error)
       throw new Error(`starting the sentinel container failed: ${result.error.message}`)

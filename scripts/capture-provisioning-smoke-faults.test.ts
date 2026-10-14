@@ -27,14 +27,49 @@ function fakeDocker(
     inspectFails?: (name: string) => boolean
     removeFails?: (name: string) => boolean
     run?: 'partial' | 'refused'
+    // Throttles the pull of the canonical ECR Public reference the way a shared-runner registry does.
+    throttleEcr?: boolean
+    // With throttleEcr, also fails the mirror with an unrelated error so only Docker Hub answers.
+    failMirror?: boolean
+    // Throttles every registry, so the start can only end by running out of its budget.
+    throttleAll?: boolean
   } = {}
 ) {
   const present = new Set<string>()
   const calls: string[][] = []
-  const docker = (args: string[]): DockerReply => {
+  const timeouts: number[] = []
+  const docker = (args: string[], timeoutMs?: number): DockerReply => {
     calls.push(args)
     if (args[0] === 'run') {
+      timeouts.push(timeoutMs ?? Number.POSITIVE_INFINITY)
       const name = args[args.indexOf('--name') + 1]!
+      if (plan.throttleAll)
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+          stdout: '',
+        }
+      if (
+        plan.throttleEcr &&
+        args.includes('--entrypoint') &&
+        args.at(-2)!.startsWith('public.ecr.aws/')
+      )
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: toomanyrequests: Data limit exceeded',
+          stdout: '',
+        }
+      if (
+        plan.throttleEcr &&
+        plan.failMirror &&
+        args.includes('--entrypoint') &&
+        args.at(-2)!.startsWith('mirror.gcr.io/')
+      )
+        return {
+          status: 125,
+          stderr: 'docker: Error response from daemon: manifest unknown',
+          stdout: '',
+        }
       if (plan.run !== 'refused') present.add(name)
       if (plan.run)
         return { status: 125, stderr: `the daemon failed the start (${plan.run})`, stdout: '' }
@@ -60,7 +95,7 @@ function fakeDocker(
     }
     throw new Error(`unexpected docker call: ${args.join(' ')}`)
   }
-  return { calls, docker, present }
+  return { calls, docker, present, timeouts }
 }
 
 type ChildOptions = {
@@ -152,6 +187,64 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     })
     expect(fake.present.size).toBe(0)
     expect(removalsOf(fake.calls)).toEqual([owned, observed.sentinel])
+  })
+
+  test('a rate-limited sentinel pull falls over to the same digest on the mirror', async () => {
+    const fake = fakeDocker({ throttleEcr: true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    await runOwnedSmoke({
+      bounds: fastBounds,
+      childPath: '/not-used',
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    const images = fake.calls.filter((args) => args[0] === 'run').map((args) => args.at(-2))
+    expect(images).toHaveLength(2)
+    expect(images[0]).toStartWith('public.ecr.aws/docker/library/postgres:18-alpine@sha256:')
+    expect(images[1]).toStartWith('mirror.gcr.io/library/postgres:18-alpine@sha256:')
+    expect(images[1]!.split('@')[1]).toBe(images[0]!.split('@')[1])
+  })
+
+  test('a failing mirror does not hide Docker Hub for the sentinel', async () => {
+    const fake = fakeDocker({ throttleEcr: true, failMirror: true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    await runOwnedSmoke({
+      bounds: fastBounds,
+      childPath: '/not-used',
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    const images = fake.calls.filter((args) => args[0] === 'run').map((args) => args.at(-2))
+    expect(images).toHaveLength(3)
+    expect(images[2]).toStartWith('docker.io/library/postgres:18-alpine@sha256:')
+  })
+
+  test('a throttled sentinel start stays inside its budget and still removes the sentinel', async () => {
+    const fake = fakeDocker({ throttleAll: true })
+    const startedAt = Date.now()
+    const failure = await failureOf({
+      bounds: { ...fastBounds, startSentinelMs: 1_000 },
+      docker: fake.docker,
+      spawnChild: () => {
+        throw new Error('no child is spawned when the sentinel does not start')
+      },
+    })
+    expect(String(failure)).toContain('starting the sentinel container failed')
+    // The default 15 s backoff does not fit in a 1 s budget, so there is no wait and no further pass.
+    expect(Date.now() - startedAt).toBeLessThan(5_000)
+    expect(fake.timeouts.length).toBeGreaterThan(0)
+    expect(fake.timeouts.every((ms) => ms <= 1_000)).toBe(true)
+    expect(removalsOf(fake.calls)).toEqual([sentinelOf(fake.calls)])
   })
 
   test('a refused sentinel start still attempts the sentinel removal, and no child is spawned', async () => {
