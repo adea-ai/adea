@@ -62,6 +62,7 @@ const GroupRoster = lazy(() =>
 const MessageTurns = lazy(() =>
   import('./group-addressing').then((module) => ({ default: module.MessageTurns }))
 )
+import { recipientsSubmissionContext } from './recipients-submission-context'
 import type { GroupAddressing } from './group-addressing'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
@@ -596,9 +597,11 @@ export function ConversationSurface(props: {
                 onDraftChange={props.onDraftChange}
                 onSubmit={submit}
                 submissionContext={
-                  isWorkspaceLeadConversation(channel(), directAgent())
-                    ? leadRequestedChoicesKey(requestedChoices())
-                    : undefined
+                  isActiveGroup()
+                    ? recipientsSubmissionContext(addressing()?.recipients() ?? [])
+                    : isWorkspaceLeadConversation(channel(), directAgent())
+                      ? leadRequestedChoicesKey(requestedChoices())
+                      : undefined
                 }
                 transcription={props.transcription}
               />

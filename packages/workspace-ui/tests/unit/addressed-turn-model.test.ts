@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { createComposerSubmissionIdentity } from '../../src/composer-submission-identity'
 import type { ApiAddressedTurn } from '@adea-ai/api-client'
 import type { AgentSummary, ChannelSummary, WorkspaceSummary } from '@adea-ai/types'
 
@@ -13,6 +14,7 @@ import {
   qualifyAgent,
   qualifyContext,
   qualifyTurnAgent,
+  recipientsSubmissionContext,
   turnOrigin,
   turnPresentation,
   turnsByTrigger,
@@ -281,5 +283,36 @@ describe('addressing queue', () => {
     await queue.enqueue([input('a'), input('b')])
     expect(sent).toEqual(['a', 'b'])
     expect(queue.intents().map((intent) => intent.agentId)).toEqual(['a'])
+  })
+})
+
+function newIdentity() {
+  let next = 0
+  return createComposerSubmissionIdentity(() => `key-${(next += 1)}`)
+}
+
+describe('recipientsSubmissionContext', () => {
+  const content = { artifactIds: [], bodyText: 'same words', channelId: 'group', mentions: [] }
+
+  test('a retry with the same recipients keeps its key', () => {
+    const composer = newIdentity()
+    const same = recipientsSubmissionContext([hostId])
+    expect(composer.key({ ...content, submissionContext: same })).toBe(
+      composer.key({ ...content, submissionContext: recipientsSubmissionContext([hostId]) })
+    )
+  })
+
+  test('changed recipients are a changed submission, so the old key is never reused with new mentions', () => {
+    const composer = newIdentity()
+    const first = composer.key({
+      ...content,
+      submissionContext: recipientsSubmissionContext([hostId]),
+    })
+    const second = composer.key({
+      ...content,
+      submissionContext: recipientsSubmissionContext([hostId, guestId]),
+    })
+    expect(second).not.toBe(first)
+    expect(recipientsSubmissionContext([])).not.toBe(recipientsSubmissionContext([hostId]))
   })
 })

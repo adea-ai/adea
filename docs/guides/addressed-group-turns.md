@@ -90,6 +90,10 @@ the convergence ledger) and `packages/workspace-ui/src/group-addressing.tsx` (th
   shows `Addressed turns could not be refreshed` with Retry; a replaced audience never shows them. An incomplete
   read keeps what was shown and offers `Read again`. Replays refetch every 3 seconds
   only while a turn is live, when the conversation's latest message changes, and on reconnect.
+- **Message retries.** The recipients are part of the message's submission identity, because a group message's
+  mentions are its recipients and the message route refuses a reused idempotency key with a different payload. A
+  retry with the same recipients keeps its key and converges on the committed message; changing recipients after
+  a lost response is a changed submission and sends as a new message, as an edited body does.
 - **Proof.** `apps/web/test/integration/addressed-turn-client-convergence.test.ts` drives the real client, the
   real route handlers and the database (concurrent tabs, a lost response, reconnect order, a stale replay after
   cancel, supersede with a stale retry, a revoked reader). `apps/web/e2e/group-addressing.spec.ts` covers what the

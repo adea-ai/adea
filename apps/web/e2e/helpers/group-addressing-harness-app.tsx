@@ -1,5 +1,5 @@
 import '../../src/start/globals.css'
-import { AgentHqApiClient, type ApiAddressedTurn } from '@adea-ai/api-client'
+import { AgentHqApiClient, ApiClientError, type ApiAddressedTurn } from '@adea-ai/api-client'
 import { AgentHqQueryProvider } from '@adea-ai/data'
 import type { AgentSummary, ChannelSummary, MessageSummary } from '@adea-ai/types'
 import { createComponent, createSignal } from 'solid-js'
@@ -51,8 +51,10 @@ const aria: AgentSummary = {
 
 type Harness = {
   answer: (turnId: string) => void
-  calls: { address: number; cancel: number; list: number; mentions: string[][] }
+  calls: { address: number; cancel: number; list: number; mentions: string[][]; messages: number }
   dropNextAddressResponse: () => void
+  /** The next message commits but its response is lost, so the composer retries it. */
+  dropNextMessageResponse: () => void
   failReplay: (value: boolean) => void
   /** The server stops listing every turn, as for a reader whose audience was withdrawn. */
   hideTurns: (value: boolean) => void
@@ -71,10 +73,11 @@ const json = (body: unknown, status = 200) =>
 function build() {
   const messages: MessageSummary[] = []
   const turns: ApiAddressedTurn[] = []
-  const calls = { address: 0, cancel: 0, list: 0, mentions: [] as string[][] }
+  const calls = { address: 0, cancel: 0, list: 0, mentions: [] as string[][], messages: 0 }
   let sequence = 0
   let tick = 0
   let dropAddress = false
+  let dropMessage = false
   let replayFails = false
   let turnsHidden = false
   const stamp = () => new Date(Date.now() + tick++).toISOString()
@@ -174,12 +177,33 @@ function build() {
 
   const client = new AgentHqApiClient({ baseUrl: '/api', fetchImpl })
   client.listMessages = async () => ({ messages: [...messages] })
+  // The message route's own rule: a repeated Idempotency-Key with the same payload answers the stored
+  // message, and with a different payload is refused.
+  const stored = new Map<string, { fingerprint: string; message: MessageSummary }>()
   client.createMessage = async (_workspace, _channel, input) => {
-    calls.mentions.push(
-      (input.mentions ?? []).map((mention) => ('agentId' in mention ? mention.agentId : ''))
+    const sent = (input.mentions ?? []).map((mention) =>
+      'agentId' in mention ? mention.agentId : ''
     )
+    calls.mentions.push(sent)
+    const fingerprint = JSON.stringify([input.bodyText, sent])
+    const prior = stored.get(input.idempotencyKey)
+    if (prior) {
+      if (prior.fingerprint !== fingerprint)
+        throw new ApiClientError(
+          'Idempotency key reused with a different request',
+          409,
+          'idempotency_conflict'
+        )
+      return { message: prior.message }
+    }
     const created = message({ kind: 'user', userId }, input.bodyText ?? '')
+    stored.set(input.idempotencyKey, { fingerprint, message: created })
+    calls.messages += 1
     supersedeLive()
+    if (dropMessage) {
+      dropMessage = false
+      throw new TypeError('Failed to fetch')
+    }
     return { message: created }
   }
 
@@ -193,6 +217,9 @@ function build() {
     calls,
     dropNextAddressResponse: () => {
       dropAddress = true
+    },
+    dropNextMessageResponse: () => {
+      dropMessage = true
     },
     failReplay: (value) => {
       replayFails = value

@@ -6,6 +6,8 @@ import type { AgentSummary, ChannelSummary, WorkspaceSummary } from '@adea-ai/ty
  * Everything here is pure: the server decides what happened, this module only says it truthfully.
  */
 
+export { recipientsSubmissionContext } from './recipients-submission-context'
+
 const UNKNOWN_WORKSPACE = 'Another workspace'
 
 /** An Agent as the group shows it: identity first, so a same-named Agent elsewhere is never the same row. */

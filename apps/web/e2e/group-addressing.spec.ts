@@ -177,3 +177,43 @@ test('a failed refresh keeps the turns and Cancel with a notice, and an empty re
   await expect(addressed(page)).toHaveCount(0)
   await expect(page.getByRole('button', { name: /Cancel turn for/ })).toHaveCount(0)
 })
+
+test('a lost message response retried with the same recipients converges on one message and one turn', async ({
+  page,
+}) => {
+  await open(page)
+  await aria(page).click()
+  await page.evaluate(() => window.addressingHarness.dropNextMessageResponse())
+  const box = page.getByRole('textbox')
+  await box.fill('Please answer')
+  await box.press('Enter')
+  await expect(page.getByText('Message not sent')).toBeVisible()
+  await box.press('Enter')
+  await expect(box).toHaveValue('')
+  await expect(addressed(page)).toContainText('Dispatched')
+  expect(await page.evaluate(() => window.addressingHarness.calls.messages)).toBe(1)
+  expect(await page.evaluate(() => window.addressingHarness.turns().length)).toBe(1)
+})
+
+test('changing recipients after a lost message response sends the new choice, not a conflicting retry', async ({
+  page,
+}) => {
+  await open(page)
+  await aria(page).click()
+  await page.evaluate(() => window.addressingHarness.dropNextMessageResponse())
+  const box = page.getByRole('textbox')
+  await box.fill('Please answer')
+  await box.press('Enter')
+  await expect(page.getByText('Message not sent')).toBeVisible()
+  await guest(page).click()
+  await box.press('Enter')
+  await expect(box).toHaveValue('')
+  await expect(page.getByText('Message not sent')).toHaveCount(0)
+  const sent = await page.evaluate(() => window.addressingHarness.calls.mentions)
+  expect(sent.at(-1)).toEqual([
+    '44444444-0000-4000-8000-0000000000d4',
+    '55555555-0000-4000-8000-0000000000e5',
+  ])
+  const rows = addressed(page).last().getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+})
