@@ -10,6 +10,7 @@ import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 
 import { openRuntimeEventStream } from '../chat/model/event-stream'
 import { HistoryPane, type HistoryPaneStatus } from './history-pane'
+import { newestRunActive, transcriptIsStale } from './turns-model'
 import {
   createDevUtilityFenceSource,
   hasDevUtilitySession,
@@ -32,12 +33,6 @@ type HistoryFeed = Readonly<{
   runs: readonly HarnessRun[]
 }>
 
-const ACTIVE_RUN_STATES: ReadonlySet<string> = new Set([
-  'working',
-  'awaiting_input',
-  'awaiting_approval',
-])
-
 function sessionKey(context: ReturnType<DevUtilityContextReader>): string | undefined {
   if (context.runtime.state().status !== 'ready' || !hasDevUtilitySession(context)) return undefined
   const scope = context.scope!
@@ -49,14 +44,6 @@ function sessionKey(context: ReturnType<DevUtilityContextReader>): string | unde
     context.runtimeSessionId,
     context.sessionGeneration,
   ])
-}
-
-function newestRunActive(runs: readonly HarnessRun[]): boolean {
-  let newest: HarnessRun | undefined
-  for (const run of runs) {
-    if (!newest || run.generation > newest.generation || run.version > newest.version) newest = run
-  }
-  return newest !== undefined && ACTIVE_RUN_STATES.has(newest.state)
 }
 
 export function SessionHistorySection(props: SessionHistorySectionProps) {
@@ -136,8 +123,19 @@ export function SessionHistorySection(props: SessionHistorySectionProps) {
             stream.close()
             return
           }
-          unsubscribe = stream.subscribe(() => publish('ready'))
-          publish('ready')
+          const observe = () => {
+            const state = stream?.state()
+            if (!state || !transcriptIsStale(state.availability)) return publish('ready')
+            // Stop reading a window that has a gap or belongs to an older
+            // generation and say so; Try again reopens against the current
+            // session record.
+            unsubscribe?.()
+            stream?.close()
+            stream = undefined
+            publish('stale')
+          }
+          unsubscribe = stream.subscribe(observe)
+          observe()
         } catch (error) {
           if (closed || isDevUtilityContextChanged(error)) return
           publish('unavailable')
