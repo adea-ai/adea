@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import {
   managementInputDigest,
+  managementOperationSupport,
+  managementOperations,
   type ManagementAuthorityBoundary,
   type ManagementAuthorityClaim,
   type ManagementAuthorityCompletion,
   type ManagementAuthorityDecision,
   type ManagementCurrentAuthorityRequest,
+  type ManagementOperationId,
 } from '@adea-ai/types/management'
 
 import {
@@ -15,6 +18,7 @@ import {
 } from '../src/server/lead-management-route'
 import type { ManagementCaller, ManagementOutcome } from '../src/server/management-gateway'
 import type { ManagementOperations } from '../src/server/management-operations'
+import { leadManagementToolBinding } from '../src/server/lead-management-tools'
 import {
   MANAGEMENT_NOW,
   MANAGEMENT_PROJECT,
@@ -59,6 +63,10 @@ function harness(
   const calls: Recorded[] = []
   const callers: ManagementCaller[] = []
   const operations: ManagementOperations = {
+    workspaceArchive: async (_input, binding) => {
+      calls.push({ binding, method: 'workspaceArchive' })
+      return (options.operationOutcome ?? success(null)) as never
+    },
     projectArchive: async (_input, binding) => {
       calls.push({ binding, method: 'projectArchive' })
       return (options.operationOutcome ?? success(null)) as never
@@ -78,6 +86,14 @@ function harness(
     projectMemberSet: async (_input, binding) => {
       calls.push({ binding, method: 'projectMemberSet' })
       return (options.operationOutcome ?? success({})) as never
+    },
+    projectPromote: async (_input, binding) => {
+      calls.push({ binding, method: 'projectPromote' })
+      return (options.operationOutcome ?? {
+        ok: true,
+        operation: 'project.promote',
+        value: { id: MANAGEMENT_PROJECT },
+      }) as never
     },
     projectReorder: async (_input, binding) => {
       calls.push({ binding, method: 'projectReorder' })
@@ -151,12 +167,52 @@ const updateCall = {
   workspaceId: MANAGEMENT_WORKSPACE,
 }
 
+const archiveCall = {
+  canonicalRequest: CANONICAL_REQUEST,
+  input: { confirmed: true },
+  operation: 'config.workspace.archive',
+  schemaVersion: 'adea-management-call/v1',
+  targetId: MANAGEMENT_WORKSPACE,
+  workspaceId: MANAGEMENT_WORKSPACE,
+}
+
+const promoteCall = {
+  canonicalRequest: CANONICAL_REQUEST,
+  input: { confirmed: true, expectedVersion: 3 },
+  operation: 'project.promote',
+  schemaVersion: 'adea-management-call/v1',
+  targetId: MANAGEMENT_PROJECT,
+  workspaceId: MANAGEMENT_WORKSPACE,
+}
+
 async function updateDecision(overrides: { input?: unknown; workspaceId?: string } = {}) {
   return managementAuthorityDecision({
     input: overrides.input ?? { name: 'Renamed' },
     operation: 'project.update',
     principal: ACTOR,
     targetId: MANAGEMENT_PROJECT,
+    workspaceId: overrides.workspaceId ?? MANAGEMENT_WORKSPACE,
+  })
+}
+
+async function archiveDecision(overrides: { expiresAt?: string } = {}) {
+  return managementAuthorityDecision({
+    expiresAt: overrides.expiresAt,
+    input: { confirmed: true },
+    operation: 'config.workspace.archive',
+    principal: ACTOR,
+    targetId: MANAGEMENT_WORKSPACE,
+  })
+}
+
+async function promoteDecision(
+  overrides: { input?: unknown; targetId?: string | null; workspaceId?: string } = {}
+) {
+  return managementAuthorityDecision({
+    input: overrides.input ?? { confirmed: true, expectedVersion: 3 },
+    operation: 'project.promote',
+    principal: ACTOR,
+    targetId: overrides.targetId ?? MANAGEMENT_PROJECT,
     workspaceId: overrides.workspaceId ?? MANAGEMENT_WORKSPACE,
   })
 }
@@ -259,6 +315,82 @@ describe('lead management host endpoint (#1215)', () => {
       reason: 'authority_replay',
     })
     expect(run.calls.length).toBe(1)
+  })
+
+  test('an expired workspace archive approval is refused before claim or operation', async () => {
+    const decision = await archiveDecision({
+      expiresAt: new Date(MANAGEMENT_NOW - 1).toISOString(),
+    })
+    let claims = 0
+    const run = harness({
+      claim: async () => {
+        claims += 1
+        return { state: 'claimed' }
+      },
+      decision,
+    })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(archiveCall))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_expired',
+    })
+    expect(run.assertCurrentCalls).toEqual([])
+    expect(claims).toBe(0)
+    expect(run.calls).toEqual([])
+  })
+
+  test('a replayed workspace archive approval cannot execute twice', async () => {
+    const decision = await archiveDecision()
+    const claims: ManagementAuthorityClaim[] = [
+      { state: 'claimed' },
+      { state: 'replayed', resultDigest: null },
+    ]
+    const run = harness({
+      claim: async () => claims.shift() ?? { state: 'replayed', resultDigest: null },
+      decision,
+      operationOutcome: { ok: true, operation: 'config.workspace.archive', value: null },
+    })
+    const handler = createLeadManagementHandler(run.dependencies)
+
+    expect((await handler(callRequest(archiveCall))).status).toBe(200)
+    const replay = await handler(callRequest(archiveCall))
+    expect(replay.status).toBe(403)
+    expect(await replay.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_replay',
+    })
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'workspaceArchive' }])
+  })
+
+  test('a revoked workspace archive approval cannot be retried for a second effect', async () => {
+    const decision = await archiveDecision()
+    let revoked = false
+    let claims = 0
+    const run = harness({
+      assertCurrent: async () => {
+        if (revoked) throw new Error('approval revoked')
+      },
+      claim: async () => {
+        claims += 1
+        return { state: 'claimed' }
+      },
+      decision,
+      operationOutcome: { ok: true, operation: 'config.workspace.archive', value: null },
+    })
+    const handler = createLeadManagementHandler(run.dependencies)
+
+    expect((await handler(callRequest(archiveCall))).status).toBe(200)
+    revoked = true
+    const denied = await handler(callRequest(archiveCall))
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toMatchObject({
+      operation: 'config.workspace.archive',
+      reason: 'authority_unavailable',
+    })
+    expect(claims).toBe(1)
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'workspaceArchive' }])
   })
 
   test('an interrupted durable claim returns recovery_required with zero effects', async () => {
@@ -374,6 +506,66 @@ describe('lead management host endpoint (#1215)', () => {
     expect(verified).toBeGreaterThanOrEqual(0)
     expect(run.calls).toEqual([])
   })
+
+  test('a valid signed/bound promotion reaches the promotion executor', async () => {
+    const decision = await promoteDecision()
+    const run = harness({ decision })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(promoteCall))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      operation: 'project.promote',
+      schemaVersion: 'adea-management-result/v1',
+      value: { id: MANAGEMENT_PROJECT },
+    })
+    expect(run.calls).toEqual([{ binding: decision.binding, method: 'projectPromote' }])
+    expect(run.callers).toEqual([
+      {
+        canonicalRequest: CANONICAL_REQUEST,
+        decision,
+        kind: 'lead',
+        reference: {
+          authorityRef: decision.authorityRef,
+          intentId: decision.intentId,
+          leadAgentId: decision.leadAgentId,
+        },
+      },
+    ])
+  })
+
+  test('missing/false confirmation, invalid revision and extra fields cannot promote', async () => {
+    const invalidInputs = [
+      { expectedVersion: 3 },
+      { confirmed: false, expectedVersion: 3 },
+      { confirmed: true, expectedVersion: 0 },
+      { confirmed: true, expectedVersion: -1 },
+      { confirmed: true, expectedVersion: 1.5 },
+      { confirmed: true, expectedVersion: '3' },
+      { confirmed: true, expectedVersion: 3, extra: true },
+    ]
+    for (const input of invalidInputs) {
+      const decision = await promoteDecision({ input })
+      const run = harness({ decision })
+      const response = await createLeadManagementHandler(run.dependencies)(
+        callRequest({ ...promoteCall, input })
+      )
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ code: 'LEAD_MANAGEMENT_UNAVAILABLE' })
+      expect(run.calls).toEqual([])
+    }
+  })
+
+  test('a promotion decision bound to another revision cannot execute', async () => {
+    const decision = await promoteDecision({ input: { confirmed: true, expectedVersion: 4 } })
+    const run = harness({ decision })
+    const response = await createLeadManagementHandler(run.dependencies)(callRequest(promoteCall))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({
+      code: 'LEAD_MANAGEMENT_REFUSED',
+      operation: 'project.promote',
+      reason: 'authority_binding_mismatch',
+    })
+    expect(run.calls).toEqual([])
+  })
 })
 
 test('a canonical request that does not match the signed digest performs zero operations', async () => {
@@ -413,6 +605,24 @@ describe('lead management call parsing (#1215)', () => {
       workspaceId: MANAGEMENT_WORKSPACE,
     })
 
+    const archive = parseLeadManagementCall(
+      {
+        canonicalRequest: CANONICAL_REQUEST,
+        input: { confirmed: true },
+        operation: 'config.workspace.archive',
+        schemaVersion: 'adea-management-call/v1',
+        targetId: MANAGEMENT_WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      },
+      AUTHORITY
+    )
+    expect(archive).toMatchObject({
+      authority: AUTHORITY,
+      confirmed: true,
+      operation: 'config.workspace.archive',
+      workspaceId: MANAGEMENT_WORKSPACE,
+    })
+
     const member = parseLeadManagementCall(
       {
         canonicalRequest: CANONICAL_REQUEST,
@@ -429,6 +639,16 @@ describe('lead management call parsing (#1215)', () => {
       operation: 'project.member.set',
       role: 'editor',
       userId: '0f3a2e1c-0000-4000-8000-0000000000cc',
+    })
+
+    const promote = parseLeadManagementCall(promoteCall, AUTHORITY)
+    expect(promote).toMatchObject({
+      authority: AUTHORITY,
+      confirmed: true,
+      expectedVersion: 3,
+      operation: 'project.promote',
+      projectId: MANAGEMENT_PROJECT,
+      workspaceId: MANAGEMENT_WORKSPACE,
     })
   })
 
@@ -466,13 +686,169 @@ describe('lead management call parsing (#1215)', () => {
       },
       {
         canonicalRequest: CANONICAL_REQUEST,
+        input: { confirmed: false },
+        operation: 'config.workspace.archive',
+        schemaVersion: 'adea-management-call/v1',
+        targetId: MANAGEMENT_WORKSPACE,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      },
+      {
+        canonicalRequest: CANONICAL_REQUEST,
         input: { iconKey: 'box', id: MANAGEMENT_PROJECT, name: 'X' },
         operation: 'project.create',
         schemaVersion: 'adea-management-call/v1',
         targetId: null,
         workspaceId: MANAGEMENT_WORKSPACE,
       },
+      { ...promoteCall, input: { expectedVersion: 3 } },
+      { ...promoteCall, input: { confirmed: false, expectedVersion: 3 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 0 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 1.5 } },
+      { ...promoteCall, input: { confirmed: true, expectedVersion: 3, extra: true } },
+      { ...promoteCall, targetId: 'not-a-uuid' },
+      { ...promoteCall, targetId: null },
     ])
       expect(parseLeadManagementCall(body, AUTHORITY)).toBeNull()
+  })
+})
+
+describe('advertised lead operation contract (#1215)', () => {
+  const USER_TARGET = '0f3a2e1c-0000-4000-8000-0000000000cc'
+  // Bounded table: one valid call per advertised lead-supported operation.
+  const contract: ReadonlyArray<{
+    operation: ManagementOperationId
+    input: Record<string, unknown>
+    targetId: string | null
+    method: string
+  }> = [
+    {
+      input: { expectedVersion: 3, name: 'Renamed' },
+      method: 'workspaceUpdate',
+      operation: 'config.workspace.update',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: {},
+      method: 'workspaceReopen',
+      operation: 'config.workspace.reopen',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: { confirmed: true },
+      method: 'workspaceArchive',
+      operation: 'config.workspace.archive',
+      targetId: MANAGEMENT_WORKSPACE,
+    },
+    {
+      input: { iconKey: 'box', name: 'Created' },
+      method: 'projectCreate',
+      operation: 'project.create',
+      targetId: null,
+    },
+    {
+      input: { name: 'Renamed' },
+      method: 'projectUpdate',
+      operation: 'project.update',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: {},
+      method: 'projectArchive',
+      operation: 'project.archive',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { confirmed: true, expectedVersion: 3 },
+      method: 'projectPromote',
+      operation: 'project.promote',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: {},
+      method: 'projectDelete',
+      operation: 'project.delete',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { projectIds: [MANAGEMENT_PROJECT] },
+      method: 'projectReorder',
+      operation: 'project.reorder',
+      targetId: null,
+    },
+    {
+      input: { visibility: 'workspace' },
+      method: 'projectVisibilitySet',
+      operation: 'project.visibility.set',
+      targetId: MANAGEMENT_PROJECT,
+    },
+    {
+      input: { projectId: MANAGEMENT_PROJECT, role: 'editor' },
+      method: 'projectMemberSet',
+      operation: 'project.member.set',
+      targetId: USER_TARGET,
+    },
+    {
+      input: { projectId: MANAGEMENT_PROJECT },
+      method: 'projectMemberRemove',
+      operation: 'project.member.remove',
+      targetId: USER_TARGET,
+    },
+  ]
+
+  test('covers exactly the advertised lead-supported inventory', () => {
+    const advertised = Object.keys(managementOperations).filter(
+      (id) => managementOperationSupport(id as ManagementOperationId, 'lead').state === 'supported'
+    )
+    expect(new Set(contract.map((entry) => entry.operation))).toEqual(new Set(advertised))
+  })
+
+  test('every advertised operation parses, binds and reaches its executor', async () => {
+    for (const entry of contract) {
+      const body = {
+        canonicalRequest: CANONICAL_REQUEST,
+        input: entry.input,
+        operation: entry.operation,
+        schemaVersion: 'adea-management-call/v1',
+        targetId: entry.targetId,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      }
+      const parsed = parseLeadManagementCall(body, AUTHORITY)
+      expect(parsed, entry.operation).not.toBeNull()
+      const binding = await leadManagementToolBinding(parsed!)
+      expect(binding, entry.operation).not.toBeNull()
+      const decision = await managementAuthorityDecision({
+        input: entry.input,
+        operation: entry.operation,
+        principal: ACTOR,
+        targetId: entry.targetId,
+        workspaceId: MANAGEMENT_WORKSPACE,
+      })
+      const run = harness({ decision })
+      const response = await createLeadManagementHandler(run.dependencies)(callRequest(body))
+      expect(response.status, entry.operation).toBe(200)
+      expect(run.calls, entry.operation).toEqual([
+        { binding: decision.binding, method: entry.method },
+      ])
+    }
+  })
+
+  test('promotion rejects malformed confirmations and versions before any hop', () => {
+    const malformed = [
+      { expectedVersion: 3 },
+      { confirmed: false, expectedVersion: 3 },
+      { confirmed: 'true', expectedVersion: 3 },
+      { confirmed: true },
+      { confirmed: true, expectedVersion: 0 },
+      { confirmed: true, expectedVersion: -1 },
+      { confirmed: true, expectedVersion: 1.5 },
+      { confirmed: true, expectedVersion: '3' },
+      { confirmed: true, expectedVersion: 3, extra: true },
+    ]
+    for (const input of malformed)
+      expect(parseLeadManagementCall({ ...promoteCall, input }, AUTHORITY)).toBeNull()
+    expect(
+      parseLeadManagementCall({ ...promoteCall, targetId: 'not-a-uuid' }, AUTHORITY)
+    ).toBeNull()
+    expect(parseLeadManagementCall({ ...promoteCall, targetId: null }, AUTHORITY)).toBeNull()
   })
 })

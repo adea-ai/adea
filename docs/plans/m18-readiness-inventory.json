@@ -222,14 +222,14 @@
       "category": "accessibility",
       "source": "PRD REQ 136 (contrast); appearance presets and canonical editor roles",
       "criterion": "Interaction and text contrast meet WCAG thresholds for appearance presets and canonical theme editor roles.",
-      "threshold": "primary vs background >= 3:1; onPrimary vs strong >= 4.5:1; editor roles >= 4.5:1",
+      "threshold": "primary vs background >= 3:1; primary foreground vs primary >= 4.5:1; editor roles >= 4.5:1",
       "method": {
         "kind": "unit",
         "files": [
-          "packages/ui/tests/appearance.test.ts",
-          "packages/ui/tests/canonical-theme-adapter.test.ts"
+          "packages/ui/tests/appearance-contrast.test.ts",
+          "packages/ui/tests/custom-theme-library.test.ts"
         ],
-        "command": "bun test packages/ui/tests/appearance.test.ts packages/ui/tests/canonical-theme-adapter.test.ts",
+        "command": "bun test --conditions=browser packages/ui/tests/appearance-contrast.test.ts packages/ui/tests/custom-theme-library.test.ts",
         "limit": "covers presets and editor roles only; does not scan every rendered text pair"
       }
     },

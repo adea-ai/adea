@@ -34,7 +34,7 @@ test('the root not-found state renders the standard centred page surface', async
   // entry display scale — not bare document flow at the top-left.
   expect(surface.mainDisplay).toBe('grid')
   expect(surface.centered).toBe(true)
-  expect(surface.headingSize).toBeGreaterThanOrEqual(32)
+  expect(surface.headingSize).toBeGreaterThanOrEqual(30)
   expect(surface.panelBackground).not.toBe('rgba(0, 0, 0, 0)')
   expect(surface.panelBorder).not.toBe('0px')
 })

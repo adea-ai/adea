@@ -23,8 +23,10 @@ import {
   repositoryRows,
   type GitHubImportRow,
 } from './github-import-model'
+import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/components/ui/input-group'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 export type GitHubImportFormProps = Readonly<{
   scope: Scope
@@ -110,20 +112,22 @@ export function GitHubImportForm(props: GitHubImportFormProps) {
   }
 
   return (
-    <div role="group" aria-label="Import a repository from GitHub">
-      <p class="dev-tree-empty">
+    <div role="group" aria-label="Import a repository from GitHub" class="flex flex-col gap-2">
+      <Text as="p" variant="caption" tone="muted">
         Pick one of your GitHub repositories. Adea clones it into its own managed storage and binds
         it to this project — no folder on this machine is touched.
-      </p>
+      </Text>
       <Show when={listing().status === 'loading'}>
-        <p class="dev-tree-empty" role="status">
+        <Text as="p" variant="caption" tone="muted" role="status">
           Loading your GitHub repositories…
-        </p>
+        </Text>
       </Show>
       <Show when={listing().status === 'failed'}>
-        <p class="dev-tree-empty" role="alert">
-          {(listing() as { status: 'failed'; message: string }).message}
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>
+            {(listing() as { status: 'failed'; message: string }).message}
+          </AlertDescription>
+        </Alert>
       </Show>
       <Show when={readyListing()}>
         <div class="flex flex-col gap-2">
@@ -142,16 +146,16 @@ export function GitHubImportForm(props: GitHubImportFormProps) {
           <Show
             when={filtered().length > 0}
             fallback={
-              <p class="dev-tree-empty">
+              <Text as="p" variant="caption" tone="muted">
                 No repository matches this filter. Public, private, and internal repositories of the
                 authenticated gh account are listed.
-              </p>
+              </Text>
             }
           >
             <div class="max-h-64 overflow-y-auto" role="list" aria-label="GitHub repositories">
               <For each={filtered()}>
                 {(row) => (
-                  <div class="dev-tree-row dev-tree-row--project" role="listitem">
+                  <div role="listitem">
                     <Button
                       type="button"
                       variant="ghost"
@@ -165,10 +169,10 @@ export function GitHubImportForm(props: GitHubImportFormProps) {
                           ? `Cloning ${row.nameWithOwner}…`
                           : row.nameWithOwner}
                       </span>
-                      <span class="dev-tree-row__count">
+                      <Text variant="caption" tone="muted" class="ms-auto">
                         {row.visibility}
                         {row.isFork ? ' · fork' : ''}
-                      </span>
+                      </Text>
                     </Button>
                   </div>
                 )}
@@ -176,14 +180,14 @@ export function GitHubImportForm(props: GitHubImportFormProps) {
             </div>
           </Show>
           <Show when={cloning()}>
-            <p class="dev-tree-empty" role="status">
+            <Text as="p" variant="caption" tone="muted" role="status">
               Cloning {cloning()}… Large repositories can take a while.
-            </p>
+            </Text>
           </Show>
           <Show when={error() !== ''}>
-            <p class="dev-tree-empty" role="alert">
-              {error()}
-            </p>
+            <Alert variant="destructive">
+              <AlertDescription>{error()}</AlertDescription>
+            </Alert>
           </Show>
         </div>
       </Show>

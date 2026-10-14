@@ -43,6 +43,7 @@ import {
   type ProjectSessionRuntime,
 } from './project-session/register'
 import { registerHarnessRuntime, type HarnessRuntimeRegistration } from './harness/register'
+import type { HarnessDiscoverySource } from './discovery/types'
 import type { AcpLaneDriver } from './harness/acp-lane'
 import type { MemoryStore } from '../memory/store'
 import type { ManagedPiDriver } from './harness/managed-pi-driver'
@@ -193,6 +194,12 @@ export type CreateDevRuntimeHostInput = {
    * and the shell must never await it.
    */
   managedPiAutoInstall?: boolean
+  /**
+   * M10 #30: the discovery sources the explicit rescan
+   * (`dev.harness.inventoryRefresh`) probes. The shipped shell passes the
+   * local-executable source; absent, the harness inventory is read-only.
+   */
+  discoverySources?: readonly HarnessDiscoverySource[]
   /**
    * Test-only: let `dev.project.clone` admit `file://` remotes (local fixture
    * origins). The shipped shell (`bun/index.ts`) never sets it, so production
@@ -545,6 +552,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           ? { managedPiArchiveResolver: input.managedPiArchiveResolver }
           : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
+        ...(input.discoverySources ? { discoverySources: input.discoverySources } : {}),
         ...(input.memory
           ? {
               memoryPreamble: input.memory.preamble,

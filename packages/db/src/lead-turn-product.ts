@@ -33,9 +33,9 @@ export type CurrentLeadTurnProduct = Readonly<{
   profileVersion: string
   profileRevision: number
   prompt: string
+  requestedModelSelections?: RequestedRoleModelSelections
   rollbackFence: LeadTurnRollbackFenceEmission | null
   dispatchPermitted: boolean
-  requestedModelSelections?: RequestedRoleModelSelections
 }>
 
 /**
@@ -114,8 +114,6 @@ export async function withCurrentLeadTurnProduct<T>(
             profileVersion: intent.profileVersion,
             profileRevision: intent.profileRevision,
             prompt: message.bodyText,
-            rollbackFence: rollbackFenceEmission(intent),
-            dispatchPermitted: intent.rollbackFencedAt === null,
             ...(intent.requestedModelSelections === null
               ? {}
               : {
@@ -123,6 +121,8 @@ export async function withCurrentLeadTurnProduct<T>(
                     intent.requestedModelSelections
                   ),
                 }),
+            rollbackFence: rollbackFenceEmission(intent),
+            dispatchPermitted: intent.rollbackFencedAt === null,
           })
         )
       }

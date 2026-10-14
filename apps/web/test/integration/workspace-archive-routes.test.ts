@@ -1,19 +1,20 @@
 // Route → PostgreSQL flows for optional-workspace archive (M11.04, #1175).
 //
-// The archive route handler is driven through its injected seams: the resolved principal is staged
-// per call, and authorization runs the real `workspace.archive` role matrix against real membership
-// rows. The archive itself is the real `archiveWorkspace` on the migrated database. Reopen is the
-// existing `reopenWorkspace` contract; its route handler is not exported, so its owner and repeat
-// rules are asserted on that contract, which the route delegates to.
+// The archive route handler runs the production shared management composition with an isolated test
+// database/authorization seam. The real `workspace.archive` role matrix, transaction-wrapped
+// executor, authorization audit, archive event and explicit confirmation are exercised together.
+// Reopen remains the existing `reopenWorkspace` contract.
 //
 // Lane: discovered by `bun run test:integration` (react-server condition, DATABASE_URL trio). Without
 // DATABASE_URL the suite is skipped here, and the lane fails rather than skipping.
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { and, eq } from 'drizzle-orm'
 
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
 import {
   addWorkspaceMembership,
+  authorizationAuditRecords,
   createDatabase,
   createTemporaryUserSession,
   createWorkspaceWithOwner,
@@ -22,10 +23,12 @@ import {
   getWorkspaceForUser,
   recordWorkspaceAuthorizationDecision,
   reopenWorkspace,
+  workspaceEvents,
   type DatabaseConnection,
 } from '@adea-ai/db'
 import type { UserPrincipalRef } from '@adea-ai/types'
 
+import { applicationManagementOperations } from '../../src/server/management-composition'
 import { workspaceArchivePost } from '../../src/server/workspace-archive-handler'
 import { workspaceArchivedGet } from '../../src/server/workspace-archived-handler'
 import type { WorkspacePrincipalResolution } from '../../src/server/workspace-principal'
@@ -36,8 +39,10 @@ function listArchivedRequest(): Request {
   return new Request('https://adea.test/api/workspaces/archived', { method: 'GET' })
 }
 
-function archiveRequest(workspaceId: string): Request {
+function archiveRequest(workspaceId: string, body: unknown = { confirmed: true }): Request {
   return new Request(`https://adea.test/api/workspaces/${workspaceId}/archive`, {
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
     method: 'POST',
   })
 }
@@ -62,21 +67,27 @@ describe.skipIf(!connectionUrl)('workspace archive route flow (#1175)', () => {
     ).principal
   }
 
-  /** The caller is resolved per call; authorization is the production `workspace.archive` check. */
+  /** The caller and test DB are injected; the real application composition performs the archive. */
   function dependencies(caller: UserPrincipalRef) {
     return {
-      authorize: async (_principal: UserPrincipalRef, workspaceId: string) =>
-        (
-          await authorizeWorkspaceAction(
-            { permission: 'workspace.archive', principal: caller, workspaceId },
-            {
-              audit: (record) => recordWorkspaceAuthorizationDecision(connection.db, record),
-              findMembership: ({ principal: member, workspaceId: id }) =>
-                findWorkspaceMembership(connection.db, id, member),
-            }
-          )
-        ).allowed,
-      database: () => connection.db,
+      operations: () =>
+        applicationManagementOperations(
+          { kind: 'human' },
+          {
+            database: () => connection.db,
+            authorize: async ({ permission, principal: actor, workspaceId }) =>
+              (
+                await authorizeWorkspaceAction(
+                  { permission, principal: actor, workspaceId },
+                  {
+                    audit: (record) => recordWorkspaceAuthorizationDecision(connection.db, record),
+                    findMembership: ({ principal: member, workspaceId: id }) =>
+                      findWorkspaceMembership(connection.db, id, member),
+                  }
+                )
+              ).allowed,
+          }
+        ),
       resolvePrincipal: async (): Promise<WorkspacePrincipalResolution> => ({
         clearTemporaryCredential: false,
         principal: caller,
@@ -107,6 +118,22 @@ describe.skipIf(!connectionUrl)('workspace archive route flow (#1175)', () => {
     expect(archived.status).toBe(200)
     expect(await archived.json()).toEqual({ archived: true, workspaceId: workspace.id })
     expect(await getWorkspaceForUser(connection.db, workspace.id, owner)).toBeNull()
+    const auditRows = await connection.db
+      .select({ decision: authorizationAuditRecords.decision })
+      .from(authorizationAuditRecords)
+      .where(
+        and(
+          eq(authorizationAuditRecords.workspaceId, workspace.id),
+          eq(authorizationAuditRecords.permission, 'workspace.archive')
+        )
+      )
+    // The gateway records both the initial and late authorization checks.
+    expect(auditRows).toEqual([{ decision: 'allowed' }, { decision: 'allowed' }])
+    const events = await connection.db
+      .select({ eventType: workspaceEvents.eventType })
+      .from(workspaceEvents)
+      .where(eq(workspaceEvents.workspaceId, workspace.id))
+    expect(events).toContainEqual({ eventType: 'workspace.archived' })
 
     const repeat = await workspaceArchivePost(
       archiveRequest(workspace.id),
@@ -117,6 +144,20 @@ describe.skipIf(!connectionUrl)('workspace archive route flow (#1175)', () => {
     expect((await repeat.json()) as { code: string }).toMatchObject({
       code: 'workspace_unavailable',
     })
+  })
+
+  test('archive refuses without explicit confirmation and leaves the workspace active', async () => {
+    const owner = await principal('unconfirmed')
+    const workspace = await optionalWorkspace(owner, 'Unconfirmed archive')
+
+    const refused = await workspaceArchivePost(
+      archiveRequest(workspace.id, { confirmed: false }),
+      workspace.id,
+      dependencies(owner)
+    )
+
+    expect(refused.status).toBe(400)
+    expect(await getWorkspaceForUser(connection.db, workspace.id, owner)).not.toBeNull()
   })
 
   test('admins, members and outsiders are refused by the workspace.archive matrix and leave the workspace active', async () => {

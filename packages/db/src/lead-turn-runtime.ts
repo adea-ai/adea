@@ -7,6 +7,7 @@ import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
 import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
+import { leadTurnIntents } from './schema/lead-turns'
 
 export type LeadTurnAcceptedSelection = Readonly<{
   workspaceId: string
@@ -81,12 +82,7 @@ export function resolveLeadTurnAuthority(
   purpose: LeadTurnAuthorityPurpose = 'read'
 ) {
   const authority = (
-    intent: {
-      id: string
-      messageId: string
-      actorUserId: string
-      requestedModelSelections: unknown
-    },
+    intent: typeof leadTurnIntents.$inferSelect,
     controlPlaneWorkspaceId: string
   ) => ({
     intentId: intent.id,
@@ -94,7 +90,16 @@ export function resolveLeadTurnAuthority(
     workspaceId,
     controlPlaneWorkspaceId,
     originalActorRef: `user:${intent.actorUserId}` as const,
-    // #1232: absent means the workspace lead default; a present reference is the exact immutable choice.
+    ...(intent.handoffTargetSessionId !== null && intent.handoffTargetGeneration !== null
+      ? {
+          handoffTarget: {
+            runtimeSessionId: intent.handoffTargetSessionId,
+            ...(intent.handoffTargetTaskId !== null ? { taskId: intent.handoffTargetTaskId } : {}),
+            observedGeneration: intent.handoffTargetGeneration,
+          },
+        }
+      : {}),
+    // Absent means the workspace lead default; a present reference is the exact immutable choice.
     requestedLeadSelection:
       parseRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined)?.lead ?? null,
   })
@@ -415,7 +420,9 @@ export function publishLeadTurnResult(
   reader: UserPrincipalRef,
   binding: LeadTurnRuntimeBinding,
   bodyText: string,
-  assertCurrentGrant: () => Promise<void>
+  // Runs on the publication transaction with its canonical locks held, so it can read and
+  // lock through that transaction; it must not check out another pool connection.
+  assertCurrentGrant: (transaction: AgentHqTransaction) => Promise<void>
 ) {
   if (!bodyText.trim() || bodyText.length > 100_000 || typeof assertCurrentGrant !== 'function')
     throw new Error('PUBLICATION_WITHHELD')
@@ -438,7 +445,7 @@ export function publishLeadTurnResult(
         // against a concurrent fence on the same admission, and it runs before the grant is consulted.
         await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
         // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
-        await assertCurrentGrant()
+        await assertCurrentGrant(publicationTx)
         const digest = createHash('sha256')
           .update(JSON.stringify({ ...binding, bodyText }))
           .digest('hex')

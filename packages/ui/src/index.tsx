@@ -1,12 +1,5 @@
 export { ThemeToggle } from './components/theme-toggle'
-export {
-  ThemeProvider,
-  ThemeScript,
-  useTheme,
-  useOptionalTheme,
-  type ResolvedTheme,
-  type Theme,
-} from './components/theme-provider'
+export { ThemeProvider, ThemeScript, useTheme } from './components/theme-provider'
 export { WorkspaceLogo } from './components/workspace-logo'
 export {
   VersionDialog,

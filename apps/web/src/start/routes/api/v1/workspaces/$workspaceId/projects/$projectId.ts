@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
-import type { ApiProjectResponse, ApiProjectUpdateInput } from '@adea-ai/api-client'
-import { getProjectForUser, isProjectSourceKind } from '@adea-ai/db'
+import type { ApiProjectResponse } from '@adea-ai/api-client'
+import { getProjectForUser } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../../server/database'
 import {
@@ -9,10 +9,10 @@ import {
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../server/desktop-workspace'
 import { applicationManagementOperations } from '../../../../../../../server/management-composition'
+import { updateProjectRequest } from '../../../../../../../server/project-management-request'
 import { authorizeWorkspace } from '../../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../../server/workspace-principal'
 import {
-  workspaceInvalidRequestResponse,
   workspaceJsonResponse,
   workspaceUnavailableResponse,
 } from '../../../../../../../server/workspace-response'
@@ -43,57 +43,6 @@ async function get(request: Request, { params }: Context) {
   })
 }
 
-async function patch(request: Request, { params }: Context) {
-  const rejected = guardDesktopWorkspaceRequest(request)
-  if (rejected) return rejected
-  const { projectId, workspaceId } = await params
-  const resolution = await resolveWorkspacePrincipal(request)
-  if (!resolution) return workspaceUnavailableResponse(request, 401)
-
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return workspaceInvalidRequestResponse(request)
-  }
-  const candidate = body as Record<string, unknown>
-  const input: ApiProjectUpdateInput = {}
-  for (const field of ['iconKey', 'name'] as const) {
-    if (!(field in candidate)) continue
-    const value = candidate[field]
-    if (typeof value !== 'string') return workspaceInvalidRequestResponse(request)
-    Object.assign(input, { [field]: value.trim() })
-  }
-  if ('sourceKind' in candidate) {
-    if (!isProjectSourceKind(candidate.sourceKind)) return workspaceInvalidRequestResponse(request)
-    Object.assign(input, { sourceKind: candidate.sourceKind })
-  }
-  if (
-    Object.keys(input).length === 0 ||
-    input.name === '' ||
-    input.iconKey === '' ||
-    (input.name?.length ?? 0) > 80 ||
-    (input.iconKey?.length ?? 0) > 80
-  ) {
-    return workspaceInvalidRequestResponse(request)
-  }
-  const outcome = await applicationManagementOperations().projectUpdate({
-    ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
-    ...(input.name !== undefined ? { name: input.name } : {}),
-    principal: resolution.principal,
-    projectId,
-    ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
-    workspaceId,
-  })
-  if (!outcome.ok) {
-    if (outcome.failure.code === 'unavailable' || outcome.failure.code === 'forbidden')
-      return workspaceUnavailableResponse(request)
-    throw new Error('Project update failed')
-  }
-  const payload: ApiProjectResponse = { project: outcome.value }
-  return workspaceJsonResponse(payload, resolution, request)
-}
-
 async function remove(request: Request, { params }: Context) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
@@ -116,7 +65,8 @@ export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/projects/$
   server: {
     handlers: {
       GET: ({ request, params }) => withRequestScope(() => get(request, { params })),
-      PATCH: ({ request, params }) => withRequestScope(() => patch(request, { params })),
+      PATCH: ({ request, params }) =>
+        withRequestScope(() => updateProjectRequest(request, { params })),
       DELETE: ({ request, params }) => withRequestScope(() => remove(request, { params })),
       OPTIONS: ({ request }) => withRequestScope(() => options(request)),
     },

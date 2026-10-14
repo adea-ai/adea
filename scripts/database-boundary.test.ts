@@ -97,4 +97,11 @@ describe('database package boundary', () => {
     expect(workflow).toContain('db:verify')
     expect(workflow).toContain('packages/db/drizzle/**')
   })
+
+  test('routes both supported migration commands through the guarded runner', async () => {
+    const manifest = JSON.parse(await readFile(join(root, 'packages/db/package.json'), 'utf8'))
+
+    expect(manifest.scripts['db:migrate']).toBe('bun src/verify-migrations.ts')
+    expect(manifest.scripts['db:migrate']).toBe(manifest.scripts['db:verify'])
+  })
 })

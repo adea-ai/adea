@@ -16,6 +16,7 @@ import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Text } from '@adea-ai/ui/components/ui/typography'
 
 import { commandError } from './resources-stop-dialog'
 import { formatSize, type CleanupCandidate, type ServerRow } from './resources-view-model'
@@ -257,10 +258,12 @@ export function CleanupReview(props: {
 
         <Show when={foreign().length > 0}>
           <section class="dev-resources__group" aria-label="Not started by Adea">
-            <h3 class="dev-resources__group-header">
-              <span class="dev-resources__group-title">Not started by Adea</span>
+            <div class="dev-resources__group-header">
+              <Text as="h3" variant="overline">
+                Not started by Adea
+              </Text>
               <span class="dev-resources__row-detail">Each one asks first</span>
-            </h3>
+            </div>
             <ul class="dev-resources__list">
               <For each={foreign()}>
                 {(candidate) => (
@@ -301,10 +304,12 @@ export function CleanupReview(props: {
 
         <Show when={blocked().length > 0}>
           <section class="dev-resources__group" aria-label="Can't be cleaned up">
-            <h3 class="dev-resources__group-header">
+            <div class="dev-resources__group-header">
               <Lock class="dev-resources__icon" aria-hidden="true" />
-              <span class="dev-resources__group-title">Can’t be cleaned up</span>
-            </h3>
+              <Text as="h3" variant="overline">
+                Can’t be cleaned up
+              </Text>
+            </div>
             <ul class="dev-resources__list">
               <For each={blocked()}>
                 {(candidate) => (

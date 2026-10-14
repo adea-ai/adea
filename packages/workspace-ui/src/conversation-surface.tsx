@@ -54,6 +54,7 @@ import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 /**
  * Merged transcripts per channel, kept across selection changes so revisiting
@@ -553,16 +554,16 @@ export function ConversationSurface(props: {
             <header class="border-border bg-card border-b px-5 pt-2.5 pb-2">
               <div class="flex min-h-16 items-center gap-3">
                 <div class="min-w-0 flex-1">
-                  <p class="text-muted-foreground text-2xs font-bold tracking-wider uppercase">
+                  <Text variant="overline" as="p">
                     {channel().kind === 'project'
                       ? 'Project conversation'
                       : channel().kind === 'direct_agent'
                         ? 'Direct Conversation'
                         : 'Group conversation'}
-                  </p>
-                  <h1 class="truncate text-lg font-bold tracking-tight">
+                  </Text>
+                  <Heading as="h1" size="section" data-conversation-title>
                     {directAgent() ? directAgent()!.name : channel().title}
-                  </h1>
+                  </Heading>
                 </div>
                 <div class="flex items-center justify-end gap-1">
                   <Show when={directAgent()}>

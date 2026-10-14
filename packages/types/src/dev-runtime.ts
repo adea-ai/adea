@@ -1213,6 +1213,19 @@ export type HarnessPreference = Readonly<{
   agentProfileId?: string
   modelId?: string
   version: number
+  /** True only on the synthesized managed-Pi fallback (never stored): the user
+   * has expressed no default, so the UI must not present it as a choice. */
+  rootDefault?: true
+}>
+
+/** The device-wide default harness: a harness FAMILY (an installation id is
+ * bound to one workspace scope, a family is not), shared by every workspace
+ * on this device. A workspace's own default (`HarnessPreference.default`)
+ * overrides it. `family` is absent when none is set. */
+export type HarnessDeviceDefault = Readonly<{
+  family?: string
+  version: number
+  observedAt: string
 }>
 
 /** The mutable patch for `dev.harness.preferenceUpdate`. Clearing the
@@ -4092,10 +4105,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
     exactKeys(
       item,
       ['scope', 'harnessInstallationId', 'enabled', 'sortKey', 'default', 'version'],
-      ['projectId', 'agentProfileId', 'modelId'],
+      ['projectId', 'agentProfileId', 'modelId', 'rootDefault'],
       path
     )
     decodeScope(item.scope, `${path}.scope`)
+    if (item.rootDefault !== undefined && item.rootDefault !== true)
+      fail(`${path}.rootDefault`, 'expected true')
     stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
     if (typeof item.enabled !== 'boolean') fail(`${path}.enabled`, 'expected boolean')
     stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
@@ -4105,6 +4120,14 @@ function namedType(name: string, value: unknown, path: string): unknown {
       stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
     if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
     integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'HarnessDeviceDefault') {
+    const item = record(value, path)
+    exactKeys(item, ['version', 'observedAt'], ['family'], path)
+    if (item.family !== undefined) stringValue(item.family, `${path}.family`, 1, 64)
+    integerValue(item.version, `${path}.version`, 0)
+    timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
   if (name === 'HarnessPreferenceMutableFields') {
@@ -4731,6 +4754,12 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       value,
       'reply.value'
     ),
+  // Machine-wide harness inventory: the stored read, and the explicit rescan.
+  'dev.harness.deviceDefault': (value) => namedType('HarnessDeviceDefault', value, 'reply.value'),
+  'dev.harness.deviceDefaultUpdate': (value) =>
+    namedType('HarnessDeviceDefault', value, 'reply.value'),
+  'dev.harness.inventory': (value) => decodeRuntimeConnectionInventorySnapshot(value),
+  'dev.harness.inventoryRefresh': (value) => decodeRuntimeConnectionInventorySnapshot(value),
   'dev.harness.managedPiInstall': (value) => decodeManagedPiStatus(value),
   'dev.harness.managedPiStatus': (value) => decodeManagedPiStatus(value),
   'dev.harness.runs': (value) =>

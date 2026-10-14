@@ -35,7 +35,8 @@ import type {
   GroupSummaryReadDecision,
   GroupTurnDecision,
 } from '@adea-ai/types'
-import { and, asc, eq, isNull } from 'drizzle-orm'
+import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
+import { and, asc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
@@ -47,17 +48,27 @@ import {
 } from './group-participation-policy'
 import {
   agents,
+  channelParticipants,
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
   groupSharingGrants,
+  messages,
   workspaceMemberships,
+  workspaces,
 } from './schema'
 
 /** Loose structural database surface: the full node or an open transaction. */
 export type GroupStoreDatabase = {
   select: AgentHqTransaction['select']
 }
+
+/** Effective history window for one admitted user in one group channel. */
+export type GroupHistoryAccess = Readonly<{
+  joinedSequence: number
+  includesEarlierHistory: boolean
+  includesEarlierSummary: boolean
+}>
 
 /** Fail-closed window for an unprovable grant: behaves as absent everywhere. */
 export const ABSENT_GRANT_WINDOW: GroupGrantWindow = {
@@ -221,11 +232,19 @@ async function selectGrants(
         eq(groupEnlistmentGrants.channelId, channelId)
       )
     )
-  const [audienceRows, enlistmentRows, agentHomes] = await Promise.all([
+  const [audienceRows, enlistmentRows] = await Promise.all([
     forUpdate ? audienceQuery.for('update') : audienceQuery,
     forUpdate ? enlistmentQuery.for('update') : enlistmentQuery,
-    database.select({ agentId: agents.id, workspaceId: agents.workspaceId }).from(agents),
   ])
+  // Resolve only the Agents these grants name: the registry is global, and the roster of one
+  // group must not scale with every Agent that exists.
+  const enlistedAgentIds = [...new Set(enlistmentRows.map((row) => row.agentId))]
+  const agentHomes = enlistedAgentIds.length
+    ? await database
+        .select({ agentId: agents.id, workspaceId: agents.workspaceId })
+        .from(agents)
+        .where(inArray(agents.id, enlistedAgentIds))
+    : []
   const homeWorkspaceByAgent = new Map(agentHomes.map((row) => [row.agentId, row.workspaceId]))
   return {
     audience: audienceRows.map((row) => audienceGrantFromRow(channelId, row)),
@@ -317,6 +336,319 @@ export async function loadGroupAdmission(
 ): Promise<GroupAdmission | null> {
   const roster = await loadGroupRoster(database, workspaceId, channelId, options)
   return roster.find((admission) => sameParticipant(admission.participant, participant)) ?? null
+}
+
+/** Whether a retained admission still has effective canonical grant standing. */
+export function admissionInForce(
+  admission: GroupAdmission | null,
+  groupId: string,
+  now: string
+): boolean {
+  return admission !== null && decideGroupTurn({ admission, groupId, now }).action === 'allow'
+}
+
+/** Group ids whose retained user admission resolves to a live, matching grant. */
+export async function groupChannelIdsInForce(
+  database: GroupStoreDatabase,
+  userId: string,
+  now: string,
+  workspaceId?: string,
+  options: Readonly<{ channelIds?: readonly string[]; limit?: number }> = {}
+): Promise<Set<string>> {
+  if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1))
+    throw new RangeError('group admission limit must be a positive safe integer')
+  const query = database
+    .select({ admission: groupAdmissions, grant: groupAudienceGrants })
+    .from(groupAdmissions)
+    .leftJoin(
+      groupAudienceGrants,
+      and(
+        eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
+        eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .where(
+      and(
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, userId),
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : []),
+        ...(options.channelIds
+          ? [
+              options.channelIds.length
+                ? inArray(groupAdmissions.channelId, [...options.channelIds])
+                : sql`false`,
+            ]
+          : [])
+      )
+    )
+  const rows = options.limit ? await query.limit(options.limit) : await query
+  if (options.limit !== undefined && rows.length >= options.limit)
+    throw new RangeError('Group admission query exceeds its bound')
+  const inForce = rows.filter(({ admission: row, grant }) => {
+    const channelId = row.channelId
+    const window = resolveAdmissionWindow(
+      {
+        authorization: {
+          groupId: row.authGroupId,
+          grantId: row.authGrantId,
+          revision: row.authRevision,
+        },
+        participant: { kind: 'user', userId },
+      },
+      {
+        audience: grant ? [audienceGrantFromRow(channelId, grant)] : [],
+        enlistment: [],
+      },
+      channelId
+    )
+    return admissionInForce(admissionFromRow(channelId, row, window), channelId, now)
+  })
+  return new Set(inForce.map(({ admission }) => admission.channelId))
+}
+
+/**
+ * Resolve the same join-point history policy used by message reads for every
+ * effective group admission held by a user. Product queries use this compact
+ * map to filter messages in SQL before pagination and aggregation.
+ */
+export async function groupHistoryAccessByUser(
+  database: GroupStoreDatabase,
+  userId: string,
+  now: string,
+  workspaceId?: string
+): Promise<ReadonlyMap<string, GroupHistoryAccess>> {
+  const rows = await database
+    .select({
+      admission: groupAdmissions,
+      grant: groupAudienceGrants,
+      sharing: groupSharingGrants,
+    })
+    .from(groupAdmissions)
+    .leftJoin(
+      groupAudienceGrants,
+      and(
+        eq(groupAudienceGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupAudienceGrants.channelId, groupAdmissions.channelId),
+        eq(groupAudienceGrants.grantId, groupAdmissions.authGrantId)
+      )
+    )
+    .leftJoin(
+      groupSharingGrants,
+      and(
+        eq(groupSharingGrants.workspaceId, groupAdmissions.workspaceId),
+        eq(groupSharingGrants.channelId, groupAdmissions.channelId),
+        eq(groupSharingGrants.principalKind, 'user'),
+        eq(groupSharingGrants.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(groupAdmissions.principalKind, 'user'),
+        eq(groupAdmissions.userId, userId),
+        ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
+      )
+    )
+
+  const admissions = new Map<
+    string,
+    {
+      channelId: string
+      row: typeof groupAdmissions.$inferSelect
+      grant: typeof groupAudienceGrants.$inferSelect | null
+    }
+  >()
+  const sharingByChannel = new Map<string, Map<string, GroupSharingGrant>>()
+  for (const { admission: row, grant, sharing } of rows) {
+    const channelId = row.channelId
+    admissions.set(row.id, { channelId, row, grant })
+    if (sharing?.id) {
+      const grants = sharingByChannel.get(channelId) ?? new Map<string, GroupSharingGrant>()
+      grants.set(sharing.id, sharingGrantFromRow(channelId, sharing))
+      sharingByChannel.set(channelId, grants)
+    }
+  }
+  const effective: Array<{ channelId: string; admission: GroupAdmission }> = []
+  for (const { channelId, row, grant } of admissions.values()) {
+    const window = resolveAdmissionWindow(
+      {
+        authorization: {
+          groupId: row.authGroupId,
+          grantId: row.authGrantId,
+          revision: row.authRevision,
+        },
+        participant: { kind: 'user', userId },
+      },
+      { audience: grant ? [audienceGrantFromRow(channelId, grant)] : [], enlistment: [] },
+      channelId
+    )
+    const admission = admissionFromRow(channelId, row, window)
+    if (admissionInForce(admission, channelId, now)) effective.push({ channelId, admission })
+  }
+  if (!effective.length) return new Map()
+
+  const access = new Map<string, GroupHistoryAccess>()
+  for (const { channelId, admission } of effective) {
+    const joinedSequence = admission.joinPoint.joinedSequence
+    const includesEarlierHistory =
+      joinedSequence > 0 &&
+      decideGroupHistoryRead({
+        admission,
+        entry: { occurredAt: now, sequence: joinedSequence - 1 },
+        groupId: channelId,
+        now,
+        sharingGrants: [...(sharingByChannel.get(channelId)?.values() ?? [])],
+      }).action === 'allow'
+    const includesEarlierSummary =
+      joinedSequence > 0 &&
+      decideGroupSummaryRead({
+        admission,
+        fromSequence: joinedSequence - 1,
+        groupId: channelId,
+        now,
+        sharingGrants: [...(sharingByChannel.get(channelId)?.values() ?? [])],
+      }).action === 'allow'
+    const previous = access.get(channelId)
+    access.set(channelId, {
+      joinedSequence: previous ? Math.min(previous.joinedSequence, joinedSequence) : joinedSequence,
+      includesEarlierHistory: Boolean(previous?.includesEarlierHistory || includesEarlierHistory),
+      includesEarlierSummary: Boolean(previous?.includesEarlierSummary || includesEarlierSummary),
+    })
+  }
+  return access
+}
+
+function groupMessageVisibleCondition(
+  input: {
+    channelId: SQL
+    sequence: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  },
+  includesEarlier: (history: GroupHistoryAccess) => boolean
+): SQL {
+  const conditions = [...input.access].map(([channelId, history]) =>
+    includesEarlier(history)
+      ? sql`${input.channelId} = ${channelId}::uuid`
+      : sql`(${input.channelId} = ${channelId}::uuid and ${input.sequence} >= ${history.joinedSequence})`
+  )
+  return conditions.length ? (or(...conditions) ?? sql`false`) : sql`false`
+}
+
+/** SQL predicate for messages a user may see under effective group history. */
+export function groupHistoryMessageVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageVisibleCondition(input, (history) => history.includesEarlierHistory)
+}
+
+/** Aggregate summaries need their own grant; earlier-history access is not enough. */
+export function groupSummaryMessageVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageVisibleCondition(input, (history) => history.includesEarlierSummary)
+}
+
+function groupMessageAndThreadVisibleCondition(
+  input: {
+    channelId: SQL
+    sequence: SQL
+    threadRootMessageId: SQL
+    replyToMessageId?: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  },
+  messageVisibility: (input: {
+    channelId: SQL
+    sequence: SQL
+    access: ReadonlyMap<string, GroupHistoryAccess>
+  }) => SQL
+): SQL {
+  const visibleRoot = messageVisibility({
+    channelId: sql.raw('history_root.channel_id'),
+    sequence: sql.raw('history_root.sequence'),
+    access: input.access,
+  })
+  const visibleReply = input.replyToMessageId
+    ? sql`(
+        ${input.replyToMessageId} is null
+        or exists (
+          select 1 from ${messages} as history_reply_parent
+          where history_reply_parent.id = ${input.replyToMessageId}
+            and history_reply_parent.channel_id = ${input.channelId}
+            and ${messageVisibility({
+              channelId: sql.raw('history_reply_parent.channel_id'),
+              sequence: sql.raw('history_reply_parent.sequence'),
+              access: input.access,
+            })}
+        )
+      )`
+    : sql`true`
+  return sql`(
+    ${messageVisibility({
+      channelId: input.channelId,
+      sequence: input.sequence,
+      access: input.access,
+    })}
+    and (
+      ${input.threadRootMessageId} is null
+      or exists (
+        select 1 from ${messages} as history_root
+        where history_root.id = ${input.threadRootMessageId}
+          and history_root.channel_id = ${input.channelId}
+          and ${visibleRoot}
+      )
+    )
+    and ${visibleReply}
+  )`
+}
+
+/** A visible reply cannot reveal a thread root the reader cannot see. */
+export function groupHistoryMessageAndThreadVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  threadRootMessageId: SQL
+  replyToMessageId?: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageAndThreadVisibleCondition(input, groupHistoryMessageVisibleCondition)
+}
+
+export function groupSummaryMessageAndThreadVisibleCondition(input: {
+  channelId: SQL
+  sequence: SQL
+  threadRootMessageId: SQL
+  replyToMessageId?: SQL
+  access: ReadonlyMap<string, GroupHistoryAccess>
+}): SQL {
+  return groupMessageAndThreadVisibleCondition(input, groupSummaryMessageVisibleCondition)
+}
+
+/** SQL predicate shared by product queries that expose channels to a user. */
+export function userChannelVisibility(input: {
+  channelId: SQL
+  inForceGroupIds: readonly string[]
+  kind: SQL
+  userId: string
+  visibility: SQL
+}): SQL {
+  const groupInForce = input.inForceGroupIds.length
+    ? sql`${input.channelId} in (${sql.join(
+        input.inForceGroupIds.map((id) => sql`${id}::uuid`),
+        sql`, `
+      )})`
+    : sql`false`
+  return sql`(case when ${input.kind} = 'group' then ${groupInForce} else (
+    ${input.visibility} = 'workspace'
+    or exists (
+      select 1 from ${channelParticipants} as roster_row
+      where roster_row.channel_id = ${input.channelId}
+        and roster_row.principal_kind = 'user'
+        and roster_row.user_id = ${input.userId}
+    )
+  ) end)`
 }
 
 /**
@@ -643,19 +975,24 @@ export async function requireGroupParticipantLiveness(
  * Source-workspace standing for an enlisted Agent (M15.01 scope
  * reconciliation, adea-ai/adea#1178). The host workspace never confers
  * authority over foreign Agents, so liveness is proven where the Agent
- * actually lives: the row must exist, be active, and its true home
- * workspace must equal the grant's claimed source. A spoofed source, an
- * unknown id or an inactive Agent fails the whole roster with a typed
- * `GroupCreationError` and zero writes — never by host equality.
+ * actually lives. Source authorization is rechecked under a transaction lock
+ * before any grant write; unauthorized or unknown Agents are returned as
+ * unavailable, while an authorized caller receives a typed rejection for an
+ * inactive Agent or mismatched source claim.
  */
 export async function requireAgentEnlistmentSource(
-  database: GroupStoreDatabase,
+  database: AgentHqTransaction,
   candidateIndex: number,
   agentId: string,
-  claimedWorkspaceId: string
+  claimedWorkspaceId: string,
+  principal: UserPrincipalRef,
+  barrier: Readonly<{
+    afterSourceAuthorityLocks?: () => Promise<void>
+    afterAgentLock?: () => Promise<void>
+  }> = {}
 ) {
   const participant = { agentId, kind: 'agent' } as const
-  const reject = (reason: 'agent_unknown' | 'agent_inactive' | 'grant_workspace_mismatch') => {
+  const reject = (reason: 'agent_inactive' | 'grant_workspace_mismatch') => {
     throw new GroupCreationError([{ candidateIndex, participant, reason, scope: 'candidate' }])
   }
   const [agent] = await database
@@ -663,9 +1000,56 @@ export async function requireAgentEnlistmentSource(
     .from(agents)
     .where(eq(agents.id, agentId))
     .limit(1)
-  if (!agent) return reject('agent_unknown')
-  if (agent.lifecycleState !== 'active') return reject('agent_inactive')
-  if (agent.workspaceId !== claimedWorkspaceId) return reject('grant_workspace_mismatch')
+  // An unknown Agent and a real Agent whose source workspace is unavailable
+  // must be indistinguishable to the host caller.
+  if (!agent) throw new Error('Agent unavailable')
+
+  // Resolve authority only from the canonical Agent row, then hold both the
+  // membership and workspace rows through the grant write. A concurrent
+  // membership removal, role change, or workspace deletion therefore orders
+  // before or after this transaction instead of racing an earlier route check.
+  const [membership] = await database
+    .select({ role: workspaceMemberships.role, deletionPending: workspaces.deletionRequestedAt })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMemberships.workspaceId))
+    .where(
+      and(
+        eq(workspaceMemberships.workspaceId, agent.workspaceId),
+        eq(workspaceMemberships.userId, principal.userId),
+        isNull(workspaces.deletedAt)
+      )
+    )
+    .for('share')
+  const authorization = await authorizeWorkspaceAction(
+    { permission: 'workspace.update', principal, workspaceId: agent.workspaceId },
+    {
+      findMembership: async () =>
+        membership
+          ? {
+              role: membership.role,
+              deletionPending: membership.deletionPending !== null,
+            }
+          : null,
+    }
+  )
+  if (!authorization.allowed) throw new Error('Agent unavailable')
+  await barrier.afterSourceAuthorityLocks?.()
+
+  // Archive checks source membership and workspace with compatible SHARE
+  // locks, then updates the Agent row. The Agent row is the serialization
+  // point: lock it after the source authority rows and recheck its canonical
+  // workspace and lifecycle through the grant write.
+  const [lockedAgent] = await database
+    .select({ lifecycleState: agents.lifecycleState, workspaceId: agents.workspaceId })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+    .for('share')
+  if (!lockedAgent || lockedAgent.workspaceId !== agent.workspaceId)
+    throw new Error('Agent unavailable')
+  if (lockedAgent.lifecycleState !== 'active') return reject('agent_inactive')
+  if (lockedAgent.workspaceId !== claimedWorkspaceId) return reject('grant_workspace_mismatch')
+  await barrier.afterAgentLock?.()
 }
 
 /**

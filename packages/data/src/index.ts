@@ -4,6 +4,9 @@ import type { AccountDirectoryPageInput } from '@adea-ai/types/account-directory
 import type { TaskSummary } from '@adea-ai/types'
 import { workspaceStore } from '@adea-ai/state'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
+import { projectQueryKeys } from './project-query-keys'
+
+export { projectQueryKeys } from './project-query-keys'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 export * from './dev-runtime'
@@ -43,13 +46,6 @@ export const workspaceQueryKeys = {
   list: ['workspaces', 'list'] as const,
 }
 
-export const projectQueryKeys = {
-  all: (workspaceId: string) => ['workspaces', workspaceId, 'projects'] as const,
-  detail: (workspaceId: string, projectId: string) =>
-    ['workspaces', workspaceId, 'projects', 'detail', projectId] as const,
-  list: (workspaceId: string) => ['workspaces', workspaceId, 'projects', 'list'] as const,
-}
-
 export const agentQueryKeys = {
   all: (workspaceId: string) => ['workspaces', workspaceId, 'agents'] as const,
   detail: (workspaceId: string, agentId: string) =>
@@ -82,7 +78,9 @@ export const artifactQueryKeys = {
 export const accountQueryKeys = {
   all: ['account'] as const,
   summary: ['account', 'summary'] as const,
+  directoryAll: ['account', 'directory'] as const,
   directory: (input: AccountDirectoryPageInput = {}) => ['account', 'directory', input] as const,
+  inboxAll: ['account', 'inbox'] as const,
   inbox: (input: AccountDirectoryPageInput = {}) => ['account', 'inbox', input] as const,
 }
 
@@ -156,7 +154,8 @@ function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string)
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
-    // The account summary counts this workspace's unread channels too.
+    // The account summary and inbox project this workspace's unread state.
+    void invalidateAccountInbox(queryClient)
     void queryClient.invalidateQueries({ queryKey: accountQueryKeys.summary })
   }
 }
@@ -295,6 +294,7 @@ function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
   ) => {
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
+    void invalidateAccountInbox(queryClient)
     await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
   }
 }
@@ -367,6 +367,7 @@ function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, c
     if (!currentConversationMutation(workspaceId, context)) return
     queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
     const targetChannelId = channelId ?? result.message.channelId
+    void invalidateAccountInbox(queryClient)
     await queryClient.invalidateQueries({
       queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
     })
@@ -716,7 +717,7 @@ export const agentMutationOptions = {
       }),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToProject']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -724,14 +725,14 @@ export const agentMutationOptions = {
       client.createAgent(workspaceId, input),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['createAgent']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (agentId: string) => client.archiveAgent(workspaceId, agentId),
     onSuccess: async (_result: unknown, agentId: string) => {
       queryClient.removeQueries({ queryKey: agentQueryKeys.detail(workspaceId, agentId) })
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   profile: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -743,7 +744,7 @@ export const agentMutationOptions = {
     ) => client.changeAgentProfile(workspaceId, input.agentId, input.profile),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['changeAgentProfile']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
   presentation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
@@ -755,9 +756,24 @@ export const agentMutationOptions = {
     ) => client.updateAgentPresentation(workspaceId, input.agentId, input.presentation),
     onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['updateAgentPresentation']>>) => {
       queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
-      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+      await invalidateAgentDirectory(queryClient, workspaceId)
     },
   }),
+}
+
+/**
+ * Agent writes change both their workspace roster and the account search. Only
+ * the roster is awaited: the account list is supplemental, so a slow or failing
+ * account query must never hold a save open.
+ */
+async function invalidateAgentDirectory(queryClient: QueryClient, workspaceId: string) {
+  void queryClient.invalidateQueries({ queryKey: accountQueryKeys.directoryAll })
+  await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+}
+
+/** Fire and forget for the same reason: supplemental account rows never gate a write. */
+function invalidateAccountInbox(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({ queryKey: accountQueryKeys.inboxAll })
 }
 
 export const projectQueryOptions = {
@@ -862,6 +878,14 @@ export const workspaceMutationOptions = {
       })
     },
   }),
+  importPortable: (client: AgentHqApiClient, queryClient: QueryClient) => ({
+    mutationFn: (bundleText: string) => client.importWorkspace(bundleText),
+    onSuccess: async () => {
+      // The restored workspace joins the owner's list under its own ID; the list refetch is how
+      // the sidebar and the workspace switcher learn about it.
+      await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.list })
+    },
+  }),
   update: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (
       input: Readonly<{
@@ -893,9 +917,13 @@ export const workspaceMutationOptions = {
     },
   }),
   archive: (client: AgentHqApiClient, queryClient: QueryClient) => ({
-    mutationFn: (workspaceId: string) => client.archiveWorkspace(workspaceId),
-    onSuccess: async (_result: unknown, workspaceId: string) => {
-      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(workspaceId) })
+    mutationFn: (input: Readonly<{ confirmed: true; workspaceId: string }>) =>
+      client.archiveWorkspace(input.workspaceId, { confirmed: input.confirmed }),
+    onSuccess: async (
+      _result: unknown,
+      input: Readonly<{ confirmed: true; workspaceId: string }>
+    ) => {
+      queryClient.removeQueries({ queryKey: workspaceQueryKeys.detail(input.workspaceId) })
       await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.all })
     },
   }),
@@ -1019,6 +1047,11 @@ export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
   return useMutation(() => workspaceMutationOptions.create(client, queryClient))
+}
+
+export function useImportPortableWorkspaceMutation(client: AgentHqApiClient) {
+  const queryClient = useQueryClient()
+  return useMutation(() => workspaceMutationOptions.importPortable(client, queryClient))
 }
 
 export function useArchiveWorkspaceMutation(client: AgentHqApiClient) {
@@ -1267,6 +1300,14 @@ export function useCreateDirectChannelMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.direct(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useCreateDirectTopicMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.directTopic(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useCreateGroupChannelMutation(

@@ -1,13 +1,13 @@
 @import 'tailwindcss';
-/* Published UI owns structural and framework tokens. The generated catalogue
-   sheet below applies those same projections before hydration. */
+/* Published UI owns structural and framework tokens, and the catalogue sheet
+   (theme-variants.css) that applies the same projections before hydration. */
 @import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
+@import '@adea-ai/ui/theme-variants.css';
 @import '@adea-ai/ui/appearance-font-settings.css';
 @import '@adea-ai/ui/fonts.css';
 @import '@adea-ai/app-ui/base.css';
 @import '@adea-ai/app-ui/theme.css';
-@import '@adea-ai/app-ui/canonical-themes.css';
 @import '@adea-ai/app-ui/auth-shell.css';
 @import '@adea-ai/app-ui/workspace-shell.css';
 @import '@adea-ai/app-ui/conventional-workspace.css';
@@ -26,79 +26,6 @@ html {
   font-size: 16px;
 }
 
-.browser-auth-mode {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border: 1px solid var(--auth-border);
-  border-radius: 0.6rem;
-  background: var(--auth-surface-strong);
-}
-
-.browser-auth-mode button,
-.browser-auth-form button[type='submit'] {
-  min-height: 2.75rem;
-  border: 0;
-  border-radius: 0.45rem;
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.browser-auth-mode button {
-  background: transparent;
-  color: var(--auth-muted-strong);
-}
-
-.browser-auth-mode button[aria-pressed='true'] {
-  background: var(--auth-surface);
-  color: var(--auth-foreground);
-}
-
-.browser-auth-form {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1.25rem;
-}
-
-.browser-auth-form label {
-  display: grid;
-  gap: 0.45rem;
-  font-size: calc(0.875rem * var(--font-ui-scale, 1));
-  font-weight: 650;
-}
-
-.browser-auth-form input {
-  min-height: 2.75rem;
-  padding: 0 0.8rem;
-  border: 1px solid var(--auth-border-subtle);
-  border-radius: 0.45rem;
-  background: var(--auth-background);
-  color: var(--auth-foreground);
-  font: inherit;
-}
-
-.browser-auth-form input:focus-visible,
-.browser-auth-mode button:focus-visible,
-.browser-auth-form button[type='submit']:focus-visible {
-  outline: 3px solid var(--auth-foreground);
-  outline-offset: 2px;
-}
-
-.browser-auth-error {
-  min-height: 1.25rem;
-  margin: 0;
-  color: var(--destructive);
-  font-size: calc(0.85rem * var(--font-ui-scale, 1));
-  line-height: 1.45;
-}
-
-.browser-auth-form button[type='submit'] {
-  background: var(--auth-accent);
-  color: var(--auth-accent-foreground);
-}
-
 .browser-auth-success-mark {
   display: grid;
   width: 3rem;
@@ -114,21 +41,6 @@ html {
   width: 1.35rem;
   height: 1.35rem;
   stroke-width: 2.5;
-}
-
-.browser-auth-mode button:disabled,
-.browser-auth-form input:disabled,
-.browser-auth-form button[type='submit']:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.browser-auth-continue {
-  display: block;
-  margin-top: 1rem;
-  color: var(--auth-muted-strong);
-  font-size: calc(0.875rem * var(--font-ui-scale, 1));
-  text-align: center;
 }
 
 .workspace-shell {
@@ -179,7 +91,7 @@ html {
   height: 0.42rem;
   border-radius: 999px;
   background: var(--surface-active);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--surface-active) 10%, transparent);
+  box-shadow: 0 0 0 3px var(--surface-hover);
 }
 
 .workspace-scene-caption {
@@ -188,10 +100,10 @@ html {
   left: 1.25rem;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  color: color-mix(in srgb, var(--foreground) 68%, transparent);
+  gap: 0.5rem;
+  color: var(--muted-foreground);
   font-family: var(--font-code, var(--font-mono));
-  font-size: calc(0.58rem * var(--font-ui-scale, 1));
+  font-size: var(--text-2xs);
   letter-spacing: 0.03em;
 }
 

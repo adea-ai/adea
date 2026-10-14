@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
 
-// Runs the Playwright half of the E2E lane after scripts/e2e-setup.mjs has
-// prepared the database. When the Code Foundry E2E lane fans out into shards
-// (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned with Playwright's
-// native --shard so each runner executes a slice of the suite against its own
-// runner-local database. Without shard variables the invocation is unchanged.
+// Runs the Playwright half of the E2E lane after scripts/e2e-run.mjs has
+// prepared the database, browser, and web build. When the Code Foundry E2E lane
+// fans out into shards (E2E_TOTAL_SHARDS > 1), the main spec run is partitioned
+// with Playwright's native --shard so each runner executes a slice of the suite
+// against its own runner-local database. Without shard variables the invocation
+// is unchanged.
 const specs = [
   'apps/web/e2e/workspace-guest.spec.ts',
   // The new-workspace creation draft: owner wording in the chat and Dev sidebars (#1264).
@@ -27,6 +28,10 @@ const specs = [
   'apps/web/e2e/chat-transcript-composition.spec.ts',
   'apps/web/e2e/desktop-runtime-chat.spec.ts',
   'apps/web/e2e/desktop-first-run-chat.spec.ts',
+  // Direct-session handoff (#1177): mounted proof over the production
+  // resolver with fixture transports — own ephemeral harness server,
+  // no database, safe in every shard.
+  'apps/web/e2e/direct-session-handoff.spec.ts',
   'apps/web/e2e/plugins-loading.spec.ts',
   'apps/web/e2e/workspace-form.spec.ts',
   'apps/web/e2e/workspace-settings.spec.ts',
@@ -48,9 +53,9 @@ const specs = [
   // routes: real HTTP against the app server and the real database, no route
   // mocks. See the spec header for the coverage-class split it complements.
   'apps/web/e2e/account-directory-auth.spec.ts',
-  // The UI-operating sibling: search, the archive scope, the linked-job round
-  // trip and reconnect convergence, driven through the real directory and
-  // inbox surfaces instead of fetching their APIs from the page.
+  // The UI-operating sibling: account results embedded in existing sidebar
+  // surfaces, the linked-job round trip and reconnect convergence, driven
+  // through the real workspace-navigation host.
   'apps/web/e2e/account-directory-ui.spec.ts',
   // Cross-product session journeys (#1223): chat continuity and
   // workspace/project placement over real app routes with isolated
@@ -60,6 +65,16 @@ const specs = [
   // Agent edit revisions (#1213): stale-open conflict, partial multi-step save and
   // refetch resume for the revision-guarded presentation/placement/profile save.
   'apps/web/e2e/agent-edit-revision.spec.ts',
+  // Several conversations with one Agent (Pi Durable REQ 060): New conversation starts a
+  // distinct named topic beside the default lane, over real routes with no mocks.
+  'apps/web/e2e/agent-topics.spec.ts',
+  // Lead model-role choices (#1211): the requested-reference picker, composer carry-through and
+  // the mismatch refusal, mounted over module-only fixtures that need no host inputs. The
+  // connected CP journey is deliberately absent: it is the opt-in PI_ROLE_CONNECTED_PROOF lane
+  // behind the hash-verified candidate wrapper.
+  'apps/web/e2e/lead-role-choices.spec.ts',
+  // Lead payer journey (#1211): the same module-only fixture class.
+  'apps/web/e2e/lead-payer-journey.spec.ts',
   // Archive and reopen of optional workspaces (#1175): the real shell end to end, and the
   // targeted settings harness for the confirmation, refusal and retry cases.
   'apps/web/e2e/workspace-archive-lifecycle.spec.ts',
@@ -67,6 +82,10 @@ const specs = [
   // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
   // target and a revisit by the same ID selects it again. No route mocks.
   'apps/web/e2e/workspace-deeplink-real.spec.ts',
+  // History tab (#716): prompts with reply summaries, search and its accessible
+  // names, and paging across the 1,000-event window, mounted over module-only
+  // fixtures that need no host inputs.
+  'apps/web/e2e/history-pane.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
@@ -89,8 +108,6 @@ function run(command, args) {
   }
 }
 
-run('bunx', ['playwright', 'install', '--with-deps', 'chromium'])
-run('bunx', ['turbo', 'run', 'build', '--filter=@adea-ai/web^...'])
 run('playwright', ['test', '--config=playwright.config.ts', ...shardArgs, ...specs])
 
 // The event-listener regression probe is a single test. Running it once (on

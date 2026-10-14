@@ -129,7 +129,6 @@ function scopeRefFor(product: CurrentLeadTurnProduct): string {
         profileId: product.profileId,
         profileVersion: product.profileVersion,
         profileRevision: product.profileRevision,
-        // #1232: a requested lead or child selection is part of the exact scope, so pins differ when it differs.
         ...(product.requestedModelSelections
           ? { requestedModelSelections: product.requestedModelSelections }
           : {}),

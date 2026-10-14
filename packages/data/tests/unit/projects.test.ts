@@ -3,6 +3,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { QueryClient } from '@tanstack/solid-query'
 
 import { projectMutationOptions, projectQueryKeys, projectQueryOptions } from '../../src'
+import { projectRestoreMutationOptions } from '../../src/project-restore'
 
 const project = {
   createdAt: '2026-08-30T00:00:00.000Z',
@@ -58,7 +59,7 @@ describe('project query contracts', () => {
         return { project: restored }
       }) as unknown as AgentHqApiClient['restoreProject'],
     })
-    const options = projectMutationOptions.restore(api, queryClient, 'workspace-1')
+    const options = projectRestoreMutationOptions.restore(api, queryClient, 'workspace-1')
     const result = await options.mutationFn({
       input: { confirmed: true, expectedVersion: 7 },
       projectId: 'project-1',

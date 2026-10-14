@@ -43,6 +43,7 @@ import {
 import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
 import type { GhRunner } from '../shell/src/dev-runtime/github/register'
+import type { HarnessDiscoverySource } from '../shell/src/dev-runtime/discovery/types'
 import { createManagedPiDriver } from '../shell/src/dev-runtime/harness/managed-pi-driver'
 import { connectSidecarClient } from '../shell/src/dev-runtime/terminal/sidecar/client'
 import {
@@ -120,7 +121,9 @@ function errorOf(reply: DevReply): { code: string; message: string } {
   return reply.error as { code: string; message: string }
 }
 
-async function boot(options: { runGh?: GhRunner } = {}) {
+async function boot(
+  options: { runGh?: GhRunner; discoverySources?: readonly HarnessDiscoverySource[] } = {}
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-connections-launch-'))
   const stateDir = join(dataDir, 'desktop-state')
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
@@ -194,6 +197,7 @@ async function boot(options: { runGh?: GhRunner } = {}) {
     resolveDns: () => Promise.resolve([]),
     worktreeService: fakeWorktreeService,
     ...(options.runGh ? { runGh: options.runGh } : {}),
+    ...(options.discoverySources ? { discoverySources: options.discoverySources } : {}),
     managedPi: createManagedPiDriver({
       scope: SCOPE_A,
       dataDir,
@@ -417,6 +421,110 @@ describe('workspace harness accounts at launch', () => {
       })
       expect(errorOf(await launch(shell, session)).code).toBe('auth_required')
       expect(shell.spawnInputs()).toHaveLength(0)
+    } finally {
+      shell.dispose()
+    }
+  })
+})
+
+describe('device default launch with a workspace account', () => {
+  const OPENAI_SECRET = `sk-${randomBytes(16).toString('hex')}`
+  // Codex is installed but its own login is missing.
+  const loggedOutCodex: HarnessDiscoverySource = {
+    driverId: 'test-local',
+    driverVersion: '1',
+    transport: 'direct_local',
+    discover: async () => ({
+      connections: [
+        {
+          family: 'codex',
+          displayName: 'Codex',
+          provenance: 'user_managed' as const,
+          executableIdentity: '/opt/test/bin/codex',
+          executableLabel: 'codex (path)',
+          protocol: 'native' as const,
+          acpAvailability: 'unavailable' as const,
+          version: '1.2.3',
+          auth: 'required' as const,
+          health: 'healthy' as const,
+          capabilities: ['native', 'models', 'resume'],
+          sessionOperations: ['session.new', 'session.resume'],
+          entitlementHints: ['user_managed'],
+          limitations: [],
+          models: [],
+        },
+      ],
+      diagnostics: [],
+    }),
+  }
+
+  function launchDefault(shell: Shell, session: { id: string; generation: number }) {
+    return shell.execute(
+      commandFor(
+        'dev.session.launchDefault',
+        {
+          runtimeSessionId: session.id,
+          expectedGeneration: session.generation,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+          attachTerminal: true,
+        },
+        { resource: { kind: 'runtime_session', id: session.id, generation: session.generation } }
+      )
+    )
+  }
+
+  async function discoverAndDefaultToCodex(shell: Shell) {
+    okValue(await shell.execute(commandFor('dev.harness.inventoryRefresh', {})))
+    okValue(
+      await shell.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', { family: 'codex', expectedVersion: 0 })
+      )
+    )
+  }
+
+  test('without an account, a logged-out device default is not launched', async () => {
+    const shell = await boot({ discoverySources: [loggedOutCodex] })
+    try {
+      const session = await readySession(shell)
+      await discoverAndDefaultToCodex(shell)
+      const refused = await launchDefault(shell, session)
+      expect(errorOf(refused).code).toBe('capability_unavailable')
+      expect(shell.spawnInputs()).toHaveLength(0)
+    } finally {
+      shell.dispose()
+    }
+  })
+
+  test('the workspace account for the family is resolved first and satisfies the missing login', async () => {
+    const shell = await boot({ discoverySources: [loggedOutCodex] })
+    try {
+      const session = await readySession(shell)
+      await discoverAndDefaultToCodex(shell)
+      const ref = shell.enroll('api.openai.com', OPENAI_SECRET, 'other')
+      const profile = okValue(
+        await shell.execute(
+          commandFor('dev.harness.accountProfiles.create', {
+            harnessId: 'codex',
+            label: 'Work Codex',
+            credentialRefId: ref.id,
+          })
+        )
+      )
+      const current = okValue(await shell.execute(commandFor('dev.connections.get', {})))
+      okValue(
+        await shell.execute(
+          commandFor('dev.connections.setHarnessAccount', {
+            harnessId: 'codex',
+            profileId: profile.id,
+            expectedVersion: current.version,
+          })
+        )
+      )
+      const run = okValue(await launchDefault(shell, session))
+      expect(run.state).toBe('starting')
+      expect(shell.spawnInputs()[0]!.env.OPENAI_API_KEY).toBe(OPENAI_SECRET)
+      expect(JSON.stringify(run)).not.toContain(OPENAI_SECRET)
     } finally {
       shell.dispose()
     }

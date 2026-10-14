@@ -82,12 +82,22 @@ async function mockBootstrap(page: Page) {
   await page.route('**/api/workspaces/bootstrap', (route) =>
     route.fulfill({ contentType: 'application/json', json: bootstrapReply })
   )
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({ contentType: 'application/json', json: [workspace] })
+  )
+  await page.route('**/api/v1/account/summary', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
+  )
   // The fixture surface needs no workspace data; blanket-mock the workspace
   // API namespace (as the workspace visual/flow gates do) so no unauthenticated
   // request reaches the real backend and logs a console error.
-  await page.route('**/api/v1/workspaces/**', (route) =>
-    route.fulfill({ contentType: 'application/json', json: {} })
-  )
+  await page.route('**/api/v1/workspaces/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    const isList = ['/projects', '/tasks', '/agents', '/channels', '/artifacts'].some((suffix) =>
+      path.endsWith(suffix)
+    )
+    return route.fulfill({ contentType: 'application/json', json: isList ? [] : {} })
+  })
 }
 
 async function openChatFixture(page: Page, state: string) {
@@ -665,12 +675,12 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
 
   // Make session-scoped state: select the second project's session (which
   // mirrors into devProject/devSession URL params), then collapse its project.
-  const otherSession = page.getByRole('button', { name: 'Other project session' })
+  const otherSession = page.getByRole('treeitem', { name: /feature\/runtime Needs you/ })
   await otherSession.click()
-  await expect(otherSession).toHaveAttribute('aria-current', 'page')
+  await expect(otherSession).toHaveAttribute('aria-selected', 'true')
   await expect(page).toHaveURL(/devProject=fixture-tools/)
   await expect(page).toHaveURL(/devSession=fixture-tools-session/)
-  const project = page.getByRole('button', { name: /^Runtime tools/ })
+  const project = page.getByRole('treeitem', { name: 'Runtime tools' })
   await project.click()
   await expect(project).toHaveAttribute('aria-expanded', 'false')
 
@@ -695,18 +705,17 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
     })
     await expect(page).toHaveURL(/devProject=fixture-tools/)
     await expect(page).toHaveURL(/devSession=fixture-tools-session/)
-    const collapsedProject = page.getByRole('button', { name: /^Runtime tools/ })
+    const collapsedProject = page.getByRole('treeitem', { name: 'Runtime tools' })
     await expect(collapsedProject).toHaveAttribute('aria-expanded', 'false')
     // Expanding the surviving collapse state reveals the surviving selection.
     await collapsedProject.click()
-    await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
-      'aria-current',
-      'page'
-    )
+    await expect(
+      page.getByRole('treeitem', { name: /feature\/runtime Needs you/ })
+    ).toHaveAttribute('aria-selected', 'true')
     // Re-collapse for the next cycle so every cycle starts from the same
     // state and proves the fact was re-preserved, not left mounted.
-    await page.getByRole('button', { name: /^Runtime tools/ }).click()
-    await expect(page.getByRole('button', { name: /^Runtime tools/ })).toHaveAttribute(
+    await page.getByRole('treeitem', { name: 'Runtime tools' }).click()
+    await expect(page.getByRole('treeitem', { name: 'Runtime tools' })).toHaveAttribute(
       'aria-expanded',
       'false'
     )

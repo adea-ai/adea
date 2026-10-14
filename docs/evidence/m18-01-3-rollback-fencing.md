@@ -12,15 +12,18 @@ control-plane integration is safe (see the CP contract below).
   transaction locks the intent and runtime rows. A user actor must be a current workspace owner or
   admin, checked under lock. A repeat call returns the original attribution unchanged.
 - **Historical boundary** (`withHistoricalLeadTurn`, `lead-turns.ts`). Existing admissions are
-  observed, reconciled and cancelled through it. Current workspace membership, current channel
-  participation and the channel row are checked on every call. For an archived channel the pinned
-  execution comparison is replaced by those live checks, because archival bumps the channel version.
-  An active channel keeps the full pinned `lockAuthority` path unchanged.
-- **Canonical readers now use the historical boundary:** `readLeadTurnRuntime`,
-  `getLeadTurnForUser`, `getLatestLeadTurnForChannel`, `observeLeadTurnRuntime`,
-  `recoverLeadTurnRuntimeBinding`, `requestLeadTurnCancellation` (actor only, with the same
+  observed, reconciled and cancelled through it with an explicit purpose: `read`, `bind` or `cancel`.
+  Current workspace membership, current channel participation and the channel row are checked on every
+  call, and the reader must still be able to see the message. For an archived channel the pinned execution
+  comparison is replaced by those live checks, because archival bumps the channel version. An active direct
+  channel keeps the full pinned `lockAuthority` path unchanged. An active group admission (#1232) is reachable
+  only through `bind` and `cancel`, only for the original claim holder, and with the full current group
+  authority of an effect. Reads never reach a group, and archived groups are denied for every purpose.
+- **Canonical readers now use the historical boundary:** `readLeadTurnRuntime` (purpose `read` by default),
+  `getLeadTurnForUser`, `getLatestLeadTurnForChannel`, `observeLeadTurnRuntime` and
+  `recoverLeadTurnRuntimeBinding` (`bind`), `requestLeadTurnCancellation` (`cancel`: actor only, with the same
   `runtime.invoke` and audience checks as an active cancel), `readLeadTurnRollbackState`, and
-  `resolveLeadTurnAuthority` with purpose `read` or `cancel`.
+  `resolveLeadTurnAuthority` with purpose `read`, `cancel` or `effect`.
 - **App runtime purposes** (`apps/web` `LeadRuntimeStore.authorize`): `status`, `progress`, the
   binding-recovery recheck and the snapshot request `read`. `cancel` requests `cancel`. `prepare` and
   `dispatch` request `effect`.
@@ -35,21 +38,25 @@ control-plane integration is safe (see the CP contract below).
 
 ## Authority purposes
 
-| Purpose                                                         | Who                                                        | Archived channel  | Fenced admission                                                   |
-| --------------------------------------------------------------- | ---------------------------------------------------------- | ----------------- | ------------------------------------------------------------------ |
-| read / observe / recover                                        | current workspace member and current user participant      | allowed (REQ 045) | allowed (reconcile)                                                |
-| cancel                                                          | original actor, plus `runtime.invoke` and audience members | allowed (REQ 045) | allowed (reconcile)                                                |
-| effect (prepare, dispatch, funding, new turn, publish, product) | original actor, active channel, pinned                     | denied            | denied for prepare, dispatch, funding, publish; product fence-only |
+| Purpose                                                         | Who                                                        | Archived channel  | Active group channel                 | Fenced admission                                                   |
+| --------------------------------------------------------------- | ---------------------------------------------------------- | ----------------- | ------------------------------------ | ------------------------------------------------------------------ |
+| read                                                            | current workspace member and current user participant      | allowed (REQ 045) | denied                               | allowed (reconcile)                                                |
+| bind (observe, recover binding)                                 | current participant                                        | allowed (REQ 045) | original claim holder only           | allowed (reconcile)                                                |
+| cancel                                                          | original actor, plus `runtime.invoke` and audience members | allowed (REQ 045) | original claim holder only           | allowed (reconcile)                                                |
+| effect (prepare, dispatch, funding, new turn, publish, product) | original actor, active channel, pinned                     | denied            | original actor, full group authority | denied for prepare, dispatch, funding, publish; product fence-only |
 
-Redispatch is denied by every path: archived or fenced, `prepare` and `markDispatchPending` refuse.
+An active group admission takes the same current authority as an effect (effective admission, live lead,
+participants, audience and role) through `lockAuthority`, and only for its original claim holder. Archived group
+admissions stay denied for every purpose, because no group history rule exists yet. Redispatch is denied by every
+path: archived or fenced, `prepare` and `markDispatchPending` refuse.
 
-## Schema (for root ordering)
+## Schema
 
-Migration file: `packages/db/drizzle/0051_lead_turn_rollback_fence.sql`, journal idx 51, snapshot
-`meta/0051_snapshot.json` with `prevId` = canonical 0050 (`abcf1389-…`). Root reserved 0051 for rollback
-after canonical 0047–0050, which this branch imports byte-identical from
-`feat/group-participation-policy-1178`. Its SQL depends only on `lead_turn_intents` (0043). No other table
-is changed.
+Migration file: `packages/db/drizzle/0053_lead_turn_rollback_fence.sql`, journal idx 53, snapshot
+`meta/0053_snapshot.json` generated by drizzle-kit on top of canonical `0052_lead_handoff_target`. Its SQL depends
+only on `lead_turn_intents` (0043). No other table is changed. This slot was chosen by rebasing onto main at 0052; the
+earlier 0047 and 0051 slots are gone, so whichever of this and the addressed-agent coordinator migration merges
+second takes the next free number.
 
 On `app.lead_turn_intents`, all new columns are nullable with no default:
 
@@ -68,12 +75,6 @@ On `app.lead_turn_intents`, all new columns are nullable with no default:
   change or be cleared. Unrelated updates still pass. This is hand-written SQL appended to the
   migration, following the plpgsql precedent in `0033`. drizzle does not model triggers.
 - No index. Writes go only through `fenceLeadTurnForRollback`.
-
-**Reconciled.** The earlier local `0047` is removed. Canonical `0047_requested_role_model_selections`
-through `0050_group_legacy_backfill` are imported unchanged. The rollback SQL and trigger are unchanged
-and now live at `0051`, with a snapshot that is canonical 0050 plus the five columns and four checks above.
-Conflicts that remain for root, including #1177's divergent 0047 and its own 0051 slot, are in
-[m18-01-3-migration-collision.md](m18-01-3-migration-collision.md).
 
 ## Emitted field contract (signed current product reader)
 
@@ -284,164 +285,25 @@ were not re-verified in CP in this pass. Pre-fence code ignores the fence.
 
 ## Validation
 
-**PostgreSQL 18 run, terminal fence.** PostgreSQL 18.6, with a fresh disposable cluster per
-invocation and explicit `DATABASE_URL` and `DATABASE_MIGRATION_URL`. The server and the tests
-ran in one invocation, and heavy steps ran under `fleet-heavy`. Each run migrated and verified before any suite.
+Rebased onto `origin/main` at `f1c38ca9` (migration 0052). Local PostgreSQL 16 with the repository's own
+role setup. The packages were rebuilt before the web checks.
 
-| Step                       | Command (in `packages/db`)                                                        | Result                                                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Integration prerequisites  | `build` in `remote-content`, `types`, `auth` and `packages/db`                    | passed (tsc)                                                                                           |
-| Migration verification     | `bun run db:verify`                                                               | `Migration verification passed (52 applied migration(s))`, fresh database, then a deterministic rerun  |
-| Rollback fence and readers | `bun --conditions=react-server test tests/integration/lead-turn-rollback.test.ts` | 17 pass, 0 fail, including the A31 terminal case (1 pass when filtered with `-t "terminal admission"`) |
-| Historical boundary        | `... tests/integration/lead-turn-historical.test.ts`                              | 16 pass, 0 fail                                                                                        |
-| Envelope negatives         | `... tests/integration/lead-turn-fence-envelope-negative.test.ts`                 | 6 pass, 0 fail                                                                                         |
-| Group fence cancellation   | `... tests/integration/group-channels.test.ts -t "fenced admission"`              | 1 pass, 0 fail, 60 filtered out (first run, after `db:verify`)                                         |
-
-The terminal-fence validation above: 39 pass, 0 fail, 146 `expect()` calls.
-
-**Subsequent lock-order regression:** the parked two-connection case failed on the intent-first
-implementation. After the channel-first repair, those same three files passed together: 40 pass,
-0 fail, 149 `expect()` calls. The fresh 52-migration chain and deterministic rerun passed.
-Database typecheck and changed-source lint passed. This does not substitute for the full CI gate.
-
-CP contract: `CONTROL_PLANE_CHECKOUT=<control-plane at c67b4bd> bun --conditions=browser test test/lead-product-contract.test.ts`
-in `apps/web`: 11 pass, 0 fail, 0 skip.
-
-Not run in this pass: the full `packages/db` integration suite, the `apps/web` integration suites (for example
-`lead-product-fence-v2`, which needs `PINNED_FENCE_V2_DATABASE_URL`), E2E and the packaged suites.
-
-Harness notes, not code results: one invocation failed to bind `127.0.0.1:15444` because another wrapper run
-held the port, and it was rerun after that run exited. One per-file invocation omitted `db:verify`, so the schema
-was missing (`relation "app.users" does not exist`), and it was rerun with the migration step. No source was edited
-for these runs.
-
-**Real product proof for pinned v2 (`apps/web/test/integration/lead-product-fence-v2.test.ts`).** Runs only with
-`PINNED_FENCE_V2_DATABASE_URL`, which must name a database with the `pinned_fence_v2_` prefix. The database is
-created for the run and migrated with the repository's own migrator (`packages/db` `verify-migrations`: 52
-migrations, verification passed). The reader is the real handler, with the real DB reader and the real
-service-token verifier. Tokens are signed in memory with generated Ed25519 keys, so no operator configuration
-changes. The external CP runtime adapter is a stub, and it is the only fake. Results: 9 pass, 0 fail.
-
-- Matching: the retained v1 unfenced pins still match the v2 body after the fence. Status, progress and
-  original-actor cancel succeed through the real product service.
-- Original actor only: another admin cannot cancel, and the adapter is not called.
-- New effects: prepare, dispatch, a new attempt and publication are refused before any runtime call.
-- Concurrent actor change (membership removed while the reader runs): the read is either the matching body or
-  404, and status and cancel are refused afterwards.
-- Concurrent ownership change (role downgraded below `runtime.invoke`): read and cancel are refused.
-- Concurrent placement change: the database refuses moving the workspace lead or its topic into a project
-  (`agents_workspace_lead_standalone`). The retained pins still match.
-- Concurrent audience change (a participant added during the read): the read is either the matching body or 404. Afterwards the reader refuses, so a retained scopeRef cannot be revalidated.
-- Wrong principal, wrong workspace and wrong intent: no pins, and no lookup for a verification failure.
-- v1 and the exact v2 discriminator: a strict reference parser rejects the v1 fixture, extra fields, a trailing
-  space in the discriminator and an unknown version. It accepts the emitted v2 body and the v2 fixture.
-
-Race outcomes observed on one run: membership removal and role downgrade each returned 404 for the racing read.
-The participant add returned 404, and the placement race returned the matching v2 body, since the placement
-write was refused. No response mixed states.
-
-**Pinned v2 and fenced publication proof (this head).**
-
-- `packages/db` unit: 229 pass, 0 fail.
-- `packages/db` integration, against the migrated database at 0051, with the known base failure excluded by
-  name (`task-submissions > operator entry refuses a wrong target`, which also fails on `origin/main`):
-  243 pass, 9 skip, 0 fail. The changed `lead-turn-rollback` and `lead-turn-historical` files: 32 pass.
-- Red check on publication: with the new guard line removed from a temporary copy, the in-flight publication
-  test resolved instead of refusing. With the guard, it refuses with `LEAD_TURN_FENCED`, consults no grant, and
-  writes no message. The copy was removed afterwards.
-- `apps/web` full suite: 490 pass, 6 skip, 0 fail. The 6 skips are the CP-checkout contract tests.
-- Static: `tsc --noEmit` clean in `apps/web` and `packages/db`. `oxlint --deny-warnings` clean for `apps/web`
-  and `packages/db`. Repo `oxfmt --check .` clean.
-- Not run: `apps/web` `vite build`, E2E, packaged and desktop suites, root `test:coverage`, and the CP contract
-  tests against a CP checkout. The v2 CP refusal test is skipped without `CONTROL_PLANE_CHECKOUT`, so it did not
-  run here. Its fixture digests are in the CP proposal.
-
-**Envelope gate proof (`c75e5a174`, `apps/web` only, before the pins and publication change).**
-
-- Focused: `apps/web/test/lead-product-fence-envelope-gate.test.ts` (12 tests) and the existing
-  `lead-product-fence-envelope-negative`, `lead-product-reader-fence`, `lead-product-reader` and
-  `lead-product-contract` files: 32 pass, 5 skip (the contract tests need `CONTROL_PLANE_CHECKOUT`), 0 fail.
-- Red check: the new gate file, run against a temporary copy of the earlier committed handler, gave 7 fail
-  and 5 pass. The copy was removed afterwards.
-- Full `apps/web` test suite (`bun --conditions=browser test test/*.test.ts start/ui-tailwind-sources.test.ts`):
-  480 pass, 5 skip, 0 fail.
-- `tsc --noEmit` in `apps/web`: exit 0. `oxlint --deny-warnings apps/web`: no findings.
-  `oxfmt --check` on the changed files: clean.
-- Not re-run: `apps/web` `vite build`, since its script runs `cf-typegen` and `sync-assets`, which write
-  into the tree. The `packages/db` suites, root scans and E2E were not re-run, because this change does
-  not touch them.
-
-**Current chain proof (canonical 0047–0050, then rollback as 0051).** Local Postgres 16 container, with
-databases created for this proof only.
-
-- `db:check` passes ("Everything's fine").
-- Fresh install of the full folder: 52 migrations applied. `db:verify` passes (52 applied migrations).
-- Upgrade from canonical 0050: the folder comes from `git archive` of
-  `origin/feat/group-participation-policy-1178`. It applies 51 migrations. Three `lead_turn_intents`
-  fixture rows are seeded with FK triggers skipped for that transaction only; CHECK constraints apply.
-  The full folder then applies 0051 (52 total). A rerun is a no-op.
-- Retention: the fingerprint of the fixture rows (excluding the five new columns) and of the canonical
-  migration rows is identical before and after. Only these fixture rows exist; every other app table is
-  empty, so this proves retention for those tables only.
-- `0051` is recorded exactly once. The trigger and four checks each exist once. `pg_dump -s` of the fresh
-  and upgraded databases differs only in pg_dump's per-run `\restrict` token.
-- After the upgrade, a change to fenced attribution is refused with
-  `lead_turn_intents_rollback_fence_immutable`.
-- `lead-turn-historical` and `lead-turn-fence-envelope-negative` integration suites: 21 pass, 0 fail,
-  against the fresh full-folder database.
-- Not run on this head: the full `packages/db` integration suite and the repo CI runners. Those are
-  listed in the PR body.
-
-**Earlier run, before reconciliation (local 0001–0047 chain, kept for history).** Run on
-`feat/issue-1220-rollback-fencing` against a local Postgres 16 container, migrations 0001–0047 applied,
-`db:verify` passed (48 applied migrations).
-
-- Focused lead-turn integration suites (`lead-turn-historical`, `lead-turn-rollback`, `lead-turns`,
-  `lead-turn-runtime`, `lead-turn-product`, `lead-topic-migration`, `workspace-leads`): 51 pass,
-  0 fail.
-- Full `packages/db` integration, 60 s per-test timeout: 233 pass, 11 skip, 1 fail. The failure is
-  `task-submissions` "operator entry refuses a wrong target". It also fails on clean `origin/main` in
-  this environment, so it predates this change.
-- `packages/db` unit: 229 pass, 0 fail (14 files).
-- `apps/web` tests, using the package's own script invocation (`bun test --conditions=browser
-test/*.test.ts start/ui-tailwind-sources.test.ts`): 442 pass, 0 fail (72 files).
-- Root `format:check`: exit 0. Root `oxlint --deny-warnings`: exit 0. `packages/db` typecheck and
-  `apps/web` typecheck: exit 0.
-- Cross-product contract (`apps/web/test/lead-product-contract.test.ts`): 8 pass with
-  `CONTROL_PLANE_CHECKOUT` set to the control-plane checkout at `ec742819`. Without a checkout, 3 pass
-  and 5 skip. CI does not set the variable, so the CP-consumer tests skip in CI.
-- Negative contract checks, all passing:
-  - Adea side: expired unfenced evidence is 404 at the expiry boundary and admitted one millisecond
-    before it. An archived admission is 404 whether the lookup returns nothing or denies.
-  - Runtime, `lead-turn-negative-contract.test.ts`: a refused effect authority stops prepare and
-    dispatch before any adapter call. A fenced dispatch refused at pending reaches no runtime
-    dispatch. Archived publication is withheld.
-  - Database, `lead-turn-historical.test.ts`: a fenced admission is refused at effect authority,
-    before any runtime call. Archived effect authority is denied while archived read and cancel
-    authority stay available. Archived publication writes no message.
-  - CP side, through CP's real production authority: expired v1 evidence is `PI_PRODUCTION_PRODUCT_DENIED`,
-    and the same bytes are admitted before expiry. Fenced evidence is `PI_PRODUCT_READER_UNAVAILABLE`.
-    An archived 404 yields no evidence.
-- Code change in this pass beyond tests: `resolveLeadTurnAuthority('effect')` now refuses a fenced
-  admission before the runtime is called. This adds a denial. Previously `adapter.prepare` could run
-  before the fence check at `store.prepare`.
-- Envelope negatives against the real handlers (committed, all passing against the committed code):
-  `apps/web/test/lead-product-fence-envelope-negative.test.ts` covers the signed reader for missing,
-  stale and mismatched envelopes. `apps/web/test/lead-turn-status-cancel-negative.test.ts` covers the
-  status and cancel service for missing, stale and mismatched runtime responses.
-  `packages/db/tests/integration/lead-turn-fence-envelope-negative.test.ts` covers the rollback reader
-  and the effect and cancel authority.
-- Gaps found by probing the earlier handler, now closed on this head. (a) A product with
-  `dispatchPermitted: false` and no envelope was served as a dispatchable v1 admission. (b) A malformed
-  envelope, a `fencedAt` in the future, an unknown actor kind, or an envelope that contradicted
-  `dispatchPermitted: true` was emitted unvalidated. `readFenceEnvelope` in
-  `apps/web/src/server/lead-product-reader.ts` refuses all of these before any branch is chosen. Its tests
-  are in `apps/web/test/lead-product-fence-envelope-gate.test.ts`. Seven of them fail against the earlier
-  handler. The other five (identity and preserved behaviour) pass against both.
-- `review/lead-1244-envelope-proposal.patch` (untracked, not applied) also adds the identity and pin
-  fields. This head does not apply it. Its validation is a subset of the committed gate, which is stricter:
-  exact keys, canonical `fencedAt`, and UUID or operator-id actor refs.
-- Migration collision with #1229 is recorded in `docs/evidence/m18-01-3-migration-collision.md`.
-  Nothing is renumbered.
-- Not run in this pass: root `typecheck` via turbo (the pre-commit hook runs it on commit), root
-  `test:coverage`, Playwright E2E, packaged and desktop suites, performance, soak, and root `build`.
+- Migration chain: `drizzle-kit check` passes. `db:migrate` on a fresh database verifies 54 applied
+  migrations. A database migrated with main's folder (53) upgrades to 54 with this folder, a rerun is a no-op,
+  and the five columns, four checks and the immutability trigger each exist once.
+- `packages/db` integration, whole suite: 645 pass, 2 fail. The first failure was the pinned migration count in
+  `migration-journal-order.test.ts` (53 to 54), fixed here and passing. The second,
+  `job-outbound-result-store` "a large hidden run is gated in pages", exceeds the default 5 s test timeout in
+  this environment, is in code this change does not touch, and passes (68 pass) with `--timeout 60000`.
+- Focused: `lead-turn-rollback`, `lead-turn-historical`, `lead-turn-fence-envelope-negative`,
+  `group-lead-cancellation`, `lead-turn-runtime`, `lead-turns`, `lead-turn-product` and the rollback unit file:
+  88 pass, 0 fail. The parked two-connection race and the group claim-holder cases are in these files.
+- `packages/db` unit: 426 pass, 0 fail.
+- `apps/web` unit suite: 664 pass, 15 skip, 0 fail. `tsc --noEmit` is clean in `packages/db` and `apps/web`.
+- `apps/web` route integration, one file per process as CI runs them: `lead-turn-cancel-route` 3 pass,
+  `lead-handoff-route` 7, `lead-observed-target` 3, `lead-turn-conflict` 1; `lead-product-fence-v2` against a
+  disposable `pinned_fence_v2_` database migrated to 0053: 9 pass.
+- CP contract (`lead-product-contract.test.ts` with `CONTROL_PLANE_CHECKOUT` at control-plane `d632197`,
+  built): 11 pass, 0 fail.
+- `oxfmt --check .` and `oxlint --deny-warnings` clean.
+- Not run: `apps/web` build and bundle checks, E2E, packaged and desktop suites, root `test:coverage`.

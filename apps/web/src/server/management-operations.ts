@@ -25,14 +25,25 @@ import type {
 } from '@adea-ai/types'
 import type { ManagementCallBinding, ManagementOperationId } from '@adea-ai/types/management'
 
-import type { ManagementGateway, ManagementOutcome } from './management-gateway'
+import type {
+  ManagementEffectAssertion,
+  ManagementGateway,
+  ManagementOutcome,
+} from './management-gateway'
 
 export type ManagementExecutors = Readonly<{
   archiveProject(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
-    principal: UserPrincipalRef
+    principal: UserPrincipalRef,
+    assertEffectCurrent: ManagementEffectAssertion
+  ): Promise<void>
+  archiveWorkspace(
+    database: AgentHqDatabase,
+    workspaceId: string,
+    principal: UserPrincipalRef,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<void>
   createProject(
     database: AgentHqDatabase,
@@ -43,65 +54,75 @@ export type ManagementExecutors = Readonly<{
       id?: string
       name: string
       sourceKind?: ProjectSourceKind
-    }>
+    }>,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectSummary>
   promoteProjectState(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ confirmed: boolean; expectedVersion: number }>
+    input: Readonly<{ confirmed: boolean; expectedVersion: number }>,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectSummary>
   removeProjectMember(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    userId: string
+    userId: string,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<boolean>
   reopenWorkspace(
     database: AgentHqDatabase,
     workspaceId: string,
-    principal: UserPrincipalRef
+    principal: UserPrincipalRef,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<WorkspaceSummary>
   reorderProjects(
     database: AgentHqDatabase,
     workspaceId: string,
     principal: UserPrincipalRef,
-    projectIds: readonly string[]
+    projectIds: readonly string[],
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<readonly ProjectSummary[]>
   setProjectMember(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ role: ProjectMemberRole; userId: string }>
+    input: Readonly<{ role: ProjectMemberRole; userId: string }>,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectMemberSummary>
   setProjectVisibility(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    visibility: ProjectVisibility
+    visibility: ProjectVisibility,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectSummary>
   softDeleteProject(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
-    principal: UserPrincipalRef
+    principal: UserPrincipalRef,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<void>
   updateProject(
     database: AgentHqDatabase,
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ iconKey?: string; name?: string; sourceKind?: ProjectSourceKind }>
+    input: Readonly<{ iconKey?: string; name?: string; sourceKind?: ProjectSourceKind }>,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectSummary>
   updateWorkspace(
     database: AgentHqDatabase,
     workspaceId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>
+    input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>,
+    assertEffectCurrent: ManagementEffectAssertion
   ): Promise<WorkspaceSummary>
 }>
 
@@ -192,6 +213,10 @@ export type ManagementOperations = Readonly<{
     input: Readonly<{ principal: UserPrincipalRef; workspaceId: string }>,
     binding?: ManagementBindingArgument
   ): Promise<ManagementOutcome<WorkspaceSummary>>
+  workspaceArchive(
+    input: Readonly<{ confirmed: boolean; principal: UserPrincipalRef; workspaceId: string }>,
+    binding?: ManagementBindingArgument
+  ): Promise<ManagementOutcome<null>>
   workspaceUpdate(
     input: Readonly<{
       expectedVersion: number
@@ -214,7 +239,7 @@ function run<T>(
   operation: ManagementOperationId,
   input: Readonly<{ includeArchived?: boolean; principal: UserPrincipalRef; workspaceId: string }>,
   binding: ManagementBindingArgument,
-  execute: () => Promise<T>
+  execute: (assertEffectCurrent: ManagementEffectAssertion) => Promise<T>
 ) {
   return gateway.run(operation, binding ? { ...input, binding } : input, execute)
 }
@@ -230,22 +255,29 @@ export function createManagementOperations(
         'project.archive',
         input,
         binding,
-        async () =>
+        async (assertEffectCurrent) =>
           (await executors.archiveProject(
             database(),
             input.workspaceId,
             input.projectId,
-            input.principal
+            input.principal,
+            assertEffectCurrent
           )) ?? null
       ),
     projectCreate: (input, binding) =>
-      run(gateway, 'project.create', input, binding, () =>
-        executors.createProject(database(), input.workspaceId, input.principal, {
-          iconKey: input.iconKey,
-          ...(input.id ? { id: input.id } : {}),
-          name: input.name,
-          ...(input.sourceKind ? { sourceKind: input.sourceKind } : {}),
-        })
+      run(gateway, 'project.create', input, binding, (assertEffectCurrent) =>
+        executors.createProject(
+          database(),
+          input.workspaceId,
+          input.principal,
+          {
+            iconKey: input.iconKey,
+            ...(input.id ? { id: input.id } : {}),
+            name: input.name,
+            ...(input.sourceKind ? { sourceKind: input.sourceKind } : {}),
+          },
+          assertEffectCurrent
+        )
       ),
     projectDelete: (input, binding) =>
       run(
@@ -253,26 +285,28 @@ export function createManagementOperations(
         'project.delete',
         input,
         binding,
-        async () =>
+        async (assertEffectCurrent) =>
           (await executors.softDeleteProject(
             database(),
             input.workspaceId,
             input.projectId,
-            input.principal
+            input.principal,
+            assertEffectCurrent
           )) ?? null
       ),
     projectMemberRemove: (input, binding) =>
-      run(gateway, 'project.member.remove', input, binding, () =>
+      run(gateway, 'project.member.remove', input, binding, (assertEffectCurrent) =>
         executors.removeProjectMember(
           database(),
           input.workspaceId,
           input.projectId,
           input.principal,
-          input.userId
+          input.userId,
+          assertEffectCurrent
         )
       ),
     projectMemberSet: (input, binding) =>
-      run(gateway, 'project.member.set', input, binding, () =>
+      run(gateway, 'project.member.set', input, binding, (assertEffectCurrent) =>
         executors.setProjectMember(
           database(),
           input.workspaceId,
@@ -281,51 +315,102 @@ export function createManagementOperations(
           {
             role: input.role,
             userId: input.userId,
-          }
+          },
+          assertEffectCurrent
         )
       ),
     projectPromote: (input, binding) =>
-      run(gateway, 'project.promote', input, binding, () =>
+      run(gateway, 'project.promote', input, binding, (assertEffectCurrent) =>
         executors.promoteProjectState(
           database(),
           input.workspaceId,
           input.projectId,
           input.principal,
-          { confirmed: input.confirmed, expectedVersion: input.expectedVersion }
+          { confirmed: input.confirmed, expectedVersion: input.expectedVersion },
+          assertEffectCurrent
         )
       ),
     projectReorder: (input, binding) =>
-      run(gateway, 'project.reorder', input, binding, () =>
-        executors.reorderProjects(database(), input.workspaceId, input.principal, input.projectIds)
+      run(gateway, 'project.reorder', input, binding, (assertEffectCurrent) =>
+        executors.reorderProjects(
+          database(),
+          input.workspaceId,
+          input.principal,
+          input.projectIds,
+          assertEffectCurrent
+        )
       ),
     projectUpdate: (input, binding) =>
-      run(gateway, 'project.update', input, binding, () =>
-        executors.updateProject(database(), input.workspaceId, input.projectId, input.principal, {
-          ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
-        })
+      run(gateway, 'project.update', input, binding, (assertEffectCurrent) =>
+        executors.updateProject(
+          database(),
+          input.workspaceId,
+          input.projectId,
+          input.principal,
+          {
+            ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),
+          },
+          assertEffectCurrent
+        )
       ),
     projectVisibilitySet: (input, binding) =>
-      run(gateway, 'project.visibility.set', input, binding, () =>
+      run(gateway, 'project.visibility.set', input, binding, (assertEffectCurrent) =>
         executors.setProjectVisibility(
           database(),
           input.workspaceId,
           input.projectId,
           input.principal,
-          input.visibility
+          input.visibility,
+          assertEffectCurrent
         )
       ),
     workspaceReopen: (input, binding) =>
-      run(gateway, 'config.workspace.reopen', { ...input, includeArchived: true }, binding, () =>
-        executors.reopenWorkspace(database(), input.workspaceId, input.principal)
+      run(
+        gateway,
+        'config.workspace.reopen',
+        { ...input, includeArchived: true },
+        binding,
+        (assertEffectCurrent) =>
+          executors.reopenWorkspace(
+            database(),
+            input.workspaceId,
+            input.principal,
+            assertEffectCurrent
+          )
       ),
+    workspaceArchive: (input, binding) =>
+      input.confirmed !== true
+        ? Promise.resolve({
+            failure: {
+              code: 'conflict' as const,
+              message: 'Management target requires explicit confirmation',
+              operation: 'config.workspace.archive' as const,
+            },
+            ok: false as const,
+          })
+        : run(gateway, 'config.workspace.archive', input, binding, async (assertEffectCurrent) => {
+            await executors.archiveWorkspace(
+              database(),
+              input.workspaceId,
+              input.principal,
+              assertEffectCurrent
+            )
+            return null
+          }),
     workspaceUpdate: (input, binding) =>
-      run(gateway, 'config.workspace.update', input, binding, () =>
-        executors.updateWorkspace(database(), input.workspaceId, input.principal, {
-          expectedVersion: input.expectedVersion,
-          update: input.update,
-        })
+      run(gateway, 'config.workspace.update', input, binding, (assertEffectCurrent) =>
+        executors.updateWorkspace(
+          database(),
+          input.workspaceId,
+          input.principal,
+          {
+            expectedVersion: input.expectedVersion,
+            update: input.update,
+          },
+          assertEffectCurrent
+        )
       ),
   })
 }

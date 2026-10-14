@@ -31,6 +31,7 @@ import {
   workspaceSettingsSectionFromHash,
 } from './workspace-settings-section'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const CreateGroupDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
@@ -523,7 +524,9 @@ export function ConventionalWorkspaceShell(props: {
                 <section class="conventional-session-notice" role="alert">
                   <AlertTriangle aria-hidden="true" />
                   <div>
-                    <h2>Your previous session wasn&apos;t recognized</h2>
+                    <Heading as="h2" size="subsection">
+                      Your previous session wasn&apos;t recognized
+                    </Heading>
                     <p>
                       You&apos;re in a new temporary workspace, so earlier tasks and conversations
                       aren&apos;t visible here. Choose your previous workspace under Workspaces in
@@ -599,6 +602,11 @@ export function ConventionalWorkspaceShell(props: {
                           }
                         >
                           <AgentRoster
+                            accountDirectory={
+                              workspaceHost().globalNav?.agents
+                                ? (context) => workspaceHost().globalNav!.agents!(context)
+                                : undefined
+                            }
                             leadStatus={
                               <Suspense
                                 fallback={<p role="status">Checking the workspace lead…</p>}
@@ -617,6 +625,10 @@ export function ConventionalWorkspaceShell(props: {
                             onCreate={controller.createAgent}
                             onMessage={async (agentId) => {
                               await controller.openAgentConversation(agentId)
+                              setSurface('conversation')
+                            }}
+                            onNewConversation={async (agentId, topic) => {
+                              await controller.startAgentTopic(agentId, topic)
                               setSurface('conversation')
                             }}
                             onUpdate={async (agent, input) => {

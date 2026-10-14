@@ -489,6 +489,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
       >
         <div class="dev-sc__commit">
           <Textarea
+            variant="code"
             aria-label="Commit message"
             placeholder={commitPlaceholder(grouped())}
             value={message()}

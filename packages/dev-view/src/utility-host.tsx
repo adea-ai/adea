@@ -4,6 +4,7 @@ import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
+import { Heading } from '@adea-ai/ui/components/ui/typography'
 import {
   SideRail,
   SideRailContent,
@@ -39,8 +40,10 @@ const HarnessStatusSection = lazy(() =>
     default: module.HarnessStatusSection,
   }))
 )
-const RunHistorySection = lazy(() =>
-  import('./history/run-history-section').then((module) => ({ default: module.RunHistorySection }))
+const SessionHistorySection = lazy(() =>
+  import('./history/session-history-section').then((module) => ({
+    default: module.SessionHistorySection,
+  }))
 )
 
 const paneCapabilities: Partial<Record<DevUtilityPane, DevCapability>> = {
@@ -183,7 +186,7 @@ export function SharedDevUtilityHost(props: {
           />
         }
       >
-        <RunHistorySection context={context} />
+        <SessionHistorySection context={context} />
       </Suspense>
     ) : (
       <ProviderState
@@ -239,7 +242,14 @@ export function SharedDevUtilityHost(props: {
         class="dev-utility-panel"
       >
         <div class="dev-utility-panel__heading">
-          <h2 id="dev-utility-heading-right">{title()}</h2>
+          <Heading
+            as="h2"
+            size="subsection"
+            id="dev-utility-heading-right"
+            data-utility-panel-title=""
+          >
+            {title()}
+          </Heading>
           <ActionButton
             type="button"
             variant="ghost"

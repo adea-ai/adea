@@ -148,6 +148,7 @@ describe('projectChatConversations', () => {
     })
     expect('conversationId' in projected.conversations[0]!).toBe(false)
     expect('groupIds' in projected.conversations[0]!).toBe(false)
+
     // Names come from the host's cloud project list; unknown ids show the short id.
     expect(projected.projects.map((project) => project.name)).toEqual(['Adea', 'project'])
     expect(
@@ -157,6 +158,21 @@ describe('projectChatConversations', () => {
         sessions: [first],
       }).conversations
     ).toHaveLength(0)
+  })
+
+  test('projects the session task id for task-linked lead resolution', () => {
+    const tasked = session({ taskId: '00000000-0000-4000-8000-0000000000f1' })
+    const plain = session({ id: '00000000-0000-4000-8000-000000000011' })
+    const projected = projectChatConversations({
+      scope: SCOPE,
+      projects: [
+        { id: 'project-1', scope: SCOPE, repoIds: ['repo-1'], lifecycle: 'ready', version: 1 },
+      ],
+      sessions: [tasked, plain],
+    })
+    const byId = new Map(projected.conversations.map((item) => [item.runtimeSessionId, item]))
+    expect(byId.get(tasked.id)?.taskId).toBe('00000000-0000-4000-8000-0000000000f1')
+    expect('taskId' in (byId.get(plain.id) ?? {})).toBe(false)
   })
 
   test('attaches by walking legal session list pages without an id filter', async () => {
@@ -1133,6 +1149,50 @@ describe('runtime-events-v1 transcript projection', () => {
       'host'
     )
     expect(state.availability).toMatchObject({ status: 'stale_generation' })
+  })
+})
+
+describe('session-run cancellation preserves drafts', () => {
+  test('cancel targets the register-bound run and keeps the live draft', async () => {
+    const seen: string[] = []
+    let stored = session({ activeHarnessRunId: 'run-1' })
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [stored], observedAt: '2026-09-22T10:00:00Z' })
+      if (command.operation === 'dev.session.cancelHarness') {
+        seen.push((command.body as { harnessRunId: string }).harnessRunId)
+        return ok(command.operation, {
+          id: 'run-1',
+          scope: SCOPE,
+          runtimeSessionId: stored.id,
+          installationId: 'inst-1',
+          agentProfile: {
+            id: 'profile-1',
+            version: 1,
+            displayName: 'profile-1',
+            capabilityPolicyVersion: 1,
+          },
+          state: 'cancelled',
+          generation: stored.generation,
+          version: 2,
+        })
+      }
+      if (command.operation === 'dev.session.get') return ok(command.operation, stored)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    const attached = await model.attach(stored.id)
+    model.setDraft(attached.runtimeSessionId, 'do not lose this')
+    const revisionBefore = model.draftRevision(attached.runtimeSessionId)
+
+    // Cancelling stops the SESSION run only: the lead turn is untouched,
+    // and the draft survives with its revision.
+    const afterCancel = await model.cancel(attached.runtimeSessionId)
+    expect(seen).toEqual(['run-1'])
+    expect(afterCancel.draft).toBe('do not lose this')
+    expect(model.draftRevision(attached.runtimeSessionId)).toBe(revisionBefore)
   })
 })
 

@@ -134,7 +134,24 @@ export type ApiTaskUpdateInput = Readonly<{
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   title?: string
 }>
-export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+/**
+ * The outbound result a completion may carry for a group channel. The artifact is named
+ * by id and grant only; its facts come from the server's registry.
+ */
+export type ApiJobOutboundResult = Readonly<{
+  artifact: Readonly<{ artifactId: string; grantId: string }> | null
+  artifactPolicy?: 'require' | 'omit_unauthorized'
+  channelId: string
+  summary: string
+}>
+/** How a completion's outbound result landed: published with its message, or held at the named gate. */
+export type ApiOutboundPublication =
+  | Readonly<{ action: 'publish'; artifactOmitted: string | null; messageId: string | null }>
+  | Readonly<{ action: 'hold'; gate: string; messageId: null; reason: string }>
+export type ApiTaskResponse = Readonly<{
+  outboundPublication?: ApiOutboundPublication
+  task: TaskSummary
+}>
 export type ApiContentRefCreateInput = Readonly<{
   availability: Exclude<ContentRefSummary['availability'], 'deleted'>
   contentType: ContentRefSummary['contentType']
@@ -179,6 +196,7 @@ export type ApiAccountSummaryResponse = AccountSummary
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type {
+  ApiHandoffTarget,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,
@@ -189,6 +207,7 @@ export type {
   LeadTurnReasonCode,
 } from './lead-turns'
 import type {
+  ApiHandoffTarget,
   ApiLeadTurnResponse,
   ApiLeadTurnProgressResponse,
   ApiChannelLeadTurnResponse,
@@ -204,15 +223,26 @@ export type ApiMessageResponse = Readonly<{
     dispatchKey: string
     state: 'blocked'
     reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE'
+    handoffTarget?: ApiHandoffTarget
   }>
 }>
 export type ApiMessagePage = Readonly<{
   messages: readonly MessageSummary[]
   nextAfterSequence?: number
 }>
+export type ApiHandoffTargetRequest = Readonly<{
+  /** The exact direct session this admission coordinates. */
+  runtimeSessionId: string
+  /** The task authority claimed; the server verifies visibility and stamps it. */
+  taskId: string
+  /** The session generation observed when requesting; newer supersedes. */
+  expectedGeneration: number
+}>
 export type ApiMessageCreateInput = Readonly<{
   /** Explicit workspace lead admission; direct sessions remain ordinary messages. */
   leadTurn?: true
+  /** Structured handoff target; prose never carries the binding. */
+  handoffTarget?: ApiHandoffTargetRequest
   requestedModelSelections?: import('./lead-turns').ApiRequestedRoleModelSelections
   artifactIds?: readonly string[]
   bodyContentRefId?: string
@@ -315,7 +345,24 @@ export type ApiWorkspaceCreateResponse = {
 export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
+export type ApiPortableExportDownload = Readonly<{ bytes: number; fileName: string; text: string }>
+
+export type ApiPortableImportResult = Readonly<{
+  contentDigest: string
+  counts: Readonly<{
+    agents: number
+    channels: number
+    messages: number
+    projects: number
+    tasks: number
+  }> &
+    Readonly<Record<string, number>>
+  deferred: readonly Readonly<{ class: string; reason: string; treatment: string }>[]
+  workspaceId: string
+}>
+
 export type ApiWorkspaceArchiveResponse = Readonly<{ archived: true; workspaceId: string }>
+export type ApiWorkspaceArchiveInput = Readonly<{ confirmed: true }>
 export type ApiArchivedWorkspacesResponse = Readonly<{ workspaces: readonly WorkspaceSummary[] }>
 export type ApiWorkspaceDeleteResponse = Readonly<{
   deleted: true
@@ -648,11 +695,51 @@ export class AgentHqApiClient {
     return this.request<ApiArchivedWorkspacesResponse>('/workspaces/archived')
   }
 
-  async archiveWorkspace(workspaceId: string): Promise<ApiWorkspaceArchiveResponse> {
+  async archiveWorkspace(
+    workspaceId: string,
+    input: ApiWorkspaceArchiveInput
+  ): Promise<ApiWorkspaceArchiveResponse> {
     return this.request<ApiWorkspaceArchiveResponse>(
       `/workspaces/${encodeURIComponent(workspaceId)}/archive`,
-      { method: 'POST' }
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
     )
+  }
+
+  /**
+   * Downloads the requester's portable export of one workspace. Refusals surface as
+   * `ApiClientError` with `code` `too_large` (over 10,000 records or 8 MiB) or
+   * `workspace_unavailable` (no access, whatever the reason).
+   */
+  async exportWorkspace(workspaceId: string): Promise<ApiPortableExportDownload> {
+    const response = await this.send(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/portable-export`
+    )
+    if (!response.ok) throw await this.failure(response)
+    const text = await response.text()
+    const named = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')
+    return {
+      bytes: new TextEncoder().encode(text).byteLength,
+      fileName: named?.[1] ?? `workspace-${workspaceId}.portable.json`,
+      text,
+    }
+  }
+
+  /**
+   * Restores a portable export, given as its file text, as a workspace the caller owns.
+   * Refusals surface as `ApiClientError` with `code` `invalid_document`, `digest_mismatch`,
+   * `unresolved_users`, `importer_unavailable`, `target_exists`, `too_large` or
+   * `verification_failed`.
+   */
+  async importWorkspace(bundleText: string): Promise<ApiPortableImportResult> {
+    return this.request<ApiPortableImportResult>('/v1/portable-imports', {
+      body: bundleText,
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
   }
 
   async prepareWorkspaceDeletion(
@@ -1080,13 +1167,9 @@ export class AgentHqApiClient {
     projectId: string,
     input: ApiProjectRestoreInput
   ): Promise<ApiProjectResponse> {
-    return this.request<ApiProjectResponse>(
+    return this.postJson<ApiProjectResponse>(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(projectId)}/restore`,
-      {
-        body: JSON.stringify(input),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      }
+      input
     )
   }
 
@@ -1379,8 +1462,19 @@ export class AgentHqApiClient {
     return this.taskCommand(workspaceId, taskId, 'review', {}, command)
   }
 
-  async completeTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
-    return this.taskCommand(workspaceId, taskId, 'complete', {}, command)
+  async completeTask(
+    workspaceId: string,
+    taskId: string,
+    command: ApiTaskCommand,
+    outboundResult?: ApiJobOutboundResult
+  ) {
+    return this.taskCommand(
+      workspaceId,
+      taskId,
+      'complete',
+      outboundResult ? { outboundResult } : {},
+      command
+    )
   }
 
   async cancelTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
@@ -1599,10 +1693,13 @@ export class AgentHqApiClient {
 
   async getChannelLeadTurn(
     workspaceId: string,
-    channelId: string
+    channelId: string,
+    targetSessionId?: string
   ): Promise<ApiChannelLeadTurnResponse> {
+    const query =
+      targetSessionId === undefined ? '' : `?targetSessionId=${encodeURIComponent(targetSessionId)}`
     return this.request(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn`
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/lead-turn${query}`
     )
   }
 
@@ -1776,9 +1873,10 @@ export class AgentHqApiClient {
     })
   }
 
-  protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  /** Sends one authenticated request and returns the raw response, whatever its status. */
+  private async send(path: string, init: RequestInit = {}, accept = 'application/json') {
     const headers = new Headers(init.headers)
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', accept)
     if (this.client === 'desktop') headers.set('X-Adea-Client', 'desktop')
     const desktopSession = this.getDesktopSession?.()
     const token = this.getAccessToken?.()
@@ -1792,22 +1890,33 @@ export class AgentHqApiClient {
     const requestUrl = /^https?:\/\//i.test(this.baseUrl)
       ? new URL(path.replace(/^\//, ''), `${this.baseUrl.replace(/\/$/, '')}/`).toString()
       : `${this.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
-    const response = await this.fetchImpl(requestUrl, {
+    return this.fetchImpl(requestUrl, {
       ...init,
       credentials: init.credentials ?? (this.client === 'desktop' ? 'omit' : 'include'),
       headers,
     })
-    if (!response.ok) {
-      let code: string | undefined
-      try {
-        const payload = (await response.json()) as { code?: string; message?: string }
-        code = payload.code
-        throw new ApiClientError(payload.message ?? response.statusText, response.status, code)
-      } catch (error) {
-        if (error instanceof ApiClientError) throw error
-        throw new ApiClientError(response.statusText, response.status, code)
-      }
+  }
+
+  /**
+   * Reads a failure body into an `ApiClientError`. The portable routes name the failure in
+   * `error`; every other route names it in `code`.
+   */
+  private async failure(response: Response): Promise<ApiClientError> {
+    let code: string | undefined
+    let message: string | undefined
+    try {
+      const payload = (await response.json()) as { code?: string; error?: string; message?: string }
+      code = payload.code ?? payload.error
+      message = payload.message
+    } catch {
+      // A non-JSON failure body keeps the status text.
     }
+    return new ApiClientError(message ?? response.statusText, response.status, code)
+  }
+
+  protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await this.send(path, init)
+    if (!response.ok) throw await this.failure(response)
     return (await response.json()) as T
   }
 }
