@@ -116,6 +116,12 @@ const unavailableReference = (jobId: string) => ({
   jobId,
 })
 
+/** Every answer of the plan routes is private and uncacheable, whatever its status. */
+function privately(response: Response) {
+  expect(response.headers.get('cache-control')).toBe('private, no-store')
+  return response
+}
+
 describe.skipIf(!url)(
   'coordination plans citing separately owned jobs through the production routes',
   () => {
@@ -372,12 +378,6 @@ describe.skipIf(!url)(
         outboundPublication: { action: string; messageId: string | null }
       }
       return { ...job, messageId: outcome.outboundPublication.messageId, outcome }
-    }
-
-    /** Every answer of the plan routes is private and uncacheable, whatever its status. */
-    function privately(response: Response) {
-      expect(response.headers.get('cache-control')).toBe('private, no-store')
-      return response
     }
 
     async function postPlan(
