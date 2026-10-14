@@ -6,8 +6,9 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@adea-ai/ui/components/ui/popover'
 import { Check, Settings2 } from 'lucide-solid'
-import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
+import { For, Show, createSignal, type JSX } from 'solid-js'
 
+import { createReadResource } from '../resource'
 import { errorText } from '../client'
 
 export type PickerOption = Readonly<{ value: string; hint?: string }>
@@ -25,7 +26,7 @@ export function Picker(props: {
 }): JSX.Element {
   const [open, setOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
-  const [options] = createResource(
+  const [options] = createReadResource(
     () => (open() ? { query: query() } : undefined),
     (source) => props.load(source.query)
   )

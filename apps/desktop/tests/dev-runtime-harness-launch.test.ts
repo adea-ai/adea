@@ -43,6 +43,7 @@ import {
   type NativeNotificationRequest,
 } from '../shell/src/notifications/harness-run-notifications'
 import { createManagedPiDriver } from '../shell/src/dev-runtime/harness/managed-pi-driver'
+import type { HarnessDiscoverySource } from '../shell/src/dev-runtime/discovery/types'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
@@ -185,6 +186,7 @@ async function boot(
     probeHost?: () => Promise<{ supported: boolean; reason?: string }>
     seedAcpInstallation?: Parameters<typeof seedInventoryConnection>[2]
     publish?: (event: string, payload: unknown) => void
+    discoverySources?: readonly HarnessDiscoverySource[]
   } = {}
 ): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-harness-launch-'))
@@ -236,6 +238,7 @@ async function boot(
     }),
     acpDriver: noopAcpDriver,
     ...(options.publish ? { publish: options.publish } : {}),
+    ...(options.discoverySources ? { discoverySources: options.discoverySources } : {}),
   })
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
   return {
@@ -539,6 +542,135 @@ describe('harness preferences and the root default (#400)', () => {
         harnessInstallationId: shell.managedPiStatus().installationId,
         default: true,
       })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a stored workspace default outlives its installation and can still be cleared', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({ seedAcpInstallation: { id: installationId } })
+    try {
+      const channel = await shell.openChannel()
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      // The installation disappears (uninstalled, or lost in a rescan).
+      writeFileSync(
+        join(shell.dataDir, 'dev-runtime', 'discovery', 'inventory.json'),
+        JSON.stringify({ schemaVersion: 1, savedAt: new Date().toISOString(), records: [] })
+      )
+      // It cannot be made the default again, and an unknown id still refuses.
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId,
+              expectedVersion: 1,
+              patch: { default: true },
+            })
+          )
+        )
+      ).toBe('not_found')
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+              installationId: randomUUID(),
+              expectedVersion: 0,
+              patch: { default: false },
+            })
+          )
+        )
+      ).toBe('not_found')
+      // The stored default is still listed, and clearing it is accepted.
+      const listed = okValue(
+        await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {}))
+      )
+      expect(
+        (listed.items as Array<Record<string, unknown>>).some(
+          (item) => item.harnessInstallationId === installationId && item.default === true
+        )
+      ).toBe(true)
+      const cleared = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 1,
+            patch: { default: false },
+          })
+        )
+      )
+      expect(cleared).toMatchObject({
+        harnessInstallationId: installationId,
+        default: false,
+        version: 2,
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a workspace-chosen non-Pi default launches with managed Pi absent and never bootstraps it', async () => {
+    const installationId = randomUUID()
+    let bootstrapCalls = 0
+    const shell = await boot({
+      archiveResolver: async () => {
+        bootstrapCalls += 1
+        return DEFAULT_ARCHIVE()
+      },
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      // Managed Pi is not installed on this host and is never installed here.
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
+      const session = await createSession(shell.host(), channel)
+      const preference = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true, default: true },
+          })
+        )
+      )
+      expect(preference).toMatchObject({
+        harnessInstallationId: installationId,
+        enabled: true,
+        default: true,
+      })
+
+      // The workspace-chosen non-Pi default launches on its own authority:
+      // no managed-Pi install/ensure path is consulted or bootstrapped.
+      const launched = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(launched).toMatchObject({
+        runtimeSessionId: session.id,
+        installationId,
+        state: 'starting',
+      })
+      expect(bootstrapCalls).toBe(0)
+      expect(shell.managedPiStatus().installationId).toBeUndefined()
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
@@ -1481,6 +1613,184 @@ describe('device-wide default harness', () => {
       }
       const runs = okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
       expect((runs.items as unknown[]).length).toBe(0)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('device default launch against a moving world', () => {
+  const codexReport = {
+    connections: [
+      {
+        family: 'codex',
+        displayName: 'Codex',
+        provenance: 'user_managed' as const,
+        executableIdentity: '/opt/test/bin/codex',
+        executableLabel: 'codex (path)',
+        protocol: 'native' as const,
+        acpAvailability: 'unavailable' as const,
+        version: '1.2.3',
+        auth: 'ready' as const,
+        health: 'healthy' as const,
+        capabilities: ['native', 'models', 'resume'],
+        sessionOperations: ['session.new', 'session.resume'],
+        entitlementHints: ['user_managed', 'native_auth'],
+        limitations: ['history_is_native_not_adea'],
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  }
+
+  /** A discovery source that reports Codex only once the test lets it, so a launch can be held mid-scan. */
+  function gatedSource() {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = { probing: false, release }
+    const source: HarnessDiscoverySource = {
+      driverId: 'test-local',
+      driverVersion: '1',
+      transport: 'direct_local',
+      discover: async () => {
+        state.probing = true
+        await gate
+        return codexReport
+      },
+    }
+    return { source, state }
+  }
+
+  async function waitForProbe(state: { probing: boolean }) {
+    for (let waited = 0; !state.probing && waited < 5_000; waited += 10) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(state.probing).toBe(true)
+  }
+
+  async function setDeviceDefault(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    family: string | undefined,
+    expectedVersion = 0
+  ) {
+    okValue(
+      await channel.execute(
+        commandFor('dev.harness.deviceDefaultUpdate', SCOPE_A, {
+          ...(family !== undefined ? { family } : {}),
+          expectedVersion,
+        })
+      )
+    )
+  }
+
+  function launchWith(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    session: Awaited<ReturnType<typeof createSession>>
+  ) {
+    return channel.execute(
+      commandFor(
+        'dev.session.launchDefault',
+        SCOPE_A,
+        {
+          runtimeSessionId: session.id,
+          expectedGeneration: session.generation,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+        },
+        { resource: sessionResource(session) }
+      )
+    )
+  }
+
+  async function runCount(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+    const runs = okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+    return (runs.items as unknown[]).length
+  }
+
+  test('a session archived while discovery runs launches nothing', async () => {
+    const { source, state } = gatedSource()
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE, discoverySources: [source] })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      const launching = launchWith(channel, session)
+      await waitForProbe(state)
+      okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.archive',
+            SCOPE_A,
+            { runtimeSessionId: session.id, expectedGeneration: session.generation },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      state.release()
+      const refused = await launching
+      expect(['stale_generation', 'invalid_state']).toContain(errorCode(refused))
+      expect(await runCount(channel)).toBe(0)
+    } finally {
+      state.release()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a default that changes while discovery runs asks for a fresh launch', async () => {
+    const { source, state } = gatedSource()
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE, discoverySources: [source] })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      const launching = launchWith(channel, session)
+      await waitForProbe(state)
+      await setDeviceDefault(channel, undefined, 1)
+      state.release()
+      const refused = await launching
+      expect(errorCode(refused)).toBe('invalid_state')
+      expect(await runCount(channel)).toBe(0)
+    } finally {
+      state.release()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('an installation the user disabled is not launched as the device default', async () => {
+    const codex = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: codex, family: 'codex' },
+    })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await setDeviceDefault(channel, 'codex')
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 0,
+            patch: { enabled: false },
+          })
+        )
+      )
+      const refused = await launchWith(channel, session)
+      expect(errorCode(refused)).toBe('capability_unavailable')
+      expect(await runCount(channel)).toBe(0)
+
+      okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId: codex,
+            expectedVersion: 1,
+            patch: { enabled: true },
+          })
+        )
+      )
+      expect(okValue(await launchWith(channel, session))).toMatchObject({ installationId: codex })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

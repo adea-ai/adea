@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HarnessRun, RuntimeEvent, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 
 import {
+  conversationSearchRowLabel,
   exportTranscriptWindow,
   searchConversationHistory,
   virtualSearchRows,
@@ -60,6 +61,34 @@ function event(overrides: Partial<RuntimeEvent>): RuntimeEvent {
 }
 
 describe('searchConversationHistory', () => {
+  test('never returns credential-classified events, with or without a query', () => {
+    const events = new Map([
+      [
+        session.id,
+        [
+          event({ eventId: 'safe', seq: '1', payload: { text: 'rotate the staging key' } }),
+          event({
+            eventId: 'cred',
+            seq: '2',
+            classification: 'credential',
+            payload: { text: 'rotate the staging key to hunter2' },
+          }),
+        ],
+      ],
+    ])
+    for (const query of ['', 'rotate', 'hunter2']) {
+      const page = searchConversationHistory({
+        sessions: [session],
+        runs: [],
+        events,
+        query,
+        matchOn: 'preview',
+      })
+      expect(page.items.map((row) => row.id)).not.toContain('event:cred')
+      expect(JSON.stringify(page.items)).not.toContain('hunter2')
+    }
+  })
+
   test('searches canonical runs and event windows with jump targets and redaction', () => {
     const page = searchConversationHistory({
       sessions: [session],
@@ -89,6 +118,34 @@ describe('searchConversationHistory', () => {
     expect(prompt?.preview).toContain('[secret redacted]')
     expect(prompt?.preview).toContain('[private path]')
     expect(prompt?.jump).toMatchObject({ runtimeSessionId: session.id, eventId: 'event-1' })
+  })
+
+  test('matchOn preview ignores the session title and kind', () => {
+    const input = {
+      sessions: [{ ...session, displayName: 'Deploy planning' }],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({ payload: { text: 'write the release notes' } }),
+            event({
+              eventId: 'event-2',
+              sourceEventId: 'source-2',
+              seq: '2',
+              payload: { text: 'deploy the staging build' },
+            }),
+          ],
+        ],
+      ]),
+      limit: 10,
+    }
+    expect(searchConversationHistory({ ...input, query: 'deploy' }).totalMatches).toBe(2)
+    const scoped = searchConversationHistory({ ...input, query: 'deploy', matchOn: 'preview' })
+    expect(scoped.items.map((item) => item.preview)).toEqual(['deploy the staging build'])
+    expect(
+      searchConversationHistory({ ...input, query: 'prompt', matchOn: 'preview' }).totalMatches
+    ).toBe(0)
   })
 
   test('paginates with an opaque bounded cursor and virtualizes a result window', () => {
@@ -134,5 +191,34 @@ describe('exportTranscriptWindow', () => {
     })
     expect(result.exportedEvents).toBe(1)
     expect(result.truncated).toBe(true)
+  })
+})
+
+describe('conversationSearchRowLabel', () => {
+  test('names a result by its session title, matched kind, and preview', () => {
+    const page = searchConversationHistory({
+      sessions: [session],
+      runs: [],
+      events: new Map([
+        [
+          session.id,
+          [
+            event({}),
+            event({
+              eventId: 'approval-1',
+              sourceEventId: 'approval-source',
+              seq: '2',
+              kind: 'approval.requested',
+              payload: { title: 'Deploy' },
+            }),
+          ],
+        ],
+      ]),
+      query: 'deploy',
+      limit: 10,
+    })
+    const labels = page.items.map(conversationSearchRowLabel)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('Adea task, approval: Deploy')
   })
 })

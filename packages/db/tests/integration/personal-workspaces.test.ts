@@ -108,7 +108,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     }
   })
 
-  test('additional workspaces have no seeded data, append below Home, and all remain reorderable', async () => {
+  test('additional workspaces have no seeded data, append below Home, and optional workspaces remain reorderable', async () => {
     const { principal } = await guest()
     const [home] = await ensureBootstrapWorkspaces(connection.db, principal)
     const first = (
@@ -135,7 +135,16 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     expect(second.sortOrder).toBe(2)
     await assertBare(first.id)
     await assertBare(second.id)
-    await reorderWorkspaces(connection.db, principal, [first.id, second.id, home!.id])
+    const ordered = await reorderWorkspaces(connection.db, principal, [
+      second.id,
+      first.id,
+      home!.id,
+    ])
+    expect(ordered.map(({ id, sortOrder }) => [id, sortOrder])).toEqual([
+      [home!.id, 0],
+      [second.id, 1],
+      [first.id, 2],
+    ])
     for (const ids of [
       [first.id, first.id, home!.id],
       [first.id],
@@ -145,7 +154,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
         'Workspace order conflict'
       )
     const reordered = await ensureBootstrapWorkspaces(connection.db, principal)
-    expect(reordered.map((workspace) => workspace.id)).toEqual([first.id, second.id, home!.id])
+    expect(reordered.map((workspace) => workspace.id)).toEqual([home!.id, second.id, first.id])
     expect(reordered.find((workspace) => workspace.isPersonal)?.id).toBe(home!.id)
     // Dispose only this additional fixture; production deletion is gated.
     await connection.db
@@ -154,7 +163,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     await connection.db.delete(workspaces).where(eq(workspaces.id, first.id))
     expect(
       (await ensureBootstrapWorkspaces(connection.db, principal)).map((workspace) => workspace.id)
-    ).toEqual([second.id, home!.id])
+    ).toEqual([home!.id, second.id])
   })
 
   test('ordering a shared workspace changes only the caller membership, never another user list', async () => {
@@ -180,7 +189,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       (await listWorkspacesForUser(connection.db, member.principal)).map(
         (workspace) => workspace.id
       )
-    ).toEqual([shared.id, memberHome!.id])
+    ).toEqual([memberHome!.id, shared.id])
     expect(
       (await listWorkspacesForUser(connection.db, owner.principal)).map((workspace) => workspace.id)
     ).toEqual([ownerHome!.id, shared.id])
@@ -283,6 +292,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       .set({ sortOrder: 7 })
       .where(eq(workspaceMemberships.workspaceId, home.id))
     const result = await ensureBootstrapWorkspaces(connection.db, principal)
+    expect(result.map(({ id }) => id)).toEqual([home.id, work.id])
     const personal = result.find((workspace) => workspace.isPersonal)!
     expect(personal).toMatchObject({
       id: home.id,
@@ -363,8 +373,8 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       )
     const initial = await ensureBootstrapWorkspaces(connection.db, principal)
     expect(initial).toHaveLength(3)
-    expect(initial.slice(0, 2)).toEqual(existing)
-    expect(initial[2]).toMatchObject({
+    expect(initial.slice(1)).toEqual(existing)
+    expect(initial[0]).toMatchObject({
       name: 'Home',
       isPersonal: true,
       logo: { kind: 'home' },

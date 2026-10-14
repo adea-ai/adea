@@ -28,6 +28,10 @@ const specs = [
   'apps/web/e2e/chat-transcript-composition.spec.ts',
   'apps/web/e2e/desktop-runtime-chat.spec.ts',
   'apps/web/e2e/desktop-first-run-chat.spec.ts',
+  // Direct-session handoff (#1177): mounted proof over the production
+  // resolver with fixture transports — own ephemeral harness server,
+  // no database, safe in every shard.
+  'apps/web/e2e/direct-session-handoff.spec.ts',
   'apps/web/e2e/plugins-loading.spec.ts',
   'apps/web/e2e/workspace-form.spec.ts',
   'apps/web/e2e/workspace-settings.spec.ts',
@@ -78,6 +82,10 @@ const specs = [
   // Real-backend deep link (#1267, receipt 1725): a `?workspace=` link selects its
   // target and a revisit by the same ID selects it again. No route mocks.
   'apps/web/e2e/workspace-deeplink-real.spec.ts',
+  // History tab (#716): prompts with reply summaries, search and its accessible
+  // names, and paging across the 1,000-event window, mounted over module-only
+  // fixtures that need no host inputs.
+  'apps/web/e2e/history-pane.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

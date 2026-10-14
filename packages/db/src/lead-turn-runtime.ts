@@ -84,6 +84,17 @@ export function resolveLeadTurnAuthority(
       workspaceId,
       controlPlaneWorkspaceId,
       originalActorRef: `user:${intent.actorUserId}` as const,
+      ...(intent.handoffTargetSessionId !== null && intent.handoffTargetGeneration !== null
+        ? {
+            handoffTarget: {
+              runtimeSessionId: intent.handoffTargetSessionId,
+              ...(intent.handoffTargetTaskId !== null
+                ? { taskId: intent.handoffTargetTaskId }
+                : {}),
+              observedGeneration: intent.handoffTargetGeneration,
+            },
+          }
+        : {}),
       // Absent means the workspace lead default; a present reference is the exact immutable choice.
       requestedLeadSelection:
         parseRequestedRoleModelSelections(intent.requestedModelSelections ?? undefined)?.lead ??
