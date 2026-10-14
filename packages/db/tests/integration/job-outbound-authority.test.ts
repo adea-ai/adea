@@ -30,6 +30,7 @@ import {
 } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { filterVisibleJobOutboundRows, filterVisibleMessageRows } from '../../src/job-outbound-read'
+import { resolveJobReferences } from '../../src/job-outbound-reference'
 import {
   completeTaskAndPublishOutboundResult,
   createJobOutboundStoreService,
@@ -604,6 +605,95 @@ describe.skipIf(!url)('job outbound authority under parked writes and parked rea
       await Promise.allSettled([read, removal, parked.done])
     }
     expect(await visibleFor(f, messageId)).toEqual([])
+  }, 30_000)
+
+  /** What the plan in the audience channel learns about this job, for the recipient. */
+  async function referenceFor(f: Fixture) {
+    const [view] = await resolveJobReferences(connection.db as AgentHqDatabase, {
+      channelId: f.channel.id,
+      jobIds: [f.task.id],
+      reader: f.recipient.principal,
+      workspaceId: f.destination.id,
+    })
+    return view
+  }
+
+  test('a job reference resolved while a revocation waits is ordered before it; the next resolution is unavailable', async () => {
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'REFERENCED_SUMMARY')
+    const messageId = published.publication.messageId!
+    expect(await referenceFor(f)).toEqual({
+      authority: 'none',
+      availability: 'available',
+      jobId: f.task.id,
+      messageId,
+    })
+
+    const parked = parkMembership(f.source.id, f.owner.principal.userId)
+    const holderPid = await parked.held
+    let read: ReturnType<typeof referenceFor> | undefined
+    let revocation: Promise<void> | undefined
+    let revocationSettled = false
+    try {
+      read = referenceFor(f)
+      await waitQueuedBehind(holderPid, 'workspace_memberships')
+      revocation = revokeArtifactReferenceGrant(
+        connection.db,
+        f.source.id,
+        f.owner.principal,
+        grantId
+      ).then(() => {
+        revocationSettled = true
+      })
+      await sleep(300)
+      expect(revocationSettled).toBe(false)
+      parked.release()
+      expect(await read).toMatchObject({ availability: 'available', messageId })
+      await revocation
+    } finally {
+      parked.release()
+      await Promise.allSettled([read, revocation, parked.done])
+    }
+    expect(await referenceFor(f)).toEqual({
+      authority: 'none',
+      availability: 'unavailable',
+      jobId: f.task.id,
+    })
+  }, 30_000)
+
+  test('a job reference resolved while a membership removal waits is ordered before it; the next resolution is unavailable', async () => {
+    const f = await fixture()
+    const grantId = await f.registerGrant(null)
+    const published = await completeWith(f, grantId, 'REFERENCED_MEMBER_SUMMARY')
+    const messageId = published.publication.messageId!
+    expect(await referenceFor(f)).toMatchObject({ availability: 'available', messageId })
+
+    const parked = parkChannel(f.channel.id)
+    const holderPid = await parked.held
+    let read: ReturnType<typeof referenceFor> | undefined
+    let removal: Promise<void> | undefined
+    let removalSettled = false
+    try {
+      read = referenceFor(f)
+      await waitQueuedBehind(holderPid, 'channels')
+      removal = removeWorkspaceMembership(
+        connection.db as AgentHqDatabase,
+        f.destination.id,
+        f.recipient.principal
+      ).then(() => {
+        removalSettled = true
+      })
+      await sleep(300)
+      expect(removalSettled).toBe(false)
+      parked.release()
+      expect(await read).toMatchObject({ availability: 'available', messageId })
+      await removal
+    } finally {
+      parked.release()
+      await Promise.allSettled([read, removal, parked.done])
+    }
+    expect(await referenceFor(f)).toMatchObject({ availability: 'unavailable' })
   }, 30_000)
 
   test('ContentRefs, encrypted replies, and replicas become unavailable when their publication grant is revoked', async () => {

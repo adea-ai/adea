@@ -77,8 +77,52 @@ keeping these operations in channel-then-roster order.
 Client caches are not invalidated by a revocation. Cross-workspace invalidation is a
 separate feature, and no UI change is part of this slice.
 
+## Memory-derived results
+
+A completion's `outboundResult` may declare `memorySource`: `none` (the default),
+`workspace`, `private`, or `unknown`. A value outside that set refuses the request
+before the Task completes. Any value but `none` holds the publication at the
+`provenance` gate, with `memory_private_context` for `private` and
+`memory_derived_unreleased` for the others. The Task still completes, nothing is
+written, linked, counted or announced, and an artifact does not rescue the summary.
+The hold sits after the result, job and source-access checks, so a caller who lacks
+source authority learns nothing from it, and before the destination and artifact
+checks, so the reason never reflects the audience's access.
+
+The product cannot inspect a summary for memory. It enforces what the producer
+declares, and the declaration is part of the completion's identity: a retry under the
+same key with a different `memorySource` conflicts. An omitted field and `none` are the
+same request. No memory-share grant exists yet, so there is no authority to release
+workspace or private memory across workspaces (REQ 041, 054, 072); a release path needs
+that contract first.
+
+## References to separately owned jobs
+
+A cross-workspace plan cites a job it does not own by id. `resolveJobReferences`
+(`packages/db/src/job-outbound-reference.ts`) answers, for one reader and one group
+channel, whether each cited job has a result currently released to that reader, and
+which message carries it. Every view carries `authority: 'none'`: it lets nobody read,
+change, depend on, cancel or complete the job, and it carries none of the job's title,
+objective, state, workspace, project, Agent or runtime.
+
+"Released" is the canonical delivery decision, made by the same batch gate as history,
+search, counts and events (`readerVisiblePublicationIds`). The resolver adds no rule.
+Every other case reads as `unavailable`, and the cases are not told apart: an unknown or
+malformed id, a job that has not completed or published, a result held for memory or a
+grant, a publication in another channel, a revoked grant, a reader who left the group,
+a lost source authority. One resolution cites at most 50 jobs and refuses more. The
+reads run in one transaction that holds the publication, artifact and grant locks to the
+decision, so a revocation or roster change that commits after the read orders after it.
+
+Task dependencies stay workspace-scoped: a plan step in the audience workspace cannot
+depend on the cited job.
+
 ## Not in this slice
 
 - A read route for grant state.
 - Changes to an existing grant's expiry. A new lifetime needs a new grant id.
 - Interface work for issuing or revoking grants.
+- A route or interface that calls `resolveJobReferences`, and a plan record that stores the
+  cited ids. Only the read model and its guarantees are here.
+- A memory-share grant, and with it any release of memory-derived text across workspaces.
+- Producer attestation of `memorySource`. A producer that declares nothing is read as `none`.

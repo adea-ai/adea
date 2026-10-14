@@ -23,6 +23,7 @@ import {
   type JobOutboundDeliveryInput,
   type JobOutboundJobSource,
   type JobOutboundPublication,
+  type JobOutboundMemorySource,
   type JobOutboundPublicationInput,
 } from '../../src/job-outbound-result-policy'
 
@@ -602,5 +603,79 @@ describe('membership fencing and approval anchoring (#1217 root review)', () => 
         })
       )
     ).toEqual({ action: 'deny', gate: 'publication', reason: 'publication_unavailable' })
+  })
+})
+
+describe('memory-derived results (#1217)', () => {
+  const MEMORY_CANARY = 'CANARY-memory-entry-prefers-the-blue-account'
+
+  test('an undeclared source and `none` publish as before, with the same binding', () => {
+    const base = decideJobOutboundPublication(publish())
+    expect(base).toMatchObject({ action: 'publish' })
+    expect(decideJobOutboundPublication(publish({ memorySource: 'none' }))).toEqual(base)
+  })
+
+  test('private context is withheld whatever else is authorized, with nothing but a typed reason', () => {
+    const decision = decideJobOutboundPublication(
+      publish({
+        memorySource: 'private',
+        result: { jobId: 'job-1', summary: MEMORY_CANARY },
+      })
+    )
+    expect(decision).toEqual({
+      action: 'hold',
+      gate: 'provenance',
+      jobId: 'job-1',
+      producerEffect: 'unaffected',
+      reason: 'memory_private_context',
+    })
+    expect(JSON.stringify(decision)).not.toContain(MEMORY_CANARY)
+  })
+
+  test('workspace-scoped and unattested memory are withheld: no share grant exists to release them', () => {
+    for (const memorySource of ['workspace', 'unknown'] as const)
+      expect(decideJobOutboundPublication(publish({ memorySource }))).toMatchObject({
+        action: 'hold',
+        gate: 'provenance',
+        reason: 'memory_derived_unreleased',
+      })
+  })
+
+  test('a malformed declaration holds instead of passing', () => {
+    for (const memorySource of ['', 'None', 'public', null, 0] as unknown[])
+      expect(
+        decideJobOutboundPublication(
+          publish({ memorySource: memorySource as JobOutboundMemorySource })
+        )
+      ).toMatchObject({ action: 'hold', gate: 'provenance' })
+  })
+
+  test('the hold follows result, job and source checks, so it tells an unauthorized caller nothing', () => {
+    expect(
+      decideJobOutboundPublication(
+        publish({ memorySource: 'private', result: { jobId: 'job-1', summary: '   ' } })
+      )
+    ).toMatchObject({ gate: 'result', reason: 'result_malformed' })
+    expect(
+      decideJobOutboundPublication(
+        publish({ job: job({ completedAt: null }), memorySource: 'private' })
+      )
+    ).toMatchObject({ gate: 'job', reason: 'job_not_completed' })
+    expect(
+      decideJobOutboundPublication(publish({ memorySource: 'private', sourceAccess: MEMBER }))
+    ).toMatchObject({ gate: 'source', reason: 'source_access_lost' })
+  })
+
+  test('an artifact never rescues a memory-derived summary, and omission is not a way around the hold', () => {
+    expect(
+      decideJobOutboundPublication(
+        publish({
+          artifact: { ...claim(), ...current() },
+          artifactPolicy: 'omit_unauthorized',
+          memorySource: 'workspace',
+          result: { artifact: target(), jobId: 'job-1', summary: SUMMARY },
+        })
+      )
+    ).toMatchObject({ action: 'hold', gate: 'provenance' })
   })
 })

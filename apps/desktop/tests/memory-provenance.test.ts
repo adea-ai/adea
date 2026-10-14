@@ -12,6 +12,9 @@ import { join } from 'node:path'
 import {
   decideMemoryPromotion,
   isMemoryAudience,
+  memoryOriginsEqual,
+  recordedAgentOrigin,
+  storedMemoryOrigin,
   requireMemoryPromotion,
   type MemoryProvenanceRefusal,
   type MemoryProvenanceRecord,
@@ -21,6 +24,12 @@ import { createMemoryStore } from '../shell/src/memory/store'
 const WORKSPACE_A = '00000000-0000-4000-8000-00000000000a'
 const WORKSPACE_B = '00000000-0000-4000-8000-00000000000b'
 const FOREIGN_ENTRY = '00000000-0000-4000-8000-0000000000ff'
+const TRACE = {
+  harnessId: 'pi',
+  agentProfileId: 'agent-profile-1',
+  runtimeSessionId: 'runtime-session-1',
+  runId: 'run-1',
+} as const
 
 function withStore(
   run: (context: { dir: string; store: ReturnType<typeof createMemoryStore> }) => void
@@ -38,6 +47,7 @@ function provenanceRecord(overrides: Partial<MemoryProvenanceRecord> = {}): Memo
   return {
     id: FOREIGN_ENTRY,
     provenance: 'agent',
+    origin: { kind: 'agent', provenance: 'unknown' },
     revision: 1,
     status: 'pending',
     workspaceId: WORKSPACE_A,
@@ -67,6 +77,7 @@ describe('memory provenance and audience guard', () => {
       entryId: FOREIGN_ENTRY,
       audienceWorkspaceId: WORKSPACE_A,
       provenance: 'agent',
+      origin: { kind: 'agent', provenance: 'unknown' },
       from: 'pending',
       to: 'active',
       observedRevision: 1,
@@ -114,6 +125,65 @@ describe('memory provenance and audience guard', () => {
     ).toEqual({ allowed: false, reason: 'memory_invalid_state' })
   })
 
+  test('promotion preserves a recorded origin and refuses a presented different one', () => {
+    const recorded = recordedAgentOrigin(TRACE)!
+    const entry = provenanceRecord({ origin: recorded })
+    const decision = decideMemoryPromotion({
+      entry,
+      authorizedWorkspaceId: WORKSPACE_A,
+      expectedRevision: 1,
+      nextOrigin: { ...recorded },
+    })
+    expect(decision.allowed && decision.plan.origin).toEqual(recorded)
+    for (const forged of [
+      { kind: 'user' } as const,
+      { kind: 'agent', provenance: 'unknown' } as const,
+      { ...recorded, runId: 'run-2' },
+      { ...recorded, runtimeSessionId: 'runtime-session-2' },
+    ]) {
+      expect(
+        decideMemoryPromotion({
+          entry,
+          authorizedWorkspaceId: WORKSPACE_A,
+          expectedRevision: 1,
+          nextOrigin: forged,
+        })
+      ).toEqual({ allowed: false, reason: 'memory_provenance_mismatch' })
+    }
+    // Authority is checked before anything else: a foreign workspace never learns the origin matched.
+    expect(
+      decideMemoryPromotion({
+        entry,
+        authorizedWorkspaceId: WORKSPACE_B,
+        expectedRevision: 1,
+        nextOrigin: { kind: 'user' },
+      })
+    ).toEqual({ allowed: false, reason: 'memory_audience_mismatch' })
+  })
+
+  test('origins are rebuilt from host fields only and compared field by field', () => {
+    expect(recordedAgentOrigin({ ...TRACE, kind: 'user', extra: 1 })).toEqual({
+      kind: 'agent',
+      provenance: 'recorded',
+      ...TRACE,
+    })
+    expect(recordedAgentOrigin({ ...TRACE, runId: undefined })).toBeUndefined()
+    expect(recordedAgentOrigin('run-1')).toBeUndefined()
+    expect(storedMemoryOrigin({ source: 'agent' })).toEqual({
+      kind: 'agent',
+      provenance: 'unknown',
+    })
+    expect(storedMemoryOrigin({ source: 'user', origin: { kind: 'agent' } })).toEqual({
+      kind: 'user',
+    })
+    expect(memoryOriginsEqual({ kind: 'agent', provenance: 'unknown' }, { kind: 'user' })).toBe(
+      false
+    )
+    expect(
+      memoryOriginsEqual({ kind: 'agent', provenance: 'unknown' }, recordedAgentOrigin(TRACE)!)
+    ).toBe(false)
+  })
+
   test('requireMemoryPromotion throws the typed reason and never mutates', () => {
     const record = provenanceRecord()
     expect(
@@ -131,7 +201,7 @@ describe('memory provenance and audience guard', () => {
 
   test('the store accepts a proposal without relabelling it', () => {
     withStore(({ store }) => {
-      const proposed = store.propose(WORKSPACE_A, { text: 'agent learned this' })
+      const proposed = store.propose(WORKSPACE_A, { text: 'agent learned this', origin: TRACE })
       const accepted = store.accept(WORKSPACE_A, {
         entryId: proposed.id,
         expectedRevision: proposed.revision,
