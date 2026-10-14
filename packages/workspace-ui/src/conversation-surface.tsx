@@ -50,6 +50,19 @@ import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-s
 const LeadTurnControls = lazy(() =>
   import('./control-plane-settings').then((module) => ({ default: module.LeadTurnControls }))
 )
+const GroupAddressingController = lazy(() =>
+  import('./group-addressing').then((module) => ({ default: module.GroupAddressingController }))
+)
+const GroupRecipientPicker = lazy(() =>
+  import('./group-addressing').then((module) => ({ default: module.GroupRecipientPicker }))
+)
+const GroupRoster = lazy(() =>
+  import('./group-addressing').then((module) => ({ default: module.GroupRoster }))
+)
+const MessageTurns = lazy(() =>
+  import('./group-addressing').then((module) => ({ default: module.MessageTurns }))
+)
+import type { GroupAddressing } from './group-addressing'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
@@ -151,6 +164,8 @@ export function ConversationSurface(props: {
   artifacts: readonly ArtifactSummary[]
   channel?: ChannelSummary
   client: AgentHqApiClient
+  /** The signed-in user; only the person who addressed a turn is offered its cancel action. */
+  currentUserId?: string
   draft: string
   onDraftChange: (value: string) => void
   onOpenDetails: () => void
@@ -198,6 +213,11 @@ export function ConversationSurface(props: {
     modelRequests?.reset()
   })
   const [leadReceipt, setLeadReceipt] = createSignal<ApiLeadTurnStatus | null>(null)
+  // Addressed turns exist only in an active group conversation. The controller that reads them loads
+  // lazily and hands back one object; until it arrives the group reads like any other conversation.
+  const [addressing, setAddressing] = createSignal<GroupAddressing>()
+  const isActiveGroup = () =>
+    props.channel?.kind === 'group' && props.channel.lifecycleState === 'active'
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
   // Whether the loaded page belongs to this conversation. Solid Query keeps the
@@ -308,6 +328,9 @@ export function ConversationSurface(props: {
   const rootMessages = createMemo(() =>
     messages().filter(({ threadRootMessageId }) => !threadRootMessageId)
   )
+  const latestRootSequence = createMemo(() =>
+    rootMessages().reduce((latest, { sequence }) => Math.max(latest, sequence), 0)
+  )
 
   // One stable marker: the effect re-evaluates it when the transcript changes,
   // and the focus/visibility listeners call the same closure for the life of
@@ -409,6 +432,9 @@ export function ConversationSurface(props: {
     const submittedWorkspaceId = props.workspaceId
     const submittedChannelId = props.channel?.id
     const submittedAudienceEpoch = audienceEpoch()
+    // Who a group message addresses is chosen explicitly and resolved by identity, never by typed name.
+    const groupAddressing = isActiveGroup() ? addressing() : undefined
+    const addressedAgentIds = groupAddressing?.recipients() ?? []
     const stillCurrent = () =>
       props.client === submittedClient &&
       modelRequestClient === submittedClient &&
@@ -451,9 +477,18 @@ export function ConversationSurface(props: {
       if (!stillCurrent()) return { clearDraft: false }
       const created = await createMessage.mutateAsync({
         ...submission,
+        ...(isActiveGroup()
+          ? {
+              mentions: addressedAgentIds.map((agentId) => ({ agentId, kind: 'agent' as const })),
+            }
+          : {}),
         ...(useLead ? { leadTurn: true as const } : {}),
         ...(requestedModelSelections ? { requestedModelSelections } : {}),
       })
+      // The message is posted whether or not this view is still current, so its recipients are
+      // addressed either way. Each request is keyed on (message, Agent, revision), so a repeat is safe.
+      if (groupAddressing && addressedAgentIds.length)
+        void groupAddressing.address(created.message.id, addressedAgentIds)
       if (!stillCurrent()) return { clearDraft: false }
       if (created.leadTurn)
         setLeadReceipt({
@@ -534,8 +569,27 @@ export function ConversationSurface(props: {
                   )}
                 </Show>
               </Show>
+              <Show when={isActiveGroup() ? channel().id : undefined} keyed>
+                {(_channelId) => (
+                  <>
+                    <GroupAddressingController
+                      agents={props.agents}
+                      audienceEpoch={audienceEpoch()}
+                      channel={channel()}
+                      client={props.client}
+                      currentUserId={props.currentUserId}
+                      latestSequence={latestRootSequence()}
+                      onReady={setAddressing}
+                      workspaceId={props.workspaceId}
+                    />
+                    <Show when={addressing()}>
+                      {(value) => <GroupRecipientPicker addressing={value()} />}
+                    </Show>
+                  </>
+                )}
+              </Show>
               <MessageComposer
-                agents={props.agents}
+                agents={isActiveGroup() ? [] : props.agents}
                 artifacts={props.artifacts}
                 channelId={channel().id}
                 draft={props.draft}
@@ -601,30 +655,40 @@ export function ConversationSurface(props: {
                   </ActionButton>
                 </div>
               </div>
-              <nav class="min-w-0 overflow-hidden pt-0.5" aria-label="People in this conversation">
-                <ul class="flex justify-center gap-2.5 pt-0.5 pb-1">
-                  <For each={conversationPeople()}>
-                    {(person) => (
-                      <li
-                        class="relative grid size-9 shrink-0 place-items-center"
-                        aria-label={person.label}
-                        title={person.label}
-                      >
-                        <span
-                          class={cn('block rounded-full', {
-                            'ring-primary ring-offset-card ring-2 ring-offset-2': person.active,
-                          })}
-                        >
-                          <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
-                        </span>
-                        <Show when={person.active}>
-                          <span class="border-card bg-primary absolute right-0.5 bottom-0 size-2.5 rounded-full border-2" />
-                        </Show>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </nav>
+              <Show
+                when={isActiveGroup() ? addressing() : undefined}
+                fallback={
+                  <nav
+                    class="min-w-0 overflow-hidden pt-0.5"
+                    aria-label="People in this conversation"
+                  >
+                    <ul class="flex justify-center gap-2.5 pt-0.5 pb-1">
+                      <For each={conversationPeople()}>
+                        {(person) => (
+                          <li
+                            class="relative grid size-9 shrink-0 place-items-center"
+                            aria-label={person.label}
+                            title={person.label}
+                          >
+                            <span
+                              class={cn('block rounded-full', {
+                                'ring-primary ring-offset-card ring-2 ring-offset-2': person.active,
+                              })}
+                            >
+                              <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
+                            </span>
+                            <Show when={person.active}>
+                              <span class="border-card bg-primary absolute right-0.5 bottom-0 size-2.5 rounded-full border-2" />
+                            </Show>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </nav>
+                }
+              >
+                {(value) => <GroupRoster addressing={value()} />}
+              </Show>
             </header>
           }
           thread={props.threadRootMessageId ? threadPanel : undefined}
@@ -696,6 +760,14 @@ export function ConversationSurface(props: {
                             entry.item().message.taskId
                               ? taskById().get(entry.item().message.taskId!)
                               : undefined
+                          }
+                          turns={
+                            addressing()?.activeMessageIds().has(entry.item().message.id) ? (
+                              <MessageTurns
+                                addressing={addressing()!}
+                                messageId={entry.item().message.id}
+                              />
+                            ) : undefined
                           }
                         />
                       </>

@@ -41,3 +41,18 @@ test('replay reads carry the cursor and a bounded limit; cancel names the turn i
     '/api/v1/workspaces/ws/channels/ch/turns/turn%201/cancel'
   )
 })
+
+const respond = (body: unknown) =>
+  new AgentHqApiClient({
+    baseUrl: '/api',
+    fetchImpl: async () => Response.json(body, { status: 409 }),
+  }).addressTurn('ws', 'ch', { agentId: 'agent', dispatchRevision: 1, triggerMessageId: 'm' })
+
+test('a turn conflict carries its reason; a body without one does not invent it', async () => {
+  const refused = await respond({ code: 'turn_conflict', reason: 'turn_superseded' }).catch(
+    (error: unknown) => error
+  )
+  expect(refused).toMatchObject({ code: 'turn_conflict', reason: 'turn_superseded', status: 409 })
+  const bare = await respond({ code: 'turn_conflict', reason: 7 }).catch((error: unknown) => error)
+  expect((bare as { reason?: string }).reason).toBeUndefined()
+})
