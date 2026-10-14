@@ -174,7 +174,11 @@ export function createLeadProductReaderHandler(dependencies: LeadProductReaderDe
         async (product) => {
           if (
             product.controlPlaneWorkspaceId !== selectors.workspaceId ||
-            product.intentId !== selectors.intentId
+            product.intentId !== selectors.intentId ||
+            // The current CP contract has one execution/model/tool workspace.
+            // An enlistment permits group participation, not host execution
+            // authority over a foreign Agent's source workspace.
+            product.agentWorkspaceId !== product.workspaceId
           )
             return unavailable()
           // Canonical product locks remain held across final service verification and response construction.

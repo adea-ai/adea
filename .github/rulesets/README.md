@@ -9,13 +9,13 @@ file together.
 
 - Targets `refs/heads/main`; enforcement `active`; **no bypass actors**
   (owners and codeowners included — everyone merges through PRs and CI).
-- `pull_request`: squash merges only; stale reviews dismissed on push; review
-  threads must resolve. The review _count_ stays `0`.
-- `required_linear_history`, no deletion, no non-fast-forward pushes.
+- `pull_request`: squash and rebase merges; stale reviews dismissed on push;
+  review threads must resolve. The review _count_ stays `0`.
+- No deletion, no non-fast-forward pushes.
 - `required_status_checks` (all GitHub Actions, `integration_id` 15368):
   - `Validation / Gate` — the Code Foundry aggregate (lint, type-check, build,
     unit, integration, E2E shards, security).
-  - `Desktop shell` — the Electrobun shell lane.
+  - `Review Policy / Gate` — the review policy workflow (`review-policy.yml`).
   - `Visual gate` — the workspace pixel lane (`visual-lane.yml`).
   - `Host gate` — the TanStack Start host lane (`tanstack-start.yml`).
 

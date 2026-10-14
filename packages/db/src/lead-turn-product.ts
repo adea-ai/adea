@@ -8,6 +8,7 @@ import { withAuthorizedLeadTurn } from './lead-turns'
 import { isLeadTurnProductSelector } from './lead-turn-product-selectors'
 import { rollbackFenceEmission, type LeadTurnRollbackFenceEmission } from './lead-turn-rollback'
 import { leadTurnIntents } from './schema/lead-turns'
+import { agents } from './schema/agents'
 import { workspaces } from './schema/workspaces'
 
 /**
@@ -17,6 +18,8 @@ import { workspaces } from './schema/workspaces'
  */
 export type CurrentLeadTurnProduct = Readonly<{
   workspaceId: string
+  /** Current home workspace of the pinned Agent, read under its existing row lock. */
+  agentWorkspaceId: string
   controlPlaneWorkspaceId: string
   intentId: string
   intentCreatedAt: string
@@ -75,7 +78,15 @@ export async function withCurrentLeadTurnProduct<T>(
       { kind: 'user', userId: original.actorUserId },
       true,
       async (_locked, intent, message, mappedWorkspaceId) => {
+        // withAuthorizedLeadTurn holds this exact Agent row's SHARE lock.
+        // Read its home from that transaction, never from caller selectors.
+        const [agent] = await _locked
+          .select({ workspaceId: agents.workspaceId })
+          .from(agents)
+          .where(eq(agents.id, intent.agentId))
+          .limit(1)
         if (
+          !agent ||
           mappedWorkspaceId !== controlPlaneWorkspaceId ||
           message.channelId !== intent.channelId ||
           message.senderKind !== 'user' ||
@@ -98,6 +109,7 @@ export async function withCurrentLeadTurnProduct<T>(
         return disclose(
           Object.freeze({
             workspaceId: workspace.id,
+            agentWorkspaceId: agent.workspaceId,
             controlPlaneWorkspaceId: mappedWorkspaceId,
             intentId: intent.id,
             intentCreatedAt: intent.createdAt.toISOString(),

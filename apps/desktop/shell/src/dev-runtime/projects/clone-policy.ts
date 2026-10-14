@@ -103,7 +103,10 @@ export function transportArgs(protocol: CloneProtocol): string[] {
 }
 
 export function classifyTransport(stderr: string): WorktreeErrorCode {
-  const text = stderr.toLowerCase()
+  // Git quotes the remote path or URL it names. Those spans are caller- and
+  // machine-controlled (a temp directory or repository named `403` or
+  // `permission denied`), so they must never decide the classification.
+  const text = stderr.toLowerCase().replace(/'[^'\n]*'/g, "''")
   // Batch-mode SSH refuses an unknown or changed host key outright: the
   // remote could not be proven, which is a reachability failure, not auth.
   if (
@@ -119,7 +122,7 @@ export function classifyTransport(stderr: string): WorktreeErrorCode {
     text.includes('could not read password') ||
     text.includes('permission denied') ||
     text.includes('terminal prompts disabled') ||
-    text.includes('403')
+    /\b403\b/.test(text)
   )
     return 'auth_required'
   if (text.includes('repository not found') || text.includes('does not appear to be a git'))
