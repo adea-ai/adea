@@ -234,8 +234,8 @@ function build() {
       replayFails = value
     },
     holdAddress: () => {
-      addressGate = Promise.withResolvers<void>()
-      addressGate = { promise: addressGate.promise, release: addressGate.resolve }
+      const { promise, resolve } = Promise.withResolvers<void>()
+      addressGate = { promise, release: resolve }
     },
     releaseAddress: () => {
       addressGate?.release()

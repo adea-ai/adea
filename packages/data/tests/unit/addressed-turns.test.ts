@@ -506,14 +506,17 @@ describe('addressedTurnQueryOptions.list', () => {
 
     test('an older read that finishes after the denial was recorded cannot restore turns', () => {
       const known = turn()
-      const held = replay([known], { readSeq: 1 })
+      const held = replay([known])
       const refused = foldAddressedTurnCache(held, {
-        ...replay([], { readSeq: 2 }),
+        ...replay([]),
         unavailable: true,
       })!
       expect(refused).toMatchObject({ turns: [], unavailable: true })
       // A read that began before the denial was recorded answers late: dropped.
-      const stale = foldAddressedTurnCache(refused, replay([known], { readSeq: 2 }))!
+      const stale = foldAddressedTurnCache(
+        refused,
+        replay([known], { readSeq: refused.fencedBefore })
+      )!
       expect(stale.turns).toEqual([])
       expect(stale.unavailable).toBe(true)
       // A read that began after the denial restores, and clears it.
