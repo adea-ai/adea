@@ -7,12 +7,14 @@ import {
 import { QueryClient } from '@tanstack/solid-query'
 
 import {
+  addressedTurnMutationOptions,
   addressedTurnQueryKeys,
   addressedTurnQueryOptions,
   advanceAddressedTurn,
   applyAddressedTurnReplay,
   foldAddressedTurnCache,
   foldAddressedTurns,
+  foldTurnIntoReplay,
   isLiveAddressedTurn,
   isUnstartedAddressedTurn,
   replayAddressedTurns,
@@ -350,6 +352,8 @@ describe('turn predicates', () => {
   })
 })
 
+const denied = (status = 404) => new ApiClientError('unavailable', status, 'unavailable')
+
 describe('addressedTurnQueryOptions.list', () => {
   const key = addressedTurnQueryKeys.list('ws', 'channel-1')
 
@@ -429,6 +433,98 @@ describe('addressedTurnQueryOptions.list', () => {
       expect(held.unavailable).not.toBe(true)
     }
   )
+
+  describe('access denial is a hard reset', () => {
+    test('a turn that arrives while the denied read runs does not survive it', async () => {
+      const queryClient = new QueryClient()
+      const known = turn()
+      const arrival = turn({ state: 'claimed', dispatched: false })
+      const { promise: gate, resolve: release } = Promise.withResolvers<void>()
+      let phase: 'turns' | 'denied' = 'turns'
+      const client = {
+        listAddressedTurns: async () => {
+          if (phase === 'turns') return { nextAfter: null, turns: [known] }
+          await gate
+          throw denied()
+        },
+      } as never
+      const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      phase = 'denied'
+      const read = queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+      // An address response lands while the denied read is still waiting on the server.
+      queryClient.setQueryData<AddressedTurnReplay>(key, (current) =>
+        foldTurnIntoReplay(current, arrival, 0)
+      )
+      expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.turns).toHaveLength(2)
+      release()
+      await read
+      const after = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(after.turns).toEqual([])
+      expect(after.unavailable).toBe(true)
+    })
+
+    test('a delayed address or cancel response after the denial restores nothing and keeps it denied', async () => {
+      const queryClient = new QueryClient()
+      const known = turn()
+      const late = turn({ state: 'claimed', dispatched: false })
+      let phase: 'turns' | 'denied' = 'turns'
+      const client = {
+        listAddressedTurns: async () => {
+          if (phase === 'denied') throw denied()
+          return { nextAfter: null, turns: [known] }
+        },
+      } as never
+      const options = addressedTurnQueryOptions.list(client, 'ws', 'channel-1')
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      phase = 'denied'
+      await queryClient.fetchQuery({ ...options, staleTime: 0, retry: false })
+      expect(queryClient.getQueryData<AddressedTurnReplay>(key)!.unavailable).toBe(true)
+      const context = { audienceEpoch: 0 }
+      const address = addressedTurnMutationOptions.address(client, queryClient, 'ws', 'channel-1')
+      await address.onSuccess(
+        { created: true, dispatch: 'admitted', turn: late } as never,
+        undefined,
+        context
+      )
+      const cancel = addressedTurnMutationOptions.cancel(client, queryClient, 'ws', 'channel-1')
+      await cancel.onSuccess(
+        { runtimeCancelRequested: false, turn: at(known, 'cancelled', 1) } as never,
+        undefined,
+        context
+      )
+      const after = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(after.turns).toEqual([])
+      expect(after.unavailable).toBe(true)
+      // Only a fresh authorized read clears the denial and restores what the server lists.
+      phase = 'turns'
+      await queryClient.fetchQuery({ ...options, staleTime: 0 })
+      const back = queryClient.getQueryData<AddressedTurnReplay>(key)!
+      expect(back.unavailable).toBe(false)
+      expect(back.turns.map((entry) => entry.id)).toEqual([known.id])
+    })
+
+    test('an older read that finishes after the denial was recorded cannot restore turns', () => {
+      const known = turn()
+      const held = replay([known], { readSeq: 1 })
+      const refused = foldAddressedTurnCache(held, {
+        ...replay([], { readSeq: 2 }),
+        unavailable: true,
+      })!
+      expect(refused).toMatchObject({ turns: [], unavailable: true })
+      // A read that began before the denial was recorded answers late: dropped.
+      const stale = foldAddressedTurnCache(refused, replay([known], { readSeq: 2 }))!
+      expect(stale.turns).toEqual([])
+      expect(stale.unavailable).toBe(true)
+      // A read that began after the denial restores, and clears it.
+      const fresh = foldAddressedTurnCache(
+        refused,
+        replay([known], { readSeq: (refused.fencedBefore ?? 0) + 1 })
+      )!
+      expect(fresh.turns.map((entry) => entry.id)).toEqual([known.id])
+      expect(fresh.unavailable).toBe(false)
+    })
+  })
 
   test('a turn folded in while a read is in flight survives that read', async () => {
     const queryClient = new QueryClient()

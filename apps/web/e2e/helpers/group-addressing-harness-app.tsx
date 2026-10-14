@@ -60,6 +60,9 @@ type Harness = {
   hideTurns: (value: boolean) => void
   /** Reads answer with the uniform 404, as for a reader whose access was revoked. */
   revokeReader: (value: boolean) => void
+  /** The next address response is delayed until `releaseAddress` runs. */
+  holdAddress: () => void
+  releaseAddress: () => void
   humanMessage: (text: string) => void
   turns: () => ApiAddressedTurn[]
 }
@@ -83,6 +86,7 @@ function build() {
   let replayFails = false
   let turnsHidden = false
   let readerRevoked = false
+  let addressGate: { promise: Promise<void>; release: () => void } | undefined
   const stamp = () => new Date(Date.now() + tick++).toISOString()
   const message = (sender: MessageSummary['sender'], bodyText: string): MessageSummary => {
     sequence += 1
@@ -143,7 +147,8 @@ function build() {
         triggerMessageId: string
       }
       const causalId = `turn:${body.triggerMessageId}:${body.agentId}:${body.dispatchRevision}`
-      const respond = (created: boolean, turn: ApiAddressedTurn, dispatch: string) => {
+      const respond = async (created: boolean, turn: ApiAddressedTurn, dispatch: string) => {
+        if (addressGate) await addressGate.promise
         if (dropAddress) {
           dropAddress = false
           throw new TypeError('Failed to fetch')
@@ -227,6 +232,14 @@ function build() {
     },
     failReplay: (value) => {
       replayFails = value
+    },
+    holdAddress: () => {
+      addressGate = Promise.withResolvers<void>()
+      addressGate = { promise: addressGate.promise, release: addressGate.resolve }
+    },
+    releaseAddress: () => {
+      addressGate?.release()
+      addressGate = undefined
     },
     revokeReader: (value) => {
       readerRevoked = value

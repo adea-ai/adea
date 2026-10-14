@@ -234,3 +234,30 @@ test('a 404 on refresh clears the turns and Cancel, where a 503 kept them', asyn
   await expect(page.getByText('Addressed turns are no longer available to you')).toHaveCount(0)
   await expect(addressed(page)).toContainText('Dispatched')
 })
+
+test('an address response that lands after access was denied restores nothing', async ({
+  page,
+}) => {
+  await open(page)
+  await aria(page).click()
+  await page.evaluate(() => window.addressingHarness.holdAddress())
+  const box = page.getByRole('textbox')
+  await box.fill('Please answer')
+  await box.press('Enter')
+  await expect(box).toHaveValue('')
+  // The server has the turn; the reader loses access and learns it from a refresh before the
+  // delayed address response arrives.
+  await page.evaluate(() => window.addressingHarness.revokeReader(true))
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByText('Addressed turns are no longer available to you')).toBeVisible()
+  const readsBefore = await page.evaluate(() => window.addressingHarness.calls.list)
+  await page.evaluate(() => window.addressingHarness.releaseAddress())
+  // The late response lands and its follow-up read runs (and is refused again): wait for that, then
+  // check that none of it changed what is shown.
+  await expect
+    .poll(() => page.evaluate(() => window.addressingHarness.calls.list))
+    .toBeGreaterThan(readsBefore)
+  await expect(page.getByText('Addressed turns are no longer available to you')).toBeVisible()
+  await expect(addressed(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Cancel turn for/ })).toHaveCount(0)
+})

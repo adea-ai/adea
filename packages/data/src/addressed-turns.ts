@@ -24,6 +24,9 @@ export const addressedTurnQueryKeys = {
     ['workspaces', workspaceId, 'channels', channelId, 'addressed-turns'] as const,
 }
 
+/** Orders reads so an older answer cannot overwrite a newer one's verdict on access. */
+let readClock = 0
+
 /** Pages one replay read may walk (200 turns each) before it gives up and reports an incomplete read. */
 export const ADDRESSED_TURN_REPLAY_PAGE_CAP = 25
 const ADDRESSED_TURN_PAGE_SIZE = 200
@@ -152,6 +155,13 @@ export type AddressedTurnReplay = Readonly<{
    * 404). The turns are then gone from the client, not kept: a transient failure keeps them, this does not.
    */
   unavailable?: boolean
+  /** Order in which reads began (this module's counter); set on a fresh read. */
+  readSeq?: number
+  /**
+   * On an unavailable cache: reads that began at or before this point cannot restore turns, only a read
+   * that began after the denial was recorded can. Set when the denial is written.
+   */
+  fencedBefore?: number
 }>
 
 /**
@@ -193,21 +203,35 @@ export async function replayAddressedTurns(
   return { complete: false, heldAtStart, turns }
 }
 
-/** The cache write rule: a complete replay is authoritative for listing; anything else only advances. */
+/**
+ * The cache write rule: a complete replay is authoritative for listing; anything else only advances.
+ * A denial (401, 403, the uniform 404) is a hard reset: nothing held survives it, not even a turn that
+ * arrived while the denied read ran. While denied, only a read that began after the denial was recorded
+ * may restore turns; an older read's answer is dropped.
+ */
 export function foldAddressedTurnCache(
   held: unknown,
   next: unknown
 ): AddressedTurnReplay | undefined {
   const incoming = next as AddressedTurnReplay | undefined
   const current = held as AddressedTurnReplay | undefined
+  if (incoming?.unavailable)
+    return {
+      ...incoming,
+      complete: true,
+      fencedBefore: readClock,
+      turns: [],
+    }
   if (!incoming || !current) return incoming
   // A page from another audience says nothing about this one's turns.
   if (current.conversationAudienceEpoch !== incoming.conversationAudienceEpoch) return incoming
+  if (current.unavailable && (incoming.readSeq ?? 0) <= (current.fencedBefore ?? readClock))
+    return current
   return {
     complete: incoming.complete,
     conversationAudienceEpoch: incoming.conversationAudienceEpoch,
     heldAtStart: incoming.heldAtStart,
-    unavailable: incoming.unavailable ?? false,
+    unavailable: false,
     turns: incoming.complete
       ? applyAddressedTurnReplay(current.turns, incoming.turns, new Set(incoming.heldAtStart))
       : foldAddressedTurns(current.turns, incoming.turns),
@@ -222,6 +246,8 @@ export const addressedTurnQueryOptions = {
     }: {
       client: QueryClient
     }): Promise<AddressedTurnReplay> => {
+      readClock += 1
+      const readSeq = readClock
       const conversationAudienceEpoch =
         workspaceStore.getState().conversationAudienceEpochs[workspaceId!] ?? 0
       const held = queryClient.getQueryData<AddressedTurnCache>(
@@ -235,7 +261,7 @@ export const addressedTurnQueryOptions = {
         const replay = await replayAddressedTurns(client, workspaceId!, channelId!, {
           heldAtStart,
         })
-        return { ...replay, conversationAudienceEpoch }
+        return { ...replay, conversationAudienceEpoch, readSeq }
       } catch (error) {
         if (!isAddressedTurnAccessLost(error)) throw error
         // Access is gone: an authoritative empty answer, so nothing held for it lingers.
@@ -243,6 +269,7 @@ export const addressedTurnQueryOptions = {
           complete: true,
           conversationAudienceEpoch,
           heldAtStart,
+          readSeq,
           turns: [],
           unavailable: true,
         }
@@ -274,6 +301,9 @@ export function foldTurnIntoReplay(
   audienceEpoch: number
 ): AddressedTurnCache {
   if (current && current.conversationAudienceEpoch !== audienceEpoch) return current
+  // A response that lands after access was denied is older than the denial: it restores nothing, and
+  // only a fresh authorized read clears the denial.
+  if (current?.unavailable) return current
   return {
     complete: current?.complete ?? false,
     conversationAudienceEpoch: audienceEpoch,
