@@ -233,10 +233,23 @@ probe. Opening the dialog still reads status and performs its existing check.
   dialog never renders `[object Object]` as the failure message.
 - `desktop_update_install` requires `approved: true` and an `expectedVersion`
   matching the pending release, so a stale confirmation cannot install a
-  different release. Installation downloads and verifies the archive, swaps
-  the running `.app` (keeping no part of the old bundle), relaunches, and
-  reports `installed` with `restart_required` while the swap script waits for
-  the process to exit.
+  different release. Installation downloads and verifies the archive, then
+  stages a detached swap script and reports `installed` with
+  `restart_required`. That phase acknowledges staging; it is not a receipt
+  that the later bundle replacement, payload cleanup, or relaunch succeeded.
+  The script waits for the staging process to exit and stops on an unhandled
+  command failure. Full archives replace the running `.app` (keeping no part
+  of the old bundle after successful cleanup) and retain the explicit rollback
+  if moving the replacement into place fails. If that rollback also fails,
+  the `.previous` bundle is left for recovery and the script does not launch.
+- Slim archives overlay the app layer onto the installed bundle with `ditto`.
+  This is an in-place, non-atomic update: a failed copy can leave some files
+  updated and others old. The script then stops, preserving the extracted
+  payload for diagnosis and skipping relaunch; this mode has no bundle
+  rollback. Failures after a successful full replacement can likewise leave
+  the new bundle installed, with its backup or payload retained according to
+  which cleanup step failed. The staged phase does not detect or reconcile
+  these outcomes.
 - Staging is bounded. `<dataDir>/updates` holds only what one install needs:
   the apply script deletes the extracted payload once it has been consumed,
   and each install first prunes the `extracted-<version>` directories and
@@ -273,6 +286,10 @@ probe. Opening the dialog still reads status and performs its existing check.
   per-channel feed resolution (stable moves with an override, opt-in channels
   skip releases until the feed and app archive exist), and the no-stable-
   fallback rule for opt-in channels.
+- `apps/desktop/tests/updater-swap-script.test.ts`: execution of the generated
+  apply script against disposable app bundles and stubbed process-control and
+  macOS commands, including full-swap rollback, slim partial-copy, cleanup,
+  and relaunch failures.
 - `apps/desktop/tests/shell-commands.test.ts`: feed availability phases, the
   packaged-version reporting, and the `desktop_update_channel*` surface
   (default stable, save validation).
