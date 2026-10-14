@@ -1,8 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
-import { enableKanbanApp } from './helpers/kanban-app'
-
 import { createGroupChannel, createMessage } from '../../../packages/db/src/conversations'
 import { createDatabase, type DatabaseConnection } from '../../../packages/db/src/connection'
 import { createTask } from '../../../packages/db/src/tasks'
@@ -50,8 +48,6 @@ const RACE_FIRST_TITLE = 'Browser UI Accessibility Race First'
 const RACE_SECOND_TITLE = 'Browser UI Accessibility Race Second'
 
 async function openSignedInApp(page: Page): Promise<void> {
-  // Kanban is an optional app; this lane is about its board.
-  await enableKanbanApp(page)
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible({
     timeout: 20_000,

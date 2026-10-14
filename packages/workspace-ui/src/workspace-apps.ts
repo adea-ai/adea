@@ -39,10 +39,9 @@ export const workspaceApps: readonly WorkspaceApp[] = Object.freeze([
     name: 'Kanban',
     description: 'Plan and track tasks on a full-width board.',
     view: 'chat',
-    // Optional: only Virtual, Chat and Dev start enabled. Tasks stay reachable
-    // from Chat's own Tasks surface; the person adds the full-width board in
-    // the App Library.
-    enabledByDefault: false,
+    // The board is the only place tasks are listed, so it is on unless the
+    // person turns it off in the App Library.
+    enabledByDefault: true,
   },
   {
     id: 'source-control',

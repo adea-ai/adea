@@ -10,66 +10,34 @@ import {
   reorderWorkspaceAppsRelativeTo,
   resolveWorkspaceApp,
   setWorkspaceAppEnabled,
-  workspaceApps,
 } from '../../src/workspace-apps'
 
-test('only Virtual, Chat and Dev start enabled; optional destinations require explicit enablement', () => {
-  expect(workspaceApps.filter((app) => app.enabledByDefault).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
-  ])
+test('built-in apps and Kanban start enabled; optional destinations require explicit enablement', () => {
+  // Kanban is the only place tasks are listed, so it is on by default.
   expect(enabledWorkspaceApps(defaultRailPreferences).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
-  ])
-  // Kanban is still a known destination: it resolves once the person enables
-  // it, and until then a request for it lands on the first enabled app.
-  expect(resolveWorkspaceApp(defaultRailPreferences, 'kanban')?.id).toBe('virtual')
-  const withKanban = setWorkspaceAppEnabled(defaultRailPreferences, 'kanban', true)
-  expect(resolveWorkspaceApp(withKanban, 'kanban')?.view).toBe('chat')
-  expect(enabledWorkspaceApps(withKanban).map((app) => app.id)).toEqual([
     'virtual',
     'chat',
     'dev',
     'kanban',
   ])
-  // Turning it back off hides it again without dropping its recorded place.
-  const withoutKanban = setWorkspaceAppEnabled(withKanban, 'kanban', false)
+  expect(resolveWorkspaceApp(defaultRailPreferences, 'kanban')?.view).toBe('chat')
+  const withoutKanban = setWorkspaceAppEnabled(defaultRailPreferences, 'kanban', false)
   expect(enabledWorkspaceApps(withoutKanban).map((app) => app.id)).toEqual([
     'virtual',
     'chat',
     'dev',
   ])
-  expect(withoutKanban.order).toContain('kanban')
-  expect(withoutKanban.hidden).toContain('kanban')
+  // An explicitly enabled app is recorded in the order; a default-on app that
+  // was never placed follows the recorded ones.
   const next = setWorkspaceAppEnabled(defaultRailPreferences, 'source-control', true)
   expect(enabledWorkspaceApps(next).map((app) => app.id)).toEqual([
     'virtual',
     'chat',
     'dev',
     'source-control',
-  ])
-  expect(defaultRailPreferences.order).toEqual(['virtual', 'chat', 'dev'])
-})
-
-test('a stored preference that already placed Kanban keeps it enabled', () => {
-  // Preferences written before Kanban became optional recorded it in the order
-  // when the person reordered or enabled apps; nothing is migrated or hidden.
-  const stored = {
-    version: 1 as const,
-    order: ['virtual', 'chat', 'dev', 'kanban'],
-    hidden: [],
-  }
-  expect(enabledWorkspaceApps(stored).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
     'kanban',
   ])
-  const hidden = { ...stored, hidden: ['kanban'] }
-  expect(enabledWorkspaceApps(hidden).map((app) => app.id)).toEqual(['virtual', 'chat', 'dev'])
+  expect(defaultRailPreferences.order).toEqual(['virtual', 'chat', 'dev'])
 })
 
 test('App Library order shares rail placements and retains filtered, hidden, and unknown ids', () => {
@@ -89,16 +57,15 @@ test('App Library order shares rail placements and retains filtered, hidden, and
 
   const moved = reorderWorkspaceAppsRelativeTo(source, 'source-control', 'dev', 'before')
   expect(moved.order).toEqual(['virtual', 'app:future', 'chat', 'source-control', 'dev', 'kanban'])
-  // Reordering records every built-in app; optional ones are hidden, so
-  // browsing the Library never enables Kanban or Source control.
-  expect(moved.hidden).toEqual(['chat', 'app:future', 'kanban', 'source-control'])
-  expect(enabledWorkspaceApps(moved).map((app) => app.id)).toEqual(['virtual', 'dev'])
+  expect(moved.hidden).toEqual(['chat', 'app:future', 'source-control'])
+  expect(enabledWorkspaceApps(moved).map((app) => app.id)).toEqual(['virtual', 'dev', 'kanban'])
 
   const enabled = setWorkspaceAppEnabled(moved, 'source-control', true)
   expect(enabledWorkspaceApps(enabled).map((app) => app.id)).toEqual([
     'virtual',
     'source-control',
     'dev',
+    'kanban',
   ])
 })
 

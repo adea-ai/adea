@@ -1,6 +1,6 @@
 import type { AgentSummary, ProjectSummary, TaskSummary } from '@adea-ai/types'
 import { Play, Plus, Search, X } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, onCleanup, Show } from 'solid-js'
+import { createMemo, createSignal, onCleanup, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -19,6 +19,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@adea-ai/ui/compon
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 import { keyedRows, type KeyedRow } from './keyed-rows'
 import { createLazyModule } from './lazy-module'
+import { createLazyModuleRequest } from './lazy-module-request'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
 import { ProjectIcon } from './project-icon'
@@ -100,20 +101,24 @@ export function TaskBoard(props: Props) {
     opener = undefined
     return element
   }
-  const panelWanted = createMemo(() => creating() || selected() !== undefined)
-  createEffect(() => {
-    if (!panelWanted() || panel()) return
-    taskPanelModule.load().then(
-      (component) => setPanel(() => component),
-      () => {
-        opener = undefined
-        setCreating(false)
-        props.onSelect(null)
-        setBoardError(
-          'Task details could not be loaded. Check your connection, then reload to try again.'
-        )
-      }
-    )
+  // Track the actual request, not just whether any panel is wanted: switching
+  // tasks while the shared import is pending must invalidate the old handler.
+  const panelRequest = createMemo(() =>
+    creating() ? 'create' : selected() ? `edit:${selected()!.id}` : undefined
+  )
+  createLazyModuleRequest({
+    request: panelRequest,
+    current: panel,
+    load: taskPanelModule.load,
+    onLoad: (component) => setPanel(() => component),
+    onError: () => {
+      opener = undefined
+      setCreating(false)
+      props.onSelect(null)
+      setBoardError(
+        'Task details could not be loaded. Check your connection, then reload to try again.'
+      )
+    },
   })
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const projectById = createMemo(
