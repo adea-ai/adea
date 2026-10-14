@@ -6299,7 +6299,15 @@ appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
 result or link to a task opens Kanban; with Kanban disabled, the board opens
-inside Chat instead. Library retains rail reorder and reset controls.
+inside Chat instead. The board and the task
+panel are lazy: the Tasks surface loads the board chunk on entry (a skeleton
+shows meanwhile, and a failed load offers Retry, which reloads the page because a
+browser keeps a failed module fetch for the life of the page), and the panel chunk
+loads when a task is created or opened (a failed load closes the request and says
+so on the board). A changed selection or disposed board invalidates its pending
+load callbacks, so a stale failure cannot clear a newer task selection. Neither
+is in Chat's initial graph.
+Library retains rail reorder and reset controls.
 Chat’s central conversation surface uses the canonical theme background in
 both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled

@@ -142,6 +142,16 @@ export default defineConfig(({ command }) => ({
                   test: /lucide-solid\/dist\/source\/icons\/(archive|arrow-up|book-open|bot|download|external-link|file-text|message-square|lock-keyhole|mic|pencil|play|rotate-ccw|square-terminal|upload)\.jsx$/,
                   minShareCount: 2,
                 },
+                // Two single-glyph chunks that only lazy panes import
+                // (Appearance, Plugins, Settings and Source control). Each is
+                // otherwise its own request; grouped, neither reaches a route's
+                // static graph or grows the Dev utility panes closure. Disjoint
+                // from the startup group above.
+                {
+                  name: 'shared-pane-icons',
+                  test: /lucide-solid\/dist\/source\/icons\/(eye-off|shield-check)\.jsx$/,
+                  minShareCount: 2,
+                },
               ],
             },
           },
