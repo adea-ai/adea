@@ -4,7 +4,7 @@ import {
   classifyLeadTurnRollback,
   type LeadTurnRollbackEvidence,
   parseLeadTurnRollbackAuthority,
-} from '../../src/lead-turn-rollback'
+} from '../../src/lead-turn-rollback-policy'
 
 const userId = '0f8b7c2e-1a2b-4c3d-8e9f-001122334455'
 const authority = {
