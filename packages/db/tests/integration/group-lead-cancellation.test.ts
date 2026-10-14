@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq } from 'drizzle-orm'
 

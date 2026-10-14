@@ -228,12 +228,8 @@
           "tableFrom": "agents",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -242,12 +238,8 @@
           "tableFrom": "agents",
           "tableTo": "projects",
           "schemaTo": "app",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -257,17 +249,12 @@
         "agents_control_plane_id_unique": {
           "name": "agents_control_plane_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "control_plane_agent_id"
-          ]
+          "columns": ["control_plane_agent_id"]
         },
         "agents_workspace_id_unique": {
           "name": "agents_workspace_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "id"
-          ]
+          "columns": ["workspace_id", "id"]
         }
       },
       "policies": {},
@@ -418,12 +405,8 @@
           "tableFrom": "artifact_reference_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "source_workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -432,12 +415,8 @@
           "tableFrom": "artifact_reference_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "audience_workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["audience_workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -447,9 +426,7 @@
         "artifact_reference_grants_grant_id_unique": {
           "name": "artifact_reference_grants_grant_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "grant_id"
-          ]
+          "columns": ["grant_id"]
         }
       },
       "policies": {},
@@ -783,12 +760,8 @@
           "tableFrom": "artifacts",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -797,12 +770,8 @@
           "tableFrom": "artifacts",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -811,12 +780,8 @@
           "tableFrom": "artifacts",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -826,10 +791,7 @@
         "artifacts_workspace_source_unique": {
           "name": "artifacts_workspace_source_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "source_artifact_ref"
-          ]
+          "columns": ["workspace_id", "source_artifact_ref"]
         }
       },
       "policies": {},
@@ -981,12 +943,8 @@
           "tableFrom": "auth_identities",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -996,10 +954,7 @@
         "auth_identities_provider_subject_unique": {
           "name": "auth_identities_provider_subject_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "provider",
-            "subject"
-          ]
+          "columns": ["provider", "subject"]
         }
       },
       "policies": {},
@@ -1256,12 +1211,8 @@
           "tableFrom": "channel_participants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1270,12 +1221,8 @@
           "tableFrom": "channel_participants",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1284,12 +1231,8 @@
           "tableFrom": "channel_participants",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1298,12 +1241,8 @@
           "tableFrom": "channel_participants",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1419,12 +1358,8 @@
           "tableFrom": "channel_read_states",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1433,12 +1368,8 @@
           "tableFrom": "channel_read_states",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1447,12 +1378,8 @@
           "tableFrom": "channel_read_states",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1462,11 +1389,7 @@
         "channel_read_states_user_channel_unique": {
           "name": "channel_read_states_user_channel_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "user_id",
-            "channel_id"
-          ]
+          "columns": ["workspace_id", "user_id", "channel_id"]
         }
       },
       "policies": {},
@@ -1715,12 +1638,8 @@
           "tableFrom": "channels",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1729,12 +1648,8 @@
           "tableFrom": "channels",
           "tableTo": "projects",
           "schemaTo": "app",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1743,12 +1658,8 @@
           "tableFrom": "channels",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1757,12 +1668,8 @@
           "tableFrom": "channels",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1772,10 +1679,7 @@
         "channels_workspace_idempotency_unique": {
           "name": "channels_workspace_idempotency_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "idempotency_key"
-          ]
+          "columns": ["workspace_id", "idempotency_key"]
         }
       },
       "policies": {},
@@ -1987,12 +1891,8 @@
           "tableFrom": "command_outbox",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2195,12 +2095,8 @@
           "tableFrom": "content_refs",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2210,10 +2106,7 @@
         "content_refs_workspace_id_unique": {
           "name": "content_refs_workspace_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "id"
-          ]
+          "columns": ["workspace_id", "id"]
         }
       },
       "policies": {},
@@ -2463,12 +2356,8 @@
           "tableFrom": "content_replicas",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2477,14 +2366,8 @@
           "tableFrom": "content_replicas",
           "tableTo": "content_refs",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "content_ref_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "content_ref_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2643,12 +2526,8 @@
           "tableFrom": "desktop_authorization_codes",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2658,9 +2537,7 @@
         "desktop_authorization_codes_code_digest_unique": {
           "name": "desktop_authorization_codes_code_digest_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "code_digest"
-          ]
+          "columns": ["code_digest"]
         }
       },
       "policies": {},
@@ -2793,12 +2670,8 @@
           "tableFrom": "desktop_sessions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2808,9 +2681,7 @@
         "desktop_sessions_credential_digest_unique": {
           "name": "desktop_sessions_credential_digest_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "credential_digest"
-          ]
+          "columns": ["credential_digest"]
         }
       },
       "policies": {},
@@ -2898,10 +2769,7 @@
         "event_inbox_source_event_unique": {
           "name": "event_inbox_source_event_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "source",
-            "source_event_id"
-          ]
+          "columns": ["source", "source_event_id"]
         }
       },
       "policies": {},
@@ -3068,12 +2936,8 @@
           "tableFrom": "group_admissions",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3082,12 +2946,8 @@
           "tableFrom": "group_admissions",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3096,12 +2956,8 @@
           "tableFrom": "group_admissions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3110,12 +2966,8 @@
           "tableFrom": "group_admissions",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3275,12 +3127,8 @@
           "tableFrom": "group_audience_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3289,12 +3137,8 @@
           "tableFrom": "group_audience_grants",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3303,12 +3147,8 @@
           "tableFrom": "group_audience_grants",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3456,12 +3296,8 @@
           "tableFrom": "group_enlistment_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3470,12 +3306,8 @@
           "tableFrom": "group_enlistment_grants",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3484,12 +3316,8 @@
           "tableFrom": "group_enlistment_grants",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3656,12 +3484,8 @@
           "tableFrom": "group_sharing_grants",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3670,12 +3494,8 @@
           "tableFrom": "group_sharing_grants",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3684,12 +3504,8 @@
           "tableFrom": "group_sharing_grants",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -3698,12 +3514,8 @@
           "tableFrom": "group_sharing_grants",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3982,12 +3794,8 @@
           "tableFrom": "lead_turn_intents",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3996,12 +3804,8 @@
           "tableFrom": "lead_turn_intents",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4010,12 +3814,8 @@
           "tableFrom": "lead_turn_intents",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["message_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4024,12 +3824,8 @@
           "tableFrom": "lead_turn_intents",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4038,12 +3834,8 @@
           "tableFrom": "lead_turn_intents",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4053,16 +3845,12 @@
         "lead_turn_intents_message_unique": {
           "name": "lead_turn_intents_message_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "message_id"
-          ]
+          "columns": ["message_id"]
         },
         "lead_turn_intents_dispatch_key_unique": {
           "name": "lead_turn_intents_dispatch_key_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "dispatch_key"
-          ]
+          "columns": ["dispatch_key"]
         }
       },
       "policies": {},
@@ -4229,12 +4017,8 @@
           "tableFrom": "lead_turn_runtime",
           "tableTo": "lead_turn_intents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "intent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["intent_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4243,12 +4027,8 @@
           "tableFrom": "lead_turn_runtime",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "published_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["published_message_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4258,16 +4038,12 @@
         "lead_turn_runtime_dispatch_unique": {
           "name": "lead_turn_runtime_dispatch_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "dispatch_id"
-          ]
+          "columns": ["dispatch_id"]
         },
         "lead_turn_runtime_attempt_unique": {
           "name": "lead_turn_runtime_attempt_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "attempt_id"
-          ]
+          "columns": ["attempt_id"]
         }
       },
       "policies": {},
@@ -4449,12 +4225,8 @@
           "tableFrom": "management_authority_consumptions",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -4464,9 +4236,7 @@
         "management_authority_consumptions_decision_unique": {
           "name": "management_authority_consumptions_decision_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "decision_id"
-          ]
+          "columns": ["decision_id"]
         }
       },
       "policies": {},
@@ -4575,12 +4345,8 @@
           "tableFrom": "message_artifact_references",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4589,12 +4355,8 @@
           "tableFrom": "message_artifact_references",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["message_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4603,12 +4365,8 @@
           "tableFrom": "message_artifact_references",
           "tableTo": "artifacts",
           "schemaTo": "app",
-          "columnsFrom": [
-            "artifact_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4618,10 +4376,7 @@
         "message_artifact_references_unique": {
           "name": "message_artifact_references_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "message_id",
-            "artifact_id"
-          ]
+          "columns": ["message_id", "artifact_id"]
         }
       },
       "policies": {},
@@ -4780,12 +4535,8 @@
           "tableFrom": "message_mentions",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4794,12 +4545,8 @@
           "tableFrom": "message_mentions",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["message_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4808,12 +4555,8 @@
           "tableFrom": "message_mentions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -4822,12 +4565,8 @@
           "tableFrom": "message_mentions",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5094,12 +4833,8 @@
           "tableFrom": "messages",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5108,12 +4843,8 @@
           "tableFrom": "messages",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5122,12 +4853,8 @@
           "tableFrom": "messages",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "sender_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["sender_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5136,12 +4863,8 @@
           "tableFrom": "messages",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "sender_agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["sender_agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5150,12 +4873,8 @@
           "tableFrom": "messages",
           "tableTo": "content_refs",
           "schemaTo": "app",
-          "columnsFrom": [
-            "body_content_ref_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["body_content_ref_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5164,12 +4883,8 @@
           "tableFrom": "messages",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "thread_root_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["thread_root_message_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5178,12 +4893,8 @@
           "tableFrom": "messages",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "reply_to_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reply_to_message_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -5192,12 +4903,8 @@
           "tableFrom": "messages",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -5207,10 +4914,7 @@
         "messages_channel_idempotency_unique": {
           "name": "messages_channel_idempotency_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "channel_id",
-            "idempotency_key"
-          ]
+          "columns": ["channel_id", "idempotency_key"]
         }
       },
       "policies": {},
@@ -5314,12 +5018,8 @@
           "tableFrom": "project_members",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5328,12 +5028,8 @@
           "tableFrom": "project_members",
           "tableTo": "projects",
           "schemaTo": "app",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5342,12 +5038,8 @@
           "tableFrom": "project_members",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5357,10 +5049,7 @@
         "project_members_project_user_unique": {
           "name": "project_members_project_user_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "project_id",
-            "user_id"
-          ]
+          "columns": ["project_id", "user_id"]
         }
       },
       "policies": {},
@@ -5544,12 +5233,8 @@
           "tableFrom": "projects",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5559,9 +5244,7 @@
         "projects_control_plane_project_id_unique": {
           "name": "projects_control_plane_project_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "control_plane_project_id"
-          ]
+          "columns": ["control_plane_project_id"]
         }
       },
       "policies": {},
@@ -5727,12 +5410,8 @@
           "tableFrom": "runtime_node_challenges",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5741,12 +5420,8 @@
           "tableFrom": "runtime_node_challenges",
           "tableTo": "runtime_nodes",
           "schemaTo": "app",
-          "columnsFrom": [
-            "runtime_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["runtime_node_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -5755,12 +5430,8 @@
           "tableFrom": "runtime_node_challenges",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -5885,12 +5556,8 @@
           "tableFrom": "runtime_node_delivery_requests",
           "tableTo": "runtime_node_keys",
           "schemaTo": "app",
-          "columnsFrom": [
-            "signing_key_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["signing_key_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -5899,14 +5566,8 @@
           "tableFrom": "runtime_node_delivery_requests",
           "tableTo": "runtime_nodes",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "runtime_node_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "runtime_node_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6004,12 +5665,8 @@
           "tableFrom": "runtime_node_exchange_credentials",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6018,12 +5675,8 @@
           "tableFrom": "runtime_node_exchange_credentials",
           "tableTo": "runtime_node_challenges",
           "schemaTo": "app",
-          "columnsFrom": [
-            "challenge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["challenge_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6180,12 +5833,8 @@
           "tableFrom": "runtime_node_keys",
           "tableTo": "runtime_nodes",
           "schemaTo": "app",
-          "columnsFrom": [
-            "runtime_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["runtime_node_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6401,12 +6050,8 @@
           "tableFrom": "runtime_nodes",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6415,12 +6060,8 @@
           "tableFrom": "runtime_nodes",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -6538,12 +6179,8 @@
           "tableFrom": "task_dependencies",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6552,12 +6189,8 @@
           "tableFrom": "task_dependencies",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6566,12 +6199,8 @@
           "tableFrom": "task_dependencies",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "depends_on_task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["depends_on_task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6581,10 +6210,7 @@
         "task_dependencies_pair_unique": {
           "name": "task_dependencies_pair_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "task_id",
-            "depends_on_task_id"
-          ]
+          "columns": ["task_id", "depends_on_task_id"]
         }
       },
       "policies": {},
@@ -6696,12 +6322,8 @@
           "tableFrom": "task_execution_attempts",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6710,12 +6332,8 @@
           "tableFrom": "task_execution_attempts",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6724,12 +6342,8 @@
           "tableFrom": "task_execution_attempts",
           "tableTo": "runtime_nodes",
           "schemaTo": "app",
-          "columnsFrom": [
-            "runtime_node_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["runtime_node_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -6739,10 +6353,7 @@
         "task_execution_attempts_task_attempt_unique": {
           "name": "task_execution_attempts_task_attempt_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "task_id",
-            "attempt"
-          ]
+          "columns": ["task_id", "attempt"]
         }
       },
       "policies": {},
@@ -6888,12 +6499,8 @@
           "tableFrom": "task_mutations",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -6902,12 +6509,8 @@
           "tableFrom": "task_mutations",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -6917,10 +6520,7 @@
         "task_mutations_workspace_idempotency_unique": {
           "name": "task_mutations_workspace_idempotency_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "idempotency_key"
-          ]
+          "columns": ["workspace_id", "idempotency_key"]
         }
       },
       "policies": {},
@@ -7135,12 +6735,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7149,12 +6745,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -7163,14 +6755,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "tasks",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "task_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "task_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7179,14 +6765,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "agent_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "agent_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -7195,14 +6775,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "runtime_nodes",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "runtime_node_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "runtime_node_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -7211,14 +6785,8 @@
           "tableFrom": "task_submissions",
           "tableTo": "command_outbox",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id",
-            "command_id"
-          ],
-          "columnsTo": [
-            "workspace_id",
-            "id"
-          ],
+          "columnsFrom": ["workspace_id", "command_id"],
+          "columnsTo": ["workspace_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -7228,32 +6796,22 @@
         "task_submissions_task_unique": {
           "name": "task_submissions_task_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "task_id"
-          ]
+          "columns": ["task_id"]
         },
         "task_submissions_workspace_idempotency_unique": {
           "name": "task_submissions_workspace_idempotency_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "idempotency_key"
-          ]
+          "columns": ["workspace_id", "idempotency_key"]
         },
         "task_submissions_workspace_request_unique": {
           "name": "task_submissions_workspace_request_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "request_id"
-          ]
+          "columns": ["workspace_id", "request_id"]
         },
         "task_submissions_command_unique": {
           "name": "task_submissions_command_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "command_id"
-          ]
+          "columns": ["command_id"]
         }
       },
       "policies": {},
@@ -7534,12 +7092,8 @@
           "tableFrom": "tasks",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7548,12 +7102,8 @@
           "tableFrom": "tasks",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "creator_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["creator_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -7562,12 +7112,8 @@
           "tableFrom": "tasks",
           "tableTo": "agents",
           "schemaTo": "app",
-          "columnsFrom": [
-            "agent_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -7576,12 +7122,8 @@
           "tableFrom": "tasks",
           "tableTo": "projects",
           "schemaTo": "app",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -7590,12 +7132,8 @@
           "tableFrom": "tasks",
           "tableTo": "content_refs",
           "schemaTo": "app",
-          "columnsFrom": [
-            "objective_content_ref_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["objective_content_ref_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -7605,17 +7143,12 @@
         "tasks_control_plane_id_unique": {
           "name": "tasks_control_plane_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "control_plane_task_id"
-          ]
+          "columns": ["control_plane_task_id"]
         },
         "tasks_workspace_id_unique": {
           "name": "tasks_workspace_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "id"
-          ]
+          "columns": ["workspace_id", "id"]
         }
       },
       "policies": {},
@@ -7745,12 +7278,8 @@
           "tableFrom": "temporary_user_sessions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -7759,12 +7288,8 @@
           "tableFrom": "temporary_user_sessions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "claimed_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["claimed_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -7774,9 +7299,7 @@
         "temporary_user_sessions_credential_digest_unique": {
           "name": "temporary_user_sessions_credential_digest_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "credential_digest"
-          ]
+          "columns": ["credential_digest"]
         }
       },
       "policies": {},
@@ -7904,12 +7427,8 @@
           "tableFrom": "thread_read_states",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7918,12 +7437,8 @@
           "tableFrom": "thread_read_states",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7932,12 +7447,8 @@
           "tableFrom": "thread_read_states",
           "tableTo": "channels",
           "schemaTo": "app",
-          "columnsFrom": [
-            "channel_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["channel_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -7946,12 +7457,8 @@
           "tableFrom": "thread_read_states",
           "tableTo": "messages",
           "schemaTo": "app",
-          "columnsFrom": [
-            "thread_root_message_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["thread_root_message_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -7961,11 +7468,7 @@
         "thread_read_states_user_thread_unique": {
           "name": "thread_read_states_user_thread_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "user_id",
-            "thread_root_message_id"
-          ]
+          "columns": ["workspace_id", "user_id", "thread_root_message_id"]
         }
       },
       "policies": {},
@@ -8103,12 +7606,8 @@
           "tableFrom": "workspace_deletions",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8221,12 +7720,8 @@
           "tableFrom": "workspace_event_dispatches",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8235,12 +7730,8 @@
           "tableFrom": "workspace_event_dispatches",
           "tableTo": "workspace_events",
           "schemaTo": "app",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8295,12 +7786,8 @@
           "tableFrom": "workspace_event_sequences",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8507,12 +7994,8 @@
           "tableFrom": "workspace_events",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -8664,12 +8147,8 @@
           "tableFrom": "workspace_invitations",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -8678,12 +8157,8 @@
           "tableFrom": "workspace_invitations",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "invited_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["invited_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -8692,12 +8167,8 @@
           "tableFrom": "workspace_invitations",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "accepted_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["accepted_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -8707,9 +8178,7 @@
         "workspace_invitations_token_digest_unique": {
           "name": "workspace_invitations_token_digest_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "token_digest"
-          ]
+          "columns": ["token_digest"]
         }
       },
       "policies": {},
@@ -8856,12 +8325,8 @@
           "tableFrom": "workspace_memberships",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -8870,12 +8335,8 @@
           "tableFrom": "workspace_memberships",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -8885,10 +8346,7 @@
         "workspace_memberships_workspace_user_unique": {
           "name": "workspace_memberships_workspace_user_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "workspace_id",
-            "user_id"
-          ]
+          "columns": ["workspace_id", "user_id"]
         }
       },
       "policies": {},
@@ -9069,12 +8527,8 @@
           "tableFrom": "workspaces",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -9084,17 +8538,12 @@
         "workspaces_control_plane_workspace_id_unique": {
           "name": "workspaces_control_plane_workspace_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "control_plane_workspace_id"
-          ]
+          "columns": ["control_plane_workspace_id"]
         },
         "workspaces_owner_idempotency_unique": {
           "name": "workspaces_owner_idempotency_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "owner_user_id",
-            "idempotency_key"
-          ]
+          "columns": ["owner_user_id", "idempotency_key"]
         }
       },
       "policies": {},
@@ -9139,293 +8588,167 @@
     "app.agent_lifecycle_state": {
       "name": "agent_lifecycle_state",
       "schema": "app",
-      "values": [
-        "active",
-        "archived",
-        "configuration_error"
-      ]
+      "values": ["active", "archived", "configuration_error"]
     },
     "app.agent_profile_state": {
       "name": "agent_profile_state",
       "schema": "app",
-      "values": [
-        "available",
-        "deprecated",
-        "missing"
-      ]
+      "values": ["available", "deprecated", "missing"]
     },
     "app.artifact_availability": {
       "name": "artifact_availability",
       "schema": "app",
-      "values": [
-        "pending",
-        "available",
-        "unavailable",
-        "quarantined",
-        "failed"
-      ]
+      "values": ["pending", "available", "unavailable", "quarantined", "failed"]
     },
     "app.artifact_deletion_state": {
       "name": "artifact_deletion_state",
       "schema": "app",
-      "values": [
-        "active",
-        "deleted"
-      ]
+      "values": ["active", "deleted"]
     },
     "app.artifact_location_type": {
       "name": "artifact_location_type",
       "schema": "app",
-      "values": [
-        "object_store",
-        "runtime_node",
-        "external_harness"
-      ]
+      "values": ["object_store", "runtime_node", "external_harness"]
     },
     "app.artifact_principal_kind": {
       "name": "artifact_principal_kind",
       "schema": "app",
-      "values": [
-        "user",
-        "service",
-        "runtime_node",
-        "agent",
-        "worker",
-        "system"
-      ]
+      "values": ["user", "service", "runtime_node", "agent", "worker", "system"]
     },
     "app.artifact_retention_policy": {
       "name": "artifact_retention_policy",
       "schema": "app",
-      "values": [
-        "ephemeral",
-        "standard",
-        "retain"
-      ]
+      "values": ["ephemeral", "standard", "retain"]
     },
     "app.artifact_sensitivity": {
       "name": "artifact_sensitivity",
       "schema": "app",
-      "values": [
-        "workspace",
-        "sensitive",
-        "restricted"
-      ]
+      "values": ["workspace", "sensitive", "restricted"]
     },
     "app.channel_archive_source": {
       "name": "channel_archive_source",
       "schema": "app",
-      "values": [
-        "individual",
-        "project_cascade"
-      ]
+      "values": ["individual", "project_cascade"]
     },
     "app.channel_kind": {
       "name": "channel_kind",
       "schema": "app",
-      "values": [
-        "project",
-        "direct_agent",
-        "group"
-      ]
+      "values": ["project", "direct_agent", "group"]
     },
     "app.channel_lifecycle_state": {
       "name": "channel_lifecycle_state",
       "schema": "app",
-      "values": [
-        "active",
-        "archived"
-      ]
+      "values": ["active", "archived"]
     },
     "app.channel_visibility": {
       "name": "channel_visibility",
       "schema": "app",
-      "values": [
-        "workspace",
-        "participants"
-      ]
+      "values": ["workspace", "participants"]
     },
     "app.content_availability": {
       "name": "content_availability",
       "schema": "app",
-      "values": [
-        "available",
-        "offline",
-        "missing",
-        "deleted"
-      ]
+      "values": ["available", "offline", "missing", "deleted"]
     },
     "app.content_replica_availability": {
       "name": "content_replica_availability",
       "schema": "app",
-      "values": [
-        "available",
-        "offline",
-        "missing",
-        "deleted"
-      ]
+      "values": ["available", "offline", "missing", "deleted"]
     },
     "app.content_replica_kind": {
       "name": "content_replica_kind",
       "schema": "app",
-      "values": [
-        "local_authority",
-        "self_hosted_authority",
-        "agent_hq_e2ee_sync"
-      ]
+      "values": ["local_authority", "self_hosted_authority", "agent_hq_e2ee_sync"]
     },
     "app.content_sensitivity": {
       "name": "content_sensitivity",
       "schema": "app",
-      "values": [
-        "sensitive",
-        "restricted"
-      ]
+      "values": ["sensitive", "restricted"]
     },
     "app.content_storage_policy": {
       "name": "content_storage_policy",
       "schema": "app",
-      "values": [
-        "local_authority"
-      ]
+      "values": ["local_authority"]
     },
     "app.content_synchronization_policy": {
       "name": "content_synchronization_policy",
       "schema": "app",
-      "values": [
-        "local_only",
-        "e2e_optional",
-        "agent_hq_e2ee_sync"
-      ]
+      "values": ["local_only", "e2e_optional", "agent_hq_e2ee_sync"]
     },
     "app.content_type": {
       "name": "content_type",
       "schema": "app",
-      "values": [
-        "message_body",
-        "task_objective",
-        "task_input",
-        "private_field"
-      ]
+      "values": ["message_body", "task_objective", "task_input", "private_field"]
     },
     "app.conversation_principal_kind": {
       "name": "conversation_principal_kind",
       "schema": "app",
-      "values": [
-        "user",
-        "agent"
-      ]
+      "values": ["user", "agent"]
     },
     "app.management_authority_consumption_state": {
       "name": "management_authority_consumption_state",
       "schema": "app",
-      "values": [
-        "claimed",
-        "succeeded",
-        "failed"
-      ]
+      "values": ["claimed", "succeeded", "failed"]
     },
     "app.message_sender_kind": {
       "name": "message_sender_kind",
       "schema": "app",
-      "values": [
-        "user",
-        "agent",
-        "system"
-      ]
+      "values": ["user", "agent", "system"]
     },
     "app.outbox_status": {
       "name": "outbox_status",
       "schema": "app",
-      "values": [
-        "pending",
-        "processing",
-        "delivered",
-        "failed"
-      ]
+      "values": ["pending", "processing", "delivered", "failed"]
     },
     "app.project_lifecycle_state": {
       "name": "project_lifecycle_state",
       "schema": "app",
-      "values": [
-        "active",
-        "archived"
-      ]
+      "values": ["active", "archived"]
     },
     "app.project_member_role": {
       "name": "project_member_role",
       "schema": "app",
-      "values": [
-        "viewer",
-        "editor"
-      ]
+      "values": ["viewer", "editor"]
     },
     "app.project_visibility": {
       "name": "project_visibility",
       "schema": "app",
-      "values": [
-        "workspace",
-        "members"
-      ]
+      "values": ["workspace", "members"]
     },
     "app.runtime_node_challenge_purpose": {
       "name": "runtime_node_challenge_purpose",
       "schema": "app",
-      "values": [
-        "pair",
-        "rotate",
-        "proof"
-      ]
+      "values": ["pair", "rotate", "proof"]
     },
     "app.runtime_node_key_algorithm": {
       "name": "runtime_node_key_algorithm",
       "schema": "app",
-      "values": [
-        "ed25519",
-        "x25519"
-      ]
+      "values": ["ed25519", "x25519"]
     },
     "app.runtime_node_key_role": {
       "name": "runtime_node_key_role",
       "schema": "app",
-      "values": [
-        "signing",
-        "command_encryption"
-      ]
+      "values": ["signing", "command_encryption"]
     },
     "app.runtime_node_kind": {
       "name": "runtime_node_kind",
       "schema": "app",
-      "values": [
-        "local_device",
-        "remote_host"
-      ]
+      "values": ["local_device", "remote_host"]
     },
     "app.runtime_node_pairing_state": {
       "name": "runtime_node_pairing_state",
       "schema": "app",
-      "values": [
-        "paired",
-        "revoked"
-      ]
+      "values": ["paired", "revoked"]
     },
     "app.task_execution_attempt_change": {
       "name": "task_execution_attempt_change",
       "schema": "app",
-      "values": [
-        "initial",
-        "sticky_retry",
-        "authorized_reroute"
-      ]
+      "values": ["initial", "sticky_retry", "authorized_reroute"]
     },
     "app.task_execution_location_kind": {
       "name": "task_execution_location_kind",
       "schema": "app",
-      "values": [
-        "local_device",
-        "remote_host",
-        "agent_hq_cloud"
-      ]
+      "values": ["local_device", "remote_host", "agent_hq_cloud"]
     },
     "app.task_lifecycle_state": {
       "name": "task_lifecycle_state",
@@ -9443,30 +8766,17 @@
     "app.task_priority": {
       "name": "task_priority",
       "schema": "app",
-      "values": [
-        "low",
-        "normal",
-        "high",
-        "urgent"
-      ]
+      "values": ["low", "normal", "high", "urgent"]
     },
     "app.task_submission_state": {
       "name": "task_submission_state",
       "schema": "app",
-      "values": [
-        "pending_delivery",
-        "queued_for_node"
-      ]
+      "values": ["pending_delivery", "queued_for_node"]
     },
     "app.workspace_event_actor_kind": {
       "name": "workspace_event_actor_kind",
       "schema": "app",
-      "values": [
-        "user",
-        "agent",
-        "system",
-        "runtime_node"
-      ]
+      "values": ["user", "agent", "system", "runtime_node"]
     },
     "app.workspace_event_aggregate_type": {
       "name": "workspace_event_aggregate_type",
@@ -9487,19 +8797,12 @@
     "app.workspace_invitation_role": {
       "name": "workspace_invitation_role",
       "schema": "app",
-      "values": [
-        "admin",
-        "member"
-      ]
+      "values": ["admin", "member"]
     },
     "app.workspace_role": {
       "name": "workspace_role",
       "schema": "app",
-      "values": [
-        "owner",
-        "admin",
-        "member"
-      ]
+      "values": ["owner", "admin", "member"]
     }
   },
   "schemas": {

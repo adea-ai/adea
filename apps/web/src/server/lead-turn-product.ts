@@ -123,7 +123,7 @@ export function createLeadTurnProduct(
         workspaceId,
         intentId,
         principal({ userId }),
-        false
+        'read'
       )
       const value = (await adapter.lookup(authority)) as
         | {
