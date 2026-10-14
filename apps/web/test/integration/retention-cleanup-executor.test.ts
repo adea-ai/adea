@@ -15,6 +15,7 @@ import {
   createDatabase,
   parseRetentionPeriods,
   RETENTION_COVERAGE_RULES,
+  artifactReferenceGrants,
   registerArtifactReferenceGrant,
   UNSET_RETENTION_PERIODS,
   type CleanupCoverageKind,
@@ -634,7 +635,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         sourcePrincipal: { kind: 'system', systemId: 'job-runner' },
       })
       await seed(f.workspaceId, [artifact.id], ['primary_rows'])
-      await grant(f, artifact.id, 'artifacts')
+      // The reference exists before deletion is authorized: registration is fenced afterwards.
       await registerArtifactReferenceGrant(connection.db, f.workspaceId, f.owner, {
         artifactId: artifact.id,
         audienceWorkspaceId: audience.workspace.id,
@@ -643,6 +644,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
         grantId: `grant-${crypto.randomUUID()}`,
         version: 1,
       })
+      await grant(f, artifact.id, 'artifacts')
       const { execution, responses } = await execute(f, artifact.id, { category: 'artifacts' })
       expect(execution).toMatchObject({
         decision: { outcome: 'refused', reason: 'active_reference_retained' },
@@ -923,7 +925,7 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       expect(await statusOf(f, subject)).toEqual({ outcome: 'refused', reason: 'hold_active' })
     })
 
-    test('a reference registered during deletion waits for the commit, and cleanup is never reported as verified while it lives', async () => {
+    test('a reference registered during deletion waits for the commit and is then fenced, so no live grant points at deleted data', async () => {
       const f = await fixture('reference-race')
       const audience = await createWorkspaceWithOwner(connection.db, {
         idempotencyKey: `cleanup-audience-${crypto.randomUUID()}`,
@@ -993,11 +995,18 @@ describe.skipIf(!connectionUrl || !migrationUrl)(
       if (runOutcome.status === 'rejected') throw runOutcome.reason
       const registrationResult = await registrationOutcome!
       expect(registrationResult.status).toBe('fulfilled')
+      // The executor deleted under a live authority, so the queued registration is refused.
       expect(
         (registrationResult as Extract<typeof registrationResult, { status: 'fulfilled' }>).value
-      ).toBe('settled')
-      // The reference now lives, so no verified claim may stand for this subject.
-      expect(await statusOf(f, artifact.id, 'artifacts')).toEqual({
+      ).toBe('failed')
+      expect(
+        await connection.db
+          .select({ id: artifactReferenceGrants.id })
+          .from(artifactReferenceGrants)
+          .where(eq(artifactReferenceGrants.artifactId, artifact.id))
+      ).toHaveLength(0)
+      // Nothing references the deleted data, so the decision is not blocked by a reference.
+      expect(await statusOf(f, artifact.id, 'artifacts')).not.toEqual({
         outcome: 'refused',
         reason: 'active_reference_retained',
       })
