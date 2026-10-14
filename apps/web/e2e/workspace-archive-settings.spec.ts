@@ -97,6 +97,33 @@ test('a failed or running member refresh never reuses an earlier count', async (
   expect(errors).toEqual([])
 })
 
+test('a member refresh paused offline never reuses an earlier count, and the new count appears on reconnect', async ({
+  context,
+  page,
+}) => {
+  const errors = await openArchiveHarness(page, { 'data-archive-members': '3' })
+  const consequences = page.getByRole('list', { name: 'Archive consequences' })
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('2 other members lose access until you reopen it.')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '1')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // The connection drops and membership changes. The read on reopen is paused, not failed and not
+  // fetching, so the cached "2 other members" must not be stated.
+  await context.setOffline(true)
+  await root(page).evaluate((element) => element.setAttribute('data-archive-members', '2'))
+  await archiveButton(page).click()
+  await expect(consequences).toContainText('Every member loses access until you reopen it.')
+  await expect(consequences).not.toContainText('other member')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '1')
+
+  // Reconnecting resumes the paused read, and only then is the new count stated.
+  await context.setOffline(false)
+  await expect(consequences).toContainText('1 other member loses access until you reopen it.')
+  await expect(root(page)).toHaveAttribute('data-members-calls', '2')
+  expect(errors).toEqual([])
+})
+
 test('the owner archives an optional workspace, finds it in the archived list, and reopens it', async ({
   page,
 }) => {

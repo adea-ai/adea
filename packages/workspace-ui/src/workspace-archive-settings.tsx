@@ -42,9 +42,10 @@ export function WorkspaceArchiveSettings(props: {
   // opens: a cached list is not evidence of who is in the workspace now.
   const members = useWorkspaceMembersQuery(props.client, () => target()?.id, 0)
   // The count is stated only from a list that was just read successfully. Cached data behind a
-  // refresh that is running or failed is unverified, so it falls back to naming every member.
+  // refresh that is running, paused offline or failed is unverified, so it falls back to naming
+  // every member. A paused query is not fetching, so only an idle fetch status proves the read ended.
   const memberCount = (): ArchiveMemberCount =>
-    members.isSuccess && !members.isFetching && members.data
+    members.isSuccess && members.fetchStatus === 'idle' && members.data
       ? { state: 'known', total: members.data.members.length }
       : members.isError
         ? { state: 'unavailable' }
