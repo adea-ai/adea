@@ -28,6 +28,8 @@ const held = new Promise((resolve) => {
 })
 const originalFetch = globalThis.fetch
 host = await cp.factory.createProductionFactoryFixture({
+  // The lead may delegate to siblings that share its one stated allowance.
+  maximumChildren: 3,
   workspaceId: config.workspaceId,
   actorPrincipalId: config.actorPrincipalId,
   transportPrincipalId: config.principalId,
@@ -177,6 +179,24 @@ const ids = {
   childAttempt: id('att'),
   runtimeConnection: id('rtc'),
 }
+// Further delegations from the same lead: distinct ids, because a retry of the first one is a
+// replay, not a new request.
+const siblingIds = {
+  second: {
+    delegation: 'dlg_01JBBCDEF0123456789ABCDEFJ',
+    childExecution: 'exe_01JBBCDEF0123456789ABCDEFJ',
+    childAttempt: 'att_01JBBCDEF0123456789ABCDEFJ',
+    task: 'tsk_01JBBCDEF0123456789ABCDEFJ',
+    request: 'req_01JBBCDEF0123456789ABCDEFJ',
+  },
+  third: {
+    delegation: 'dlg_01JBBCDEF0123456789ABCDEFK',
+    childExecution: 'exe_01JBBCDEF0123456789ABCDEFK',
+    childAttempt: 'att_01JBBCDEF0123456789ABCDEFK',
+    task: 'tsk_01JBBCDEF0123456789ABCDEFK',
+    request: 'req_01JBBCDEF0123456789ABCDEFK',
+  },
+}
 const ledgerView = (summary) =>
   summary && {
     maximumMicrounits: summary.maximumMicrounits,
@@ -314,7 +334,7 @@ async function leadEvidence() {
     runtime: await runtimeEvidence(),
   }
 }
-async function allocateBody(intentId) {
+async function allocateBody(intentId, allocationIds = ids) {
   const leadRun = await dispatchLead(intentId)
   if (!leadRun.ok) return leadRun
   allocationStage = 'child-allocation'
@@ -352,16 +372,16 @@ async function allocateBody(intentId) {
   const before = await leadEvidence()
   try {
     const allocated = await delegationService.delegate({
-      delegationId: ids.delegation,
+      delegationId: allocationIds.delegation,
       parentIntentId: intentId,
       parentExecutionId: dispatch.executionId,
       parentAttemptId: dispatch.attemptId,
       admittedToolCallId: toolCallId,
-      childExecutionId: ids.childExecution,
-      childAttemptId: ids.childAttempt,
+      childExecutionId: allocationIds.childExecution,
+      childAttemptId: allocationIds.childAttempt,
       initialDispatch: {
-        delegationId: ids.delegation,
-        childAttemptId: ids.childAttempt,
+        delegationId: allocationIds.delegation,
+        childAttemptId: allocationIds.childAttempt,
         runtime: { runtimeConnectionId: ids.runtimeConnection },
         dispatchedAt: host.at,
       },
@@ -370,7 +390,11 @@ async function allocateBody(intentId) {
       objective: 'Bounded child',
       parentPlan: plan,
       childPlan: {
-        correlation: { ...plan.correlation, taskId: id('tsk'), requestId: id('req') },
+        correlation: {
+          ...plan.correlation,
+          taskId: allocationIds.task ?? id('tsk'),
+          requestId: allocationIds.request ?? id('req'),
+        },
         contextPackage: childContext,
         constraints: childConstraints,
         runtimeRequirements: plan.runtimeRequirements,
@@ -393,6 +417,8 @@ async function allocateBody(intentId) {
       childPlanMaximumMicrounits: childConstraints.limits.budget.maximumMicrounits,
       childPlanMaximumTokens: childConstraints.limits.tokens.maximumTotal,
       childAllowance,
+      leadAllowance: plan.constraints.limits.childExecutions.budgetAllowance,
+      childBudget: await summaryOf(allocationIds.childExecution),
       before,
       after: await leadEvidence(),
     }
@@ -401,17 +427,18 @@ async function allocateBody(intentId) {
       ok: false,
       stage: 'child-allocation',
       code: error.code ?? error.message ?? 'UNKNOWN',
-      persistedChild: Boolean(await childRecords.findByChild(ids.childExecution)),
+      persistedChild: Boolean(await childRecords.findByChild(allocationIds.childExecution)),
+      childBudget: await summaryOf(allocationIds.childExecution),
       before,
       after: await leadEvidence(),
     }
   }
 }
-async function allocate(intentId) {
+async function allocate(intentId, allocationIds) {
   let timer
   try {
     return await Promise.race([
-      allocateBody(intentId),
+      allocateBody(intentId, allocationIds),
       new Promise((resolve) => {
         timer = setTimeout(
           () =>
@@ -528,6 +555,84 @@ async function startChild() {
     }
   }
 }
+// Scripted spending, written through the real ledger so there is something to settle. No provider
+// is reached.
+const ledgerSource = (key) => ({ sourceId: key, idempotencyKey: key })
+const leadReservationKey = () => `runtime-attempt:${dispatched.dispatch.attemptId}`
+const childReservationKey = () => `runtime-attempt:${ids.childAttempt}`
+const spendOn = async (executionId, attemptId, reservationKey, costMicrounits, tokens, key) => {
+  await host.ledger.charge({
+    workspaceId: host.workspaceId,
+    executionId,
+    attemptId,
+    reservationKey,
+    kind: 'model_usage',
+    quantity: { unit: 'tokens', value: tokens },
+    costMicrounits,
+    fundingSource: 'hq_managed',
+    source: ledgerSource(`${key}-charge`),
+  })
+  await host.ledger.settle({
+    workspaceId: host.workspaceId,
+    executionId,
+    reservationKey,
+    source: ledgerSource(`${key}-settle`),
+  })
+}
+const spendOnLead = async ({ costMicrounits, tokens }) => {
+  await spendOn(
+    dispatched.dispatch.executionId,
+    dispatched.dispatch.attemptId,
+    leadReservationKey(),
+    costMicrounits,
+    tokens,
+    'lead'
+  )
+  return {
+    ...evidence(),
+    parent: await summaryOf(dispatched.dispatch.executionId),
+    child: await summaryOf(ids.childExecution),
+  }
+}
+const spendOnChild = async ({ costMicrounits, tokens }) => {
+  await spendOn(
+    ids.childExecution,
+    ids.childAttempt,
+    childReservationKey(),
+    costMicrounits,
+    tokens,
+    'child'
+  )
+  await host.ledger.finalizeBudget({
+    workspaceId: host.workspaceId,
+    executionId: ids.childExecution,
+    source: ledgerSource('child-finalize'),
+  })
+  return {
+    ...evidence(),
+    parent: await summaryOf(dispatched.dispatch.executionId),
+    child: await summaryOf(ids.childExecution),
+  }
+}
+// The lead is cancelled through the canonical lifecycle, attempt first, then the execution.
+async function cancelLead() {
+  const at = new Date(Date.parse(host.at) + 60_000).toISOString()
+  const attempt = await host.repositories.executions.getAttempt(dispatched.dispatch.attemptId)
+  await lifecycle.transitionAttempt({
+    attemptId: attempt.attemptId,
+    expectedVersion: attempt.version,
+    to: 'cancelled',
+    transitionedAt: at,
+  })
+  const execution = await host.repositories.executions.getExecution(dispatched.dispatch.executionId)
+  await lifecycle.transitionExecution({
+    executionId: execution.executionId,
+    expectedVersion: execution.version,
+    to: 'cancelled',
+    transitionedAt: at,
+  })
+  return { ...(await leadEvidence()) }
+}
 const baseline = () => host.models.currentAccountEvidence()
 let originalAccount
 function setAuthority(mode) {
@@ -611,6 +716,11 @@ input.on('line', (line) => {
       data = { mode: request.mode }
     } else if (request.command === 'allocate') data = await allocate(request.intentId)
     else if (request.command === 'start-child') data = await startChild()
+    else if (request.command === 'allocate-sibling')
+      data = await allocate(request.intentId, siblingIds[request.which])
+    else if (request.command === 'spend-lead') data = await spendOnLead(request)
+    else if (request.command === 'spend-child') data = await spendOnChild(request)
+    else if (request.command === 'cancel-lead') data = await cancelLead()
     else if (request.command === 'close') {
       await close()
       process.exit(0)

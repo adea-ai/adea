@@ -27,11 +27,13 @@ child allocator. Account evidence, scope policy, the tool registry/policy and th
 provider transport are explicit synthetic host ports. The fixture does not
 discover credentials, import Home configuration or use a live provider.
 
-## Latest result (2026-10-14, CP draft head `41373c03`)
+## Latest result (2026-10-14, CP draft head `4ad9fc11`)
 
-The pin is the head of CP draft PR #1123 (`41373c03`), which adds the explicit child allowance
+The pin is the head of CP draft PR #1123 (`4ad9fc11`), which adds the explicit child allowance
 designed for CP #1121 on top of the #1116 merge (`082c2c33`). That PR is unmerged, so this proof
-pins an unreleased CP revision. Result: 8 of 8 pass, stable across three consecutive runs.
+pins an unreleased CP revision. Result: 11 of 11 pass, stable across three consecutive runs.
+`4ad9fc11` adds only a fixture option (`maximumChildren`) to CP's production-factory test fixture,
+so that the lead's plan can allow sibling children; no CP product code changed from `41373c03`.
 
 The fixture's lead plan states `limits.childExecutions.budgetAllowance` (half the money ceiling,
 and one child context window of tokens). The lead's attempt reserves only what is left after that
@@ -42,12 +44,31 @@ check, and the child ceiling is still clamped to what the parent has available.
 The child's runtime attempt is reserved by CP's production `DurableChildRuntimeBudgetAdmission`
 (the bridge's `reserveBudget` seam), not by a reservation mirrored in this host. It checks the
 delegation record, the allocator's opening receipt and the parent's funding reservation, then
-reserves the child's funded budget less the allowance its own plan holds back. The allowance is
-also a cap at allocation, so a child is never funded beyond it even if the lead's reservation has
-settled; that ordering is proven in CP's own tests, not by this journey, which keeps the lead
-running.
+reserves the child's funded budget less the allowance its own plan holds back.
 
-Passing:
+### Allowance limits exercised by this journey
+
+Every allocation below goes through CP's real `delegate` service and transactional SQLite
+allocator; the only scripted inputs are the spending amounts.
+
+- Hold-back: after the lead's attempt reserved through production root admission, the lead has
+  exactly its stated allowance unreserved. The first child is funded with all of it, leaving the
+  parent with nothing available.
+- Outstanding child funding and settled lead spending: the lead's usage reservation is then
+  settled with scripted spending (1000 microunits, 10 tokens). The parent has balance available
+  again, yet a sibling is refused with `BUDGET_EXHAUSTED` because the first child still holds the
+  whole allowance. The refusal leaves no delegation, execution, attempt, budget or ledger row.
+- Settled child spending: the first child settles scripted spending (2000 microunits, 20 tokens)
+  and its budget is finalized. A sibling is then funded with exactly the allowance minus what the
+  child charged, although the parent has far more available.
+- Cancelled parent: the lead's attempt and execution are cancelled through the canonical
+  lifecycle, and a further child is refused with no budget, delegation or ledger effect. The
+  delegation service refuses it first (`DELEGATION_STATE_CONFLICT`, parent no longer running). The
+  allocator's own fence (`CHILD_ADMISSION_DENIED`) and the ledger cap with the usage reservation
+  settled but the attempt still running are proven in CP's tests (`tests/child-runtime-budget-admission.test.mjs`,
+  `packages/usage-ledger`, `packages/database`), not here.
+
+Passing, in addition:
 
 - signed host-workspace denial, exact requested-role preparation without inference, and
   location/current-payer refusal without fallback;
@@ -66,16 +87,29 @@ Passing:
 - retries: a retried allocation, a retried denied allocation and a retried child start leave the
   canonical counts, both ledgers and the runtime start count identical.
 
-Caveats, so the result is not read as more than it is:
+### Synthetic here
 
-- The runtime port is a synthetic recorder that dedupes by idempotency key. It is not a live Pi
-  child process, so this proves admission and retry behaviour, not live-provider qualification.
-- The lead's attempt is reserved by CP's production root `DurableRuntimeBudgetAdmission` through the
-  factory, and the delegated child's by `DurableChildRuntimeBudgetAdmission`; neither reservation
-  is written by this host. The child's own runtime, however, is the synthetic recorder above.
-- CP #1123 has not been merged, and neither its PostgreSQL integration suites nor its CI have run.
-- Account evidence, scope policy, the tool registry/policy and the provider transport are explicit
-  synthetic host ports. No credentials, live accounts, devices, deployments or packages are used.
+- The child runtime is a recorder that dedupes by idempotency key. It is not a live Pi child
+  process, so this proves admission and retry behaviour, not live-provider qualification.
+- Lead and child spending is scripted ledger charges written by the host. No model request, tool
+  charge or provider ever produced it, so cost accounting from real usage is not exercised.
+- The provider transport, account evidence, scope policy, the tool registry/policy and the admitted
+  tool call are explicit host ports. No credentials, live accounts, devices, deployments or
+  packages are used.
+- The bridge is built by this host. No CP production composition root builds
+  `CanonicalDelegationRuntimeBridge` or passes `DurableChildRuntimeBudgetAdmission`; that wiring
+  belongs to the owners of CP #1047 and #1048 and the contract is in CP #1123.
+- The lead's plan comes from CP's test fixture (`budgetAllowance` and sibling count are fixture
+  inputs). How Adea lead profiles state the allowance is not implemented or proven.
+
+### Still unproven
+
+- CP #1123 is draft and unmerged; its CI is skipped on drafts and its PostgreSQL suites ran only
+  on a scratch local database. This proof pins its draft head.
+- This journey runs on the SQLite allocator. The PostgreSQL allocator is covered by CP's
+  `child-budget-admission.integration.test.mjs`, not here.
+- The installed-SDK consumer journey, the updated public-package candidate manifest, live-provider
+  qualification, and devices, deployments, restart or publication are not covered.
 
 Run hygiene: the host is terminated if graceful cleanup stalls; its owned disposable directory is
 removed only after the process is reaped. Adea's fixture workspace is archived and its temporary

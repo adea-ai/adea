@@ -317,6 +317,16 @@ test('prepared Adea lead allocates its selected child through the canonical fact
   expect(after.child.reservedMicrounits).toBe(0)
   expect(after.physicalSends).toBe(0)
   expect(after.runtime.startCalls).toBe(0)
+  // The lead's plan states what is held back for children. Its attempt (reserved by CP's production
+  // root admission) left exactly that unreserved, and this one child is funded with all of it.
+  const { leadAllowance } = allocation
+  expect(leadAllowance.maximumMicrounits).toBeGreaterThan(0)
+  expect(before.parent.availableMicrounits).toBe(leadAllowance.maximumMicrounits)
+  expect(before.parent.availableTokens).toBe(leadAllowance.maximumTokens)
+  expect(after.child.maximumMicrounits).toBe(leadAllowance.maximumMicrounits)
+  expect(after.child.maximumTokens).toBe(leadAllowance.maximumTokens)
+  expect(after.parent.availableMicrounits).toBe(0)
+  expect(after.parent.availableTokens).toBe(0)
 }, 20000)
 test('a retried allocation leaves no duplicate execution, budget or ledger effect', async () => {
   const first = await control('allocate')
@@ -382,4 +392,64 @@ test('current authority admits the child runtime once and a retry starts nothing
   // The scripted runtime port never reaches a provider.
   expect(retried.after.physicalSends).toBe(0)
   expect(retried.after.secretResolutions).toBe(0)
+}, 30000)
+
+// Everything below changes the lead's ledger on purpose and runs last. The lead's and the first
+// child's spending are scripted ledger charges: no provider is reached, they only give the ledger
+// something to settle. Siblings are allocated through the same canonical delegation service and
+// transactional allocator as the first child.
+const leadSpend = { costMicrounits: 1000, tokens: 10 }
+const childSpend = { costMicrounits: 2000, tokens: 20 }
+test('a settled lead frees balance but the allowance, used by the first child, funds no sibling', async () => {
+  expect(allocation?.ok).toBe(true)
+  const settled = await control('spend-lead', leadSpend)
+  // The lead's envelope is released and its settled spending stays counted.
+  expect(settled.parent.spentMicrounits).toBe(leadSpend.costMicrounits)
+  expect(settled.parent.spentTokens).toBe(leadSpend.tokens)
+  expect(settled.parent.reservedMicrounits).toBe(allocation.after.child.maximumMicrounits)
+  expect(settled.parent.availableMicrounits).toBeGreaterThan(0)
+  expect(settled.parent.availableTokens).toBeGreaterThan(0)
+  const sibling = await control('allocate-sibling', { which: 'second' })
+  expect(sibling.ok).toBe(false)
+  expect(sibling.code).toBe('BUDGET_EXHAUSTED')
+  // Nothing is left behind: no delegation, no budget, no ledger or canonical effect.
+  expect(sibling.persistedChild).toBe(false)
+  expect(sibling.childBudget).toBeUndefined()
+  expect(sibling.after.canonical).toEqual(sibling.before.canonical)
+  expect(sibling.after.parent).toEqual(sibling.before.parent)
+  expect(sibling.after.child).toEqual(sibling.before.child)
+  expect(sibling.after.physicalSends).toBe(0)
+}, 30000)
+test('settled child spending frees only what the child did not spend', async () => {
+  const settled = await control('spend-child', childSpend)
+  expect(settled.child.spentMicrounits).toBe(childSpend.costMicrounits)
+  expect(settled.child.spentTokens).toBe(childSpend.tokens)
+  const sibling = await control('allocate-sibling', { which: 'second' })
+  expect(sibling.ok).toBe(true)
+  // The allowance minus what the settled child charged, however large the parent balance is.
+  expect(sibling.childBudget.maximumMicrounits).toBe(
+    allocation.leadAllowance.maximumMicrounits - childSpend.costMicrounits
+  )
+  expect(sibling.childBudget.maximumTokens).toBe(
+    allocation.leadAllowance.maximumTokens - childSpend.tokens
+  )
+  expect(sibling.before.parent.availableMicrounits).toBeGreaterThan(
+    sibling.childBudget.maximumMicrounits
+  )
+}, 30000)
+test('a cancelled lead is refused any further child and nothing is funded', async () => {
+  const cancelled = await control('cancel-lead')
+  expect(cancelled.parentState).toMatchObject({ execution: 'cancelled', attempt: 'cancelled' })
+  const later = await control('allocate-sibling', { which: 'third' })
+  expect(later.ok).toBe(false)
+  // The delegation service refuses a parent that is no longer running before it asks for product
+  // admission or touches funding. The allocator's own parent fence (CHILD_ADMISSION_DENIED) is
+  // proven in CP's tests, where the service is bypassed.
+  expect(later.code).toBe('DELEGATION_STATE_CONFLICT')
+  expect(later.persistedChild).toBe(false)
+  expect(later.childBudget).toBeUndefined()
+  expect(later.after.canonical).toEqual(cancelled.canonical)
+  expect(later.after.parent).toEqual(cancelled.parent)
+  expect(later.after.physicalSends).toBe(0)
+  expect(later.after.secretResolutions).toBe(0)
 }, 30000)
