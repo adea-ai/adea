@@ -66,5 +66,8 @@ missed. A superseded or cancelled turn keeps that state, and the published messa
 - Cancelling a turn requests runtime cancellation only for the addresser who owns the intent, and only when an
   executor currently holds it (`runtimeCancelRequested`).
 - Reconnected execution resumption and a client UI for addressing are not part of this slice.
-- Replay loads the channel's turns and filters per trigger message; it is bounded by the turn budget per trigger
-  tree but is not indexed for very large histories.
+- Replay reads bounded windows in `(created_at, id)` order and scans at most 1,000 rows for one page. If unreadable
+  turns prevent a complete page within that limit, the read returns retryable `503` (`turns_read_failed`) rather
+  than advancing past them. The current `addressed_agent_turns_channel_idx` covers `(workspace_id, channel_id)`
+  but omits `(created_at, id)`, so PostgreSQL may still sort all rows for a channel. A future migration should add
+  an index on `(workspace_id, channel_id, created_at, id)` for the bounded ordered read path.

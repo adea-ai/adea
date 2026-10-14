@@ -19,6 +19,8 @@ import { eq } from 'drizzle-orm'
 import {
   addWorkspaceMembership,
   agents,
+  addressedAgentTurns,
+  channels,
   createAgent,
   createDatabase,
   createGroupChannelWithGrants,
@@ -29,6 +31,7 @@ import {
   loadAddressedTurns,
   postGroupChannelMessage,
   revokeGroupGrant,
+  setGroupChannelParticipantsWithGrants,
   type DatabaseConnection,
   type UserPrincipalRef,
 } from '@adea-ai/db'
@@ -438,6 +441,73 @@ describe.skipIf(!connectionUrl)('addressed group turns: product routes', () => {
       '?extra=1',
     ])
       expect((await list(f, query)).status).toBe(400)
+  })
+
+  test('bounded replay scan exhaustion is a retryable 503 with no hidden turn IDs', async () => {
+    const f = await fixture()
+    const hidden = await address(f, request(f, f.helper.id))
+    const hiddenTurn = (await hidden.json()) as { turn: { id: string } }
+    const extraHidden = Array.from({ length: 1_000 }, (_, index) => {
+      const revision = index + 2
+      return {
+        addresserUserId: f.owner.userId,
+        addressedLabel: `${f.workspace.id}:${f.helper.id}`,
+        agentId: f.helper.id,
+        causalId: `turn:${f.trigger.id}:${f.helper.id}:${revision}`,
+        channelId: f.channelId,
+        depth: 0,
+        dispatchRevision: revision,
+        id: randomUUID(),
+        maxDepth: 2,
+        maxTurns: 8,
+        parentTurnId: null,
+        responseMessageId: null,
+        state: 'claimed',
+        triggerMessageId: f.trigger.id,
+        workspaceId: f.workspace.id,
+      }
+    })
+    await connection.db.insert(addressedAgentTurns).values(extraHidden)
+
+    // The bystander joins after the trigger, so all retained turns above are hidden by the canonical
+    // message join point. A bounded reader must refuse the incomplete page instead of returning an
+    // empty page that would let the caller conclude history is exhausted.
+    const [channel] = await connection.db
+      .select({ version: channels.version })
+      .from(channels)
+      .where(eq(channels.id, f.channelId))
+      .limit(1)
+    if (!channel) throw new Error('Test channel missing')
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audienceGrant(f.channelId, f.owner, 'gra_owner'),
+            audienceGrant(f.channelId, f.member, 'gra_member'),
+            audienceGrant(f.channelId, f.bystander, 'gra_bystander'),
+          ],
+          enlistmentGrants: [
+            enlistmentGrant(f.channelId, f.lead.id, f.workspace.id, 'gra_lead'),
+            enlistmentGrant(f.channelId, f.helper.id, f.workspace.id, 'gra_helper'),
+          ],
+        }),
+        expectedVersion: channel.version,
+        now: new Date().toISOString(),
+      }
+    )
+
+    const response = await list(f, '?limit=1', f.bystander)
+    expect(response.status).toBe(503)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    const body = await response.text()
+    expect(JSON.parse(body)).toMatchObject({ code: 'turns_read_failed' })
+    expect(body).not.toContain(hiddenTurn.turn.id)
+    for (const turn of extraHidden.slice(0, 8)) expect(body).not.toContain(turn.id)
+    expect(body).not.toContain('nextAfter')
   })
 
   test('cancellation is limited to the addresser or a manager, takes no input, and ends dispatch', async () => {
