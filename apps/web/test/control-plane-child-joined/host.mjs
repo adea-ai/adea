@@ -30,6 +30,9 @@ const originalFetch = globalThis.fetch
 host = await cp.factory.createProductionFactoryFixture({
   // The lead may delegate to siblings that share its one stated allowance.
   maximumChildren: 3,
+  // Where CP's fixture states the allowance: only on the pinned profile version, on that and on
+  // the request constraints, or nowhere.
+  childAllowanceSource: config.childAllowanceSource,
   workspaceId: config.workspaceId,
   actorPrincipalId: config.actorPrincipalId,
   transportPrincipalId: config.principalId,
@@ -164,11 +167,53 @@ const choose = (role, providerModel) =>
 const lead = await choose('lead', 'gpt-5-mini'),
   child = await choose('child', 'gpt-5')
 const ref = ({ selectionRef, selectionRevision }) => ({ selectionRef, selectionRevision })
+// Optionally serve CP's actual control API from this same composition so Adea's installed SDK can
+// prepare and dispatch the lead over HTTP. The application, its service authenticator and the lead
+// service are CP's own; only the trust record and the listener are this test host's.
+let controlApp, controlApiMetadata
+if (config.controlApi) {
+  const { createControlApiApplication } = await import(
+    cpPath('apps/control-api/src/application.ts')
+  )
+  const { createProductionFactoryServiceAuthenticator } = await import(
+    cpPath('tests/pi-production-factory-auth.fixture.mjs')
+  )
+  const { productionFactorySourceIdentity } = await import(
+    cpPath('tests/pi-production-factory-provenance.fixture.mjs')
+  )
+  const metadata = {
+    serviceName: 'control-api',
+    version: 'test-candidate',
+    commitSha: productionFactorySourceIdentity(),
+    environment: 'test',
+  }
+  controlApp = await createControlApiApplication({
+    metadata,
+    health: () => ({ status: 'ok', metadata }),
+    readiness: () => ({ status: 'ready', metadata }),
+    logger: { write: () => {} },
+    serviceAuthenticator: createProductionFactoryServiceAuthenticator({
+      ...config.controlApi.serviceTrust,
+      workspaceId: config.workspaceId,
+      isRevoked: async () => false,
+    }),
+    piDurableLeadService: host.composition.piDurableLeadService,
+    piLeadPublicationService: host.composition.publicationService,
+    modelConnectionService: host.composition.modelConnectionService,
+  })
+  await controlApp.listen(0, '127.0.0.1')
+  controlApiMetadata = {
+    baseUrl: await controlApp.getUrl(),
+    target: host.models.target,
+    sourceIdentity: metadata.commitSha,
+  }
+}
 process.stdout.write(
   JSON.stringify({
     ready: true,
     directory: host.directory,
     requestedModelSelections: { lead: ref(lead), child: ref(child) },
+    ...(controlApiMetadata ? { controlApi: controlApiMetadata } : {}),
   }) + '\n'
 )
 let prepared
@@ -266,6 +311,9 @@ async function dispatchLead(intentId) {
       host.principal
     )
   ).data
+  return awaitRunningLead(intentId, dispatch)
+}
+async function awaitRunningLead(intentId, dispatch) {
   allocationStage = 'parent-current'
   const deadline = Date.now() + 10000
   let parent, parentAttempt
@@ -288,6 +336,26 @@ async function dispatchLead(intentId) {
   const plan = host.parentPlanForIntent(intentId)
   dispatched = { ok: true, intentId, dispatch, plan }
   return dispatched
+}
+// A lead that Adea's installed SDK already dispatched over CP's HTTP API: bind to the execution and
+// attempt that dispatch created, after checking they are the retained ones for this intent.
+async function adoptSdkDispatch(intentId, { executionId, attemptId }) {
+  if (dispatched) return dispatched
+  const plan = host.parentPlanForIntent(intentId)
+  if (!plan)
+    throw Object.assign(new Error('NO_RETAINED_LEAD_PLAN'), { code: 'NO_RETAINED_LEAD_PLAN' })
+  const execution = await host.repositories.executions.getExecution(executionId)
+  const attempt = await host.repositories.executions.getAttempt(attemptId)
+  if (
+    execution?.executionId !== executionId ||
+    attempt?.executionId !== executionId ||
+    execution.executionPlan.executionPlanId !== plan.executionPlanId ||
+    execution.executionPlan.contentDigest !== plan.contentDigest
+  )
+    throw Object.assign(new Error('SDK_DISPATCH_NOT_RETAINED_LEAD'), {
+      code: 'SDK_DISPATCH_NOT_RETAINED_LEAD',
+    })
+  return awaitRunningLead(intentId, { executionId, attemptId })
 }
 async function admitTool({ dispatch, plan }) {
   if (toolAdmission) return toolAdmission
@@ -633,6 +701,32 @@ async function cancelLead() {
   })
   return { ...(await leadEvidence()) }
 }
+const stated = (constraints) => constraints.limits.childExecutions.budgetAllowance
+// Where the allowance on the lead's plan came from. Read independently: the pinned profile version
+// from CP's catalog, the constraints the request supplied, and the plan the lead actually ran on.
+async function profileProvenance() {
+  const { plan } = dispatched
+  const version = await host.repositories.catalog.getAgentProfileVersion(
+    plan.profile.profileVersionId
+  )
+  return {
+    source: host.childAllowanceSource,
+    pin: host.productProfilePin,
+    planProfile: plan.profile,
+    catalogVersion: version && {
+      profileId: version.profileId,
+      profileVersionId: version.profileVersionId,
+      version: version.version,
+      revision: version.revision,
+      lifecycle: version.lifecycle,
+      contentDigest: version.contentDigest,
+    },
+    profileAllowance: version && stated(version.definition.executionConstraints),
+    requestAllowance: stated(host.requestConstraints),
+    planAllowance: stated(plan.constraints),
+    lead: await summaryOf(dispatched.dispatch.executionId),
+  }
+}
 const baseline = () => host.models.currentAccountEvidence()
 let originalAccount
 function setAuthority(mode) {
@@ -647,7 +741,11 @@ let closing
 const close = () =>
   (closing ??= (async () => {
     releaseProvider()
-    await host.close()
+    try {
+      await controlApp?.close()
+    } finally {
+      await host.close()
+    }
   })())
 const input = createInterface({ input: process.stdin })
 input.on('line', (line) => {
@@ -711,7 +809,13 @@ input.on('line', (line) => {
     } else if (request.command === 'dispatch') {
       const leadRun = await dispatchLead(request.intentId)
       data = leadRun.ok ? { ok: true, ...(await leadEvidence()) } : leadRun
-    } else if (request.command === 'authority') {
+    } else if (request.command === 'evidence') {
+      data = { ...evidence(), ...(dispatched?.ok ? await leadEvidence() : {}) }
+    } else if (request.command === 'adopt') {
+      const leadRun = await adoptSdkDispatch(request.intentId, request)
+      data = leadRun.ok ? { ok: true, ...(await leadEvidence()) } : leadRun
+    } else if (request.command === 'provenance') data = await profileProvenance()
+    else if (request.command === 'authority') {
       setAuthority(request.mode)
       data = { mode: request.mode }
     } else if (request.command === 'allocate') data = await allocate(request.intentId)
