@@ -60,7 +60,7 @@ export type CheckpointRestoreAdapter = Readonly<{
   >
 }>
 type AuditRecord = Readonly<{
-  phase: 'requested' | 'outcome' | 'published_requested' | 'published_outcome'
+  phase: 'requested' | 'outcome' | 'session_committed' | 'published_requested' | 'published_outcome'
   request: CheckpointRestoreRequest
   runtimeSessionId: string
   harnessRunId: string
@@ -84,11 +84,15 @@ function sameScope(a: Scope, b: Scope): boolean {
 
 function validateJournal(entries: readonly AuditRecord[]): void {
   const requests = new Map<string, AuditRecord>()
+  const outcomes = new Map<string, CheckpointRestoreOutcome>()
   const phases = new Set<string>()
   const keys = new Set<string>()
   for (const value of entries) {
     const item = record(value, 'checkpoint journal')
-    const terminal = item.phase === 'outcome' || item.phase === 'published_outcome'
+    const terminal =
+      item.phase === 'outcome' ||
+      item.phase === 'published_outcome' ||
+      item.phase === 'session_committed'
     exactKeys(
       item,
       [
@@ -106,9 +110,13 @@ function validateJournal(entries: readonly AuditRecord[]): void {
       'checkpoint journal'
     )
     if (
-      !['requested', 'outcome', 'published_requested', 'published_outcome'].includes(
-        item.phase as string
-      )
+      ![
+        'requested',
+        'outcome',
+        'session_committed',
+        'published_requested',
+        'published_outcome',
+      ].includes(item.phase as string)
     )
       throw new TypeError('unknown checkpoint journal phase')
     for (const key of ['runtimeSessionId', 'harnessRunId', 'harnessInstallationId'])
@@ -144,8 +152,11 @@ function validateJournal(entries: readonly AuditRecord[]): void {
         ] as const)
           if (outcome[key] !== request[key])
             throw new TypeError('checkpoint outcome binding changed')
-        if (item.phase === 'published_outcome' && !phases.has(`${request.restoreId}:outcome`))
-          throw new TypeError('outcome publication without outcome')
+        if (item.phase === 'outcome') outcomes.set(request.restoreId, outcome)
+        else if (JSON.stringify(outcomes.get(request.restoreId)) !== JSON.stringify(outcome))
+          throw new TypeError('checkpoint completion without its original outcome')
+        if (item.phase === 'session_committed' && outcome.status !== 'resolved')
+          throw new TypeError('session commit without confirmed restore')
       }
     }
   }
@@ -156,7 +167,15 @@ export function createConversationCheckpointRuntime(input: {
   scope: Scope
   events: SessionEventLog
   resolveSession(id: string): RuntimeSession | undefined
-  persistSession(session: RuntimeSession): void
+  /** A restore ID must be witnessed in the same durable session transaction. */
+  persistSession(session: RuntimeSession, restoreId?: string): void
+  getSessionRestoreCommit?(restoreId: string):
+    | Readonly<{
+        runtimeSessionId: string
+        generation: number
+        version: number
+      }>
+    | undefined
   adapter?: CheckpointRestoreAdapter
   now?: () => number
   /** Tests may shorten the bound, never extend the production 30-second limit. */
@@ -186,10 +205,52 @@ export function createConversationCheckpointRuntime(input: {
   const inFlight = new Map<string, Promise<CheckpointRestoreOutcome>>()
   const outcomeFor = (id: string) =>
     read().find((entry) => entry.phase === 'outcome' && entry.request.restoreId === id)?.outcome
+  const sessionCommitted = (id: string) =>
+    read().some((entry) => entry.phase === 'session_committed' && entry.request.restoreId === id)
   const result = (outcome: CheckpointRestoreOutcome): CheckpointRestoreOutcome => {
     if (outcome.status === 'failed')
       refuse(outcome.code, 'conversation checkpoint restore failed; see its canonical outcome')
     return outcome
+  }
+  // Confirmation is the write-ahead decision for the separate session store.
+  // Reapplying it after a crash must neither dispatch again nor overwrite a
+  // session whose owner/version changed while persistence was interrupted.
+  function completeSession(entry: AuditRecord, outcome: CheckpointRestoreOutcome): boolean {
+    if (outcome.status !== 'resolved') return true
+    if (sessionCommitted(entry.request.restoreId)) return true
+    const commit = input.getSessionRestoreCommit?.(entry.request.restoreId)
+    if (commit) {
+      if (
+        commit.runtimeSessionId !== entry.runtimeSessionId ||
+        commit.generation !== outcome.restoredGeneration ||
+        commit.version !== entry.sessionVersion + 1
+      )
+        refuse('corrupt_state', 'checkpoint session commit identity changed')
+      append({ ...entry, phase: 'session_committed', outcome })
+      return true
+    }
+    const current = input.resolveSession(entry.runtimeSessionId)
+    if (!current || current.id !== entry.runtimeSessionId || !sameScope(current.scope, input.scope))
+      return false
+    if (
+      current.generation !== entry.request.requestedGeneration ||
+      current.version !== entry.sessionVersion ||
+      current.activeHarnessRunId !== entry.harnessRunId ||
+      current.harnessInstallationId !== entry.harnessInstallationId ||
+      current.archived
+    )
+      return false
+    input.persistSession(
+      {
+        ...current,
+        generation: outcome.restoredGeneration,
+        version: current.version + 1,
+      },
+      entry.request.restoreId
+    )
+    if (!input.getSessionRestoreCommit?.(entry.request.restoreId))
+      refuse('corrupt_state', 'restore session write has no atomic commit witness')
+    return completeSession(entry, outcome)
   }
   function publish(entry: AuditRecord): void {
     const phase = entry.phase === 'requested' ? 'requested' : 'outcome'
@@ -226,6 +287,8 @@ export function createConversationCheckpointRuntime(input: {
     decodeCheckpointRestoreOutcome(outcome)
     const completed: AuditRecord = { ...entry, phase: 'outcome', outcome }
     append(completed)
+    if (!completeSession(entry, outcome))
+      refuse('stale_generation', 'confirmed restore session ownership changed')
     publish(entry)
     publish(completed)
     return outcome
@@ -241,8 +304,10 @@ export function createConversationCheckpointRuntime(input: {
   }
   for (const entry of read().filter(
     (item) => item.phase === 'requested' || item.phase === 'outcome'
-  ))
+  )) {
+    if (entry.phase === 'outcome' && !completeSession(entry, entry.outcome!)) continue
     publish(entry)
+  }
 
   function sessionFor(id: string): RuntimeSession {
     const session = input.resolveSession(id)
@@ -265,7 +330,9 @@ export function createConversationCheckpointRuntime(input: {
       refuse('stale_generation', 'checkpoint observation has a stale generation')
     if (session.archived || !session.activeHarnessRunId || !session.harnessInstallationId)
       refuse('invalid_state', 'checkpoint observation requires a current harness session')
-    const supported = input.adapter?.installationId === session.harnessInstallationId
+    const supported =
+      input.adapter?.installationId === session.harnessInstallationId &&
+      input.getSessionRestoreCommit !== undefined
     const payload = decodeConversationCheckpoint({
       schemaVersion: 1,
       checkpointId: value.checkpointId,
@@ -326,11 +393,13 @@ export function createConversationCheckpointRuntime(input: {
       const outcome = outcomeFor(existing.request.restoreId)
       if (!outcome)
         refuse('delivery_ambiguous', 'restore is interrupted; restart recovery is required')
+      if (!completeSession(existing, outcome))
+        refuse('stale_generation', 'confirmed restore session ownership changed')
       const expected =
         outcome.status === 'resolved'
           ? outcome.restoredGeneration
           : existing.request.requestedGeneration
-      if (session.generation !== expected)
+      if (sessionFor(session.id).generation !== expected)
         refuse('stale_generation', 'restore replay is no longer current')
       publish(existing)
       publish({ ...existing, phase: 'outcome', outcome })
@@ -346,8 +415,19 @@ export function createConversationCheckpointRuntime(input: {
     )
       refuse('invalid_state', 'restore requires a live, unarchived harness session')
     const requests = entries.filter((item) => item.phase === 'requested')
+    const committedIds = new Set(
+      entries
+        .filter((item) => item.phase === 'session_committed')
+        .map((item) => item.request.restoreId)
+    )
     const completedIds = new Set(
-      entries.filter((item) => item.phase === 'outcome').map((item) => item.request.restoreId)
+      entries
+        .filter(
+          (item) =>
+            item.phase === 'outcome' &&
+            (item.outcome!.status === 'failed' || committedIds.has(item.request.restoreId))
+        )
+        .map((item) => item.request.restoreId)
     )
     if (requests.length >= 1000)
       refuse('limit_exceeded', 'checkpoint restore audit capacity reached')
@@ -418,6 +498,7 @@ export function createConversationCheckpointRuntime(input: {
         const adapter = input.adapter
         if (
           !adapter ||
+          !input.getSessionRestoreCommit ||
           adapter.installationId !== session.harnessInstallationId ||
           !checkpoint.restore.supported
         )
@@ -491,13 +572,20 @@ export function createConversationCheckpointRuntime(input: {
           restoredAt: receipt.observedAt,
           completedAt: iso(),
         })
-        input.persistSession({
-          ...session,
-          generation: session.generation + 1,
-          version: session.version + 1,
-        })
         return result(finish(entry, confirmed))
       } catch (error) {
+        const confirmed = outcomeFor(entry.request.restoreId)
+        if (confirmed?.status === 'resolved') {
+          // A durable confirmation cannot be replaced by a contradictory
+          // failure. Publication may lag, but success requires the session
+          // generation to have committed; otherwise recovery must finish it.
+          if (
+            input.getSessionRestoreCommit?.(entry.request.restoreId) &&
+            completeSession(entry, confirmed)
+          )
+            return confirmed
+          throw error
+        }
         const code = (error as { code?: DevErrorCode })?.code
         return result(
           failed(entry, code && devErrorCodes.includes(code) ? code : 'delivery_ambiguous')

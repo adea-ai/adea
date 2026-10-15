@@ -545,7 +545,9 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         dataDir: input.dataDir,
         scope: input.scope,
         resolveSession: (runtimeSessionId) => projectSession?.getSession(runtimeSessionId),
-        persistSession: (session) => projectSession?.upsertSession(session),
+        persistSession: (session, restoreId) => projectSession?.upsertSession(session, restoreId),
+        getSessionRestoreCommit: (restoreId) =>
+          projectSession?.getCheckpointRestoreCommit(restoreId),
         publish,
         ...(input.gateway ? { gateway: input.gateway } : {}),
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),

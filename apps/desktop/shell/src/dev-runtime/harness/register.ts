@@ -81,7 +81,10 @@ export type HarnessRuntimeInput = {
   /** Canonical RuntimeSession resolution (project/session projection). */
   resolveSession: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Persists canonical session mutations so both views observe them. */
-  persistSession: (session: RuntimeSession) => void
+  persistSession: (session: RuntimeSession, checkpointRestoreId?: string) => void
+  getSessionRestoreCommit?: Parameters<
+    typeof createConversationCheckpointRuntime
+  >[0]['getSessionRestoreCommit']
   /** Shell event bus; harness changes publish so Dev and Chat share them. */
   publish?: (event: string, payload: unknown) => void
   /** Full-duplex gateway; the runtime-events-v1 stream serves through it. */
@@ -293,6 +296,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     events,
     resolveSession: input.resolveSession,
     persistSession: input.persistSession,
+    getSessionRestoreCommit: input.getSessionRestoreCommit,
     adapter: input.checkpointRestoreAdapter,
     now,
   })

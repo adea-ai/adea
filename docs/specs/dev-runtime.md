@@ -2817,8 +2817,10 @@ The durable journal uses the existing scoped, owner-only, WAL/full-sync SQLite
 host-store boundary under `dev-runtime/harness/checkpoint-restores/`. Its
 scope-derived file identity prevents workspace crossover. Each request gets a
 host `restoreId`; only hashes of its idempotency key and body fingerprint are
-stored. The logical journal is append-only: request, outcome, and publication
-acknowledgements are new immutable records, never updates to prior audit entries.
+stored. The logical journal is append-only: request, outcome, session-commit,
+and publication acknowledgements are new immutable records, never updates to
+prior audit entries. A session-commit acknowledgement binds the original
+confirmed outcome; a failed restore cannot carry one.
 At 1,000 attempts per scope it refuses `limit_exceeded`; it does not prune audit
 history to admit another mutation. Existing conversation events remain intact.
 
@@ -2851,9 +2853,31 @@ restore proof ID and observation time. The host
 checks the fence before dispatch, requires the adapter to check it too, and
 rechecks scope/generation/version/run/installation/archive/expiry after the
 receipt. It strictly validates the complete success DTO before changing any
-canonical state. Only then does it increment the existing session generation
-and version by one, fencing prior input grants without inventing another run or
-modifying old transcript rows.
+canonical state. The validated confirmation is durably journaled before the
+existing session generation and version increment by one, fencing prior input
+grants without inventing another run or modifying old transcript rows. A failed
+confirmation write cannot advance the session. Because the journal and session
+store are separate durability boundaries, an interrupted session write leaves
+the confirmed decision pending for recovery, never a contradictory failed
+outcome. Recovery applies that decision once only while the original session
+generation, version, run, installation, and unarchived ownership still match;
+it never overwrites a changed owner or dispatches the adapter again. An already
+advanced session is not incremented twice. Success is returned/published only
+after the generation commit, and an unapplied confirmation blocks another
+restore for that session. The session authority publishes its in-memory cache
+only after the durable upsert succeeds, so a rejected SQLite write cannot be
+mistaken for a committed generation. The session transaction atomically retains
+a private, restore-specific commit witness binding the restore ID, session ID,
+resulting generation, and version. These bounded witnesses survive ownership
+transfers and are not conversation DTO fields. Recovery copies that witness to
+the journal's session-commit phase; it requires the witness before returning or
+publishing success. If the journal marker write fails, recovery reads the atomic
+witness and repairs the outbox without another session mutation, even after a
+later takeover. Without that witness, matching generation/version/run values
+cannot prove this restore committed: even an exact next-generation input
+transfer remains a takeover. The host restore seam requires this witness
+facility as well as a verified adapter. Neither capability is fabricated from
+a renderer callback.
 
 There is currently no verified managed-Pi or ACP conversation restore API wired
 to this seam. Production therefore emits unsupported checkpoint evidence and
@@ -2884,7 +2908,8 @@ remains ambiguous rather than claiming restored state.
 reply and event schemas. `apps/desktop/tests/dev-runtime-checkpoints.test.ts`
 pins authenticated admission, capability absence, foreign/stale refusals,
 single-dispatch replay, takeover fencing, malformed/unfenced receipts, deadline
-and restart interruption, durable outbox recovery, and audit-prefix preservation.
+and restart interruption, durable confirmation/session-write fault recovery,
+durable outbox recovery, and audit-prefix preservation.
 
 ## Terminal protocol
 

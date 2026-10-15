@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
 import {
   devCommandProofMessage,
   type DevCommand,
@@ -16,6 +17,8 @@ import {
 import { createSessionEventLog } from '../shell/src/dev-runtime/harness/events'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import { registerHarnessRuntime } from '../shell/src/dev-runtime/harness/register'
+import { createDurableJsonStore } from '../shell/src/dev-runtime/host-store'
+import { registerProjectSessionRuntime } from '../shell/src/dev-runtime/project-session/register'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -44,6 +47,10 @@ function setup(restoreAdapter?: CheckpointRestoreAdapter) {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-checkpoints-'))
   dirs.push(dataDir)
   let session: RuntimeSession | undefined = original
+  const commits = new Map<
+    string,
+    { runtimeSessionId: string; generation: number; version: number }
+  >()
   const events = createSessionEventLog({ dataDir, scope })
   const options = {
     dataDir,
@@ -51,9 +58,16 @@ function setup(restoreAdapter?: CheckpointRestoreAdapter) {
     events,
     adapter: restoreAdapter,
     resolveSession: (id: string) => (session?.id === id ? session : undefined),
-    persistSession: (next: RuntimeSession) => {
+    persistSession: (next: RuntimeSession, restoreId?: string) => {
       session = next
+      if (restoreId)
+        commits.set(restoreId, {
+          runtimeSessionId: next.id,
+          generation: next.generation,
+          version: next.version,
+        })
     },
+    getSessionRestoreCommit: (restoreId: string) => commits.get(restoreId),
   }
   const runtime = createConversationCheckpointRuntime(options)
   const checkpoint = runtime.observe({
@@ -73,6 +87,32 @@ function setup(restoreAdapter?: CheckpointRestoreAdapter) {
     setSession: (next: RuntimeSession | undefined) => {
       session = next
     },
+  }
+}
+function durableSessionOptions(s: ReturnType<typeof setup>) {
+  const store = createDurableJsonStore<{ session: RuntimeSession; restoreId?: string }>({
+    file: join(s.options.dataDir, 'sessions.json'),
+    schemaVersion: 1,
+    label: 'test sessions',
+  })
+  store.save([{ session: original }])
+  const read = () => store.load().records
+  return {
+    ...s.options,
+    resolveSession: (id: string) => read().find((entry) => entry.session.id === id)?.session,
+    persistSession: (session: RuntimeSession, restoreId?: string) =>
+      store.save([{ session, restoreId }]),
+    getSessionRestoreCommit: (restoreId: string) => {
+      const applied = read().find((entry) => entry.restoreId === restoreId)?.session
+      return (
+        applied && {
+          runtimeSessionId: applied.id,
+          generation: applied.generation,
+          version: applied.version,
+        }
+      )
+    },
+    sessions: () => read().map((entry) => entry.session),
   }
 }
 function command(checkpointEventId: string, overrides: Partial<DevCommand> = {}): DevCommand {
@@ -420,6 +460,435 @@ describe('conversation checkpoint restore authority', () => {
     const eventsBefore = s.events.events()
     createConversationCheckpointRuntime(s.options)
     expect(s.events.events()).toEqual(eventsBefore)
+  })
+
+  test('a durable outcome write failure never advances the session and replays its failure after restart', async () => {
+    let calls = 0
+    const s = setup(
+      adapter(async (input) => {
+        calls++
+        const receipt = await adapter().restore(input)
+        const directory = join(s.options.dataDir, 'dev-runtime', 'harness', 'checkpoint-restores')
+        const file = readdirSync(directory).find((name) => name.endsWith('.sqlite3'))!
+        const db = new Database(join(directory, file))
+        try {
+          db.exec(`CREATE TRIGGER refuse_confirmation BEFORE UPDATE ON durable_store_records
+          WHEN EXISTS (SELECT 1 FROM json_each(NEW.payload)
+            WHERE json_extract(value, '$.phase') = 'outcome'
+              AND json_extract(value, '$.outcome.status') = 'resolved')
+          BEGIN SELECT RAISE(FAIL, 'simulated outcome write failure'); END`)
+        } finally {
+          db.close()
+        }
+        return receipt
+      })
+    )
+    const options = durableSessionOptions(s)
+    const runtime = createConversationCheckpointRuntime(options)
+    const request = command(s.checkpoint.eventId)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(options.sessions()).toEqual([original])
+    const journal = runtime.journal()
+    const restarted = createConversationCheckpointRuntime(options)
+    await expect(restarted.restore({ ...request, requestId: randomUUID() })).rejects.toMatchObject({
+      code: 'corrupt_state',
+    })
+    expect(calls).toBe(1)
+    expect(restarted.journal()).toEqual(journal)
+    expect(
+      s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
+    ).toHaveLength(1)
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
+      false
+    )
+  })
+
+  test('an applied restore can repair historical publication after takeover without advancing again', async () => {
+    const s = setup(adapter())
+    const runtime = createConversationCheckpointRuntime({
+      ...s.options,
+      events: {
+        ...s.events,
+        append: (input) => {
+          if (input.kind === 'checkpoint.restore_resolved')
+            throw new Error('publication interrupted')
+          return s.events.append(input)
+        },
+      },
+    })
+    const request = command(s.checkpoint.eventId)
+    const outcome = await runtime.restore(request)
+    expect(runtime.journal().filter((entry) => entry.phase === 'session_committed')).toHaveLength(1)
+    const takeover = { ...original, generation: 3, version: 3, activeHarnessRunId: 'another-run' }
+    s.setSession(takeover)
+    const restarted = createConversationCheckpointRuntime(s.options)
+    await expect(restarted.restore(request)).rejects.toMatchObject({ code: 'stale_generation' })
+    expect(s.current()).toEqual(takeover)
+    const published = s.events
+      .events()
+      .filter((event) => event.kind === 'checkpoint.restore_resolved')
+    expect(published).toHaveLength(1)
+    expect(published[0]!.payload).toEqual(outcome)
+  })
+
+  test('restart completes a durably confirmed restore after the session write fails without redispatch', async () => {
+    let calls = 0
+    const s = setup(
+      adapter(async (input) => {
+        calls++
+        return adapter().restore(input)
+      })
+    )
+    const options = durableSessionOptions(s)
+    const runtime = createConversationCheckpointRuntime({
+      ...options,
+      persistSession: () => {
+        throw { code: 'corrupt_state', message: 'simulated session write failure' }
+      },
+    })
+    const request = command(s.checkpoint.eventId)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(options.sessions()).toEqual([original])
+    const confirmed = runtime.journal().find((entry) => entry.phase === 'outcome')!.outcome!
+    expect(confirmed.status).toBe('resolved')
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
+      false
+    )
+    await expect(
+      runtime.restore({ ...request, idempotencyKey: 'competing-key' })
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    const prefix = runtime.journal()
+    const restarted = createConversationCheckpointRuntime(options)
+    expect(options.sessions()).toEqual([{ ...original, generation: 2, version: 2 }])
+    expect(await restarted.restore({ ...request, requestId: randomUUID() })).toEqual(confirmed)
+    expect(restarted.journal().slice(0, prefix.length)).toEqual(prefix)
+    expect(calls).toBe(1)
+    expect(
+      s.events.events().filter((event) => event.kind === 'checkpoint.restore_resolved')
+    ).toHaveLength(1)
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_failed')).toBe(
+      false
+    )
+    createConversationCheckpointRuntime(options)
+    expect(options.sessions()).toEqual([{ ...original, generation: 2, version: 2 }])
+  })
+
+  test('a session write that commits before throwing keeps one confirmed outcome across restart', async () => {
+    let calls = 0
+    const s = setup(
+      adapter(async (input) => {
+        calls++
+        return adapter().restore(input)
+      })
+    )
+    const options = durableSessionOptions(s)
+    const runtime = createConversationCheckpointRuntime({
+      ...options,
+      persistSession: (session, restoreId) => {
+        options.persistSession(session, restoreId)
+        throw { code: 'corrupt_state', message: 'simulated error after durable commit' }
+      },
+    })
+    const request = command(s.checkpoint.eventId)
+    const confirmed = await runtime.restore(request)
+    expect(confirmed.status).toBe('resolved')
+    expect(options.sessions()).toEqual([{ ...original, generation: 2, version: 2 }])
+    const restarted = createConversationCheckpointRuntime(options)
+    expect(await restarted.restore(request)).toEqual(confirmed)
+    expect(options.sessions()).toEqual([{ ...original, generation: 2, version: 2 }])
+    expect(calls).toBe(1)
+    expect(restarted.journal().filter((entry) => entry.phase === 'outcome')).toHaveLength(1)
+    expect(
+      s.events.events().filter((event) => event.kind === 'checkpoint.restore_resolved')
+    ).toHaveLength(1)
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_failed')).toBe(
+      false
+    )
+  })
+
+  test('confirmed recovery never overwrites a changed session owner or version', async () => {
+    for (const change of [
+      { version: 2 },
+      { activeHarnessRunId: 'another-run' },
+      { archived: true },
+      { generation: 2, version: 2 },
+      { generation: 3, version: 3 },
+    ]) {
+      let calls = 0
+      const s = setup(
+        adapter(async (input) => {
+          calls++
+          return adapter().restore(input)
+        })
+      )
+      const runtime = createConversationCheckpointRuntime({
+        ...s.options,
+        persistSession: () => {
+          throw { code: 'corrupt_state' }
+        },
+      })
+      const request = command(s.checkpoint.eventId)
+      await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+      const changed = { ...original, ...change }
+      s.setSession(changed)
+      const restarted = createConversationCheckpointRuntime(s.options)
+      await expect(restarted.restore(request)).rejects.toMatchObject({ code: 'stale_generation' })
+      expect(s.current()).toEqual(changed)
+      expect(calls).toBe(1)
+      expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
+        false
+      )
+      expect(restarted.journal().filter((entry) => entry.phase === 'outcome')).toHaveLength(1)
+    }
+  })
+
+  test('a failed journal commit-marker write recovers its atomic session witness after takeover', async () => {
+    let calls = 0
+    const s = setup(
+      adapter(async (input) => {
+        calls++
+        const receipt = await adapter().restore(input)
+        const directory = join(s.options.dataDir, 'dev-runtime', 'harness', 'checkpoint-restores')
+        const db = new Database(
+          join(
+            directory,
+            readdirSync(directory).find((name) => name.endsWith('.sqlite3'))!
+          )
+        )
+        try {
+          db.exec(`CREATE TRIGGER refuse_commit_marker BEFORE UPDATE ON durable_store_records
+          WHEN json_extract(NEW.payload, '$[#-1].phase') = 'session_committed'
+          BEGIN SELECT RAISE(FAIL, 'simulated commit marker failure'); END`)
+        } finally {
+          db.close()
+        }
+        return receipt
+      })
+    )
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1:4795',
+      shellOrigin: 'http://127.0.0.1:4795',
+      authorizeCommand: async () => {},
+    })
+    const projectOptions = { authority, dataDir: s.options.dataDir, scope }
+    const projects = registerProjectSessionRuntime(projectOptions)
+    projects.upsertSession(original)
+    const options = {
+      ...s.options,
+      resolveSession: (id: string) => projects.getSession(id),
+      persistSession: (session: RuntimeSession, restoreId?: string) =>
+        projects.upsertSession(session, restoreId),
+      getSessionRestoreCommit: (restoreId: string) =>
+        projects.getCheckpointRestoreCommit(restoreId),
+    }
+    const runtime = createConversationCheckpointRuntime(options)
+    const request = command(s.checkpoint.eventId)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(projects.getSession(original.id)).toMatchObject({ generation: 2, version: 2 })
+    const confirmed = runtime.journal().find((entry) => entry.phase === 'outcome')!.outcome!
+    expect(projects.getCheckpointRestoreCommit(confirmed.restoreId)).toMatchObject({
+      runtimeSessionId: original.id,
+      generation: 2,
+      version: 2,
+    })
+    expect(runtime.journal().some((entry) => entry.phase === 'session_committed')).toBe(false)
+    projects.upsertSession({
+      ...original,
+      generation: 3,
+      version: 3,
+      activeHarnessRunId: 'another-run',
+    })
+    const directory = join(s.options.dataDir, 'dev-runtime', 'harness', 'checkpoint-restores')
+    const db = new Database(
+      join(
+        directory,
+        readdirSync(directory).find((name) => name.endsWith('.sqlite3'))!
+      )
+    )
+    try {
+      db.exec('DROP TRIGGER refuse_commit_marker')
+    } finally {
+      db.close()
+    }
+    const reopened = registerProjectSessionRuntime(projectOptions)
+    const restarted = createConversationCheckpointRuntime({
+      ...options,
+      resolveSession: (id: string) => reopened.getSession(id),
+      persistSession: (session: RuntimeSession, restoreId?: string) =>
+        reopened.upsertSession(session, restoreId),
+      getSessionRestoreCommit: (restoreId: string) =>
+        reopened.getCheckpointRestoreCommit(restoreId),
+    })
+    await expect(restarted.restore(request)).rejects.toMatchObject({ code: 'stale_generation' })
+    expect(reopened.getSession(original.id)).toMatchObject({
+      generation: 3,
+      version: 3,
+      activeHarnessRunId: 'another-run',
+    })
+    expect(restarted.journal().filter((entry) => entry.phase === 'session_committed')).toHaveLength(
+      1
+    )
+    const published = s.events
+      .events()
+      .filter((event) => event.kind === 'checkpoint.restore_resolved')
+    expect(published).toHaveLength(1)
+    expect(published[0]!.payload).toEqual(confirmed)
+    expect(calls).toBe(1)
+  })
+
+  test('production session persistence exposes no uncommitted generation after a SQLite write failure', async () => {
+    const s = setup(adapter())
+    const live = {
+      ...original,
+      id: '00000000-0000-4000-8000-000000000040',
+      projectId: '00000000-0000-4000-8000-000000000020',
+      repoId: '00000000-0000-4000-8000-000000000030',
+      worktreeId: '00000000-0000-4000-8000-000000000050',
+    }
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1:4795',
+      shellOrigin: 'http://127.0.0.1:4795',
+      authorizeCommand: async () => {},
+    })
+    const projectOptions = { authority, dataDir: s.options.dataDir, scope }
+    const projects = registerProjectSessionRuntime(projectOptions)
+    projects.upsertSession(live)
+    let calls = 0
+    const options = {
+      ...s.options,
+      resolveSession: (id: string) => projects.getSession(id),
+      persistSession: (session: RuntimeSession, restoreId?: string) =>
+        projects.upsertSession(session, restoreId),
+      getSessionRestoreCommit: (restoreId: string) =>
+        projects.getCheckpointRestoreCommit(restoreId),
+      adapter: adapter(async (input) => {
+        calls++
+        input.assertCurrent()
+        return {
+          status: 'restored' as const,
+          restoreId: input.restoreId,
+          expectedGeneration: 1,
+          runtimeSessionId: live.id,
+          harnessRunId: 'run-1',
+          checkpointId: 'checkpoint-1',
+          providerRestoreId: 'proof-1',
+          observedAt: new Date().toISOString(),
+        }
+      }),
+    }
+    const runtime = createConversationCheckpointRuntime(options)
+    const checkpoint = runtime.observe({
+      runtimeSessionId: live.id,
+      expectedGeneration: 1,
+      checkpointId: 'checkpoint-1',
+      name: 'Before refactor',
+      createdAt: new Date().toISOString(),
+      sourceEventId: 'production-checkpoint',
+    })!
+    const directory = join(s.options.dataDir, 'dev-runtime', 'project-session')
+    const file = join(
+      directory,
+      readdirSync(directory).find((name) => name.endsWith('.sqlite3'))!
+    )
+    const db = new Database(file)
+    try {
+      db.exec(`CREATE TRIGGER refuse_session BEFORE UPDATE ON durable_store_records
+        BEGIN SELECT RAISE(FAIL, 'simulated session store failure'); END`)
+    } finally {
+      db.close()
+    }
+    const request = command(checkpoint.eventId, {
+      resource: { kind: 'runtime_session', id: live.id, generation: 1 },
+      body: {
+        runtimeSessionId: live.id,
+        expectedGeneration: 1,
+        checkpointEventId: checkpoint.eventId,
+      },
+    })
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(projects.getSession(live.id)).toEqual(live)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
+      false
+    )
+    const repaired = new Database(file)
+    try {
+      repaired.exec('DROP TRIGGER refuse_session')
+    } finally {
+      repaired.close()
+    }
+    const reopened = registerProjectSessionRuntime(projectOptions)
+    expect(reopened.getSession(live.id)).toEqual(live)
+    const restarted = createConversationCheckpointRuntime({
+      ...options,
+      resolveSession: (id: string) => reopened.getSession(id),
+      persistSession: (session: RuntimeSession, restoreId?: string) =>
+        reopened.upsertSession(session, restoreId),
+      getSessionRestoreCommit: (restoreId: string) =>
+        reopened.getCheckpointRestoreCommit(restoreId),
+    })
+    expect(await restarted.restore(request)).toMatchObject({
+      status: 'resolved',
+      restoredGeneration: 2,
+    })
+    expect(reopened.getSession(live.id)).toMatchObject({ generation: 2, version: 2 })
+    expect(registerProjectSessionRuntime(projectOptions).getSession(live.id)).toEqual(
+      reopened.getSession(live.id)
+    )
+    expect(calls).toBe(1)
+  })
+
+  test('an exact next-generation input transfer is not a pending restore commit', async () => {
+    let calls = 0
+    const s = setup(
+      adapter(async (input) => {
+        calls++
+        return adapter().restore(input)
+      })
+    )
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1:4795',
+      shellOrigin: 'http://127.0.0.1:4795',
+      authorizeCommand: async () => {},
+    })
+    const projectOptions = { authority, dataDir: s.options.dataDir, scope }
+    const projects = registerProjectSessionRuntime(projectOptions)
+    projects.upsertSession(original)
+    const runtime = createConversationCheckpointRuntime({
+      ...s.options,
+      resolveSession: (id) => projects.getSession(id),
+      persistSession: () => {
+        throw { code: 'corrupt_state' }
+      },
+      getSessionRestoreCommit: (restoreId) => projects.getCheckpointRestoreCommit(restoreId),
+    })
+    const request = command(s.checkpoint.eventId)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    projects.providers['dev.session.transferInput']!({
+      ...request,
+      operation: 'dev.session.transferInput',
+      body: {
+        runtimeSessionId: original.id,
+        expectedGeneration: 1,
+        expectedOwnerVersion: 1,
+        fromView: 'dev',
+        toView: 'chat',
+      },
+    })
+    const reopened = registerProjectSessionRuntime(projectOptions)
+    expect(reopened.getSession(original.id)).toEqual({ ...original, generation: 2, version: 2 })
+    const restarted = createConversationCheckpointRuntime({
+      ...s.options,
+      resolveSession: (id) => reopened.getSession(id),
+      persistSession: (session, restoreId) => reopened.upsertSession(session, restoreId),
+      getSessionRestoreCommit: (restoreId) => reopened.getCheckpointRestoreCommit(restoreId),
+    })
+    await expect(restarted.restore(request)).rejects.toMatchObject({ code: 'stale_generation' })
+    expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
+      false
+    )
+    expect(restarted.journal().some((entry) => entry.phase === 'session_committed')).toBe(false)
+    expect(calls).toBe(1)
   })
 
   test('the authenticated M10 channel registers restore and denies unproved or wrongly scoped commands', async () => {

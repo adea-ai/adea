@@ -39,7 +39,9 @@ export type ProjectSessionRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
   /** Seeds or advances one binding; `project.id` is the cloud project id. */
   upsertProject(project: Project): void
-  upsertSession(session: RuntimeSession): void
+  upsertSession(session: RuntimeSession, checkpointRestoreId?: string): void
+  /** A restore-specific witness saved atomically with its session generation. */
+  getCheckpointRestoreCommit(restoreId: string): SessionRestoreCommit | undefined
   /** Read-only resolution for sibling slices (e.g. the harness substrate);
    * it grants no authority — every gated operation re-checks its own
    * scope/resource/generation bindings after resolving the record. */
@@ -114,6 +116,7 @@ type AuthorityRecord = Readonly<{
   projects: ProjectBinding[]
   sessions: RuntimeSession[]
   archiveRecords: ArchiveRecord[]
+  checkpointRestoreCommits?: ReadonlyArray<SessionRestoreCommit>
   /** One canonical session per create key within the protocol retention window. */
   sessionCreates?: ReadonlyArray<{
     keyHash: string
@@ -121,6 +124,13 @@ type AuthorityRecord = Readonly<{
     sessionId: string
     createdAt: string
   }>
+}>
+
+type SessionRestoreCommit = Readonly<{
+  restoreId: string
+  runtimeSessionId: string
+  generation: number
+  version: number
 }>
 
 const AUTHORITY_STORE_DIRECTORY = join('dev-runtime', 'project-session')
@@ -195,6 +205,27 @@ function validateStoredRecord(record: AuthorityRecord): void {
   if (!Array.isArray(record.projects)) throw fail()
   if ('groups' in record) throw fail()
   if (!Array.isArray(record.sessions) || !Array.isArray(record.archiveRecords)) throw fail()
+  if (record.checkpointRestoreCommits !== undefined) {
+    if (
+      !Array.isArray(record.checkpointRestoreCommits) ||
+      record.checkpointRestoreCommits.length > 1000
+    )
+      throw fail()
+    const restoreIds = new Set<string>()
+    for (const commit of record.checkpointRestoreCommits) {
+      if (
+        !commit ||
+        typeof commit !== 'object' ||
+        !UUID_PATTERN.test(commit.restoreId) ||
+        typeof commit.runtimeSessionId !== 'string' ||
+        !isPositiveInteger(commit.generation) ||
+        !isPositiveInteger(commit.version) ||
+        restoreIds.has(commit.restoreId)
+      )
+        throw fail()
+      restoreIds.add(commit.restoreId)
+    }
+  }
   if (record.sessionCreates !== undefined) {
     if (!Array.isArray(record.sessionCreates)) throw fail()
     for (const created of record.sessionCreates) {
@@ -1231,9 +1262,43 @@ export function registerProjectSessionRuntime(input: {
       }
       save()
     },
-    upsertSession(session) {
-      record = { ...record, sessions: upsert(record.sessions, session) }
-      save()
+    upsertSession(session, checkpointRestoreId) {
+      const commits = record.checkpointRestoreCommits ?? []
+      if (
+        checkpointRestoreId !== undefined &&
+        (!UUID_PATTERN.test(checkpointRestoreId) ||
+          commits.some((entry) => entry.restoreId === checkpointRestoreId))
+      )
+        throw new DevAuthorityError(
+          'invalid_state',
+          'invalid or already committed checkpoint restore'
+        )
+      if (checkpointRestoreId !== undefined && commits.length >= 1000)
+        throw new DevAuthorityError('limit_exceeded', 'checkpoint session commit capacity reached')
+      const next = {
+        ...record,
+        sessions: upsert(record.sessions, session),
+        ...(checkpointRestoreId !== undefined
+          ? {
+              checkpointRestoreCommits: [
+                ...commits,
+                {
+                  restoreId: checkpointRestoreId,
+                  runtimeSessionId: session.id,
+                  generation: session.generation,
+                  version: session.version,
+                },
+              ],
+            }
+          : {}),
+      }
+      // Sibling authorities use getSession as canonical truth. A refused
+      // durable write must not expose an uncommitted generation in that cache.
+      store.save([next])
+      record = next
+    },
+    getCheckpointRestoreCommit(restoreId) {
+      return record.checkpointRestoreCommits?.find((entry) => entry.restoreId === restoreId)
     },
     getSession(runtimeSessionId) {
       return record.sessions.find((entry) => entry.id === runtimeSessionId)
