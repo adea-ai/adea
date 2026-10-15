@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
@@ -396,7 +396,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       expiresAt: null,
       family: 'artifactReferenceGrants',
       grantId,
-      revoked: false,
+      revokedAt: null,
       revision: 1,
       sourceWorkspaceId: source.id,
       version: 1,
@@ -491,7 +491,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     // Exact source/profile/time provenance: identity carries exactly the
     // pinned profile version, rehearsal/source and snapshot id.
     expect(first.document.identity).toEqual({
-      formatVersion: 1,
+      formatVersion: 2,
       rehearsalId: 'rehearsal-domains',
       snapshotId: 'snapshot-repeat',
       source: 'integration',
@@ -616,14 +616,48 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
       identity: identity('snapshot-mutations'),
       requestedDomains: [...domains],
     })
-    expect(grantRecordOf(revokedAfter.document, grantId)?.revoked).toBe(true)
+    expect(grantRecordOf(revokedAfter.document, grantId)?.revokedAt).toEqual(expect.any(String))
     const revokedComparison = compareMigrationSnapshots({
       after: revokedAfter.document,
       before: before.document,
     })
     expect(revokedComparison.findings).toContainEqual(
       expect.objectContaining({
-        detail: expect.objectContaining({ field: 'revoked' }),
+        detail: expect.objectContaining({ field: 'revokedAt' }),
+        family: 'artifactReferenceGrants',
+        findingClass: 'changed_attribute',
+        stableId: grantId,
+      })
+    )
+
+    // Sub-millisecond precision: PostgreSQL keeps microseconds, and a JavaScript Date would collapse two
+    // instants within one millisecond into the same value. The capture reads the text, so they stay apart.
+    const setRevokedAt = async (instant: string) =>
+      database().execute(
+        sql`update app.artifact_reference_grants set revoked_at = ${instant}::timestamptz where grant_id = ${grantId}`
+      )
+    await setRevokedAt('2026-03-01T00:00:00.000100Z')
+    const microsFirst = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-mutations'),
+      requestedDomains: [...domains],
+    })
+    await setRevokedAt('2026-03-01T00:00:00.000200Z')
+    const microsSecond = await captureMigrationSnapshot(database(), {
+      identity: identity('snapshot-mutations'),
+      requestedDomains: [...domains],
+    })
+    expect(grantRecordOf(microsFirst.document, grantId)?.revokedAt).toBe(
+      '2026-03-01T00:00:00.000100Z'
+    )
+    expect(grantRecordOf(microsSecond.document, grantId)?.revokedAt).toBe(
+      '2026-03-01T00:00:00.000200Z'
+    )
+    expect(
+      compareMigrationSnapshots({ after: microsSecond.document, before: microsFirst.document })
+        .findings
+    ).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ field: 'revokedAt' }),
         family: 'artifactReferenceGrants',
         findingClass: 'changed_attribute',
         stableId: grantId,
@@ -751,7 +785,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
 
   test('the pinned contract still reports active-attempt ownership conflicts and lost read state', async () => {
     const base = {
-      formatVersion: 1 as const,
+      formatVersion: 2 as const,
       rehearsalId: 'rehearsal-domains',
       snapshotId: 'snapshot-contract',
       source: 'integration',

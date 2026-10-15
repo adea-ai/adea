@@ -266,6 +266,22 @@ export const LEGACY_MIGRATION_SNAPSHOT_VERSIONS: Readonly<Record<string, LegacyS
           reason:
             'the artifact_reference_grants table is created by 0046_artifact_reference_grants',
         },
+        groupAdmissions: {
+          table: 'group_admissions',
+          reason: 'the group_admissions table is created by 0049_group_participation_grants',
+        },
+        groupAudienceGrants: {
+          table: 'group_audience_grants',
+          reason: 'the group_audience_grants table is created by 0049_group_participation_grants',
+        },
+        groupEnlistmentGrants: {
+          table: 'group_enlistment_grants',
+          reason: 'the group_enlistment_grants table is created by 0049_group_participation_grants',
+        },
+        groupSharingGrants: {
+          table: 'group_sharing_grants',
+          reason: 'the group_sharing_grants table is created by 0049_group_participation_grants',
+        },
       },
       notInLegacyRegistry: {
         nativeSessions:
