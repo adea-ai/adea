@@ -211,6 +211,9 @@ describe('producer URL policy', () => {
     'https://example.com:8443/',
     'https://example.com/\u0000path',
     'https://example.com/\u0085path',
+    'https://example.com/\u061cpath',
+    'https://example.com/\u200epath',
+    'https://example.com/\u200fpath',
     'https://example.com/\u202epath',
     'https://example.com/\u2066path',
   ])('rejects unsafe address %s', (url) => {

@@ -70,7 +70,7 @@ function sourceUrl(value: unknown, path: string): void {
   // are never source links. DNS names are not permission to fetch a resource.
   if (
     !/^https?:\/\//i.test(raw) ||
-    /[\s\\\u202a-\u202e\u2066-\u2069]/u.test(raw) ||
+    /[\s\\\p{Bidi_Control}]/u.test(raw) ||
     Array.from(raw).some((character) => {
       const code = character.charCodeAt(0)
       return code < 32 || (code >= 127 && code <= 159)
