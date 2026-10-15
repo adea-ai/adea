@@ -2010,6 +2010,27 @@ decode fails closed with `corrupt_state` and is retained unread. Other Dev
 Runtime authorities remain on the existing JSON store until an independently
 reviewed migration slice covers their schema and rollback contract.
 
+`dev.session.list` applies its optional project, worktree, archive-state, and
+runtime-session filters before pagination. It orders matches by the stable
+runtime session id using code-unit ordering, then treats `cursor` as a keyset
+boundary: only ids greater than the cursor are eligible for the next page.
+The default page size is 200; an explicit `limit` is an integer from 1 through 500. `nextCursor` is the last returned id only when another matching session
+exists. The host never returns more than the requested page size. A caller
+that needs a complete projection follows cursors under its own total bound and
+fails closed if the continuation is malformed, repeated, or exceeds that
+bound. The page observation time describes the host read and is not native
+session snapshot data.
+
+The M18 native-session snapshot adapter keeps only the existing snapshot
+contract fields: stable session id, account/workspace/node ownership,
+project/worktree references, archive and lifecycle facts, generation/version,
+and nullable profile, harness-installation, and active-run identifiers. The
+desktop source strips display labels, task/terminal/repository ids, and the
+runtime projection kind. It never returns transcripts, terminal output,
+process or provider payloads, local paths, credentials, or execution command
+payloads. If the authenticated desktop source is absent, offline, or refuses a
+read, the native-session domain remains unknown rather than captured empty.
+
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
 binding, and observation freshness; a stale projection renders a visible

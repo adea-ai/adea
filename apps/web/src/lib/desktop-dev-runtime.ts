@@ -8,16 +8,29 @@ import {
   type DevStreamTransport,
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
+import type {
+  NativeSessionInventoryPage,
+  NativeSessionInventoryScope,
+  NativeSessionInventorySession,
+  NativeSessionInventorySource,
+} from '@adea-ai/db'
 import {
   decodeWorkspaceRunSummary,
+  devOperationDecoders,
   type DevCommand,
   type DevReply,
+  type DevRuntimePage,
+  type RuntimeSession,
   type Scope,
   type WorkspaceRunSummary,
 } from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
 import type { DevScopeSelection } from './desktop-dev-scope'
+
+const DESKTOP_SESSION_LIST_PAGE_LIMIT = 500
+const DESKTOP_SESSION_INVENTORY_MAX_RECORDS = 10_000
+const DESKTOP_SESSION_INVENTORY_TIMEOUT_MS = 15_000
 
 /** The structural slice of the injected bridge this module touches. Declared
  *  locally, never imported: the boundary test pins that this module does not
@@ -296,7 +309,7 @@ export function createDesktopDevRuntimeService(
       }
       const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', scope, {}),
-        executeOperation(execute, 'dev.session.list', scope, {}),
+        executeAllSessionPages(execute, scope),
       ])
       return toProjection(projects, sessions)
     },
@@ -355,7 +368,7 @@ function createBoundService(options: {
     projection: async (requestedScope) => {
       const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', requestedScope, {}),
-        executeOperation(execute, 'dev.session.list', requestedScope, {}),
+        executeAllSessionPages(execute, requestedScope),
       ])
       return toProjection(projects, sessions)
     },
@@ -398,6 +411,232 @@ function sameScope(left: Scope, right: Scope): boolean {
     left.workspaceId === right.workspaceId &&
     left.runtimeNodeId === right.runtimeNodeId
   )
+}
+
+function copyInventoryScope(scope: Scope): NativeSessionInventoryScope | undefined {
+  if (
+    typeof scope.accountId !== 'string' ||
+    scope.accountId.length === 0 ||
+    typeof scope.runtimeNodeId !== 'string' ||
+    scope.runtimeNodeId.length === 0 ||
+    typeof scope.workspaceId !== 'string' ||
+    scope.workspaceId.length === 0
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    accountId: scope.accountId,
+    runtimeNodeId: scope.runtimeNodeId,
+    workspaceId: scope.workspaceId,
+  })
+}
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('desktop session inventory read timed out')),
+          timeoutMs
+        )
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+async function executeSessionListPage(
+  execute: (command: DevCommand) => Promise<DevReply>,
+  scope: Scope,
+  input: Readonly<{ cursor?: string; limit: number }>,
+  timeoutMs = DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+): Promise<DevRuntimePage<RuntimeSession>> {
+  if (
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > DESKTOP_SESSION_LIST_PAGE_LIMIT ||
+    (input.cursor !== undefined &&
+      (typeof input.cursor !== 'string' || input.cursor.length === 0 || input.cursor.length > 512))
+  ) {
+    throw new Error('desktop session inventory request is outside the supported bounds')
+  }
+  const command = buildDevCommand({
+    operation: 'dev.session.list',
+    scope,
+    body: {
+      ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+      limit: input.limit,
+    },
+  })
+  let rawReply: DevReply
+  try {
+    rawReply = await withDeadline(execute(command), timeoutMs)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'desktop session inventory read timed out') {
+      throw error
+    }
+    throw new Error('desktop session inventory read is unavailable', {
+      // The public message stays generic; capture serializes neither this
+      // local cause nor host transport details into snapshot product data.
+      cause: error,
+    })
+  }
+  let reply: DevReply
+  try {
+    reply = devOperationDecoders['dev.session.list'].reply(rawReply)
+  } catch {
+    throw new Error('desktop session inventory returned a malformed runtime reply')
+  }
+  if (!reply.ok) throw new Error('desktop session inventory read is unavailable')
+  const value = reply.value as unknown as DevRuntimePage<RuntimeSession>
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !Array.isArray(value.items) ||
+    value.items.length > input.limit ||
+    typeof value.observedAt !== 'string' ||
+    (value.nextCursor !== undefined &&
+      (typeof value.nextCursor !== 'string' ||
+        value.nextCursor.length === 0 ||
+        value.nextCursor.length > 512))
+  ) {
+    throw new Error('desktop session inventory returned a malformed or oversized page')
+  }
+  if (value.items.some((session) => !sameScope(session.scope, scope))) {
+    throw new Error('desktop session inventory returned a record outside the bound scope')
+  }
+  if (value.items.length === 0 && value.nextCursor !== undefined) {
+    throw new Error('desktop session inventory returned an empty page with a continuation')
+  }
+  if (
+    value.nextCursor !== undefined &&
+    value.items[value.items.length - 1]?.id !== value.nextCursor
+  ) {
+    throw new Error('desktop session inventory cursor does not match the last returned identity')
+  }
+  return value
+}
+
+async function executeAllSessionPages(
+  execute: (command: DevCommand) => Promise<DevReply>,
+  scope: Scope
+): Promise<{ items: readonly Record<string, unknown>[] }> {
+  const items: RuntimeSession[] = []
+  const seenIds = new Set<string>()
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+  for (;;) {
+    const page = await executeSessionListPage(execute, scope, {
+      ...(cursor !== undefined ? { cursor } : {}),
+      limit: DESKTOP_SESSION_LIST_PAGE_LIMIT,
+    })
+    for (const session of page.items) {
+      if (seenIds.has(session.id))
+        throw new Error('desktop session inventory returned duplicate ids')
+      seenIds.add(session.id)
+      items.push(session)
+      if (items.length > DESKTOP_SESSION_INVENTORY_MAX_RECORDS)
+        throw new Error('desktop session projection exceeded its supported bound')
+    }
+    if (page.nextCursor === undefined) return { items }
+    if (page.items.length === 0)
+      throw new Error('desktop session inventory returned an empty continuation page')
+    if (seenCursors.has(page.nextCursor))
+      throw new Error('desktop session inventory repeated a continuation cursor')
+    seenCursors.add(page.nextCursor)
+    cursor = page.nextCursor
+  }
+}
+
+/**
+ * Compose the snapshot inventory from the service's authenticated runtime
+ * binding. The scope is read from the service itself and rechecked for every
+ * page; callers cannot declare an arbitrary scope. Only allowlisted identity,
+ * owner and lifecycle fields cross into the database snapshot adapter.
+ */
+export function createDesktopNativeSessionInventorySource(
+  service: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'state'>,
+  options: Readonly<{ timeoutMs?: number }> = {}
+): NativeSessionInventorySource | undefined {
+  const timeoutMs = options.timeoutMs ?? DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+  ) {
+    return undefined
+  }
+  let runtimeScope: Scope | undefined
+  try {
+    if (service.state().status !== 'ready') return undefined
+    runtimeScope = service.preferenceScope?.()
+  } catch {
+    return undefined
+  }
+  const authorizedScope = runtimeScope ? copyInventoryScope(runtimeScope) : undefined
+  if (!runtimeScope || !authorizedScope) return undefined
+  const boundScope = Object.freeze({ ...runtimeScope })
+
+  return Object.freeze({
+    authorizedScopes: Object.freeze([authorizedScope]),
+    listRuntimeSessions: async (
+      input: Readonly<{ cursor?: string; limit: number }>
+    ): Promise<NativeSessionInventoryPage> => {
+      let currentScope: Scope | undefined
+      try {
+        if (service.state().status !== 'ready')
+          throw new Error('desktop session inventory runtime is unavailable')
+        currentScope = service.preferenceScope?.()
+      } catch {
+        throw new Error('desktop session inventory runtime is unavailable')
+      }
+      if (!currentScope || !sameScope(currentScope, boundScope))
+        throw new Error('desktop session inventory runtime scope changed')
+
+      const page = await executeSessionListPage(service.execute, boundScope, input, timeoutMs)
+      let verifiedScope: Scope | undefined
+      try {
+        if (service.state().status === 'ready') verifiedScope = service.preferenceScope?.()
+      } catch {
+        verifiedScope = undefined
+      }
+      if (!verifiedScope || !sameScope(verifiedScope, boundScope))
+        throw new Error('desktop session inventory runtime scope changed during the read')
+      const seenIds = new Set<string>()
+      const safeItems: NativeSessionInventorySession[] = page.items.map((session) => {
+        if (
+          typeof session.id !== 'string' ||
+          session.id.length === 0 ||
+          !sameScope(session.scope, boundScope) ||
+          seenIds.has(session.id)
+        ) {
+          throw new Error('desktop session inventory page violates its bound identity')
+        }
+        seenIds.add(session.id)
+        return Object.freeze({
+          activeHarnessRunId: session.activeHarnessRunId,
+          agentProfileId: session.agentProfileId,
+          agentProfileVersion: session.agentProfileVersion,
+          archived: session.archived,
+          generation: session.generation,
+          harnessInstallationId: session.harnessInstallationId,
+          id: session.id,
+          lifecycle: session.lifecycle,
+          projectId: session.projectId,
+          scope: authorizedScope,
+          version: session.version,
+          worktreeId: session.worktreeId,
+        })
+      })
+      return Object.freeze({
+        items: Object.freeze(safeItems),
+        ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+      })
+    },
+  })
 }
 
 async function executeOperation(

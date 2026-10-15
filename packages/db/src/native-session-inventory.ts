@@ -1,4 +1,5 @@
 import type { MigrationSnapshotSection, NativeSessionSnapshotRecord } from '@adea-ai/types'
+import { MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION } from '@adea-ai/types'
 import type { RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 /**
@@ -17,10 +18,28 @@ import type { RuntimeSession } from '@adea-ai/types/dev-runtime'
  */
 
 /** One page of the canonical runtime session read. */
+export type NativeSessionInventorySession = Pick<
+  RuntimeSession,
+  | 'activeHarnessRunId'
+  | 'agentProfileId'
+  | 'agentProfileVersion'
+  | 'archived'
+  | 'generation'
+  | 'harnessInstallationId'
+  | 'id'
+  | 'lifecycle'
+  | 'projectId'
+  | 'scope'
+  | 'version'
+  | 'worktreeId'
+>
+
 export type NativeSessionInventoryPage = Readonly<{
-  items: readonly RuntimeSession[]
+  items: readonly NativeSessionInventorySession[]
   nextCursor?: string
 }>
+
+export const NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS = 15_000
 
 /**
  * The canonical registry bound for `dev.session.list`:
@@ -108,7 +127,7 @@ function isAuthorizedScope(
  * fabricated row.
  */
 function toRecord(
-  session: RuntimeSession,
+  session: NativeSessionInventorySession,
   authorizedScopes: readonly NativeSessionInventoryScope[]
 ): NativeSessionSnapshotRecord {
   const candidate = session as unknown as Record<string, unknown>
@@ -174,16 +193,35 @@ function toRecord(
 
 async function readPage(
   source: NativeSessionInventorySource,
-  input: Readonly<{ cursor?: string; limit: number }>
+  input: Readonly<{ cursor?: string; limit: number }>,
+  timeoutMs: number
 ): Promise<NativeSessionInventoryPage> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    return await source.listRuntimeSessions(input)
+    const pendingRead = source.listRuntimeSessions(input)
+    return await Promise.race([
+      pendingRead,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('native session inventory page timed out')),
+          timeoutMs
+        )
+      }),
+    ])
   } catch (error) {
     if (error instanceof NativeSessionInventoryError) throw error
+    if (error instanceof Error && error.message === 'native session inventory page timed out') {
+      throw new NativeSessionInventoryError(
+        'unavailable',
+        'the runtime session inventory read timed out'
+      )
+    }
     throw new NativeSessionInventoryError(
       'unavailable',
       'the runtime session inventory read failed'
     )
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -196,13 +234,28 @@ async function readPage(
  */
 export async function captureNativeSessionSection(
   source: NativeSessionInventorySource,
-  bound: number
+  bound: number,
+  options: Readonly<{ pageTimeoutMs?: number }> = {}
 ): Promise<MigrationSnapshotSection> {
-  const authorizedScopes = source.authorizedScopes
+  const timeoutMs = options.pageTimeoutMs ?? NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS
   if (
-    !Array.isArray(authorizedScopes) ||
-    authorizedScopes.length === 0 ||
-    !authorizedScopes.every(
+    !Number.isSafeInteger(bound) ||
+    bound < 1 ||
+    bound > MIGRATION_SNAPSHOT_MAX_RECORDS_PER_SECTION ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS
+  ) {
+    throw new NativeSessionInventoryError(
+      'invalid',
+      'runtime session inventory bounds are outside the supported range'
+    )
+  }
+  const declaredScopes = source.authorizedScopes
+  if (
+    !Array.isArray(declaredScopes) ||
+    declaredScopes.length === 0 ||
+    !declaredScopes.every(
       (scope) =>
         isNonEmptyString(scope?.accountId) &&
         isNonEmptyString(scope?.workspaceId) &&
@@ -214,7 +267,20 @@ export async function captureNativeSessionSection(
       'runtime session inventory source declared no authorized scope'
     )
   }
+  // Freeze the authority snapshot before the first await. A source may be
+  // long-lived or mutable; changing its declared scopes during capture must
+  // not widen which records this snapshot accepts.
+  const authorizedScopes = Object.freeze(
+    declaredScopes.map((scope) =>
+      Object.freeze({
+        accountId: scope.accountId,
+        runtimeNodeId: scope.runtimeNodeId,
+        workspaceId: scope.workspaceId,
+      })
+    )
+  )
   const records: NativeSessionSnapshotRecord[] = []
+  const seenSessionIds = new Set<string>()
   const seenCursors = new Set<string>()
   let cursor: string | undefined
   let truncated = false
@@ -223,7 +289,23 @@ export async function captureNativeSessionSection(
     // One probe row past the remaining budget observes exact truncation; the
     // canonical registry caps every request at 500, so large bounds page.
     const requestLimit = Math.min(remaining + 1, NATIVE_SESSION_INVENTORY_PAGE_LIMIT)
-    const page = await readPage(source, { cursor, limit: requestLimit })
+    const rawPage: unknown = await readPage(source, { cursor, limit: requestLimit }, timeoutMs)
+    if (
+      typeof rawPage !== 'object' ||
+      rawPage === null ||
+      !Array.isArray((rawPage as { items?: unknown }).items) ||
+      (rawPage as { items: unknown[] }).items.length > requestLimit ||
+      ((rawPage as { nextCursor?: unknown }).nextCursor !== undefined &&
+        (typeof (rawPage as { nextCursor?: unknown }).nextCursor !== 'string' ||
+          (rawPage as { nextCursor: string }).nextCursor.length === 0 ||
+          (rawPage as { nextCursor: string }).nextCursor.length > 512))
+    ) {
+      throw new NativeSessionInventoryError(
+        'invalid',
+        'runtime session inventory returned a malformed or oversized page'
+      )
+    }
+    const page = rawPage as NativeSessionInventoryPage
     // An empty page that claims a continuation can never terminate and would
     // stream forever; a cursor that repeats is a loop. Both fail closed.
     if (page.items.length === 0 && page.nextCursor !== undefined) {
@@ -232,14 +314,19 @@ export async function captureNativeSessionSection(
         'runtime session inventory returned an empty page with a continuation cursor'
       )
     }
-    let overflow = false
-    for (const session of page.items) {
-      if (records.length >= bound) {
-        overflow = true
-        break
+    const pageRecords = page.items.map((session) => toRecord(session, authorizedScopes))
+    for (const record of pageRecords) {
+      if (seenSessionIds.has(record.sessionRef)) {
+        throw new NativeSessionInventoryError(
+          'invalid',
+          'runtime session inventory returned a duplicate stable identity'
+        )
       }
-      records.push(toRecord(session, authorizedScopes))
+      seenSessionIds.add(record.sessionRef)
     }
+    const remainingBeforePage = bound - records.length
+    const overflow = pageRecords.length > remainingBeforePage
+    records.push(...pageRecords.slice(0, remainingBeforePage))
     // Truncation is exact: the probe row overflowed, or the bound is met while
     // the canonical read still declares a continuation.
     if (overflow || (records.length >= bound && page.nextCursor !== undefined)) {

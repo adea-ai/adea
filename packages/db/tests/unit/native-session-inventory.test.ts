@@ -1,10 +1,14 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 
+import type { MigrationSnapshotDocument } from '@adea-ai/types'
+import { MIGRATION_SNAPSHOT_FORMAT_VERSION } from '@adea-ai/types'
 import type { RuntimeSession } from '@adea-ai/types/dev-runtime'
 
+import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
 import {
   captureNativeSessionSection,
   NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
+  NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS,
   NativeSessionInventoryError,
   type NativeSessionInventoryPage,
   type NativeSessionInventoryScope,
@@ -60,7 +64,7 @@ function source(
 
 /**
  * A source that enforces the canonical registry validator (`limit` an integer
- * in `1..500`) and pages with numeric cursors, so the adapter is proven
+ * in `1..500`) and pages with opaque cursors, so the adapter is proven
  * against the real contract rather than an accepting stub.
  */
 function registryValidatingSource(total: number, scope: NativeSessionInventoryScope = SCOPE) {
@@ -134,13 +138,13 @@ describe('native session inventory adapter', () => {
 
   test('follows cursors and sorts records by stable id', async () => {
     const pages = [
-      { items: [session({ id: 'sess-c' })], nextCursor: 'c1' },
+      { items: [session({ id: 'sess-c' })], nextCursor: 'opaque-cursor-1' },
       { items: [session({ id: 'sess-a' })] },
     ]
     let calls = 0
     const section = await captureNativeSessionSection(
       source(async ({ cursor }) => {
-        expect(cursor).toBe(calls === 0 ? undefined : 'c1')
+        expect(cursor).toBe(calls === 0 ? undefined : 'opaque-cursor-1')
         calls += 1
         return pages[calls - 1]!
       }),
@@ -158,6 +162,116 @@ describe('native session inventory adapter', () => {
     )
     expect(section.truncated).toBe(true)
     expect(section.records.map((record) => record.sessionRef)).toEqual(['sess-a', 'sess-b'])
+  })
+
+  test('validates duplicate identities in the overflow probe before reporting truncation', async () => {
+    const failure = captureNativeSessionSection(
+      source(async () => ({
+        items: [session({ id: 'sess-a' }), session({ id: 'sess-b' }), session({ id: 'sess-b' })],
+      })),
+      2
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('validates scope ownership in the overflow probe before reporting truncation', async () => {
+    const failure = captureNativeSessionSection(
+      source(async () => ({
+        items: [
+          session({ id: 'sess-a' }),
+          session({ id: 'sess-b' }),
+          session({
+            id: 'sess-foreign',
+            scope: { accountId: 'acct-9', runtimeNodeId: 'node-9', workspaceId: 'wsp-9' },
+          }),
+        ],
+      })),
+      2
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('rejects malformed page shapes and pages larger than the requested limit', async () => {
+    const malformed = captureNativeSessionSection(
+      source(async () => ({ items: 'not-an-array' }) as unknown as NativeSessionInventoryPage),
+      5
+    )
+    await expect(malformed).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await malformed.catch((error: NativeSessionInventoryError) =>
+      expect(error.kind).toBe('invalid')
+    )
+
+    const oversized = captureNativeSessionSection(
+      source(async () => ({
+        items: [session({ id: 'sess-a' }), session({ id: 'sess-b' }), session({ id: 'sess-c' })],
+      })),
+      1
+    )
+    await expect(oversized).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await oversized.catch((error: NativeSessionInventoryError) =>
+      expect(error.kind).toBe('invalid')
+    )
+  })
+
+  test('refuses invalid inventory bounds before calling the source', async () => {
+    let calls = 0
+    const inventory = source(async () => {
+      calls += 1
+      return { items: [] }
+    })
+    await expect(captureNativeSessionSection(inventory, 0)).rejects.toBeInstanceOf(
+      NativeSessionInventoryError
+    )
+    await expect(captureNativeSessionSection(inventory, 10_001)).rejects.toBeInstanceOf(
+      NativeSessionInventoryError
+    )
+    expect(calls).toBe(0)
+  })
+
+  test('times out a stalled page, clears its deadline on completion, and consumes a late rejection', async () => {
+    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout')
+    try {
+      const completed = await captureNativeSessionSection(
+        source(async () => ({ items: [] })),
+        5,
+        {
+          pageTimeoutMs: 100,
+        }
+      )
+      expect(completed.records).toEqual([])
+      expect(clearTimeoutSpy).toHaveBeenCalled()
+    } finally {
+      clearTimeoutSpy.mockRestore()
+    }
+
+    let rejectRead: ((reason: Error) => void) | undefined
+    const timeout = captureNativeSessionSection(
+      source(
+        () =>
+          new Promise<NativeSessionInventoryPage>((_, reject) => {
+            rejectRead = reject
+          })
+      ),
+      5,
+      { pageTimeoutMs: 5 }
+    )
+    await expect(timeout).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await timeout.catch((error: NativeSessionInventoryError) =>
+      expect(error.kind).toBe('unavailable')
+    )
+    rejectRead?.(new Error('late transport rejection'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await expect(
+      captureNativeSessionSection(
+        source(async () => ({ items: [] })),
+        5,
+        {
+          pageTimeoutMs: NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS + 1,
+        }
+      )
+    ).rejects.toBeInstanceOf(NativeSessionInventoryError)
   })
 
   test('an authoritative empty page is a captured zero, not an unknown', async () => {
@@ -194,8 +308,8 @@ describe('native session inventory adapter', () => {
 
   test('composes a multi-page inventory to exhaustion', async () => {
     const pages = [
-      { items: [session({ id: 'sess-c' }), session({ id: 'sess-f' })], nextCursor: 'c1' },
-      { items: [session({ id: 'sess-a' }), session({ id: 'sess-e' })], nextCursor: 'c2' },
+      { items: [session({ id: 'sess-c' }), session({ id: 'sess-f' })], nextCursor: 'opaque-1' },
+      { items: [session({ id: 'sess-a' }), session({ id: 'sess-e' })], nextCursor: 'opaque-2' },
       { items: [session({ id: 'sess-b' }), session({ id: 'sess-d' })] },
     ]
     const cursors: Array<string | undefined> = []
@@ -208,7 +322,7 @@ describe('native session inventory adapter', () => {
       }),
       10
     )
-    expect(cursors).toEqual([undefined, 'c1', 'c2'])
+    expect(cursors).toEqual([undefined, 'opaque-1', 'opaque-2'])
     expect(section.records.map((record) => record.sessionRef)).toEqual([
       'sess-a',
       'sess-b',
@@ -220,9 +334,57 @@ describe('native session inventory adapter', () => {
     expect(section.truncated).toBe(false)
   })
 
+  test('rejects duplicate stable identities across pages', async () => {
+    let calls = 0
+    const failure = captureNativeSessionSection(
+      source(async () => {
+        calls += 1
+        return calls === 1
+          ? { items: [session({ id: 'sess-a' })], nextCursor: 'sess-a' }
+          : { items: [session({ id: 'sess-a' })] }
+      }),
+      5
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+  })
+
+  test('a stable native identity compares unchanged after a runtime restart', async () => {
+    const beforeSection = await captureNativeSessionSection(
+      source(async () => ({ items: [session({ id: 'session-stable' })] })),
+      5
+    )
+    const afterSection = await captureNativeSessionSection(
+      source(async () => ({ items: [session({ id: 'session-stable' })] })),
+      5
+    )
+    const baseIdentity = {
+      formatVersion: MIGRATION_SNAPSHOT_FORMAT_VERSION,
+      rehearsalId: 'native-session-restart',
+      source: 'unit',
+    }
+    const before: MigrationSnapshotDocument = {
+      identity: { ...baseIdentity, snapshotId: 'before-restart' },
+      sections: { nativeSessions: beforeSection },
+    }
+    const after: MigrationSnapshotDocument = {
+      identity: { ...baseIdentity, snapshotId: 'after-restart' },
+      sections: { nativeSessions: afterSection },
+    }
+    const comparison = compareMigrationSnapshots({ before, after })
+    expect(comparison.findings.filter((finding) => finding.family === 'nativeSessions')).toEqual([])
+    expect(comparison.inventory.find((item) => item.family === 'nativeSessions')).toMatchObject({
+      before: 1,
+      after: 1,
+    })
+    // Every other family is intentionally absent, so this small fixture cannot
+    // claim that a full migration rehearsal is complete.
+    expect(comparison.verdict).toBe('inconclusive')
+  })
+
   test('a repeated cursor is refused instead of looping forever', async () => {
     const failure = captureNativeSessionSection(
-      source(async () => ({ items: [session({ id: 'sess-a' })], nextCursor: 'loop' })),
+      source(async () => ({ items: [session({ id: 'sess-a' })], nextCursor: 'sess-a' })),
       10
     )
     await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
@@ -284,6 +446,30 @@ describe('native session inventory adapter', () => {
       10
     )
     expect(section.records.map((record) => record.sessionRef)).toEqual(['sess-a', 'sess-b'])
+  })
+
+  test('freezes declared scope authority before the first asynchronous read', async () => {
+    const scopes = [SCOPE]
+    const failure = captureNativeSessionSection(
+      source(async () => {
+        scopes.push(SECOND_SCOPE)
+        return {
+          items: [
+            session({
+              id: 'sess-late-scope',
+              scope: {
+                accountId: SECOND_SCOPE.accountId,
+                runtimeNodeId: SECOND_SCOPE.runtimeNodeId,
+                workspaceId: SECOND_SCOPE.workspaceId,
+              },
+            }),
+          ],
+        }
+      }, scopes),
+      10
+    )
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
   })
 
   test('a bound above the canonical page limit pages within 1..500 and truncates exactly', async () => {
