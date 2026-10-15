@@ -376,7 +376,7 @@ export function createChatAttachmentStore(input: {
     binding: AttachmentBinding,
     attachment: ChatAttachment,
     secret: Buffer
-  ): string {
+  ): void {
     const kind = attachment.state === 'available' ? 'attachment.added' : 'attachment.removed'
     const id = `host:attachment:${attachment.attachmentId}:${attachment.state}`
     const reference: ChatAttachmentReference = {
@@ -407,7 +407,6 @@ export function createChatAttachmentStore(input: {
       event.occurred_at,
       eventMac(event, secret)
     )
-    return id
   }
   function authenticatedOutbox(db: Database, secret: Buffer): Pending[] {
     const rows = db.query<Pending, []>('SELECT * FROM attachment_outbox ORDER BY rowid').all()
@@ -417,7 +416,7 @@ export function createChatAttachmentStore(input: {
         throw new AttachmentError('corrupt_state')
     return rows
   }
-  function flush(db: Database, binding: AttachmentBinding, secret: Buffer, fresh?: string): void {
+  function flush(db: Database, binding: AttachmentBinding, secret: Buffer): void {
     const pending = authenticatedOutbox(db, secret).filter(
       (event) => event.binding === bind(binding)
     )
@@ -435,14 +434,9 @@ export function createChatAttachmentStore(input: {
       const existing = retained.some(
         (item) => item.source === 'host' && item.sourceEventId === event.id
       )
-      // A crash plus an evicted dedupe window is ambiguous. Never append an old
-      // fact under a new cursor merely because its source ID is no longer retained.
-      if (
-        !existing &&
-        (event.delivered === 2 ||
-          (event.id !== fresh && retained.length > 0 && BigInt(retained[0]!.seq) > 1n))
-      )
-        throw new AttachmentError('recovery_required')
+      // Authenticated prepared rows have never attempted publication, regardless
+      // of the retained floor. Only an attempted row needs retained dedupe proof.
+      if (!existing && event.delivered === 2) throw new AttachmentError('recovery_required')
       // Persist an authenticated attempt BEFORE crossing the separate event-log
       // commit boundary. A missing retained fact after an attempt is ambiguous,
       // including when retention has removed every event in this generation.
@@ -513,7 +507,6 @@ export function createChatAttachmentStore(input: {
         JSON.stringify(['content', request.name, request.mediaType, digest]),
         secret
       )
-      let fresh: string | undefined
       const attachment = transaction(db, binding, () => {
         input.assertBinding(binding)
         const existing = db
@@ -564,12 +557,12 @@ export function createChatAttachmentStore(input: {
           next.byteLength,
           sealed
         )
-        fresh = enqueue(db, binding, next, secret)
+        enqueue(db, binding, next, secret)
         return next
       })
       input.onStage?.('after_commit')
       input.assertBinding(binding)
-      flush(db, binding, secret, fresh)
+      flush(db, binding, secret)
       return attachment
     })
   }
@@ -593,7 +586,6 @@ export function createChatAttachmentStore(input: {
     input.assertBinding(binding)
     return database(false, (db, secret) => {
       flush(db, binding, secret)
-      let fresh: string | undefined
       const attachment = transaction(db, binding, () => {
         input.assertBinding(binding)
         const row = lookup(db, binding, attachmentId)
@@ -611,12 +603,12 @@ export function createChatAttachmentStore(input: {
           next.attachmentId,
           bind(binding)
         )
-        fresh = enqueue(db, binding, next, secret)
+        enqueue(db, binding, next, secret)
         return next
       })
       input.onStage?.('after_commit')
       input.assertBinding(binding)
-      flush(db, binding, secret, fresh)
+      flush(db, binding, secret)
       return attachment
     })
   }

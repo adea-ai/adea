@@ -4110,7 +4110,9 @@ before publication publishes the original event; after publication but before
 the delivered marker, canonical dedupe suppresses a second event. The retry key
 and content fingerprint are authenticated inside each sealed record, including
 tombstones. The outbox MAC covers its prepared/attempted/delivered state; even
-rows marked delivered must authenticate before being skipped. Before crossing
+rows marked delivered must authenticate before being skipped. An authenticated
+prepared row proves no publication was attempted and can publish above any
+retained history floor on retry. Before crossing
 the event-log commit boundary, the host durably authenticates the publication
 attempt. If that attempt's source event is absent from retained history, including
 an entirely evicted generation, recovery refuses `recovery_required` rather than

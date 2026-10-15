@@ -417,22 +417,32 @@ describe('attachment transaction and recovery hardening', () => {
       code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
     }))
 
-  test('ambiguous outbox recovery after canonical retention requires recovery instead of duplicating an old event', () =>
-    fixture((ctx) => {
-      ctx.interrupt('after_commit')
-      code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
-      ctx.interrupt()
-      const bounded = createSessionEventLog({ dataDir: ctx.dataDir, scope, maxPerSession: 2 })
-      for (let index = 0; index < 3; index += 1)
-        bounded.append({
-          runtimeSessionId: binding.runtimeSessionId,
-          generation: 1,
-          kind: 'run.created',
-          sourceEventId: `later-${index}`,
-        })
-      code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'recovery_required')
-      expect(bounded.events().map((event) => event.kind)).toEqual(['run.created', 'run.created'])
-    }))
+  for (const operation of ['upload', 'remove'] as const)
+    test(`never-attempted ${operation} retries publish above an older retained floor`, () =>
+      fixture((ctx) => {
+        const attachment =
+          operation === 'remove' ? ctx.store.upload(binding, upload(), 'initial') : undefined
+        const bounded = createSessionEventLog({ dataDir: ctx.dataDir, scope, maxPerSession: 2 })
+        for (let index = 0; index < 3; index += 1)
+          bounded.append({ ...binding, kind: 'run.created', sourceEventId: `older-${index}` })
+        const before = bounded.events()
+        expect(BigInt(before[0]!.seq)).toBeGreaterThan(1n)
+        const mutate = (store: ReturnType<typeof ctx.make>) =>
+          attachment
+            ? store.remove(binding, attachment.attachmentId)
+            : store.upload(binding, upload(), 'upload-1')
+        ctx.interrupt('after_commit')
+        code(() => mutate(ctx.store), 'unavailable')
+        ctx.interrupt()
+        const recovered = mutate(ctx.make())
+        const published = ctx.events.events().at(-1)!
+        expect(published.kind).toBe(
+          operation === 'upload' ? 'attachment.added' : 'attachment.removed'
+        )
+        expect(BigInt(published.seq)).toBe(BigInt(before.at(-1)!.seq) + 1n)
+        expect(mutate(ctx.make())).toEqual(recovered)
+        expect(ctx.events.events().at(-1)).toEqual(published)
+      }))
 
   test('record quota counts tombstones, keeps retries working and refuses new identities', () =>
     fixture((ctx) => {
@@ -735,4 +745,19 @@ test('authenticated delivery remains idempotent after its complete generation le
     expect(ctx.store.open(binding, attachment.attachmentId).contentBase64).toBe(
       upload().contentBase64
     )
+  }))
+
+test('an attempted fact missing from a partially retained generation still requires recovery', () =>
+  fixture((ctx) => {
+    ctx.interrupt('after_publish')
+    code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+    ctx.interrupt()
+    const bounded = createSessionEventLog({ dataDir: ctx.dataDir, scope, maxPerSession: 2 })
+    for (let index = 0; index < 3; index += 1)
+      bounded.append({ ...binding, kind: 'run.created', sourceEventId: `later-${index}` })
+    const retained = bounded.events()
+    expect(retained).toHaveLength(2)
+    expect(BigInt(retained[0]!.seq)).toBeGreaterThan(1n)
+    code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'recovery_required')
+    expect(bounded.events()).toEqual(retained)
   }))

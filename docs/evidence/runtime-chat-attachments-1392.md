@@ -173,3 +173,28 @@ reused. No consumer code changed; the earlier 890-test consumer result above is
 historical, not rerun for this host-only repair. Packaged/live/browser/remote/soak
 qualification remains unrun. PR #1401 stays on its original exact head; PR #1407
 remains draft with auto-merge disabled. No production action was taken.
+
+## Prepared outbox retry correction
+
+At `b279d1be410166633916d39fe5ce5789e6655037`, authenticated format-2
+prepared rows (`delivered=0`) still encountered the older retained-floor
+heuristic on retry. Upload and remove both reproduced `recovery_required` after
+an `after_commit` interruption when earlier transcript events already had a
+retained floor above 1 (39 focused tests passed; these two failed).
+
+Prepared is authenticated proof that publication has never been attempted. The
+store now permits these rows to publish at the next canonical sequence regardless
+of the retained floor. The process-local `fresh` exception is no longer needed.
+Attempted rows still require their original source identity in retained history;
+partial or complete eviction remains `recovery_required`. Delivered rows still
+authenticate before skipping. No format, MAC, encryption, access or wire schema
+was changed in this correction.
+
+Both upload and removal retries now preserve the recovered descriptor and event
+identity across reopen, above the previous canonical sequence. The affected test
+command documented above passes **504 tests across 41 files**, including partial/
+complete attempted-history eviction and all delivery/binding tamper regressions.
+`TURBO_CONCURRENCY=1 bun run typecheck`, `lint` and `build` pass 31/17/15 tasks
+respectively (30/16/15 cached); the root lint also passes. A fresh Bun host bundle
+passes. One heavy command ran at a time; existing dependencies and hooks were
+retained. Earlier qualification limits remain unchanged.
