@@ -205,3 +205,24 @@ describe('assistant append idempotency edges', () => {
       expect(reopened.latestSequence('session-1', 1)).toBe('18446744073709551615')
     }))
 })
+
+test('a weaker observation cannot supersede or close stronger text, while an authoritative final can settle bounded deltas', () => {
+  for (const next of [
+    input({
+      sourceEventId: 'weaker-delta',
+      payload: { messageId: 'message-1', deltaIndex: 1, text: 'weaker' },
+    }),
+    final,
+    result,
+  ]) {
+    withLog((log) => {
+      log.append(input())
+      expect(() => log.append({ ...next, confidence: 'bounded_projection' })).toThrow()
+      expect(log.events()).toHaveLength(1)
+    })
+  }
+  withLog((log) => {
+    log.append(input({ confidence: 'bounded_projection' }))
+    expect(log.append(final)).toMatchObject({ confidence: 'authoritative', payload: final.payload })
+  })
+})

@@ -2818,7 +2818,9 @@ The message key is the tuple `(runtimeSessionId, generation, harnessRunId,
 source, payload.messageId)` within the authenticated account/workspace/node
 scope. Equal IDs in another run, generation, session, or source are different
 messages. Neither a lower-confidence source nor a payload field can overwrite
-another source's text. Only `turn.assistant_message` with `supersedes: 'deltas'`
+another source's text. Within one message key, new events may retain or raise
+confidence but cannot lower it; a weaker observation cannot append to, supersede,
+or close stronger text (`invalid_state`). Only `turn.assistant_message` with `supersedes: 'deltas'`
 replaces the deltas for that exact key. Its complete `text` remains usable when
 all deltas have fallen out of retention. A `turn.result` references the same
 key and closes it, but never replaces text, implies success, or proves that a

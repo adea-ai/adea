@@ -4,6 +4,8 @@ import {
   type RuntimeEvent,
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 
+const confidenceRank = { untrusted_hint: 0, bounded_projection: 1, authoritative: 2 } as const
+
 /** Guard new appends, not replay reads: a replay may legitimately start at a final. */
 export function assertAssistantEventOrder(
   records: readonly RuntimeEvent[],
@@ -23,6 +25,17 @@ export function assertAssistantEventOrder(
     // Legacy opaque records cannot establish identity or supersession.
     return (event.payload as { messageId?: unknown } | null)?.messageId === payload.messageId
   })
+  if (
+    sameMessage.some(
+      (event) => confidenceRank[event.confidence] > confidenceRank[candidate.confidence]
+    )
+  ) {
+    throw {
+      code: 'invalid_state',
+      retryable: false,
+      message: 'a weaker assistant observation cannot replace or close stronger text',
+    }
+  }
   if (sameMessage.some((event) => event.kind === 'turn.result')) {
     throw {
       code: 'invalid_state',

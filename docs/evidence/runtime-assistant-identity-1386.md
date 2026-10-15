@@ -20,7 +20,8 @@ defines the exact namespace and replay rules.
 - Canonical log integration: `harness/events.ts` validates before saving or
   publishing, rejects message gaps and invalid settlement, compares canonical
   payloads and run/provenance metadata for retries, encodes dedupe tuples
-  without delimiter collisions, and allocates sequences only after dedupe.
+  without delimiter collisions, fences confidence downgrades, and allocates
+  sequences only after dedupe.
 - Existing stream integration test gains an assistant-specific final-only
   resync case. The source audit is updated to distinguish assistant identity
   validation from the still-opaque tool/approval/question contracts.
@@ -40,14 +41,17 @@ also failed before their fixes: delimiter-bearing opaque IDs collided, and an
 exact retry at uint64 exhaustion failed before dedupe. A final round-trip
 edge case showed that an unpaired UTF-16 surrogate could change identity during
 CBOR encoding; those malformed IDs are now rejected, while valid Unicode IDs
-round-trip unchanged.
+round-trip unchanged. The confidence regression also reproduced a weaker
+observation extending stronger text; the append guard now refuses downgraded
+deltas, finals and results, while allowing an authoritative final to settle
+bounded deltas.
 
 Passing checks on the implementation:
 
 | Command                                                                                                                                                                                   | Result                                                                          |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `bun install --frozen-lockfile`                                                                                                                                                           | Passed; pinned Bun 1.4.0, lockfile unchanged                                    |
-| `bun test packages/types/tests apps/desktop/tests/dev-runtime-harness*.test.ts apps/desktop/tests/harness-events-channel.test.ts apps/desktop/tests/dev-runtime-assistant-events.test.ts` | 336 passed, 0 failed across 27 files                                            |
+| `bun test packages/types/tests apps/desktop/tests/dev-runtime-harness*.test.ts apps/desktop/tests/harness-events-channel.test.ts apps/desktop/tests/dev-runtime-assistant-events.test.ts` | 337 passed, 0 failed across 27 files                                            |
 | `bun test --conditions=browser packages/dev-view/tests`                                                                                                                                   | 890 passed, 0 failed across 83 files; no consumer source edits                  |
 | `bun test scripts/docs-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts scripts/desktop-auth-boundary.test.ts`                               | 35 passed, 0 failed across 4 files                                              |
 | `TURBO_CONCURRENCY=1 bun run typecheck`                                                                                                                                                   | 31 tasks passed, including dependency builds and web Cloudflare type generation |
