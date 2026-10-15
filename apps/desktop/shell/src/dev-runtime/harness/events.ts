@@ -24,6 +24,7 @@ import type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
@@ -38,6 +39,7 @@ import {
 import { createDurableJsonStore } from '../host-store'
 import { assertAssistantEventOrder } from './assistant-events'
 import { admitRuntimeActivityEvent } from './activity-events'
+import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
 import {
   snapshotCallEvent,
   validateCallEventAdmission,
@@ -164,6 +166,8 @@ export type SessionEventLog = Readonly<{
 export function createSessionEventLog(input: {
   dataDir: string
   scope: Scope
+  /** The existing session authority. Required for versioned interactions. */
+  resolveSession?: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Overrides the per-session bound (tests only; production uses the constant). */
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
@@ -258,6 +262,7 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)
       throw new TypeError('event.classification: call observations require explicit classification')
     // Validate the complete source contract without charging a new sequence or
@@ -298,6 +303,7 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (interaction) validateInteractionCorrelation(candidate, interaction, records)
     if (isRuntimeCallEventKind(candidate.kind) && !isVersionedCall(candidate))
       throw new TypeError(
         'event.payload.schemaVersion: new call records require versioned payloads'

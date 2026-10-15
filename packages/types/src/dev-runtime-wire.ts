@@ -34,6 +34,7 @@ import {
 } from './dev-runtime-activity'
 import { cborByteLength } from './dev-runtime-cbor-length'
 import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
+import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 import {
   decodeRuntimeUsageObservedPayload,
   usageDataRecord,
@@ -315,6 +316,14 @@ const eventSemantics: EventSemantics = {
     }
     if (isVersionedActivityClaim(item)) {
       validateActivity(item, enforceEnvelopeBounds)
+    }
+    const interaction = decodeRuntimeInteractionPayload(kind, item.payload)
+    if (interaction) {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'structured interactions require authoritative provenance')
+      if (item.classification !== 'workspace_private')
+        fail('event.classification', 'structured interactions require workspace_private')
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
     if (item.kind === 'usage.observed') {
