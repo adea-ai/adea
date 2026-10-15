@@ -166,7 +166,7 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         expiresAt: null,
         family: 'artifactReferenceGrants',
         grantId: 'grant-1',
-        revoked: false,
+        revokedAt: null,
         revision: 1,
         sourceWorkspaceId: 'wsp-1',
         version: 1,
@@ -205,6 +205,20 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         issuedAt: '2026-01-01T00:00:00.000Z',
         revokedAt: null,
         revision: 1,
+        workspaceId: 'wsp-1',
+      }
+    case 'groupSharingGrants':
+      return {
+        channelId: 'ch-1',
+        expiresAt: null,
+        family: 'groupSharingGrants',
+        grantId: 'grant-1',
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        principalId: 'user-1',
+        principalKind: 'user',
+        revision: 1,
+        revokedAt: null,
+        scope: 'earlier_history',
         workspaceId: 'wsp-1',
       }
     case 'contentReplicas':
@@ -319,12 +333,12 @@ function isSorted(values: readonly string[]): boolean {
 
 describe('migration snapshot contract constants', () => {
   test('the snapshot format version is pinned at 1', () => {
-    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(1)
+    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(2)
     expect(Number.isInteger(MIGRATION_SNAPSHOT_FORMAT_VERSION)).toBe(true)
   })
 
   test('every record family a migration must inventory is present, sorted and unique', () => {
-    expect(migrationSnapshotFamilies.length).toBe(25)
+    expect(migrationSnapshotFamilies.length).toBe(26)
     expect(isSorted([...migrationSnapshotFamilies])).toBe(true)
     expect(new Set(migrationSnapshotFamilies).size).toBe(migrationSnapshotFamilies.length)
     for (const family of [
@@ -339,6 +353,7 @@ describe('migration snapshot contract constants', () => {
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
+      'groupSharingGrants',
       'identityBindings',
       'invitations',
       'leadTurnRuntime',
@@ -464,6 +479,12 @@ describe('migration snapshot record validation', () => {
       [withField(validRecord('groupAudienceGrants'), 'revokedAt', true), 'revokedAt'],
       [withoutField(validRecord('groupAudienceGrants'), 'issuedAt'), 'issuedAt'],
       [withField(validRecord('groupAudienceGrants'), 'issuedAt', ''), 'issuedAt'],
+      [withField(validRecord('artifactReferenceGrants'), 'revokedAt', true), 'revokedAt'],
+      [withField(validRecord('artifactReferenceGrants'), 'revokedAt', 'not-a-date'), 'revokedAt'],
+      [withoutField(validRecord('groupSharingGrants'), 'principalId'), 'principalId'],
+      [withField(validRecord('groupSharingGrants'), 'issuedAt', ''), 'issuedAt'],
+      [withField(validRecord('groupSharingGrants'), 'revokedAt', 7), 'revokedAt'],
+      [withField(validRecord('groupSharingGrants'), 'revision', 0), 'revision'],
       [withoutField(validRecord('groupEnlistmentGrants'), 'agentId'), 'agentId'],
       [withField(validRecord('groupEnlistmentGrants'), 'revision', 1.5), 'revision'],
       [withField(validRecord('groupEnlistmentGrants'), 'expiresAt', 42), 'expiresAt'],
@@ -487,6 +508,8 @@ describe('migration snapshot record validation', () => {
       [withField(validRecord('channels'), 'visibility', 'secret'), 'visibility'],
       [withField(validRecord('channelParticipants'), 'principalKind', 'ghost'), 'principalKind'],
       [withField(validRecord('groupAdmissions'), 'principalKind', 'ghost'), 'principalKind'],
+      [withField(validRecord('groupSharingGrants'), 'principalKind', 'ghost'), 'principalKind'],
+      [withField(validRecord('groupSharingGrants'), 'scope', 'everything'), 'scope'],
       [withField(validRecord('agents'), 'lifecycleState', 'zombie'), 'lifecycleState'],
       [withField(validRecord('tasks'), 'lifecycleState', 'deleted'), 'lifecycleState'],
       [withField(validRecord('contentRefs'), 'availability', 'cached'), 'availability'],

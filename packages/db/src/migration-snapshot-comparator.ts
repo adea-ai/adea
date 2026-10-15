@@ -119,7 +119,7 @@ function visibilityGrew(before: string, after: string): boolean {
 // so the families added by #1219 compare every non-identity captured field:
 // artifactReferenceGrants, contentReplicas, leadTurnRuntime, nativeSessions,
 // runtimeNodes and taskSubmissions, and so do the group families (#1222):
-// groupAdmissions, groupAudienceGrants and groupEnlistmentGrants. Bindings are links (a change is a remap),
+// groupAdmissions, groupAudienceGrants, groupEnlistmentGrants and groupSharingGrants. Bindings are links (a change is a remap),
 // digests are content/profile/version facts (drift), attributes are the row's
 // own state.
 const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyComparison>> = {
@@ -175,6 +175,18 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
   groupEnlistmentGrants: {
     attributes: [{ field: 'expiresAt' }, { field: 'issuedAt' }, { field: 'revokedAt' }],
     binding: ['agentId', 'workspaceId'],
+    digests: ['revision'],
+  },
+  // A sharing grant's scope decides how much earlier history its subject reads, so it is the grant's own
+  // state (a changed scope is a determinate change); the subject and workspace are identity bindings.
+  groupSharingGrants: {
+    attributes: [
+      { field: 'expiresAt' },
+      { field: 'issuedAt' },
+      { field: 'revokedAt' },
+      { field: 'scope' },
+    ],
+    binding: ['principalId', 'principalKind', 'workspaceId'],
     digests: ['revision'],
   },
   identityBindings: { attributes: [], binding: ['userId'], digests: [] },
@@ -262,14 +274,14 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     digests: [],
   },
   artifactReferenceGrants: {
-    // Revocation and revision are the grant's own state; the exact target
+    // Revocation (as its persisted instant, never a flag) and revision are the grant's own state; the exact target
     // binding is identity, so a moved grant is a remap, never a match. The
     // persisted expiry is compared verbatim as an attribute: clearing,
     // extending or shortening authorization is determinate drift even when
     // `grantId` and `revision` are unchanged. It is never inferred from
     // revocation, and the comparison uses the persisted string — never the
     // capture clock — so elapsed time alone cannot differ.
-    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    attributes: [{ field: 'expiresAt' }, { field: 'revokedAt' }],
     binding: ['artifactId', 'audienceWorkspaceId', 'sourceWorkspaceId', 'version'],
     digests: ['checksumSha256', 'revision'],
   },
@@ -310,6 +322,7 @@ const GRANT_FAMILIES: ReadonlySet<MigrationSnapshotFamily> = new Set([
   'groupAdmissions',
   'groupAudienceGrants',
   'groupEnlistmentGrants',
+  'groupSharingGrants',
   'memberships',
   'projectMembers',
 ])
@@ -423,6 +436,7 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return tupleKey(record.channelId, record.principalKind, record.principalId)
     case 'groupAudienceGrants':
     case 'groupEnlistmentGrants':
+    case 'groupSharingGrants':
       return tupleKey(record.channelId, record.grantId)
     case 'identityBindings':
       return tupleKey(record.provider, record.subject)
@@ -871,6 +885,27 @@ function requireMatchingIdentity(
     'formatVersion',
     'source',
   ]
+  // An older document is refused by name before any other identity check: its record shapes differ
+  // (version 2 replaced the artifact grant revocation flag with the persisted instant), so comparing it
+  // would read a flag as an instant and could report a changed authorization as identical.
+  for (const [label, identity] of [
+    ['before', before.identity],
+    ['after', after.identity],
+  ] as const) {
+    const version = identity.formatVersion
+    if (typeof version === 'number' && Number.isInteger(version) && version >= 1) {
+      if (version < MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} predates version ${MIGRATION_SNAPSHOT_FORMAT_VERSION} (artifact grant revocation is now an instant, not a flag); recapture it before comparing`
+        )
+      }
+      if (version > MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} is newer than the supported version ${MIGRATION_SNAPSHOT_FORMAT_VERSION}`
+        )
+      }
+    }
+  }
   for (const field of fields) {
     const beforeValue = before.identity[field]
     const afterValue = after.identity[field]

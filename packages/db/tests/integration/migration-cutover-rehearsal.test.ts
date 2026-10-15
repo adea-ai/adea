@@ -31,7 +31,11 @@ import {
 } from '../../src/conversations'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import type { WorkspaceEventView } from '../../src/event-log'
-import { postGroupChannelMessage } from '../../src/group-channels'
+import {
+  postGroupChannelMessage,
+  revokeGroupGrant,
+  shareGroupHistory,
+} from '../../src/group-channels'
 import { loadGroupAdmission } from '../../src/group-participation-store'
 import { searchWorkspaceForUser } from '../../src/search'
 import { createTemporaryUserSession } from '../../src/identity'
@@ -918,6 +922,24 @@ async function executeScenario() {
   const full = async (name: string) =>
     captureMigrationSnapshot(connection.db, { identity: identity(name) })
   const fullAtCutover = await full('full-cutover')
+  // A sharing grant through the real product writer: the owner lets the member read earlier history.
+  const SHARING_GRANT_ID = 'rehearsal-sharing-grant'
+  await shareGroupHistory(
+    connection.db,
+    fixture.workspaceId,
+    fixture.sharedChannelId,
+    fixture.owner,
+    {
+      expiresAt: null,
+      grantId: SHARING_GRANT_ID,
+      groupId: fixture.sharedChannelId,
+      issuedAt: '2026-01-01T00:00:00.000Z',
+      participant: { kind: 'user', userId: fixture.member.userId },
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_history',
+    }
+  )
 
   // Artifact-reference grants through the real API, after cutover.
   const grantId = `rehearsal-grant-${crypto.randomUUID()}`
@@ -990,6 +1012,13 @@ async function executeScenario() {
     grantId,
     revision: registration.state.revision,
   })
+  await revokeGroupGrant(
+    connection.db,
+    fixture.workspaceId,
+    fixture.sharedChannelId,
+    fixture.owner,
+    { grantId: SHARING_GRANT_ID, kind: 'sharing', revokedAt: '2026-01-06T00:00:00.000Z' }
+  )
   const fullRevoked = await full('full-revoked')
 
   // Audience phase: the canonical admissions and grants the cutover created from the populated legacy
@@ -1207,6 +1236,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       groupAdmissions: { reason: expect.any(String), table: 'group_admissions' },
       groupAudienceGrants: { reason: expect.any(String), table: 'group_audience_grants' },
       groupEnlistmentGrants: { reason: expect.any(String), table: 'group_enlistment_grants' },
+      groupSharingGrants: { reason: expect.any(String), table: 'group_sharing_grants' },
     })
     expect(Object.keys(before.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(before.document.sections.executionAttempts?.records.length).toBeGreaterThanOrEqual(1)
@@ -1483,6 +1513,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
+      'groupSharingGrants',
       'nativeSessions',
     ])
     expect(
@@ -1496,7 +1527,13 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   test('group admissions and grants are captured as nonempty families and compared record for record (#1222)', async () => {
     const { proof, fixture } = await runScenario()
     const channel = fixture.sharedChannelId
-    const section = <F extends 'groupAdmissions' | 'groupAudienceGrants' | 'groupEnlistmentGrants'>(
+    const section = <
+      F extends
+        | 'groupAdmissions'
+        | 'groupAudienceGrants'
+        | 'groupEnlistmentGrants'
+        | 'groupSharingGrants',
+    >(
       capture: typeof proof.cutover,
       family: F
     ) => (capture.document.sections[family]?.records ?? []).filter((r) => r.channelId === channel)
@@ -1531,6 +1568,24 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
         .map((r) => r.userId)
         .toSorted()
     ).toEqual([fixture.owner.userId, fixture.member.userId, fixture.removed.userId].toSorted())
+    // The sharing grant written through the product is a nonempty family once registered, with its issue
+    // instant as stored and no revocation; it is absent from the cutover capture taken before the write.
+    expect(section(proof.cutover, 'groupSharingGrants')).toHaveLength(0)
+    expect(section(proof.registered, 'groupSharingGrants')).toEqual([
+      {
+        channelId: channel,
+        expiresAt: null,
+        family: 'groupSharingGrants',
+        grantId: 'rehearsal-sharing-grant',
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        principalId: fixture.member.userId,
+        principalKind: 'user',
+        revision: 1,
+        revokedAt: null,
+        scope: 'earlier_history',
+        workspaceId: fixture.workspaceId,
+      },
+    ])
     // The native inventory has no injected source, so its domain stays unknown at every stage.
     for (const capture of [
       proof.cutover,
@@ -1551,7 +1606,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       proof.registeredComparison.findings
         .filter((finding) => finding.findingClass !== 'unknown_domain')
         .map((finding) => `${finding.findingClass}:${finding.family}`)
-    ).toEqual(['widened_access:artifactReferenceGrants'])
+    ).toEqual(['widened_access:artifactReferenceGrants', 'widened_access:groupSharingGrants'])
     expect(proof.registeredComparison.verdict).toBe('divergent')
   }, 300_000)
 
@@ -1568,6 +1623,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
+      'groupSharingGrants',
     ] as const) {
       expect(proof.repeated.document.sections[family]).toEqual(
         proof.registered.document.sections[family]
@@ -1584,7 +1640,14 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       proof.revokedComparison.findings
         .filter((finding) => finding.findingClass !== 'unknown_domain')
         .map((finding) => `${finding.findingClass}:${finding.family}`)
-    ).toEqual(['changed_attribute:artifactReferenceGrants'])
+    ).toEqual(['changed_attribute:artifactReferenceGrants', 'changed_attribute:groupSharingGrants'])
+    // The artifact grant's revocation travels as its persisted instant, not as a flag.
+    const artifact = proof.revoked.document.sections.artifactReferenceGrants?.records[0]
+    expect(typeof artifact?.revokedAt).toBe('string')
+    expect(Number.isFinite(Date.parse(artifact?.revokedAt ?? ''))).toBe(true)
+    // The sharing grant's revocation instant is the exact string the product wrote.
+    const sharing = proof.revoked.document.sections.groupSharingGrants?.records[0]
+    expect(sharing?.revokedAt).toBe('2026-01-06T00:00:00.000Z')
     expect(proof.revokedComparison.verdict).toBe('divergent')
   }, 300_000)
 
@@ -1615,12 +1678,18 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(remaining('groupAdmissions')).toHaveLength(2)
     expect(remaining('groupAudienceGrants')).toHaveLength(2)
     expect(remaining('groupEnlistmentGrants')).toHaveLength(0)
+    // The quarantine withdraws audience and enlistment grants only: the member's sharing grant survives
+    // it untouched, so the comparison carries no sharing finding.
+    expect(proof.quarantined.document.sections.groupSharingGrants).toEqual(
+      proof.replayed.document.sections.groupSharingGrants
+    )
     // Repeating the quarantine and replaying the real backfill resurrects nothing: the sections are
     // equal record for record and the comparison carries no determinate finding.
     for (const family of [
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
+      'groupSharingGrants',
     ] as const) {
       expect(proof.final.document.sections[family]).toEqual(
         proof.quarantined.document.sections[family]

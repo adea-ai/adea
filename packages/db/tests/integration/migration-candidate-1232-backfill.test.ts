@@ -55,17 +55,20 @@ import { insertLegacyGroup, insertLegacyMessage } from '../fixtures/legacy-audie
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
 const SCRATCH_PREFIX = 'rehearsal_1232_'
-// Capture-completeness, stated rather than hidden. Three group tables are snapshot families
-// (admissions, audience grants, enlistment grants), so the capture sees what the backfill creates.
-// `group_sharing_grants` is not a family and remains a declared gap. Any group table in neither
-// list fails the suite.
+// Capture-completeness, stated rather than hidden. Every group table is a snapshot family, so the
+// capture sees what the backfill creates. Any group table not listed here fails the suite.
 const CAPTURED_GROUP_TABLES = [
   'group_admissions',
   'group_audience_grants',
   'group_enlistment_grants',
+  'group_sharing_grants',
 ] as const
-const GROUP_FAMILIES = ['groupAdmissions', 'groupAudienceGrants', 'groupEnlistmentGrants'] as const
-const DECLARED_UNCAPTURED_GROUP_TABLES = ['group_sharing_grants'] as const
+const GROUP_FAMILIES = [
+  'groupAdmissions',
+  'groupAudienceGrants',
+  'groupEnlistmentGrants',
+  'groupSharingGrants',
+] as const
 
 const identity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
   capturedAt: new Date('2026-01-05T00:00:00.000Z'),
@@ -407,19 +410,21 @@ function runScenario(): Promise<Scenario> {
 }
 
 describe('incoming canonical chain (no database)', () => {
-  test('the three group families are captured and the sharing-grant table is unknown, never an empty capture', () => {
+  test('every group family resolves as captured, and an unregistered group table is unknown, never an empty capture', () => {
     expect(
       resolveMigrationSnapshotCaptureDomains([
         'groupAdmissions',
         'groupAudienceGrants',
         'groupEnlistmentGrants',
         'groupSharingGrants',
+        'groupLegacyThing',
       ])
     ).toEqual([
       { domain: 'groupAdmissions', status: 'captured', unknownReason: null },
       { domain: 'groupAudienceGrants', status: 'captured', unknownReason: null },
       { domain: 'groupEnlistmentGrants', status: 'captured', unknownReason: null },
-      { domain: 'groupSharingGrants', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'groupLegacyThing', status: 'unknown', unknownReason: 'unrecognized_domain' },
+      { domain: 'groupSharingGrants', status: 'captured', unknownReason: null },
     ])
   })
 
@@ -515,11 +520,9 @@ describe.skipIf(!provisioningUrl && !inCi)(
       expect(chainApplied.recordedCount).toBe(chainApplied.expectedCount)
     })
 
-    test('every group table on the canonical chain is a captured family or a declared gap, none silently missing', async () => {
+    test('every group table on the canonical chain is a captured snapshot family, none silently missing', async () => {
       const { groupTables } = await runScenario()
-      expect(groupTables).toEqual(
-        [...CAPTURED_GROUP_TABLES, ...DECLARED_UNCAPTURED_GROUP_TABLES].toSorted()
-      )
+      expect(groupTables).toEqual([...CAPTURED_GROUP_TABLES].toSorted())
     })
 
     test('the capture sees exactly the admissions and grants the backfill wrote, and a repeat changes nothing (#1222)', async () => {
@@ -656,6 +659,7 @@ describe.skipIf(!provisioningUrl && !inCi)(
         'groupAdmissions',
         'groupAudienceGrants',
         'groupEnlistmentGrants',
+        'groupSharingGrants',
         'nativeSessions',
       ])
       expect(

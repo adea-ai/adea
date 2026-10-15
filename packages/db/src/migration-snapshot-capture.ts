@@ -50,6 +50,7 @@ import { asc } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 
 import type {
+  MigrationGroupSharingScope,
   MigrationSnapshotDocument,
   MigrationSnapshotFamily,
   MigrationSnapshotIdentity,
@@ -82,6 +83,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  groupSharingGrants,
   leadTurnRuntime,
   messages,
   projectMembers,
@@ -650,6 +652,7 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return tupleKey(record.channelId, record.principalKind, record.principalId)
     case 'groupAudienceGrants':
     case 'groupEnlistmentGrants':
+    case 'groupSharingGrants':
       return tupleKey(record.channelId, record.grantId)
     case 'identityBindings':
       return tupleKey(record.provider, record.subject)
@@ -1262,7 +1265,11 @@ async function captureFamilySectionByName(
               checksumSha256: artifactReferenceGrants.checksumSha256,
               expiresAt: artifactReferenceGrants.expiresAt,
               grantId: artifactReferenceGrants.grantId,
-              revokedAt: artifactReferenceGrants.revokedAt,
+              // Read as text in PostgreSQL so microseconds survive: a JavaScript Date keeps milliseconds only,
+              // which would hide a revocation instant that moved within one millisecond.
+              revokedAt: sql<
+                string | null
+              >`to_char(${artifactReferenceGrants.revokedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
               revision: artifactReferenceGrants.revision,
               sourceWorkspaceId: artifactReferenceGrants.sourceWorkspaceId,
               version: artifactReferenceGrants.version,
@@ -1278,7 +1285,7 @@ async function captureFamilySectionByName(
           expiresAt: row.expiresAt,
           family: 'artifactReferenceGrants',
           grantId: row.grantId,
-          revoked: row.revokedAt !== null,
+          revokedAt: row.revokedAt,
           revision: row.revision,
           sourceWorkspaceId: row.sourceWorkspaceId,
           version: row.version,
@@ -1376,6 +1383,45 @@ async function captureFamilySectionByName(
           issuedAt: row.issuedAt,
           revokedAt: row.revokedAt,
           revision: row.revision,
+          workspaceId: row.workspaceId,
+        }),
+      })
+    case 'groupSharingGrants':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              agentId: groupSharingGrants.agentId,
+              channelId: groupSharingGrants.channelId,
+              expiresAt: groupSharingGrants.expiresAt,
+              grantId: groupSharingGrants.grantId,
+              id: groupSharingGrants.id,
+              issuedAt: groupSharingGrants.issuedAt,
+              principalKind: groupSharingGrants.principalKind,
+              revokedAt: groupSharingGrants.revokedAt,
+              revision: groupSharingGrants.revision,
+              scope: groupSharingGrants.scope,
+              userId: groupSharingGrants.userId,
+              workspaceId: groupSharingGrants.workspaceId,
+            })
+            .from(groupSharingGrants)
+            .orderBy(asc(groupSharingGrants.id))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          channelId: row.channelId,
+          expiresAt: row.expiresAt,
+          family: 'groupSharingGrants',
+          grantId: row.grantId,
+          issuedAt: row.issuedAt,
+          // As for admissions: a kind that names no subject is carried as an empty id so the comparator
+          // quarantines it instead of capture repairing it. An unknown scope is carried verbatim for the
+          // same reason.
+          principalId: (row.principalKind === 'agent' ? row.agentId : row.userId) ?? '',
+          principalKind: row.principalKind,
+          revokedAt: row.revokedAt,
+          revision: row.revision,
+          scope: row.scope as MigrationGroupSharingScope,
           workspaceId: row.workspaceId,
         }),
       })
