@@ -233,6 +233,9 @@ ContentSyncDevice authorization or history availability. Missing/foreign Adea
 nodes retain the generic workspace refusal. Consumers use the typed
 `listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
 existing host authority and cannot be replaced by this cloud projection.
+An aborted request remains cancelled through the route and SDK fetch timeout
+boundary; cancellation is never converted to an empty successful inventory or
+an unavailable read model.
 
 An offline execution host may queue new work while authorized synchronized
 conversation history remains available. Local-only body content keeps its own
@@ -386,6 +389,11 @@ shared-message, bounded request and API-client tests in their owning packages.
 - `apps/web/test/control-plane-discovery.test.ts` — actual public SDK fixtures,
   exact node/location binding, duplicate/cloud refusal, independent health,
   freshness, grants, compatibility and metadata-leak canaries.
+- `apps/web/test/integration/runtime-node-connections.test.ts` — the real route,
+  temporary-session authorization, SDK fetch boundary, typed API client and data
+  query; covers pagination, cancellation, sanitized failures, offline node reads
+  alongside authorized encrypted replica history, audience denial and local-only
+  content unavailability.
 - `packages/api-client/tests/unit/control-plane.test.ts` — encoded node discovery
   requests alongside the catalog and credential API contracts.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an

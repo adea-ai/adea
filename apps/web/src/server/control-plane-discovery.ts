@@ -29,7 +29,14 @@ export type RuntimeDiscoveryDependencies = ControlPlaneHopDependencies &
   Readonly<{
     /** Route authorization precedes this workspace-bound lookup. */
     readRegisteredNode: () => Promise<RegisteredRuntimeNode | null>
+    /** Preserve cancellation from the caller through the SDK timeout signal. */
+    requestSignal?: AbortSignal
   }>
+
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (signal?.aborted)
+    throw signal.reason ?? new DOMException('The operation was aborted', 'AbortError')
+}
 
 function unavailable() {
   return new ControlPlaneProxyError('CONTROL_PLANE_UNAVAILABLE', 'Control Plane is unavailable')
@@ -40,6 +47,7 @@ export async function listNodeRuntimeConnections(
   correlation: AdminCorrelation,
   dependencies: RuntimeDiscoveryDependencies
 ): Promise<ApiRuntimeNodeConnectionsResponse> {
+  throwIfRequestAborted(dependencies.requestSignal)
   const registered = await dependencies.readRegisteredNode()
   if (!registered)
     throw new ControlPlaneProxyError('workspace_unavailable', 'Workspace unavailable', 404)
@@ -62,8 +70,21 @@ export async function listNodeRuntimeConnections(
   const now = dependencies.now?.() ?? Date.now()
   const observedAt = new Date(now).toISOString()
   try {
+    throwIfRequestAborted(dependencies.requestSignal)
     const credential = await scopedAdminCredential(['runtime:read'], dependencies)
     const operation = 'runtime-connection.list'
+    const fetchWithRequestSignal = dependencies.requestSignal
+      ? (((requestInfo: RequestInfo | URL, init?: RequestInit) => {
+          throwIfRequestAborted(dependencies.requestSignal)
+          const signal = init?.signal
+            ? AbortSignal.any([dependencies.requestSignal!, init.signal])
+            : dependencies.requestSignal!
+          return (dependencies.fetch ?? globalThis.fetch)(requestInfo, { ...init, signal })
+        }) as typeof fetch)
+      : dependencies.fetch
+    const hopDependencies = dependencies.requestSignal
+      ? { ...dependencies, fetch: fetchWithRequestSignal! }
+      : dependencies
     // postControlPlane validates this exact operation with the pinned public SDK.
     const data = (await postControlPlane(
       credential,
@@ -79,9 +100,12 @@ export async function listNodeRuntimeConnections(
         },
         now
       ),
-      dependencies,
+      hopDependencies,
       operation
     )) as RuntimeConnectionListResponse['data']
+    // A fetch implementation can resolve at the same time cancellation
+    // arrives. Do not project that raced response into the caller's cache.
+    throwIfRequestAborted(dependencies.requestSignal)
     const identities = new Set<string>()
     const connections = data.runtimeConnections.map((model): ApiRuntimeConnection => {
       if (
@@ -166,6 +190,7 @@ export async function listNodeRuntimeConnections(
       ...(data.page.nextCursor ? { nextCursor: data.page.nextCursor } : {}),
     }
   } catch (error) {
+    throwIfRequestAborted(dependencies.requestSignal)
     if (!(error instanceof ControlPlaneProxyError)) throw error
     return {
       node,
