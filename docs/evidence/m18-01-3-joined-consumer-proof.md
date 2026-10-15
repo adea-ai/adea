@@ -78,6 +78,59 @@ a retry that reuses the key with a different `issuedAt` meets `PI_LEAD_COMMAND_C
 refusal. Whether it should be written before the fence
 decision is a control-plane question for #1047/#1048, not changed here.
 
+## Archived admissions
+
+The same file proves the existing contract for admissions whose channel is archived, **before** the fence
+and **after** it (`archived admissions`, six cases in each of the two orders, twelve tests). Each case
+restarts both sides, and the fence-first order also checks that Adea still emits the v2 fence body while the
+channel is active, before it is archived.
+
+What archiving does to the contract, at the pinned control-plane revision:
+
+- Adea's signed reader serves only an active channel. An archived admission is a 404
+  `LEAD_PRODUCT_UNAVAILABLE` whether or not it is fenced, and whichever order the two happened in. The
+  control plane reads that as "no product", never as "not fenced", so it can neither observe nor cancel an
+  archived admission through the reader. Archiving does not widen what the service can reach: it narrows it.
+- The fence itself still works on an archived channel. It records the channel's lifecycle in the fence
+  authority (`archived` when archived first, `active` when fenced first) and a second fence returns the first
+  attribution unchanged.
+- Adea's own historical boundary is unchanged: a current participant can still read the retained admission
+  (`readLeadTurnRollbackState`: archived, fenced, retained execution, attempt, dispatch and session). That
+  grants no effect.
+
+| Case (each in both orders) | What the test asserts                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `running`                  | Archive and fence write no control-plane row at all. On Adea only the intent's five fence columns and `updated_at` change; the runtime row, messages, participants and receipt are identical. All consumer operations are refused across a second restart, a refused dispatch storing only its own command binding. Every Adea effect is denied and stores nothing. The runtime started once and was never cancelled |
+| `uncertain start`          | The lost-result start stays `dispatching` on the control plane and `dispatch_pending` on Adea, with no handle on either side. The three refused mutating commands store only their own bindings. Prepare, another attempt, dispatch, dispatch-pending and publication are denied by Adea, and a binding for another execution or attempt is refused. Start stays 1 and one session exists                            |
+| `revoked`                  | After the original actor is removed, the reader is a 404, the control plane cannot observe or cancel, and the revoked actor cannot read, cancel, record a binding or record an observation. The owner, still a participant, can read the history                                                                                                                                                                     |
+| `wrong principal`          | A workspace member who is not a participant and a user outside the workspace cannot read, status, cancel, record or fence (`ROLLBACK_FENCE_FORBIDDEN` for a plain member), before or after the real fence, and nothing is stored. The first fence keeps its owner attribution. On the control plane a principal outside the receipt is refused before Adea is read (`PI_LEAD_SCOPE_REJECTED`, no reader call)        |
+| `terminal`                 | A completed admission is fenced as `terminal_retained`; its runtime row is unchanged, publication is denied, nothing is published, and a second fence returns the first attribution                                                                                                                                                                                                                                  |
+| `cancel`                   | See the first limit below                                                                                                                                                                                                                                                                                                                                                                                            |
+
+Denied on an archived admission (Adea answers `Lead turn unavailable` and stores nothing; the control plane
+refuses with `PI_LEAD_UNAVAILABLE` or `PI_LEAD_SCOPE_REJECTED`): prepare of the retained attempt, prepare of
+another attempt, mark dispatch pending, dispatch, publication, and on the control plane prepare, dispatch,
+status, progress, cancel, lookup and the resolver.
+
+Each of these comparisons snapshots the same things as the rest of the file: every control-plane SQLite row,
+the runtime effect counts, and Adea's lead-turn intents, runtime binding and messages, now together with the
+archived channel row and its participants. Command bindings are compared by their complete scoped key and digest.
+
+Limits found while writing the proof. They are reported, not changed here:
+
+- **Cancel on an archived admission is recorded, not delivered.** The original actor may record a cancel
+  request through Adea's historical boundary (`cancel_requested_at` and `updated_at` change, nothing else), but
+  the control plane cannot serve the cancel because the reader refuses the archived product. The runtime is
+  never cancelled. Delivering it would mean serving archived products to the service, which widens archived
+  access, so it stays an owner decision.
+- **The recording boundary stays open on archived and fenced admissions.** `recoverLeadTurnRuntimeBinding` and
+  `observeLeadTurnRuntime` use the historical `bind` access and do not look at the fence or the archive. They
+  can only bind the retained attempt (another execution, attempt, dispatch or session is refused, and the proof
+  asserts that), and they start, dispatch and publish nothing. Their callers are Adea's own trusted server code.
+  They were not changed.
+- The archived signed-reader behaviour above is Adea's, observed through the pinned control plane. The control
+  plane has no archived-specific code in this revision.
+
 ## Provenance
 
 | Item                                        | Value                                                                                                                                                                |
@@ -97,9 +150,9 @@ ADEA_CONTROL_PLANE_SOURCE=<checkout at the pinned revision> bun run test:integra
 ```
 
 The lane builds the Adea packages, provisions Postgres, and runs the directory from the control-plane
-checkout. Locally the run was the two joined test files together on a freshly migrated database: 21 pass, 0
-fail (17 in this proof, 4 in `management-current`), 770 assertions. The 17 are the 11 proof tests plus 6
-regressions for the command-binding comparison itself.
+checkout. Locally the run was the two joined test files together on a freshly migrated database: 33 pass, 0
+fail (29 in this proof, 4 in `management-current`), 1480 assertions. The 29 are the 11 proof tests, 6
+regressions for the command-binding comparison itself and the 12 archived-admission tests.
 
 Mutation checks, all reverted afterwards:
 
@@ -119,6 +172,11 @@ Mutation checks, all reverted afterwards:
   with its binding store modified (pin check relaxed for that run only), each of three changes failed 7 of
   the 17 tests: rewriting the digest of existing rows, replacing the principal in existing keys, and writing
   an extra row under the same idempotency key for another principal.
+- Archived admissions. With the `--conditions=development` resolution, so Adea's source is used instead of
+  its build: lifting the active-channel lock and the channel-version pin made all 12 archived tests fail (the
+  reader serves the archived product); making the fence refuse an archived channel failed 8 of 12; and removing
+  the binding check from `recoverLeadTurnRuntimeBinding` failed 4 of 12. Against the pinned control plane with
+  a refusal that writes a row (pin check relaxed for that run only), all 12 failed.
 - Removing the `dispatchPermitted !== false` check in the reader's fence envelope parser was **not** caught
   here. That check is covered by the Adea-side reader tests (`lead-product-reader-fence`,
   `lead-product-fence-envelope-*`); the joined path cannot produce that internal state.
@@ -140,4 +198,4 @@ This is a source-level proof. It is not production qualification.
   execution, attempt, dispatch and session identity are asserted.
 - The control plane's resume and publication policy entries have no consumer in this revision. Publication
   refusal is enforced by Adea. The control plane's publication-current service is not fence-aware.
-- Archived-admission observation on the control plane was not re-verified.
+- Archived admissions are covered above. Cancelling an archived admission's runtime is not possible; see the limits there.
