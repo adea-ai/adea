@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { encodeCbor } from '../../../packages/types/src/dev-runtime-wire'
@@ -29,7 +29,7 @@ function observation(overrides: Partial<SessionEventInput> = {}): SessionEventIn
     generation: 1,
     source: 'acp',
     confidence: 'authoritative',
-    classification: 'workspace_private',
+    classification: 'restricted_local',
     kind: 'tool.started',
     sourceEventId: 'source-1',
     payload: {
@@ -47,6 +47,49 @@ const callPayload = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('call admission into the canonical event log', () => {
+  test('an exact retry of a retained legacy opaque call remains a deduplicated replay', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-call-legacy-replay-'))
+    directories.push(dataDir)
+    const storeDirectory = join(dataDir, 'dev-runtime', 'harness')
+    mkdirSync(storeDirectory, { recursive: true })
+    const legacy = {
+      schemaVersion: 1,
+      eventId: 'legacy-event',
+      runtimeSessionId: 'session-1',
+      generation: 1,
+      seq: '1',
+      occurredAt: '2026-10-15T05:00:00.000Z',
+      receivedAt: '2026-10-15T05:00:01.000Z',
+      source: 'acp',
+      sourceEventId: 'legacy-source',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      kind: 'tool.started',
+      payload: { name: 'read_file' },
+      scope,
+    }
+    writeFileSync(
+      join(storeDirectory, 'session-events.json'),
+      JSON.stringify({ schemaVersion: 1, savedAt: '', records: [legacy] })
+    )
+    const log = createSessionEventLog({ dataDir, scope })
+
+    expect(
+      log.append({
+        runtimeSessionId: 'session-1',
+        generation: 1,
+        source: 'acp',
+        kind: 'tool.started',
+        sourceEventId: 'legacy-source',
+        payload: { name: 'read_file' },
+      })
+    ).toBeUndefined()
+    expect(log.events()).toEqual([
+      Object.fromEntries(Object.entries(legacy).filter(([key]) => key !== 'scope')),
+    ])
+    expect(log.latestSequence('session-1')).toBe('1')
+  })
+
   test('retry exemptions require the exact source tuple rather than a delimiter collision', () => {
     const { log } = setup()
     const first = log.append(
@@ -135,6 +178,31 @@ describe('call admission into the canonical event log', () => {
     expect(log.append(observation())?.seq).toBe('1')
   })
 
+  test('requires explicit call classification and keeps inline content restricted-local', () => {
+    const { log } = setup()
+    const { classification: _classification, ...unclassified } = observation()
+    expect(() => log.append(unclassified)).toThrow('explicit classification')
+    expect(() =>
+      log.append(
+        observation({
+          classification: 'workspace_metadata',
+          payload: callPayload({ input: { type: 'inline', value: { token: 'opaque' } } }),
+        })
+      )
+    ).toThrow('restricted_local')
+    expect(() => log.append(observation({ classification: 'credential' }))).toThrow('credential')
+    expect(log.events()).toEqual([])
+    expect(
+      log.append(
+        observation({
+          payload: callPayload({
+            input: { type: 'inline', value: { q: 'safe-to-store-locally' } },
+          }),
+        })
+      )?.classification
+    ).toBe('restricted_local')
+  })
+
   test('persists identity, parent, phase, input/output and duration exactly across restart', () => {
     const { log, create } = setup()
     const first = log.append(
@@ -199,6 +267,73 @@ describe('call admission into the canonical event log', () => {
     ).toThrow('permissionEligibility')
   })
 
+  test('keeps call permission and visible-summary verifiers scoped to their event contracts', () => {
+    const callObservations: unknown[] = []
+    const summaryObservations: unknown[] = []
+    const { log, create } = setup({
+      verifyCallPermissionEligibility: (event) => {
+        callObservations.push(event)
+        return true
+      },
+      verifyVisibleSummary: (event) => {
+        summaryObservations.push(event)
+        return true
+      },
+    })
+    const call = log.append(
+      observation({
+        kind: 'tool.completed',
+        sourceEventId: 'call-source',
+        payload: callPayload({ phase: 'completed', permissionEligibility: 'not_required' }),
+      })
+    )
+    expect(call).toBeDefined()
+    expect(callObservations).toEqual([call])
+    expect(summaryObservations).toEqual([])
+
+    const summary = log.append(
+      observation({
+        kind: 'turn.reasoning_summary',
+        sourceEventId: 'summary-source',
+        payload: {
+          schemaVersion: 1,
+          provenance: 'source_reported',
+          visibility: 'user_visible',
+          format: 'snapshot',
+          summaryId: 'summary-1',
+          revision: 0,
+          text: 'Compared the published evidence.',
+          status: 'completed',
+        },
+      })
+    )
+    expect(summary).toBeDefined()
+    expect(callObservations).toEqual([call])
+    expect(summaryObservations).toHaveLength(1)
+
+    expect(
+      log.append(
+        observation({
+          kind: 'tool.completed',
+          sourceEventId: 'call-source',
+          payload: callPayload({ phase: 'completed', permissionEligibility: 'not_required' }),
+        })
+      )
+    ).toBeUndefined()
+    expect(
+      log.append(
+        observation({
+          kind: 'turn.reasoning_summary',
+          sourceEventId: 'summary-source',
+          payload: summary!.payload,
+        })
+      )
+    ).toBeUndefined()
+    expect(callObservations).toHaveLength(2)
+    expect(summaryObservations).toHaveLength(1)
+    expect(create().events()).toHaveLength(2)
+  })
+
   test('isolates the verified snapshot from caller, verifier and subscriber mutation', () => {
     const submitted = callPayload({
       permissionEligibility: 'not_required',
@@ -243,7 +378,7 @@ describe('call admission into the canonical event log', () => {
     for (const changed of [
       { harnessRunId: 'run-2' },
       { confidence: 'untrusted_hint' as const },
-      { classification: 'credential' as const },
+      { classification: 'public' as const },
       { occurredAt: '2026-10-15T05:00:01.000Z' },
     ]) {
       let refusal: unknown

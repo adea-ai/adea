@@ -39,7 +39,7 @@ function event() {
     source: 'acp',
     sourceEventId: 'source-1',
     confidence: 'authoritative',
-    classification: 'workspace_private',
+    classification: 'restricted_local',
     kind: 'tool.completed',
     payload: {
       schemaVersion: 1,

@@ -4,7 +4,7 @@ The reviewed head `adc65009cdf1f57f6673066f8cf39f7e20221979` bounded inline
 input and output independently but did not bound their complete transport
 envelope. Two valid values of `['x'.repeat(16384), 'x'.repeat(16377)]` each
 encode to 32,768 JSON bytes. With the test's canonical call envelope, the whole
-event encodes to **65,953 CBOR bytes**, beyond the actual **65,536-byte**
+event encodes to **65,952 CBOR bytes**, beyond the actual **65,536-byte**
 runtime-events grant. A per-field success did not prove deliverability.
 
 ## Repair

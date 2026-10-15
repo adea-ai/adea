@@ -139,13 +139,28 @@ describe('versioned runtime call contract', () => {
       byteLength: 100,
       sha256: 'a'.repeat(64),
     }
-    const observed = decode(event({ payload: { ...payload, input, output } }))
+    const observed = decode(
+      event({ classification: 'restricted_local', payload: { ...payload, input, output } })
+    )
     expect(observed.payload.input).toEqual(input)
     expect(observed.payload.output).toEqual(output)
     expect(
-      decode(event({ payload: { ...payload, output: { type: 'inline', value: null } } })).payload
-        .output
+      decode(
+        event({
+          classification: 'restricted_local',
+          payload: { ...payload, output: { type: 'inline', value: null } },
+        })
+      ).payload.output
     ).toEqual({ type: 'inline', value: null })
+  })
+
+  test('rejects credential event classification and under-classified inline call content', () => {
+    expect(() => decode(event({ classification: 'credential' }))).toThrow('credential')
+    const inline = { ...payload, input: { type: 'inline', value: { text: 'prompt' } } }
+    expect(() => decode(event({ payload: inline }))).toThrow('restricted_local')
+    expect(
+      decode(event({ classification: 'restricted_local', payload: inline })).payload.input
+    ).toEqual(inline.input)
   })
 
   test('rejects malformed references, extra authority and unknown contract versions', () => {
@@ -172,12 +187,19 @@ describe('versioned runtime call contract', () => {
     const atByteLimit = ['x'.repeat(16_384), 'x'.repeat(16_377)]
     expect(new TextEncoder().encode(JSON.stringify(atByteLimit)).byteLength).toBe(32 * 1024)
     expect(
-      decode(event({ payload: { ...payload, input: { type: 'inline', value: atByteLimit } } }))
-        .payload.input
+      decode(
+        event({
+          classification: 'restricted_local',
+          payload: { ...payload, input: { type: 'inline', value: atByteLimit } },
+        })
+      ).payload.input
     ).toEqual({ type: 'inline', value: atByteLimit })
     expect(() =>
       decode(
-        event({ payload: { ...payload, input: { type: 'inline', value: [...atByteLimit, ''] } } })
+        event({
+          classification: 'restricted_local',
+          payload: { ...payload, input: { type: 'inline', value: [...atByteLimit, ''] } },
+        })
       )
     ).toThrow('encoded size')
     const invalid: unknown[] = [
@@ -202,7 +224,12 @@ describe('versioned runtime call contract', () => {
     invalid.push(sparse)
     for (const value of invalid) {
       expect(() =>
-        decode(event({ payload: { ...payload, input: { type: 'inline', value } } }))
+        decode(
+          event({
+            classification: 'restricted_local',
+            payload: { ...payload, input: { type: 'inline', value } },
+          })
+        )
       ).toThrow()
     }
   })

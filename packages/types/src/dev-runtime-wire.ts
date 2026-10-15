@@ -36,6 +36,8 @@ export type {
   RuntimeCallPermissionEligibility,
   RuntimeCallPhase,
 } from './dev-runtime-call'
+import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
+import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -57,6 +59,8 @@ export const runtimeEventKinds = [
   'turn.user_input',
   'turn.assistant_delta',
   'turn.assistant_message',
+  'turn.reasoning_summary',
+  'turn.method_step_summary',
   'turn.result',
   'tool.requested',
   'tool.started',
@@ -129,6 +133,13 @@ function validateCall(event: Record<string, unknown>, enforceEnvelopeBounds = tr
     fail('event.source', 'call observations require a native, ACP or owned hook producer')
   stringValue(event.harnessRunId, 'event.harnessRunId', 1, 256)
   const payload = decodeRuntimeCallPayload(event.payload, event.kind)
+  if (event.classification === 'credential')
+    fail('event.classification', 'credential-classified data must not enter the runtime event log')
+  if (
+    (payload.input?.type === 'inline' || payload.output?.type === 'inline') &&
+    event.classification !== 'restricted_local'
+  )
+    fail('event.classification', 'inline call content requires restricted_local classification')
   assertJsonUnicode(event)
   if (payload.permissionEligibility !== 'unknown' && event.confidence !== 'authoritative')
     fail(
@@ -262,7 +273,9 @@ function decodeRuntimeEventValue(
     Object.hasOwn(item.payload, 'schemaVersion')
   )
     validateCall(item, enforceEnvelopeBounds)
+  validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   validateEventPayload(item.payload, 'event.payload')
+  validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
   return value as RuntimeEvent

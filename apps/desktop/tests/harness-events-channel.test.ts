@@ -355,7 +355,7 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
         harnessRunId: 'frame-run',
         source: 'acp' as const,
         confidence: 'authoritative' as const,
-        classification: 'workspace_private' as const,
+        classification: 'restricted_local' as const,
         kind: 'tool.completed' as const,
       }
       const seed = events.append({
