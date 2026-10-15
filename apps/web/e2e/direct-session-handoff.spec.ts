@@ -15,18 +15,26 @@
 // shared service is touched. The vite server binds an ephemeral loopback
 // port and closes after the file.
 import { expect, test, type Page } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let url = ''
 test.beforeAll(async () => {
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/direct-session-handoff-harness-app.tsx')
+  // A private optimizer cache. The managed dev server owns node_modules/.vite; this instance must
+  // not rewrite the dependency hashes that a running app has already requested, or later harness
+  // pages on that server fail with 504 Outdated Optimize Dep.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-direct-handoff-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     logLevel: 'error',
     plugins: [
       solid(),
@@ -52,6 +60,7 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   await server?.close()
+  rmSync(cacheDir, { recursive: true, force: true })
 })
 
 function trackPageErrors(page: Page): string[] {

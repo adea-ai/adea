@@ -171,13 +171,13 @@ for (const width of [1280, 390]) {
       const trigger = page.locator('button[aria-label="Appearance settings"]')
       const popup = await openLiveAppearance(page)
       // Kobalte marks the trigger `data-expanded` while the sheet is open; the
-      // published pressed rung (the menubar's `data-expanded:bg-surface-active`)
-      // has to ride on that state so an open control no longer reads identical
-      // to its closed neighbours.
+      // published `toolbar` variant holds the accent's own tint
+      // (`data-[expanded]:bg-primary-subtle`) on that state so an open control
+      // no longer reads identical to its closed neighbours.
       await expect(trigger).toHaveAttribute('data-expanded', '')
-      const surfaceActivePaint = await page.evaluate(() => {
+      const pressedPaint = await page.evaluate(() => {
         const probe = document.createElement('div')
-        probe.style.backgroundColor = 'var(--surface-active)'
+        probe.style.backgroundColor = 'var(--primary-subtle)'
         document.body.append(probe)
         const value = getComputedStyle(probe).backgroundColor
         probe.remove()
@@ -191,7 +191,7 @@ for (const width of [1280, 390]) {
       // instead of catching the interpolation's first frames.
       await expect
         .poll(() => trigger.evaluate((element) => getComputedStyle(element).backgroundColor))
-        .toBe(surfaceActivePaint)
+        .toBe(pressedPaint)
 
       // Dismiss through the sheet's own close affordance: the dismissed panel
       // must leave the trigger released.
@@ -199,7 +199,7 @@ for (const width of [1280, 390]) {
       await expect(popup).toBeHidden()
       await expect
         .poll(() => trigger.evaluate((element) => getComputedStyle(element).backgroundColor))
-        .not.toBe(surfaceActivePaint)
+        .not.toBe(pressedPaint)
     })
 
     test('Cancel, Escape and outside dismissal revert the opening snapshot', async ({ page }) => {
