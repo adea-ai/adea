@@ -1862,10 +1862,10 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           expect(runtime.sessions.get(binding.attemptId)).toEqual(receiptBefore.handle)
 
           // Control plane: every operation is refused, the unfenced body is never served, nothing changes.
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
           await restartAdea(tenant)
           await host.restart()
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
           await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
 
           // Adea: every effect is denied, and a current participant can still read the history.
@@ -1971,6 +1971,50 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           expect(state.runtime?.dispatchId).toBeUndefined()
           expect(runtime.effects().start).toBe(1)
           expect(runtime.sessions.size).toBe(1)
+
+          // Two different paths, kept apart. The joined lookup that would prove the handle is blocked: the
+          // control plane refuses it above, the receipt stays `dispatching` and nothing is learned from
+          // it. Recording the same retained attempt's binding is permitted by Adea's historical `bind`
+          // access, with the identity the caller supplies. It is not proved by the control plane.
+          const beforeRecovery = await snapshot()
+          await recoverLeadTurnRuntimeBinding(
+            tenant.connection.db,
+            tenant.workspace.id,
+            tenant.intentId,
+            tenant.actor.principal,
+            { intentId: tenant.intentId, ...binding }
+          )
+          const afterRecovery = await snapshot()
+          expect(changedColumns(beforeRecovery.adea.runtime, afterRecovery.adea.runtime)).toEqual([
+            'dispatch_id',
+            'runtime_session_id',
+            'updated_at',
+          ])
+          expect(afterRecovery.adea.intents).toEqual(beforeRecovery.adea.intents)
+          expect(afterRecovery.adea.messages).toEqual(beforeRecovery.adea.messages)
+          expect(afterRecovery.adea.channel).toEqual(beforeRecovery.adea.channel)
+          expect(afterRecovery.adea.participants).toEqual(beforeRecovery.adea.participants)
+          // The control plane and the runtime saw none of it.
+          expect(afterRecovery.controlPlane).toEqual(beforeRecovery.controlPlane)
+          expect(afterRecovery.effects).toEqual(beforeRecovery.effects)
+          expect((await host.receipts.get(dispatchId))?.state).toBe('dispatching')
+          await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+          // Recording does not reopen any effect: everything is still denied, on both sides.
+          const recorded = await rollbackState(tenant)
+          expect(recorded).toMatchObject({
+            channelLifecycleState: 'archived',
+            fenced: true,
+            runtime: {
+              state: 'dispatch_pending',
+              attemptId,
+              dispatchId,
+              runtimeSessionId: sessionId,
+            },
+          })
+          await expectAdeaDenies(tenant, host, snapshot, binding)
+          await expectNoEffect({ host, runtime, response: { dispatchId }, snapshot })
+          expect(runtime.effects().start).toBe(1)
+          expect(runtime.sessions.size).toBe(1)
         } finally {
           await host.close()
         }
@@ -2007,10 +2051,10 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             status: 404,
             body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
           })
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
           await restartAdea(tenant)
           await host.restart()
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
 
           // The revoked actor learns nothing and can do nothing, including a late cancel request.
           await expect(rollbackState(tenant)).rejects.toThrow(UNAVAILABLE)
@@ -2183,7 +2227,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           const again = await fence(tenant)
           expect(again).toMatchObject({ alreadyFenced: true, disposition: 'terminal_retained' })
           expect(again.attribution).toEqual(fenced.attribution)
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
           expect(runtime.effects().start).toBe(1)
         } finally {
           await host.close()
@@ -2220,7 +2264,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           // A retry changes nothing more, and still never starts or cancels a runtime.
           await product.cancel(tenant.scope)
           expect(runtime.effects()).toEqual(before.effects)
-          await expectNoEffect(run)
+          await expectNoEffect({ ...run, snapshot })
         } finally {
           await host.close()
         }
