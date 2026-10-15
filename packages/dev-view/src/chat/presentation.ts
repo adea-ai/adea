@@ -103,9 +103,13 @@ function bodyFromPayload(event: RuntimeEvent): { body: string; truncated: boolea
   const payload = event.payload as Record<string, unknown>
   for (const key of ['text', 'content', 'message', 'delta', 'summary', 'reason']) {
     const value = payload[key]
-    if (typeof value !== 'string' || value.trim().length === 0) continue
-    // A fragment's edges are part of the sentence it continues.
-    const raw = event.kind === 'turn.assistant_delta' ? value : value.trim()
+    if (typeof value !== 'string') continue
+    // A fragment's edges, and a fragment that is only whitespace, are part of the
+    // text it continues: dropping ' ' between 'Hello' and 'world' (or a newline
+    // inside a code fence) would change the prose and break exact copy.
+    const fragment = event.kind === 'turn.assistant_delta'
+    if (fragment ? value.length === 0 : value.trim().length === 0) continue
+    const raw = fragment ? value : value.trim()
     const normalised = raw.replace(/\r\n?/g, '\n')
     const body = redact(normalised, MAX_BODY_TEXT, { window: BODY_SCAN_WINDOW, layout: true })
     return { body, truncated: normalised.length > BODY_SCAN_WINDOW || body.length >= MAX_BODY_TEXT }

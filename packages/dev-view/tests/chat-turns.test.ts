@@ -161,3 +161,79 @@ describe('question wording', () => {
     expect(row?.label).toBe('bash')
   })
 })
+
+const proseOf = (events: readonly RuntimeEvent[]) => {
+  const { turns: built } = turns(events)
+  const entries = built.flatMap((turn) => turn.entries)
+  return {
+    entries,
+    texts: entries.flatMap((entry) => (entry.type === 'text' ? [entry.text] : [])),
+  }
+}
+
+describe('whitespace-only streamed fragments', () => {
+  test('a lone space between words stays in one block of prose', () => {
+    const { entries, texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'Hello' }, 'd1'),
+      event('turn.assistant_delta', { text: ' ' }, 'd2'),
+      event('turn.assistant_delta', { text: 'world' }, 'd3'),
+    ])
+    expect(texts).toEqual(['Hello world'])
+    expect(entries).toHaveLength(1)
+  })
+
+  test('newline and tab fragments are kept, including between paragraphs', () => {
+    const { entries, texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'One' }, 'd1'),
+      event('turn.assistant_delta', { text: '\n\n' }, 'd2'),
+      event('turn.assistant_delta', { text: '\t' }, 'd3'),
+      event('turn.assistant_delta', { text: 'Two' }, 'd4'),
+    ])
+    expect(texts).toEqual(['One\n\n\tTwo'])
+    expect(entries).toHaveLength(1)
+  })
+
+  test('a fence streamed with whitespace-only fragments keeps its source exact', () => {
+    const fragments = ['Here:\n\n```js\nif (a) {', '\n', '\t', 'return  b;', '   ', '\n', '}\n```']
+    const { entries, texts } = proseOf([
+      event('turn.user_input', { text: 'show' }, 'u1'),
+      ...fragments.map((text, index) => event('turn.assistant_delta', { text }, `d${index}`)),
+    ])
+    expect(entries).toHaveLength(1)
+    expect(texts).toEqual([fragments.join('')])
+  })
+
+  test('CRLF fragments normalise to a line feed and stay joined', () => {
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'a' }, 'd1'),
+      event('turn.assistant_delta', { text: '\r\n' }, 'd2'),
+      event('turn.assistant_delta', { text: 'b' }, 'd3'),
+    ])
+    expect(texts).toEqual(['a\nb'])
+  })
+
+  test('an empty fragment is still a visible event, not prose', () => {
+    const { entries, texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'a' }, 'd1'),
+      event('turn.assistant_delta', { text: '' }, 'd2'),
+      event('turn.assistant_delta', { text: 'b' }, 'd3'),
+    ])
+    expect(texts).toEqual(['a', 'b'])
+    expect(entries.map((entry) => entry.type)).toEqual(['text', 'activity', 'text'])
+  })
+
+  test('whitespace-only fragments are still bounded and redacted around', () => {
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'key sk-supersecretvalue1234' }, 'd1'),
+      event('turn.assistant_delta', { text: ' '.repeat(50_000) }, 'd2'),
+    ])
+    expect(texts[0]).toContain('[secret redacted]')
+    expect(texts[0]).not.toContain('supersecretvalue')
+    expect(texts[0]?.length).toBeLessThanOrEqual(CHAT_ASSISTANT_TEXT_LIMIT)
+  })
+})
