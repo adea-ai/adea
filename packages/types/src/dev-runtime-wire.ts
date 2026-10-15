@@ -1,3 +1,4 @@
+import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
   exactKeys,
   fail,
@@ -32,6 +33,8 @@ export const runtimeEventKinds = [
   'turn.assistant_delta',
   'turn.assistant_message',
   'turn.result',
+  'attachment.added',
+  'attachment.removed',
   'tool.requested',
   'tool.started',
   'tool.progress',
@@ -169,6 +172,11 @@ export function decodeRuntimeEvent(
     ]
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
+  }
+  if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
+    if (item.source !== 'host' || item.confidence !== 'authoritative')
+      fail('event.source', 'attachment facts require authoritative host provenance')
+    decodeChatAttachmentEventPayload(item.kind, item.payload)
   }
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
