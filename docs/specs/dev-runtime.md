@@ -1779,7 +1779,7 @@ as a line labelled by its wire kind, without payload content; only
 cannot authorize grouping or hide an action. Reasoning, sources, citations,
 checkpoints, attachments, context usage, test results and queued follow-ups are
 not drawn, because no producer supplies them; each is a separate backend
-dependency documented in `docs/chat-canvas.md`.
+dependency documented in `docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an

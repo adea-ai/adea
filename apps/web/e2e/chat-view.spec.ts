@@ -782,6 +782,14 @@ test('follows appended runtime rows only while the reader keeps follow intent', 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
   await expect(page.getByText('Streaming continues to append rows.')).toBeVisible()
   await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(parked)
+
+  // The canvas is compact and streamed text joins one block, so 30px can still be
+  // inside the threshold where the control is not offered. Reading further back
+  // is what offers the way to the latest.
+  await transcript.evaluate((node) => {
+    node.scrollTop = 0
+    node.dispatchEvent(new Event('scroll'))
+  })
   await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
   await expect.poll(distance).toBeLessThanOrEqual(2)
   await expect(transcript).toBeFocused()
