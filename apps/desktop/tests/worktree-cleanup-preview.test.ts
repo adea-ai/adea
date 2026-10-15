@@ -332,10 +332,15 @@ describe('cleanup recovery preview', () => {
     ).toEqual({
       executesNothing: true,
       jobId: 'job-1',
-      nextAction: 'resume',
+      nextAction: 'manual_recovery',
       state: 'recovery_required',
       completedSteps: ['quarantine_worktree', 'unregister_worktree'],
     })
+    expect(
+      previewCleanupRecovery({
+        job: { completedSteps: ['quarantine_worktree'], jobId: 'job-1b', state: 'partial' },
+      })
+    ).toMatchObject({ nextAction: 'resume', completedSteps: ['quarantine_worktree'] })
     expect(previewCleanupRecovery({ job: { jobId: 'job-2', state: 'blocked' } })).toMatchObject({
       nextAction: 'replan',
     })

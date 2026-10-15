@@ -19,20 +19,20 @@ import {
 import { createRendererPolicy } from '../src/terminal/renderer-policy'
 
 describe('renderer policy', () => {
-  test('prefers lazy WebGL and falls back to DOM on init failure', () => {
+  test('draws DOM until lazy WebGL loads and falls back to DOM on init failure', () => {
     const policy = createRendererPolicy()
     expect(policy.snapshot().active).toBe('dom')
-    expect(policy.mounted().active).toBe('webgl')
+    expect(policy.webglLoaded().active).toBe('webgl')
     const result = policy.webglInitFailed('no canvas')
     expect(result.active).toBe('dom')
     expect(result.webglDisabled).toBe(true)
-    // Once disabled, remounts stay on DOM.
-    expect(policy.mounted().active).toBe('dom')
+    // Once disabled, a late load never claims WebGL again.
+    expect(policy.webglLoaded().active).toBe('dom')
   })
 
   test('context loss recovers within the budget then stays on DOM', () => {
     const policy = createRendererPolicy(2)
-    policy.mounted()
+    policy.webglLoaded()
     const first = policy.contextLost()
     expect(first.retryWebgl).toBe(true)
     expect(policy.webglRestored().active).toBe('webgl')

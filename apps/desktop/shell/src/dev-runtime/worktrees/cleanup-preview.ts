@@ -441,7 +441,14 @@ export function previewAutomaticCleanup(input: {
   }
 }
 
-export type CleanupRecoveryNextAction = 'none' | 'resume' | 'replan' | 'complete'
+export type CleanupRecoveryNextAction =
+  | 'none'
+  | 'resume'
+  | 'replan'
+  | 'complete'
+  /** Ambiguous interruption: no automatic path continues it; an explicit
+   *  operator decision is required and nothing is retried. */
+  | 'manual_recovery'
 
 export type CleanupRecoveryPreview = Readonly<{
   executesNothing: true
@@ -462,9 +469,14 @@ export type CleanupRecoveryPreview = Readonly<{
 }>
 
 /**
- * Crash/retry preview. A durable job resumes from its journal, so completed
- * steps are excluded from the retry; a blocked or failed job is replanned
- * rather than force-run, and a completed job reports completion.
+ * Crash/retry preview, mirroring `resumeCleanup`. A job that was interrupted
+ * but is still recoverable (`approved`, `running`, `partial`) is retried from
+ * its journal: completed steps are excluded, and a step the recovery rolled
+ * back reruns. A `recovery_required` job is ambiguous (for example a
+ * quarantine whose provenance cannot be proven): `resumeCleanup` reports it
+ * again and a re-commit refuses on changed facts, so the only honest next
+ * action is a manual one. A blocked or failed job is replanned rather than
+ * force-run, and a completed job reports completion.
  */
 export function previewCleanupRecovery(input: {
   job: Readonly<{
@@ -489,9 +501,11 @@ export function previewCleanupRecovery(input: {
   const nextAction: CleanupRecoveryNextAction =
     job.state === 'completed'
       ? 'complete'
-      : job.state === 'blocked' || job.state === 'failed'
-        ? 'replan'
-        : 'resume'
+      : job.state === 'recovery_required'
+        ? 'manual_recovery'
+        : job.state === 'blocked' || job.state === 'failed'
+          ? 'replan'
+          : 'resume'
   return Object.freeze({
     executesNothing: true,
     jobId: job.jobId,

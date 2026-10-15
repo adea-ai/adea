@@ -17,6 +17,9 @@ const specs = [
   'apps/web/e2e/dev-view-files-tree.spec.ts',
   'apps/web/e2e/dev-add-project.spec.ts',
   'apps/web/e2e/appearance.spec.ts',
+  // The lazy theme importer: not requested until a file is chosen, and a
+  // superseded, cancelled or failed run stores nothing (#1375).
+  'apps/web/e2e/appearance-theme-import.spec.ts',
   'apps/web/e2e/dev-view-permissions.spec.ts',
   'apps/web/e2e/dev-view-terminal.spec.ts',
   'apps/web/e2e/dev-view-runtime-terminal.spec.ts',
@@ -75,6 +78,9 @@ const specs = [
   'apps/web/e2e/lead-role-choices.spec.ts',
   // Lead payer journey (#1211): the same module-only fixture class.
   'apps/web/e2e/lead-payer-journey.spec.ts',
+  // Addressed-turn client UI (#1179): qualified Agents, addressing mode, committed order, cancel,
+  // lost-response retry and reconnect, mounted over an in-page stand-in for the routes (no host inputs).
+  'apps/web/e2e/group-addressing.spec.ts',
   // Archive and reopen of optional workspaces (#1175): the real shell end to end, and the
   // targeted settings harness for the confirmation, refusal and retry cases.
   'apps/web/e2e/workspace-archive-lifecycle.spec.ts',

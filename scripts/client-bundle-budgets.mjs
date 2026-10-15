@@ -802,12 +802,31 @@ export function inspectClientBundle(input) {
   // route, not terminal code, so wherever the closure holds a chunk loading
   // them by their stable module-derived names, they are expected. Every
   // other dynamic edge stays pinned exactly.
-  const devTerminalExpected = new Map([[runtimeTerminalPane.file, [terminalPane.file]]])
-  for (const file of staticClosure([runtimeTerminalPane, terminalPane], chunksByFile)) {
+  //
+  // The pane loads its WebGL renderer after the base terminal is usable and its
+  // search addon on first search (issue #396), so those two chunks are the
+  // terminal pane's own dynamic edges. A static import of either would fold it
+  // back into this route's static closure and the pane's initial download.
+  const terminalAddons = [
+    chunkByPrefix(chunks, 'addon-webgl-', 'Dev terminal WebGL addon'),
+    chunkByPrefix(chunks, 'addon-search-', 'Dev terminal search addon'),
+  ]
+  const devTerminalStatic = staticClosure([runtimeTerminalPane, terminalPane], chunksByFile)
+  for (const addon of terminalAddons) {
+    if (devTerminalStatic.has(addon.file) || startupFiles.has(addon.file)) {
+      throw new Error(`${addon.file} must load on demand, not with the terminal pane or startup`)
+    }
+  }
+  const devTerminalExpected = new Map([
+    [runtimeTerminalPane.file, [terminalPane.file]],
+    [terminalPane.file, terminalAddons.map(({ file }) => file)],
+  ])
+  for (const file of devTerminalStatic) {
     const navLoaderTargets = dynamicChunkTargets([file], chunksByFile)
       .map(({ file: target }) => target)
       .filter((target) => /workspace-draft-row|mobile-contextual-sidebar/.test(target))
-    if (navLoaderTargets.length > 0) devTerminalExpected.set(file, navLoaderTargets)
+    if (navLoaderTargets.length > 0)
+      devTerminalExpected.set(file, [...(devTerminalExpected.get(file) ?? []), ...navLoaderTargets])
   }
   assertDynamicRouteClosure(
     [runtimeTerminalPane, terminalPane],

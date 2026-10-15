@@ -3187,6 +3187,24 @@ a font choice or disposing the pane invalidates pending font completions.
 Typography updates preserve the stream, output, selection, focus, and editor
 draft.
 
+The terminal pane downloads only its base terminal (xterm, fit, web links)
+when it opens; the WebGL renderer and the search addon are separate on-demand
+chunks. The pane starts its stream, takes output and input, and draws with the
+DOM renderer before any addon request settles, then fetches WebGL once the
+terminal is open and attached. The reported renderer is the one drawing: it
+reads DOM until the WebGL addon is active. A failed import, an addon that
+cannot activate, or WebGL context loss beyond the recovery budget leaves the
+DOM renderer in place (each recovery attaches a fresh addon that is itself
+watched for context loss), and an unmount during the download attaches
+nothing to the disposed terminal. The search addon is fetched the first time
+search opens. The pane reports only its latest search inputs and the addon
+applies them when it lands, so typing and closing while the chunk downloads
+never replays stale queries or leaves decorations behind. A failed search
+import reads "Search unavailable" in the bar, leaves the terminal untouched,
+and the next query change or reopen retries. The client bundle gate pins both
+chunks as the terminal pane's only dynamic edges and fails if either is
+reachable from startup or from the terminal route's static closure.
+
 A bottom editor supports multiline input, history search, palette sources, and
 send-to-active-terminal; pasting multiline or control-character text requires
 confirmation. Raw direct-keyboard mode remains available so full-screen TUIs
@@ -6108,27 +6126,23 @@ The workspace toolbar opens the appearance Sheet over the current view without
 route navigation. Its editor/catalogue chunk loads on the first intentional
 open. Save commits and closes; Cancel, Escape, and outside dismissal restore
 the opening snapshot and close. Reopening takes a fresh snapshot of committed
-preferences. Both the toolbar Sheet and the Settings section render Adea's
-app-local editor composition (`@adea-ai/dev-view`'s `AdeaAppearanceEditor`),
-adapted from the published `AppearanceEditor` because its fixed internals
-cannot express Adea's row order or accent entries: every control remains a
-published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
-Button) or published composite (font settings group, editor actions, theme
-previews), while Adea owns the composition — the text (font) settings rows
-close the option list, after every palette and surface row, and the accent
-picker offers the six presets plus one control named "Custom". The fork keeps
-the published editor's control idioms, not generic radio rows: the accent
-picker draws the published swatch grid — one round swatch per preset painted
-with the catalogue's light/dark pair value for the resolved appearance,
-selection shown by the checked ring, the single Custom chip beside them, and
-no theme-default entry; the mode cards keep their miniature previews; the
-light, dark, and terminal menus render preview-card items (the published
-`ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the
-menu card's geometry until the published package exports the composite); and
-the glass choices render as the published chips. Swatch and chip colors are
-catalogue values, so a swatch paints its color as an SVG fill: consumers may
-neither inline a style nor author palette literals. Upstreaming a row-order
-and accent-entries seam to the published package retires the fork.
+preferences. Both the toolbar Sheet and the Settings section render the
+published `AppearanceEditor`/`AppearancePopover` from `@adea-ai/ui`, configured
+through its options rather than recomposed: the text (font) settings rows close
+the option list (`fontSettingsPlacement: 'end'`), the accent row draws the six
+presets in one equally spaced line with a Custom button that opens the native
+colour selector and changes nothing until a colour is chosen
+(`accentEntryStyle: 'row'`), there is no theme-default entry because the default
+accent is the Violet preset (`showThemeDefaultAccent: false`), the mode cards
+carry their sun, moon and monitor glyphs (`showModeIcons`), and the toolbar
+trigger holds the pressed rung while the Sheet is open (`triggerVariant:
+'toolbar'`). The mode cards keep their miniature previews, the light, dark and
+terminal menus render the published preview-card items, and the glass choices
+render as the published chips. Adea owns no copy of the editor or its
+primitives: row order, keyboard and focus handling and narrow-panel layout are
+the published component's, and the theme API Adea needs (accent presets,
+canonical records, the projection helpers the importer uses) comes from
+`@adea-ai/ui` rather than a direct `@adea-ai/themes` dependency.
 Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
@@ -6142,7 +6156,12 @@ the appearance editor mounted beneath the dialog, so live preview and the
 uncommitted draft survive Close and Escape; dismissal restores focus to
 Manage themes without closing the containing Settings dialog or Appearance
 popover. No application
-copy of the dialog primitives remains.
+copy of the dialog primitives remains. The import parsing and projection code
+(`custom-theme-import.ts`) loads by dynamic import when a theme file is chosen,
+not when Appearance opens; the dialog shows a pending status while it loads,
+reports a failed load or read as an error, and drops the result of a run that a
+newer selection, closing the dialog, or leaving Appearance has superseded before
+anything is stored or selected (`theme-file-importer.ts`).
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
@@ -6281,7 +6300,15 @@ appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
 result or link to a task opens Kanban; with Kanban disabled, the board opens
-inside Chat instead. Library retains rail reorder and reset controls.
+inside Chat instead. The board and the task
+panel are lazy: the Tasks surface loads the board chunk on entry (a skeleton
+shows meanwhile, and a failed load offers Retry, which reloads the page because a
+browser keeps a failed module fetch for the life of the page), and the panel chunk
+loads when a task is created or opened (a failed load closes the request and says
+so on the board). A changed selection or disposed board invalidates its pending
+load callbacks, so a stale failure cannot clear a newer task selection. Neither
+is in Chat's initial graph.
+Library retains rail reorder and reset controls.
 Chat’s central conversation surface uses the canonical theme background in
 both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled

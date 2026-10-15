@@ -58,6 +58,11 @@ import { Textarea } from '@adea-ai/ui/components/ui/textarea'
 import { keyedRows } from './keyed-rows'
 import type { PrivateContentResolver } from './platform'
 import { ProjectIcon } from './project-icon'
+import {
+  dropTaskBackgroundLease,
+  hasTaskBackgroundLease,
+  holdTaskBackgroundLease,
+} from './task-background-lease'
 import { kindOptions, laneFor, priorityOptions, swatchTone } from './task-presentation'
 
 type TaskUpdate = Readonly<{
@@ -73,6 +78,12 @@ type SharedProps = Readonly<{
   onClose: () => void
   /** Reports a write that failed after the panel closed. */
   onError?: (message: string) => void
+  /**
+   * The element focused when the person asked for this panel. A host that
+   * loads the panel on demand captures it at the request, since focus can move
+   * while the panel loads; absent, the element focused at setup is used.
+   */
+  opener?: HTMLElement
   privateContent?: PrivateContentResolver
   projects: readonly ProjectSummary[]
   tasks: readonly TaskSummary[]
@@ -198,14 +209,6 @@ const priorityPickerOptions = priorityOptions.map((option) =>
  * actions (Start, Complete…) apply immediately because they are moves, not
  * edits.
  */
-let activeBackgroundLease: (() => void) | undefined
-
-/** Cancels the active post-close background lease (a new owner took over). */
-export function cancelTaskBackgroundLease() {
-  activeBackgroundLease?.()
-  activeBackgroundLease = undefined
-}
-
 export function TaskPanel(props: CreateProps | EditProps) {
   const editing = () => (props.mode === 'edit' ? props : undefined)
   const initial = props.mode === 'edit' ? props.task : undefined
@@ -270,11 +273,12 @@ export function TaskPanel(props: CreateProps | EditProps) {
   // auto-focus can otherwise win the race and make the shared restoration
   // target an element inside the closing content.
   const restoreFocusTarget =
-    typeof document === 'undefined' || typeof HTMLElement === 'undefined'
+    props.opener ??
+    (typeof document === 'undefined' || typeof HTMLElement === 'undefined'
       ? undefined
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : undefined
+        : undefined)
   // One lease owns the frame's post-close restoration at a time, and it is
   // the earliest close that is still unfinished: a panel mounted while that
   // lease is alive contributes nothing (the lease's other-modal guard defers
@@ -285,7 +289,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
   onCleanup(() => {
     disposed = true
     if (typeof document === 'undefined' || !capturedBackground) return
-    if (activeBackgroundLease) return
+    if (hasTaskBackgroundLease()) return
     let cancelled = false
     const restore = () => {
       // Bound to the captured element: a frame replaced by navigation is never
@@ -307,7 +311,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
     const cancel = () => {
       cancelled = true
       observer?.disconnect()
-      if (activeBackgroundLease === cancel) activeBackgroundLease = undefined
+      dropTaskBackgroundLease(cancel)
     }
     if (typeof MutationObserver !== 'undefined' && frameElement) {
       // The lease is owned by this close until the board (or the frame) is
@@ -330,7 +334,7 @@ export function TaskPanel(props: CreateProps | EditProps) {
       // the subtree, not just body's direct children.
       observer.observe(document.body, { childList: true, subtree: true })
     }
-    activeBackgroundLease = cancel
+    holdTaskBackgroundLease(cancel)
     // Release the background once on the same deferral boundary Kobalte uses;
     // later writes are caught by the observers above.
     setTimeout(() =>
