@@ -208,6 +208,30 @@ describe('authorized follow-up queue', () => {
       expect(await child.exited).toBe(0)
       expect(existsSync(marker)).toBe(false)
       const restarted = createFollowUpQueue(s.options)
+      const lockDir = join(s.dataDir, 'dev-runtime', 'worktrees', 'locks')
+      const claimFile = readdirSync(lockDir)
+        .map((name) => join(lockDir, name))
+        .find((file) => JSON.parse(readFileSync(file, 'utf8')).operation === 'follow-up delivery')!
+      const owner = JSON.parse(readFileSync(claimFile, 'utf8'))
+      const { pid: _pid, ...unknownOwner } = owner
+      writeFileSync(claimFile, JSON.stringify(unknownOwner))
+      const blocked = await restarted.execute(
+        { ...s.target, action: 'read' },
+        { authorize: s.authorize }
+      )
+      expect(blocked.items[0]?.state).toBe('dispatching')
+      await expect(
+        restarted.execute(
+          { ...s.target, action: 'remove', expectedVersion: blocked.version, messageId: 'a' },
+          {
+            idempotencyKey: 'unknown-owner-remove',
+            authorize: s.authorize,
+          }
+        )
+      ).rejects.toMatchObject({ code: 'invalid_state' })
+      // Restore only this test's original owner evidence: the proven-dead
+      // child can then be reclaimed. No production recovery edits the file.
+      writeFileSync(claimFile, JSON.stringify(owner))
       const recovered = await restarted.execute(
         { ...s.target, action: 'read' },
         { authorize: s.authorize }

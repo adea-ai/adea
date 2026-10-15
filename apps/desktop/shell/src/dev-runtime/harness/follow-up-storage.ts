@@ -195,12 +195,26 @@ export function createFollowUpStorage(input: {
     }
   }
   async function tryDeliveryClaim(sessionId: string): Promise<(() => void) | undefined> {
-    try {
-      return await deliveryMutationOwner().holdLock(
-        `follow-up-delivery:${scopeKey}:${sessionId}`,
-        'follow-up delivery',
-        0
+    const claimOwner = deliveryMutationOwner()
+    const claimKey = `follow-up-delivery:${scopeKey}:${sessionId}`
+    if (claimOwner.lockFileExists(claimKey)) {
+      const record = claimOwner.lockOwner(claimKey)
+      // The generic owner tolerates partial lock records while acquiring.
+      // Recovery of a possible send requires a positively identified PID;
+      // malformed or foreign ownership must never count as a dead process.
+      if (
+        !record ||
+        record.commonDir !== claimKey ||
+        record.operation !== 'follow-up delivery' ||
+        record.runtimeNodeId !== input.scope.runtimeNodeId ||
+        !Number.isSafeInteger(record.pid) ||
+        record.pid < 1 ||
+        !/^[0-9a-f]{32}$/.test(record.nonce)
       )
+        return undefined
+    }
+    try {
+      return await claimOwner.holdLock(claimKey, 'follow-up delivery', 0)
     } catch (error) {
       if ((error as { code?: unknown })?.code === 'lock_timeout') return undefined
       throw error
