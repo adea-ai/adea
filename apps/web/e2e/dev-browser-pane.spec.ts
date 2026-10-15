@@ -278,6 +278,22 @@ test('BrowserPane applies the viewport size it reports when zoom changes', async
   await expect.poll(async () => (await viewportCommands()).length).toBe(2)
   expect((await viewportCommands())[1].body).toMatchObject({ width: 432, height: 937 })
   await expect(pane).toContainText('CSS viewport 432 × 937')
+
+  let commandCount = 2
+  const zoomTo = async (button: 'Zoom in' | 'Zoom out', scale: number) => {
+    await pane.getByRole('button', { name: button }).click()
+    commandCount += 1
+    await expect.poll(async () => (await viewportCommands()).length).toBe(commandCount)
+    const width = Math.round(393 * scale)
+    const height = Math.round(852 * scale)
+    expect((await viewportCommands()).at(-1)?.body).toMatchObject({ width, height })
+    await expect(pane).toContainText(`CSS viewport ${width} × ${height}`)
+  }
+
+  for (const scale of [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5]) await zoomTo('Zoom out', scale)
+  for (let step = 6; step <= 20; step += 1) await zoomTo('Zoom in', step / 10)
+  await zoomTo('Zoom in', 2)
+  await zoomTo('Zoom out', 1.9)
 })
 
 test('BrowserPane preserves independent viewport results when switching lanes', async ({
