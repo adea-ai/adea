@@ -716,28 +716,66 @@ describe.skipIf(!provisioned)(
     })
 
     describe('join', () => {
-      test('the legacy roster write cannot re-admit the stale audience through its original row', async () => {
+      test('roster replacement requires caller standing and preserves quarantined source rows', async () => {
         const before = await writeFootprint(db(), ws(), active())
-        const current = await getChannelForUser(db(), ws(), active(), seed.owner)
-        const refusal = await setChannelParticipants(
+        const cleanParticipants = [
+          { kind: 'user' as const, userId: seed.owner.userId },
+          { kind: 'user' as const, userId: seed.member.userId },
+        ]
+        expect(
+          await settle(() =>
+            setChannelParticipants(db(), ws(), active(), stale(), cleanParticipants, before.version)
+          )
+        ).toEqual({ denied: 'Channel unavailable' })
+        expect(
+          await settle(() =>
+            setChannelParticipants(
+              db(),
+              ws(),
+              active(),
+              stale(),
+              cleanParticipants,
+              before.version + 1
+            )
+          )
+        ).toEqual({ denied: 'Channel unavailable' })
+        expect(await writeFootprint(db(), ws(), active())).toEqual(before)
+
+        const ownerChannel = await getChannelForUser(db(), ws(), active(), seed.owner)
+        await setChannelParticipants(
           db(),
           ws(),
           active(),
           seed.owner,
-          [
-            { kind: 'user', userId: seed.owner.userId },
-            { kind: 'user', userId: seed.member.userId },
-            { kind: 'user', userId: stale().userId },
-          ],
-          current.version
-        ).then(
-          () => 'written',
-          (error: unknown) => messageChain(error)
+          cleanParticipants,
+          ownerChannel.version
         )
-        // The application admission boundary refuses this principal before replacing even the clean
-        // roster rows. The immutable legacy source row remains available for audit.
-        expect(refusal).toContain('Conversation participant unavailable')
-        expect(await writeFootprint(db(), ws(), active())).toEqual(before)
+        const afterCleanReplacement = await writeFootprint(db(), ws(), active())
+        expect(afterCleanReplacement.quarantinedOriginals).toBe(before.quarantinedOriginals)
+        expect(
+          await countRows(
+            upgrade.migration.db,
+            sql`select count(*)::int as count from app.channel_participants cp
+                join app.legacy_audience_quarantine q on q.source_participant_id = cp.id
+                where q.workspace_id = ${ws()}::uuid and q.channel_id = ${active()}::uuid
+                  and cp.user_id = ${stale().userId}::uuid`
+          )
+        ).toBe(1)
+
+        const current = await getChannelForUser(db(), ws(), active(), seed.owner)
+        expect(
+          await settle(() =>
+            setChannelParticipants(
+              db(),
+              ws(),
+              active(),
+              seed.owner,
+              [...cleanParticipants, { kind: 'user' as const, userId: stale().userId }],
+              current.version
+            )
+          )
+        ).toEqual({ denied: 'Conversation participant unavailable' })
+        expect(await writeFootprint(db(), ws(), active())).toEqual(afterCleanReplacement)
         expect(
           await loadGroupAdmission(db(), ws(), active(), { kind: 'user', userId: stale().userId })
         ).toBeNull()

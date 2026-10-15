@@ -308,3 +308,37 @@ to Agents, so there is no active physical-delete path in this lock protocol. If
 server-verified deletion is enabled later, its workspace and membership cascade
 must be reviewed against enlistment's source-membership → workspace → Agent lock
 order; taking those rows in the inverse order could deadlock with an enlistment.
+
+## Legacy group-audience quarantine (migration 0058)
+
+Migration `0058_legacy_audience_quarantine` records legacy group participants
+whose audience cannot be proven from current canonical workspace state: a source
+row from another workspace, a non-active group, a user without current
+workspace membership, or a missing/wrong-workspace Agent. It records the
+original `channel_participants` row identity and a UTC microsecond digest,
+source workspace and classification provenance, plus counts and a digest of
+the derived authority withdrawn for that principal. The source participant
+row is preserved. Only that principal's group admission and its user audience
+or Agent enlistment grant are withdrawn; shared grants are left untouched.
+
+The migration takes `SHARE ROW EXCLUSIVE` locks on channels, legacy
+participants, workspace memberships, Agents and the three derived-authority
+tables before classification. It holds them until the migration transaction
+commits, preventing an old-runtime roster or authority write from racing the
+withdrawal and trigger installation. Duration depends on production row counts
+and has not been measured against a production-sized copy. Before production
+rollout, reconcile the exact migration ledger and candidate rows, then measure
+the lock window on a representative copy. No production migration or rollback
+qualification is included in this change. After commit, rollback is forward-only:
+do not drop quarantine records or recreate withdrawn grants from retained
+participant rows alone.
+
+Product admission and history readers exclude quarantined identities even if
+stale derived rows are restored. Runtime writes cannot mutate quarantined source
+or provenance rows, and INSERT/UPDATE guards prevent backfill or roster APIs
+from re-admitting them; there is no table-owner/session-setting exemption in
+those guards. The durable quarantine table is intentionally not a registered
+family in the #1248 migration snapshot contract. The existing snapshot families
+remain unchanged, and the product-gate test separately captures exact
+pre-0058 versus post-0058 withdrawal findings. Production historical-data
+qualification remains outstanding.

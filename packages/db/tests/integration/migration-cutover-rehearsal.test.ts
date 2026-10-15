@@ -616,6 +616,7 @@ function assertHistoricalEvidence(document: MigrationSnapshotDocument, fixture: 
       `${fixture.sharedChannelId}:user:${fixture.member.userId}`,
       `${fixture.sharedChannelId}:user:${fixture.removed.userId}`,
       `${fixture.sharedChannelId}:agent:${fixture.foreignAgentId}`,
+      `${fixture.sharedChannelId}:agent:${fixture.homeAgentId}`,
       `${fixture.archivedChannelId}:user:${fixture.owner.userId}`,
       `${fixture.archivedChannelId}:user:${fixture.member.userId}`,
     ].toSorted()

@@ -1333,9 +1333,10 @@ export async function setChannelParticipants(
     // Readers acquire the channel before participant rows. Take the same lock first so a
     // roster replacement cannot hold participants while waiting for a history-reader's channel.
     const channel = await requireChannel(transaction, workspaceId, channelId, { forUpdate: true })
+    if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
+    await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
-    if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
     const unique = new Map(participants.map((entry) => [stableKey(entry), entry])).values()
     const normalized = [...unique]
     for (const participant of normalized)
