@@ -16,6 +16,7 @@ import {
 } from './dev-runtime-follow-ups'
 export { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-ups'
 export type { FollowUpQueueEventPayload } from './dev-runtime-follow-ups'
+import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
@@ -195,6 +196,7 @@ export function decodeRuntimeEvent(
   const payload = queuePayload ?? item.payload
   validateEventPayload(payload, 'event.payload')
   validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
+  validateRuntimeResponseReferences(item.kind as string, payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
   if (queuePayload) return Object.freeze({ ...(value as RuntimeEvent), payload: queuePayload })
