@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
@@ -8,11 +10,20 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import { accountConversationInbox } from '../../src/account-inbox'
 import { accountWorkspaceSummaries } from '../../src/account-summary'
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
+import * as schema from '../../src/schema'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import type { WorkspaceEventView } from '../../src/event-log'
 import {
+  captureMigrationSnapshot,
+  type MigrationSnapshotCaptureIdentityInput,
+} from '../../src/migration-snapshot-capture'
+import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
+import {
   archiveChannel,
   createMessage,
+  createRuntimeResultMessage,
+  deleteMessage,
+  editMessage,
   getChannelForUser,
   getMessageForUser,
   listChannelsForUser,
@@ -22,10 +33,10 @@ import {
 } from '../../src/conversations'
 import { postGroupChannelMessage } from '../../src/group-channels'
 import { loadGroupAdmission } from '../../src/group-participation-store'
-import { listReadStateForUser } from '../../src/read-state'
+import { listReadStateForUser, markChannelReadState } from '../../src/read-state'
 import { searchWorkspaceForUser } from '../../src/search'
 import { channelParticipants, groupAdmissions, workspaceMemberships } from '../../src/schema'
-import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
+import { canonicalChainFolders } from '../fixtures/canonical-chain'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -33,11 +44,11 @@ import {
   RUNTIME_ROLE,
 } from '../fixtures/canonical-boundary'
 import {
-  installLegacyAudienceQuarantine,
+  canonicalBackfillStatements,
   legacyBackfillProfile,
-  quarantineLegacyAudience,
 } from '../fixtures/legacy-audience-quarantine'
 import { seedLegacyAudience, type LegacyAudienceSeed } from '../fixtures/legacy-audience-seed'
+import { DRIZZLE_DIR, migrationsFolderBefore } from '../fixtures/cutover-rehearsal'
 
 // #1222 quarantine, proved at the product boundaries a stale legacy roster row can reach.
 //
@@ -55,6 +66,19 @@ const inCi = process.env.CI === 'true' || process.env.CI === '1'
 const provisioned = !!provisioningUrl || inCi
 const SCRATCH_PREFIX = 'rehearsal_1222g_'
 const OBSERVED_AT = '2026-01-05T00:00:00.000Z'
+const QUARANTINE_SNAPSHOT_FAMILIES = [
+  'groupAdmissions',
+  'groupAudienceGrants',
+  'groupEnlistmentGrants',
+  'groupSharingGrants',
+] as const
+
+const quarantineSnapshotIdentity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
+  capturedAt: new Date(OBSERVED_AT),
+  rehearsalId: 'migration-canonical-legacy-product-gate',
+  snapshotId,
+  source: 'disposable-canonical-migration',
+})
 
 function adminUrl(database: string): string {
   if (!provisioningUrl) throw new Error('MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set')
@@ -74,6 +98,26 @@ function open(database: string): Fixture {
     database,
     migration: createDatabase(canonicalUrl(adminUrl(database), database, MIGRATION_ROLE)),
     runtime: createDatabase(canonicalUrl(adminUrl(database), database, RUNTIME_ROLE)),
+  }
+}
+
+async function switchMigrationTimeZone(fixture: Fixture, timeZone: string): Promise<void> {
+  await fixture.migration.close()
+  const client = postgres(
+    canonicalUrl(adminUrl(fixture.database), fixture.database, MIGRATION_ROLE),
+    {
+      max: 1,
+      connect_timeout: 10,
+      idle_timeout: 20,
+      prepare: false,
+      connection: { TimeZone: timeZone },
+      onnotice: () => {},
+    }
+  )
+  fixture.migration = {
+    client,
+    db: drizzle(client, { schema }),
+    close: () => client.end({ timeout: 5 }),
   }
 }
 
@@ -115,6 +159,14 @@ async function writeFootprint(db: AgentHqDatabase, workspaceId: string, channelI
     messages: await countRows(
       db,
       sql`select count(*)::int as count from app.messages where channel_id = ${channelId}::uuid`
+    ),
+    quarantinedOriginals: await countRows(
+      db,
+      sql`select count(*)::int as count
+          from app.legacy_audience_quarantine q
+          join app.channel_participants cp on cp.id = q.source_participant_id
+          where q.channel_id = ${channelId}::uuid
+            and q.source_row_digest = app.legacy_participant_digest(cp)`
     ),
     rosterRows: await countRows(
       db,
@@ -168,6 +220,7 @@ describe.skipIf(!provisioned)(
     let upgrade: Fixture
     let seed: LegacyAudienceSeed
     let ownerMessageId: string
+    let migrationQuarantineComparison: ReturnType<typeof compareMigrationSnapshots> | undefined
     const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 14)
     const upgradeName = `${SCRATCH_PREFIX}upgrade_${suffix}`
 
@@ -183,8 +236,38 @@ describe.skipIf(!provisioned)(
         runtime: upgrade.runtime.db,
       })
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
-      await applyMigrationTail(upgrade.migration.db)
-      await installLegacyAudienceQuarantine(upgrade.migration.db)
+      const beforeQuarantineTail = migrationsFolderBefore('0058_legacy_audience_quarantine')
+      try {
+        await migrate(upgrade.migration.db, { migrationsFolder: beforeQuarantineTail })
+        const beforeQuarantine = await captureMigrationSnapshot(upgrade.migration.db, {
+          identity: quarantineSnapshotIdentity('before-0058'),
+          requestedDomains: QUARANTINE_SNAPSHOT_FAMILIES,
+        })
+        // Exercise the production migration from a non-UTC operator session. The migration's
+        // withdrawn-row JSON digest must not depend on this connection-level setting.
+        await switchMigrationTimeZone(upgrade, 'Pacific/Auckland')
+        const [migrationTimeZone] = await rowsOf(
+          upgrade.migration.db,
+          sql`select current_setting('TimeZone') as time_zone`
+        )
+        expect(migrationTimeZone?.time_zone).toBe('Pacific/Auckland')
+        await migrate(upgrade.migration.db, { migrationsFolder: DRIZZLE_DIR })
+        const [restoredTimeZone] = await rowsOf(
+          upgrade.migration.db,
+          sql`select current_setting('TimeZone') as time_zone`
+        )
+        expect(restoredTimeZone?.time_zone).toBe('Pacific/Auckland')
+        const afterQuarantine = await captureMigrationSnapshot(upgrade.migration.db, {
+          identity: quarantineSnapshotIdentity('after-0058'),
+          requestedDomains: QUARANTINE_SNAPSHOT_FAMILIES,
+        })
+        migrationQuarantineComparison = compareMigrationSnapshots({
+          after: afterQuarantine.document,
+          before: beforeQuarantine.document,
+        })
+      } finally {
+        rmSync(beforeQuarantineTail, { recursive: true, force: true })
+      }
       const legacy = await postGroupChannelMessage(
         upgrade.runtime.db,
         seed.workspaceId,
@@ -202,11 +285,8 @@ describe.skipIf(!provisioned)(
         seed.member,
         { message: { bodyText: 'clean member note', idempotencyKey: 'clean-note' }, mode: 'direct' }
       )
-      await quarantineLegacyAudience(upgrade.migration.db, {
-        observedAt: OBSERVED_AT,
-        profile: legacyBackfillProfile(),
-      })
       await reinviteUser(upgrade.migration.db, seed)
+      await restoreQuarantinedAdmissionsForAuthorityProbe(upgrade, seed)
     }, 300_000)
 
     afterAll(async () => {
@@ -223,7 +303,26 @@ describe.skipIf(!provisioned)(
     const active = () => seed.activeGroupId
     const stale = (): UserPrincipalRef => seed.removed
 
-    test('the stale audience is a workspace member again, and holds no canonical admission', async () => {
+    test('0058 withdraws the exact ambiguous group records and preserves the registered snapshot proof', () => {
+      if (!migrationQuarantineComparison)
+        throw new Error('production quarantine comparison was not captured')
+      const findings = migrationQuarantineComparison.findings.filter(
+        (finding) => finding.findingClass !== 'unknown_domain'
+      )
+      expect(
+        findings.map((finding) => `${finding.findingClass}:${finding.family}`).toSorted()
+      ).toEqual(
+        [
+          'missing_record:groupAdmissions',
+          'missing_record:groupAdmissions',
+          'missing_record:groupAudienceGrants',
+          'missing_record:groupEnlistmentGrants',
+        ].toSorted()
+      )
+      expect(migrationQuarantineComparison.verdict).toBe('divergent')
+    })
+
+    test('the migration preserves and records the stale audience source row', async () => {
       const membership = await countRows(
         upgrade.migration.db,
         sql`select count(*)::int as count from app.workspace_memberships where workspace_id = ${ws()}::uuid and user_id = ${stale().userId}::uuid`
@@ -232,11 +331,200 @@ describe.skipIf(!provisioned)(
       expect(
         await loadGroupAdmission(db(), ws(), active(), { kind: 'user', userId: stale().userId })
       ).toBeNull()
+      const quarantine = await rowsOf(
+        upgrade.migration.db,
+        sql`select reason, source_row_digest, withdrawn_digest, profile
+            from app.legacy_audience_quarantine
+            where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+              and principal_kind = 'user' and principal_id = ${stale().userId}::uuid`
+      )
+      expect(quarantine).toHaveLength(1)
+      expect(quarantine[0]?.reason).toBe('user_not_workspace_member')
+      expect(quarantine[0]?.profile).toBe(legacyBackfillProfile())
+      expect(String(quarantine[0]?.source_row_digest)).toMatch(/^[0-9a-f]{64}$/)
+      expect(String(quarantine[0]?.withdrawn_digest)).toMatch(/^[0-9a-f]{64}$/)
+      const [microsecondDigests] = await rowsOf(
+        upgrade.migration.db,
+        sql`select
+              app.legacy_participant_digest(jsonb_populate_record(
+                cp, jsonb_build_object(
+                  'created_at', date_trunc('milliseconds', cp.created_at) + interval '1 microsecond'
+                )
+              )) as first_digest,
+              app.legacy_participant_digest(jsonb_populate_record(
+                cp, jsonb_build_object(
+                  'created_at', date_trunc('milliseconds', cp.created_at) + interval '2 microseconds'
+                )
+              )) as second_digest
+            from app.channel_participants cp
+            join app.legacy_audience_quarantine q on q.source_participant_id = cp.id
+            where q.workspace_id = ${ws()}::uuid and q.channel_id = ${active()}::uuid
+              and q.principal_kind = 'user' and q.principal_id = ${stale().userId}::uuid`
+      )
+      expect(String(microsecondDigests?.first_digest)).not.toBe(
+        String(microsecondDigests?.second_digest)
+      )
       const roster = await countRows(
         upgrade.migration.db,
         sql`select count(*)::int as count from ${channelParticipants} where channel_id = ${active()}::uuid and principal_kind = 'user' and user_id = ${stale().userId}::uuid`
       )
       expect(roster).toBe(1)
+    })
+
+    test('re-running the migrator and historical backfill does not restore quarantined grants', async () => {
+      const before = await rowsOf(
+        upgrade.migration.db,
+        sql`select source_row_digest, withdrawn_digest
+            from app.legacy_audience_quarantine
+            where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            order by principal_kind, principal_id`
+      )
+      await migrate(upgrade.migration.db, { migrationsFolder: DRIZZLE_DIR })
+      await upgrade.migration.db.transaction(async (tx) => {
+        for (const statement of canonicalBackfillStatements()) await tx.execute(sql.raw(statement))
+      })
+      const after = await rowsOf(
+        upgrade.migration.db,
+        sql`select source_row_digest, withdrawn_digest
+            from app.legacy_audience_quarantine
+            where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            order by principal_kind, principal_id`
+      )
+      expect(after).toEqual(before)
+      expect(
+        await countRows(
+          upgrade.migration.db,
+          sql`select count(*)::int as count from app.group_audience_grants
+              where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+                and user_id = ${stale().userId}::uuid`
+        )
+      ).toBe(1)
+    })
+
+    test('quarantine remains authoritative even if legacy derived rows are restored', async () => {
+      const admission = await countRows(
+        upgrade.migration.db,
+        sql`select count(*)::int as count from app.group_admissions
+            where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+              and principal_kind = 'user' and user_id = ${stale().userId}::uuid`
+      )
+      expect(admission).toBe(1)
+      expect(
+        await loadGroupAdmission(db(), ws(), active(), { kind: 'user', userId: stale().userId })
+      ).toBeNull()
+      expect(await settle(() => getChannelForUser(db(), ws(), active(), stale()))).toEqual({
+        denied: 'Channel unavailable',
+      })
+      expect(
+        await loadGroupAdmission(db(), ws(), active(), {
+          kind: 'agent',
+          agentId: seed.otherWorkspaceAgentId,
+        })
+      ).toBeNull()
+      expect(
+        await settle(() =>
+          createRuntimeResultMessage(db(), ws(), active(), seed.owner, {
+            bodyText: 'wrong-workspace agent bypass',
+            executionRef: `exec-${crypto.randomUUID()}`,
+            externalSessionRef: `session-${crypto.randomUUID()}`,
+            idempotencyKey: `agent-bypass-${crypto.randomUUID()}`,
+            sender: { kind: 'agent', agentId: seed.otherWorkspaceAgentId },
+          })
+        )
+      ).toEqual({ denied: 'Channel unavailable' })
+    })
+
+    test('runtime DML cannot change quarantined grants, admissions, source rows or the quarantine record', async () => {
+      const attempts = [
+        upgrade.runtime.db.execute(sql`
+          update app.group_admissions set joined_sequence = 1
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and user_id = ${stale().userId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          update app.group_audience_grants set revision = revision + 1
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and user_id = ${stale().userId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          update app.group_enlistment_grants set revision = revision + 1
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and agent_id = ${seed.otherWorkspaceAgentId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          update app.group_admissions set joined_sequence = 1
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'agent' and agent_id = ${seed.otherWorkspaceAgentId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          update app.channel_participants set updated_at = now()
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and user_id = ${stale().userId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          delete from app.channel_participants
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and user_id = ${stale().userId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          delete from app.legacy_audience_quarantine
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and principal_id = ${stale().userId}::uuid
+        `),
+        upgrade.runtime.db.execute(sql`
+          update app.legacy_audience_quarantine set observed_at = 'tampered'
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and principal_id = ${stale().userId}::uuid
+        `),
+        // The canonical migration role owns the table, but ownership does not bypass the immutable
+        // quarantine trigger after cutover. A future migration must make any repair explicit.
+        upgrade.migration.db.execute(sql`
+          update app.legacy_audience_quarantine set observed_at = 'owner-bypass'
+          where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+            and principal_kind = 'user' and principal_id = ${stale().userId}::uuid
+        `),
+      ]
+      for (const attempt of attempts) {
+        const result = await attempt.then(
+          () => 'accepted',
+          (error: unknown) => messageChain(error)
+        )
+        expect(result).toMatch(/legacy audience is quarantined|quarantine is migration-managed/)
+      }
+    })
+
+    test('new grant and admission inserts cannot recreate quarantined authority', async () => {
+      await upgrade.runtime.db.execute(sql`
+        insert into app.group_audience_grants
+          (workspace_id, channel_id, grant_id, revision, user_id, issued_at, expires_at, revoked_at)
+        values (${ws()}::uuid, ${active()}::uuid, 'runtime_attempted_quarantined_insert', 1,
+          ${stale().userId}::uuid, ${OBSERVED_AT}, null, null)
+      `)
+      await upgrade.runtime.db.execute(sql`
+        insert into app.group_admissions
+          (workspace_id, channel_id, principal_kind, user_id, agent_id, joined_sequence, joined_at,
+           auth_group_id, auth_grant_id, auth_revision)
+        values (${ws()}::uuid, ${active()}::uuid, 'user', ${stale().userId}::uuid, null,
+          0, ${OBSERVED_AT}, ${active()}, 'runtime_attempted_quarantined_insert', 1)
+      `)
+      expect(
+        await countRows(
+          upgrade.migration.db,
+          sql`select count(*)::int as count from app.group_audience_grants
+              where grant_id = 'runtime_attempted_quarantined_insert'`
+        )
+      ).toBe(0)
+      expect(
+        await countRows(
+          upgrade.migration.db,
+          sql`select count(*)::int as count from app.group_admissions
+              where workspace_id = ${ws()}::uuid and channel_id = ${active()}::uuid
+                and principal_kind = 'user' and user_id = ${stale().userId}::uuid`
+        )
+      ).toBe(1)
+      expect(
+        await loadGroupAdmission(db(), ws(), active(), { kind: 'user', userId: stale().userId })
+      ).toBeNull()
     })
 
     describe('read', () => {
@@ -276,6 +564,9 @@ describe.skipIf(!provisioned)(
         expect(readState.map((entry) => entry.channelId)).not.toContain(active())
         const ownerInbox = await accountConversationInbox(db(), seed.owner)
         expect(ownerInbox.conversations.map((entry) => entry.id)).toContain(active())
+        expect(
+          await settle(() => markChannelReadState(db(), ws(), active(), stale(), 'read', 1))
+        ).toEqual({ denied: 'Read state unavailable' })
       })
 
       test('the account summary counts no unread from the stale group', async () => {
@@ -319,6 +610,54 @@ describe.skipIf(!provisioned)(
           })
         )
         expect(attempt).toEqual({ denied: 'Channel unavailable' })
+        expect(await writeFootprint(db(), ws(), active())).toEqual(before)
+      })
+
+      test('direct message-id edit and delete refuse the stale audience, and write nothing', async () => {
+        const before = await writeFootprint(db(), ws(), active())
+        const message = await rowsOf(
+          upgrade.migration.db,
+          sql`select id, version from app.messages where channel_id = ${active()}::uuid
+              order by sequence limit 1`
+        )
+        const id = String(message[0]?.id)
+        const version = Number(message[0]?.version)
+        expect(
+          await settle(() => editMessage(db(), ws(), id, stale(), { bodyText: 'changed' }, version))
+        ).toEqual({ denied: 'Channel unavailable' })
+        expect(await settle(() => deleteMessage(db(), ws(), id, stale(), version))).toEqual({
+          denied: 'Channel unavailable',
+        })
+        expect(await writeFootprint(db(), ws(), active())).toEqual(before)
+      })
+
+      test('generic append and channel status/payload writes refuse the stale audience', async () => {
+        const before = await writeFootprint(db(), ws(), active())
+        const channel = await getChannelForUser(db(), ws(), active(), seed.owner)
+        expect(
+          await settle(() =>
+            createMessage(db(), ws(), active(), stale(), {
+              bodyText: 'generic append bypass',
+              idempotencyKey: 'quarantined-generic-append',
+              sender: stale(),
+            })
+          )
+        ).toEqual({ denied: 'Channel unavailable' })
+        expect(
+          await settle(() =>
+            updateChannel(
+              db(),
+              ws(),
+              active(),
+              stale(),
+              { title: 'bypassed title' },
+              channel.version
+            )
+          )
+        ).toEqual({ denied: 'Channel unavailable' })
+        expect(
+          await settle(() => archiveChannel(db(), ws(), active(), stale(), channel.version))
+        ).toEqual({ denied: 'Channel unavailable' })
         expect(await writeFootprint(db(), ws(), active())).toEqual(before)
       })
 
@@ -395,9 +734,9 @@ describe.skipIf(!provisioned)(
           () => 'written',
           (error: unknown) => messageChain(error)
         )
-        // The withholding trigger refuses the implicit grant the roster write would mint for the stale
-        // user. The whole write rolls back: the refusal names the canonical withholding, not a rejection.
-        expect(refusal).toContain('legacy audience is quarantined')
+        // The application admission boundary refuses this principal before replacing even the clean
+        // roster rows. The immutable legacy source row remains available for audit.
+        expect(refusal).toContain('Conversation participant unavailable')
         expect(await writeFootprint(db(), ws(), active())).toEqual(before)
         expect(
           await loadGroupAdmission(db(), ws(), active(), { kind: 'user', userId: stale().userId })
@@ -406,3 +745,63 @@ describe.skipIf(!provisioned)(
     })
   }
 )
+
+async function rowsOf(db: AgentHqDatabase, statement: ReturnType<typeof sql>) {
+  return (await db.execute<Record<string, unknown>>(statement)) as unknown as Record<
+    string,
+    unknown
+  >[]
+}
+
+/** Simulates a stale pre-migration admission being restored by an out-of-band repair. */
+async function restoreQuarantinedAdmissionsForAuthorityProbe(
+  fixture: Fixture,
+  seed: LegacyAudienceSeed
+): Promise<void> {
+  const tx = fixture.migration.db
+  await tx.execute(
+    sql`alter table app.group_audience_grants disable trigger legacy_audience_withhold`
+  )
+  await tx.execute(
+    sql`alter table app.group_enlistment_grants disable trigger legacy_audience_withhold`
+  )
+  await tx.execute(sql`alter table app.group_admissions disable trigger legacy_audience_withhold`)
+  try {
+    await tx.execute(sql`
+      insert into app.group_audience_grants
+        (workspace_id, channel_id, grant_id, revision, user_id, issued_at, expires_at, revoked_at)
+      values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'out_of_band_stale_user', 1,
+        ${seed.removed.userId}::uuid, ${OBSERVED_AT}, null, null)
+    `)
+    await tx.execute(sql`
+      insert into app.group_admissions
+        (workspace_id, channel_id, principal_kind, user_id, agent_id, joined_sequence, joined_at,
+         auth_group_id, auth_grant_id, auth_revision)
+      values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'user',
+        ${seed.removed.userId}::uuid, null, 0, ${OBSERVED_AT}, ${seed.activeGroupId},
+        'out_of_band_stale_user', 1)
+    `)
+    await tx.execute(sql`
+      insert into app.group_enlistment_grants
+        (workspace_id, channel_id, grant_id, revision, agent_id, issued_at, expires_at, revoked_at)
+      values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'out_of_band_stale_agent', 1,
+        ${seed.otherWorkspaceAgentId}::uuid, ${OBSERVED_AT}, null, null)
+    `)
+    await tx.execute(sql`
+      insert into app.group_admissions
+        (workspace_id, channel_id, principal_kind, user_id, agent_id, joined_sequence, joined_at,
+         auth_group_id, auth_grant_id, auth_revision)
+      values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'agent', null,
+        ${seed.otherWorkspaceAgentId}::uuid, 0, ${OBSERVED_AT}, ${seed.activeGroupId},
+        'out_of_band_stale_agent', 1)
+    `)
+  } finally {
+    await tx.execute(
+      sql`alter table app.group_audience_grants enable trigger legacy_audience_withhold`
+    )
+    await tx.execute(
+      sql`alter table app.group_enlistment_grants enable trigger legacy_audience_withhold`
+    )
+    await tx.execute(sql`alter table app.group_admissions enable trigger legacy_audience_withhold`)
+  }
+}

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS "app"."legacy_audience_quarantine" (
   "principal_id" uuid NOT NULL,
   "reason" text NOT NULL,
   "source_participant_id" uuid NOT NULL,
+  "source_workspace_id" uuid NOT NULL,
   "source_row_digest" text NOT NULL,
   "source_channel_created_at" text NOT NULL,
   "source_joined_at" text NOT NULL,
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS "app"."legacy_audience_quarantine" (
   CONSTRAINT "legacy_audience_quarantine_principal_unique"
     UNIQUE ("workspace_id", "channel_id", "principal_kind", "principal_id"),
   CONSTRAINT "legacy_audience_quarantine_reason_known"
-    CHECK ("reason" IN ('group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')),
+    CHECK ("reason" IN ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')),
   CONSTRAINT "legacy_audience_quarantine_profile_nonempty" CHECK (length(btrim("profile")) > 0),
   CONSTRAINT "legacy_audience_quarantine_withdrawal_complete"
     CHECK (("withdrawn_digest" IS NULL) = ("withdrawn_admissions" IS NULL)
@@ -52,8 +53,8 @@ AS $$
     'principalKind', cp.principal_kind,
     'userId', cp.user_id,
     'agentId', cp.agent_id,
-    'createdAt', to_char(cp.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-    'updatedAt', to_char(cp.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    'createdAt', to_char(cp.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+    'updatedAt', to_char(cp.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
   )::text, 'UTF8')), 'hex')
 $$;
 

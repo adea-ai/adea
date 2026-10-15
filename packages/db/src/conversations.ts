@@ -57,6 +57,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  legacyAudienceQuarantine,
   groupSharingGrants,
   messageArtifactReferences,
   messageMentions,
@@ -1339,14 +1340,40 @@ export async function setChannelParticipants(
     const normalized = [...unique]
     for (const participant of normalized)
       await validateParticipant(transaction, workspaceId, participant)
-    await transaction
-      .delete(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, workspaceId),
-          eq(channelParticipants.channelId, channelId)
+    if (normalized.length) {
+      const quarantined = await transaction
+        .select({ id: legacyAudienceQuarantine.id })
+        .from(legacyAudienceQuarantine)
+        .where(
+          and(
+            eq(legacyAudienceQuarantine.workspaceId, workspaceId),
+            eq(legacyAudienceQuarantine.channelId, channelId),
+            or(
+              ...normalized.map((participant) =>
+                and(
+                  eq(legacyAudienceQuarantine.principalKind, participant.kind),
+                  eq(
+                    legacyAudienceQuarantine.principalId,
+                    participant.kind === 'user' ? participant.userId : participant.agentId
+                  )
+                )!
+              )
+            )
+          )
         )
+        .limit(1)
+      if (quarantined.length) throw new Error('Conversation participant unavailable')
+    }
+    await transaction.delete(channelParticipants).where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId),
+        sql`not exists (
+            select 1 from ${legacyAudienceQuarantine}
+            where ${legacyAudienceQuarantine.sourceParticipantId} = ${channelParticipants.id}
+          )`
       )
+    )
     if (normalized.length)
       await transaction.insert(channelParticipants).values(
         normalized.map((participant) => ({

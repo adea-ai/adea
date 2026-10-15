@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm'
-import { bigint, check, index, integer, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  bigint,
+  check,
+  index,
+  integer,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
 import { agents } from './agents'
 import { channels, conversationPrincipalKind } from './conversations'
@@ -168,5 +178,74 @@ export const groupAdmissions = appSchema.table(
     check('group_admissions_auth_grant_nonempty', sql`length(btrim(${table.authGrantId})) > 0`),
     check('group_admissions_auth_revision_positive', sql`${table.authRevision} > 0`),
     index('group_admissions_channel_idx').on(table.workspaceId, table.channelId),
+  ]
+)
+
+/**
+ * Durable provenance for ambiguous legacy group participants (#1222). The source participant row
+ * is retained in place; this record captures its identity/digest and the exact derived admission or
+ * grant rows withdrawn by the quarantine migration. Principal IDs are intentionally not foreign
+ * keys so removing a user or Agent cannot erase the evidence needed to keep that audience denied.
+ */
+export const legacyAudienceQuarantine = appSchema.table(
+  'legacy_audience_quarantine',
+  {
+    id: entityId(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    channelId: uuid('channel_id')
+      .notNull()
+      .references(() => channels.id, { onDelete: 'cascade' }),
+    principalKind: conversationPrincipalKind('principal_kind').notNull(),
+    principalId: uuid('principal_id').notNull(),
+    reason: text('reason').notNull(),
+    sourceParticipantId: uuid('source_participant_id').notNull(),
+    sourceWorkspaceId: uuid('source_workspace_id').notNull(),
+    sourceRowDigest: text('source_row_digest').notNull(),
+    sourceChannelCreatedAt: text('source_channel_created_at').notNull(),
+    sourceJoinedAt: text('source_joined_at').notNull(),
+    profile: text('profile').notNull(),
+    observedAt: text('observed_at').notNull(),
+    withdrawnAdmissions: integer('withdrawn_admissions'),
+    withdrawnAudienceGrants: integer('withdrawn_audience_grants'),
+    withdrawnEnlistmentGrants: integer('withdrawn_enlistment_grants'),
+    withdrawnDigest: text('withdrawn_digest'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('legacy_audience_quarantine_principal_unique').on(
+      table.workspaceId,
+      table.channelId,
+      table.principalKind,
+      table.principalId
+    ),
+    unique('legacy_audience_quarantine_source_unique').on(table.sourceParticipantId),
+    check(
+      'legacy_audience_quarantine_reason_known',
+      sql`${table.reason} in ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')`
+    ),
+    check('legacy_audience_quarantine_profile_nonempty', sql`length(btrim(${table.profile})) > 0`),
+    check(
+      'legacy_audience_quarantine_source_digest_hex',
+      sql`${table.sourceRowDigest} ~ '^[0-9a-f]{64}$'`
+    ),
+    check(
+      'legacy_audience_quarantine_withdrawal_digest_hex',
+      sql`${table.withdrawnDigest} is null or ${table.withdrawnDigest} ~ '^[0-9a-f]{64}$'`
+    ),
+    check(
+      'legacy_audience_quarantine_withdrawal_complete',
+      sql`(${table.withdrawnDigest} is null) = (${table.withdrawnAdmissions} is null)
+        and (${table.withdrawnDigest} is null) = (${table.withdrawnAudienceGrants} is null)
+        and (${table.withdrawnDigest} is null) = (${table.withdrawnEnlistmentGrants} is null)`
+    ),
+    check(
+      'legacy_audience_quarantine_withdrawal_counts_nonnegative',
+      sql`(${table.withdrawnAdmissions} is null or ${table.withdrawnAdmissions} >= 0)
+        and (${table.withdrawnAudienceGrants} is null or ${table.withdrawnAudienceGrants} >= 0)
+        and (${table.withdrawnEnlistmentGrants} is null or ${table.withdrawnEnlistmentGrants} >= 0)`
+    ),
+    index('legacy_audience_quarantine_channel_idx').on(table.workspaceId, table.channelId),
   ]
 )

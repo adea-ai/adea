@@ -20,18 +20,19 @@ import {
   type LegacyAudienceSeed as Seeded,
 } from '../fixtures/legacy-audience-seed'
 
-// #1222 additive-migration quarantine, proved on a disposable rehearsal database. The chain is the
-// pinned canonical #1229 -> #1230 -> #1232 sequence. Legacy records that the product could not have
-// produced through its own functions are seeded directly, as the legacy data would be:
+// Fixture-only mechanics rehearsal for #1222 on the pinned canonical #1229 -> #1230 -> #1232 chain.
+// The production 0058 migration and current-product admission gates are proved in the canonical
+// migration and product-gate integration tests. This fixture keeps the explicit repeatable
+// classify/withdraw/replay exercise independent of that activated path. Legacy records that the
+// product could not have produced through its own functions are seeded directly:
 //   - a user who has since left the workspace, still a participant of an active group;
 //   - an agent from another workspace, still a participant of an active group;
 //   - the participants of an archived group.
 // The canonical 0050 backfill admits all of them. The quarantine then withholds exactly the
 // unresolvable ones. Original channel_participants rows are preserved and never changed.
 //
-// NOT proved here: a product integration that makes the join-point gate refuse quarantined principals
-// (the #1232 candidate's gate is not on main), and quarantine of other ambiguous shapes beyond the
-// three stated reasons. Those are reported as gaps, not claimed.
+// This fixture remains narrowly scoped to the three seeded legacy ambiguity shapes; production also
+// explicitly classifies channel/workspace mismatches in 0058.
 
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
@@ -148,6 +149,7 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     expect(afterQuarantine.quarantined).toBe(4)
     expect(afterQuarantine.quarantinedByReason).toEqual({
       agent_workspace_mismatch: 1,
+      channel_workspace_mismatch: 0,
       group_channel_not_active: 2,
       user_not_workspace_member: 1,
     })
@@ -210,6 +212,8 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
       admissionsEqualAdmissible: true,
       admissionsPlusQuarantinedEqualSource: true,
       quarantineCoversClassification: true,
+      originalDigestsMatch: true,
+      originalsPreserved: true,
     })
   })
 
@@ -337,9 +341,12 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     )
   })
 
-  test('known gap, recorded: the quarantined originals stay in channel_participants, so the rows still exist as legacy records', async () => {
+  test('quarantined originals stay in channel_participants with their source digests intact', async () => {
     const rows = await countQuarantinedOriginals(connection.db)
     expect(rows).toBe(4)
+    const reconciliation = await reconcileLegacyAudience(connection.db)
+    expect(reconciliation.sourceDigestMismatches).toBe(0)
+    expect(reconciliation.missingOriginals).toBe(0)
   })
 })
 
