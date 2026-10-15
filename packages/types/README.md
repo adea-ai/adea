@@ -20,3 +20,13 @@ clients should import them from the focused video subpath so a lazy relay view
 does not load the operation registry. The full contract delegates registry
 decoders to the same implementation, so server reply validation and lazy
 client views keep one validation rule set.
+
+`dev-runtime-wire` also exports `RuntimeUsageObservedPayload` and
+`decodeRuntimeUsageObservedPayload(value, expectedGeneration)` for strict
+`usage.observed` production. `RuntimeEvent<'usage.observed'>` types that payload;
+`decodeRuntimeEvent` enforces the same schema at the wire boundary. Each snapshot
+names one provider/model and the enclosing session generation, with independently
+nullable current-context used/total figures and optional reported token breakdown
+and exact-decimal cost. Unknown figures stay unknown; no context, price, or usage
+is estimated. See the [normative usage contract](../../docs/specs/dev-runtime.md#context-and-token-usage-observations-1391)
+for counter semantics, bounds, compatibility, and snapshot replacement rules.

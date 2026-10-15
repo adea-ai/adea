@@ -71,6 +71,7 @@ export {
   dataClassifications,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeUsageObservedPayload,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -95,6 +96,7 @@ export type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeUsageObservedPayload,
 } from './dev-runtime-wire'
 export {
   CITED_RESPONSE_BYTES_MAX,

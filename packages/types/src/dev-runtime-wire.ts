@@ -12,6 +12,13 @@ import {
 } from './dev-runtime-validation-internal'
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
+import {
+  decodeRuntimeUsageObservedPayload,
+  usageDataRecord,
+  type RuntimeUsageObservedPayload,
+} from './dev-runtime-usage'
+export { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
+export type { RuntimeUsageObservedPayload } from './dev-runtime-usage'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -68,7 +75,7 @@ export const dataClassifications = [
 ] as const
 export type DataClassification = (typeof dataClassifications)[number]
 
-export type RuntimeEvent = Readonly<{
+export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readonly<{
   schemaVersion: 1
   eventId: string
   runtimeSessionId: string
@@ -81,8 +88,8 @@ export type RuntimeEvent = Readonly<{
   sourceEventId: string
   confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
   classification: DataClassification
-  kind: RuntimeEventKind
-  payload: unknown
+  kind: K
+  payload: K extends 'usage.observed' ? RuntimeUsageObservedPayload : unknown
 }>
 
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
@@ -116,7 +123,9 @@ export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
-  const item = record(value, 'event')
+  // A programmatic discriminator must be inert before ANY field is read.
+  // Otherwise a changing `kind` getter can select a different validation path.
+  const item = usageDataRecord(value, 'event')
   exactKeys(
     item,
     [
@@ -175,10 +184,18 @@ export function decodeRuntimeEvent(
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
   validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
-  validateEventPayload(item.payload, 'event.payload')
-  validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
+  let usage: RuntimeUsageObservedPayload | undefined
+  if (item.kind === 'usage.observed') {
+    if (item.confidence !== 'authoritative')
+      fail('event.confidence', 'usage observations require authoritative reported figures')
+    usage = decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+  }
+  const payload = usage ?? item.payload
+  validateEventPayload(payload, 'event.payload')
+  validateRuntimeResponseReferences(item.kind as string, payload, item.source as string)
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  if (usage) return Object.freeze({ ...(value as RuntimeEvent), payload: usage })
   return value as RuntimeEvent
 }
 

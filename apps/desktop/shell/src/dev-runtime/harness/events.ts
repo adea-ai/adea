@@ -27,6 +27,7 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
+import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
 import {
   assertVisibleSummaryAppend,
   assertVisibleSummaryReplay,
@@ -34,6 +35,30 @@ import {
 } from './visible-summaries'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
+
+/** A retained generation cannot be replayed under the current usage contract. */
+export class RuntimeEventRecoveryRequiredError extends Error {
+  readonly code = 'recovery_required'
+  readonly retryable = false
+
+  constructor() {
+    super('retained runtime event generation requires recovery')
+    this.name = 'RuntimeEventRecoveryRequiredError'
+  }
+}
+
+function assertUsageReplayable(events: readonly RuntimeEvent[]): RuntimeEvent[] {
+  return events.map((event) => {
+    if (event.kind !== 'usage.observed') return event
+    try {
+      return decodeRuntimeEvent(event, { source: event.source })
+    } catch {
+      // Logical quarantine: preserve the original record and refuse the whole
+      // selected generation. Never drop a sequence or fabricate a replacement.
+      throw new RuntimeEventRecoveryRequiredError()
+    }
+  })
+}
 
 /** Maximum retained events per (scope, runtime session). */
 export const MAX_EVENTS_PER_SESSION = 1000
@@ -138,8 +163,18 @@ export function createSessionEventLog(input: {
       : events.reduce((max, event) => (seqOf(event) > BigInt(max) ? event.seq : max), '0')
   }
 
+  const rawEvents = (): RuntimeEvent[] => inScope().map(project)
+  const select = (runtimeSessionId: string, generation?: number): RuntimeEvent[] => {
+    const selected = rawEvents().filter(
+      (event) =>
+        event.runtimeSessionId === runtimeSessionId &&
+        (generation === undefined || event.generation === generation)
+    )
+    return assertUsageReplayable(selected)
+  }
+
   const all = (): RuntimeEvent[] => {
-    const records = inScope().map(project)
+    const records = assertUsageReplayable(rawEvents())
     assertVisibleSummaryReplay(records)
     return records
   }
@@ -150,9 +185,16 @@ export function createSessionEventLog(input: {
       sessionInput.payload,
       sessionInput.source ?? 'host'
     )
-    const records = all()
+    const records = rawEvents()
+    assertUsageReplayable(
+      records.filter(
+        (event) =>
+          event.runtimeSessionId === sessionInput.runtimeSessionId &&
+          event.generation === sessionInput.generation
+      )
+    )
     const source = sessionInput.source ?? 'host'
-    const candidate: RuntimeEvent = {
+    let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
       runtimeSessionId: sessionInput.runtimeSessionId,
@@ -172,6 +214,9 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    // Usage has a strict producer contract (#1391). Refuse before persistence,
+    // dedupe, retention, or subscriber delivery; other event payloads stay opaque.
+    if (candidate.kind === 'usage.observed') candidate = decodeRuntimeEvent(candidate, { source })
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
       if (
@@ -227,11 +272,7 @@ export function createSessionEventLog(input: {
   ): RuntimeEvent[] {
     const limit = Math.min(options?.limit ?? EVENT_PAGE_DEFAULT, EVENT_PAGE_MAX)
     const from = BigInt(options?.fromSequence ?? '0')
-    return all()
-      .filter((event) => event.runtimeSessionId === runtimeSessionId)
-      .filter((event) =>
-        options?.generation !== undefined ? event.generation === options.generation : true
-      )
+    return select(runtimeSessionId, options?.generation)
       .filter((event) => seqOf(event) >= from)
       .toSorted(compareRetentionOrder)
       .slice(0, limit)
@@ -241,7 +282,7 @@ export function createSessionEventLog(input: {
     append: appendEvent,
     read: readEvents,
     latestSequence(runtimeSessionId, generation) {
-      return latestSeqOf(all(), runtimeSessionId, generation)
+      return latestSeqOf(select(runtimeSessionId, generation), runtimeSessionId, generation)
     },
     subscribe(runtimeSessionId, cb) {
       const set = subscribers.get(runtimeSessionId) ?? new Set()

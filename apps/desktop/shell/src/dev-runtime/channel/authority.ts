@@ -693,11 +693,11 @@ export function createChannelAuthority(options?: {
         )
       }
       // A provider's typed failure is a valid refusal, not a crash: a thrown
-      // DevError-shaped value is surfaced verbatim so callers see the exact
+      // DevError-shaped value is projected to wire fields so callers see the exact
       // contract code (spec: "Messages may change; code, retryability, and
       // remediation shape are API").
       if (isDevErrorShape(error)) {
-        return refusal(error, {
+        return refusal(wireDevError(error), {
           operation: decodeOperation(raw),
           channelId: decodeChannelId(raw),
           clientCredentialId: decodeCredentialId(raw),
@@ -859,10 +859,10 @@ export function createChannelAuthority(options?: {
           localOperation(command)
         )
       }
-      // A provider's typed failure is a valid refusal, surfaced verbatim —
+      // A provider's typed failure is a valid refusal, projected to wire fields —
       // the same contract the socket path honors.
       if (isDevErrorShape(error)) {
-        return refusal(error, localOperation(command))
+        return refusal(wireDevError(error), localOperation(command))
       }
       return refusal({
         code: 'invalid_state',
@@ -1114,6 +1114,18 @@ export function createChannelAuthority(options?: {
     isTrustedRequest,
     revokeAllChannels,
     registeredOperations,
+  }
+}
+
+/** Error.message is non-enumerable; class names and stacks are not wire fields. */
+function wireDevError(error: DevError): DevError {
+  return {
+    code: error.code,
+    retryable: error.retryable,
+    message: error.message,
+    ...(error.remediation !== undefined ? { remediation: error.remediation } : {}),
+    ...(error.currentVersion !== undefined ? { currentVersion: error.currentVersion } : {}),
+    ...(error.observedAt !== undefined ? { observedAt: error.observedAt } : {}),
   }
 }
 

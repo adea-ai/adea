@@ -10,7 +10,7 @@
 // harness process is ever spawned.
 import { describe, expect, test } from 'bun:test'
 import { createCipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -710,6 +710,44 @@ function makeGrant(overrides: Partial<DevStreamGrant> = {}): DevStreamGrant {
 }
 
 describe('runtime-events-v1 stream handler', () => {
+  test('closes incompatible before any replay or heartbeat for retained opaque usage', async () => {
+    const shell = await boot()
+    try {
+      const events = shell.host().harness!.events
+      const sessionId = '00000000-0000-4000-8000-0000000000c1'
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'session.ready', sourceEventId: 'before' })
+      )
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'run.completed', sourceEventId: 'after' })
+      )
+      const file = join(shell.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+      const stored = JSON.parse(readFileSync(file, 'utf8'))
+      stored.records[1] = { ...stored.records[1], kind: 'usage.observed', payload: { tokens: 123 } }
+      const original = JSON.stringify(stored)
+      writeFileSync(file, original)
+      for (const fromSequence of ['0', '2', '999']) {
+        const session = scriptedSession(
+          makeGrant({
+            resource: { kind: 'runtime_session', id: sessionId, generation: 1 },
+            fromSequence,
+          })
+        )
+        shell.capturedStreamProvider()(session as never)
+        expect(session.sent).toEqual([])
+        expect(session.closed).toEqual({
+          code: 'incompatible',
+          reason: 'runtime event history requires recovery',
+        })
+        expect(session.onFrame).toBeUndefined()
+        expect(session.onClose).toBeUndefined()
+      }
+      expect(readFileSync(file, 'utf8')).toBe(original)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('replays the bounded window, pushes live events, and closes on a newer generation', async () => {
     const shell = await boot()
     try {
