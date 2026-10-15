@@ -1457,6 +1457,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: { protocol: 'runtime-events-v1', direction: 'read' },
   },
+  'dev.session.history': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; beforeSequence?: uint64-string; cursor?: string(1..2048); limit?: integer(1..500) }',
+    capabilities: ['dev.session.read'],
+    reply: 'RuntimeEventHistoryPage',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.get': {
     body: '{ runtimeSessionId: string }',
     capabilities: ['dev.session.read'],

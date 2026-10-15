@@ -124,8 +124,8 @@ describe('Dev Runtime operation registry', () => {
     // GitHub" import source), 236 after the harness inventory read and its
     // explicit rescan, 238 after the device-wide default harness read and update: the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
-    // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(238)
+    // what keeps the list and the decoders in step. #1396 adds the authorized history read.
+    expect(devOperations).toHaveLength(239)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

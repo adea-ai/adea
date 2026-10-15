@@ -4487,7 +4487,7 @@ split is explicit and scoped to the harness kind:
   writes nothing to the PTY input stream. An accepted handoff records ONE
   host `turn.user_input` provenance event (`workspace_private`) whose payload
   carries transport `acp`, the lane's connection id/generation, the delivered
-  byte count, and the lane's process identity — never the prompt text, and
+  byte count, the lane's process identity, and the filtered original user text described below —
   never a harness turn event over the lane's own tier (the harness fabricates
   nothing here; the host fabricates nothing there). A typed lane refusal —
   foreign session (`identity_mismatch`), non-ready lane (`invalid_state`),
@@ -4501,12 +4501,28 @@ Delivery provenance is canonical and auditable: a delivered submit appends an
 authoritative host `turn.user_input` event with `workspace_private`
 classification whose payload carries the fenced-write provenance (run id,
 `pty_input` transport, terminal id and generation, chunk/byte counts) and
-never the prompt text — prompt content stays in the control plane only. A
+the filtered original user text. This is a delivery fact, not evidence that the harness consumed the input. A
 typed non-delivery (no terminal runtime composed, no live terminal for the
 session, refused or interrupted fenced write) appends a host
 `capability.degraded` event naming the reason. A delivery failure never fails
 the launch (partial failure retains the terminal/worktree) and never silently
 masquerades as delivered.
+
+### Content-bearing production prompt records (#1396)
+
+After successful ACP handoff or guarded PTY submit, `turn.user_input.payload`
+contains `text` and `textTruncated` for the original `initialPrompt`, alongside
+existing delivery provenance. The host filters credentials, private home paths,
+URL credentials and non-display controls **before persistence**, preserves line
+breaks/tabs and bounds the projection to 16 KiB of UTF-8 at a code-point boundary.
+`textTruncated: true` explicitly discloses a cut. The harness still receives the
+original admitted prompt; filtering changes the transcript projection only.
+The workspace-memory preamble is a separate input: only its counts enter the
+receipt. Memory-only deliveries and legacy receipts have no invented text.
+Failed/refused delivery has no content-bearing `turn.user_input` record.
+A successful delivery does not imply an assistant answer or a harness turn.
+This changes the production launch producer; the current desktop Chat host has
+no composed follow-up `sendInput` transport and this issue does not invent one.
 
 ### Workspace memory preamble
 
@@ -4537,7 +4553,7 @@ includedEntries, omittedEntries, limitBytes }]`, which the launch reply and
   extra is sent and a launch without an initial prompt delivers nothing.
 - **Provenance.** The delivery's `turn.user_input` (or `capability.degraded`)
   payload adds `memoryEntries` and `memoryBytes` — counts only. Neither entry
-  text nor prompt text enters an event, a log, or the run record.
+  text enters an event, a log, or the run record. Only the separately supplied original user prompt can become the bounded transcript projection below.
 - **Failure.** A store that cannot be read injects nothing; the run's stream
   records a host `capability.degraded` fact with code `memory_unavailable`
   and the launch proceeds.
@@ -4789,6 +4805,55 @@ stream is unconfirmed, never complete. It then streams live
 append-matched events, accepts only `ack` control frames, and closes
 `stale_generation` when the session moves to a newer generation — grants
 minted under an old generation are inert, never ambiguous.
+
+### Authorized earlier transcript history (#1396)
+
+`dev.session.history` requires `dev.session.read` through the authenticated M10
+command channel. It revalidates account/workspace/runtime-node scope, canonical
+session resource and its **current** generation, including archived sessions.
+The body is `{ runtimeSessionId, expectedGeneration, beforeSequence?, cursor?,
+limit? }`. `beforeSequence` is exclusive; omit it for the current newest page.
+`cursor` and `beforeSequence` are mutually exclusive. Limit defaults to 100,
+maximum 500. Pages take the newest preceding events and return them in ascending
+sequence order, never crossing session/generation. Encoded event content is
+bounded to 192 KiB/page (reply decoder ceiling 224 KiB, within the 256 KiB control
+budget); a single oversized payload becomes `{ omitted: 'history_payload_limit' }`
+with its canonical envelope/sequence retained. Consumers must not infer missing
+content. Credential/restricted-local payloads are empty; serialized strings and
+secret-bearing fields are filtered again, including old records.
+
+The reply carries `runtimeSessionId`, `generation`, exclusive `beforeSequence`,
+`items`, optional `nextCursor`, `retainedFromSequence`, `retainedThroughSequence`
+and `historyStart` (`generation_start`, `retention_boundary`, `unavailable`).
+The retained bounds are explicit; empty/unavailable is not proof that a generation
+never had events. The existing log retains 1,000 events/session and 5,000/scope,
+oldest first. This operation recovers retained events outside the stream's newest
+500, never deleted history or another generation.
+
+Opaque HMAC cursors bind scope, session, generation, retained floor and its event
+identity, snapshot high-water, next exclusive boundary and page size. Their
+owner-only host key survives restart; a cursor is pagination state, never an
+authorization grant. Every retry reauthorizes. Same-cursor retries replay the
+same ordered items while that floor survives, even with concurrent appends.
+Any pruned/replaced floor or unexplained sequence gap refuses `resync_required`
+without partial insertion; malformed/tampered or query-mismatched cursors refuse
+`invalid_state`. A changed page size cannot reuse a cursor. Refresh the stream
+and restart from its disclosed floor after a retention refusal. Stream replay
+also discloses an actual retention floor when global eviction raised it above
+the newest-500 floor.
+
+The concrete `openRuntimeEventStream` handle exposes `loadOlder({ signal? })`
+and `hasOlder()`. Loading is single-flight, cancellation/disposal fenced, and
+merges against the latest live state before resolving. It validates page identity,
+order, continuity and duplicate equality; older insertion does not advance live
+acknowledgements or the forward replay cursor. The 1,000-event client bound still
+holds. `ChatConversationModel.openTranscript` publishes accepted backfill into
+its existing canonical event projection; optional methods preserve compatibility
+with unavailable/demo providers. No second transcript store or scroll authority
+is introduced. The #1385 owner must connect these methods to the shared
+`MessageScroller` (`hasOlder`, `loadingOlder`, awaited `onLoadOlder`) and retain
+stable message anchors and reset scope; this branch does not edit that canvas.
+See [implementation evidence and the exact integration handoff](../evidence/runtime-transcript-history-1396.md).
 
 ## Browser and device lanes
 

@@ -26,6 +26,8 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
+import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -90,6 +92,7 @@ export type SessionEventLog = Readonly<{
     options?: { fromSequence?: string; limit?: number; generation?: number }
   ): RuntimeEvent[]
   latestSequence(runtimeSessionId: string, generation?: number): string
+  history(runtimeSessionId: string, options: RuntimeHistoryRead): RuntimeEventHistoryPage
   /** Live subscription for stream push; returns the unsubscribe fn. */
   subscribe(runtimeSessionId: string, cb: (event: RuntimeEvent) => void): () => void
   /** Test/ops introspection: the wire DTOs currently retained. */
@@ -152,7 +155,11 @@ export function createSessionEventLog(input: {
       confidence: sessionInput.confidence ?? 'authoritative',
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
-      payload: sessionInput.payload ?? {},
+      payload:
+        sessionInput.classification === 'credential' ||
+        sessionInput.classification === 'restricted_local'
+          ? {}
+          : (sessionInput.payload ?? {}),
     }
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
@@ -220,6 +227,11 @@ export function createSessionEventLog(input: {
 
   return {
     append: appendEvent,
+    history: createSessionHistoryReader({
+      dataDir: input.dataDir,
+      scope: input.scope,
+      readAll: all,
+    }),
     read: readEvents,
     latestSequence(runtimeSessionId, generation) {
       return latestSeqOf(all(), runtimeSessionId, generation)

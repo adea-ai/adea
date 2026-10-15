@@ -17,8 +17,12 @@ working production ACP stream or successful assistant response.
   a particular call or result was emitted.
 - `apps/desktop/shell/src/dev-runtime/harness/register.ts` appends
   `turn.user_input` after successful delivery. Its payload records transport,
-  connection/process identity, and byte count; it omits the prompt text. This is
-  a delivery receipt, not a content-bearing user message.
+  connection/process identity and byte count. #1396 adds filtered original-user
+  `text`/`textTruncated` after successful delivery, bounded to 16 KiB of UTF-8.
+  The memory preamble never enters this projection; legacy/memory-only receipts
+  remain textless. It is a content-bearing delivery fact, never evidence of
+  harness consumption or an assistant response. See the
+  [history/prompt evidence](runtime-transcript-history-1396.md).
 - The register appends lifecycle facts and observed run transitions. Process
   exit or run completion does not prove a final assistant answer. Without an
   injected ACP driver, it uses the typed unavailable fallback. The production

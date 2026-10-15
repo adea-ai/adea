@@ -30,6 +30,9 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
+import { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
+export { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
+export type { RuntimeEventHistoryPage } from './dev-runtime-history'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
   decodeScope,
@@ -4796,6 +4799,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.runStatus': (value) => decodeHarnessRun(value),
   'dev.session.launchDefault': (value) => decodeHarnessRun(value),
   'dev.session.events': (value) => decodeDevStreamGrant(value),
+  'dev.session.history': (value) => decodeRuntimeEventHistoryPage(value),
   // ADR 0012 workspace memory: an agent proposal lands pending; the reply is
   // the receipt, never the proposed text.
   'dev.memory.propose': (value) => namedType('MemoryProposalReceipt', value, 'reply.value'),

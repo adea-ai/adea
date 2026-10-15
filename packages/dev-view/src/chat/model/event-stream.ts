@@ -9,6 +9,7 @@ import {
   createTranscriptAccumulator,
   type TranscriptAccumulator,
 } from './transcript'
+import { createRuntimeHistoryLoader, readRuntimeEventHistory } from './history'
 
 export function eventIdentity(event: RuntimeEvent): string {
   return `${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
@@ -28,6 +29,9 @@ export type RuntimeEventStream = Readonly<{
    * heartbeat), undefined until one arrives. The only proof a replay finished.
    */
   deliveredThrough: () => string | undefined
+  /** Await this from MessageScroller.onLoadOlder; publication precedes resolution. */
+  loadOlder: (options?: { signal?: AbortSignal }) => Promise<void>
+  hasOlder: () => boolean
   close: () => void
 }>
 
@@ -41,6 +45,7 @@ export type OpenRuntimeEventStreamInput = Readonly<{
   source?: RuntimeEvent['source']
   /** Called with each event the accumulator accepted, in stream order. */
   onAccepted?: (event: RuntimeEvent) => void
+  onHistoryAccepted?: (events: readonly RuntimeEvent[]) => void
 }>
 
 /**
@@ -87,6 +92,22 @@ export async function openRuntimeEventStream(
   const publish = () => {
     for (const listener of listeners) listener(transcript)
   }
+  const history = createRuntimeHistoryLoader({
+    state: () => transcript,
+    commit: (next) => {
+      transcript = next
+      input.onHistoryAccepted?.(next.events)
+      publish()
+    },
+    read: (options) =>
+      readRuntimeEventHistory({
+        service,
+        scope,
+        runtimeSessionId,
+        generation: input.generation,
+        ...options,
+      }),
+  })
   socket = transport.connect(grant as never, {
     onFrame: (frame) => {
       const source = eventSourceForStream({ source: input.source })
@@ -136,11 +157,14 @@ export async function openRuntimeEventStream(
   return {
     state: () => transcript,
     deliveredThrough: () => deliveredThrough,
+    loadOlder: history.loadOlder,
+    hasOlder: history.hasOlder,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
     close: () => {
+      history.close()
       listeners.clear()
       socket.close(1000, 'chat detached')
     },
