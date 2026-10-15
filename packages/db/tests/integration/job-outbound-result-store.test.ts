@@ -3902,6 +3902,99 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     )
   })
 
+  test('a plan reference read keeps authorization and references in one snapshot during a history grant revocation', async () => {
+    const f = await fixture()
+    const messageId = await publishTo(
+      f,
+      f.channelA.id,
+      'Visible before the history grant is revoked.'
+    )
+    const [message] = await connection.db
+      .select({ sequence: messages.sequence })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+    await connection.db
+      .update(groupAdmissions)
+      .set({ joinedSequence: message!.sequence + 1 })
+      .where(
+        and(
+          eq(groupAdmissions.channelId, f.channelA.id),
+          eq(groupAdmissions.userId, f.recipient.principal.userId)
+        )
+      )
+    const grantId = `read-snapshot-${crypto.randomUUID()}`
+    await shareGroupHistory(connection.db, f.destination.id, f.channelA.id, f.owner.principal, {
+      expiresAt: null,
+      grantId,
+      groupId: f.channelA.id,
+      issuedAt: new Date(Date.now() - 1000).toISOString(),
+      participant: { kind: 'user', userId: f.recipient.principal.userId },
+      revision: 1,
+      revokedAt: null,
+      scope: 'earlier_history',
+    })
+    const created = await createPlan(f, f.recipient.principal, [f.task.id])
+    const blocker = postgres(url!, { max: 1, prepare: false })
+    const revoker = postgres(url!, { max: 1, prepare: false })
+    const publicationReadStarted = Promise.withResolvers<void>()
+    const readClient = postgres(url!, {
+      debug: (_connection, query) => {
+        if (query.toLowerCase().includes('messages')) publicationReadStarted.resolve()
+      },
+      max: 1,
+      prepare: false,
+    })
+    const readDatabase = drizzle(readClient, { schema })
+    let blockerOpen = false
+    let inFlight: Promise<Awaited<ReturnType<typeof readPlan>>> | undefined
+    try {
+      await blocker.unsafe('begin')
+      blockerOpen = true
+      await blocker.unsafe('lock table app.messages in access exclusive mode')
+
+      inFlight = readCoordinationPlanJobReferences(
+        readDatabase,
+        f.destination.id,
+        f.channelA.id,
+        created.planId,
+        1,
+        f.recipient.principal
+      )
+      // The messages lock stalls publication resolution after plan/channel authorization has run.
+      await publicationReadStarted.promise
+
+      await revoker.unsafe(
+        'update app.group_sharing_grants set revoked_at = $1 where channel_id = $2 and grant_id = $3',
+        [new Date().toISOString(), f.channelA.id, grantId]
+      )
+
+      await blocker.unsafe('commit')
+      blockerOpen = false
+      expect(await inFlight).toEqual({
+        planId: created.planId,
+        references: [{ authority: 'none', availability: 'available', jobId: f.task.id, messageId }],
+        revision: 1,
+      })
+      expect((await readPlan(f, f.recipient.principal, created.planId, 1)).references).toEqual([
+        unavailableReference(f.task.id),
+      ])
+    } finally {
+      try {
+        if (blockerOpen) await blocker.unsafe('commit')
+      } finally {
+        try {
+          if (inFlight) await inFlight
+        } finally {
+          await Promise.all([
+            blocker.end({ timeout: 5 }),
+            readClient.end({ timeout: 5 }),
+            revoker.end({ timeout: 5 }),
+          ])
+        }
+      }
+    }
+  })
+
   test('a citation must already be released to the actor in this channel; the refusal is one error and writes nothing', async () => {
     const f = await fixture({ complete: false })
     // A result held by memory provenance is never a publication, so it cannot be cited.

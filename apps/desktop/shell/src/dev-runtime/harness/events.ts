@@ -26,9 +26,15 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
+import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { createDurableJsonStore } from '../host-store'
 import { assertAssistantEventOrder } from './assistant-events'
+import {
+  assertVisibleSummaryAppend,
+  assertVisibleSummaryReplay,
+  type VisibleSummaryVerifier,
+} from './visible-summaries'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -52,6 +58,7 @@ function sameScope(left: Scope, right: Scope): boolean {
 
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
+  validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
   return { ...rest }
 }
 
@@ -111,6 +118,8 @@ export function createSessionEventLog(input: {
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
   maxTotal?: number
+  /** Requires genuine authenticated source observations; absent fails closed. */
+  verifyVisibleSummary?: VisibleSummaryVerifier
 }): SessionEventLog {
   const maxPerSession = input.maxPerSession ?? MAX_EVENTS_PER_SESSION
   const maxTotal = input.maxTotal ?? MAX_TOTAL_EVENTS
@@ -137,9 +146,18 @@ export function createSessionEventLog(input: {
       : events.reduce((max, event) => (seqOf(event) > BigInt(max) ? event.seq : max), '0')
   }
 
-  const all = (): RuntimeEvent[] => inScope().map(project)
+  const all = (): RuntimeEvent[] => {
+    const records = inScope().map(project)
+    assertVisibleSummaryReplay(records)
+    return records
+  }
 
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+    validateRuntimeResponseReferences(
+      sessionInput.kind,
+      sessionInput.payload,
+      sessionInput.source ?? 'host'
+    )
     const records = all()
     const source = sessionInput.source ?? 'host'
     let candidate: RuntimeEvent = {
@@ -182,6 +200,7 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    assertVisibleSummaryAppend(candidate, records, input.scope, input.verifyVisibleSummary)
     assertAssistantEventOrder(records, candidate)
     const nextSequence = BigInt(candidate.seq) + 1n
     if (nextSequence > 18_446_744_073_709_551_615n) {

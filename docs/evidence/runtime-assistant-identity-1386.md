@@ -127,3 +127,58 @@ one at a time. Consumer tests above are historical and were not rerun for this
 host-only repair. Packaged/live/browser/remote/soak qualification remains unrun;
 the production emitter and consumer adoption remain separate follow-up work.
 The draft is retained for parent review; no readiness or merge action was taken.
+
+## Main reconciliation and review corrections
+
+Main advanced past the previous head with response citations (#1389) and
+user-visible summaries (#1388), which edit the same wire module, canonical log
+and event specification. The merge keeps both contracts and resolves the
+overlap as follows.
+
+- A cited final is the #1386 final plus references: exactly `messageId`,
+  `text`, `supersedes: 'deltas'` and `references`. The reference validator
+  accepts the identity fields; the assistant contract enforces them, so a cited
+  payload without identity fails on append and on the wire. A retained row
+  written before identity existed still passes the reference check on replay
+  and stays opaque to the assistant lifecycle.
+- The canonical log now decodes every candidate envelope, so an event kind
+  outside the wire vocabulary is refused at append instead of being retained
+  where no stream consumer could decode it. The #1388/#1389 replay tests that
+  used a made-up kind now use the known unrelated kind `tool.progress`, and
+  their assistant payloads carry identity.
+- Append order is: reference validation, envelope decode, duplicate/retry
+  check, summary admission, assistant lifecycle checks, then sequence
+  allocation.
+
+Review corrections found while reconciling:
+
+- A final or delta could be appended at up to 65,536 UTF-16 units, but the
+  `runtime-events-v1` handler sends each event as one 64 KiB frame and the
+  gateway closes the stream on a larger frame. Multi-byte text was affected
+  well below that count. Each assistant payload is now bounded to 48 KiB of
+  UTF-8 JSON (references keep the #1389 budget), and a test builds the largest
+  accepted event with maximal ID fields and asserts the CBOR frame stays under
+  64 KiB for 1-, 3- and 4-byte characters. A complete answer larger than that
+  bound cannot be finalized under this contract; a chunked-final contract would
+  be separate work.
+- Delta and final `text` and result `summary` could contain an unpaired UTF-16
+  surrogate, which UTF-8/CBOR replay rewrites to U+FFFD, so live and durable
+  text would differ and a delta split mid-pair would corrupt the character.
+  They are now refused, matching the message-ID and citation rules.
+
+Validation on the reconciled tree:
+
+- `bun test packages/types/tests`: 310 passed, 0 failed.
+- `bun test tests` in `apps/desktop`: 1418 passed, 0 failed across 115 files.
+- `bun test --conditions=browser packages/dev-view/tests`: 891 passed, 0 failed
+  across 83 files (consumer source untouched).
+- `bun test scripts/docs-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts scripts/desktop-auth-boundary.test.ts scripts/client-bundle-budgets.test.ts`:
+  52 passed, 0 failed.
+- `TURBO_CONCURRENCY=2 bun run typecheck`: 31 tasks passed (uncached).
+- `TURBO_CONCURRENCY=2 bun run lint`: 17 package tasks passed; `oxfmt --check .`
+  clean; `git diff --check` clean; `code-foundry doctor` passed.
+- Plain `vite build` in `apps/web` then `node start/check-client.mjs`: passed
+  with caps unchanged (Dev utility panes 185,318 of 185,344; 167 of 167 files).
+- `bun build --target=bun .../harness/events.ts`: host bundle passed.
+
+No packaged/live-harness, browser E2E or soak qualification is claimed.

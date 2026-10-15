@@ -55,6 +55,19 @@ describe('canonical assistant event append', () => {
       expect(log.latestSequence('session-1', 1)).toBe('0')
     }))
 
+  test('refuses unstreamable or lossy text without consuming a sequence or publishing', () =>
+    withLog((log) => {
+      const published: unknown[] = []
+      log.subscribe('session-1', (event) => published.push(event))
+      for (const text of ['x'.repeat(48 * 1024 + 1), 'half \ud83d pair'])
+        expect(() =>
+          log.append(input({ payload: { messageId: 'message-1', deltaIndex: 0, text } }))
+        ).toThrow()
+      expect(log.events()).toHaveLength(0)
+      expect(published).toHaveLength(0)
+      expect(log.append(input())!.seq).toBe('1')
+    }))
+
   test('orders interleaved messages and preserves identities on restart and inclusive replay', () =>
     withLog((log, dataDir) => {
       const first = log.append(input())!

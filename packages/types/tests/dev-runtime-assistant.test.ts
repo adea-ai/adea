@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX } from '../src/dev-runtime-assistant'
 import {
   decodeRuntimeEvent,
   decodeCbor,
@@ -116,6 +117,65 @@ describe('assistant event identity contract', () => {
     expect(() =>
       decodeRuntimeEvent(event('turn.result', { ...result, summary: 42 }), { source: 'acp' })
     ).toThrow('summary')
+  })
+
+  test('refuses unpaired surrogates in text a UTF-8 stream replay would rewrite', () => {
+    for (const invalid of ['\ud800', '\udc00', 'a\ud800b', 'a\udc00b']) {
+      for (const [kind, payload] of [
+        ['turn.assistant_delta', { ...delta, text: invalid }],
+        ['turn.assistant_message', { ...final, text: invalid }],
+        ['turn.result', { ...result, summary: invalid }],
+      ] as const)
+        expect(() => decodeRuntimeEvent(event(kind, payload), { source: 'acp' })).toThrow(
+          'unpaired surrogate'
+        )
+    }
+    const paired = { ...final, text: 'rocket 🚀 ok' }
+    expect(
+      decodeRuntimeEvent(event('turn.assistant_message', paired), { source: 'acp' }).payload
+    ).toEqual(paired)
+  })
+
+  test('bounds each payload so the largest accepted event still fits one stream frame', () => {
+    const encoder = new TextEncoder()
+    const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength
+    for (const [fill, unit] of [
+      ['a', 1],
+      ['界', 3],
+      ['🚀', 4],
+    ] as const) {
+      const base = { ...final, messageId: 'm'.repeat(256), text: '' }
+      const count = Math.floor((RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX - bytes(base)) / unit)
+      const exact = { ...base, text: fill.repeat(count) }
+      const big = {
+        ...event('turn.assistant_message', exact),
+        eventId: 'e'.repeat(256),
+        runtimeSessionId: 's'.repeat(256),
+        harnessRunId: 'r'.repeat(256),
+        sourceEventId: 'x'.repeat(256),
+        seq: '18446744073709551615',
+      }
+      expect(bytes(exact)).toBeLessThanOrEqual(RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX)
+      expect(decodeRuntimeEvent(big, { source: 'acp' }).payload).toEqual(exact)
+      expect(encodeCbor(big).byteLength).toBeLessThan(65_536)
+      expect(() =>
+        decodeRuntimeEvent(
+          { ...big, payload: { ...exact, text: `${exact.text}${fill.repeat(4)}` } },
+          { source: 'acp' }
+        )
+      ).toThrow('maximum assistant payload encoded size')
+    }
+    const filler = 'a'.repeat(RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX - bytes({ ...delta, text: '' }))
+    expect(
+      decodeRuntimeEvent(event('turn.assistant_delta', { ...delta, text: filler }), {
+        source: 'acp',
+      }).payload
+    ).toMatchObject({ text: filler })
+    expect(() =>
+      decodeRuntimeEvent(event('turn.assistant_delta', { ...delta, text: `${filler}a` }), {
+        source: 'acp',
+      })
+    ).toThrow('maximum assistant payload encoded size')
   })
 
   test('event sequences stay canonical within the uint64 boundary', () => {
