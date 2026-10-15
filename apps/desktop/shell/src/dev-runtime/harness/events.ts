@@ -26,6 +26,11 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import {
+  assertVisibleSummaryAppend,
+  assertVisibleSummaryReplay,
+  type VisibleSummaryVerifier,
+} from './visible-summaries'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -103,6 +108,8 @@ export function createSessionEventLog(input: {
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
   maxTotal?: number
+  /** Requires genuine authenticated source observations; absent fails closed. */
+  verifyVisibleSummary?: VisibleSummaryVerifier
 }): SessionEventLog {
   const maxPerSession = input.maxPerSession ?? MAX_EVENTS_PER_SESSION
   const maxTotal = input.maxTotal ?? MAX_TOTAL_EVENTS
@@ -129,7 +136,11 @@ export function createSessionEventLog(input: {
       : events.reduce((max, event) => (seqOf(event) > BigInt(max) ? event.seq : max), '0')
   }
 
-  const all = (): RuntimeEvent[] => inScope().map(project)
+  const all = (): RuntimeEvent[] => {
+    const records = inScope().map(project)
+    assertVisibleSummaryReplay(records)
+    return records
+  }
 
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
     const records = all()
@@ -169,6 +180,7 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    assertVisibleSummaryAppend(candidate, records, input.scope, input.verifyVisibleSummary)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
