@@ -101,9 +101,15 @@ function fixture(): ClientChunk[] {
     chunk('addon-search-main.js', 'export const search = true;', 20, 10),
     chunk(
       'runtime-terminal-pane-main.js',
-      'import("./terminal-pane-main.js"); export const runtime = true;',
+      'import("./terminal-pane-main.js"); import("./dev-terminal-reply-decoder.js"); export const runtime = true;',
       6,
       3
+    ),
+    chunk(
+      'dev-terminal-reply-decoder.js',
+      'import { decodeDevReply as decoder } from "./runtime-terminal-pane-main.js"; export { decoder as decodeDevReply };',
+      4,
+      2
     ),
     chunk(
       'code-editor-main.js',
@@ -126,7 +132,7 @@ test('measures the workspace startup graph separately from each lazy view', () =
   expect(report.views.devShell).toMatchObject({ rawBytes: 39, gzipBytes: 20 })
   expect(report.views.devUtilityPanes).toMatchObject({ rawBytes: 36, gzipBytes: 20 })
   expect(report.views.sharedUtilityOpen).toMatchObject({ rawBytes: 32, gzipBytes: 18 })
-  expect(report.views.devTerminal).toMatchObject({ rawBytes: 68, gzipBytes: 35 })
+  expect(report.views.devTerminal).toMatchObject({ rawBytes: 72, gzipBytes: 37 })
   expect(report.views.devEditor).toMatchObject({ rawBytes: 82, gzipBytes: 43 })
   expect(report.total.fileCount).toBe(fixture().length)
 })
@@ -160,6 +166,84 @@ test('the terminal WebGL and search addons stay on demand, outside the terminal 
       : item
   )
   expect(() => inspectClientBundle(extraEdge)).toThrow('dynamic chunk attribution changed')
+})
+
+test('attributes the exact lazy terminal reply decoder facade and rejects added edges or facades', () => {
+  const report = inspectClientBundle(fixture())
+  expect(report.startup.files).not.toContain('dev-terminal-reply-decoder.js')
+  expect(report.views.devShell.files).not.toContain('dev-terminal-reply-decoder.js')
+  expect(report.views.devTerminal.files).toContain('dev-terminal-reply-decoder.js')
+  expect(report.views.devTerminal).toMatchObject({ rawBytes: 72, gzipBytes: 37 })
+
+  // Measure the facade's complete static closure, even if a dependency is
+  // not otherwise a static terminal-pane import.
+  const facadeStaticDependency = [
+    ...fixture().map((item) =>
+      item.file === 'dev-terminal-reply-decoder.js'
+        ? { ...item, source: `${item.source} import "./terminal-decoder-helper.js";` }
+        : item
+    ),
+    chunk('terminal-decoder-helper.js', 'export const helper = true;', 9, 4),
+  ]
+  const withFacadeDependency = inspectClientBundle(facadeStaticDependency)
+  expect(withFacadeDependency.views.devTerminal.files).toContain('terminal-decoder-helper.js')
+  expect(withFacadeDependency.views.devTerminal).toMatchObject({ rawBytes: 81, gzipBytes: 41 })
+
+  const extraDynamicImport = fixture().map((item) =>
+    item.file === 'runtime-terminal-pane-main.js'
+      ? { ...item, source: `${item.source} import("./terminal-helper.js");` }
+      : item
+  )
+  expect(() => inspectClientBundle(extraDynamicImport)).toThrow(
+    'Dev terminal route dynamic chunk attribution changed'
+  )
+
+  const unexpectedFacadeDynamicImport = fixture().map((item) =>
+    item.file === 'dev-terminal-reply-decoder.js'
+      ? { ...item, source: `${item.source} import("./terminal-helper.js");` }
+      : item
+  )
+  expect(() => inspectClientBundle(unexpectedFacadeDynamicImport)).toThrow(
+    'Dev terminal route dynamic chunk attribution changed'
+  )
+
+  const extraFacade = [
+    ...fixture(),
+    chunk(
+      'extra-reply-decoder.js',
+      'import { decodeDevReply as decoder } from "./runtime-terminal-pane-main.js"; export { decoder as decodeDevReply };'
+    ),
+  ]
+  expect(() => inspectClientBundle(extraFacade)).toThrow(
+    'Expected one Dev terminal reply decoder facade, found 2'
+  )
+
+  const wrongEntryFacade = fixture().map((item) =>
+    item.file === 'dev-terminal-reply-decoder.js'
+      ? { ...item, source: 'export { decoder as decodeDevReply };' }
+      : item
+  )
+  expect(() => inspectClientBundle(wrongEntryFacade)).toThrow(
+    'Dev terminal reply decoder facade must re-export from the runtime terminal pane'
+  )
+
+  const eagerlyLoadedByStartup = fixture().map((item) =>
+    item.file === 'workspace-navigation-entry-main.js'
+      ? { ...item, source: `${item.source} import "./dev-terminal-reply-decoder.js";` }
+      : item
+  )
+  expect(() => inspectClientBundle(eagerlyLoadedByStartup)).toThrow(
+    'Workspace startup statically loads the Dev terminal reply decoder'
+  )
+
+  const eagerlyLoadedByDevShell = fixture().map((item) =>
+    item.file === 'src-dev.js'
+      ? { ...item, source: `${item.source} import "./dev-terminal-reply-decoder.js";` }
+      : item
+  )
+  expect(() => inspectClientBundle(eagerlyLoadedByDevShell)).toThrow(
+    'Dev View entry and layout statically load the terminal reply decoder'
+  )
 })
 
 test('fails closed when a required route chunk cannot be attributed', () => {
