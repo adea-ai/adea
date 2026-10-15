@@ -54,6 +54,57 @@ function fixture() {
   }
 }
 describe('workspace-owned follow-up queue cleanup', () => {
+  test('preserves workspace data while another queue instance owns a live delivery', async () => {
+    const s = fixture()
+    try {
+      let entered!: () => void
+      let finish!: (result: { ok: boolean }) => void
+      const began = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      const own = createFollowUpQueue({
+        dataDir: s.dataDir,
+        scope,
+        resolve: () => ({
+          generation: 1,
+          archived: false,
+          runId: 'run-1',
+          runVersion: 1,
+          state: 'awaiting_input',
+          deliverySupported: true,
+        }),
+        publish: () => {},
+        deliver: async () => {
+          entered()
+          return new Promise((resolve) => {
+            finish = resolve
+          })
+        },
+      })
+      await own.execute(s.request, s.authorization)
+      s.memory.create(scope.workspaceId, { text: 'retain active delivery' })
+      const pending = own.execute(
+        {
+          runtimeSessionId: 'session-1',
+          expectedGeneration: 1,
+          expectedVersion: 1,
+          action: 'deliver',
+        },
+        { ...s.authorization, idempotencyKey: 'deliver' }
+      )
+      await began
+      expect(() => s.cleanup.purge()).toThrow('workspace_cleanup_follow_up_data_pending')
+      expect(s.memory.list(scope.workspaceId).entries).toHaveLength(1)
+      expect(existsSync(own.storageFile)).toBe(true)
+      finish({ ok: true })
+      expect((await pending).lastDelivery?.status).toBe('accepted')
+      s.cleanup.purge()
+      expect(existsSync(own.storageFile)).toBe(false)
+    } finally {
+      s.remove()
+    }
+  })
+
   test('retained recovery artifacts block purge even after the original queue file was quarantined', async () => {
     const s = fixture()
     try {

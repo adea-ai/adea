@@ -215,7 +215,8 @@ export function createFollowUpQueue(input: {
     authorization: Authorization
   ): Promise<FollowUpQueueSnapshot> {
     const request = decodeFollowUpQueueRequest(raw)
-    const result = await storage.locked(async (): Promise<FollowUpQueueSnapshot | Attempt> => {
+    let releaseDeliveryClaim: (() => void) | undefined
+    const result = storage.locked(async (): Promise<FollowUpQueueSnapshot | Attempt> => {
       const fence = await authorization.authorize()
       fence()
       const live = liveFor(request)
@@ -226,6 +227,25 @@ export function createFollowUpQueue(input: {
       if (!state || state.generation !== request.expectedGeneration) {
         state = empty(request.runtimeSessionId, request.expectedGeneration)
         save(state)
+      }
+      const abandoned = state.items.findIndex((item) => item.state === 'dispatching')
+      if (abandoned >= 0) {
+        // Acquire rather than infer liveness from a persisted item or this
+        // instance's in-memory map. A peer's real transport call holds this
+        // cross-process lock until its receipt is finalized.
+        const release = await storage.tryDeliveryClaim(request.runtimeSessionId)
+        if (release) {
+          try {
+            fence()
+            liveFor(request)
+            const item = state.items[abandoned]!
+            state.items[abandoned] = { ...item, state: 'ambiguous' }
+            state.lastDelivery = { messageId: item.id, status: 'ambiguous' }
+            publish(state, 'delivery_ambiguous')
+          } finally {
+            release()
+          }
+        }
       }
       if (request.action === 'read') return view(state, live)
       if (live.archived || state.stopped) error('invalid_state', 'follow-up queue is not active')
@@ -288,6 +308,9 @@ export function createFollowUpQueue(input: {
           error('invalid_state', 'follow-up delivery requires a fresh observed input boundary')
         const item = state.items[0]
         if (!item) error('not_found', 'follow-up queue is empty')
+        releaseDeliveryClaim = await storage.tryDeliveryClaim(request.runtimeSessionId)
+        if (!releaseDeliveryClaim)
+          error('invalid_state', 'another follow-up delivery is still active')
         fence()
         liveFor(request)
         state.items[0] = { ...item, state: 'dispatching' }
@@ -304,8 +327,12 @@ export function createFollowUpQueue(input: {
       publish(state, request.action)
       return view(state, live)
     })
-    if (!('attempt' in result)) return result
-    return finishDelivery(result)
+    return result
+      .then((value) => ('attempt' in value ? finishDelivery(value) : value))
+      .finally(() => {
+        // Also release when publishing a durable claim failed before handoff.
+        releaseDeliveryClaim?.()
+      })
   }
 
   async function finishDelivery(attempt: Attempt): Promise<FollowUpQueueSnapshot> {

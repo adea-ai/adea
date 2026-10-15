@@ -39,10 +39,14 @@ export function registerFollowUpQueue(input: {
       const candidate = session.activeHarnessRunId
         ? input.runs.get(session.activeHarnessRunId)
         : undefined
+      // Run and session generations advance independently. The canonical
+      // active-run pointer binds them; the request fences the session below.
       const run =
         candidate &&
         candidate.runtimeSessionId === session.id &&
-        candidate.generation === session.generation &&
+        candidate.scope.accountId === session.scope.accountId &&
+        candidate.scope.workspaceId === session.scope.workspaceId &&
+        candidate.scope.runtimeNodeId === session.scope.runtimeNodeId &&
         RUN_ACTIVE_STATES.includes(candidate.state)
           ? candidate
           : undefined
@@ -82,7 +86,8 @@ export function registerFollowUpQueue(input: {
         !lane ||
         !input.structuredDelivery ||
         !run ||
-        run.generation !== generation ||
+        run.runtimeSessionId !== runtimeSessionId ||
+        run.state !== 'awaiting_input' ||
         session?.activeHarnessRunId !== runId ||
         session.generation !== generation ||
         lane.harnessInstallationId !== run.installationId ||

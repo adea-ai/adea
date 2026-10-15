@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { FollowUpQueueRequest } from '../../../packages/types/src/dev-runtime-follow-ups'
@@ -83,6 +83,155 @@ function setup() {
 }
 
 describe('authorized follow-up queue', () => {
+  test('restart recovers a durable claim after publication failed before any send, allowing explicit removal', async () => {
+    const s = setup()
+    try {
+      await s.enqueue('a')
+      s.setLive({ state: 'awaiting_input', runVersion: 2 })
+      const publish = s.options.publish
+      s.options.publish = () => {
+        throw new Error('publication interrupted')
+      }
+      const request = { ...s.target, action: 'deliver' as const, expectedVersion: 1 }
+      await expect(s.execute(request, 'send')).rejects.toThrow('publication interrupted')
+      expect(s.delivered).toEqual([])
+      s.options.publish = publish
+      const restarted = createFollowUpQueue(s.options)
+      const recovered = await restarted.execute(
+        { ...s.target, action: 'read' },
+        { authorize: s.authorize }
+      )
+      expect(recovered.items[0]?.state).toBe('ambiguous')
+      expect(recovered.lastDelivery).toEqual({ messageId: 'a', status: 'ambiguous' })
+      expect(
+        (await restarted.execute(request, { idempotencyKey: 'send', authorize: s.authorize }))
+          .version
+      ).toBe(recovered.version)
+      await expect(
+        restarted.execute(
+          { ...s.target, action: 'deliver', expectedVersion: recovered.version },
+          {
+            idempotencyKey: 'new-send',
+            authorize: s.authorize,
+          }
+        )
+      ).rejects.toMatchObject({ code: 'delivery_ambiguous' })
+      const removed = await restarted.execute(
+        { ...s.target, action: 'remove', expectedVersion: recovered.version, messageId: 'a' },
+        {
+          idempotencyKey: 'remove',
+          authorize: s.authorize,
+        }
+      )
+      expect(removed.items).toEqual([])
+      await expect(s.enqueue('a')).rejects.toMatchObject({ code: 'idempotency_conflict' })
+      expect(s.delivered).toEqual([])
+    } finally {
+      s.cleanup()
+    }
+  })
+
+  test('a peer cannot recover or remove an active claim merely because its heartbeat is old', async () => {
+    const s = setup()
+    try {
+      s.options.deliveryTimeoutMs = 2_000
+      await s.enqueue('a')
+      s.setLive({ state: 'awaiting_input', runVersion: 2 })
+      let entered!: () => void
+      let finish!: (result: { ok: boolean }) => void
+      const began = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      s.setHandoff(async (text) => {
+        s.delivered.push(text)
+        entered()
+        return new Promise((resolve) => {
+          finish = resolve
+        })
+      })
+      const pending = s.execute({ ...s.target, action: 'deliver', expectedVersion: 1 })
+      await began
+      const lockDir = join(s.dataDir, 'dev-runtime', 'worktrees', 'locks')
+      let aged = 0
+      for (const name of readdirSync(lockDir)) {
+        const file = join(lockDir, name)
+        const record = JSON.parse(readFileSync(file, 'utf8'))
+        if (record.operation === 'follow-up delivery') {
+          aged += 1
+          writeFileSync(
+            file,
+            JSON.stringify({ ...record, heartbeatAt: '1970-01-01T00:00:00.000Z' })
+          )
+        }
+      }
+      expect(aged).toBe(1)
+      const peer = createFollowUpQueue(s.options)
+      const active = await peer.execute({ ...s.target, action: 'read' }, { authorize: s.authorize })
+      expect(active.items[0]?.state).toBe('dispatching')
+      await expect(
+        peer.execute(
+          { ...s.target, action: 'remove', expectedVersion: active.version, messageId: 'a' },
+          {
+            idempotencyKey: 'peer-remove',
+            authorize: s.authorize,
+          }
+        )
+      ).rejects.toMatchObject({ code: 'invalid_state' })
+      finish({ ok: true })
+      expect((await pending).lastDelivery).toEqual({ messageId: 'a', status: 'accepted' })
+      expect(s.delivered).toEqual(['a'])
+    } finally {
+      s.cleanup()
+    }
+  })
+
+  test('a restarted host recovers a claim left by a dead process before handoff without sending it', async () => {
+    const s = setup()
+    try {
+      await s.enqueue('a')
+      s.setLive({ state: 'awaiting_input', runVersion: 2 })
+      const module = new URL('../shell/src/dev-runtime/harness/follow-ups.ts', import.meta.url).href
+      const marker = join(s.dataDir, 'unexpected-send')
+      const script = `import { createFollowUpQueue } from ${JSON.stringify(module)};
+        import { writeFileSync } from 'node:fs';
+        const queue = createFollowUpQueue({
+          dataDir: ${JSON.stringify(s.dataDir)}, scope: ${JSON.stringify(scope)}, key: () => Buffer.alloc(32, 7),
+          resolve: () => ({ generation: 1, archived: false, runId: 'run-1', runVersion: 2, state: 'awaiting_input', deliverySupported: true }),
+          publish: (event) => { if (event.change === 'delivery_started') process.exit(0) },
+          deliver: async () => { writeFileSync(${JSON.stringify(marker)}, 'sent'); return { ok: true } },
+        });
+        await queue.execute({ runtimeSessionId: 'session-1', expectedGeneration: 1, action: 'deliver', expectedVersion: 1 }, {
+          idempotencyKey: 'child-send', authorize: async () => () => {},
+        });
+        process.exit(1);`
+      const child = Bun.spawn([process.execPath, '-e', script], { stdout: 'pipe', stderr: 'pipe' })
+      expect(await child.exited).toBe(0)
+      expect(existsSync(marker)).toBe(false)
+      const restarted = createFollowUpQueue(s.options)
+      const recovered = await restarted.execute(
+        { ...s.target, action: 'read' },
+        { authorize: s.authorize }
+      )
+      expect(recovered.items[0]?.state).toBe('ambiguous')
+      expect(recovered.lastDelivery).toEqual({ messageId: 'a', status: 'ambiguous' })
+      expect(
+        (
+          await restarted.execute(
+            { ...s.target, action: 'remove', expectedVersion: recovered.version, messageId: 'a' },
+            {
+              idempotencyKey: 'remove-after-restart',
+              authorize: s.authorize,
+            }
+          )
+        ).items
+      ).toEqual([])
+      expect(existsSync(marker)).toBe(false)
+      expect(s.delivered).toEqual([])
+    } finally {
+      s.cleanup()
+    }
+  }, 10_000)
+
   test('retained corrupt storage remains a recovery barrier instead of resetting delivery tombstones', async () => {
     const s = setup()
     try {

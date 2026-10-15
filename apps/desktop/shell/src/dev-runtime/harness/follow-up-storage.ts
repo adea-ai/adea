@@ -74,6 +74,16 @@ export function createFollowUpStorage(input: {
       acquireTimeoutMs: 5_000,
       pollIntervalMs: 5,
     }))
+  let deliveryOwner: ReturnType<typeof createRepoMutationOwner> | undefined
+  const deliveryMutationOwner = () =>
+    (deliveryOwner ??= createRepoMutationOwner({
+      dataDir: input.dataDir,
+      runtimeNodeId: input.scope.runtimeNodeId,
+      // A live, paused transport may already have sent bytes. Heartbeat age
+      // alone cannot prove it abandoned: reclaim only a dead same-node PID.
+      staleAfterMs: Number.POSITIVE_INFINITY,
+      acquireTimeoutMs: 0,
+    }))
   const key = () => {
     if (input.key) return Buffer.from(input.key())
     // Borrow the already-established local-content key. This authority never
@@ -184,13 +194,33 @@ export function createFollowUpStorage(input: {
       release()
     }
   }
+  async function tryDeliveryClaim(sessionId: string): Promise<(() => void) | undefined> {
+    try {
+      return await deliveryMutationOwner().holdLock(
+        `follow-up-delivery:${scopeKey}:${sessionId}`,
+        'follow-up delivery',
+        0
+      )
+    } catch (error) {
+      if ((error as { code?: unknown })?.code === 'lock_timeout') return undefined
+      throw error
+    }
+  }
   function validateForPurge(): void {
     assertFollowUpQueueStoragePath(input.dataDir, input.scope)
     if (mutationOwner().lockFileExists(`follow-ups:${scopeKey}`))
       throw new Error('workspace_cleanup_follow_up_busy')
     const records = store.load().records
     if (records.length > 128) throw new Error('workspace_cleanup_follow_up_data_pending')
-    for (const row of records) load(row.runtimeSessionId)
+    for (const row of records) {
+      if (
+        deliveryMutationOwner().lockFileExists(
+          `follow-up-delivery:${scopeKey}:${row.runtimeSessionId}`
+        )
+      )
+        throw new Error('workspace_cleanup_follow_up_busy')
+      load(row.runtimeSessionId)
+    }
   }
-  return { storageFile, load, save, locked, validateForPurge }
+  return { storageFile, load, save, locked, tryDeliveryClaim, validateForPurge }
 }

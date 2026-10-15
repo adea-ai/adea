@@ -4728,9 +4728,14 @@ background execution grant: there is no automatic drain or timer. A fresh
 mutation lock. A synchronous channel/expiry/lifecycle fence and the canonical
 session generation are checked immediately before effects, before handoff,
 after the await, and again after waiting to finalize its receipt. The live run
-must be observed `awaiting_input`, belong to that session/generation, and have
+must be observed `awaiting_input`, be the canonical session's selected active
+run in the same scope, and have
 a ready structured connection for the same installation. Capture that
 connection's actual ID/generation; replacement makes the old attempt inert.
+Run generations and session generations are independent domains: launching a
+run at generation 1 advances the canonical session generation. Binding uses
+`activeHarnessRunId` plus the run's session/scope identity, while the command
+still fences the canonical session generation and actual connection identity.
 The driver must implement the existing structured `deliverPrompt` seam.
 Absent key, run, or real structured transport yields typed unavailability or
 state refusal; there is no PTY fallback, invented queue capability, or UI.
@@ -4744,6 +4749,19 @@ input boundary (same-state status replay does not create one). Timeout (5 s),
 negative/unknown result or an interrupted claim is ambiguous and is never
 retried automatically, including after host restart. A retained `dispatching`
 claim is proof of a possible send, not proof of a currently running call.
+The host holds a separate cross-process delivery lock from before claiming
+through receipt finalization, including the publication and handoff gap.
+Under the queue mutation lock, recovery first replays the durable outbox,
+then tries to acquire that delivery lock without waiting. An active owner
+keeps the item `dispatching`; it cannot be removed. If the lock is available
+(including recovery of a provably dead owner), persist and publish
+`delivery_ambiguous` with a new queue version. Read that current version and
+explicitly remove the ambiguous item; neither recovery nor idempotent replay
+sends it. A publication failure before handoff releases ownership too, even
+though recovery conservatively cannot claim that the item was never sent.
+Heartbeat age alone never permits stealing a delivery lock from a live
+same-node process. Unknown owner identity remains blocked for explicit
+operator recovery; elapsed time does not establish that a send is safe.
 Ambiguous items block further delivery until explicitly removed or Stop starts
 a new generation; removal does not recycle their IDs. Reorder/remove cannot
 silently retract bytes already offered by an in-flight claim.
