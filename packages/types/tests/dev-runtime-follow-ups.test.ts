@@ -159,6 +159,15 @@ describe('generation-fenced follow-up queue contract', () => {
       },
     }
     expect(decodeRuntimeEvent(event, { source: 'host' }).payload).toEqual(event.payload)
+    expect(() =>
+      decodeRuntimeEvent(
+        {
+          ...event,
+          payload: { runtimeSessionId: 'session-1', generation: 2 },
+        },
+        { source: 'host' }
+      )
+    ).toThrow()
     expect(() => decodeRuntimeEvent({ ...event, generation: 3 }, { source: 'host' })).toThrow()
     expect(() => decodeRuntimeEvent({ ...event, source: 'native' }, { source: 'native' })).toThrow()
     expect(() =>

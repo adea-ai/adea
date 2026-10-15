@@ -11,6 +11,7 @@ import {
   uint64Pattern,
 } from './dev-runtime-validation-internal'
 export type { FollowUpQueueEventPayload } from './dev-runtime-follow-ups'
+import { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-ups'
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
@@ -170,11 +171,11 @@ export function decodeRuntimeEvent(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
-  let queuePayload: Record<string, unknown> | undefined
+  let queuePayload: ReturnType<typeof decodeFollowUpQueueEventPayload> | undefined
   if (item.kind === 'queue.updated') {
     if (item.source !== 'host' || item.confidence !== 'authoritative')
       fail('event.source', 'queue facts require the authoritative host')
-    queuePayload = record(item.payload, 'event.payload')
+    queuePayload = decodeFollowUpQueueEventPayload(item.payload)
     if (
       queuePayload.generation !== item.generation ||
       queuePayload.runtimeSessionId !== item.runtimeSessionId
@@ -195,24 +196,14 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  validateEventPayload(item.payload, 'event.payload', 0, queuePayload !== undefined)
+  if (!queuePayload) validateEventPayload(item.payload, 'event.payload')
   validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   const payload = item.payload
   validateRuntimeResponseReferences(item.kind as string, payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
   if (queuePayload) {
-    const copied = structuredClone(queuePayload)
-    if (Array.isArray(copied.items)) {
-      copied.items.forEach((entry: unknown) => {
-        if (entry && typeof entry === 'object') Object.freeze(entry)
-      })
-      Object.freeze(copied.items)
-    }
-    if (copied.lastDelivery && typeof copied.lastDelivery === 'object')
-      Object.freeze(copied.lastDelivery)
-    Object.freeze(copied)
-    return Object.freeze({ ...(value as RuntimeEvent), payload: copied })
+    return Object.freeze({ ...(value as RuntimeEvent), payload: queuePayload })
   }
   return value as RuntimeEvent
 }
