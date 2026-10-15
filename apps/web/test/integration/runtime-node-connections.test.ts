@@ -78,7 +78,12 @@ type RuntimeConnectionModel = Record<string, unknown> & {
   compatibility: Record<string, unknown>
   eligibility: Record<string, unknown>
 }
-type FakeMode = 'inventory' | 'invalid_diagnostic' | 'failure' | 'resolve_after_abort'
+type FakeMode =
+  | 'inventory'
+  | 'invalid_diagnostic'
+  | 'failure'
+  | 'remote_host_offline'
+  | 'resolve_after_abort'
 
 const routeModules = new Map<string, RouteModule>()
 async function routeFor(path: string): Promise<RouteModule> {
@@ -427,8 +432,15 @@ describe('runtime connections: route to Control Plane to typed client and data q
       }
       const parameters = body.parameters as Record<string, unknown>
       const isLocal = parameters.runtimeNodeRefId === localNode.controlPlaneRuntimeNodeRefId
-      const items = isLocal ? localPage : remotePage
-      const page = parameters.cursor ? [] : [...items]
+      const items = isLocal
+        ? localPage
+        : fakeMode === 'remote_host_offline'
+          ? remotePage.map((item) => ({
+              ...item,
+              node: { ...item.node, status: 'offline', health: 'offline' },
+            }))
+          : remotePage
+      const page = parameters.cursor === 'cur_next123' ? [] : [...items]
       if (fakeMode === 'invalid_diagnostic' && !isLocal && page[0])
         page[0] = { ...page[0], limitations: [invalidDiagnostic] }
       return Response.json({
@@ -582,7 +594,25 @@ describe('runtime connections: route to Control Plane to typed client and data q
       hostReachability: { state: 'not_applicable' },
     })
 
-    // The local device is offline, but the synchronized conversation still
+    fakeMode = 'remote_host_offline'
+    const remoteOffline = await cache.fetchQuery(
+      runtimeNodeQueryOptions.connections(client, workspaceId, remoteNode.id, 'cur_offline_host')
+    )
+    expect(remoteOffline.node.hostReachability).toEqual({
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+    })
+    expect(remoteOffline.connections[0]?.node).toMatchObject({
+      status: 'offline',
+      health: 'offline',
+      hostReachability: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+      },
+    })
+
+    // Both a local device and the self-hosted execution host report offline,
+    // but the synchronized conversation still
     // points to an authorized encrypted replica on the cloud read boundary.
     const history = await cache.fetchQuery(historyOptions)
     expect(history.messages).toContainEqual(
@@ -607,7 +637,7 @@ describe('runtime connections: route to Control Plane to typed client and data q
       status: 404,
     })
 
-    const serialized = JSON.stringify({ firstPage, secondPage, local })
+    const serialized = JSON.stringify({ firstPage, secondPage, local, remoteOffline })
     expect(serialized).not.toContain(privateCanary)
     expect(serialized).not.toContain('/private/native')
     expect(serialized).not.toContain('native-host.invalid')
