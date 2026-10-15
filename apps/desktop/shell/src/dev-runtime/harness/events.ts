@@ -23,9 +23,11 @@ import { join } from 'node:path'
 import type {
   RuntimeEvent,
   RuntimeEventKind,
+  RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -99,6 +101,9 @@ export type SessionEventLog = Readonly<{
 export function createSessionEventLog(input: {
   dataDir: string
   scope: Scope
+  /** The existing session authority. Required for versioned interactions;
+   * legacy opaque events remain readable without inventing that authority. */
+  resolveSession?: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Overrides the per-session bound (tests only; production uses the constant). */
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
@@ -154,10 +159,12 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
       if (
         duplicate.kind === candidate.kind &&
+        (!interaction || duplicate.harnessRunId === candidate.harnessRunId) &&
         JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
       ) {
         return undefined
@@ -169,6 +176,7 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (interaction) validateInteractionCorrelation(candidate, interaction, records)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

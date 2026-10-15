@@ -10,6 +10,7 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -173,6 +174,13 @@ export function decodeRuntimeEvent(
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  if (decodeRuntimeInteractionPayload(item.kind as string, item.payload)) {
+    if (item.confidence !== 'authoritative')
+      fail('event.confidence', 'structured interactions require authoritative provenance')
+    if (item.classification !== 'workspace_private')
+      fail('event.classification', 'structured interactions require workspace_private')
+    stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+  }
   return value as RuntimeEvent
 }
 

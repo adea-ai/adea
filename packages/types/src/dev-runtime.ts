@@ -80,6 +80,24 @@ export type {
   RuntimeEventKind,
   RuntimeEventProvenance,
 } from './dev-runtime-wire'
+export {
+  decodeRuntimeInteractionPayload,
+  runtimeInteractionKinds,
+  validateRuntimeQuestionAnswers,
+} from './dev-runtime-interactions'
+export type {
+  RuntimeApprovalRequest,
+  RuntimeApprovalResolution,
+  RuntimeInteractionExpiry,
+  RuntimeInteractionKind,
+  RuntimeInteractionPayload,
+  RuntimeQuestion,
+  RuntimeQuestionAnswer,
+  RuntimeQuestionOption,
+  RuntimeQuestionRequest,
+  RuntimeQuestionResolution,
+  RuntimeResponseEligibility,
+} from './dev-runtime-interactions'
 
 export {
   devOperationDefinitions,

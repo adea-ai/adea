@@ -1,0 +1,168 @@
+import { describe, expect, test } from 'bun:test'
+
+import { decodeRuntimeEvent } from '../src/dev-runtime-wire'
+import {
+  decodeRuntimeInteractionPayload,
+  validateRuntimeQuestionAnswers,
+} from '../src/dev-runtime-interactions'
+
+const eligibility = { eligible: false, reason: 'response_unavailable' } as const
+const questions = [
+  {
+    id: 'target',
+    prompt: 'Which target?',
+    required: true,
+    kind: 'choice',
+    multiple: false,
+    options: [
+      { id: 'web', label: 'Web' },
+      { id: 'desktop', label: 'Desktop' },
+    ],
+  },
+  { id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' },
+] as const
+const requested = { schemaVersion: 1, requestId: 'request-1', questions, eligibility } as const
+const resolved = {
+  schemaVersion: 1,
+  requestId: 'request-1',
+  requestEventId: 'event-1',
+  decision: 'answered',
+  answers: [{ questionId: 'target', optionIds: ['web'] }],
+} as const
+
+describe('versioned runtime interaction payloads', () => {
+  test('decodes multiple questions, optional text, and bounded labelled options', () => {
+    expect(decodeRuntimeInteractionPayload('question.requested', requested)).toEqual(requested)
+    expect(decodeRuntimeInteractionPayload('question.resolved', resolved)).toEqual(resolved)
+    expect(() => validateRuntimeQuestionAnswers(requested, resolved)).not.toThrow()
+  })
+
+  test('retains legacy payloads as opaque, with no structured eligibility claim', () => {
+    for (const payload of ['Which target?', { text: 'Which target?' }, null])
+      expect(decodeRuntimeInteractionPayload('question.requested', payload)).toBeUndefined()
+    expect(
+      decodeRuntimeInteractionPayload('turn.assistant_message', { schemaVersion: 2 })
+    ).toBeUndefined()
+    expect(() => decodeRuntimeInteractionPayload('question.requested', { eligibility })).toThrow()
+  })
+
+  test('requires known versions, exact keys, unique question and option ids, and real booleans', () => {
+    for (const payload of [
+      { ...requested, schemaVersion: 2 },
+      { ...requested, trusted: true },
+      { ...requested, requestId: '' },
+      { ...requested, questions: [] },
+      { ...requested, questions: Array(33).fill(questions[0]) },
+      { ...requested, questions: [questions[0], questions[0]] },
+      { ...requested, questions: [{ ...questions[0], required: 'yes' }] },
+      { ...requested, questions: [{ ...questions[0], options: [] }] },
+      {
+        ...requested,
+        questions: [
+          { ...questions[0], options: [questions[0].options[0], questions[0].options[0]] },
+        ],
+      },
+      { ...requested, questions: [{ ...questions[1], options: [] }] },
+      { ...requested, eligibility: { eligible: true } },
+      { ...requested, eligibility: { ...eligibility, inputOwner: 'forged' } },
+    ])
+      expect(() => decodeRuntimeInteractionPayload('question.requested', payload)).toThrow()
+  })
+
+  test('requires correlation and a kind-specific decision; unknown actor and time stay absent', () => {
+    const outcome = {
+      schemaVersion: 1,
+      requestId: 'request-1',
+      requestEventId: 'event-1',
+      decision: 'denied',
+    }
+    expect(decodeRuntimeInteractionPayload('approval.resolved', outcome)).toEqual(outcome)
+    expect(
+      decodeRuntimeInteractionPayload('approval.resolved', {
+        ...outcome,
+        actorId: 'owner-1',
+        decidedAt: '2026-10-15T05:00:00.000Z',
+      })
+    ).toMatchObject({ actorId: 'owner-1' })
+    expect(
+      decodeRuntimeInteractionPayload('approval.expired', { ...outcome, decision: 'expired' })
+    ).toBeDefined()
+    for (const invalid of [
+      { ...outcome, requestEventId: undefined },
+      { ...outcome, requestId: '' },
+      { ...outcome, decision: 'answered' },
+      { ...outcome, actorId: '' },
+      { ...outcome, decidedAt: '2026-02-30T00:00:00Z' },
+      { ...outcome, approved: true },
+    ])
+      expect(() => decodeRuntimeInteractionPayload('approval.resolved', invalid)).toThrow()
+    expect(() => decodeRuntimeInteractionPayload('approval.expired', outcome)).toThrow()
+    expect(() =>
+      decodeRuntimeInteractionPayload('question.expired', { ...outcome, decision: 'approved' })
+    ).toThrow()
+  })
+
+  test('validates required answers, optional skips, option membership, and choice multiplicity', () => {
+    for (const answers of [
+      [],
+      [{ questionId: 'notes', text: 'Only notes' }],
+      [{ questionId: 'target', skipped: true }],
+      [{ questionId: 'target', optionIds: ['unknown'] }],
+      [{ questionId: 'target', optionIds: ['web', 'desktop'] }],
+      [{ questionId: 'target', optionIds: ['web', 'web'] }],
+      [{ questionId: 'target', text: 'web' }],
+      [{ questionId: 'foreign', text: 'value' }],
+    ])
+      expect(() => validateRuntimeQuestionAnswers(requested, { ...resolved, answers })).toThrow()
+    expect(() =>
+      validateRuntimeQuestionAnswers(requested, {
+        ...resolved,
+        answers: [...resolved.answers, { questionId: 'notes', skipped: true }],
+      })
+    ).not.toThrow()
+    expect(() =>
+      validateRuntimeQuestionAnswers(
+        {
+          ...requested,
+          questions: [{ ...questions[0], multiple: true }],
+        },
+        { ...resolved, answers: [{ questionId: 'target', optionIds: ['web', 'desktop'] }] }
+      )
+    ).not.toThrow()
+  })
+
+  test('the canonical event decoder enforces versioned payloads and authoritative provenance', () => {
+    const event = {
+      schemaVersion: 1,
+      eventId: 'event-1',
+      runtimeSessionId: 'session-1',
+      harnessRunId: 'run-1',
+      generation: 1,
+      seq: '1',
+      occurredAt: '2026-10-15T05:00:00Z',
+      receivedAt: '2026-10-15T05:00:01Z',
+      source: 'native',
+      sourceEventId: 'native-1',
+      confidence: 'authoritative',
+      classification: 'workspace_private',
+      kind: 'question.requested',
+      payload: requested,
+    } as const
+    expect(decodeRuntimeEvent(event, { source: 'native' })).toEqual(event)
+    expect(() =>
+      decodeRuntimeEvent(
+        { ...event, payload: { ...requested, eligibility: { eligible: true } } },
+        { source: 'native' }
+      )
+    ).toThrow()
+    expect(() =>
+      decodeRuntimeEvent({ ...event, confidence: 'untrusted_hint' }, { source: 'native' })
+    ).toThrow()
+    expect(() =>
+      decodeRuntimeEvent({ ...event, classification: 'public' }, { source: 'native' })
+    ).toThrow()
+    expect(() =>
+      decodeRuntimeEvent({ ...event, harnessRunId: undefined }, { source: 'native' })
+    ).toThrow()
+  })
+})
