@@ -330,8 +330,8 @@ function ev(kind: string, seq: string) {
   return { kind: kind as never, seq, occurredAt: '2026-10-15T00:00:00.000Z' }
 }
 
-describe('activity is only what the retained window proves', () => {
-  test('counts open approvals, files, subagents, and degraded capabilities', () => {
+describe('activity is raw observed events, never inferred current state', () => {
+  test('counts raw events and never claims which approvals or capabilities are active', () => {
     const activity = deriveHandoffActivity({
       events: [
         ev('approval.requested', '1'),
@@ -347,14 +347,31 @@ describe('activity is only what the retained window proves', () => {
       windowComplete: true,
     })
     expect(activity).toMatchObject({
-      pendingApprovals: 1,
+      approvalRequestedEvents: 2,
+      approvalClosedEvents: 1,
       filesObserved: 1,
       subagentsObserved: 1,
-      degradedCapabilityEvents: 1,
+      capabilityDegradedEvents: 2,
+      capabilityRestoredEvents: 1,
+      activeStateKnown: false,
       windowComplete: true,
       structured: true,
     })
+    // No derived "pending" or "currently degraded" figure exists to misread.
+    expect('pendingApprovals' in activity).toBe(false)
+    expect('degradedCapabilityEvents' in activity).toBe(false)
     expect(activity.lastEvent).toMatchObject({ kind: 'capability.restored', seq: '8' })
+  })
+
+  test('a resolution for one approval never reduces another request’s count', () => {
+    const activity = deriveHandoffActivity({
+      events: [ev('approval.resolved', '1'), ev('approval.requested', '2')],
+      projection: 'structured',
+      windowComplete: false,
+    })
+    expect(activity.approvalRequestedEvents).toBe(1)
+    expect(activity.approvalClosedEvents).toBe(1)
+    expect(activity.activeStateKnown).toBe(false)
   })
 
   test('an incomplete window and a terminal fallback never overclaim', () => {
@@ -363,7 +380,7 @@ describe('activity is only what the retained window proves', () => {
       projection: 'terminal_fallback',
       windowComplete: false,
     })
-    expect(activity.pendingApprovals).toBe(0)
+    expect(activity.approvalRequestedEvents).toBe(0)
     expect(activity.structured).toBe(false)
     expect(activity.windowComplete).toBe(false)
   })

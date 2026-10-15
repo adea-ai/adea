@@ -185,19 +185,28 @@ export function deriveChildJobRows(
   })
 }
 
-// ── Activity: approvals, progress, artifacts, capabilities ─────────────────
+// ── Activity: raw observed events (not current state) ──────────────────────
 
 export type HandoffActivity = Readonly<{
-  /** Open `approval.requested` events with no closing event in the window. */
-  pendingApprovals: number
+  /** Raw `approval.requested` events in the retained window. Not a pending
+   *  count: events carry no qualified identity here, so a resolution cannot
+   *  be matched to its request. */
+  approvalRequestedEvents: number
+  /** Raw `approval.resolved` / `approval.expired` events in the window. */
+  approvalClosedEvents: number
   /** Last event in the retained window, for "last activity" truth. */
   lastEvent?: Readonly<{ kind: string; seq: string; occurredAt: string }>
   /** `file.observed` events in the retained window (artifact evidence). */
   filesObserved: number
   /** `subagent.observed` events in the retained window. Observation, never control. */
   subagentsObserved: number
-  /** Capabilities whose latest event is `capability.degraded`. */
-  degradedCapabilityEvents: number
+  /** Raw `capability.degraded` / `capability.restored` events in the window. */
+  capabilityDegradedEvents: number
+  capabilityRestoredEvents: number
+  /** Always false until an identity-keyed contract exists: which approvals
+   *  are open and which capabilities are currently degraded is NOT known
+   *  from these counts. The surface labels them as raw observed events. */
+  activeStateKnown: false
   /** True when the retained window is complete; counts are lower bounds otherwise. */
   windowComplete: boolean
   /** Structured projections report approvals/progress; a terminal fallback does not. */
@@ -205,10 +214,13 @@ export type HandoffActivity = Readonly<{
 }>
 
 /**
- * Summarizes only what the retained transcript window proves. Counts are
- * lower bounds when the window is incomplete, and a terminal-fallback
- * projection reports no structured approvals or progress at all. Payloads are
- * never read: this surface counts evidence, it does not interpret it.
+ * Counts the raw events the retained window contains. It does not infer
+ * current state: approval and capability events carry no qualified identity
+ * in this contract, so a resolution may belong to a different request and
+ * repeated degradation says nothing about how many capabilities are degraded
+ * now. Counts are lower bounds when the window is incomplete, and a
+ * terminal-fallback projection reports no structured approval events at all.
+ * Payloads are never read.
  */
 export function deriveHandoffActivity(
   input: Readonly<{
@@ -217,18 +229,21 @@ export function deriveHandoffActivity(
     windowComplete: boolean
   }>
 ): HandoffActivity {
-  let pending = 0
+  const structured = input.projection !== 'terminal_fallback'
+  let requested = 0
+  let closed = 0
   let files = 0
   let subagents = 0
   let degraded = 0
+  let restored = 0
   for (const event of input.events) {
     switch (event.kind) {
       case 'approval.requested':
-        pending += 1
+        requested += 1
         break
       case 'approval.resolved':
       case 'approval.expired':
-        pending = Math.max(0, pending - 1)
+        closed += 1
         break
       case 'file.observed':
         files += 1
@@ -240,7 +255,7 @@ export function deriveHandoffActivity(
         degraded += 1
         break
       case 'capability.restored':
-        degraded = Math.max(0, degraded - 1)
+        restored += 1
         break
       default:
         break
@@ -248,14 +263,17 @@ export function deriveHandoffActivity(
   }
   const last = input.events.at(-1)
   return {
-    pendingApprovals: input.projection === 'terminal_fallback' ? 0 : pending,
+    approvalRequestedEvents: structured ? requested : 0,
+    approvalClosedEvents: structured ? closed : 0,
     ...(last === undefined
       ? {}
       : { lastEvent: { kind: last.kind, seq: last.seq, occurredAt: last.occurredAt } }),
     filesObserved: files,
     subagentsObserved: subagents,
-    degradedCapabilityEvents: degraded,
+    capabilityDegradedEvents: degraded,
+    capabilityRestoredEvents: restored,
+    activeStateKnown: false,
     windowComplete: input.windowComplete,
-    structured: input.projection !== 'terminal_fallback',
+    structured,
   }
 }
