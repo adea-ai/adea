@@ -19,6 +19,7 @@ import {
   acceptRuntimeEvent,
   acceptRuntimeStreamFrame,
   createTranscriptAccumulator,
+  transcriptHistoryNotice,
   transcriptWindow,
   type TranscriptAccumulator,
 } from '../src/chat/model/transcript'
@@ -1031,6 +1032,48 @@ describe('ChatConversationModel', () => {
 })
 
 describe('runtime-events-v1 transcript projection', () => {
+  test('bounded history notice describes the visible window without inventing checkpoint recovery', () => {
+    const retention = {
+      maxEvents: 1_000,
+      oldestSequence: '20',
+      newestSequence: '30',
+      complete: false,
+      reason: 'retention' as const,
+    }
+    expect(
+      transcriptHistoryNotice(retention, {
+        status: 'bounded',
+        reason: 'retention',
+        oldestSequence: '20',
+      })
+    ).toBe('Showing the latest events only.')
+    expect(
+      transcriptHistoryNotice(
+        { ...retention, reason: 'checkpoint_required' },
+        { status: 'bounded', reason: 'checkpoint_required', oldestSequence: '20' }
+      )
+    ).toBe('Showing the latest events only.')
+    expect(
+      transcriptHistoryNotice(retention, {
+        status: 'resync_required',
+        reason: 'sequence_gap',
+        expectedSequence: '21',
+        receivedSequence: '23',
+      })
+    ).toBeUndefined()
+    expect(
+      transcriptHistoryNotice(
+        {
+          maxEvents: 1_000,
+          oldestSequence: '20',
+          newestSequence: '30',
+          complete: true,
+        },
+        { status: 'available' }
+      )
+    ).toBeUndefined()
+  })
+
   test('requires an explicit checkpoint before accepting a bounded replay floor', () => {
     let state = createTranscriptAccumulator({
       runtimeSessionId: session().id,

@@ -35,6 +35,8 @@ const MAX_LABEL = 160
 export const MAX_BODY_TEXT = 32_768
 /** The scan window for a body: the wire's own 64 KiB string maximum. */
 const BODY_SCAN_WINDOW = 65_536
+/** Bounded overlap for ordinary patterns; ambiguous unbounded boundaries fail closed. */
+const MAX_CROSS_DELTA_CONTEXT = 5_000
 
 function redact(
   value: string,
@@ -42,8 +44,8 @@ function redact(
   options: { window?: number; layout?: boolean } = {}
 ): string {
   // A hostile transcript can be arbitrarily large: bound the scan BEFORE
-  // the redaction passes (the tail is discarded by the limit below
-  // anyway) and keep every quantifier bounded so the passes stay linear.
+  // redaction. Even patterns with intentionally unbounded separators run only
+  // over this bounded window, never over the whole transcript.
   const window = options.window ?? 16_384
   const bounded = value.length > window ? value.slice(0, window) : value
   const redacted = bounded
@@ -117,6 +119,204 @@ function bodyFromPayload(event: RuntimeEvent): { body: string; truncated: boolea
   return undefined
 }
 
+/**
+ * Join only the raw, bounded wire text for one assistant delta block, then
+ * redact it once. Redacting individual fragments first is not sufficient:
+ * credentials can start in one delta and finish in the next. The joined scan
+ * is bounded before redaction, just like the per-message projection.
+ */
+export function redactAssistantDeltaGroup(items: readonly ChatTranscriptItem[]): {
+  body: string
+  truncated: boolean
+} {
+  let joined = ''
+  let inputTruncated = false
+  for (const item of items) {
+    if (item.kind !== 'turn.assistant_delta') continue
+    const event = item.event
+    let fragment: string | undefined
+    if (
+      event?.kind === 'turn.assistant_delta' &&
+      event.payload !== null &&
+      typeof event.payload === 'object'
+    ) {
+      const payload = event.payload as Record<string, unknown>
+      for (const key of ['text', 'content', 'message', 'delta', 'summary', 'reason']) {
+        if (typeof payload[key] === 'string' && payload[key].length > 0) {
+          fragment = payload[key] as string
+          break
+        }
+      }
+    }
+    // Items without a canonical event can occur in pure model tests or
+    // defensive callers. Their body is already bounded and redacted.
+    fragment ??= item.body
+    if (fragment === undefined || fragment.length === 0) continue
+
+    const remaining = BODY_SCAN_WINDOW - joined.length
+    if (remaining <= 0) {
+      inputTruncated = true
+      break
+    }
+    joined += fragment.slice(0, remaining)
+    if (fragment.length > remaining) {
+      inputTruncated = true
+      break
+    }
+  }
+  const normalised = joined.replace(/\r\n?/g, '\n')
+  const body = redact(normalised, MAX_BODY_TEXT, { window: BODY_SCAN_WINDOW, layout: true })
+  return {
+    body,
+    truncated:
+      inputTruncated || normalised.length > BODY_SCAN_WINDOW || body.length >= MAX_BODY_TEXT,
+  }
+}
+
+function assistantDeltaPayloadText(item: ChatTranscriptItem): string | undefined {
+  const event = item.event
+  if (
+    item.kind === 'turn.assistant_delta' &&
+    event?.kind === 'turn.assistant_delta' &&
+    event.payload !== null &&
+    typeof event.payload === 'object'
+  ) {
+    const payload = event.payload as Record<string, unknown>
+    for (const key of ['text', 'content', 'message', 'delta', 'summary', 'reason']) {
+      const value = payload[key]
+      if (typeof value === 'string' && value.length > 0) return value
+    }
+  }
+  // Defensive model callers can supply projected items without their event.
+  return item.body
+}
+
+type RedactionSpan = Readonly<{ start: number; end: number; replacement: string }>
+
+function redactionSpans(value: string): RedactionSpan[] {
+  const spans: RedactionSpan[] = []
+  const collect = (pattern: RegExp, replacement: string) => {
+    for (const match of value.matchAll(pattern)) {
+      if (match.index === undefined || match[0].length === 0) continue
+      spans.push({ start: match.index, end: match.index + match[0].length, replacement })
+    }
+  }
+  collect(
+    /-----BEGIN [^-]{1,64}-+[^\s]{0,64}[\s\S]{0,4096}?-----END [^-]{1,64}-+/g,
+    '[secret redacted]'
+  )
+  collect(/\bBearer\s+[A-Za-z0-9._~+/=-]{1,512}/gi, 'Bearer [secret redacted]')
+  collect(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,512}/gi, '[secret redacted]')
+  collect(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`"']{1,512}/g, '[private path]')
+  spans.sort((left, right) => left.start - right.start || right.end - left.end)
+  const merged: Array<{ start: number; end: number; replacement: string }> = []
+  for (const span of spans) {
+    const previous = merged.at(-1)
+    if (previous && span.start < previous.end) {
+      previous.end = Math.max(previous.end, span.end)
+      if (span.replacement.includes('secret')) previous.replacement = span.replacement
+    } else {
+      merged.push({ ...span })
+    }
+  }
+  return merged
+}
+
+function redactTextRange(
+  value: string,
+  start: number,
+  end: number,
+  spans: readonly RedactionSpan[]
+) {
+  let cursor = start
+  let result = ''
+  for (const span of spans) {
+    if (span.end <= start) continue
+    if (span.start >= end) break
+    const visibleStart = Math.max(cursor, start)
+    if (span.start > visibleStart) result += value.slice(visibleStart, Math.min(span.start, end))
+    if (span.start >= start && span.start < end) result += span.replacement
+    cursor = Math.max(cursor, span.end)
+  }
+  if (cursor < end) result += value.slice(cursor, end)
+  return result
+}
+
+/**
+ * Sanitize each delta with a bounded look-behind/look-ahead window. Credentials
+ * can straddle fragments that remain separate entries, but one long run must
+ * not consume another run's scan budget. Most redaction patterns have bounded
+ * extents; if unbounded Bearer whitespace or PEM dash runs extend past the
+ * overlap, the affected fragment is suppressed and visibly marked truncated.
+ */
+export function redactAssistantDeltaFragments(
+  items: readonly ChatTranscriptItem[]
+): readonly { body?: string; truncated: boolean }[] {
+  // Keep references to the payload strings instead of normalizing/copying every
+  // complete fragment. Only the bounded slices below are materialized.
+  const raw = items.map((item) => assistantDeltaPayloadText(item))
+  return items.map((item, index) => {
+    const fragment = raw[index]
+    if (fragment === undefined) return { truncated: item.bodyTruncated === true }
+
+    const currentRaw = fragment.slice(0, BODY_SCAN_WINDOW)
+    const current = currentRaw.replace(/\r\n?/g, '\n')
+    let leftRaw = ''
+    for (
+      let cursor = index - 1;
+      cursor >= 0 && leftRaw.length < MAX_CROSS_DELTA_CONTEXT;
+      cursor -= 1
+    ) {
+      const previous = raw[cursor]
+      if (previous === undefined) continue
+      const remaining = MAX_CROSS_DELTA_CONTEXT - leftRaw.length
+      leftRaw = previous.slice(-remaining) + leftRaw
+    }
+    let rightRaw = ''
+    for (
+      let cursor = index + 1;
+      cursor < raw.length && rightRaw.length < MAX_CROSS_DELTA_CONTEXT;
+      cursor += 1
+    ) {
+      const next = raw[cursor]
+      if (next === undefined) continue
+      const remaining = MAX_CROSS_DELTA_CONTEXT - rightRaw.length
+      rightRaw += next.slice(0, remaining)
+    }
+
+    // Measure the budget against raw wire units before CRLF normalization.
+    // Otherwise 5,000 raw chars of CRLF whitespace shrink below the fail-closed
+    // threshold and can hide an unbounded Bearer separator's discarded prefix.
+    const left = leftRaw.replace(/\r\n?/g, '\n')
+    const right = rightRaw.replace(/\r\n?/g, '\n')
+    const context = left + current + right
+    const currentStart = left.length
+    const currentEnd = currentStart + current.length
+    // Bearer whitespace and PEM dash runs are intentionally unbounded in the
+    // canonical redactor. A saturated overlap that starts inside a possible
+    // separator is ambiguous: the missing prefix/suffix may complete a match.
+    // Fail closed rather than weakening either pattern's semantics.
+    const leftAtLimit = leftRaw.length >= MAX_CROSS_DELTA_CONTEXT
+    const rightAtLimit = rightRaw.length >= MAX_CROSS_DELTA_CONTEXT
+    const possibleBearerPrefix = /^(?:earer|arer|rer|er|r)\s*$/i.test(left)
+    const ambiguousLeftBoundary =
+      leftAtLimit && (/^\s/.test(left) || possibleBearerPrefix || left.startsWith('-'))
+    const ambiguousPemRightBoundary =
+      rightAtLimit && right.endsWith('-') && context.includes('-----BEGIN ')
+    if (ambiguousLeftBoundary || ambiguousPemRightBoundary) return { truncated: true }
+
+    const value = redactTextRange(context, currentStart, currentEnd, redactionSpans(context))
+    const body = redact(value, MAX_BODY_TEXT, { window: BODY_SCAN_WINDOW, layout: true })
+    return {
+      body,
+      truncated:
+        fragment.length > BODY_SCAN_WINDOW ||
+        item.bodyTruncated === true ||
+        body.length >= MAX_BODY_TEXT,
+    }
+  })
+}
+
 function labelFromPayload(event: RuntimeEvent): string {
   if (event.payload !== null && typeof event.payload === 'object') {
     const payload = event.payload as Record<string, unknown>
@@ -161,12 +361,9 @@ function roleFor(kind: RuntimeEvent['kind']): ChatTranscriptItem['role'] {
 }
 
 /**
- * Render only known, bounded fields from runtime events. Every event with a
- * renderable classification gets a row: a kind the chat has no dedicated
- * presentation for becomes an `other` row labelled with its wire kind, and its
- * payload contributes only the same bounded, redacted fields every row may show
- * (never arbitrary JSON), so private paths, secrets and raw payloads never
- * become transcript markup. Credential-classified events are the one exclusion.
+ * Render only known, bounded fields from runtime events. An unrecognised kind
+ * has no trusted payload schema, so it is retained as a wire-kind-only row.
+ * Credential-classified events are the one exclusion.
  */
 export function projectTranscriptEvents(
   events: readonly RuntimeEvent[],
@@ -178,6 +375,15 @@ export function projectTranscriptEvents(
     // malformed upstream producer gives one a normally renderable event kind.
     if (event.classification === 'credential') continue
     const role = roleFor(event.kind)
+    if (role === 'other') {
+      rows.push({
+        id: event.eventId,
+        role,
+        kind: event.kind,
+        label: event.kind,
+      })
+      continue
+    }
     const text = textFromPayload(event)
     const body = bodyFromPayload(event)
     const label = labelFromPayload(event)
@@ -203,7 +409,6 @@ export function projectTranscriptEvents(
         kind: 'session.disconnected',
         label: 'Terminal transcript projection',
         text: 'Structured runtime events are unavailable for this session.',
-        ...(events[0] !== undefined ? { event: events[0] } : {}),
       },
       ...rows,
     ]

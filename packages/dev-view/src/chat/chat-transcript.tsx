@@ -42,6 +42,7 @@ import {
 } from './model/turns'
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
 import type { TranscriptAccumulator } from './model'
+import { transcriptHistoryNotice } from './model/transcript'
 import { ChatApproval } from './chat-approval'
 import { chatTranscriptActionDisabledReason } from './transcript-availability'
 
@@ -147,7 +148,12 @@ export function ChatTranscriptNotices(
   props: Pick<ChatTranscriptProps, 'transcript' | 'projection' | 'onJumpToTerminal'>
 ): JSX.Element {
   const availability = () => props.transcript?.availability
-  const retention = () => props.transcript?.retention
+  const historyNotice = () => {
+    const transcript = props.transcript
+    return transcript
+      ? transcriptHistoryNotice(transcript.retention, transcript.availability)
+      : undefined
+  }
   return (
     <>
       <Show when={availability()?.status === 'resync_required'}>
@@ -164,12 +170,8 @@ export function ChatTranscriptNotices(
           title="This transcript belongs to an older runtime generation."
         />
       </Show>
-      <Show when={retention()?.complete === false}>
-        <ChatNotice
-          tone="info"
-          live="polite"
-          title="Transcript history is bounded; older events require a runtime checkpoint."
-        />
+      <Show when={historyNotice()}>
+        <ChatNotice tone="info" live="polite" title={historyNotice()!} />
       </Show>
       <Show when={props.projection === 'terminal_fallback'}>
         <ChatNotice

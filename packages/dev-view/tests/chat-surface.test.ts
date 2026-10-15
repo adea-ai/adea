@@ -75,6 +75,62 @@ describe('chat surface presentation', () => {
     expect(rows.some((row) => row.id === 'credential-1')).toBe(false)
   })
 
+  test('PEM redaction preserves the original unbounded delimiter semantics', () => {
+    const privateMaterial = 'private-material-that-must-not-appear'
+    const pem = [
+      `-----BEGIN PRIVATE KEY${'-'.repeat(5_000)}\n`,
+      privateMaterial,
+      `\n-----END PRIVATE KEY${'-'.repeat(5_000)}`,
+    ].join('')
+    const row = projectTranscriptEvents([event({ payload: { text: pem } })])[0]
+
+    expect(row?.body).toContain('[secret redacted]')
+    expect(row?.body).not.toContain(privateMaterial)
+  })
+
+  test('unrendered known and future kinds expose only their wire name', () => {
+    const rows = projectTranscriptEvents(
+      ['file.observed', 'future.private_payload' as RuntimeEvent['kind']].map((kind, index) =>
+        event({
+          eventId: `unrendered-${index}`,
+          kind,
+          payload: {
+            name: 'unclassified private answer',
+            text: 'the user secret that does not match a token pattern',
+            message: 'private conversation content',
+          },
+        })
+      )
+    )
+
+    expect(rows).toHaveLength(2)
+    for (const [index, row] of rows.entries()) {
+      expect(row).toMatchObject({
+        id: `unrendered-${index}`,
+        role: 'other',
+        kind: index === 0 ? 'file.observed' : 'future.private_payload',
+        label: index === 0 ? 'file.observed' : 'future.private_payload',
+      })
+      expect(row.text).toBeUndefined()
+      expect(row.body).toBeUndefined()
+      expect(JSON.stringify(row)).not.toContain('unclassified private answer')
+      expect(JSON.stringify(row)).not.toContain('user secret')
+      expect(JSON.stringify(row)).not.toContain('private conversation content')
+    }
+
+    const fallback = projectTranscriptEvents(
+      [
+        event({
+          eventId: 'unrendered-fallback',
+          kind: 'file.observed',
+          payload: { text: 'private fallback payload' },
+        }),
+      ],
+      { projection: 'terminal_fallback' }
+    )
+    expect(JSON.stringify(fallback)).not.toContain('private fallback payload')
+  })
+
   test('prose keeps line breaks and fragment whitespace; labels stay one line', () => {
     const rows = projectTranscriptEvents([
       event({ eventId: 'm', payload: { text: 'one\r\ntwo\n\n\tthree' } }),

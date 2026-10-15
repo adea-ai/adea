@@ -32,6 +32,15 @@ export type TranscriptAccumulator = Readonly<{
   retention: ChatRetentionTruth
 }>
 
+/** A bounded-history notice should describe what the person can see, not invent a recovery dependency. */
+export function transcriptHistoryNotice(
+  retentionTruth: ChatRetentionTruth,
+  availability: TranscriptAvailability
+): string | undefined {
+  if (retentionTruth.complete || availability.status === 'resync_required') return undefined
+  return 'Showing the latest events only.'
+}
+
 function sequence(value: string): bigint {
   try {
     return BigInt(value)

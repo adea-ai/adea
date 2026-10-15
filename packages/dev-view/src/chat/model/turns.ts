@@ -19,7 +19,11 @@
 //   kind states one (`*.completed`, `*.failed`).
 // - No event disappears. A kind the chat has no dedicated presentation for is an
 //   `other` entry with its kind as the label, in position.
-import type { ChatTranscriptItem } from '../presentation'
+import {
+  redactAssistantDeltaFragments,
+  redactAssistantDeltaGroup,
+  type ChatTranscriptItem,
+} from '../presentation'
 
 /** Longest assistant block the canvas renders; longer text is cut and says so. */
 export const CHAT_ASSISTANT_TEXT_LIMIT = 32_768
@@ -69,8 +73,16 @@ export type ChatTurnProjection = Readonly<{
 const LEAD_TURN_ID = 'lead'
 
 function sameRun(a: ChatTranscriptItem, b: ChatTranscriptItem): boolean {
+  const left = a.event?.harnessRunId
+  const right = b.event?.harnessRunId
   return (
-    a.event?.harnessRunId === b.event?.harnessRunId && a.event?.generation === b.event?.generation
+    typeof left === 'string' &&
+    left.trim().length > 0 &&
+    typeof right === 'string' &&
+    right.trim().length > 0 &&
+    left === right &&
+    typeof a.event?.generation === 'number' &&
+    a.event.generation === b.event?.generation
   )
 }
 
@@ -103,17 +115,41 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
   const turns: { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] }[] = []
   const entryByEventId = new Map<string, string>()
   let open: { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] } | undefined
+  const safeDelta = new Map<ChatTranscriptItem, { body?: string; truncated: boolean }>()
+  for (let index = 0; index < items.length;) {
+    if (items[index]?.kind !== 'turn.assistant_delta') {
+      index += 1
+      continue
+    }
+    const start = index
+    while (index < items.length && items[index]?.kind === 'turn.assistant_delta') index += 1
+    const streak = items.slice(start, index)
+    const sanitized = redactAssistantDeltaFragments(streak)
+    streak.forEach((item, partIndex) => safeDelta.set(item, sanitized[partIndex]!))
+  }
   let pendingDelta:
-    | { first: ChatTranscriptItem; parts: string[]; ids: string[]; truncated: boolean }
+    | { first: ChatTranscriptItem; items: ChatTranscriptItem[]; ids: string[]; truncated: boolean }
     | undefined
 
   const index = (eventId: string, entryId: string) => entryByEventId.set(eventId, entryId)
 
   const flushDelta = () => {
     if (!pendingDelta || !open) return
-    const { first, parts, ids, truncated: cut } = pendingDelta
+    const { first, items: deltaItems, ids, truncated: cut } = pendingDelta
     pendingDelta = undefined
-    const { text, truncated } = join(parts, cut)
+    const safeItems = deltaItems.map((item) => {
+      const safe = safeDelta.get(item)
+      return safe
+        ? {
+            ...item,
+            body: safe.body,
+            bodyTruncated: item.bodyTruncated || safe.truncated,
+            event: undefined,
+          }
+        : item
+    })
+    const body = redactAssistantDeltaGroup(safeItems)
+    const { text, truncated } = join([body.body], cut || body.truncated)
     open.entries.push({
       type: 'text',
       id: first.id,
@@ -144,18 +180,54 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     }
     const turn = current()
     if (item.kind === 'turn.assistant_delta') {
-      const text = item.body
+      const safe = safeDelta.get(item)
+      // `undefined` from an existing sanitizer result means sanitized/omitted,
+      // not "try the raw body again". Only an absent result may fall back.
+      const text = safe === undefined ? item.body : safe.body
       if (text === undefined || text.length === 0) {
         // An empty fragment adds no prose but is still an event: keep it visible.
         flushDelta()
-        turn.entries.push({ type: 'activity', id: item.id, item })
+        const truncated = item.bodyTruncated === true || safe?.truncated === true
+        if (truncated) {
+          // Preserve an explicit safety/truncation signal even when no safe
+          // prose remains to display.
+          turn.entries.push({
+            type: 'text',
+            id: item.id,
+            text: '',
+            source: 'delta',
+            truncated: true,
+            failed: false,
+            eventIds: [item.id],
+          })
+        } else {
+          const safeItem = safe
+            ? {
+                ...item,
+                text: undefined,
+                body: safe.body,
+                bodyTruncated: item.bodyTruncated || safe.truncated,
+                event: undefined,
+              }
+            : item
+          turn.entries.push({ type: 'activity', id: item.id, item: safeItem })
+        }
         index(item.id, item.id)
         continue
       }
       if (pendingDelta && !sameRun(pendingDelta.first, item)) flushDelta()
-      if (!pendingDelta) pendingDelta = { first: item, parts: [], ids: [], truncated: false }
-      pendingDelta.truncated ||= item.bodyTruncated === true
-      pendingDelta.parts.push(text)
+      if (!pendingDelta) pendingDelta = { first: item, items: [], ids: [], truncated: false }
+      pendingDelta.truncated ||= item.bodyTruncated === true || safe?.truncated === true
+      pendingDelta.items.push(
+        safe
+          ? {
+              ...item,
+              body: safe.body,
+              bodyTruncated: item.bodyTruncated || safe.truncated,
+              event: undefined,
+            }
+          : item
+      )
       pendingDelta.ids.push(item.id)
       continue
     }

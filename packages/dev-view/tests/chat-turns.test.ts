@@ -1,17 +1,22 @@
 import { describe, expect, test } from 'bun:test'
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
-import { projectTranscriptEvents } from '../src/chat/presentation'
+import { projectTranscriptEvents, type ChatTranscriptItem } from '../src/chat/presentation'
 import { buildChatTurns, CHAT_ASSISTANT_TEXT_LIMIT } from '../src/chat/model/turns'
 
 let sequence = 0
-function event(kind: RuntimeEvent['kind'], payload: unknown, id?: string, run = 'run-1') {
+function event(
+  kind: RuntimeEvent['kind'],
+  payload: unknown,
+  id?: string,
+  run: string | null = 'run-1'
+) {
   sequence += 1
   return {
     schemaVersion: 1,
     eventId: id ?? `e${sequence}`,
     runtimeSessionId: 'session-1',
-    harnessRunId: run,
+    ...(typeof run === 'string' ? { harnessRunId: run } : {}),
     generation: 1,
     seq: String(sequence),
     occurredAt: '2026-10-14T10:00:00.000Z',
@@ -63,6 +68,20 @@ describe('buildChatTurns', () => {
     const [entry] = built[0]?.entries ?? []
     expect(entry).toMatchObject({ type: 'text', id: 'd1', text: 'Hello world', source: 'delta' })
     expect(entryByEventId.get('d3')).toBe('d1')
+  })
+
+  test('deltas without a harness run identity do not merge under a guess', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      event('turn.assistant_delta', { text: 'one' }, 'd1', null),
+      event('turn.assistant_delta', { text: 'two' }, 'd2', null),
+    ])
+
+    expect(built[0]?.entries.map((entry) => entry.id)).toEqual(['d1', 'd2'])
+    expect(built[0]?.entries.map((entry) => entry.type === 'text' && entry.text)).toEqual([
+      'one',
+      'two',
+    ])
   })
 
   test('a tool, an approval or another run ends the block; nothing is reordered', () => {
@@ -172,6 +191,205 @@ const proseOf = (events: readonly RuntimeEvent[]) => {
 }
 
 describe('whitespace-only streamed fragments', () => {
+  test('secrets split across assistant deltas are redacted after the fragments join', () => {
+    const fragments = ['The response contains sk-', 'supersecretvalue1234 and must be hidden.']
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      ...fragments.map((text, index) => event('turn.assistant_delta', { text }, `d${index}`)),
+    ])
+
+    expect(texts).toHaveLength(1)
+    expect(texts[0]).toContain('[secret redacted]')
+    expect(texts[0]).not.toContain('supersecretvalue1234')
+  })
+
+  test('split secrets are redacted even when missing run identity keeps entries separate', () => {
+    const fragments = ['The response contains sk-', 'supersecretvalue1234 and must be hidden.']
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      ...fragments.map((text, index) => event('turn.assistant_delta', { text }, `d${index}`, null)),
+    ])
+    const entries = built[0]?.entries ?? []
+    const texts = entries.flatMap((entry) => (entry.type === 'text' ? [entry.text] : []))
+
+    expect(entries.map((entry) => entry.id)).toEqual(['d0', 'd1'])
+    expect(texts.join('')).toContain('[secret redacted]')
+    expect(texts.join('')).not.toContain('supersecretvalue1234')
+    expect(texts).toEqual(['The response contains [secret redacted]', ' and must be hidden.'])
+  })
+
+  test('a long run does not consume the scan window for later deltas with another known run', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'x'.repeat(66_000) }, 'long', 'long-run'),
+      event(
+        'turn.assistant_delta',
+        { text: 'The response contains sk-' },
+        'secret-1',
+        'secret-run'
+      ),
+      event(
+        'turn.assistant_delta',
+        { text: 'supersecretvalue1234 and must be hidden.' },
+        'secret-2',
+        'secret-run'
+      ),
+    ])
+    const entries = built.flatMap((turn) => turn.entries)
+    const texts = entries.flatMap((entry) => (entry.type === 'text' ? [entry.text] : []))
+
+    expect(entries[0]).toMatchObject({ type: 'text', truncated: true })
+    expect(texts).toHaveLength(2)
+    expect(texts[1]).toContain('[secret redacted]')
+    expect(JSON.stringify(entries)).not.toContain('supersecretvalue1234')
+  })
+
+  test('a long run does not consume the scan window for later deltas without run IDs', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: 'x'.repeat(66_000) }, 'long', null),
+      event('turn.assistant_delta', { text: 'The response contains sk-' }, 'secret-1', null),
+      event(
+        'turn.assistant_delta',
+        { text: 'supersecretvalue1234 and must be hidden.' },
+        'secret-2',
+        null
+      ),
+    ])
+    const entries = built.flatMap((turn) => turn.entries)
+    const texts = entries.flatMap((entry) => (entry.type === 'text' ? [entry.text] : []))
+
+    expect(entries[0]).toMatchObject({ type: 'text', truncated: true })
+    expect(entries.map((entry) => entry.id)).toEqual(['long', 'secret-1', 'secret-2'])
+    expect(texts.join('')).toContain('[secret redacted]')
+    expect(JSON.stringify(entries)).not.toContain('supersecretvalue1234')
+  })
+
+  test('Bearer tokens stay redacted when unbounded whitespace exceeds the cross-delta context', () => {
+    const separators = [
+      ' '.repeat(4_996), // leaves only a suffix of "Bearer" in the 5,000-unit context
+      ' '.repeat(6_000),
+      '\n'.repeat(6_000),
+      '\t'.repeat(6_000),
+      '\r\n'.repeat(3_000) + '\r', // raw overlap fills the limit before CRLF normalization
+    ]
+    const credentialParts = [['secretAccessToken987654'], ['secretAccess', 'Token987654']]
+
+    for (const [separatorIndex, separator] of separators.entries()) {
+      for (const [partsIndex, parts] of credentialParts.entries()) {
+        const { turns: built } = turns([
+          event('turn.user_input', { text: 'hi' }, `u${separatorIndex}-${partsIndex}`),
+          event(
+            'turn.assistant_delta',
+            { text: 'Bearer' },
+            `bearer-${separatorIndex}-${partsIndex}`,
+            null
+          ),
+          event(
+            'turn.assistant_delta',
+            { text: separator },
+            `spaces-${separatorIndex}-${partsIndex}`,
+            null
+          ),
+          ...parts.map((text, partIndex) =>
+            event(
+              'turn.assistant_delta',
+              { text },
+              `credential-${separatorIndex}-${partsIndex}-${partIndex}`,
+              null
+            )
+          ),
+        ])
+        const entries = built.flatMap((turn) => turn.entries)
+        const serialized = JSON.stringify(entries)
+
+        for (const part of parts) expect(serialized).not.toContain(part)
+        expect(entries.at(-1)).toMatchObject({ type: 'text', truncated: true })
+      }
+    }
+  })
+
+  test('a CRLF split across deltas stays protected after raw overlap is bounded', () => {
+    const privateToken = 'splitBoundaryToken12345'
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'hi' }, 'u-crlf'),
+      event('turn.assistant_delta', { text: 'Bearer\r' }, 'bearer-crlf', null),
+      event(
+        'turn.assistant_delta',
+        { text: '\n' + '\r\n'.repeat(3_000) },
+        'spaces-crlf',
+        null
+      ),
+      event('turn.assistant_delta', { text: privateToken }, 'token-crlf', null),
+    ])
+    const entries = built.flatMap((turn) => turn.entries)
+
+    expect(JSON.stringify(entries)).not.toContain(privateToken)
+    expect(entries.at(-1)).toMatchObject({ type: 'text', truncated: true })
+  })
+
+  test('PEM bodies remain redacted with delimiter runs longer than the old bound', () => {
+    const privateMaterial = 'private-material-that-must-not-appear'
+    const fragments = [
+      '-----BEGIN PRIVATE KEY',
+      `${'-'.repeat(5_000)}\n${privateMaterial}\n`,
+      `-----END PRIVATE KEY${'-'.repeat(5_000)}`,
+    ]
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      ...fragments.map((text, index) =>
+        event('turn.assistant_delta', { text }, `pem-${index}`, null)
+      ),
+    ])
+    const entries = built.flatMap((turn) => turn.entries)
+
+    expect(JSON.stringify(entries)).not.toContain(privateMaterial)
+    expect(entries.some((entry) => entry.type === 'text' && entry.truncated)).toBe(true)
+  })
+
+  test('a sanitized omitted body never falls back to an unsanitized activity detail', () => {
+    const item = {
+      id: 'd1',
+      role: 'assistant',
+      kind: 'turn.assistant_delta',
+      label: 'Assistant',
+      text: 'raw detail must not be restored',
+    } satisfies ChatTranscriptItem
+    const { turns: built } = buildChatTurns([item])
+
+    expect(JSON.stringify(built)).not.toContain('raw detail must not be restored')
+    expect(built[0]?.entries[0]).toMatchObject({ type: 'activity', id: 'd1' })
+  })
+
+  test('an omitted delta body retains its truncation marker', () => {
+    const item = {
+      id: 'd1',
+      role: 'assistant',
+      kind: 'turn.assistant_delta',
+      label: 'Assistant',
+      text: 'unavailable content',
+      bodyTruncated: true,
+    } satisfies ChatTranscriptItem
+    const { turns: built } = buildChatTurns([item])
+
+    expect(built[0]?.entries[0]).toMatchObject({
+      type: 'text',
+      id: 'd1',
+      text: '',
+      truncated: true,
+    })
+    expect(JSON.stringify(built)).not.toContain('unavailable content')
+  })
+
+  test('an empty preferred payload field falls through to the next text field', () => {
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'hi' }, 'u1'),
+      event('turn.assistant_delta', { text: '', content: 'still visible' }, 'd1'),
+    ])
+
+    expect(texts).toEqual(['still visible'])
+  })
+
   test('a lone space between words stays in one block of prose', () => {
     const { entries, texts } = proseOf([
       event('turn.user_input', { text: 'hi' }, 'u1'),

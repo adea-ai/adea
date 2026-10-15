@@ -1760,9 +1760,14 @@ question answers on scope reset and retains response-authority checks.
 The canvas draws turns: a `turn.user_input` event opens a turn, which is the one
 boundary taken from an event kind, and everything after it nests under one
 assistant response until the next prompt. Events before the first prompt form a
-lead turn. Consecutive `turn.assistant_delta` events from one harness run and
-generation are joined into one prose block whose id is the first delta's id;
-`turn.assistant_message` and `turn.result` render as prose when they carry text.
+lead turn. Consecutive `turn.assistant_delta` events with the same known harness
+run id and generation are joined into one prose block whose id is the first
+delta's id; deltas without a run id are not guessed to share a block. Redaction
+runs over the joined block so secrets split across delta boundaries are not
+rendered. When the transcript window is bounded, Chat says "Showing the latest
+events only."; a sequence gap uses its resync notice rather than claiming a
+checkpoint is required. `turn.assistant_message` and `turn.result` render as
+prose when they carry text.
 Current opaque runtime payloads provide no validated call identity or phase,
 interaction eligibility, synthesis or final-answer boundary, and no
 delta-to-message supersession contract; so no event is correlated with another
