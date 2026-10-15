@@ -63,6 +63,7 @@ import type { HarnessAccountResolution } from '../connections/register'
 import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
 import { createSessionEventLog, type SessionEventLog } from './events'
+import { createConversationCheckpointRuntime, type CheckpointRestoreAdapter } from './checkpoints'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessDeviceDefaultAuthority } from './device-default'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -71,6 +72,8 @@ import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, canTransitionRun, runEventKind 
 import { summarizeWorkspaceRuns } from './workspace-summary'
 
 export type HarnessRuntimeInput = {
+  /** Absent in production until a native/ACP adapter proves restore support. */
+  checkpointRestoreAdapter?: CheckpointRestoreAdapter
   authority: ChannelAuthority
   /** The verified local-lane scope; the shell IS the runtime node here. */
   scope: Scope
@@ -210,6 +213,7 @@ export type PromptDeliverySeam = (
 ) => PromptDeliveryResult | Promise<PromptDeliveryResult>
 
 export type HarnessRuntimeRegistration = Readonly<{
+  checkpoints: ReturnType<typeof createConversationCheckpointRuntime>
   commands: readonly DevOperation[]
   managedPi: ManagedPiDriver
   lane: AcpLane
@@ -283,6 +287,15 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   })
   const runs = createRunHistoryStore({ dataDir: input.dataDir, scope: input.scope })
   const events = createSessionEventLog({ dataDir: input.dataDir, scope: input.scope })
+  const checkpoints = createConversationCheckpointRuntime({
+    dataDir: input.dataDir,
+    scope: input.scope,
+    events,
+    resolveSession: input.resolveSession,
+    persistSession: input.persistSession,
+    adapter: input.checkpointRestoreAdapter,
+    now,
+  })
   const deviceDefault = createHarnessDeviceDefaultAuthority({ dataDir: input.dataDir })
   const preferences = createHarnessPreferenceAuthority({
     dataDir: input.dataDir,
@@ -1112,6 +1125,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   const providers: Partial<Record<DevOperation, ProviderHandler>> = {
+    'dev.session.restoreCheckpoint': (command) => checkpoints.restore(command),
     // ── Device-wide default harness (a family, shared by every workspace) ──
     'dev.harness.deviceDefault': (command) => {
       requireScope(command)
@@ -1803,6 +1817,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
 
   return {
     commands: Object.keys(providers) as DevOperation[],
+    checkpoints,
     managedPi,
     lane,
     events,

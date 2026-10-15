@@ -10,6 +10,7 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import { decodeCheckpointEventPayload } from './dev-runtime-checkpoints'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -45,6 +46,9 @@ export const runtimeEventKinds = [
   'question.expired',
   'file.observed',
   'checkpoint.observed',
+  'checkpoint.restore_requested',
+  'checkpoint.restore_resolved',
+  'checkpoint.restore_failed',
   'subagent.observed',
   'usage.observed',
   'terminal.command_started',
@@ -173,6 +177,22 @@ export function decodeRuntimeEvent(
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  const checkpointPayload = decodeCheckpointEventPayload(item.kind as string, item.payload)
+  if (checkpointPayload) {
+    if (item.confidence !== 'authoritative')
+      fail('event.confidence', 'checkpoint evidence must be authoritative')
+    if (item.classification !== 'workspace_private')
+      fail('event.classification', 'checkpoint evidence must be workspace_private')
+    stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    if (item.kind !== 'checkpoint.observed') {
+      if (item.source !== 'host') fail('event.source', 'checkpoint restore outcomes are host-owned')
+      if (
+        'requestedGeneration' in checkpointPayload &&
+        checkpointPayload.requestedGeneration !== item.generation
+      )
+        fail('event.generation', 'does not match checkpoint restore request')
+    }
+  }
   return value as RuntimeEvent
 }
 
