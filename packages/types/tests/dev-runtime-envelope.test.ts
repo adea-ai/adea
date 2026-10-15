@@ -9,6 +9,7 @@ import {
   decodeRuntimeEnvelope,
   decodeRuntimeEvent,
   encodeCbor,
+  runtimeEventKinds,
 } from '../src/dev-runtime-wire'
 
 function event(overrides: Record<string, unknown> = {}) {
@@ -154,6 +155,27 @@ describe('cborByteLength', () => {
 })
 
 describe('lean envelope decoder', () => {
+  test('accepts every exported runtime event kind and rejects unknown kinds', () => {
+    for (const kind of runtimeEventKinds) {
+      const source = kind === 'queue.updated' ? 'host' : 'acp'
+      const payload =
+        kind === 'queue.updated'
+          ? {
+              schemaVersion: 1,
+              runtimeSessionId: 'session-1',
+              generation: 1,
+              version: 0,
+              change: 'enqueue',
+              items: [],
+            }
+          : {}
+      const classification = kind === 'queue.updated' ? 'workspace_metadata' : undefined
+      const value = event({ kind, source, payload, ...(classification ? { classification } : {}) })
+      expect(decodeRuntimeEnvelope(value, { source }).kind).toBe(kind)
+    }
+    expect(() => decodeRuntimeEnvelope(event({ kind: 'session.unknown' }), provenance)).toThrow()
+  })
+
   test('accepts a valid envelope without interpreting kind-specific payloads', () => {
     const malformedCall = event({ payload: { schemaVersion: 1, callId: 'call 1 with spaces' } })
     expect(() => decodeRuntimeEvent(malformedCall, provenance)).toThrow()
@@ -236,12 +258,16 @@ describe('lean envelope decoder', () => {
           resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
         )}\nglobalThis.lean = [decodeCbor, decodeRuntimeEnvelope]\n`
       )
-      const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
+      const result = await Bun.build({
+        entrypoints: [entry],
+        minify: true,
+        target: 'browser',
+      })
       expect(result.success).toBe(true)
       const text = await result.outputs[0]!.text()
-      // Queue.updated gets a compact required-field and privacy check in the
-      // lean decoder; the full queue decoder, interactions, attachments and
-      // other kind-specific contracts remain behind `eventSemantics`.
+      // Queue.updated gets its full strict contract in the lean decoder;
+      // unrelated interactions, attachments and kind-specific contracts stay
+      // behind `eventSemantics`.
       for (const marker of [
         'call observations require',
         'expected opaque call identifier',
@@ -250,8 +276,9 @@ describe('lean envelope decoder', () => {
         'event.summary',
       ])
         expect(text).not.toContain(marker)
+      expect(text).toContain('queue facts require the authoritative host')
       expect(text).toContain('ill-formed Unicode')
-      expect(text.length).toBeLessThan(8_500)
+      expect(text.length).toBeLessThan(10_000)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

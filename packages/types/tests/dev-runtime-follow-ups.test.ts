@@ -194,4 +194,108 @@ describe('generation-fenced follow-up queue contract', () => {
       )
     ).toThrow()
   })
+
+  test('browser envelope decoding rejects invalid queue versions and change kinds', () => {
+    const event = {
+      schemaVersion: 1,
+      eventId: 'queue-event-1',
+      runtimeSessionId: 'session-1',
+      generation: 2,
+      seq: '1',
+      occurredAt: '2026-10-15T05:00:00.000Z',
+      receivedAt: '2026-10-15T05:00:00.000Z',
+      source: 'host',
+      sourceEventId: 'queue-1',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      kind: 'queue.updated',
+      payload: {
+        schemaVersion: 1,
+        runtimeSessionId: 'session-1',
+        generation: 2,
+        version: 1,
+        change: 'enqueue',
+        items: [{ id: 'message-1', bytes: 9, state: 'queued' }],
+      },
+    }
+
+    for (const payload of [
+      { ...event.payload, version: 'bad' },
+      { ...event.payload, change: 'bogus' },
+    ]) {
+      expect(() => decodeRuntimeEnvelope({ ...event, payload }, { source: 'host' })).toThrow()
+    }
+
+    expect(() =>
+      decodeRuntimeEnvelope({ ...event, classification: 'public' }, { source: 'host' })
+    ).toThrow()
+  })
+
+  test('queue envelope decoding returns detached and frozen queue facts', () => {
+    const event = {
+      schemaVersion: 1,
+      eventId: 'queue-event-1',
+      runtimeSessionId: 'session-1',
+      generation: 2,
+      seq: '1',
+      occurredAt: '2026-10-15T05:00:00.000Z',
+      receivedAt: '2026-10-15T05:00:00.000Z',
+      source: 'host',
+      sourceEventId: 'queue-1',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      kind: 'queue.updated',
+      payload: {
+        schemaVersion: 1,
+        runtimeSessionId: 'session-1',
+        generation: 2,
+        version: 1,
+        change: 'enqueue',
+        items: [{ id: 'message-1', bytes: 9, state: 'queued' }],
+      },
+    }
+
+    const decoded = decodeRuntimeEnvelope(event, { source: 'host' })
+    const payload = decoded.payload as typeof event.payload
+    expect(payload).not.toBe(event.payload)
+    expect(Object.isFrozen(payload)).toBe(true)
+    expect(Object.isFrozen(payload.items)).toBe(true)
+    expect(Object.isFrozen(payload.items[0])).toBe(true)
+    event.payload.items[0]!.bytes = 10
+    expect(payload.items[0]!.bytes).toBe(9)
+  })
+
+  test('complete event decoding keeps queue facts detached and frozen', () => {
+    const event = {
+      schemaVersion: 1,
+      eventId: 'queue-event-1',
+      runtimeSessionId: 'session-1',
+      generation: 2,
+      seq: '1',
+      occurredAt: '2026-10-15T05:00:00.000Z',
+      receivedAt: '2026-10-15T05:00:00.000Z',
+      source: 'host',
+      sourceEventId: 'queue-1',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      kind: 'queue.updated',
+      payload: {
+        schemaVersion: 1,
+        runtimeSessionId: 'session-1',
+        generation: 2,
+        version: 1,
+        change: 'enqueue',
+        items: [{ id: 'message-1', bytes: 9, state: 'queued' }],
+      },
+    }
+
+    const decoded = decodeRuntimeEvent(event, { source: 'host' })
+    const payload = decoded.payload as typeof event.payload
+    expect(payload).not.toBe(event.payload)
+    expect(Object.isFrozen(payload)).toBe(true)
+    expect(Object.isFrozen(payload.items)).toBe(true)
+    expect(Object.isFrozen(payload.items[0])).toBe(true)
+    event.payload.items[0]!.bytes = 10
+    expect(payload.items[0]!.bytes).toBe(9)
+  })
 })

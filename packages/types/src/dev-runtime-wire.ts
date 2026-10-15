@@ -117,6 +117,7 @@ export const runtimeEventKinds = [
   ...runtimeActivityEventKinds,
 ] as const
 export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
+
 export const dataClassifications = [
   'public',
   'workspace_metadata',
@@ -295,11 +296,9 @@ export type RuntimeEventProvenance = Readonly<{
 }>
 
 /**
- * Kind-specific payload validators. Everything that interprets a payload (call
- * observations, visible summaries, cited responses, and any later interaction
- * or attachment contract) is reached ONLY through this object, so the lean
- * browser decoder below never imports it. Register new validators here, never
- * inside `decodeEventEnvelope`.
+ * Most kind-specific payload validators are reached only through this object,
+ * keeping the lean browser decoder small. Queue snapshots are the exception:
+ * browser stream and replay consumers need their strict, prompt-free contract.
  */
 type EventSemantics = Readonly<{
   early(
@@ -308,6 +307,20 @@ type EventSemantics = Readonly<{
   ): RuntimeUsageObservedPayload | FollowUpQueueEventPayload | undefined
   late(item: Record<string, unknown>): void
 }>
+
+function decodeQueueEventPayload(
+  item: Record<string, unknown>,
+  decode = decodeFollowUpQueueEventPayload
+): FollowUpQueueEventPayload {
+  if (item.source !== 'host' || item.confidence !== 'authoritative')
+    fail('event.source', 'queue facts require the authoritative host')
+  if (item.classification !== 'workspace_metadata')
+    fail('event.classification', 'expected workspace_metadata')
+  const payload = decode(item.payload)
+  if (payload.runtimeSessionId !== item.runtimeSessionId || payload.generation !== item.generation)
+    fail('event.payload', 'queue identity does not match event')
+  return payload
+}
 
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
@@ -326,16 +339,7 @@ const eventSemantics: EventSemantics = {
       validateActivity(item, enforceEnvelopeBounds)
     }
     let queuePayload: FollowUpQueueEventPayload | undefined
-    if (item.kind === 'queue.updated') {
-      if (item.source !== 'host' || item.confidence !== 'authoritative')
-        fail('event.source', 'queue facts require the authoritative host')
-      queuePayload = decodeFollowUpQueueEventPayload(item.payload)
-      if (
-        queuePayload.runtimeSessionId !== item.runtimeSessionId ||
-        queuePayload.generation !== item.generation
-      )
-        fail('event.payload', 'queue identity does not match event')
-    }
+    if (item.kind === 'queue.updated') queuePayload = decodeQueueEventPayload(item)
     const interaction = decodeRuntimeInteractionPayload(kind, item.payload)
     if (interaction) {
       if (item.confidence !== 'authoritative')
@@ -461,21 +465,9 @@ function decodeEventEnvelope(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
+  let queuePayload: FollowUpQueueEventPayload | undefined
   if (!semantics && item.kind === 'queue.updated') {
-    const queue = usageDataRecord(item.payload, 'event.payload')
-    if (
-      item.source !== 'host' ||
-      item.confidence !== 'authoritative' ||
-      queue.schemaVersion !== 1 ||
-      queue.runtimeSessionId !== item.runtimeSessionId ||
-      queue.generation !== item.generation ||
-      !Object.hasOwn(queue, 'version') ||
-      !Array.isArray(queue.items) ||
-      !Object.hasOwn(queue, 'change') ||
-      Object.hasOwn(queue, 'text') ||
-      queue.items.some((entry) => 'text' in (entry as object))
-    )
-      fail('event', 'invalid')
+    queuePayload = decodeQueueEventPayload(item)
   }
   if (item.source === 'terminal_fallback') {
     if (item.confidence === 'authoritative')
@@ -493,7 +485,7 @@ function decodeEventEnvelope(
   // Retained legacy events remain opaque. Complete decoding applies every
   // kind-specific contract; the lean decoder keeps whole-frame bounds for
   // versioned call and activity claims without interpreting their payloads.
-  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds)
+  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds) ?? queuePayload
   if (
     !semantics &&
     enforceEnvelopeBounds &&

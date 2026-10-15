@@ -5447,10 +5447,11 @@ never a process name, terminal idle appearance, or a guessed capability.
 The complete Dev Runtime entry exports the queue types. Strict
 request/snapshot/reply/event-payload decoders are exported from the focused
 `dev-runtime-follow-ups` entry; consumers that validate a queue reply use
-`decodeFollowUpQueueReply`. The general wire decoder checks authoritative-host
-provenance, envelope identity, and the absence of prompt-text fields for
-`queue.updated`. The host event log applies the full queue-event payload
-decoder both before append and while projecting persisted/replayed events.
+`decodeFollowUpQueueReply`. The general wire decoder strictly decodes
+authoritative-host provenance, envelope identity, and the complete prompt-free
+`queue.updated` payload on browser stream and replay paths. The host event log
+applies the full queue-event payload decoder both before append and while
+projecting persisted/replayed events.
 Returned snapshots and queue-event payloads are detached and frozen so caller
 mutation cannot change the admitted queue facts.
 
