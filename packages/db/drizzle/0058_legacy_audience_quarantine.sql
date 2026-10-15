@@ -19,7 +19,7 @@ CREATE TABLE "app"."legacy_audience_quarantine" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "legacy_audience_quarantine_principal_unique" UNIQUE("workspace_id","channel_id","principal_kind","principal_id"),
 	CONSTRAINT "legacy_audience_quarantine_source_unique" UNIQUE("source_participant_id"),
-	CONSTRAINT "legacy_audience_quarantine_reason_known" CHECK ("app"."legacy_audience_quarantine"."reason" in ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')),
+	CONSTRAINT "legacy_audience_quarantine_reason_known" CHECK ("app"."legacy_audience_quarantine"."reason" in ('agent_not_active', 'channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')),
 	CONSTRAINT "legacy_audience_quarantine_profile_nonempty" CHECK (length(btrim("app"."legacy_audience_quarantine"."profile")) > 0),
 	CONSTRAINT "legacy_audience_quarantine_source_digest_hex" CHECK ("app"."legacy_audience_quarantine"."source_row_digest" ~ '^[0-9a-f]{64}$'),
 	CONSTRAINT "legacy_audience_quarantine_withdrawal_digest_hex" CHECK ("app"."legacy_audience_quarantine"."withdrawn_digest" is null or "app"."legacy_audience_quarantine"."withdrawn_digest" ~ '^[0-9a-f]{64}$'),
@@ -79,8 +79,8 @@ WITH classified AS (
     COALESCE(cp.user_id, cp.agent_id) AS principal_id,
     cp.id AS source_participant_id,
     app.legacy_participant_digest(cp) AS source_row_digest,
-    to_char(ch.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS source_channel_created_at,
-    to_char(cp.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS source_joined_at,
+    to_char(ch.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_channel_created_at,
+    to_char(cp.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_joined_at,
     CASE
       WHEN cp.workspace_id <> ch.workspace_id THEN 'channel_workspace_mismatch'
       WHEN ch.lifecycle_state <> 'active' THEN 'group_channel_not_active'
@@ -92,6 +92,11 @@ WITH classified AS (
         SELECT 1 FROM app.agents ag
         WHERE ag.id = cp.agent_id AND ag.workspace_id = ch.workspace_id
       ) THEN 'agent_workspace_mismatch'
+      WHEN cp.principal_kind = 'agent' AND EXISTS (
+        SELECT 1 FROM app.agents ag
+        WHERE ag.id = cp.agent_id AND ag.workspace_id = ch.workspace_id
+          AND ag.lifecycle_state <> 'active'
+      ) THEN 'agent_not_active'
       ELSE NULL
     END AS reason
   FROM app.channel_participants cp
@@ -108,7 +113,7 @@ SELECT
   source_participant_id, source_workspace_id, source_row_digest,
   source_channel_created_at, source_joined_at,
   'legacy-group-audience/0050-group-legacy-backfill@dc310c7d6686efee',
-  to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  to_char(statement_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
 FROM classified
 WHERE reason IS NOT NULL
 ON CONFLICT (workspace_id, channel_id, principal_kind, principal_id) DO NOTHING;

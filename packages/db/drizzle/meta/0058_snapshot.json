@@ -4809,7 +4809,7 @@
       "checkConstraints": {
         "legacy_audience_quarantine_reason_known": {
           "name": "legacy_audience_quarantine_reason_known",
-          "value": "\"app\".\"legacy_audience_quarantine\".\"reason\" in ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')"
+          "value": "\"app\".\"legacy_audience_quarantine\".\"reason\" in ('agent_not_active', 'channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')"
         },
         "legacy_audience_quarantine_profile_nonempty": {
           "name": "legacy_audience_quarantine_profile_nonempty",

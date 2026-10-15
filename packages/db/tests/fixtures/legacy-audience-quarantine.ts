@@ -18,10 +18,11 @@ export const LEGACY_AUDIENCE_DDL_PATH = `${import.meta.dir}/legacy-audience-quar
 export const CANONICAL_BACKFILL_PATH = `${import.meta.dir}/canonical-chain/0050_group_legacy_backfill.sql`
 
 export const LEGACY_AUDIENCE_REASONS = [
+  'agent_not_active',
+  'agent_workspace_mismatch',
   'channel_workspace_mismatch',
   'group_channel_not_active',
   'user_not_workspace_member',
-  'agent_workspace_mismatch',
 ] as const
 
 export type LegacyAudienceReason = (typeof LEGACY_AUDIENCE_REASONS)[number]
@@ -78,6 +79,11 @@ function classifiedParticipants() {
           select 1 from app.agents ag
           where ag.id = cp.agent_id and ag.workspace_id = cp.workspace_id
         ) then 'agent_workspace_mismatch'
+        when cp.principal_kind = 'agent' and exists (
+          select 1 from app.agents ag
+          where ag.id = cp.agent_id and ag.workspace_id = cp.workspace_id
+            and ag.lifecycle_state <> 'active'
+        ) then 'agent_not_active'
         else null
       end as reason
     from app.channel_participants cp
@@ -298,6 +304,8 @@ export async function reconcileLegacyAudience(
       (select count(*)::int from app.legacy_audience_quarantine
         where reason = 'agent_workspace_mismatch') as agent_mismatch,
       (select count(*)::int from app.legacy_audience_quarantine
+        where reason = 'agent_not_active') as agent_not_active,
+      (select count(*)::int from app.legacy_audience_quarantine
         where reason = 'channel_workspace_mismatch') as channel_mismatch,
       (select count(*)::int from app.group_admissions) as admissions,
       (select count(*)::int from app.group_audience_grants) as audience_grants,
@@ -345,9 +353,10 @@ export async function reconcileLegacyAudience(
     admissibleRows,
     quarantined,
     quarantinedByReason: {
+      agent_not_active: Number(c.agent_not_active ?? 0),
+      agent_workspace_mismatch: Number(c.agent_mismatch ?? 0),
       group_channel_not_active: Number(c.not_active ?? 0),
       user_not_workspace_member: Number(c.user_not_member ?? 0),
-      agent_workspace_mismatch: Number(c.agent_mismatch ?? 0),
       channel_workspace_mismatch: Number(c.channel_mismatch ?? 0),
     },
     admissions,

@@ -223,7 +223,7 @@ export const legacyAudienceQuarantine = appSchema.table(
     unique('legacy_audience_quarantine_source_unique').on(table.sourceParticipantId),
     check(
       'legacy_audience_quarantine_reason_known',
-      sql`${table.reason} in ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')`
+      sql`${table.reason} in ('agent_not_active', 'channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')`
     ),
     check('legacy_audience_quarantine_profile_nonempty', sql`length(btrim(${table.profile})) > 0`),
     check(

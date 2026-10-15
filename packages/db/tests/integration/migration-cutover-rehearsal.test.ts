@@ -1440,6 +1440,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       admissibleRows: 3,
       quarantined: 4,
       quarantinedByReason: {
+        agent_not_active: 0,
         channel_workspace_mismatch: 0,
         group_channel_not_active: 2,
         user_not_workspace_member: 1,
@@ -1742,14 +1743,16 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(proof.finalComparison.verdict).toBe('inconclusive')
   }, 300_000)
 
-  test('production cutover activates durable quarantine without registering a snapshot family (#1222)', async () => {
+  test('production cutover captures durable quarantine provenance in the snapshot family (#1222)', async () => {
     const { proof } = await runScenario()
-    // Quarantine provenance is durable in production but is not yet a registered snapshot family;
-    // rollout qualification against historical production data remains a separate gate.
     expect(proof.quarantineTableInProduct).toBe(true)
+    expect(migrationSnapshotFamilies).toContain('legacyAudienceQuarantine')
     expect(
-      (migrationSnapshotFamilies as readonly string[]).includes('legacyAudienceQuarantine')
-    ).toBe(false)
+      proof.cutover.document.sections.legacyAudienceQuarantine?.records.length
+    ).toBeGreaterThan(0)
+    expect(proof.replayed.document.sections.legacyAudienceQuarantine).toEqual(
+      proof.cutover.document.sections.legacyAudienceQuarantine
+    )
   }, 300_000)
 
   test('the comparator still reports a removed record after cutover', async () => {

@@ -104,14 +104,30 @@ describe.skipIf(!provisioned)('registered legacy snapshot capture (#1222)', () =
       groupAudienceGrants: { reason: expect.any(String), table: 'group_audience_grants' },
       groupEnlistmentGrants: { reason: expect.any(String), table: 'group_enlistment_grants' },
       groupSharingGrants: { reason: expect.any(String), table: 'group_sharing_grants' },
+      legacyAudienceQuarantine: {
+        reason: expect.stringContaining('0058_legacy_audience_quarantine'),
+        table: 'legacy_audience_quarantine',
+      },
     })
     expect(Object.keys(result.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(result.document.identity).toEqual({
-      formatVersion: 2,
+      formatVersion: 3,
       rehearsalId: IDENTITY.rehearsalId,
       snapshotId: IDENTITY.snapshotId,
       source: IDENTITY.source,
     })
+  })
+
+  test('a canonical capture requested before 0058 reports the quarantine table as schema-absent', async () => {
+    const connection = await preDatabase('quarantine-absent')
+    const result = await captureMigrationSnapshot(connection.db, {
+      identity: IDENTITY,
+      requestedDomains: ['legacyAudienceQuarantine'],
+    })
+    expect(result.domains).toEqual([
+      { domain: 'legacyAudienceQuarantine', status: 'unknown', unknownReason: 'schema_absent' },
+    ])
+    expect(result.document.sections.legacyAudienceQuarantine).toBeUndefined()
   })
 
   test('an unregistered version id is refused before any database read', async () => {

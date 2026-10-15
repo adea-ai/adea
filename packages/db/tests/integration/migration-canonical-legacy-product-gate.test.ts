@@ -10,6 +10,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import { accountConversationInbox } from '../../src/account-inbox'
 import { accountWorkspaceSummaries } from '../../src/account-summary'
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
+import { createAgent } from '../../src/agents'
 import * as schema from '../../src/schema'
 import { classifyWorkspaceEventsForUser } from '../../src/event-visibility'
 import type { WorkspaceEventView } from '../../src/event-log'
@@ -71,7 +72,65 @@ const QUARANTINE_SNAPSHOT_FAMILIES = [
   'groupAudienceGrants',
   'groupEnlistmentGrants',
   'groupSharingGrants',
+  'legacyAudienceQuarantine',
 ] as const
+
+type AgentLifecycleCases = Readonly<{
+  active: string
+  archived: string
+  configurationError: string
+}>
+
+/** Seed active, archived and configuration-error same-workspace Agents on historical rosters. */
+async function addAgentLifecycleCases(
+  fixture: Fixture,
+  seed: LegacyAudienceSeed
+): Promise<AgentLifecycleCases> {
+  const create = (name: string) =>
+    createAgent(fixture.runtime.db, seed.workspaceId, seed.owner, {
+      name,
+      profileId: 'software-engineer',
+      profileVersion: '1.0.0',
+    })
+  const [active, archived, configurationError] = await Promise.all([
+    create(`Quarantine active ${crypto.randomUUID()}`),
+    create(`Quarantine archived ${crypto.randomUUID()}`),
+    create(`Quarantine config-error ${crypto.randomUUID()}`),
+  ])
+  await fixture.migration.db.execute(sql`
+    update app.agents set lifecycle_state = 'archived' where id = ${archived.id}::uuid
+  `)
+  await fixture.migration.db.execute(sql`
+    update app.agents set lifecycle_state = 'configuration_error' where id = ${configurationError.id}::uuid
+  `)
+  await fixture.migration.db.insert(channelParticipants).values([
+    {
+      agentId: active.id,
+      channelId: seed.activeGroupId,
+      principalKind: 'agent',
+      workspaceId: seed.workspaceId,
+    },
+    {
+      agentId: archived.id,
+      channelId: seed.activeGroupId,
+      principalKind: 'agent',
+      workspaceId: seed.workspaceId,
+    },
+    {
+      agentId: configurationError.id,
+      channelId: seed.activeGroupId,
+      principalKind: 'agent',
+      workspaceId: seed.workspaceId,
+    },
+    {
+      agentId: active.id,
+      channelId: seed.archivedGroupId,
+      principalKind: 'agent',
+      workspaceId: seed.workspaceId,
+    },
+  ])
+  return { active: active.id, archived: archived.id, configurationError: configurationError.id }
+}
 
 const quarantineSnapshotIdentity = (snapshotId: string): MigrationSnapshotCaptureIdentityInput => ({
   capturedAt: new Date(OBSERVED_AT),
@@ -219,8 +278,11 @@ describe.skipIf(!provisioned)(
     let admin: postgres.Sql
     let upgrade: Fixture
     let seed: LegacyAudienceSeed
+    let agentLifecycleCases: AgentLifecycleCases
     let ownerMessageId: string
     let migrationQuarantineComparison: ReturnType<typeof compareMigrationSnapshots> | undefined
+    let migrationQuarantineCapture: Awaited<ReturnType<typeof captureMigrationSnapshot>> | undefined
+    let preQuarantineQuarantineDomain: unknown
     const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 14)
     const upgradeName = `${SCRATCH_PREFIX}upgrade_${suffix}`
 
@@ -235,6 +297,7 @@ describe.skipIf(!provisioned)(
         migration: upgrade.migration.db,
         runtime: upgrade.runtime.db,
       })
+      agentLifecycleCases = await addAgentLifecycleCases(upgrade, seed)
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
       const beforeQuarantineTail = migrationsFolderBefore('0058_legacy_audience_quarantine')
       try {
@@ -243,6 +306,9 @@ describe.skipIf(!provisioned)(
           identity: quarantineSnapshotIdentity('before-0058'),
           requestedDomains: QUARANTINE_SNAPSHOT_FAMILIES,
         })
+        preQuarantineQuarantineDomain = beforeQuarantine.domains.find(
+          (domain) => domain.domain === 'legacyAudienceQuarantine'
+        )
         // Exercise the production migration from a non-UTC operator session. The migration's
         // withdrawn-row JSON digest must not depend on this connection-level setting.
         await switchMigrationTimeZone(upgrade, 'Pacific/Auckland')
@@ -261,6 +327,7 @@ describe.skipIf(!provisioned)(
           identity: quarantineSnapshotIdentity('after-0058'),
           requestedDomains: QUARANTINE_SNAPSHOT_FAMILIES,
         })
+        migrationQuarantineCapture = afterQuarantine
         migrationQuarantineComparison = compareMigrationSnapshots({
           after: afterQuarantine.document,
           before: beforeQuarantine.document,
@@ -306,6 +373,17 @@ describe.skipIf(!provisioned)(
     test('0058 withdraws the exact ambiguous group records and preserves the registered snapshot proof', () => {
       if (!migrationQuarantineComparison)
         throw new Error('production quarantine comparison was not captured')
+      expect(preQuarantineQuarantineDomain).toEqual({
+        domain: 'legacyAudienceQuarantine',
+        status: 'unknown',
+        unknownReason: 'schema_absent',
+      })
+      expect(migrationQuarantineComparison.findings).toContainEqual(
+        expect.objectContaining({
+          family: 'legacyAudienceQuarantine',
+          findingClass: 'unknown_domain',
+        })
+      )
       const findings = migrationQuarantineComparison.findings.filter(
         (finding) => finding.findingClass !== 'unknown_domain'
       )
@@ -315,11 +393,55 @@ describe.skipIf(!provisioned)(
         [
           'missing_record:groupAdmissions',
           'missing_record:groupAdmissions',
+          'missing_record:groupAdmissions',
+          'missing_record:groupAdmissions',
           'missing_record:groupAudienceGrants',
+          'missing_record:groupEnlistmentGrants',
+          'missing_record:groupEnlistmentGrants',
           'missing_record:groupEnlistmentGrants',
         ].toSorted()
       )
       expect(migrationQuarantineComparison.verdict).toBe('divergent')
+    })
+
+    test('archived and configuration-error same-workspace Agents are quarantined, while active Agents remain admitted', async () => {
+      if (!migrationQuarantineCapture)
+        throw new Error('production quarantine snapshot was not captured')
+      const records = migrationQuarantineCapture.document.sections.legacyAudienceQuarantine?.records
+      expect(records).toHaveLength(7)
+      expect(
+        records
+          ?.filter((record) => record.reason === 'agent_not_active')
+          .map((record) => record.principalId)
+          .toSorted()
+      ).toEqual([agentLifecycleCases.archived, agentLifecycleCases.configurationError].toSorted())
+      expect(
+        records
+          ?.filter(
+            (record) =>
+              record.principalKind === 'agent' && record.channelId === seed.archivedGroupId
+          )
+          .map((record) => record.reason)
+      ).toContain('group_channel_not_active')
+      expect(
+        migrationQuarantineCapture.document.sections.groupEnlistmentGrants?.records
+      ).toContainEqual(expect.objectContaining({ agentId: agentLifecycleCases.active }))
+      expect(
+        migrationQuarantineCapture.document.sections.groupEnlistmentGrants?.records
+      ).not.toContainEqual(expect.objectContaining({ agentId: agentLifecycleCases.archived }))
+      const directRestore = await upgrade.migration.db
+        .execute(sql`
+        insert into app.group_admissions (workspace_id, channel_id, principal_kind, user_id, agent_id,
+          joined_sequence, joined_at, auth_group_id, auth_grant_id, auth_revision)
+        values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'agent', null,
+          ${agentLifecycleCases.archived}::uuid, 0, ${OBSERVED_AT}, ${seed.activeGroupId}::uuid,
+          'qualification-archived-restore', 1)
+      `)
+        .then(
+          () => 'accepted',
+          (error: unknown) => messageChain(error)
+        )
+      expect(directRestore).toMatch(/legacy audience is quarantined \(agent_not_active\)/)
     })
 
     test('the migration preserves and records the stale audience source row', async () => {

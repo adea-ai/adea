@@ -148,6 +148,7 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
     const { afterQuarantine, quarantineRows } = scenario
     expect(afterQuarantine.quarantined).toBe(4)
     expect(afterQuarantine.quarantinedByReason).toEqual({
+      agent_not_active: 0,
       agent_workspace_mismatch: 1,
       channel_workspace_mismatch: 0,
       group_channel_not_active: 2,
@@ -174,9 +175,9 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
       )
       expect(row.observed_at).toBe(OBSERVED_AT)
       expect(String(row.source_channel_created_at)).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/
       )
-      expect(String(row.source_joined_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+      expect(String(row.source_joined_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/)
       expect(row.workspace_id).toBe(seeded.workspaceId)
     }
   })

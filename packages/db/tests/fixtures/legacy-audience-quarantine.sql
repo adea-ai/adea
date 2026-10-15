@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS "app"."legacy_audience_quarantine" (
   CONSTRAINT "legacy_audience_quarantine_principal_unique"
     UNIQUE ("workspace_id", "channel_id", "principal_kind", "principal_id"),
   CONSTRAINT "legacy_audience_quarantine_reason_known"
-    CHECK ("reason" IN ('channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member', 'agent_workspace_mismatch')),
+    CHECK ("reason" IN ('agent_not_active', 'agent_workspace_mismatch', 'channel_workspace_mismatch', 'group_channel_not_active', 'user_not_workspace_member')),
   CONSTRAINT "legacy_audience_quarantine_profile_nonempty" CHECK (length(btrim("profile")) > 0),
   CONSTRAINT "legacy_audience_quarantine_withdrawal_complete"
     CHECK (("withdrawn_digest" IS NULL) = ("withdrawn_admissions" IS NULL)
