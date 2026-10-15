@@ -10,8 +10,14 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
-import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
-import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
+import {
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  type RuntimeCallEventKind,
+  type RuntimeCallPayload,
+} from './dev-runtime-call'
+import { cborByteLength } from './dev-runtime-cbor-length'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 import {
   decodeRuntimeUsageObservedPayload,
   usageDataRecord,
@@ -19,6 +25,27 @@ import {
 } from './dev-runtime-usage'
 export { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
 export type { RuntimeUsageObservedPayload } from './dev-runtime-usage'
+export {
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  runtimeCallEventKinds,
+  runtimeCallPhases,
+  RUNTIME_CALL_INLINE_BYTES_MAX,
+  RUNTIME_CALL_JSON_NODES_MAX,
+  RUNTIME_CALL_JSON_DEPTH_MAX,
+  RUNTIME_CALL_JSON_ENTRIES_MAX,
+  RUNTIME_CALL_JSON_STRING_MAX,
+} from './dev-runtime-call'
+export type {
+  RuntimeCallData,
+  RuntimeCallEventKind,
+  RuntimeCallJson,
+  RuntimeCallPayload,
+  RuntimeCallPermissionEligibility,
+  RuntimeCallPhase,
+} from './dev-runtime-call'
+import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
+import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -92,6 +119,55 @@ export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readon
   payload: K extends 'usage.observed' ? RuntimeUsageObservedPayload : unknown
 }>
 
+/** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
+export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
+
+export function assertRuntimeEventFrameSize(event: RuntimeEvent): void {
+  if (cborByteLength(event) > RUNTIME_EVENT_CBOR_BYTES_MAX)
+    fail('event', 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+}
+
+export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
+  Readonly<{
+    harnessRunId: string
+    source: 'native' | 'acp' | 'authenticated_hook'
+    kind: RuntimeCallEventKind
+    payload: RuntimeCallPayload
+  }>
+
+function validateCall(event: Record<string, unknown>, enforceEnvelopeBounds = true): void {
+  if (!isRuntimeCallEventKind(event.kind)) fail('event.kind', 'expected tool or subagent call')
+  if (event.source === 'host' || event.source === 'terminal_fallback')
+    fail('event.source', 'call observations require a native, ACP or owned hook producer')
+  stringValue(event.harnessRunId, 'event.harnessRunId', 1, 256)
+  const payload = decodeRuntimeCallPayload(event.payload, event.kind)
+  if (event.classification === 'credential')
+    fail('event.classification', 'credential-classified data must not enter the runtime event log')
+  if (
+    (payload.input?.type === 'inline' || payload.output?.type === 'inline') &&
+    event.classification !== 'restricted_local'
+  )
+    fail('event.classification', 'inline call content requires restricted_local classification')
+  for (const [key, entry] of Object.entries(event))
+    if (typeof entry === 'string') assertWellFormedUnicode(entry, `event.${key}`)
+  if (payload.permissionEligibility !== 'unknown' && event.confidence !== 'authoritative')
+    fail(
+      'event.payload.permissionEligibility',
+      'requires an authoritative native, ACP or owned hook observation'
+    )
+  if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(event as RuntimeEvent)
+}
+
+/** Explicit opt-in narrowing. Legacy opaque payloads never acquire call semantics. */
+export function decodeRuntimeCallEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeCallEvent {
+  decodeRuntimeEvent(value, provenance)
+  validateCall(record(value, 'event'))
+  return value as RuntimeCallEvent
+}
+
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
   if (typeof value === 'string') {
@@ -119,12 +195,84 @@ export type RuntimeEventProvenance = Readonly<{
   source: RuntimeEvent['source']
 }>
 
+/**
+ * Kind-specific payload validators. Everything that interprets a payload (call
+ * observations, visible summaries, cited responses, and any later interaction
+ * or attachment contract) is reached ONLY through this object, so the lean
+ * browser decoder below never imports it. Register new validators here, never
+ * inside `decodeEventEnvelope`.
+ */
+type EventSemantics = Readonly<{
+  early(
+    item: Record<string, unknown>,
+    enforceEnvelopeBounds: boolean
+  ): RuntimeUsageObservedPayload | undefined
+  late(item: Record<string, unknown>): void
+}>
+
+const eventSemantics: EventSemantics = {
+  early(item, enforceEnvelopeBounds) {
+    if (isVersionedCallClaim(item)) validateCall(item, enforceEnvelopeBounds)
+    validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
+    if (item.kind === 'usage.observed') {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'usage observations require authoritative reported figures')
+      return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+    }
+    return undefined
+  },
+  late(item) {
+    validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
+  },
+}
+
+function isVersionedCallClaim(item: Record<string, unknown>): boolean {
+  return (
+    isRuntimeCallEventKind(item.kind) &&
+    item.payload !== null &&
+    typeof item.payload === 'object' &&
+    Object.hasOwn(item.payload, 'schemaVersion')
+  )
+}
+
+/** Complete decoder: envelope, generic payload bounds and every kind-specific contract. */
 export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
-  // A programmatic discriminator must be inert before ANY field is read.
-  // Otherwise a changing `kind` getter can select a different validation path.
+  return decodeEventEnvelope(value, provenance, true, eventSemantics)
+}
+
+/**
+ * Lean browser decoder: authenticated envelope, generic payload bounds and the
+ * full-frame bound for versioned call claims. It never interprets a kind's
+ * payload, so a consumer that renders or acts on one must narrow it with the
+ * explicit contract (for example `decodeRuntimeCallEvent`). Host admission and
+ * persistence use `decodeRuntimeEvent`.
+ */
+export function decodeRuntimeEnvelope(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeEvent {
+  return decodeEventEnvelope(value, provenance, true)
+}
+
+/** @internal Validates a retry before comparing it; new records still require full decoding. */
+export function validateRuntimeEventReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  decodeEventEnvelope(value, provenance, false, eventSemantics)
+}
+
+function decodeEventEnvelope(
+  value: unknown,
+  provenance: RuntimeEventProvenance,
+  enforceEnvelopeBounds: boolean,
+  semantics?: EventSemantics
+): RuntimeEvent {
+  // The discriminator and all envelope fields are own data properties before
+  // any branch or custom decoder can read them.
   const item = usageDataRecord(value, 'event')
   exactKeys(
     item,
@@ -183,19 +331,19 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
-  let usage: RuntimeUsageObservedPayload | undefined
-  if (item.kind === 'usage.observed') {
-    if (item.confidence !== 'authoritative')
-      fail('event.confidence', 'usage observations require authoritative reported figures')
-    usage = decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
-  }
-  const payload = usage ?? item.payload
+  // Retained legacy events remain opaque. With semantics, a versioned call claim
+  // must satisfy the complete contract even through the generic decoder; the lean
+  // decoder still bounds the whole encoded call event.
+  const decodedUsage = semantics?.early(item, enforceEnvelopeBounds)
+  if (!semantics && enforceEnvelopeBounds && isVersionedCallClaim(item))
+    assertRuntimeEventFrameSize(item as RuntimeEvent)
+  const payload = decodedUsage ?? item.payload
   validateEventPayload(payload, 'event.payload')
-  validateRuntimeResponseReferences(item.kind as string, payload, item.source as string)
+  semantics?.late({ ...item, payload })
   if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
-  if (usage) return Object.freeze({ ...(value as RuntimeEvent), payload: usage })
+  if (decodedUsage)
+    return Object.freeze({ ...(value as RuntimeEvent), payload: decodedUsage }) as RuntimeEvent
   return value as RuntimeEvent
 }
 
@@ -287,6 +435,7 @@ export function encodeCbor(value: unknown): Uint8Array {
       fail('cbor', 'numbers must be finite')
     }
     if (typeof input === 'string') {
+      assertWellFormedUnicode(input, 'cbor string')
       const bytes = cborEncoder.encode(input)
       chunks.push(cborHead(3, bytes.byteLength), bytes)
       return
@@ -347,27 +496,11 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
     const major = first >> 5
     const info = first & 0x1f
     if (info < 24) return { major, value: BigInt(info) }
-    if (info === 24) {
-      const value = read(1)
-      if (value < 24n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 25) {
-      const value = read(2)
-      if (value < 256n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 26) {
-      const value = read(4)
-      if (value < 65_536n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 27) {
-      const value = read(8)
-      if (value < 4_294_967_296n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    fail('cbor', `unsupported additional information ${info}`)
+    if (info > 27) fail('cbor', `unsupported additional information ${info}`)
+    const value = read(1 << (info - 24))
+    if (value < [24n, 256n, 65_536n, 4_294_967_296n][info - 24]!)
+      fail('cbor', 'non-shortest integer head')
+    return { major, value }
   }
   const decode = (): unknown => {
     if (offset >= bytes.byteLength) fail('cbor', 'truncated input')
@@ -381,12 +514,10 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       if (info === 21) return true
       if (info === 22) return null
       if (info === 25 || info === 26 || info === 27) {
-        const width = info === 25 ? 2 : info === 26 ? 4 : 8
-        const bits = read(width)
-        const scratch = new ArrayBuffer(8)
-        const view = new DataView(scratch)
-        for (let index = 0; index < width; index += 1)
-          view.setUint8(index, Number((bits >> BigInt(8 * (width - 1 - index))) & 0xffn))
+        const width = 2 ** (info - 24)
+        if (offset + width > bytes.byteLength) fail('cbor', 'truncated input')
+        const view = new DataView(bytes.buffer, bytes.byteOffset + offset, width)
+        offset += width
         const parsed =
           info === 25
             ? view.getFloat16(0, false)
