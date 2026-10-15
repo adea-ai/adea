@@ -26,6 +26,7 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -154,6 +155,9 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    // Usage has a strict producer contract (#1391). Refuse before persistence,
+    // dedupe, retention, or subscriber delivery; other event payloads stay opaque.
+    if (candidate.kind === 'usage.observed') decodeRuntimeEvent(candidate, { source })
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
       if (
