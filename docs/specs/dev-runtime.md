@@ -2830,7 +2830,9 @@ type RuntimeCallData =
   event IDs, timestamps, provenance and metadata in one canonical-CBOR event
   of at most 65,536 bytes, the unchanged runtime-events data-frame grant.
   `assertRuntimeEventFrameSize` enforces this aggregate envelope bound before
-  persistence or publication, including UTF-8 expansion. A producer must use
+  persistence or publication, including UTF-8 expansion. It measures the
+  canonical encoding with `cborByteLength`, a size-only calculator tested
+  byte-for-byte against `encodeCbor`, so decoders do not carry the full encoder. A producer must use
   bounded references or less inline data when the whole event does not fit;
   individual field budgets never justify increasing the transport cap.
   The [aggregate budget evidence](../evidence/runtime-call-frame-budget-refs1387.md)
@@ -2880,6 +2882,20 @@ type RuntimeCallData =
 - Structured call strings, keys and envelope values require well-formed
   Unicode; lone surrogates are rejected without replacement. The CBOR encoder
   applies the same rule, while valid scalar text remains byte-for-byte intact.
+
+Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
+admission, persistence and replay: envelope, generic payload bounds and every
+kind-specific contract (calls, visible summaries, cited responses, and any later
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
+for browser stream and transcript consumers: it enforces the authenticated
+envelope, the generic payload bounds and the full-frame bound for versioned call
+claims, but does not interpret a kind's payload. A consumer that renders or acts
+on a payload MUST narrow it with the explicit contract (for example
+`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
+validators are reachable only through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
+shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
+the lean entry and fails if a validator or a size regression reaches it.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing
 production lifecycle receipts do not become call facts. UI rendering, folding,

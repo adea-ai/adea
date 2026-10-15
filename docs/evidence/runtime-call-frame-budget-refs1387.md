@@ -9,8 +9,9 @@ runtime-events grant. A per-field success did not prove deliverability.
 
 ## Repair
 
-`assertRuntimeEventFrameSize` checks the actual canonical-CBOR encoding of the
-entire event, including both fields, IDs, timestamps, classification and source
+`assertRuntimeEventFrameSize` checks the exact canonical-CBOR length of the
+entire event (computed by `cborByteLength`, verified equal to `encodeCbor` on
+boundary, nested and seeded random values), including both fields, IDs, timestamps, classification and source
 metadata. Versioned call validation invokes it before host-log persistence,
 retention, sequence consumption, permission callbacks or subscriber delivery.
 It does not raise a frame, field, hook or transport limit. A producer must use

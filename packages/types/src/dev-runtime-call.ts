@@ -8,7 +8,7 @@ import {
   sha256Pattern,
   stringValue,
 } from './dev-runtime-validation-internal'
-import { assertJsonUnicode } from './dev-runtime-unicode'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 
 export const runtimeCallEventKinds = [
   'tool.requested',
@@ -84,7 +84,10 @@ function validateInline(value: unknown, path: string): void {
       return
     }
     if (typeof entry === 'string') {
-      stringValue(entry, location, 0, RUNTIME_CALL_JSON_STRING_MAX)
+      assertWellFormedUnicode(
+        stringValue(entry, location, 0, RUNTIME_CALL_JSON_STRING_MAX),
+        location
+      )
       return
     }
     if (Array.isArray(entry)) {
@@ -101,7 +104,7 @@ function validateInline(value: unknown, path: string): void {
     if (keys.length > RUNTIME_CALL_JSON_ENTRIES_MAX)
       fail(location, 'maximum object entries exceeded')
     for (const key of keys) {
-      stringValue(key, `${location} key`, 1, 256)
+      assertWellFormedUnicode(stringValue(key, `${location} key`, 1, 256), `${location} key`)
       visit(object[key], `${location}.${key}`, depth + 1)
     }
   }
@@ -157,11 +160,11 @@ export function decodeRuntimeCallPayload(
     ['unknown', 'requires_approval', 'not_required'],
     `${path}.permissionEligibility`
   )
-  if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 256)
+  if (item.name !== undefined)
+    assertWellFormedUnicode(stringValue(item.name, `${path}.name`, 1, 256), `${path}.name`)
   if (item.durationMs !== undefined) integerValue(item.durationMs, `${path}.durationMs`, 0)
   for (const key of ['input', 'output'] as const) {
     if (Object.hasOwn(item, key)) decodeData(item[key], `${path}.${key}`)
   }
-  assertJsonUnicode(value, path)
   return value as RuntimeCallPayload
 }

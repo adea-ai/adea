@@ -71,6 +71,7 @@ export {
   dataClassifications,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeEnvelope,
   decodeRuntimeCallEvent,
   assertRuntimeEventFrameSize,
   RUNTIME_EVENT_CBOR_BYTES_MAX,
