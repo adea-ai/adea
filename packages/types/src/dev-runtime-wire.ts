@@ -10,6 +10,12 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import {
+  decodeFollowUpQueueEventPayload,
+  type FollowUpQueueEventPayload,
+} from './dev-runtime-follow-ups'
+export { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-ups'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-ups'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -47,6 +53,7 @@ export const runtimeEventKinds = [
   'checkpoint.observed',
   'subagent.observed',
   'usage.observed',
+  'queue.updated',
   'terminal.command_started',
   'terminal.command_finished',
   'terminal.cwd_changed',
@@ -156,6 +163,18 @@ export function decodeRuntimeEvent(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
+  let queuePayload: FollowUpQueueEventPayload | undefined
+  if (item.kind === 'queue.updated') {
+    if (item.source !== 'host' || item.confidence !== 'authoritative')
+      fail('event.source', 'queue facts require the authoritative host')
+    const payload = decodeFollowUpQueueEventPayload(item.payload)
+    queuePayload = payload
+    if (
+      payload.generation !== item.generation ||
+      payload.runtimeSessionId !== item.runtimeSessionId
+    )
+      fail('event.payload', 'queue identity does not match event')
+  }
   if (item.source === 'terminal_fallback') {
     if (item.confidence === 'authoritative')
       fail('event.confidence', 'terminal fallback cannot be authoritative')
@@ -170,9 +189,11 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  validateEventPayload(item.payload, 'event.payload')
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
+  const payload = queuePayload ?? item.payload
+  validateEventPayload(payload, 'event.payload')
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  if (queuePayload) return Object.freeze({ ...(value as RuntimeEvent), payload: queuePayload })
   return value as RuntimeEvent
 }
 

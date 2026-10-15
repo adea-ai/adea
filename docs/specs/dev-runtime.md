@@ -419,6 +419,7 @@ type RuntimeEventKind =
   | 'checkpoint.observed'
   | 'subagent.observed'
   | 'usage.observed'
+  | 'queue.updated'
   | 'terminal.command_started'
   | 'terminal.command_finished'
   | 'terminal.cwd_changed'
@@ -1734,8 +1735,10 @@ newer revision cannot clear it. Async delivery captures the expanded text and
 paired blocks before awaiting and clears only the still-current matching draft.
 Shared UI owns input, IME handling, pending presentation, paste editing and
 action-row composition. Agent/profile, Auto/Customize pins, resolved location
-and authorized Stop/Steer/launch controls are host slots. This host has no
-queue operation, so it does not advertise one.
+and authorized Stop/Steer/launch controls are host slots. The authorized
+`dev.session.followUps` host queue contract is defined below; no queue UI is
+mounted or advertised until a consumer binds the actual supported operation
+and its truthful delivery state.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
@@ -2739,6 +2742,7 @@ Required kinds:
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
+- authoritative host `queue.updated` snapshots (see #1393 below);
 - terminal `command_started`, `command_finished`, `cwd_changed`,
   `transcript_reference`;
 - capability `degraded`, `restored`.
@@ -4671,6 +4675,117 @@ returns that run), fenced to one active run per session, and emits
 creates records addressed as version 0 and fences updates by optimistic
 version (`stale_version`); setting a default clears its sibling defaults in
 the same scope slice.
+
+### Authorized queued follow-ups (#1393)
+
+`dev.session.followUps` is one host operation under the existing
+`dev.session.manage` capability and a `runtime_session` resource binding.
+Its `FollowUpQueueRequest` always carries `runtimeSessionId`,
+`expectedGeneration`, and one exact action:
+
+| Action    | Additional required fields             | Behavior                                                                          |
+| --------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `read`    | none                                   | Return the current generation's authorized queue snapshot.                        |
+| `enqueue` | `expectedVersion`, `messageId`, `text` | Append a bounded follow-up without interrupting a running turn.                   |
+| `remove`  | `expectedVersion`, `messageId`         | Remove one pending or ambiguous item; an in-flight claim cannot be withdrawn.     |
+| `reorder` | `expectedVersion`, `messageIds`        | Supply every pending ID exactly once, in its new order; no claimed item may move. |
+| `deliver` | `expectedVersion`                      | Claim and hand off one head item at a freshly authorized observed input boundary. |
+
+Mutations require the envelope's existing printable-ASCII `idempotencyKey`
+(1–128 characters). Each transport retry still needs a fresh authenticated
+nonce. An identical key/body replays the **current** snapshot without repeating
+the mutation or delivery; reuse for another body is `idempotency_conflict`.
+Exact replay precedes version comparison, while scope, channel, expiry and live
+generation admission always precede replay. New changes use optimistic queue
+`expectedVersion`; concurrent writers cannot silently overwrite each other.
+Unknown actions, extra fields, malformed versions and resource/body mismatches
+fail closed through the canonical command decoder.
+
+Bounds are 16 pending/claimed items, 16,384 UTF-8 bytes per nonempty text, and
+65,536 UTF-8 bytes across the queue. NUL and other C0 controls except tab/CR/LF
+are refused. IDs are nonblank strings of at most 128 characters. Within one
+generation, retain at most 256 used message IDs and 1,024 mutation receipts;
+do not evict delivery tombstones to accept more work. At those limits return
+`limit_exceeded`; an explicitly authorized new generation resets them. Storage
+retains at most 128 session queues per account/workspace/runtime-node scope.
+An initial read records a sealed generation fence (version 0); an older host
+instance cannot replace a newer retained generation with its stale projection.
+
+The snapshot is `{ schemaVersion: 1, runtimeSessionId, generation, version,
+delivery, items, lastDelivery? }`. Each item is `{ id, text, bytes, state }`,
+where state is `queued | dispatching | ambiguous`. `delivery` is
+`unavailable | busy | ready`, derived from the actual bound run/transport,
+never a process name, terminal idle appearance, or a guessed capability.
+`lastDelivery`, when known, is `{ messageId, status: 'accepted'|'ambiguous' }`.
+Snapshot/request decoders are exported from the complete Dev Runtime entry;
+the focused wire entry also exports the strict queue-event payload decoder.
+Returned snapshots and queue-event payloads are detached and frozen so caller
+mutation cannot change the admitted queue facts.
+
+Delivery is **explicit and one at a time**. Enqueue-time authority is not a
+background execution grant: there is no automatic drain or timer. A fresh
+`deliver` command must re-pass M10 admission after acquiring the cross-process
+mutation lock. A synchronous channel/expiry/lifecycle fence and the canonical
+session generation are checked immediately before effects, before handoff,
+after the await, and again after waiting to finalize its receipt. The live run
+must be observed `awaiting_input`, belong to that session/generation, and have
+a ready structured connection for the same installation. Capture that
+connection's actual ID/generation; replacement makes the old attempt inert.
+The driver must implement the existing structured `deliverPrompt` seam.
+Absent key, run, or real structured transport yields typed unavailability or
+state refusal; there is no PTY fallback, invented queue capability, or UI.
+
+Claim the head and persist its idempotency/observed-run-version fence **before**
+offering text to the transport. A successful handoff removes it and records
+`accepted`, meaning only the authenticated driver accepted that exact byte
+count, not that a model consumed the message or produced a reply. Each observed
+run version admits at most one attempt; another item needs a new observed
+input boundary (same-state status replay does not create one). Timeout (5 s),
+negative/unknown result or an interrupted claim is ambiguous and is never
+retried automatically, including after host restart. A retained `dispatching`
+claim is proof of a possible send, not proof of a currently running call.
+Ambiguous items block further delivery until explicitly removed or Stop starts
+a new generation; removal does not recycle their IDs. Reorder/remove cannot
+silently retract bytes already offered by an in-flight claim.
+
+Stop (`dev.session.cancelHarness`) retains its existing authorization and
+changes the canonical session generation before awaiting queue cleanup. It
+then cancels/discards that old generation's remaining queue before returning;
+an in-flight item has an ambiguous receipt and late completion cannot report
+accepted or deliver a second item. An unreadable cleanup journal produces a
+degraded recovery fact; the old generation is still inert. Steer remains its
+existing separately authorized host slot: enqueue never invokes it, and no
+Steer operation is invented. Queue delivery refuses working/approval/unknown,
+archived and disconnected states. Future Steer implementations must preserve
+these run/connection fences rather than drain this queue as a side effect.
+
+Every mutation publishes a strict `queue.updated` replacement snapshot with
+IDs, ordering, byte counts, item states, `change`, and any delivery receipt;
+**text is omitted**. It is an authoritative host fact with workspace-metadata
+classification, and payload session/generation must equal the event envelope.
+`change` is `enqueue | remove | reorder | delivery_started | delivery_accepted |
+delivery_ambiguous | cancelled`. Queue version advances for each change,
+including claim and completion separately. An encrypted durable outbox precedes
+event append; interrupted publication replays the same generation/version
+source ID through canonical deduplication before another mutation proceeds.
+It cannot silently lose a committed mutation or send twice to repair an event.
+
+Queue state is owner-only, sealed AES-256-GCM under the **existing** local
+content device key, with a fresh nonce and AAD binding format, full scope,
+session and generation. This feature never creates, rotates, overwrites or
+changes access to key material. Ciphertext lives in scope-digest files under
+`dev-runtime/harness/follow-ups/`; the existing host cross-process mutation
+owner serializes each scope. Corrupt/unknown state is retained and refused,
+not replaced with an empty queue. Retained corruption copies and stranded
+temporary writes remain explicit `recovery_required` barriers even when the
+original file is absent; they cannot reset idempotency or generation fences.
+The existing authorized workspace cleanup
+validates ownership/authentication and rejects an active lock or unreadable
+ciphertext before deleting anything; it removes only that scope's queue file,
+preserving sibling queues and reusable keys. This inherits the transitional
+device-key storage limits in [local content](./local-content.md), not the
+unimplemented OS-keyring target. No transcript-content contract from #1396 or
+consumer UI adoption is changed by this operation.
 
 ### Observed run status
 

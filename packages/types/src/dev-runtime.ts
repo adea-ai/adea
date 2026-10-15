@@ -30,6 +30,17 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
+import { decodeFollowUpQueueRequest, decodeFollowUpQueueSnapshot } from './dev-runtime-follow-ups'
+export {
+  decodeFollowUpQueueRequest,
+  decodeFollowUpQueueSnapshot,
+  decodeFollowUpQueueEventPayload,
+} from './dev-runtime-follow-ups'
+export type {
+  FollowUpQueueRequest,
+  FollowUpQueueSnapshot,
+  FollowUpQueueEventPayload,
+} from './dev-runtime-follow-ups'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
   decodeScope,
@@ -2170,6 +2181,7 @@ function decodeResourcePreferenceFields(value: unknown, path: string, stored: bo
 }
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (name === 'FollowUpQueueRequest') return decodeFollowUpQueueRequest(value)
   if (
     name === 'FileIdentity' ||
     name === 'RootBookmark' ||
@@ -4796,6 +4808,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.runStatus': (value) => decodeHarnessRun(value),
   'dev.session.launchDefault': (value) => decodeHarnessRun(value),
   'dev.session.events': (value) => decodeDevStreamGrant(value),
+  'dev.session.followUps': (value) => decodeFollowUpQueueSnapshot(value),
   // ADR 0012 workspace memory: an agent proposal lands pending; the reply is
   // the receipt, never the proposed text.
   'dev.memory.propose': (value) => namedType('MemoryProposalReceipt', value, 'reply.value'),
