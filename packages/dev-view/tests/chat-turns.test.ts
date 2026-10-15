@@ -314,12 +314,7 @@ describe('whitespace-only streamed fragments', () => {
     const { turns: built } = turns([
       event('turn.user_input', { text: 'hi' }, 'u-crlf'),
       event('turn.assistant_delta', { text: 'Bearer\r' }, 'bearer-crlf', null),
-      event(
-        'turn.assistant_delta',
-        { text: '\n' + '\r\n'.repeat(3_000) },
-        'spaces-crlf',
-        null
-      ),
+      event('turn.assistant_delta', { text: '\n' + '\r\n'.repeat(3_000) }, 'spaces-crlf', null),
       event('turn.assistant_delta', { text: privateToken }, 'token-crlf', null),
     ])
     const entries = built.flatMap((turn) => turn.entries)
