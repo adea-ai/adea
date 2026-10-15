@@ -2896,16 +2896,20 @@ type RuntimeCallData =
 Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
 admission, persistence and replay: envelope, generic payload bounds and every
 kind-specific contract (calls, visible summaries, cited responses, and any later
-interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
-for browser stream and transcript consumers: it enforces the authenticated
-envelope, the generic payload bounds and the full-frame bound for versioned call
-claims, but does not interpret a kind's payload. A consumer that renders or acts
-on a payload MUST narrow it with the explicit contract (for example
-`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
-validators are reachable only through `eventSemantics` in
-`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
-shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
-the lean entry and fails if a validator or a size regression reaches it.
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean generic
+envelope decoder: it enforces the authenticated envelope, generic payload bounds
+and the full-frame bound for versioned call claims, but does not interpret a
+kind's payload. Browser stream and replay consumers use
+`decodeRuntimeBrowserEnvelope`, which adds strict authoritative-host validation
+and detached, frozen decoding for prompt-free `queue.updated` facts. A consumer
+that renders or acts on another payload MUST narrow it with the explicit
+contract (for example `decodeRuntimeCallEvent`) rather than trust the envelope
+decode. Full kind-specific validators are reachable through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; the browser decoder imports only the
+focused queue contract. New non-queue contracts register through
+`eventSemantics` so the shared utility bundle does not carry them.
+`dev-runtime-envelope.test.ts` bundles the lean entry and fails if a validator
+or a size regression reaches it.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing
 production lifecycle receipts do not become call facts. UI rendering, folding,
@@ -5447,11 +5451,11 @@ never a process name, terminal idle appearance, or a guessed capability.
 The complete Dev Runtime entry exports the queue types. Strict
 request/snapshot/reply/event-payload decoders are exported from the focused
 `dev-runtime-follow-ups` entry; consumers that validate a queue reply use
-`decodeFollowUpQueueReply`. The general wire decoder strictly decodes
-authoritative-host provenance, envelope identity, and the complete prompt-free
-`queue.updated` payload on browser stream and replay paths. The host event log
-applies the full queue-event payload decoder both before append and while
-projecting persisted/replayed events.
+`decodeFollowUpQueueReply`. Browser stream and replay use
+`decodeRuntimeBrowserEnvelope` to strictly decode authoritative-host provenance,
+envelope identity, and the complete prompt-free `queue.updated` payload. The
+host event log applies the full queue-event payload decoder both before append
+and while projecting persisted/replayed events.
 Returned snapshots and queue-event payloads are detached and frozen so caller
 mutation cannot change the admitted queue facts.
 

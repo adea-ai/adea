@@ -80,6 +80,7 @@ export {
   decodeRuntimeEvent,
   decodeRuntimeUsageObservedPayload,
   decodeRuntimeEnvelope,
+  decodeRuntimeBrowserEnvelope,
   decodeRuntimeCallEvent,
   assertRuntimeEventFrameSize,
   RUNTIME_EVENT_CBOR_BYTES_MAX,

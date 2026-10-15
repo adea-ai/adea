@@ -296,9 +296,9 @@ export type RuntimeEventProvenance = Readonly<{
 }>
 
 /**
- * Most kind-specific payload validators are reached only through this object,
- * keeping the lean browser decoder small. Queue snapshots are the exception:
- * browser stream and replay consumers need their strict, prompt-free contract.
+ * Most kind-specific payload validators are reached only through this object.
+ * Browser stream and replay have a separate focused queue decoder so they do
+ * not pull unrelated kind validators into the lean envelope entry.
  */
 type EventSemantics = Readonly<{
   early(
@@ -388,17 +388,29 @@ export function decodeRuntimeEvent(
 }
 
 /**
- * Lean browser decoder: authenticated envelope, generic payload bounds and
+ * Lean envelope decoder: authenticated envelope, generic payload bounds and
  * focused checks for privacy- and authority-sensitive event claims. Other
  * kind-specific payloads remain opaque unless a consumer narrows them through
- * the explicit contract (for example `decodeRuntimeCallEvent`). Host admission
- * and persistence use `decodeRuntimeEvent`.
+ * the explicit contract. Browser stream and replay use
+ * `decodeRuntimeBrowserEnvelope` for the additional strict queue contract.
+ * Host admission and persistence use `decodeRuntimeEvent`.
  */
 export function decodeRuntimeEnvelope(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
   return decodeEventEnvelope(value, provenance, true)
+}
+
+/** Browser stream and replay decoder with the prompt-free queue contract. */
+export function decodeRuntimeBrowserEnvelope(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeEvent {
+  const event = decodeRuntimeEnvelope(value, provenance)
+  if (event.kind !== 'queue.updated') return event
+  const payload = decodeQueueEventPayload(event as unknown as Record<string, unknown>)
+  return Object.freeze({ ...event, payload }) as RuntimeEvent
 }
 
 /** @internal Validates a retry before comparing it; new records still require full decoding. */
@@ -465,10 +477,6 @@ function decodeEventEnvelope(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
-  let queuePayload: FollowUpQueueEventPayload | undefined
-  if (!semantics && item.kind === 'queue.updated') {
-    queuePayload = decodeQueueEventPayload(item)
-  }
   if (item.source === 'terminal_fallback') {
     if (item.confidence === 'authoritative')
       fail('event.confidence', 'terminal fallback cannot be authoritative')
@@ -485,7 +493,7 @@ function decodeEventEnvelope(
   // Retained legacy events remain opaque. Complete decoding applies every
   // kind-specific contract; the lean decoder keeps whole-frame bounds for
   // versioned call and activity claims without interpreting their payloads.
-  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds) ?? queuePayload
+  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds)
   if (
     !semantics &&
     enforceEnvelopeBounds &&

@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  decodeDevCommand,
-  decodeRuntimeEnvelope,
-  decodeRuntimeEvent,
-  devOperationDefinitions,
-} from '../src/dev-runtime'
+import { decodeDevCommand, decodeRuntimeEvent, devOperationDefinitions } from '../src/dev-runtime'
+import { decodeRuntimeBrowserEnvelope } from '../src/dev-runtime-wire'
 import {
   decodeFollowUpQueueReply,
   decodeFollowUpQueueRequest,
@@ -164,15 +160,15 @@ describe('generation-fenced follow-up queue contract', () => {
       },
     }
     expect(decodeRuntimeEvent(event, { source: 'host' }).payload).toEqual(event.payload)
-    expect(decodeRuntimeEnvelope(event, { source: 'host' }).payload).toEqual(event.payload)
+    expect(decodeRuntimeBrowserEnvelope(event, { source: 'host' }).payload).toEqual(event.payload)
     const malformed = {
       ...event,
       payload: { runtimeSessionId: 'session-1', generation: 2 },
     }
     expect(() => decodeRuntimeEvent(malformed, { source: 'host' })).toThrow()
-    // Browser replay uses the lean shared envelope decoder, which must still
-    // enforce the queue's required fields instead of accepting an empty shape.
-    expect(() => decodeRuntimeEnvelope(malformed, { source: 'host' })).toThrow()
+    // Browser stream and replay use this queue-aware decoder, not the generic
+    // lean envelope decoder.
+    expect(() => decodeRuntimeBrowserEnvelope(malformed, { source: 'host' })).toThrow()
     expect(() => decodeRuntimeEvent({ ...event, generation: 3 }, { source: 'host' })).toThrow()
     expect(() => decodeRuntimeEvent({ ...event, source: 'native' }, { source: 'native' })).toThrow()
     expect(() =>
@@ -185,7 +181,7 @@ describe('generation-fenced follow-up queue contract', () => {
       )
     ).toThrow()
     expect(() =>
-      decodeRuntimeEnvelope(
+      decodeRuntimeBrowserEnvelope(
         {
           ...event,
           payload: { ...event.payload, items: [{ ...event.payload.items[0], text: 'private' }] },
@@ -223,11 +219,13 @@ describe('generation-fenced follow-up queue contract', () => {
       { ...event.payload, version: 'bad' },
       { ...event.payload, change: 'bogus' },
     ]) {
-      expect(() => decodeRuntimeEnvelope({ ...event, payload }, { source: 'host' })).toThrow()
+      expect(() =>
+        decodeRuntimeBrowserEnvelope({ ...event, payload }, { source: 'host' })
+      ).toThrow()
     }
 
     expect(() =>
-      decodeRuntimeEnvelope({ ...event, classification: 'public' }, { source: 'host' })
+      decodeRuntimeBrowserEnvelope({ ...event, classification: 'public' }, { source: 'host' })
     ).toThrow()
   })
 
@@ -255,7 +253,7 @@ describe('generation-fenced follow-up queue contract', () => {
       },
     }
 
-    const decoded = decodeRuntimeEnvelope(event, { source: 'host' })
+    const decoded = decodeRuntimeBrowserEnvelope(event, { source: 'host' })
     const payload = decoded.payload as typeof event.payload
     expect(payload).not.toBe(event.payload)
     expect(Object.isFrozen(payload)).toBe(true)

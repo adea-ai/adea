@@ -248,7 +248,7 @@ describe('lean envelope decoder', () => {
     expect(decodeRuntimeEnvelope(legacy, provenance)).toBe(legacy)
   })
 
-  test('the browser entry excludes unrelated kind validators while retaining envelope checks', async () => {
+  test('lean and browser queue decoder entries stay under the existing size ceiling', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
     try {
       const entry = join(directory, 'entry.ts')
@@ -265,20 +265,36 @@ describe('lean envelope decoder', () => {
       })
       expect(result.success).toBe(true)
       const text = await result.outputs[0]!.text()
-      // Queue.updated gets its full strict contract in the lean decoder;
-      // unrelated interactions, attachments and kind-specific contracts stay
-      // behind `eventSemantics`.
+      // The generic lean decoder stays small; browser stream and replay add
+      // their queue contract through decodeRuntimeBrowserEnvelope.
       for (const marker of [
         'call observations require',
         'expected opaque call identifier',
         'maximum cited response',
         'duplicate source ID',
         'event.summary',
+        'queue facts require the authoritative host',
       ])
         expect(text).not.toContain(marker)
-      expect(text).toContain('queue facts require the authoritative host')
       expect(text).toContain('ill-formed Unicode')
-      expect(text.length).toBeLessThan(10_000)
+      expect(text.length).toBeLessThan(8_500)
+
+      const browserEntry = join(directory, 'browser-entry.ts')
+      writeFileSync(
+        browserEntry,
+        `import { decodeRuntimeBrowserEnvelope } from ${JSON.stringify(
+          resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
+        )}\nglobalThis.browser = decodeRuntimeBrowserEnvelope\n`
+      )
+      const browserResult = await Bun.build({
+        entrypoints: [browserEntry],
+        minify: true,
+        target: 'browser',
+      })
+      expect(browserResult.success).toBe(true)
+      const browserText = await browserResult.outputs[0]!.text()
+      expect(browserText).toContain('queue facts require the authoritative host')
+      expect(browserText.length).toBeLessThan(8_500)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
