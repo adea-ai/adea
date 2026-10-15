@@ -554,6 +554,8 @@ describe('Dev Runtime event envelope', () => {
           source: 'terminal_fallback',
           confidence: 'bounded_projection',
           kind: 'turn.assistant_delta',
+          harnessRunId: 'run-1',
+          payload: { messageId: 'message-1', deltaIndex: 0, text: 'bounded text' },
         },
         { source: 'terminal_fallback' }
       )

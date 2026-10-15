@@ -272,20 +272,30 @@ describe('source-visible summary admission and replay', () => {
     }
   })
 
-  test('ordinary messages, run completion and unknown kinds never generate a summary', () => {
+  test('ordinary messages, run completion and unrelated kinds never generate a summary', () => {
     const { log, options } = fixture()
-    for (const kind of ['turn.assistant_message', 'run.completed', 'future.summary'])
+    for (const kind of ['turn.assistant_message', 'run.completed', 'session.ready'])
       log.append(
-        message({ text: 'Opaque text.', analysis: 'Not a public summary.' }, kind, {
-          kind: kind as RuntimeEvent['kind'],
-          source: 'host',
-        })
+        message(
+          {
+            text: 'Opaque text.',
+            analysis: 'Not a public summary.',
+            ...(kind === 'turn.assistant_message'
+              ? { messageId: 'message-1', supersedes: 'deltas' }
+              : {}),
+          },
+          kind,
+          {
+            kind: kind as RuntimeEvent['kind'],
+            source: 'host',
+          }
+        )
       )
     const retained = createSessionEventLog(options).read('session-1')
     expect(retained.map((event) => event.kind)).toEqual([
       'turn.assistant_message',
       'run.completed',
-      'future.summary',
+      'session.ready',
     ])
   })
 })

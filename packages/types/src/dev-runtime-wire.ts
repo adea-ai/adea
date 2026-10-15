@@ -1,3 +1,12 @@
+import { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export type {
+  RuntimeAssistantEventKind,
+  RuntimeAssistantDeltaPayload,
+  RuntimeAssistantMessagePayload,
+  RuntimeAssistantResultPayload,
+  RuntimeAssistantPayloads,
+} from './dev-runtime-assistant'
 import {
   exactKeys,
   fail,
@@ -8,7 +17,7 @@ import {
   record,
   stringValue,
   timestamp,
-  uint64Pattern,
+  uint64String,
 } from './dev-runtime-validation-internal'
 import {
   decodeRuntimeCallPayload,
@@ -122,9 +131,9 @@ export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readon
 /** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
 export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
 
-export function assertRuntimeEventFrameSize(event: RuntimeEvent): void {
+export function assertRuntimeEventFrameSize(event: RuntimeEvent, failureMessage?: string): void {
   if (cborByteLength(event) > RUNTIME_EVENT_CBOR_BYTES_MAX)
-    fail('event', 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+    fail('event', failureMessage ?? 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
 }
 
 export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
@@ -213,6 +222,16 @@ type EventSemantics = Readonly<{
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
     if (isVersionedCallClaim(item)) validateCall(item, enforceEnvelopeBounds)
+    const kind = item.kind as string
+    if (isRuntimeAssistantEventKind(kind)) {
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+      decodeRuntimeAssistantPayload(kind, item.payload)
+      if (enforceEnvelopeBounds)
+        assertRuntimeEventFrameSize(
+          item as RuntimeEvent,
+          `maximum encoded assistant event size exceeded (${RUNTIME_EVENT_CBOR_BYTES_MAX} bytes)`
+        )
+    }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
     if (item.kind === 'usage.observed') {
       if (item.confidence !== 'authoritative')
@@ -299,8 +318,7 @@ function decodeEventEnvelope(
     stringValue(item[key], `event.${key}`, 1, 256)
   if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
   integerValue(item.generation, 'event.generation', 0)
-  if (!uint64Pattern.test(stringValue(item.seq, 'event.seq')))
-    fail('event.seq', 'expected uint64 string')
+  uint64String(item.seq, 'event.seq')
   timestamp(item.occurredAt, 'event.occurredAt')
   timestamp(item.receivedAt, 'event.receivedAt')
   literal(
@@ -332,8 +350,8 @@ function decodeEventEnvelope(
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
   // Retained legacy events remain opaque. With semantics, a versioned call claim
-  // must satisfy the complete contract even through the generic decoder; the lean
-  // decoder still bounds the whole encoded call event.
+  // or assistant claim must satisfy the complete contract even through the
+  // generic decoder; the lean decoder still bounds versioned call claims.
   const decodedUsage = semantics?.early(item, enforceEnvelopeBounds)
   if (!semantics && enforceEnvelopeBounds && isVersionedCallClaim(item))
     assertRuntimeEventFrameSize(item as RuntimeEvent)
