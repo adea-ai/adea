@@ -106,6 +106,14 @@ export type RuntimeEvent = Readonly<{
   payload: unknown
 }>
 
+/** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
+export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
+
+export function assertRuntimeEventFrameSize(event: RuntimeEvent): void {
+  if (encodeCbor(event).byteLength > RUNTIME_EVENT_CBOR_BYTES_MAX)
+    fail('event', 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+}
+
 export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
   Readonly<{
     harnessRunId: string
@@ -125,6 +133,7 @@ function validateCall(event: Record<string, unknown>): void {
       'event.payload.permissionEligibility',
       'requires an authoritative native, ACP or owned hook observation'
     )
+  assertRuntimeEventFrameSize(event as RuntimeEvent)
 }
 
 /** Explicit opt-in narrowing. Legacy opaque payloads never acquire call semantics. */

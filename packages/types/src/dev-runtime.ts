@@ -72,6 +72,8 @@ export {
   decodeCbor,
   decodeRuntimeEvent,
   decodeRuntimeCallEvent,
+  assertRuntimeEventFrameSize,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
   runtimeCallEventKinds,

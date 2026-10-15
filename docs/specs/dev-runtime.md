@@ -2823,6 +2823,15 @@ type RuntimeCallData =
   2,048 nodes, 256 array/object entries per container, 16,384 UTF-16 code units
   per string and 256 per nonempty key. Nonfinite numbers, non-JSON values and
   sparse arrays are refused. The enclosing 256 KiB event limit still applies.
+  Independently valid input/output fields MUST also fit together with all
+  event IDs, timestamps, provenance and metadata in one canonical-CBOR event
+  of at most 65,536 bytes, the unchanged runtime-events data-frame grant.
+  `assertRuntimeEventFrameSize` enforces this aggregate envelope bound before
+  persistence or publication, including UTF-8 expansion. A producer must use
+  bounded references or less inline data when the whole event does not fit;
+  individual field budgets never justify increasing the transport cap.
+  The [aggregate budget evidence](../evidence/runtime-call-frame-budget-refs1387.md)
+  pins the combined-field, exact-limit, UTF-8 and real-channel cases.
 - References contain an opaque ID, optional nonnegative safe-integer byte
   length and optional lowercase SHA-256 digest. They grant no file/network
   access or proof that bytes exist; a future resolver must independently
