@@ -74,12 +74,40 @@ export {
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
+
+export {
+  VISIBLE_SUMMARY_BYTES_MAX,
+  VISIBLE_SUMMARY_DURATION_MAX_MS,
+  VISIBLE_SUMMARY_TEXT_MAX,
+  decodeRuntimeVisibleSummary,
+  isRuntimeVisibleSummaryKind,
+} from './dev-runtime-visible-summaries'
+export type {
+  RuntimeMethodStepStatus,
+  RuntimeMethodStepSummary,
+  RuntimeReasoningSummary,
+  RuntimeReasoningSummaryStatus,
+  RuntimeVisibleSummary,
+  RuntimeVisibleSummaryKind,
+} from './dev-runtime-visible-summaries'
 export type {
   DataClassification,
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
 } from './dev-runtime-wire'
+export {
+  CITED_RESPONSE_BYTES_MAX,
+  RESPONSE_CITATION_MAX,
+  RESPONSE_SOURCE_MAX,
+  decodeRuntimeResponseReferences,
+} from './dev-runtime-response-references'
+export type {
+  RuntimeAssistantResponsePayload,
+  RuntimeCitationReference,
+  RuntimeResponseReferences,
+  RuntimeResponseSource,
+} from './dev-runtime-response-references'
 
 export {
   devOperationDefinitions,

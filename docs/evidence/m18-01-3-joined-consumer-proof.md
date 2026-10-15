@@ -210,6 +210,31 @@ lockfile using the existing cache. A joined rerun against a previously used data
 Substantive CI stays skipped while the PR is a draft. No release, deployment or real-runtime validation
 was performed.
 
+### Requalification against current main
+
+The source-profile candidate was reconciled by an ordinary local merge with Adea `main` at
+`459f1eb77b9ba2095e8fb68776310396784dac13` on 2026-10-15. Relative to that main, the only changes remain
+this record and `lead-fence-v2.test.ts`. The control-plane checkout remains clean at the exact
+`1aa42ff20c7fe1b0d9cc484983a7a631f4589746` pin; neither its source nor the provenance guards changed.
+
+Fresh checks on the reconciled tree passed with pinned Bun 1.4.0 and Node 24.21.0:
+
+- Canonical joined lane: 41 pass, 0 fail, 2274 assertions, on a fresh isolated local PostgreSQL database
+  with all 58 migrations verified twice.
+- Source resolution with `--conditions=react-server --conditions=development`: 37 pass, 0 fail,
+  2243 assertions. The historical same-attempt binding exception is unchanged.
+- The five related DB integration files listed above: 53 pass, 0 fail, 198 assertions.
+- Format check; lint (17 tasks plus the root check); typecheck (31 tasks); unit (30 tasks and 1163
+  coverage tests); and the four documentation-boundary tests: pass. The 14 desktop and 15 web
+  platform/fixture skips remain. Full `bun run build` passed with all 15 tasks restored from the
+  shared worktree cache. Unit reused 14 cached tasks; lint and typecheck ran without cache hits.
+
+The existing source-contract fixture setup, writable disposable `ADEA_DATA_DIR` and test-shell umask
+`0022` were used. Heavy validation used at most two concurrent runners. Two independent Luna/xhigh
+reviews found no concrete spec or standards issues. Browser, packaged-device and live-runtime checks
+were not run for this test/evidence-only patch; the source-level limits below still apply. The patch
+is being returned for review before any new push or PR readiness/merge action.
+
 Mutation checks, all reverted afterwards. The earlier checks below retain their original twelve-test
 archived-suite counts; the expanded-suite checks are listed separately:
 

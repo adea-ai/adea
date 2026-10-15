@@ -118,7 +118,8 @@ function visibilityGrew(before: string, after: string): boolean {
 // field missing from its family's entry would let drift report `identical`,
 // so the families added by #1219 compare every non-identity captured field:
 // artifactReferenceGrants, contentReplicas, leadTurnRuntime, nativeSessions,
-// runtimeNodes and taskSubmissions. Bindings are links (a change is a remap),
+// runtimeNodes and taskSubmissions, and so do the group families (#1222):
+// groupAdmissions, groupAudienceGrants, groupEnlistmentGrants and groupSharingGrants. Bindings are links (a change is a remap),
 // digests are content/profile/version facts (drift), attributes are the row's
 // own state.
 const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyComparison>> = {
@@ -153,6 +154,40 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     attributes: [],
     binding: ['locationKind', 'runtimeNodeId', 'workspaceId'],
     digests: [],
+  },
+  // Group admission: the join frontier is the row's own state; the workspace and the authorizing
+  // (group, grant) are links, so re-pointing an admission at another grant is a remap. The grant
+  // revision it was admitted under is a digest-class fact: drift means the authorization changed.
+  groupAdmissions: {
+    attributes: [{ field: 'joinedSequence' }],
+    binding: ['authGrantId', 'authGroupId', 'workspaceId'],
+    digests: ['authRevision'],
+  },
+  // Group grants carry their issue, expiry and revocation instants verbatim, compared as stored (never
+  // against the capture clock, never flattened to a flag): the policy compares those strings, so a
+  // moved instant can change what the grant authorizes; the subject and workspace
+  // are identity bindings, so a grant moved to another subject is a remap, never a match.
+  groupAudienceGrants: {
+    attributes: [{ field: 'expiresAt' }, { field: 'issuedAt' }, { field: 'revokedAt' }],
+    binding: ['userId', 'workspaceId'],
+    digests: ['revision'],
+  },
+  groupEnlistmentGrants: {
+    attributes: [{ field: 'expiresAt' }, { field: 'issuedAt' }, { field: 'revokedAt' }],
+    binding: ['agentId', 'workspaceId'],
+    digests: ['revision'],
+  },
+  // A sharing grant's scope decides how much earlier history its subject reads, so it is the grant's own
+  // state (a changed scope is a determinate change); the subject and workspace are identity bindings.
+  groupSharingGrants: {
+    attributes: [
+      { field: 'expiresAt' },
+      { field: 'issuedAt' },
+      { field: 'revokedAt' },
+      { field: 'scope' },
+    ],
+    binding: ['principalId', 'principalKind', 'workspaceId'],
+    digests: ['revision'],
   },
   identityBindings: { attributes: [], binding: ['userId'], digests: [] },
   invitations: {
@@ -239,14 +274,14 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     digests: [],
   },
   artifactReferenceGrants: {
-    // Revocation and revision are the grant's own state; the exact target
+    // Revocation (as its persisted instant, never a flag) and revision are the grant's own state; the exact target
     // binding is identity, so a moved grant is a remap, never a match. The
     // persisted expiry is compared verbatim as an attribute: clearing,
     // extending or shortening authorization is determinate drift even when
     // `grantId` and `revision` are unchanged. It is never inferred from
     // revocation, and the comparison uses the persisted string — never the
     // capture clock — so elapsed time alone cannot differ.
-    attributes: [{ field: 'expiresAt' }, { field: 'revoked' }],
+    attributes: [{ field: 'expiresAt' }, { field: 'revokedAt' }],
     binding: ['artifactId', 'audienceWorkspaceId', 'sourceWorkspaceId', 'version'],
     digests: ['checksumSha256', 'revision'],
   },
@@ -284,6 +319,10 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
 const GRANT_FAMILIES: ReadonlySet<MigrationSnapshotFamily> = new Set([
   'artifactReferenceGrants',
   'channelParticipants',
+  'groupAdmissions',
+  'groupAudienceGrants',
+  'groupEnlistmentGrants',
+  'groupSharingGrants',
   'memberships',
   'projectMembers',
 ])
@@ -393,6 +432,12 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.eventId
     case 'executionAttempts':
       return tupleKey(record.taskId, String(record.attempt))
+    case 'groupAdmissions':
+      return tupleKey(record.channelId, record.principalKind, record.principalId)
+    case 'groupAudienceGrants':
+    case 'groupEnlistmentGrants':
+    case 'groupSharingGrants':
+      return tupleKey(record.channelId, record.grantId)
     case 'identityBindings':
       return tupleKey(record.provider, record.subject)
     case 'invitations':
@@ -840,6 +885,27 @@ function requireMatchingIdentity(
     'formatVersion',
     'source',
   ]
+  // An older document is refused by name before any other identity check: its record shapes differ
+  // (version 2 replaced the artifact grant revocation flag with the persisted instant), so comparing it
+  // would read a flag as an instant and could report a changed authorization as identical.
+  for (const [label, identity] of [
+    ['before', before.identity],
+    ['after', after.identity],
+  ] as const) {
+    const version = identity.formatVersion
+    if (typeof version === 'number' && Number.isInteger(version) && version >= 1) {
+      if (version < MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} predates version ${MIGRATION_SNAPSHOT_FORMAT_VERSION} (artifact grant revocation is now an instant, not a flag); recapture it before comparing`
+        )
+      }
+      if (version > MIGRATION_SNAPSHOT_FORMAT_VERSION) {
+        throw new MigrationSnapshotIdentityError(
+          `Snapshot format incompatible on the ${label} document: format version ${version} is newer than the supported version ${MIGRATION_SNAPSHOT_FORMAT_VERSION}`
+        )
+      }
+    }
+  }
   for (const field of fields) {
     const beforeValue = before.identity[field]
     const afterValue = after.identity[field]
