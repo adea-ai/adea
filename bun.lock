@@ -305,7 +305,7 @@
 
     "@adea-ai/state": ["@adea-ai/state@workspace:packages/state"],
 
-    "@adea-ai/themes": ["@adea-ai/themes@0.10.4", "", {}, "sha512-8GHeVskogkdtmJ5SNnYQcAnQD1CwSO5UQRTBkw891dRs+0Hnl6tBwPK0PdEg1lIxFJqb5psT10mekRx8XETEpQ=="],
+    "@adea-ai/themes": ["@adea-ai/themes@0.10.6", "", {}, "sha512-c+FIG6J7yzdRko04SI6su45QuY63mqiDiptKk/gAOXBlDAwcaOV9RWeYTb1pYaqxA9IDotPSmqze/D97KXVKIQ=="],
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
