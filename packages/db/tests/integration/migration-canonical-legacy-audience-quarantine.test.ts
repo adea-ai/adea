@@ -174,10 +174,12 @@ describe.skipIf(!provisioned)('canonical legacy-audience quarantine (#1222)', ()
         /^legacy-group-audience\/0050-group-legacy-backfill@[0-9a-f]{16}$/
       )
       expect(row.observed_at).toBe(OBSERVED_AT)
+      // This historical rehearsal helper formats source timestamps with PostgreSQL's MS token;
+      // production 0058 separately stores UTC microsecond precision in its migration qualification.
       expect(String(row.source_channel_created_at)).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
       )
-      expect(String(row.source_joined_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/)
+      expect(String(row.source_joined_at)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
       expect(row.workspace_id).toBe(seeded.workspaceId)
     }
   })

@@ -1262,6 +1262,11 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       groupAudienceGrants: { reason: expect.any(String), table: 'group_audience_grants' },
       groupEnlistmentGrants: { reason: expect.any(String), table: 'group_enlistment_grants' },
       groupSharingGrants: { reason: expect.any(String), table: 'group_sharing_grants' },
+      legacyAudienceQuarantine: {
+        reason:
+          'the legacy_audience_quarantine table is created by 0058_legacy_audience_quarantine',
+        table: 'legacy_audience_quarantine',
+      },
     })
     expect(Object.keys(before.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(before.document.sections.executionAttempts?.records.length).toBeGreaterThanOrEqual(1)
@@ -1566,14 +1571,16 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   test('the pre-0046 comparison names every family it cannot prove and stays unknown', async () => {
     const { audience } = await runScenario()
     // The legacy-scope comparison covers only the families the pre-0046 schema can answer for. The
-    // artifact grants, the three group families (created by 0049) and the native inventory stay unknown
-    // by contract there; the full-capture proof below is where the group families are compared.
+    // artifact grants, group families created after 0046, quarantine created by 0058 and the native
+    // inventory stay unknown by contract there; the full-capture proof below compares the group and
+    // quarantine families once their schema exists.
     expect(UNPROVEN_FAMILIES).toEqual([
       'artifactReferenceGrants',
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
       'groupSharingGrants',
+      'legacyAudienceQuarantine',
       'nativeSessions',
     ])
     expect(

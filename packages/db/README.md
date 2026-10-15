@@ -325,11 +325,19 @@ The migration takes `SHARE ROW EXCLUSIVE` locks on channels, legacy
 participants, workspace memberships, Agents and the three derived-authority
 tables before classification. It holds them until the migration transaction
 commits, preventing an old-runtime roster or authority write from racing the
-withdrawal and trigger installation. Duration depends on production row counts
-and has not been measured against a production-sized copy. Before production
-rollout, reconcile the exact migration ledger and candidate rows, then measure
-the lock window on a representative copy. No production migration or rollback
-qualification is included in this change. After commit, rollback is forward-only:
+withdrawal and trigger installation. The reproducible synthetic qualification
+and measured lock observations are in
+[`docs/evidence/m18-1222-legacy-audience-quarantine-qualification.md`](../../docs/evidence/m18-1222-legacy-audience-quarantine-qualification.md).
+
+The migration's table-lock order can deadlock with an older writer that holds a
+membership write lock and later requests a channel write lock. The scratch
+qualification forces that inversion and verifies PostgreSQL aborts one
+transaction without partially applying 0058; if it aborts the migration,
+operators must let the writer finish and retry. Production rollout must
+reconcile the exact ledger and candidate rows, arrange write quiescence or a
+reviewed retry window, and measure the lock duration against a representative
+data volume. The synthetic timings are not a production lock estimate. No
+production migration or rollback was run. After commit, recovery is forward-only:
 do not drop quarantine records or recreate withdrawn grants from retained
 participant rows alone.
 
@@ -337,14 +345,19 @@ Quarantine rows are internal admission-denial and migration-provenance evidence,
 not portable workspace content. The portable table-classification policy
 places them under the existing `authority_grants` exclusion; exports do not
 reveal quarantined identities, source digests or the presence of ambiguous
-legacy audiences.
+legacy audiences. This export boundary is separate from migration snapshots.
 
-Product admission and history readers exclude quarantined identities even if
-stale derived rows are restored. Runtime writes cannot mutate quarantined source
-or provenance rows, and INSERT/UPDATE guards prevent backfill or roster APIs
-from re-admitting them; there is no table-owner/session-setting exemption in
-those guards. The durable quarantine table is intentionally not a registered
-family in the #1248 migration snapshot contract. The existing snapshot families
-remain unchanged, and the product-gate test separately captures exact
-pre-0058 versus post-0058 withdrawal findings. Production historical-data
-qualification remains outstanding.
+Migration-snapshot format v3 registers `legacyAudienceQuarantine` separately
+from portable export. It records the quarantine identity, source participant
+identity and digest, classification reason/profile/timestamps, withdrawn
+counts, and withdrawal digest. Format-v2 snapshots are rejected as incompatible
+and cannot compare as equivalent; a capture from a schema before 0058 marks the
+family `unknown` with `schema_absent`. Product admission and history readers
+exclude quarantined identities even if stale derived rows are restored. Runtime
+writes cannot mutate quarantined source or provenance rows, and INSERT/UPDATE
+guards prevent backfill or roster APIs from re-admitting them. Those guards
+have no session-setting or table-owner exemption.
+
+The qualification uses only populated synthetic PostgreSQL databases. It does
+not establish the production migration ledger, production candidate set,
+production-sized lock duration, live role ownership, or operator readiness.

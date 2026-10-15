@@ -429,19 +429,22 @@ describe.skipIf(!provisioned)(
       expect(
         migrationQuarantineCapture.document.sections.groupEnlistmentGrants?.records
       ).not.toContainEqual(expect.objectContaining({ agentId: agentLifecycleCases.archived }))
-      const directRestore = await upgrade.migration.db
-        .execute(sql`
+      const directRestore = await upgrade.migration.db.execute(sql`
         insert into app.group_admissions (workspace_id, channel_id, principal_kind, user_id, agent_id,
           joined_sequence, joined_at, auth_group_id, auth_grant_id, auth_revision)
         values (${seed.workspaceId}::uuid, ${seed.activeGroupId}::uuid, 'agent', null,
           ${agentLifecycleCases.archived}::uuid, 0, ${OBSERVED_AT}, ${seed.activeGroupId}::uuid,
           'qualification-archived-restore', 1)
+        returning id
       `)
-        .then(
-          () => 'accepted',
-          (error: unknown) => messageChain(error)
+      expect(directRestore).toHaveLength(0)
+      expect(
+        await countRows(
+          upgrade.migration.db,
+          sql`select count(*)::int as count from app.group_admissions
+              where auth_grant_id = 'qualification-archived-restore'`
         )
-      expect(directRestore).toMatch(/legacy audience is quarantined \(agent_not_active\)/)
+      ).toBe(0)
     })
 
     test('the migration preserves and records the stale audience source row', async () => {
