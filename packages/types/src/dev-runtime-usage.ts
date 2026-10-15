@@ -27,6 +27,17 @@ export type RuntimeUsageObservedPayload = Readonly<{
   cost?: Readonly<{ amount: string; currency: string }>
 }>
 
+/** Internal wire-boundary guard: JSON observations contain only own data fields. */
+export function usageDataRecord(value: unknown, path: string): Record<string, unknown> {
+  const item = record(value, path)
+  for (const key of Reflect.ownKeys(item)) {
+    const descriptor = Object.getOwnPropertyDescriptor(item, key)!
+    if (typeof key !== 'string' || !descriptor.enumerable || !('value' in descriptor))
+      fail(path, 'expected enumerable data properties')
+  }
+  return item
+}
+
 function modelIdentifier(value: unknown, path: string): void {
   const text = stringValue(value, path, 1, 256)
   const hasControl = Array.from(text).some((character) => {
@@ -43,19 +54,19 @@ export function decodeRuntimeUsageObservedPayload(
   expectedGeneration: number
 ): RuntimeUsageObservedPayload {
   const path = 'usage'
-  const item = record(value, path)
+  const item = usageDataRecord(value, path)
   exactKeys(item, ['schemaVersion', 'model', 'generation', 'context'], ['breakdown', 'cost'], path)
   if (item.schemaVersion !== 1) fail(`${path}.schemaVersion`, 'expected 1')
   integerValue(expectedGeneration, 'expectedGeneration', 0)
   if (integerValue(item.generation, `${path}.generation`, 0) !== expectedGeneration)
     fail(`${path}.generation`, 'does not match runtime event generation')
 
-  const model = record(item.model, `${path}.model`)
+  const model = usageDataRecord(item.model, `${path}.model`)
   exactKeys(model, ['providerId', 'modelId'], [], `${path}.model`)
   modelIdentifier(model.providerId, `${path}.model.providerId`)
   modelIdentifier(model.modelId, `${path}.model.modelId`)
 
-  const context = record(item.context, `${path}.context`)
+  const context = usageDataRecord(item.context, `${path}.context`)
   exactKeys(context, ['used', 'total'], [], `${path}.context`)
   const used = context.used === null ? null : integerValue(context.used, `${path}.context.used`, 0)
   const total =
@@ -64,7 +75,7 @@ export function decodeRuntimeUsageObservedPayload(
     fail(`${path}.context.used`, 'exceeds total context window')
 
   if ('breakdown' in item) {
-    const breakdown = record(item.breakdown, `${path}.breakdown`)
+    const breakdown = usageDataRecord(item.breakdown, `${path}.breakdown`)
     const keys = ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'] as const
     exactKeys(breakdown, [], keys, `${path}.breakdown`)
     if (Object.keys(breakdown).length === 0)
@@ -88,7 +99,7 @@ export function decodeRuntimeUsageObservedPayload(
   }
 
   if ('cost' in item) {
-    const cost = record(item.cost, `${path}.cost`)
+    const cost = usageDataRecord(item.cost, `${path}.cost`)
     exactKeys(cost, ['amount', 'currency'], [], `${path}.cost`)
     const amount = stringValue(cost.amount, `${path}.cost.amount`, 1, 64)
     if (amount.trim() !== amount || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(amount))
@@ -98,5 +109,10 @@ export function decodeRuntimeUsageObservedPayload(
       fail(`${path}.cost.currency`, 'expected three uppercase letters')
   }
 
-  return value as RuntimeUsageObservedPayload
+  const snapshot = structuredClone(value) as RuntimeUsageObservedPayload
+  Object.freeze(snapshot.model)
+  Object.freeze(snapshot.context)
+  if (snapshot.breakdown) Object.freeze(snapshot.breakdown)
+  if (snapshot.cost) Object.freeze(snapshot.cost)
+  return Object.freeze(snapshot)
 }

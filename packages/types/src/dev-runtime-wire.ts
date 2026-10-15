@@ -12,6 +12,7 @@ import {
 } from './dev-runtime-validation-internal'
 import {
   decodeRuntimeUsageObservedPayload,
+  usageDataRecord,
   type RuntimeUsageObservedPayload,
 } from './dev-runtime-usage'
 export { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
@@ -176,14 +177,18 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  validateEventPayload(item.payload, 'event.payload')
+  let usage: RuntimeUsageObservedPayload | undefined
   if (item.kind === 'usage.observed') {
+    usageDataRecord(item, 'event')
     if (item.confidence !== 'authoritative')
       fail('event.confidence', 'usage observations require authoritative reported figures')
-    decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+    usage = decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
   }
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
+  const payload = usage ?? item.payload
+  validateEventPayload(payload, 'event.payload')
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  if (usage) return Object.freeze({ ...(value as RuntimeEvent), payload: usage })
   return value as RuntimeEvent
 }
 

@@ -2834,11 +2834,39 @@ type RuntimeUsageObservedPayload = {
   Terminal fallback cannot emit it. Validation establishes shape and bounds;
   the authenticated adapter remains responsible for proving the figures and
   their semantics. Do not relabel estimates as observations.
+- Usage envelopes and nested payload records contain enumerable own data
+  properties only; accessors, hidden serialization hooks and symbols are
+  refused. The usage codec returns a detached, deeply frozen payload, and the
+  event decoder returns a frozen detached usage envelope. The host persists
+  and delivers that same admitted snapshot, so subsequent caller mutation
+  cannot change figures or serialize required keys away. Ordinary JSON values
+  retain their exact meaning. Other event kinds keep their existing behavior.
 - All payload/model/context/breakdown/cost keys are exact; unknown keys,
   versions, malformed values and generation mismatches fail closed. This is
   a strict producer-contract change: legacy opaque usage payloads are rejected,
   rather than translated into fabricated figures. Other event kinds retain
   their existing envelope and payload rules.
+- Existing schema-version-1 event files are not assumed to satisfy the new
+  usage schema. Before a read, latest-sequence calculation, or append into a
+  generation, validate every retained usage observation in that selected
+  session/generation, even observations before the requested cursor or outside
+  the requested page. An incompatible observation logically quarantines that
+  **whole generation** with typed `recovery_required` (not retryable); no row
+  is dropped, rewritten, resequenced, or replaced with invented usage. Scope-wide
+  event introspection also refuses incompatible retained usage. Healthy
+  sessions and explicitly selected healthy generations remain usable.
+- A stream whose retained generation requires recovery closes `incompatible`
+  with the fixed reason `runtime event history requires recovery` before any
+  replay data, checkpoint/resync frame, completion heartbeat or live
+  subscription. A cursor beyond the incompatible row cannot skip this check.
+  This is a recovery state, not a sequence gap or evidence of complete replay.
+- There is no automatic legacy backfill or migration. Reads preserve the
+  original durable bytes for operator review/export. Recovery requires
+  source-backed compatible records that preserve canonical IDs and sequences,
+  or an explicitly authorized resume/new generation; a new generation does
+  not make the quarantined history readable. Do not delete a single row or
+  resequence the log to bypass recovery. Normal bounded retention still
+  applies; this contract adds no unbounded quarantine store or hidden copy.
 - Consumers key observations by session, generation and provider/model, use
   existing event ordering/deduplication, and treat each snapshot as a
   replacement, never an increment. A newer `null` clears an earlier known

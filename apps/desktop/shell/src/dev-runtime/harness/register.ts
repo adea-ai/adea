@@ -62,7 +62,11 @@ import type { MemoryAgentTrace } from '../../memory/provenance'
 import type { HarnessAccountResolution } from '../connections/register'
 import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
-import { createSessionEventLog, type SessionEventLog } from './events'
+import {
+  createSessionEventLog,
+  RuntimeEventRecoveryRequiredError,
+  type SessionEventLog,
+} from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessDeviceDefaultAuthority } from './device-default'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -1008,21 +1012,29 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     // Bounded newest-frame replay: at most the newest 500 events of the
     // granted generation, never older than the requested fromSequence.
     const REPLAY_LIMIT = 500n
-    const latest = BigInt(events.latestSequence(runtimeSessionId, generation))
     const requested = BigInt(grant.fromSequence)
-    const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
-    const from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+    let latest: bigint
+    let from: string
+    let replay: RuntimeEvent[]
+    try {
+      latest = BigInt(events.latestSequence(runtimeSessionId, generation))
+      const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
+      from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+      replay = events.read(runtimeSessionId, { fromSequence: from, generation, limit: 500 })
+    } catch (error) {
+      if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+      // No prefix, checkpoint, heartbeat, or subscription may imply that an
+      // incompatible retained generation was replayed or safely skipped.
+      stream.close('incompatible', 'runtime event history requires recovery')
+      return
+    }
     if (BigInt(from) > requested)
       stream.send({
         type: 'resync',
         reason: 'checkpoint_required',
         checkpointSequence: from,
       })
-    for (const event of events.read(runtimeSessionId, {
-      fromSequence: from,
-      generation,
-      limit: 500,
-    })) {
+    for (const event of replay) {
       sendEvent(event)
     }
     // The replay's end marker: the log has no other way to tell a reader that

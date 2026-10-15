@@ -38,6 +38,37 @@ function event(usage: unknown = payload) {
 const decode = (usage: unknown) => decodeRuntimeEvent(event(usage), { source: 'native' })
 
 describe('usage.observed contract', () => {
+  test('refuses accessors and serialization hooks in usage records', () => {
+    for (const key of ['model', 'context', 'breakdown', 'cost']) {
+      const value = { ...payload }
+      Object.defineProperty(value, key, { enumerable: true, get: () => payload.context })
+      expect(() => decodeRuntimeUsageObservedPayload(value, 2)).toThrow()
+    }
+    const withHook = { ...payload, context: { ...payload.context } }
+    Object.defineProperty(withHook.context, 'toJSON', { value: () => ({ total: 128_000 }) })
+    expect(() => decodeRuntimeUsageObservedPayload(withHook, 2)).toThrow()
+  })
+
+  test('decodes a detached snapshot that cannot change with its original event', () => {
+    const raw = {
+      ...event(),
+      generation: Number(2),
+      payload: {
+        ...payload,
+        context: { used: Number(12_000), total: 128_000 },
+        model: { ...payload.model },
+      },
+    }
+    const decoded = decodeRuntimeEvent(raw, { source: 'native' })
+    const usage = decodeRuntimeUsageObservedPayload(raw.payload, 2)
+    raw.generation = 3
+    raw.payload.context.used = -1
+    expect(decoded.generation).toBe(2)
+    expect(decoded.payload).toMatchObject({ context: { used: 12_000 } })
+    expect(usage.context.used).toBe(12_000)
+    expect(Object.isFrozen(usage.context)).toBe(true)
+  })
+
   test('exposes the same strict codec through focused and aggregate entries', () => {
     const typed: RuntimeEvent<'usage.observed'> = { ...event(), payload }
     expect(typed.payload.model.modelId).toBe('model-a')
