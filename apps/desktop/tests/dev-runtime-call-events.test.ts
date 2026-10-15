@@ -167,6 +167,27 @@ describe('call admission into the canonical event log', () => {
     expect(log.events()).toHaveLength(5)
   })
 
+  test('a repeated source event cannot silently change the call run or provenance facts', () => {
+    const { log } = setup()
+    const first = log.append(observation({ occurredAt: '2026-10-15T05:00:00.000Z' }))
+    for (const changed of [
+      { harnessRunId: 'run-2' },
+      { confidence: 'untrusted_hint' as const },
+      { classification: 'credential' as const },
+      { occurredAt: '2026-10-15T05:00:01.000Z' },
+    ]) {
+      let refusal: unknown
+      try {
+        log.append(observation(changed))
+      } catch (error) {
+        refusal = error
+      }
+      expect(refusal).toMatchObject({ code: 'idempotency_conflict' })
+    }
+    expect(log.events()).toEqual([first])
+    expect(log.append(observation({ occurredAt: '2026-10-15T05:00:00.000Z' }))).toBeUndefined()
+  })
+
   test('rejects retained parent cycles and reuse across tool/subagent families without inventing missing history', () => {
     const { log } = setup()
     log.append(observation({ payload: callPayload({ parentCallId: 'parent-1' }) }))

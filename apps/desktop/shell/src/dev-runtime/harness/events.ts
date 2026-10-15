@@ -172,9 +172,16 @@ export function createSessionEventLog(input: {
     }
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
+      const sameCallMetadata =
+        !isRuntimeCallEventKind(candidate.kind) ||
+        (duplicate.harnessRunId === candidate.harnessRunId &&
+          duplicate.confidence === candidate.confidence &&
+          duplicate.classification === candidate.classification &&
+          (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt))
       if (
         duplicate.kind === candidate.kind &&
-        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload) &&
+        sameCallMetadata
       ) {
         return undefined
       }

@@ -2844,6 +2844,11 @@ type RuntimeCallData =
   bounded opaque data; the strict call decoder refuses them. A versioned call
   claim is fully checked even through the generic decoder. Unknown versions
   fail closed and cannot acquire validated call semantics.
+- A repeated call `sourceEventId` with a changed run, confidence,
+  classification, explicitly supplied observation time, kind or payload is
+  `idempotency_conflict`, never an ignored duplicate. Host-assigned event ID,
+  receive time and sequence are not producer facts and are excluded from this
+  comparison.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing
 production lifecycle receipts do not become call facts. UI rendering, folding,
