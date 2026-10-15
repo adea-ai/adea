@@ -333,6 +333,12 @@ qualification is included in this change. After commit, rollback is forward-only
 do not drop quarantine records or recreate withdrawn grants from retained
 participant rows alone.
 
+Quarantine rows are internal admission-denial and migration-provenance evidence,
+not portable workspace content. The portable table-classification policy
+places them under the existing `authority_grants` exclusion; exports do not
+reveal quarantined identities, source digests or the presence of ambiguous
+legacy audiences.
+
 Product admission and history readers exclude quarantined identities even if
 stale derived rows are restored. Runtime writes cannot mutate quarantined source
 or provenance rows, and INSERT/UPDATE guards prevent backfill or roster APIs
