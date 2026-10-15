@@ -239,22 +239,22 @@ describe('lean envelope decoder', () => {
   })
 })
 
-describe('call Unicode checks cover every producer-supplied string', () => {
-  const call = (payload: Record<string, unknown>, overrides: Record<string, unknown> = {}) =>
-    event({
-      classification: 'restricted_local',
-      payload: {
-        schemaVersion: 1,
-        callId: 'call-1',
-        phase: 'started',
-        permissionEligibility: 'unknown',
-        ...payload,
-      },
-      ...overrides,
-    })
-  const reject = (value: unknown) =>
-    expect(() => decodeRuntimeCallEvent(value, provenance)).toThrow('Unicode')
+const call = (payload: Record<string, unknown>, overrides: Record<string, unknown> = {}) =>
+  event({
+    classification: 'restricted_local',
+    payload: {
+      schemaVersion: 1,
+      callId: 'call-1',
+      phase: 'started',
+      permissionEligibility: 'unknown',
+      ...payload,
+    },
+    ...overrides,
+  })
+const reject = (value: unknown) =>
+  expect(() => decodeRuntimeCallEvent(value, provenance)).toThrow('Unicode')
 
+describe('call Unicode checks cover every producer-supplied string', () => {
   test('refuses lone surrogates in names, inline keys, nested values and envelope metadata', () => {
     for (const lone of [
       '\ud800',
