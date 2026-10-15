@@ -59,12 +59,58 @@ runtime publishes the Agent's answer, the same publication transaction binds tha
 intent it is and moves the claim to `responded`; a replayed publication repairs a binding an interrupted attempt
 missed. A superseded or cancelled turn keeps that state, and the published message stays ordinary channel history.
 
+## Client
+
+The group conversation addresses Agents through `packages/data/src/addressed-turns.ts` (queries, mutations and
+the convergence ledger) and `packages/workspace-ui/src/group-addressing.tsx` (the surface). The pure rules are in
+`packages/workspace-ui/src/addressed-turn-model.ts`.
+
+- **Identity, never names.** The recipient picker lists the group's Agents as `Name · Workspace` and sends the
+  chosen Agent IDs as the message's mentions and as the address requests. A same-named Agent from another
+  workspace is a different row. An Agent this client cannot resolve reads `Agent <short id> · <workspace>`; the
+  home workspace is learned from the server-bound label on a retained turn. Nothing is addressed unless a
+  recipient is chosen, and the choice stays until it is changed; the header says so (`Next message: …`).
+- **Addressing mode and audience.** The group header shows the audience (`Participants only` / `Whole workspace`)
+  and the next message's mode (`No Agent addressed`, `Addressing <Agent>`, `Addressing N Agents`).
+- **Committed order.** Under each human message the Agents it addressed are listed in the order the server
+  committed them (`1 of 2`, `2 of 2`) with the server's state: `Admitted`, `Dispatched`, `Answered`, `Superseded`,
+  `Cancelled`. The UI shows only server-confirmed state. A claim for a non-lead Agent reads `Not started`
+  and says that only the group's lead runs turns today; it is never shown as running.
+- **Cancellation.** `Cancel turn` is offered only while the turn is live. The row changes when the server
+  confirms; repeating it is harmless because cancel is idempotent. A `409` shows the reason's own copy; a `404`
+  discloses nothing beyond "no longer available to you".
+- **Duplicates and reconnects.** Address requests are keyed on (message, Agent, revision 1), the same key the
+  server collapses on, so a lost response is retried unchanged (button, or automatically when the browser comes
+  back online) and never starts a second turn. Each turn is folded into the cache by its causal ID with a
+  monotonic state rank, so a late or repeated delivery never moves a turn backwards. A complete replay (paged to
+  a cap of 25 pages) is authoritative for listing and order: a turn the cache held when the read began and the
+  replay omits is dropped, an empty replay included, so withdrawn history does not linger. Only a turn folded in
+  while that read was running survives it (it may have committed after the server answered); the next read
+  settles it. A failed refresh keeps the turns last read for the same audience, with their Cancel buttons, and
+  shows `Addressed turns could not be refreshed` with Retry (a 429, 5xx or dropped connection says nothing about access); a replaced audience never shows them. A 401, 403 or the uniform 404 says access is gone: the held turns are cleared and `Addressed turns are no longer available to you, so none are shown.` appears with `Read again`, even when the revocation event has not arrived. Denial is a hard reset: a turn that arrived while the denied read ran does not survive it, a late address or cancel response restores nothing, and a read that began before the denial was recorded cannot bring turns back. Only a read that began after the denial clears it. An incomplete
+  read keeps what was shown and offers `Read again`. Replays refetch every 3 seconds
+  only while a turn is live, when the conversation's latest message changes, and on reconnect.
+- **Message retries.** The recipients are part of the message's submission identity, because a group message's
+  mentions are its recipients and the message route refuses a reused idempotency key with a different payload. A
+  retry with the same recipients keeps its key and converges on the committed message; changing recipients after
+  a lost response is a changed submission and sends as a new message, as an edited body does.
+- **Proof.** `apps/web/test/integration/addressed-turn-client-convergence.test.ts` drives the real client, the
+  real route handlers and the database (concurrent tabs, a lost response, reconnect order, a stale replay after
+  cancel, supersede with a stale retry, a revoked reader). `apps/web/e2e/group-addressing.spec.ts` covers what the
+  browser shows.
+
 ## Not covered
 
 - Only the group's currently resolved lead is dispatched. Addressing any other enlisted Agent keeps the claim
   (`dispatch: "not_lead"`) and starts nothing; per-Agent runtime execution is not built.
+- The client cannot tell a lead from a non-lead before addressing: the server's `dispatch` answer is the only
+  source, so `Not started` is stated generically and the picker offers every Agent in the group.
+- The recipient choice is kept in the open conversation only; it is not persisted across reloads.
 - Cancelling a turn requests runtime cancellation only for the addresser who owns the intent, and only when an
   executor currently holds it (`runtimeCancelRequested`).
-- Reconnected execution resumption and a client UI for addressing are not part of this slice.
-- Replay loads the channel's turns and filters per trigger message; it is bounded by the turn budget per trigger
-  tree but is not indexed for very large histories.
+- Reconnected execution resumption is not part of this slice.
+- Replay reads bounded windows in `(created_at, id)` order and scans at most 1,000 rows for one page. If unreadable
+  turns prevent a complete page within that limit, the read returns retryable `503` (`turns_read_failed`) rather
+  than advancing past them. The current `addressed_agent_turns_channel_idx` covers `(workspace_id, channel_id)`
+  but omits `(created_at, id)`, so PostgreSQL may still sort all rows for a channel. A future migration should add
+  an index on `(workspace_id, channel_id, created_at, id)` for the bounded ordered read path.

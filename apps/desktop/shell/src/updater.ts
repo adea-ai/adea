@@ -469,7 +469,7 @@ export function stageUpdateSwap(input: {
     scriptPath,
     [
       '#!/bin/sh',
-      'set -u',
+      'set -eu',
       `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.3; done`,
       ...stopOld,
       ...apply,

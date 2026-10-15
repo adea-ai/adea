@@ -5,7 +5,7 @@ import {
   MessageRow as SharedMessageRow,
 } from '@adea-ai/ui/components/conversation'
 import { File, LockKeyhole } from 'lucide-solid'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 import { AvatarContent } from './conversation-avatar'
@@ -162,6 +162,8 @@ export function MessageRow(props: {
   pending?: boolean
   retry?: () => void
   task?: TaskSummary
+  /** What this message addressed, shown under its body (group conversations). */
+  turns?: JSX.Element
 }) {
   const label = () => senderLabel(props.message, props.agents)
   const senderAgent = () => {
@@ -210,6 +212,7 @@ export function MessageRow(props: {
     >
       <Show when={!props.message.deleted}>
         <PrivateMessageBody message={props.message} privateContent={props.privateContent} />
+        {props.turns}
       </Show>
     </SharedMessageRow>
   )

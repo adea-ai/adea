@@ -18,6 +18,8 @@ export const memoryErrorCodes = [
   'memory_limit_exceeded',
   'memory_invalid_state',
   'memory_unavailable',
+  /** The shell fenced the workspace because its device cleanup is prepared. */
+  'workspace_cleanup_pending',
 ] as const
 
 export type MemoryErrorCode = (typeof memoryErrorCodes)[number]
@@ -40,6 +42,8 @@ const errorCopy: Readonly<Record<MemoryErrorCode, string>> = {
   memory_limit_exceeded: 'This workspace holds the maximum number of memory notes.',
   memory_invalid_state: 'That proposal was already handled. The list has been refreshed.',
   memory_unavailable: 'Memory could not be read on this device.',
+  workspace_cleanup_pending:
+    'This workspace is being removed from this device, so memory is paused. Nothing was changed.',
 }
 
 export function memoryErrorMessage(code: MemoryErrorCode): string {

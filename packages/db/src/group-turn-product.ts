@@ -9,7 +9,7 @@ import {
   claimAddressedTurn,
   dispatchAddressedTurn,
   loadAddressedTurn,
-  loadAddressedTurns,
+  loadAddressedTurnReadWindow,
   type AddressedAgentTurn,
   type GroupTurnDispatchBarrier,
 } from './group-turn-coordinator'
@@ -177,6 +177,15 @@ function isUnavailableError(error: unknown): boolean {
 
 export const ADDRESSED_TURN_PAGE_LIMIT = 100
 export const ADDRESSED_TURN_PAGE_MAX = 200
+const ADDRESSED_TURN_READ_WINDOW = 100
+const ADDRESSED_TURN_READ_SCAN_LIMIT = 1_000
+
+class AddressedTurnHistoryScanExhaustedError extends Error {
+  constructor() {
+    super('Addressed turn history scan exhausted')
+    this.name = 'AddressedTurnHistoryScanExhaustedError'
+  }
+}
 
 export type AddressedTurnPage = Readonly<{
   turns: readonly AddressedTurnView[]
@@ -224,17 +233,62 @@ export async function listAddressedTurnsForUser(
     readable.set(messageId, allowed)
     return allowed
   }
-  const visible: AddressedAgentTurn[] = []
-  for (const turn of await loadAddressedTurns(database, workspaceId, channelId))
-    if (await canRead(turn.triggerMessageId)) visible.push(turn)
-  let start = 0
+
+  let cursorId: string | null = null
   if (options.after !== undefined) {
-    const index = visible.findIndex((turn) => turn.id === options.after)
-    if (index < 0) throw new AddressedTurnError('turn_cursor_invalid')
-    start = index + 1
+    const cursor = await loadAddressedTurn(database, workspaceId, options.after)
+    if (!cursor || cursor.channelId !== channelId || !(await canRead(cursor.triggerMessageId)))
+      throw new AddressedTurnError('turn_cursor_invalid')
+    cursorId = cursor.id
   }
-  const page = visible.slice(start, start + limit)
-  const more = start + page.length < visible.length
+
+  const visible: AddressedAgentTurn[] = []
+  let scanned = 0
+  let exhausted = false
+  while (scanned < ADDRESSED_TURN_READ_SCAN_LIMIT) {
+    const windowLimit = Math.min(
+      ADDRESSED_TURN_READ_WINDOW,
+      ADDRESSED_TURN_READ_SCAN_LIMIT - scanned
+    )
+    const window = await loadAddressedTurnReadWindow(
+      database,
+      workspaceId,
+      channelId,
+      cursorId,
+      windowLimit
+    )
+    if (window.length === 0) {
+      exhausted = true
+      break
+    }
+    for (const turn of window) {
+      cursorId = turn.id
+      scanned += 1
+      if (await canRead(turn.triggerMessageId)) visible.push(turn)
+      if (visible.length > limit) break
+    }
+    if (visible.length > limit) break
+    if (window.length < windowLimit) {
+      exhausted = true
+      break
+    }
+  }
+
+  if (visible.length <= limit && !exhausted) {
+    // At the scan ceiling we cannot claim the page is final without proving that no more rows exist.
+    // Probe one row only; if present, fail closed so a caller does not page past unreadable history.
+    const moreRows = await loadAddressedTurnReadWindow(
+      database,
+      workspaceId,
+      channelId,
+      cursorId,
+      1
+    )
+    if (moreRows.length > 0) throw new AddressedTurnHistoryScanExhaustedError()
+  }
+
+  const page = visible.slice(0, limit)
+  const more = visible.length > limit
   return {
     nextAfter: more ? (page.at(-1)?.id ?? null) : null,
     turns: page.map((turn) => addressedTurnView(turn, principal)),

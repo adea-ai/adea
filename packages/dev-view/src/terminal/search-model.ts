@@ -23,6 +23,11 @@ export type SearchState = Readonly<{
    * its ordinal is the authority and the addon's index only seeds it.
    */
   activeIndex: number
+  /**
+   * The lazily loaded search addon could not be fetched. Cleared on the next
+   * open or query change, which retries the load.
+   */
+  unavailable?: boolean
 }>
 
 export function createSearchState(): SearchState {
@@ -30,7 +35,14 @@ export function createSearchState(): SearchState {
 }
 
 export function searchOpen(state: SearchState): SearchState {
-  return { ...state, open: true }
+  if (state.open) return state
+  return { ...state, open: true, unavailable: undefined }
+}
+
+/** The addon failed to load while search was open; closed search stays quiet. */
+export function searchSetUnavailable(state: SearchState): SearchState {
+  if (!state.open) return state
+  return { ...state, results: undefined, requested: undefined, activeIndex: 0, unavailable: true }
 }
 
 export function searchToggle(state: SearchState): SearchState {
@@ -38,11 +50,25 @@ export function searchToggle(state: SearchState): SearchState {
 }
 
 export function searchClose(state: SearchState): SearchState {
-  return { ...state, open: false, results: undefined, requested: undefined, activeIndex: 0 }
+  return {
+    ...state,
+    open: false,
+    results: undefined,
+    requested: undefined,
+    activeIndex: 0,
+    unavailable: undefined,
+  }
 }
 
 export function searchSetQuery(state: SearchState, query: string): SearchState {
-  return { ...state, query, results: undefined, requested: undefined, activeIndex: 0 }
+  return {
+    ...state,
+    query,
+    results: undefined,
+    requested: undefined,
+    activeIndex: 0,
+    unavailable: undefined,
+  }
 }
 
 export function searchToggleCaseSensitive(state: SearchState): SearchState {
@@ -51,6 +77,7 @@ export function searchToggleCaseSensitive(state: SearchState): SearchState {
     caseSensitive: !state.caseSensitive,
     results: undefined,
     activeIndex: 0,
+    unavailable: undefined,
   }
 }
 
@@ -74,7 +101,7 @@ export function searchConsumeStep(state: SearchState): SearchState {
 
 export function searchSetResults(state: SearchState, results: SearchResults): SearchState {
   const { resultCount, resultIndex } = results
-  if (resultCount === 0) return { ...state, results, activeIndex: 0 }
+  if (resultCount === 0) return { ...state, results, activeIndex: 0, unavailable: undefined }
   // The addon's index is trusted only for the first report of a query, where
   // its fresh "first match" position is authoritative; an out-of-range index
   // is never adopted. After that the ordinal is the pane's, clamped to the
@@ -83,7 +110,12 @@ export function searchSetResults(state: SearchState, results: SearchResults): Se
     state.results === undefined && resultIndex >= 0 && resultIndex < resultCount
       ? resultIndex
       : state.activeIndex
-  return { ...state, results, activeIndex: Math.min(Math.max(seeded, 0), resultCount - 1) }
+  return {
+    ...state,
+    results,
+    activeIndex: Math.min(Math.max(seeded, 0), resultCount - 1),
+    unavailable: undefined,
+  }
 }
 
 export type SearchPresentation = Readonly<{
@@ -94,6 +126,7 @@ export type SearchPresentation = Readonly<{
 }>
 
 export function searchPresentation(state: SearchState): SearchPresentation {
+  if (state.unavailable) return { count: 'Search unavailable', steppable: false }
   if (state.query === '') return { count: '', steppable: false }
   if (state.results === undefined) return { count: 'Searching…', steppable: false }
   const { resultCount } = state.results

@@ -123,3 +123,10 @@ connected run does not establish a complete native suite or restart qualificatio
 
 Keep F1/U1/U2 and live acceptance open until their full criteria have independent
 current-head evidence. This fixture is evidence for its bounded code path only.
+
+## Child allowance and child funding
+
+The child path (a lead profile's stated child budget allowance, child funding and start, with the
+lead dispatched through the installed SDK) has its own opt-in proofs and package-identity check
+against the registry packages in Adea's lockfile. See
+`apps/web/test/control-plane-child-joined/README.md` for commands, results and remaining gaps.

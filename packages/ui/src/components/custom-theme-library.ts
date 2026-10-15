@@ -8,7 +8,7 @@
  * theme); the shared ThemeProvider receives it as extra variants. See NOTICE and
  * docs/research/dev-view-donor-audit.md for source and behavior provenance.
  */
-import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/themes'
+import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/ui/lib/theme-records'
 
 import { contrastRatio } from '@adea-ai/ui/lib/accent-roles'
 import { quarantineRecord, readVersionedRecord } from '@adea-ai/ui/lib/preference-store'

@@ -34,9 +34,10 @@ The clean-restore flow exports through the GET handler on the lane database, cre
 database on the provisioning instance, migrates it from the repository's migrations, provisions
 the users the bundle names, restores through the POST handler, and checks the digest and
 residency. It then drops the database. Handlers take an injected principal resolution and
-database, following the account route-flow convention. Real session resolution is covered by
-the auth boundary tests, not here. The route wrappers are typed and built, but the 401 branch
-lives in the wrapper and is not exercised by bun.
+database, following the account route-flow convention. Those files therefore do not exercise the
+route wrappers or the principal resolver. The authenticated request path is proven separately in
+`apps/web/test/integration/portable-export-authenticated-path.test.ts`; see
+[Authenticated request-path proof](#authenticated-request-path-proof).
 
 ## What is exported (format `adea.portable-workspace-export`, version 1)
 
@@ -284,20 +285,20 @@ Upstream dependencies, exact:
 The issue lists requirements REQ 045, 055, 097, 140 to 145 and 177, and tests A27, A35, A36 and
 A38. Their text is in the Agent HQ TDD. Status is one of covered, partial or not claimed.
 
-| Item             | Requirement or test                                                                                                                                                        | Status              | Evidence or gap                                                                                                                                                                                                                                           |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #1226 acceptance | Prove authorized portable export/import and end-to-end residency without credentials or private-audience leakage                                                           | Partial             | Covered: authorized export/import, clean restore, credential and audience canaries, revocation, pre-join history and withheld job-publication regressions through the canonical readers. Not covered: residency beyond the product database.              |
-| REQ 045          | Archive preserves history and links while preventing new work                                                                                                              | Partial             | Archived channels and projects are excluded from the export; the product's archive semantics are not changed here.                                                                                                                                        |
-| REQ 055          | Reset, archive and delete are separate actions                                                                                                                             | Not claimed         | Conversation actions are outside the export.                                                                                                                                                                                                              |
-| REQ 097          | Credentials stay out of export, recovery and debug paths                                                                                                                   | Partial             | Export path only: canaries in `portable-export.test.ts` and `portable-restore-clean.test.ts`. Recovery, debug, logs and context preparation are not covered.                                                                                              |
-| REQ 140 to 143   | Retention classes, deletion, holds                                                                                                                                         | Not claimed (#1221) | The export omits soft-deleted and archived records. It defines no retention policy.                                                                                                                                                                       |
-| REQ 144          | Stable IDs, timestamps, authors, audience and history metadata, job and attempt relationships, artifact versions and source provenance, a documented format, clean restore | Partial             | Covered: IDs, timestamps, authors, audience, history (edits and tombstones), cloud-location attempts, the documented format and clean restore. Not exported: artifact versions and source provenance (#86) and job, effect and approval evidence (#1221). |
-| REQ 145          | Residency checks: runtime state, product database, artifact store, inference, logs, external tools                                                                         | Partial             | Checked: product-database clean restore and zero `globalThis.fetch` calls through the portable response helpers. Not checked: actual artifact-store/runtime state, logs, inference or external tools; the fetch probe does not cover other transports.    |
-| REQ 177          | Destructive cleanup follows the rollback and retention gates; restoration limits are documented                                                                            | Partial             | Restoration limits are listed under residual limits. Cleanup gates belong to #1221.                                                                                                                                                                       |
-| A27              | Delete or export with an offline executor and retained evidence: honest pending status; portable authorized export                                                         | Partial             | Covered: the portable authorized export. Not represented: the offline executor's pending status and retained evidence (#1221).                                                                                                                            |
-| A35              | Permanent deletion before trusted cleanup fails closed                                                                                                                     | Not claimed         | Deletion path, outside the export.                                                                                                                                                                                                                        |
-| A36              | Preserve history and reconnect to supported state; no #193 expansion                                                                                                       | Partial             | No #193 dependency: replica ciphertext and key material never leave, by ledger and canary tests. Reconnect and cross-device history sync are not covered.                                                                                                 |
-| A38              | Secrets stay out of recovery, export, logs and context preparation                                                                                                         | Partial             | Export path only, by canary tests. Recovery, logs and context preparation are not covered.                                                                                                                                                                |
+| Item             | Requirement or test                                                                                                                                                        | Status              | Evidence or gap                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1226 acceptance | Prove authorized portable export/import and end-to-end residency without credentials or private-audience leakage                                                           | Partial             | Covered: authorized export/import, clean restore, credential and audience canaries, revocation, pre-join history and withheld job-publication regressions through the canonical readers, and the same through the real authenticated GET and POST routes (see the section below). Not covered: residency beyond the product database; the Neon-account and temporary-credential resolver branches; mid-stream revocation through the route. |
+| REQ 045          | Archive preserves history and links while preventing new work                                                                                                              | Partial             | Archived channels and projects are excluded from the export; the product's archive semantics are not changed here.                                                                                                                                                                                                                                                                                                                          |
+| REQ 055          | Reset, archive and delete are separate actions                                                                                                                             | Not claimed         | Conversation actions are outside the export.                                                                                                                                                                                                                                                                                                                                                                                                |
+| REQ 097          | Credentials stay out of export, recovery and debug paths                                                                                                                   | Partial             | Export and import paths: canaries in `portable-export.test.ts`, `portable-restore-clean.test.ts` and, on the raw response bytes and a full-table scan of each destination, `portable-export-authenticated-path.test.ts`. Recovery, debug, logs and context preparation are not covered.                                                                                                                                                     |
+| REQ 140 to 143   | Retention classes, deletion, holds                                                                                                                                         | Not claimed (#1221) | The export omits soft-deleted and archived records. It defines no retention policy.                                                                                                                                                                                                                                                                                                                                                         |
+| REQ 144          | Stable IDs, timestamps, authors, audience and history metadata, job and attempt relationships, artifact versions and source provenance, a documented format, clean restore | Partial             | Covered: IDs, timestamps, authors, audience, history (edits and tombstones), cloud-location attempts, the documented format and clean restore. Not exported: artifact versions and source provenance (#86) and job, effect and approval evidence (#1221).                                                                                                                                                                                   |
+| REQ 145          | Residency checks: runtime state, product database, artifact store, inference, logs, external tools                                                                         | Partial             | Checked: product-database clean restore and zero `globalThis.fetch` calls through the portable response helpers. Not checked: actual artifact-store/runtime state, logs, inference or external tools; the fetch probe does not cover other transports.                                                                                                                                                                                      |
+| REQ 177          | Destructive cleanup follows the rollback and retention gates; restoration limits are documented                                                                            | Partial             | Restoration limits are listed under residual limits. Cleanup gates belong to #1221.                                                                                                                                                                                                                                                                                                                                                         |
+| A27              | Delete or export with an offline executor and retained evidence: honest pending status; portable authorized export                                                         | Partial             | Covered: the portable authorized export. Not represented: the offline executor's pending status and retained evidence (#1221).                                                                                                                                                                                                                                                                                                              |
+| A35              | Permanent deletion before trusted cleanup fails closed                                                                                                                     | Not claimed         | Deletion path, outside the export.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| A36              | Preserve history and reconnect to supported state; no #193 expansion                                                                                                       | Partial             | No #193 dependency: replica ciphertext and key material never leave, by ledger and canary tests. Reconnect and cross-device history sync are not covered.                                                                                                                                                                                                                                                                                   |
+| A38              | Secrets stay out of recovery, export, logs and context preparation                                                                                                         | Partial             | Export and import paths only, by canary tests including the authenticated-path scans. Recovery, logs and context preparation are not covered.                                                                                                                                                                                                                                                                                               |
 
 Merged PR #1245 composes the export with the canonical group-history and job-publication readers.
 `packages/db/tests/integration/portable-export.test.ts` includes the regressions `a group member
@@ -428,6 +429,127 @@ This checkpoint closed only the pre-transfer bound for agent names and role summ
 remaining-gap note is historical: merged PR #1245 added the canonical group-history and
 job-publication export regressions listed above. Issue #1226 remains partial because it does not
 verify residency in artifact storage, replicas, logs or native runtime state.
+
+## Authenticated request-path proof
+
+`apps/web/test/integration/portable-export-authenticated-path.test.ts` drives the production route
+handlers (`Route.server.handlers.GET` for `/api/v1/workspaces/{id}/portable-export` and `POST` for
+`/api/v1/portable-imports`) with real `Request` objects, the real origin guard, the real
+`resolveWorkspacePrincipal`, the real per-request database client and the real PostgreSQL
+membership and audience readers. Its only seam is an identity `createFileRoute`, the same one the
+other route-flow files use so route modules load under bun. The principal is not injected. Callers
+are identified by desktop sessions issued by the production `desktopSessionService()` and presented
+with the production header contract (`Authorization: Desktop`, `X-Adea-Desktop-Session`, a trusted
+`Origin`, `X-Adea-Client`). Sessions belong to real, non-temporary users.
+
+What it adds to the helper-level proofs above. Each claim names what is actually asserted.
+
+- **Rejected callers.** Seven credential failures (missing credential, wrong credential, another
+  user's session id, an unknown session id, expired, revoked, disabled account) are sent to both
+  routes. Across those 14 responses the 401 body is one byte-identical string, and none carries a
+  `Set-Cookie`, a source canary or the credential material of the sessions involved. An
+  account-allowlist denial gets 401 on both routes and the listed account passes. Four malformed
+  authorization or session-id headers get 401 on the export route only. An untrusted origin gets
+  403 with no `Access-Control-Allow-Origin` on both routes; a session presented with no origin gets
+  401 on the export route only. A fixture fingerprint (below) is compared before and after for the
+  seven-credential matrix and the allowlist denial, and is unchanged. The malformed-header and
+  origin cases assert the status and that the credential does not appear, not the fingerprint.
+- **Private-audience canaries.** The bundles served to an owner, a participant and a workspace
+  member outside the audience are scanned, headers and body, for the artifact locator and
+  provenance, execution and native session references, the replica ciphertext, the invitation
+  token and email, and the credential, credential digest, provider email and provider session id of
+  the four initial users. The owner and participant bundles contain the participants-only group
+  text, the members-only project, its channel and its text. The outsider bundle contains the
+  workspace-wide text and none of: the group text, the project name, its channel title, its text;
+  its channel list lacks the group and its project list lacks the project. An authenticated
+  non-member gets the same 404 body as an unknown workspace id, with the workspace id not echoed.
+  The audience assertions are made on those named responses; the log scan below does not repeat
+  them.
+- **Every response, for secrets only.** All route calls in the file go through one wrapper that
+  records the status, headers and body of each response (65 responses of GET, POST and OPTIONS
+  calls in the current run). The last test scans that log, for every status it
+  contains, for the source canaries and for the credential, digest, provider email and provider
+  session id of every person created in either database, and for `Set-Cookie`. It also requires more than 50 logged responses and the
+  log to contain a 200, 201, 204, 400, 401, 403, 404, 409, 413 and 422, so the scan cannot pass over
+  an empty log. This is the only place "every response" is claimed, and only for those secrets.
+- **Revocation between requests.** After removing a group participant, the participant's next
+  export lacks the text sent after their admission and the group is gone from their channel list.
+  After removing a workspace member, the next export is the same 404 as an unknown id. After
+  revoking a desktop session or disabling an account, the next export is 401. An importer whose
+  session was revoked gets 401 on import. In each case the session was valid on the request before.
+  The participant case uses a text sent after admission, because pre-join history is already
+  withheld by the canonical reader (#1232).
+- **Import through the authenticated POST route into brand-new databases.** Three scratch
+  databases are created on the provisioning instance and migrated from the repository's
+  migrations. For each, an importer session is issued by the same production service against that
+  database (`DATABASE_URL` is pointed at it only for the call). The owner's bundle first meets a
+  destination that lacks the other users and is refused 422 `unresolved_users`; a dump of every
+  table of that destination is identical before and after the request. After those users exist it
+  restores with 201, the digest matches the bundle, the destination's own export has the same
+  digest, every external domain is reported unavailable, and a second POST is 409 with every table
+  again identical before and after. Every table of the restored destination is dumped and searched
+  for the source canaries: nothing leaks, there is no replica, artifact or invitation, the only
+  membership is the importer as owner, and every restored content ref is `missing`. The outsider's
+  bundle, restored the same way, leaves no private group or members-only text and no group channel
+  row anywhere in its destination. The third destination holds an importer whose session was
+  revoked: the import is 401 and the dump is unchanged.
+- **Refusals on the lane database.** Existing workspace 409, edited text 422 `digest_mismatch`, an
+  unnamed ledger class 422, malformed JSON 400, a declared length over the bound 413 and an
+  undeclared stream over the bound 413. The edited text and the unnamed class do not appear in
+  their refusal bodies, and the fixture fingerprint is unchanged across the whole sequence.
+- **Fixture fingerprint.** A content hash of every table that has a `workspace_id` column,
+  restricted to the fixture workspace, plus the workspace row and any workspace the fixture users
+  own, and the fixture users' own user, membership and desktop-session rows. It is scoped to the
+  fixture because other route files share the lane database concurrently; it says nothing about
+  rows elsewhere.
+- **Route-level fetch fence.** An authenticated export, an authenticated import refused with 409
+  and an authenticated restore into a scratch database each make zero `globalThis.fetch` calls; the
+  fence's positive control counts one. This is a fetch-only probe: it does not see Postgres sockets
+  or other transports, so it is evidence about JavaScript fetch egress, not network residency.
+
+Teardown: each user id is recorded the moment the user exists, before its session is issued, so a
+failed session creation cannot leave an unregistered user and a later test needs no cleanup of its own, and
+teardown deletes every recorded user with their desktop sessions and auth identities, then fails the
+file if any user, identity or session carrying this run's marker remains. Each scratch database
+is registered for teardown before it is created, so a failed creation or migration still drops it,
+and teardown runs every step even if an earlier one fails, rethrowing the first failure. Two
+consecutive local runs left 0 users, identities, sessions, workspaces and scratch databases; with
+the tracking removed the guard failed with 12 leftovers; with session issuance made to fail for one user, the previous head left 1 user and identity and this one leaves none; with the migrations folder made
+unreachable, no scratch database or user was left behind.
+
+Mutation checks run while writing the file (each reverted afterwards; the expected cases failed):
+allowlist ignored (1 failure), origin guard disabled (1), denied callers answered 403 with the id
+(2), a credential echoed in a response header (2), session revocation ignored (4), disabled-account
+check ignored (2), session expiry ignored (1), a refusal path that updates `messages` (2, found by
+the fingerprint and a destination dump) and a header carrying the Authorization value only on a
+no-origin refusal (1, found only by the log scan).
+
+Findings worth recording:
+
+- `workspace.create` with no workspace is allowed for any user principal
+  (`packages/auth/src/authorization.ts`), so through the real route an importer without the
+  creation permission cannot occur. The refusal an importer can meet is a failed principal
+  resolution (401) or a disabled importer (`importer_unavailable`, 403, covered at the database
+  layer). The helper-level test that injects `async () => false` exercises the 404 wrapper branch
+  only, not a product-reachable state.
+- The restored workspace's content refs keep their source `synchronization_policy` (for example
+  `agent_hq_e2ee_sync`) with `availability = missing` and no replica row. That is metadata, and the
+  proof asserts the absence of bodies and replicas, not a policy downgrade.
+
+Not covered by this file (remaining gaps for #1226):
+
+- Mid-stream revocation inside one export request. The route does not expose the `hooks` seam; that
+  behavior stays proven at the helper level in `portable-export-midstream-revocation.test.ts`.
+- The Neon-account and temporary-credential branches of `resolveWorkspacePrincipal`. They need the
+  framework request context and a provider session; only the desktop-session branch is driven.
+- Cloudflare Worker runtime behavior (Hyperdrive binding, request-scoped environment), `Set-Cookie`
+  for first-visit temporary sessions, and any CDN or proxy layer between a client and the Worker.
+- Residency in the artifact store, replicas, logs, inference and native runtime state, as above.
+
+Run: `DATABASE_URL=... MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL=... bun --conditions=react-server test
+--timeout 120000 apps/web/test/integration/portable-export-authenticated-path.test.ts`, or through
+`bun run test:integration`, which discovers the file with the other route flows. It fails, not
+skips, when either variable is missing.
 
 ## Current-main isolation and restore proof (incorporated in #1245)
 

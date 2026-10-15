@@ -485,6 +485,12 @@ async function mockWorkspace(page: Page, empty = false) {
       json: { activeWorkspace: workspace, principal: { temporary: true }, workspaces: [workspace] },
     })
   )
+  // Group conversations qualify each Agent by the workspace list's names.
+  await page.route('**/api/workspaces', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ contentType: 'application/json', json: [workspace] })
+      : route.fallback()
+  )
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
@@ -572,6 +578,12 @@ async function mockWorkspace(page: Page, empty = false) {
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : artifacts })
     if (url.pathname.endsWith('/channels'))
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : channels })
+    // Group conversations read their addressed turns on open; none exist in this fixture.
+    if (url.pathname.endsWith('/turns'))
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { nextAfter: null, turns: [] },
+      })
     if (url.pathname.endsWith('/messages')) {
       const channelId = url.pathname.split('/').at(-2)
       const threadRoot = url.searchParams.get('threadRootMessageId')
@@ -1651,6 +1663,22 @@ test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await expect(
     page.locator('#workspace-main').getByText('Group conversation', { exact: true })
   ).toBeVisible()
+  // The group controls load lazily; capture only once the roster and the picker are in place.
+  await expect(page.getByRole('navigation', { name: 'People in this conversation' })).toBeVisible()
+  await expect(
+    page.getByRole('group', { name: 'Agents your next message addresses' })
+  ).toBeVisible()
+  // The Agent belongs to this workspace, which the mocked workspace list names.
+  await expect(
+    page
+      .getByRole('navigation', { name: 'People in this conversation' })
+      .getByRole('listitem', { name: 'Research Agent · Work' })
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole('group', { name: 'Agents your next message addresses' })
+      .getByRole('button', { name: 'Research Agent · Work' })
+  ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 
   await projectConversation(page, 'Product').click()
@@ -1859,6 +1887,85 @@ test('creates a Task from a side panel without moving the board', async ({ page 
     for (const release of refetch.waiting) release()
     refetch.waiting.clear()
   }
+})
+
+test('a failed board load offers Retry, which reloads into the board', async ({ page }) => {
+  await mockWorkspace(page)
+  // The board implementation is its own chunk; fail it until the person retries.
+  // A browser keeps a failed module fetch for the life of the page, so Retry
+  // reloads the page.
+  let failBoard = true
+  await page.route('**/task-board.tsx*', (route) =>
+    failBoard ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const failure = page.getByRole('alert').filter({ hasText: 'Something interrupted the workspace' })
+  await expect(failure).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toHaveCount(0)
+  failBoard = false
+  await failure.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(failure).toHaveCount(0)
+})
+
+test('a failed Task panel load reports on the board and a reload recovers', async ({ page }) => {
+  await mockWorkspace(page)
+  let failPanel = true
+  await page.route('**/task-detail.tsx*', (route) =>
+    failPanel ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const card = page.getByRole('button', { name: 'Launch planning', exact: true })
+  await card.click()
+  await expect(page.getByText('Task details could not be loaded.')).toBeVisible()
+  // The board stays usable: no panel opened and nothing is left selected.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
+  failPanel = false
+  await page.reload()
+  await card.click()
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+})
+
+test('Chat does not fetch the board or the Task panel until Tasks opens', async ({ page }) => {
+  await mockWorkspace(page)
+  const fetched: string[] = []
+  page.on('request', (request) => {
+    const match = /\/(task-board(?:-surface)?|task-detail)\.tsx/.exec(request.url())
+    if (match) fetched.push(match[1]!)
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
+  expect(fetched.filter((name) => name !== 'task-board-surface')).toEqual([])
+  // Opening the board downloads it, and the panel only when a task opens.
+  await page.goto('/?view=chat&app=kanban')
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-board')
+  expect(fetched).not.toContain('task-detail')
+  await page.getByRole('button', { name: 'Launch planning', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit task', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-detail')
+})
+
+test('a task link opens the lazy board and panel inside Chat while Kanban is off', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  // Explicitly disable Kanban: the link still opens the board inside Chat.
+  await page.goto('/?app=library')
+  await page.getByRole('button', { name: 'Disable Kanban', exact: true }).click()
+  await page.goto('/?view=chat&task=task-launch')
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+  await expect(page).not.toHaveURL(/app=kanban/)
+  await detail.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(detail).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
 })
 
 test('edits a Task with first-click selects and closes on Save without reopening', async ({

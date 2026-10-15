@@ -7,7 +7,7 @@
  * appearance preferences (https://github.com/zeronsh/zeron). See NOTICE and
  * docs/research/dev-view-donor-audit.md for source and behavior provenance.
  */
-import { getAccent } from '@adea-ai/themes'
+import { getAccent } from '@adea-ai/ui/lib/accent-presets'
 
 import {
   createVersionedPersistence,

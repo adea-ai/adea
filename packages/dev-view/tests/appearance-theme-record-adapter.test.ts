@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { ACCENTS } from '@adea-ai/themes'
-import adeaDark from '@adea-ai/themes/themes/adea-dark'
-import adeaLight from '@adea-ai/themes/themes/adea-light'
+import { accents } from '@adea-ai/ui/lib/accent-presets'
+import { defaultThemeRecord } from '@adea-ai/ui/lib/theme-projection'
 
 import {
   DEFAULT_CUSTOM_ACCENT,
@@ -18,6 +17,8 @@ import {
 import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
 import { accentRolesForSelection, builtinThemes, themeRecords } from '@adea-ai/ui/lib/themes'
 
+const adeaLight = defaultThemeRecord('light')
+const adeaDark = defaultThemeRecord('dark')
 const byId = (id: string) => builtinThemes.find((theme) => theme.id === id)!
 
 describe('published AppearanceEditor theme adapter', () => {
@@ -205,7 +206,7 @@ describe('published AppearanceEditor theme adapter', () => {
   })
 
   test('derives the default custom accent from the published blue preset', () => {
-    const publishedBlue = ACCENTS.find((preset) => preset.id === 'blue')
+    const publishedBlue = accents.find((preset) => preset.id === 'blue')
     expect(DEFAULT_CUSTOM_ACCENT).toBe(publishedBlue?.light ?? adeaLight.colors.accent)
   })
 })

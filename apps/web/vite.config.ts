@@ -126,14 +126,47 @@ export default defineConfig(({ command }) => ({
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
                 },
+                // The theme record helpers, their CSS projection and the
+                // defaults they read share every importer today. The lazy theme
+                // importer reaches only the records, which would otherwise split
+                // the projection into a request of its own.
+                {
+                  name: 'theme-records',
+                  test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
+                  includeDependenciesRecursively: false,
+                },
+                // The shared appearance editor reaches Kobalte's radio internals
+                // directly, which would otherwise split them from the radio
+                // group into a second request for the same panel.
+                {
+                  name: 'radio-group',
+                  test: /(@kobalte\/core\/dist\/chunk\/H7BK6JF7\.jsx|@adea-ai\/ui\/src\/components\/ui\/radio-group\/radio-group\.tsx)$/,
+                  includeDependenciesRecursively: false,
+                },
+                // arrow-down, plus and sliders-horizontal are imported by the
+                // startup entries and by terminal, App Library and Chat code;
+                // left alone each is a request of a few hundred bytes. Folding
+                // them into this startup-loaded group frees three files for the
+                // lazy terminal addon chunks without moving any bytes out of
+                // the measured graphs.
                 {
                   name: 'workspace-navigation-icons',
-                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right)\.jsx$/,
+                  test: /lucide-solid\/dist\/source\/icons\/(check|chevron-down|chevron-right|chevron-up|square|arrow-left|arrow-right|arrow-down|plus|sliders-horizontal)\.jsx$/,
                   minShareCount: 2,
                 },
                 {
                   name: 'shared-lazy-icons',
                   test: /lucide-solid\/dist\/source\/icons\/(archive|arrow-up|book-open|bot|download|external-link|file-text|message-square|lock-keyhole|mic|pencil|play|rotate-ccw|square-terminal|upload)\.jsx$/,
+                  minShareCount: 2,
+                },
+                // Two single-glyph chunks that only lazy panes import
+                // (Appearance, Plugins, Settings and Source control). Each is
+                // otherwise its own request; grouped, neither reaches a route's
+                // static graph or grows the Dev utility panes closure. Disjoint
+                // from the startup group above.
+                {
+                  name: 'shared-pane-icons',
+                  test: /lucide-solid\/dist\/source\/icons\/(eye-off|shield-check)\.jsx$/,
                   minShareCount: 2,
                 },
               ],

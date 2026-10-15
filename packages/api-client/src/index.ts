@@ -661,12 +661,15 @@ function boundedInt(value: number | undefined, min: number, max: number, fallbac
 export class ApiClientError extends Error {
   readonly status: number
   readonly code?: string
+  /** Names why a `409 turn_conflict` was refused; only present on addressed-turn conflicts. */
+  readonly reason?: string
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, reason?: string) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
     this.code = code
+    this.reason = reason
   }
 }
 
@@ -2014,14 +2017,21 @@ export class AgentHqApiClient {
   private async failure(response: Response): Promise<ApiClientError> {
     let code: string | undefined
     let message: string | undefined
+    let reason: string | undefined
     try {
-      const payload = (await response.json()) as { code?: string; error?: string; message?: string }
+      const payload = (await response.json()) as {
+        code?: string
+        error?: string
+        message?: string
+        reason?: unknown
+      }
       code = payload.code ?? payload.error
       message = payload.message
+      reason = typeof payload.reason === 'string' ? payload.reason : undefined
     } catch {
       // A non-JSON failure body keeps the status text.
     }
-    return new ApiClientError(message ?? response.statusText, response.status, code)
+    return new ApiClientError(message ?? response.statusText, response.status, code, reason)
   }
 
   protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {
