@@ -2775,6 +2775,78 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Response sources and inline citation references (#1389)
+
+`turn.assistant_message` MAY carry a self-contained cited response. Its
+payload is exactly `{ text: string, references: RuntimeResponseReferences }`:
+
+```ts
+type RuntimeResponseReferences = {
+  schemaVersion: 1
+  sources: { id: string; title: string; url: string; snippet?: string }[]
+  citations: { sourceId: string; start: number; end: number }[]
+}
+```
+
+The response identity is its canonical `(runtimeSessionId, generation,
+eventId)`, retaining `harnessRunId`, source and source-event identity. Sources
+and citations MUST travel atomically with that response's exact `text` in
+both live delivery and replay. A source ID is case-sensitive, unique within
+that response, 1–128 ASCII characters matching
+`[a-zA-Z0-9][a-zA-Z0-9_.:-]*`. It is never an array index or a lookup in a
+different message, run, generation, session or workspace. Each citation MUST
+resolve against that same response's source list. Its nonempty half-open
+`[start, end)` span uses UTF-16 code units in `text`, before Markdown parsing,
+redaction or any display transformation; offsets MUST be safe integers,
+within the text, and MUST NOT split a surrogate pair. Cited text, titles,
+snippets and URLs MUST contain well-formed UTF-16; unpaired surrogates that
+UTF-8 replay would replace are refused. Consumers that transform
+text MUST remap spans or omit citation presentation, never attach stale offsets.
+Repeated identical `(sourceId, start, end)` tuples are refused. Citation order
+is preserved; overlaps and multiple sources for one claim are allowed.
+
+Bounds are enforced before append, live publication and wire acceptance,
+and again on durable replay: at most 32 sources and 128 citations; nonblank
+titles of at most 512 UTF-16 units; optional snippets of at most 2,048 units;
+URLs of at most 2,048 units; text of at most 65,536 units; and at most 48 KiB
+for the entire cited payload encoded as UTF-8 JSON. The last limit leaves room
+for event metadata in the existing 64 KiB canonical-CBOR stream frame.
+Unknown keys in this cited payload, its reference object, sources or citations,
+unsupported reference versions, duplicate IDs, dangling citations and malformed
+or over-bound input are refused as a whole. No truncation or index repair occurs.
+Invalid append does not consume a sequence, evict a record or notify a live
+subscriber. Invalid retained reference data fails replay without rewriting it.
+
+The producer boundary owns link safety. Source URLs MUST be absolute HTTP(S)
+URLs with a multi-label DNS hostname and a default port; credentials (including
+empty userinfo), relative URLs, whitespace, controls, bidi formatting controls,
+backslashes, percent-encoded ASCII controls/backslashes or host delimiters,
+IP literals, single-label hosts, trailing-dot hosts, and local/internal suffixes
+(`localhost`, `local`, `internal`, `lan`, `home`, `onion`) are refused. Valid
+URLs and text are preserved verbatim; title and snippet are untrusted plain
+text, never markup. This contract authorizes only a source-link representation.
+It performs no DNS resolution, retrieval, prefetch or credential forwarding;
+DNS names can resolve privately, so any future fetching requires the separate
+SSRF/redirect/DNS-rebinding authority from the threat model.
+
+Native, ACP, authenticated-hook and host producers may supply this metadata
+under their existing authenticated provenance. Terminal fallback MUST NOT
+synthesize it. The contract validates structure and locality, not whether a
+claim is true. Producers that cannot supply validated references MUST omit
+`references`; consumers MUST NOT infer sources from Markdown links, tool text,
+an earlier response or a completed run. An absent reference object remains
+unknown/no-source; explicitly empty lists are allowed and invent nothing.
+Legacy assistant payloads without `references`, unrelated opaque payloads and
+unknown event retention keep their existing behavior. This producer contract
+does not enable Sources/Inline Citation rendering or parse a harness's prose.
+
+Implementation is isolated in
+`packages/types/src/dev-runtime-response-references.ts`, re-exported through
+`@adea-ai/types/dev-runtime`. Contract and URL tests live in
+`packages/types/tests/dev-runtime-response-references.test.ts`; real durable
+append/restart/retention and canonical-CBOR replay tests live in
+`apps/desktop/tests/runtime-response-references-replay.test.ts`.
+
 ## Terminal protocol
 
 ### PTY adapter

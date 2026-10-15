@@ -80,6 +80,18 @@ export type {
   RuntimeEventKind,
   RuntimeEventProvenance,
 } from './dev-runtime-wire'
+export {
+  CITED_RESPONSE_BYTES_MAX,
+  RESPONSE_CITATION_MAX,
+  RESPONSE_SOURCE_MAX,
+  decodeRuntimeResponseReferences,
+} from './dev-runtime-response-references'
+export type {
+  RuntimeAssistantResponsePayload,
+  RuntimeCitationReference,
+  RuntimeResponseReferences,
+  RuntimeResponseSource,
+} from './dev-runtime-response-references'
 
 export {
   devOperationDefinitions,
