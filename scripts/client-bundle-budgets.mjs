@@ -521,6 +521,22 @@ function dynamicImports(source) {
   return [...imports]
 }
 
+function exportsName(source, name) {
+  for (const match of source.matchAll(/\bexport\s*\{([^}]+)\}/g)) {
+    if (
+      match[1].split(',').some(
+        (specifier) =>
+          specifier
+            .trim()
+            .split(/\s+as\s+/)
+            .at(-1) === name
+      )
+    )
+      return true
+  }
+  return false
+}
+
 function resolveRelativeChunk(importer, specifier) {
   if (!specifier.startsWith('.')) return undefined
   const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(importer), specifier))
@@ -733,6 +749,34 @@ export function inspectClientBundle(input) {
     'runtime-terminal-pane-',
     'runtime terminal pane'
   )
+  // RuntimeTerminalPane calls the selected-terminal resolver when a selected
+  // terminal leaf mounts, so the deferred canonical reply decoder is part of
+  // opening/using this route. The runtime pane also statically imports the
+  // package for stream decoding, so Rollup emits a facade that re-exports
+  // decodeDevReply from the runtime-terminal-pane entry. Pin that precise
+  // module relationship, not a generated chunk name, and fail closed if a
+  // second facade appears.
+  const replyDecoderFacades = chunks.filter(({ source }) => exportsName(source, 'decodeDevReply'))
+  if (replyDecoderFacades.length !== 1) {
+    throw new Error(
+      `Expected one Dev terminal reply decoder facade, found ${replyDecoderFacades.length}`
+    )
+  }
+  const devTerminalReplyDecoder = replyDecoderFacades[0]
+  const decoderFacadeImportsRuntimePane = staticImports(devTerminalReplyDecoder.source)
+    .map((specifier) => resolveRelativeChunk(devTerminalReplyDecoder.file, specifier))
+    .includes(runtimeTerminalPane.file)
+  if (!decoderFacadeImportsRuntimePane) {
+    throw new Error(
+      'Dev terminal reply decoder facade must re-export from the runtime terminal pane'
+    )
+  }
+  if (startupFiles.has(devTerminalReplyDecoder.file)) {
+    throw new Error('Workspace startup statically loads the Dev terminal reply decoder')
+  }
+  if (staticClosure([devEntry, devLayout], chunksByFile).has(devTerminalReplyDecoder.file)) {
+    throw new Error('Dev View entry and layout statically load the terminal reply decoder')
+  }
   const codeEditor = chunkByPrefix(chunks, 'code-editor-', 'Dev code editor')
   const editorMirror = chunkByPrefix(chunks, 'editor-mirror-', 'Dev editor renderer')
   const fileStream = chunkByPrefix(chunks, 'file-stream-', 'Dev editor file stream')
@@ -818,7 +862,7 @@ export function inspectClientBundle(input) {
     }
   }
   const devTerminalExpected = new Map([
-    [runtimeTerminalPane.file, [terminalPane.file]],
+    [runtimeTerminalPane.file, [terminalPane.file, devTerminalReplyDecoder.file]],
     [terminalPane.file, terminalAddons.map(({ file }) => file)],
   ])
   for (const file of devTerminalStatic) {
@@ -829,7 +873,7 @@ export function inspectClientBundle(input) {
       devTerminalExpected.set(file, [...(devTerminalExpected.get(file) ?? []), ...navLoaderTargets])
   }
   assertDynamicRouteClosure(
-    [runtimeTerminalPane, terminalPane],
+    [runtimeTerminalPane, terminalPane, devTerminalReplyDecoder],
     devTerminalExpected,
     new Set([...startupFiles, devEntry.file]),
     chunksByFile,
@@ -869,7 +913,7 @@ export function inspectClientBundle(input) {
     ),
     devTerminal: routeDelta(
       'Dev terminal route',
-      [devEntry, devLayout, terminalPane, runtimeTerminalPane],
+      [devEntry, devLayout, terminalPane, runtimeTerminalPane, devTerminalReplyDecoder],
       startupFiles,
       chunksByFile
     ),
