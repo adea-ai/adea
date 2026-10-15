@@ -2802,6 +2802,10 @@ opaque 1–256 character tokens beginning with an ASCII alphanumeric and then
 ASCII alphanumerics, `.`, `_`, `:` or `-`. They grant no authority over a cloud
 task, command, file or source. An absent field remains absent; no decoder
 inserts a count, duration, completion, location, test result or success.
+Every new structured string and map key, including envelope identifiers, MUST
+be well-formed Unicode. Lone UTF-16 surrogates are refused before comparison or
+admission; the CBOR encoder also refuses them instead of substituting U+FFFD.
+Valid surrogate pairs and an explicitly supplied U+FFFD remain unchanged.
 
 Test statuses are `unknown`, `pending`, `running`, `passed`, `failed`,
 `skipped`, `cancelled`. Work statuses are `unknown`, `pending`, `in_progress`,
@@ -2836,6 +2840,8 @@ whitespace/backslashes, malformed escapes and raw/encoded controls. No path or
 URL authorizes navigation, retrieval, execution or filesystem access; a future
 resolver must separately prove scope, classification and network/filesystem
 admission, including DNS and redirects.
+The bidi ban includes U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+in paths and both raw and percent-decoded URL text.
 
 Terminal phases are `started`, `output`, `finished`. Started/output status is
 `unknown` or `running`; finished status is `unknown`, `succeeded`, `failed` or
@@ -2858,6 +2864,15 @@ are detached and deeply frozen. A repeated source event with changed run,
 classification, explicit observation time, kind or canonical payload is an
 `idempotency_conflict`; key order and host-assigned IDs/times do not create new
 facts.
+
+Replay candidates still validate all schema, Unicode, provenance, ownership
+and identity/content constraints before duplicate comparison. An identical
+source event or terminal chunk returns only a duplicate result and creates no
+new envelope. It MUST NOT be rejected because a provisional new host sequence
+or receipt would be larger (for example, sequence 9 becoming 10). Changed
+valid claims conflict; malformed claims and missing ownership are refused.
+Every new record then passes the full 65,536-byte CBOR and, when applicable,
+8 KiB hook envelope checks before receiving a publishable event value.
 
 Generic replay continues returning an opaque `RuntimeEvent`: legacy payloads
 without a version remain bounded and readable, and well-formed versioned rows

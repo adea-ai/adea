@@ -17,6 +17,7 @@ import {
   type RuntimeActivityEventKind,
   type RuntimeActivityPayloads,
 } from './dev-runtime-activity'
+import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -110,20 +111,33 @@ export type RuntimeActivityEvent = {
     }>
 }[RuntimeActivityEventKind]
 
-function validateActivity(item: Record<string, unknown>): void {
+function validateActivity(item: Record<string, unknown>, enforceEnvelopeBounds = true): void {
   if (!isRuntimeActivityEventKind(item.kind))
     fail('event.kind', 'expected structured activity kind')
   decodeRuntimeActivityPayload(item.payload, item.kind)
+  assertJsonUnicode(item)
   if (item.source === 'host' || item.source === 'terminal_fallback')
     fail('event.source', 'structured activity requires a native, ACP or owned hook producer')
   if (item.confidence !== 'authoritative')
     fail('event.confidence', 'structured activity requires authoritative producer facts')
-  assertRuntimeEventFrameSize(item as RuntimeEvent)
+  if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(item as RuntimeEvent)
   if (
+    enforceEnvelopeBounds &&
     item.source === 'authenticated_hook' &&
     new TextEncoder().encode(JSON.stringify(item)).byteLength > 8 * 1024
   )
     fail('event', 'authenticated hook observation exceeds 8 KiB')
+}
+
+function assertActivityOwnership(
+  item: Record<string, unknown>,
+  provenance: RuntimeEventProvenance
+): void {
+  if (
+    !Array.isArray(provenance.ownedActivityKinds) ||
+    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
+  )
+    fail('event.kind', 'structured activity requires out-of-band producer ownership')
 }
 
 /** Explicit opt-in: an opaque legacy row never gains structured activity semantics. */
@@ -134,12 +148,19 @@ export function decodeRuntimeActivityEvent(
   decodeRuntimeEvent(value, provenance)
   const item = record(value, 'event')
   validateActivity(item)
-  if (
-    !Array.isArray(provenance.ownedActivityKinds) ||
-    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
-  )
-    fail('event.kind', 'structured activity requires out-of-band producer ownership')
+  assertActivityOwnership(item, provenance)
   return value as RuntimeActivityEvent
+}
+
+/** @internal Validation-only replay input; no new event or frame is returned. */
+export function validateRuntimeActivityReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  decodeRuntimeEventValue(value, provenance, false)
+  const item = record(value, 'event')
+  validateActivity(item, false)
+  assertActivityOwnership(item, provenance)
 }
 
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
@@ -174,6 +195,22 @@ export type RuntimeEventProvenance = Readonly<{
 export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
+): RuntimeEvent {
+  return decodeRuntimeEventValue(value, provenance, true)
+}
+
+/** @internal Validates a retry before comparing it; new records still require full decoding. */
+export function validateRuntimeEventReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  decodeRuntimeEventValue(value, provenance, false)
+}
+
+function decodeRuntimeEventValue(
+  value: unknown,
+  provenance: RuntimeEventProvenance,
+  enforceEnvelopeBounds: boolean
 ): RuntimeEvent {
   const item = record(value, 'event')
   exactKeys(
@@ -239,7 +276,7 @@ export function decodeRuntimeEvent(
     typeof item.payload === 'object' &&
     Object.hasOwn(item.payload, 'schemaVersion')
   )
-    validateActivity(item)
+    validateActivity(item, enforceEnvelopeBounds)
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
@@ -334,6 +371,7 @@ export function encodeCbor(value: unknown): Uint8Array {
       fail('cbor', 'numbers must be finite')
     }
     if (typeof input === 'string') {
+      assertWellFormedUnicode(input, 'cbor string')
       const bytes = cborEncoder.encode(input)
       chunks.push(cborHead(3, bytes.byteLength), bytes)
       return

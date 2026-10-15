@@ -68,6 +68,131 @@ const append = (log: Log, value: SessionEventInput, provenance?: RuntimeEventPro
   log.append(value, provenance)
 
 describe('structured activity admission', () => {
+  test('semantic terminal retries validate Unicode and ownership without allocating another full frame', () => {
+    const { log } = setup()
+    let seed
+    for (let index = 1; index <= 8; index += 1)
+      seed = append(
+        log,
+        input({
+          kind: 'terminal.output',
+          sourceEventId: `source-${index}`,
+          payload: output({ commandId: `seed-${index}` }),
+        }),
+        proof
+      )
+    if (!seed) throw new Error('expected a seed event')
+    const payload = output({ text: '界'.repeat(16_384), command: 'é'.repeat(8192) }) as ReturnType<
+      typeof output
+    > & { command: string; text: string }
+    const probe = { ...seed, seq: '9', sourceEventId: 'source-9', payload }
+    const excess = encodeCbor(probe).byteLength - 65_536
+    payload.command = payload.command.slice(0, -Math.floor(excess / 2))
+    if (excess % 2) payload.command = `${payload.command.slice(0, -1)}x`
+    expect(encodeCbor(probe).byteLength).toBe(65_536)
+    const value = input({ kind: 'terminal.output', sourceEventId: 'source-9', payload })
+    expect(append(log, value, proof)?.seq).toBe('9')
+    const retained = log.events()
+    expect(append(log, value, proof)).toBeUndefined()
+    expect(
+      append(log, { ...value, sourceEventId: 'longer-replay-identity' }, proof)
+    ).toBeUndefined()
+    expect(() => append(log, { ...value, sourceEventId: '\ud800' }, proof)).toThrow('Unicode')
+    expect(() => append(log, value, { source: 'native', ownedActivityKinds: [] })).toThrow(
+      'ownership'
+    )
+    expect(() =>
+      append(
+        log,
+        { ...value, sourceEventId: 'source-X', payload: { ...payload, sequence: '2' } },
+        proof
+      )
+    ).toThrow('CBOR')
+    expect(log.events()).toEqual(retained)
+    expect(log.latestSequence('session-1')).toBe('9')
+  })
+
+  test('an exact 8 KiB hook event retries but a new sequence-10 hook event still exceeds the limit', () => {
+    const { log } = setup()
+    const hookProof = { ...proof, source: 'authenticated_hook' } as const
+    let seed
+    for (let index = 1; index <= 8; index += 1)
+      seed = append(
+        log,
+        input({ source: hookProof.source, sourceEventId: `source-${index}` }),
+        hookProof
+      )
+    if (!seed) throw new Error('expected a seed event')
+    const payload = {
+      schemaVersion: 1,
+      testRunId: 't',
+      status: 'unknown',
+      failures: [{ failureId: 'f', message: 'x' }],
+    }
+    const probe = { ...seed, seq: '9', sourceEventId: 'source-9', payload }
+    payload.failures[0]!.message += 'x'.repeat(
+      8192 - new TextEncoder().encode(JSON.stringify(probe)).byteLength
+    )
+    expect(new TextEncoder().encode(JSON.stringify(probe)).byteLength).toBe(8192)
+    const value = input({ source: hookProof.source, sourceEventId: 'source-9', payload })
+    expect(append(log, value, hookProof)?.seq).toBe('9')
+    const retained = log.events()
+    expect(append(log, value, hookProof)).toBeUndefined()
+    expect(() => append(log, { ...value, sourceEventId: 'source-X' }, hookProof)).toThrow('8 KiB')
+    expect(log.events()).toEqual(retained)
+  })
+  test('ill-formed terminal text never enters or silently deduplicates in the log', () => {
+    const { log } = setup()
+    for (const text of ['\ud800', '\ud801']) {
+      expect(() =>
+        append(log, input({ kind: 'terminal.output', payload: output({ text }) }), proof)
+      ).toThrow('Unicode')
+    }
+    expect(log.events()).toEqual([])
+  })
+
+  test('an exact-boundary event at sequence 9 retries without a provisional sequence-10 budget', () => {
+    const { log } = setup()
+    let seed
+    for (let index = 1; index <= 8; index += 1)
+      seed = append(log, input({ sourceEventId: `source-${index}` }), proof)
+    if (!seed) throw new Error('expected a seed event')
+    const payload = {
+      schemaVersion: 1,
+      testRunId: 't',
+      status: 'unknown',
+      failures: Array.from({ length: 8 }, (_, index) => ({
+        failureId: `f-${index}`,
+        message: index < 7 ? 'x'.repeat(8192) : 'x',
+      })),
+    }
+    const last = payload.failures[7]!
+    last.message += 'x'.repeat(
+      64 * 1024 - new TextEncoder().encode(JSON.stringify(payload)).byteLength
+    )
+    const probe = { ...seed, seq: '9', sourceEventId: 'source-9', payload }
+    last.message = last.message.slice(0, -(encodeCbor(probe).byteLength - 65_536))
+    expect(encodeCbor(probe).byteLength).toBe(65_536)
+    const value = input({ sourceEventId: 'source-9', payload })
+    const accepted = append(log, value, proof)
+    expect(accepted?.seq).toBe('9')
+    const retained = log.events()
+    expect(append(log, value, proof)).toBeUndefined()
+    expect(() => append(log, input({ sourceEventId: 'source-X', payload }), proof)).toThrow('CBOR')
+    expect(() => append(log, value, { source: 'native', ownedActivityKinds: [] })).toThrow(
+      'ownership'
+    )
+    payload.failures[0]!.message = `y${payload.failures[0]!.message.slice(1)}`
+    let refusal: unknown
+    try {
+      append(log, value, proof)
+    } catch (error) {
+      refusal = error
+    }
+    expect(refusal).toMatchObject({ code: 'idempotency_conflict' })
+    expect(log.events()).toEqual(retained)
+    expect(log.latestSequence('session-1')).toBe('9')
+  })
   test('the full CBOR envelope fits an actual stream grant at the exact limit, including UTF-8 expansion', () => {
     const authority = createChannelAuthority({
       shellHost: '127.0.0.1',

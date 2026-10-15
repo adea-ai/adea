@@ -6,6 +6,7 @@ import {
   record,
   stringValue,
 } from '../dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from '../dev-runtime-unicode'
 
 export const ACTIVITY_PAYLOAD_BYTES_MAX = 64 * 1024
 export const ACTIVITY_JSON_NODES_MAX = 4096
@@ -17,6 +18,9 @@ function hasAddressControls(text: string): boolean {
     const code = character.charCodeAt(0)
     if (
       code <= 31 ||
+      code === 0x061c ||
+      code === 0x200e ||
+      code === 0x200f ||
       (code >= 127 && code <= 159) ||
       (code >= 0x202a && code <= 0x202e) ||
       (code >= 0x2066 && code <= 0x2069)
@@ -36,6 +40,7 @@ export function assertActivityJsonBounds(value: unknown, path: string): void {
   }
   const text = (entry: string, location: string): void => {
     stringValue(entry, location, 0, ACTIVITY_TEXT_MAX)
+    assertWellFormedUnicode(entry, location)
     add(encoder.encode(JSON.stringify(entry)).byteLength, location)
   }
   const visit = (entry: unknown, location: string, depth: number): void => {

@@ -28,7 +28,7 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
 import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
-import { admitRuntimeActivityEvent, sameActivityReplay } from './activity-events'
+import { admitRuntimeActivityEvent } from './activity-events'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -168,18 +168,23 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
-    let activityDuplicate = false
     if (isRuntimeActivityEventKind(candidate.kind)) {
-      const admission = admitRuntimeActivityEvent(candidate, provenance ?? { source }, records)
+      const admission = admitRuntimeActivityEvent(
+        candidate,
+        provenance ?? { source },
+        records,
+        sessionInput.occurredAt !== undefined
+      )
+      if (admission.duplicate) return undefined
       candidate = admission.event
-      activityDuplicate = admission.duplicate
     }
-    const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
+    const duplicate = isRuntimeActivityEventKind(candidate.kind)
+      ? undefined
+      : records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
-      const identical = isRuntimeActivityEventKind(candidate.kind)
-        ? sameActivityReplay(duplicate, candidate, sessionInput.occurredAt !== undefined)
-        : duplicate.kind === candidate.kind &&
-          JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+      const identical =
+        duplicate.kind === candidate.kind &&
+        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
       if (identical) {
         return undefined
       }
@@ -190,7 +195,6 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
-    if (activityDuplicate) return undefined
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

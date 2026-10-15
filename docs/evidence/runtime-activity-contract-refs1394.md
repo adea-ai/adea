@@ -55,6 +55,30 @@ codec. A one-byte ASCII excess and same-character-count multibyte excess are
 refused. No transport cap is increased. Authenticated-hook observations keep
 their tighter 8 KiB envelope fence.
 
+## Independent review repairs
+
+Review of head `afb4cb9bdc9fa5008dbe632f6ecca8d40834c7f0` found three issues:
+distinct lone surrogates collapsed to the same CBOR text, an exact-fit event
+at sequence 9 could not retry because its provisional sequence was 10, and
+the address guard omitted U+061C, U+200E and U+200F. Four focused regressions
+failed on that head before the repairs.
+
+The repair rejects ill-formed Unicode in payloads, keys and envelope data and
+in the CBOR encoder itself, without normalizing valid text. Address tests cover
+raw paths and raw/escaped URLs for every bidi-control range. Replay validation
+returns no new event; ownership/schema/Unicode checks and identity/content
+comparison precede the budget for a genuinely new envelope. Duplicate results
+carry no event value that could be persisted accidentally. New records still
+pass the original full-frame and hook ceilings before publication.
+
+Additional tests cover an exact 65,536-byte sequence-9 retry, terminal semantic
+replay with a longer source event ID, an exact 8 KiB hook retry, missing owner
+proof, changed content, ill-formed replay IDs and oversize new sequence-10
+events. No count/status is inferred and no limit or legacy authority changes.
+The Unicode helper and validation-only replay mechanism also accompany the
+separate call-contract repair; coordinator integration must retain both
+contracts' final new-event budget and permission/ownership gates.
+
 Limits are conservative contract defaults, not packaged performance or native
 producer qualification. Actual producer ownership, redaction/classification,
 raw-frame limits, transport integration, consumer rendering and packaged

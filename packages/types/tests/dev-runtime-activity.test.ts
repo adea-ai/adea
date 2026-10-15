@@ -5,7 +5,7 @@ import {
   decodeRuntimeActivityPayload,
   runtimeActivityEventKinds,
 } from '../src/dev-runtime-activity'
-import { decodeRuntimeActivityEvent, decodeRuntimeEvent } from '../src/dev-runtime-wire'
+import { decodeRuntimeActivityEvent, decodeRuntimeEvent, encodeCbor } from '../src/dev-runtime-wire'
 
 const examples = {
   'test_run.observed': {
@@ -102,6 +102,55 @@ const decode = (kind: Kind, payload: unknown) => decodeRuntimeActivityPayload(pa
 const proof = { source: 'acp', ownedActivityKinds: runtimeActivityEventKinds } as const
 
 describe('structured runtime activity contract', () => {
+  test('rejects ill-formed Unicode rather than letting CBOR replace distinct source text', () => {
+    for (const text of ['\ud800', '\ud801', '\udfff', 'a\ud800b', '\udc00\ud800']) {
+      expect(() => decode('terminal.output', { ...examples['terminal.output'], text })).toThrow(
+        'Unicode'
+      )
+      expect(() => encodeCbor({ text })).toThrow('Unicode')
+      expect(() =>
+        decodeRuntimeActivityEvent(
+          envelope('terminal.output', undefined, { sourceEventId: text }),
+          proof
+        )
+      ).toThrow('Unicode')
+    }
+    const text = 'a😀b�'
+    expect(decode('terminal.output', { ...examples['terminal.output'], text })).toMatchObject({
+      text,
+    })
+  })
+
+  test('all bidi control characters are forbidden in paths and raw or escaped source URLs', () => {
+    for (const code of [0x061c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069]) {
+      const control = String.fromCodePoint(code)
+      const path = `src/${control}app.ts`
+      expect(() =>
+        decode('files.changed', {
+          schemaVersion: 1,
+          changeSetId: 'c',
+          files: [{ path, change: 'modified' }],
+        })
+      ).toThrow('path')
+      expect(() =>
+        decode('terminal.output', { ...examples['terminal.output'], cwd: path })
+      ).toThrow('cwd')
+      for (const url of [
+        `https://example.com/${control}app.ts`,
+        `https://example.com/${encodeURIComponent(control)}app.ts`,
+      ]) {
+        expect(() => decode('task.observed', { ...examples['task.observed'], url })).toThrow('url')
+        expect(() =>
+          decode('failure.observed', {
+            schemaVersion: 1,
+            failureId: 'f',
+            message: 'F',
+            stack: { frames: [{ url }] },
+          })
+        ).toThrow('url')
+      }
+    }
+  })
   test('the focused public package entry validates the same producer payloads', () => {
     for (const kind of runtimeActivityEventKinds)
       expect(decodePublicActivityPayload(examples[kind], kind)).toEqual(examples[kind])

@@ -4,6 +4,7 @@ import {
 } from '../../../../../../packages/types/src/dev-runtime-activity'
 import {
   decodeRuntimeActivityEvent,
+  validateRuntimeActivityReplayCandidate,
   encodeCbor,
   type RuntimeActivityEvent,
   type RuntimeEvent,
@@ -40,6 +41,8 @@ export function sameActivityReplay(
   return (
     prior !== undefined &&
     left.kind === right.kind &&
+    left.runtimeSessionId === right.runtimeSessionId &&
+    left.generation === right.generation &&
     left.harnessRunId === right.harnessRunId &&
     left.source === right.source &&
     left.confidence === right.confidence &&
@@ -49,11 +52,13 @@ export function sameActivityReplay(
   )
 }
 
-function conflict(): never {
+function conflict(
+  message = 'different terminal observations share a retained command stream sequence'
+): never {
   throw {
     code: 'idempotency_conflict',
     retryable: false,
-    message: 'different terminal observations share a retained command stream sequence',
+    message,
   }
 }
 
@@ -61,39 +66,58 @@ function conflict(): never {
 export function admitRuntimeActivityEvent(
   candidate: RuntimeEvent,
   provenance: RuntimeEventProvenance,
-  retained: readonly RuntimeEvent[]
-): Readonly<{ event: RuntimeActivityEvent; duplicate: boolean }> {
-  decodeRuntimeActivityEvent(candidate, provenance)
-  const event = decodeRuntimeActivityEvent(JSON.parse(JSON.stringify(candidate)), provenance)
+  retained: readonly RuntimeEvent[],
+  compareObservedAt = false
+): Readonly<{ duplicate: true }> | Readonly<{ duplicate: false; event: RuntimeActivityEvent }> {
+  // A retry creates no frame: validate its facts and ownership first, then
+  // compare identities without charging a provisional new host sequence.
+  validateRuntimeActivityReplayCandidate(candidate, provenance)
+  const snapshot = JSON.parse(JSON.stringify(candidate)) as RuntimeEvent
+  validateRuntimeActivityReplayCandidate(snapshot, provenance)
+  const sourceDuplicate = retained.find(
+    (prior) =>
+      prior.runtimeSessionId === snapshot.runtimeSessionId &&
+      prior.generation === snapshot.generation &&
+      prior.source === snapshot.source &&
+      prior.sourceEventId === snapshot.sourceEventId
+  )
+  if (sourceDuplicate) {
+    if (!sameActivityReplay(sourceDuplicate, snapshot, compareObservedAt))
+      conflict('a different activity event already exists under this source event identity')
+    return { duplicate: true }
+  }
+  if (snapshot.kind === 'terminal.output') {
+    const output = decodeRuntimeActivityPayload(snapshot.payload, snapshot.kind)
+    for (const prior of retained) {
+      if (
+        prior.kind !== snapshot.kind ||
+        prior.runtimeSessionId !== snapshot.runtimeSessionId ||
+        prior.generation !== snapshot.generation ||
+        prior.harnessRunId !== snapshot.harnessRunId ||
+        prior.source !== snapshot.source
+      )
+        continue
+      const payload = retainedPayload(prior)
+      if (!payload) continue
+      const previous = payload as typeof output
+      if (
+        previous.terminalId !== output.terminalId ||
+        previous.commandId !== output.commandId ||
+        previous.stream !== output.stream ||
+        previous.sequence !== output.sequence
+      )
+        continue
+      if (!sameActivityReplay(prior, snapshot, false)) conflict()
+      return { duplicate: true }
+    }
+  }
+  // Every new record must still pass the complete CBOR/hook envelope budget.
+  const event = decodeRuntimeActivityEvent(snapshot, provenance)
   const freeze = (value: unknown): void => {
     if (value === null || typeof value !== 'object') return
     for (const entry of Object.values(value)) freeze(entry)
     Object.freeze(value)
   }
   freeze(event)
-  if (event.kind !== 'terminal.output') return { event, duplicate: false }
-  for (const prior of retained) {
-    if (
-      prior.kind !== event.kind ||
-      prior.runtimeSessionId !== event.runtimeSessionId ||
-      prior.generation !== event.generation ||
-      prior.harnessRunId !== event.harnessRunId ||
-      prior.source !== event.source
-    )
-      continue
-    const payload = retainedPayload(prior)
-    if (!payload) continue
-    // The kind check above narrows the retained payload's schema, not its source authority.
-    const previous = payload as typeof event.payload
-    if (
-      previous.terminalId !== event.payload.terminalId ||
-      previous.commandId !== event.payload.commandId ||
-      previous.stream !== event.payload.stream ||
-      previous.sequence !== event.payload.sequence
-    )
-      continue
-    if (!sameActivityReplay(prior, event, false)) conflict()
-    return { event, duplicate: true }
-  }
   return { event, duplicate: false }
 }
