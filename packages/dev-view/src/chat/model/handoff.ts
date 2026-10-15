@@ -18,6 +18,15 @@
 // contracts, absent here). See docs/plans/m14-1177-handoff-boundary.md.
 import type { AgentLifecycleState } from '@adea-ai/types'
 import type { ChatConversation } from './types'
+import {
+  bindTargetObservation,
+  deriveChildJobRows,
+  deriveHandoffActivity,
+  type HandoffActivity,
+  type HandoffChildJob,
+  type HandoffChildJobRow,
+  type HandoffTargetObservation,
+} from './handoff-observation'
 import type { HarnessRun, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 export type DirectSessionHandoffMode =
@@ -110,6 +119,12 @@ export type HandoffLeadTurn = Readonly<{
     sessionId: string
     taskId: string
   }>
+  /** Runtime-AUTHENTICATED observation of the target: session, task,
+   *  independently observed generation, and owning intent/attempt. The only
+   *  fact that can establish coordination, and only when every part agrees
+   *  with the claim and the live session. Distinct from `observedTarget`,
+   *  which is a display-only control-plane report. */
+  targetObservation?: HandoffTargetObservation
 }>
 
 const LIVE_LEAD_TURN_STATES: readonly HandoffLeadTurnState[] = [
@@ -262,6 +277,21 @@ export function resolveLeadCoordination(
       bound: false,
       reason: `the retained request targets generation ${target.observedGeneration} but the session is at generation ${session.generation}; no explicit target-bound execution observation exists`,
     }
+  // The one place coordination establishes: an authenticated runtime
+  // observation whose session, task, generation, and owning intent/attempt
+  // all agree with the claim and the live session. A partial or disagreeing
+  // observation names the first missing proof instead of coordinating.
+  if (leadTurn.targetObservation !== undefined) {
+    const binding = bindTargetObservation(leadTurn.targetObservation, {
+      sessionId: session.id,
+      taskId: target?.taskId,
+      generation: session.generation,
+      intentId: leadTurn.intentId,
+      attemptId: leadTurn.dispatchId,
+    })
+    if (binding.bound) return { bound: true }
+    return { bound: false, reason: binding.reason }
+  }
   return {
     bound: false,
     reason:
@@ -289,6 +319,13 @@ export type DirectSessionHandoffInput = Readonly<{
   scopeAuthorized: boolean
   hasUnsentDraft: boolean
   awaitingApproval: boolean
+  /** Observed child jobs of the coordinating turn, each with its own
+   *  authenticated observation. Absent means none observed. */
+  childJobs?: readonly HandoffChildJob[]
+  /** Whether the host wired the control-plane cancel-intent path. */
+  jobCancelWired?: boolean
+  /** Evidence counted from the retained transcript window. */
+  activity?: HandoffActivity
 }>
 
 export type DirectSessionHandoffView = Readonly<{
@@ -317,6 +354,14 @@ export type DirectSessionHandoffView = Readonly<{
   awaitingApproval: boolean
   /** A handoff was requested and its turn is still pending admission. */
   awaitingTurn: boolean
+  /** Who holds the session in this mode: nobody (reference or review),
+   *  the workspace lead (an established coordination), or the user. */
+  holder: 'none' | 'lead' | 'user'
+  /** Why the session returned to the user, when it did. */
+  returnedReason?: 'completed' | 'cancelled' | 'failed' | 'timed_out'
+  /** Per-job rows; empty when no child job is observed. */
+  childJobs: readonly HandoffChildJobRow[]
+  activity?: HandoffActivity
 }>
 
 export const HANDOFF_MODE_LABELS: Readonly<
@@ -579,14 +624,53 @@ export function deriveDirectSessionHandoff(
   // They stay unavailable with the exact missing contract named, even when a
   // bound harness run exists — mapping them onto `cancelHarness` would
   // conflate lead, job, and descendant authority.
-  const jobCancel: HandoffControlState = blocked(
-    CONTROL_PLANE_CANCEL_CONTRACT,
-    'Coordinate with the control-plane issue 935 owner for the cancel-intent contract.'
-  )
-  const descendantCancel: HandoffControlState = blocked(
-    'Unavailable: descendant cancellation requires the Control Plane J2/J4 contracts (control-plane issues 935/937), not yet in dev-runtime operations.',
-    'Coordinate with the control-plane issue 935 owner for the descendant-cancel contract.'
-  )
+  //
+  // Target-aware rows: with observed child jobs, each job is judged against
+  // the same authenticated binding that establishes coordination, so a job
+  // observed under another session, task, generation, or attempt is never
+  // cancellable here. The aggregate controls then summarize those rows.
+  const coordinationBound =
+    input.mode === 'coordination_handoff' &&
+    input.leadTurn !== undefined &&
+    !input.leadMismatch &&
+    transportGuard(input, 'Job cancel') === undefined
+  const childJobs = deriveChildJobRows({
+    jobs: input.childJobs ?? [],
+    coordinationBound,
+    expected: {
+      sessionId: input.session.id,
+      taskId: input.leadTurn?.handoffTarget?.taskId,
+      generation: input.session.generation,
+      intentId: input.leadTurn?.intentId ?? '',
+      attemptId: input.leadTurn?.dispatchId,
+    },
+    cancelWired: input.jobCancelWired === true,
+  })
+  const jobCancel: HandoffControlState =
+    childJobs.length === 0
+      ? blocked(
+          CONTROL_PLANE_CANCEL_CONTRACT,
+          'Coordinate with the control-plane issue 935 owner for the cancel-intent contract.'
+        )
+      : childJobs.some((row) => row.job.available)
+        ? { available: true }
+        : blocked(childJobs[0]?.job.reason ?? CONTROL_PLANE_CANCEL_CONTRACT)
+  const descendantCancel: HandoffControlState =
+    childJobs.length === 0
+      ? blocked(
+          'Unavailable: descendant cancellation requires the Control Plane J2/J4 contracts (control-plane issues 935/937), not yet in dev-runtime operations.',
+          'Coordinate with the control-plane issue 935 owner for the descendant-cancel contract.'
+        )
+      : childJobs.some((row) => row.descendants.available)
+        ? { available: true }
+        : blocked(childJobs[0]?.descendants.reason ?? CONTROL_PLANE_CANCEL_CONTRACT)
+  const returnedReason = ((): DirectSessionHandoffView['returnedReason'] => {
+    if (input.mode !== 'returned_to_user') return undefined
+    const state = (input.leadTurn ?? input.claimedTurn)?.state
+    if (state === 'completed' || state === 'failed' || state === 'timed_out') return state
+    if (state === 'cancelled') return 'cancelled'
+    return undefined
+  })()
 
   return {
     mode: input.mode,
@@ -626,6 +710,15 @@ export function deriveDirectSessionHandoff(
       input.mode === 'attached' &&
       input.claimedTurn !== undefined &&
       (input.claimedTurn.state === 'blocked' || input.claimedTurn.state === 'unknown'),
+    holder:
+      input.mode === 'coordination_handoff'
+        ? 'lead'
+        : input.mode === 'returned_to_user'
+          ? 'user'
+          : 'none',
+    ...(returnedReason === undefined ? {} : { returnedReason }),
+    childJobs,
+    ...(input.activity === undefined ? {} : { activity: input.activity }),
   }
 }
 
@@ -679,6 +772,10 @@ export type DirectSessionHandoffSupply = Readonly<{
   leadAgent?: HandoffLeadAgent
   /** Exactly one linked lead channel observed; absent means unknown. */
   leadChannelId?: string
+  /** Observed child jobs, each with its own authenticated observation. */
+  childJobs?: readonly HandoffChildJob[]
+  /** The host wired the control-plane cancel-intent path. */
+  jobCancelWired?: boolean
 }>
 
 /**
@@ -718,6 +815,8 @@ export function deriveHandoffInputFromConversation(
     leadTurn?: HandoffLeadTurn
     leadAgent?: HandoffLeadAgent
     leadChannelId?: string
+    childJobs?: readonly HandoffChildJob[]
+    jobCancelWired?: boolean
   }>
 ): DirectSessionHandoffInput {
   const generationCurrent = input.generationCurrent ?? true
@@ -789,6 +888,13 @@ export function deriveHandoffInputFromConversation(
     hasUnsentDraft:
       input.conversation.draft.trim().length > 0 || input.conversation.draftBlocks.length > 0,
     awaitingApproval: input.awaitingApproval ?? hasOpenApproval(input.conversation.events),
+    ...(input.childJobs === undefined ? {} : { childJobs: input.childJobs }),
+    ...(input.jobCancelWired === undefined ? {} : { jobCancelWired: input.jobCancelWired }),
+    activity: deriveHandoffActivity({
+      events: input.conversation.events,
+      projection: input.conversation.projection,
+      windowComplete: input.conversation.retention.complete,
+    }),
   }
   return base
 }
@@ -817,14 +923,27 @@ export function handoffControlReasonId(
 export type HandoffActionState =
   | Readonly<{ status: 'idle' }>
   | Readonly<{ status: 'busy'; action: HandoffActionKind }>
-  | Readonly<{ status: 'error'; action: HandoffActionKind; message: string }>
+  | Readonly<{
+      status: 'error'
+      action: HandoffActionKind
+      message: string
+      /** The transport failed after the request may have left: the effect may
+       *  have been applied. The surface says so and offers a status check
+       *  before a retry, never a blind "it failed". */
+      outcomeUnknown?: boolean
+    }>
 
 export const initialHandoffActionState: HandoffActionState = { status: 'idle' }
 
 export type HandoffActionEvent =
   | Readonly<{ type: 'start'; action: HandoffActionKind }>
   | Readonly<{ type: 'succeed' }>
-  | Readonly<{ type: 'fail'; action: HandoffActionKind; message: string }>
+  | Readonly<{
+      type: 'fail'
+      action: HandoffActionKind
+      message: string
+      outcomeUnknown?: boolean
+    }>
 
 /**
  * Single-flight coordination-action machine. A start while busy is ignored
@@ -845,7 +964,12 @@ export function handoffActionReducer(
     case 'fail':
       return state.status === 'busy' && state.action !== event.action
         ? state
-        : { status: 'error', action: event.action, message: event.message }
+        : {
+            status: 'error',
+            action: event.action,
+            message: event.message,
+            ...(event.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
+          }
   }
 }
 
@@ -869,6 +993,9 @@ export async function runHandoffActionOnce(
     isCurrent?: () => boolean
     isConflict?: (error: unknown) => boolean
     onConflict?: () => void
+    /** Whether a failure left the effect's outcome unknown (a transport
+     *  loss after the request left), as opposed to a definite refusal. */
+    isUnknownOutcome?: (error: unknown) => boolean
     onSuccess?: (result: unknown) => void
     /** Invoked synchronously exactly when the start is admitted (never on
      *  rejection): the caller advances its view/action epoch here so late
@@ -887,7 +1014,14 @@ export async function runHandoffActionOnce(
   } catch (error) {
     if (input.isCurrent && !input.isCurrent()) return 'superseded'
     const message = error instanceof Error ? error.message : 'Handoff action failed.'
-    input.commit(handoffActionReducer(started, { type: 'fail', action: input.action, message }))
+    input.commit(
+      handoffActionReducer(started, {
+        type: 'fail',
+        action: input.action,
+        message,
+        outcomeUnknown: input.isUnknownOutcome?.(error) === true,
+      })
+    )
     if (input.isConflict?.(error)) input.onConflict?.()
     return 'completed'
   }
