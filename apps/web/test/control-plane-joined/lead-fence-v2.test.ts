@@ -321,9 +321,9 @@ function expectOnlyCommandBindings(
   expect(current).toHaveLength(previous.length + added.length)
 
   if (elsewhere) {
-    expect(after.effects).toEqual(before.effects)
-    expect(after.counts).toEqual(before.counts)
-    expect(after.adea).toEqual(before.adea)
+    const { controlPlane: _beforeControlPlane, ...beforeElsewhere } = before
+    const { controlPlane: _afterControlPlane, ...afterElsewhere } = after
+    expect(afterElsewhere).toEqual(beforeElsewhere)
   }
 }
 
@@ -450,6 +450,14 @@ describe('joined #1220 × expectOnlyCommandBindings rejects what it must', () =>
     const touched = snapshot(existing)
     touched.controlPlane['pi_lead_receipts'] = ['receipt changed']
     expect(() => expectOnlyCommandBindings(snapshot(existing), touched, [])).toThrow()
+    const withSessions = { ...snapshot(existing), runtimeSessions: ['retained session'] }
+    expect(() =>
+      expectOnlyCommandBindings(
+        withSessions,
+        { ...withSessions, runtimeSessions: ['another session'] },
+        []
+      )
+    ).toThrow()
   })
 })
 
@@ -1658,10 +1666,75 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     }, 60_000)
   })
 
-  /** `stored`, plus the archived channel and its participants. */
+  /** `stored`, plus retained runtime sessions, the archived channel and its participants. */
   async function snapshotOf(tenant: Tenant, host: Host, runtime: Runtime) {
     const base = await stored(tenant, host, runtime)
-    return { ...base, adea: { ...base.adea, ...(await channelRows(tenant)) } }
+    return {
+      ...base,
+      runtimeSessions: structuredClone([...runtime.sessions.entries()]),
+      adea: { ...base.adea, ...(await channelRows(tenant)) },
+    }
+  }
+  type ArchivedSnapshot = Awaited<ReturnType<typeof snapshotOf>>
+
+  /** Reopening both stores must preserve the entire snapshot, before any later operation runs. */
+  async function restartAndCheck(tenant: Tenant, host: Host, snapshot: () => Promise<unknown>) {
+    const before = await snapshot()
+    await restartAdea(tenant)
+    await host.restart()
+    expect(await snapshot()).toEqual(before)
+  }
+
+  /** Only the named columns of one Adea table may change; every other snapshot field is identical. */
+  function expectOnlyAdeaColumns(
+    before: ArchivedSnapshot,
+    after: ArchivedSnapshot,
+    table: 'channel' | 'intents' | 'runtime',
+    columns: string[]
+  ) {
+    expect(changedColumns(before.adea[table], after.adea[table])).toEqual(columns)
+    expect(after).toEqual({
+      ...before,
+      adea: { ...before.adea, [table]: after.adea[table] },
+    })
+  }
+
+  /** An archive changes only its channel row, including exactly one version increment. */
+  async function archiveAndCheck(tenant: Tenant, host: Host, runtime: Runtime) {
+    const before = await snapshotOf(tenant, host, runtime)
+    await archiveTopic(tenant)
+    const after = await snapshotOf(tenant, host, runtime)
+    expectOnlyAdeaColumns(before, after, 'channel', ['lifecycle_state', 'updated_at', 'version'])
+    expect(JSON.parse(after.adea.channel[0]!)).toMatchObject({
+      archive_source: 'individual',
+      lifecycle_state: 'archived',
+      version: JSON.parse(before.adea.channel[0]!).version + 1,
+    })
+  }
+
+  /** One real start whose answer was lost: only the runtime holds its session. */
+  async function uncertainAdmission() {
+    const tenant = await adeaTenant()
+    const runtime = createRuntime()
+    const host = await controlPlaneHost(tenant, runtime)
+    await prepareAndPend(tenant, host)
+    runtime.faults.loseStartResult = true
+    await expect(host.dispatch()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+    runtime.faults.loseStartResult = false
+    expect(runtime.effects().start).toBe(1)
+    const { attemptId, executionId } = host.deterministicIds()
+    const dispatchId = `dispatch_${sha256(canonicalJsonStringify([tenant.cpWorkspaceId, tenant.intentId])).slice(0, 32)}`
+    const binding = {
+      intentId: tenant.intentId,
+      executionId,
+      attemptId,
+      dispatchId,
+      runtimeSessionId: runtime.sessions.get(attemptId)!.externalSessionId,
+    }
+    const receiptBefore = await host.receipts.get(dispatchId)
+    expect(receiptBefore).toMatchObject({ state: 'dispatching' })
+    expect(receiptBefore.handle).toBeUndefined()
+    return { tenant, runtime, host, binding, response: { dispatchId }, receiptBefore }
   }
 
   /**
@@ -1731,8 +1804,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     expect(second.cancelRequestedAt).toBe(first.cancelRequestedAt)
     expect(await snapshot()).toEqual(afterFirst)
 
-    await restartAdea(tenant)
-    await host.restart()
+    await restartAndCheck(tenant, host, snapshot)
     const third = await adeaProduct(tenant, host).cancel(tenant.scope)
     expect(third.cancelRequestedAt).toBe(first.cancelRequestedAt)
     expect(await snapshot()).toEqual(afterFirst)
@@ -1759,29 +1831,47 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       'updated_at',
     ]
 
+    /** A first fence changes only its attribution columns, including on an archived admission. */
+    async function fenceAndCheck(tenant: Tenant, host: Host, runtime: Runtime) {
+      const before = await snapshotOf(tenant, host, runtime)
+      const fenced = await fence(tenant)
+      expectOnlyAdeaColumns(
+        before,
+        await snapshotOf(tenant, host, runtime),
+        'intents',
+        FENCE_COLUMNS
+      )
+      return fenced
+    }
+
     /** Archives and fences in the given order, restarts both sides, and returns the fence result. */
     async function settle(tenant: Tenant, host: Host, runtime: Runtime, order: Order) {
       let fenced
       if (order === ORDERS[0]) {
-        await archiveTopic(tenant)
+        await archiveAndCheck(tenant, host, runtime)
+        const archived = await snapshotOf(tenant, host, runtime)
         // Archived and not yet fenced: the reader already refuses, it does not serve a dispatchable body.
         expect(await emitted(tenant)).toEqual({
           status: 404,
           body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
         })
-        fenced = await fence(tenant)
+        expect(await snapshotOf(tenant, host, runtime)).toEqual(archived)
+        fenced = await fenceAndCheck(tenant, host, runtime)
       } else {
-        fenced = await fence(tenant)
+        fenced = await fenceAndCheck(tenant, host, runtime)
+        const activeFence = await snapshotOf(tenant, host, runtime)
         // Fenced and still active: the observation the contract promises works.
         expect((await emitted(tenant)).body.schemaVersion).toBe('pi-lead-intent-fence/v2')
-        await archiveTopic(tenant)
+        expect(await snapshotOf(tenant, host, runtime)).toEqual(activeFence)
+        await archiveAndCheck(tenant, host, runtime)
       }
+      const settled = await snapshotOf(tenant, host, runtime)
       expect(await emitted(tenant)).toEqual({
         status: 404,
         body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
       })
-      await restartAdea(tenant)
-      await host.restart()
+      expect(await snapshotOf(tenant, host, runtime)).toEqual(settled)
+      await restartAndCheck(tenant, host, () => snapshotOf(tenant, host, runtime))
       return fenced
     }
 
@@ -1890,10 +1980,11 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
 
           // Control plane: every operation is refused, the unfenced body is never served, nothing changes.
           await expectNoEffect({ ...run, snapshot })
-          await restartAdea(tenant)
-          await host.restart()
+          await restartAndCheck(tenant, host, snapshot)
           await expectNoEffect({ ...run, snapshot })
+          const beforeLookup = await snapshot()
           await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+          expect(await snapshot()).toEqual(beforeLookup)
 
           // Adea: every effect is denied, and a current participant can still read the history.
           await expectAdeaDenies(tenant, host, snapshot, binding)
@@ -1903,6 +1994,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             'dispatchId',
             'runtimeSessionId',
           ])
+          const beforeObservation = await snapshot()
           const state = await expectObservable(tenant, runtime, binding)
           expect(state.attribution?.reason).toBe('rollback_cohort')
           // Adea's product reports the retained identity and no live runtime. It starts nothing.
@@ -1918,6 +2010,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           const again = await fence(tenant)
           expect(again).toMatchObject({ alreadyFenced: true, disposition: 'in_flight_fenced' })
           expect(again.attribution).toEqual(fenced.attribution)
+          expect(await snapshot()).toEqual(beforeObservation)
 
           // Not a single new effect, and the one session still is the retained one.
           expect(runtime.effects().start).toBe(1)
@@ -1929,21 +2022,10 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
       }, 90_000)
 
       test(`uncertain start, ${order}: the unproven dispatch stays unresolved across restart and nothing starts again`, async () => {
-        const tenant = await adeaTenant()
-        const runtime = createRuntime()
-        const host = await controlPlaneHost(tenant, runtime)
+        const { tenant, runtime, host, binding, receiptBefore } = await uncertainAdmission()
+        const { attemptId, dispatchId, runtimeSessionId: sessionId } = binding
         const snapshot = () => snapshotOf(tenant, host, runtime)
         try {
-          await prepareAndPend(tenant, host)
-          runtime.faults.loseStartResult = true
-          await expect(host.dispatch()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
-          runtime.faults.loseStartResult = false
-          expect(runtime.effects().start).toBe(1)
-          const { attemptId, executionId } = host.deterministicIds()
-          const dispatchId = `dispatch_${sha256(canonicalJsonStringify([tenant.cpWorkspaceId, tenant.intentId])).slice(0, 32)}`
-          const sessionId = runtime.sessions.get(attemptId)!.externalSessionId
-          const receiptBefore = await host.receipts.get(dispatchId)
-          expect(receiptBefore).toMatchObject({ state: 'dispatching' })
           const before = await snapshot()
 
           const fenced = await settle(tenant, host, runtime, order)
@@ -1977,12 +2059,6 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
 
           // Adea cannot resolve the uncertainty either: it cannot redispatch, re-prepare, or adopt the
           // handle the runtime holds, and its observation is the unresolved fenced admission.
-          const binding = {
-            executionId,
-            attemptId,
-            dispatchId,
-            runtimeSessionId: sessionId,
-          }
           await expectAdeaDenies(tenant, host, snapshot, binding)
           await expectBindStaysOnRetainedAttempt(tenant, snapshot, binding, [
             'executionId',
@@ -1998,6 +2074,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           expect(state.runtime?.dispatchId).toBeUndefined()
           expect(runtime.effects().start).toBe(1)
           expect(runtime.sessions.size).toBe(1)
+          expect(await snapshot()).toEqual(refused)
 
           // Two different paths, kept apart. The joined lookup that would prove the handle is blocked: the
           // control plane refuses it above, the receipt stays `dispatching` and nothing is learned from
@@ -2009,32 +2086,24 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             tenant.workspace.id,
             tenant.intentId,
             tenant.actor.principal,
-            { intentId: tenant.intentId, ...binding }
+            binding
           )
           const afterRecovery = await snapshot()
-          expect(changedColumns(beforeRecovery.adea.runtime, afterRecovery.adea.runtime)).toEqual([
+          expectOnlyAdeaColumns(beforeRecovery, afterRecovery, 'runtime', [
             'dispatch_id',
             'runtime_session_id',
             'updated_at',
           ])
-          expect(afterRecovery.adea.intents).toEqual(beforeRecovery.adea.intents)
-          expect(afterRecovery.adea.messages).toEqual(beforeRecovery.adea.messages)
-          expect(afterRecovery.adea.channel).toEqual(beforeRecovery.adea.channel)
-          expect(afterRecovery.adea.participants).toEqual(beforeRecovery.adea.participants)
-          // The control plane and the runtime saw none of it.
-          expect(afterRecovery.controlPlane).toEqual(beforeRecovery.controlPlane)
-          expect(afterRecovery.effects).toEqual(beforeRecovery.effects)
           expect((await host.receipts.get(dispatchId))?.state).toBe('dispatching')
           await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+          expect(await snapshot()).toEqual(afterRecovery)
           // The same-attempt binding above is the one write Adea permits before a cancel. With it recorded,
           // a cancellation writes its request once and a repeat, even across a restart, writes nothing.
           const cancelled = await expectRepeatedCancelWritesNothing(tenant, host, snapshot)
-          expect(
-            changedColumns(afterRecovery.adea.runtime, cancelled.afterFirst.adea.runtime)
-          ).toEqual(['cancel_requested_at', 'updated_at'])
-          expect(cancelled.afterFirst.controlPlane).toEqual(afterRecovery.controlPlane)
-          expect(cancelled.afterFirst.effects).toEqual(afterRecovery.effects)
-          expect(cancelled.afterFirst.adea.channel).toEqual(afterRecovery.adea.channel)
+          expectOnlyAdeaColumns(afterRecovery, cancelled.afterFirst, 'runtime', [
+            'cancel_requested_at',
+            'updated_at',
+          ])
           // Recording does not reopen any effect: everything is still denied, on both sides.
           const recorded = await rollbackState(tenant)
           expect(recorded).toMatchObject({
@@ -2047,6 +2116,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
               runtimeSessionId: sessionId,
             },
           })
+          expect(await snapshot()).toEqual(cancelled.afterFirst)
           await expectAdeaDenies(tenant, host, snapshot, binding)
           await expectNoEffect({ host, runtime, response: { dispatchId }, snapshot })
           expect(runtime.effects().start).toBe(1)
@@ -2062,6 +2132,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
         const snapshot = () => snapshotOf(tenant, host, runtime)
         try {
           await settle(tenant, host, runtime, order)
+          const beforeRead = await snapshot()
           // The owner is a participant who is not the original actor, and can read the history.
           const readable = await readLeadTurnRollbackState(
             tenant.connection.db,
@@ -2074,6 +2145,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             fenced: true,
             runtime: identityOf(binding),
           })
+          expect(await snapshot()).toEqual(beforeRead)
           expect(
             await removeWorkspaceMembership(
               tenant.connection.db,
@@ -2087,16 +2159,18 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             status: 404,
             body: { code: 'LEAD_PRODUCT_UNAVAILABLE' },
           })
+          expect(await snapshot()).toEqual(revoked)
           await expectNoEffect({ ...run, snapshot })
-          await restartAdea(tenant)
-          await host.restart()
+          await restartAndCheck(tenant, host, snapshot)
           await expectNoEffect({ ...run, snapshot })
 
           // The revoked actor learns nothing and can do nothing, including a late cancel request.
+          const beforeDenied = await snapshot()
           await expect(rollbackState(tenant)).rejects.toThrow(UNAVAILABLE)
           await expect(adeaProduct(tenant, host).cancel(tenant.scope)).rejects.toThrow(UNAVAILABLE)
           await expectAdeaDenies(tenant, host, snapshot, binding)
           await expectBindDenied(tenant, snapshot, binding, tenant.actor.principal)
+          expect(await snapshot()).toEqual(beforeDenied)
           const after = (await snapshot()) as Stored
           // Only the refused dispatches' own command bindings (one per expectNoEffect) were stored.
           expect(after.adea).toEqual(revoked.adea)
@@ -2109,6 +2183,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           )
           expect((await host.receipts.get(response.dispatchId))?.state).toBe('dispatched')
           // Participants who remain can still read the retained history, but only read it.
+          const beforeRetainedRead = await snapshot()
           expect(
             (
               await readLeadTurnRollbackState(
@@ -2119,6 +2194,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
               )
             ).fenced
           ).toBe(true)
+          expect(await snapshot()).toEqual(beforeRetainedRead)
           expect(runtime.effects().start).toBe(1)
           expect(runtime.effects().cancel).toBe(0)
         } finally {
@@ -2146,6 +2222,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
             expiresAt: new Date(Date.now() + 600_000),
           })
           const attempts = async () => {
+            const before = await snapshot()
             for (const who of [stranger.principal, outsider.principal]) {
               const asWho = { ...tenant.scope, userId: who.userId }
               const product = adeaProduct(tenant, host)
@@ -2175,24 +2252,24 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
                 reason: 'rollback_cohort',
               })
             ).rejects.toThrow(UNAVAILABLE)
+            expect(await snapshot()).toEqual(before)
           }
 
           let firstFence
           if (order === ORDERS[0]) {
-            await archiveTopic(tenant)
+            await archiveAndCheck(tenant, host, runtime)
             const unfenced = await snapshot()
             await attempts()
             // Wrong principals could not fence: the admission is still unfenced and unchanged.
             expect((await snapshot()) as Stored).toEqual(unfenced)
             expect((await rollbackState(tenant)).fenced).toBe(false)
-            firstFence = await fence(tenant)
+            firstFence = await fenceAndCheck(tenant, host, runtime)
           } else {
-            firstFence = await fence(tenant)
-            await archiveTopic(tenant)
+            firstFence = await fenceAndCheck(tenant, host, runtime)
+            await archiveAndCheck(tenant, host, runtime)
             await attempts()
           }
-          await restartAdea(tenant)
-          await host.restart()
+          await restartAndCheck(tenant, host, snapshot)
           const baseline = (await snapshot()) as Stored
           await attempts()
           expect((await snapshot()) as Stored).toEqual(baseline)
@@ -2263,6 +2340,7 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           const again = await fence(tenant)
           expect(again).toMatchObject({ alreadyFenced: true, disposition: 'terminal_retained' })
           expect(again.attribution).toEqual(fenced.attribution)
+          expect(await snapshot()).toEqual(after)
           await expectNoEffect({ ...run, snapshot })
           expect(runtime.effects().start).toBe(1)
         } finally {
@@ -2291,22 +2369,133 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           })
           // The first cancellation is the only write: the request time and its audit column on the runtime
           // row. The control plane, the intent, the messages, the channel and its participants are as before.
-          expect(changedColumns(before.adea.runtime, afterFirst.adea.runtime)).toEqual([
+          expectOnlyAdeaColumns(before, afterFirst, 'runtime', [
             'cancel_requested_at',
             'updated_at',
           ])
-          expect(afterFirst.adea.intents).toEqual(before.adea.intents)
-          expect(afterFirst.adea.messages).toEqual(before.adea.messages)
-          expect(afterFirst.adea.channel).toEqual(before.adea.channel)
-          expect(afterFirst.adea.participants).toEqual(before.adea.participants)
-          expect(afterFirst.controlPlane).toEqual(before.controlPlane)
-          expect(afterFirst.effects).toEqual(before.effects)
           expect(runtime.effects().cancel).toBe(0)
           await expectNoEffect({ ...run, snapshot })
         } finally {
           await host.close()
         }
       }, 90_000)
+
+      for (const admission of ['running', 'uncertain start'] as const) {
+        for (const cancelAt of ['before either transition', 'between transitions'] as const) {
+          test(`cancel interleaving, ${admission}, ${order}, first cancel ${cancelAt}: the remaining transitions, repeat, restart and third cancel retain the request`, async () => {
+            const run =
+              admission === 'running' ? await runningAdmission() : await uncertainAdmission()
+            const { tenant, runtime, host, binding, response } = run
+            const snapshot = () => snapshotOf(tenant, host, runtime)
+            try {
+              const receiptBefore = await host.receipts.get(response.dispatchId)
+              const archiveFirst = order === ORDERS[0]
+              const cancelBetween = cancelAt === 'between transitions'
+              if (cancelBetween) {
+                if (archiveFirst) await archiveAndCheck(tenant, host, runtime)
+                else await fenceAndCheck(tenant, host, runtime)
+              }
+
+              if (admission === 'uncertain start') {
+                // Historical recording can bind this retained attempt before or between the transitions.
+                // It does not prove the control-plane receipt or permit a second start.
+                await expectBindStaysOnRetainedAttempt(tenant, snapshot, binding, [
+                  'executionId',
+                  'attemptId',
+                ])
+                const beforeRecovery = await snapshot()
+                await recoverLeadTurnRuntimeBinding(
+                  tenant.connection.db,
+                  tenant.workspace.id,
+                  tenant.intentId,
+                  tenant.actor.principal,
+                  binding
+                )
+                expectOnlyAdeaColumns(beforeRecovery, await snapshot(), 'runtime', [
+                  'dispatch_id',
+                  'runtime_session_id',
+                  'updated_at',
+                ])
+              }
+
+              const beforeCancel = await snapshot()
+              const first = await adeaProduct(tenant, host).cancel(tenant.scope)
+              expect(first.cancelRequestedAt).toBeDefined()
+              const afterFirst = await snapshot()
+              const archivedAtCancel = cancelBetween && archiveFirst
+              const reachesRuntime = !archivedAtCancel && admission === 'running'
+              expect(first).toMatchObject({
+                ...identityOf(binding),
+                availability: reachesRuntime ? 'available' : 'unavailable',
+                state: reachesRuntime
+                  ? 'cancelling'
+                  : admission === 'running'
+                    ? 'running'
+                    : 'dispatch_pending',
+              })
+              // A live receipt permits one cancel binding; an archived reader refuses before
+              // binding any command. An uncertain receipt never acquires a runtime handle here.
+              expectOnlyCommandBindings(
+                beforeCancel,
+                afterFirst,
+                archivedAtCancel ? [] : [host.commandBinding(`lead-cancel:${binding.dispatchId}`)],
+                false
+              )
+              expectOnlyAdeaColumns(
+                {
+                  ...beforeCancel,
+                  controlPlane: afterFirst.controlPlane,
+                  effects: {
+                    ...beforeCancel.effects,
+                    cancel: beforeCancel.effects.cancel + (reachesRuntime ? 1 : 0),
+                  },
+                },
+                afterFirst,
+                'runtime',
+                reachesRuntime
+                  ? ['cancel_requested_at', 'observed_at', 'state', 'updated_at']
+                  : ['cancel_requested_at', 'updated_at']
+              )
+              if (reachesRuntime)
+                expect(runtime.calls.cancel[0]).toMatchObject({
+                  handle: runtime.sessions.get(binding.attemptId),
+                  options: { idempotencyKey: `lead-cancel:${binding.dispatchId}` },
+                })
+
+              // Each remaining transition may change only its own columns. It must retain
+              // the first cancel request, runtime identity, receipt and effect counters.
+              if (!cancelBetween) {
+                if (archiveFirst) await archiveAndCheck(tenant, host, runtime)
+                else await fenceAndCheck(tenant, host, runtime)
+              }
+              if (archiveFirst) await fenceAndCheck(tenant, host, runtime)
+              else await archiveAndCheck(tenant, host, runtime)
+              const settled = await snapshot()
+              for (const repeat of ['second', 'third']) {
+                if (repeat === 'third') {
+                  await restartAndCheck(tenant, host, snapshot)
+                }
+                const again = await adeaProduct(tenant, host).cancel(tenant.scope)
+                expect(again.cancelRequestedAt, repeat).toBe(first.cancelRequestedAt)
+                expect(again.availability, repeat).toBe('unavailable')
+                expect(await snapshot(), repeat).toEqual(settled)
+              }
+              expect(await host.receipts.get(response.dispatchId)).toEqual(receiptBefore)
+              await expectBindStaysOnRetainedAttempt(tenant, snapshot, binding, [
+                'executionId',
+                'attemptId',
+                'dispatchId',
+                'runtimeSessionId',
+              ])
+              await expectAdeaDenies(tenant, host, snapshot, binding)
+              await expectNoEffect({ ...run, snapshot })
+              expect(runtime.effects().start).toBe(1)
+            } finally {
+              await host.close()
+            }
+          }, 90_000)
+        }
+      }
     }
   })
 })
