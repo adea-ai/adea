@@ -25,7 +25,10 @@ import type {
   RuntimeEventKind,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
+import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { createDurableJsonStore } from '../host-store'
+import { assertAssistantEventOrder } from './assistant-events'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -65,7 +68,12 @@ function compareRetentionOrder(left: RuntimeEvent, right: RuntimeEvent): number 
 function dedupeKey(
   event: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
 ): string {
-  return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
+  return JSON.stringify([
+    event.runtimeSessionId,
+    event.generation,
+    event.source,
+    event.sourceEventId,
+  ])
 }
 
 export type SessionEventInput = Readonly<{
@@ -134,7 +142,7 @@ export function createSessionEventLog(input: {
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
     const records = all()
     const source = sessionInput.source ?? 'host'
-    const candidate: RuntimeEvent = {
+    let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
       runtimeSessionId: sessionInput.runtimeSessionId,
@@ -142,9 +150,9 @@ export function createSessionEventLog(input: {
         ? { harnessRunId: sessionInput.harnessRunId }
         : {}),
       generation: sessionInput.generation,
-      seq: (
-        BigInt(latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)) + 1n
-      ).toString(),
+      // Validate source content before allocating the next cursor, so an
+      // exact retry remains a no-op even when this generation is exhausted.
+      seq: latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation),
       occurredAt: sessionInput.occurredAt ?? new Date().toISOString(),
       receivedAt: new Date().toISOString(),
       source,
@@ -154,11 +162,16 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    decodeRuntimeEvent(candidate, { source })
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
       if (
         duplicate.kind === candidate.kind &&
-        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+        duplicate.harnessRunId === candidate.harnessRunId &&
+        duplicate.confidence === candidate.confidence &&
+        duplicate.classification === candidate.classification &&
+        (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt) &&
+        canonicalDevCommandJson(duplicate.payload) === canonicalDevCommandJson(candidate.payload)
       ) {
         return undefined
       }
@@ -169,6 +182,16 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    assertAssistantEventOrder(records, candidate)
+    const nextSequence = BigInt(candidate.seq) + 1n
+    if (nextSequence > 18_446_744_073_709_551_615n) {
+      throw {
+        code: 'invalid_state',
+        retryable: false,
+        message: 'runtime event sequence exhausted for this generation',
+      }
+    }
+    candidate = { ...candidate, seq: nextSequence.toString() }
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

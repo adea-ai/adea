@@ -1,3 +1,12 @@
+import { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export type {
+  RuntimeAssistantEventKind,
+  RuntimeAssistantDeltaPayload,
+  RuntimeAssistantMessagePayload,
+  RuntimeAssistantResultPayload,
+  RuntimeAssistantPayloads,
+} from './dev-runtime-assistant'
 import {
   exactKeys,
   fail,
@@ -8,7 +17,7 @@ import {
   record,
   stringValue,
   timestamp,
-  uint64Pattern,
+  uint64String,
 } from './dev-runtime-validation-internal'
 
 export const runtimeEventKinds = [
@@ -138,8 +147,7 @@ export function decodeRuntimeEvent(
     stringValue(item[key], `event.${key}`, 1, 256)
   if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
   integerValue(item.generation, 'event.generation', 0)
-  if (!uint64Pattern.test(stringValue(item.seq, 'event.seq')))
-    fail('event.seq', 'expected uint64 string')
+  uint64String(item.seq, 'event.seq')
   timestamp(item.occurredAt, 'event.occurredAt')
   timestamp(item.receivedAt, 'event.receivedAt')
   literal(
@@ -169,6 +177,11 @@ export function decodeRuntimeEvent(
     ]
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
+  }
+  const kind = item.kind as string
+  if (isRuntimeAssistantEventKind(kind)) {
+    stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    decodeRuntimeAssistantPayload(kind, item.payload)
   }
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)

@@ -2775,6 +2775,90 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Assistant message identity (#1386)
+
+The known `turn.assistant_delta`, `turn.assistant_message`, and `turn.result`
+kinds require a nonempty `harnessRunId` and a validated payload `messageId`.
+The opaque ID is 1–256 UTF-16 code units without whitespace, control characters,
+or unpaired surrogates, so UTF-8/CBOR round trips preserve it exactly.
+A native/ACP/authenticated-hook adapter allocates a stable source message ID
+before the first event (or persists a host-allocated mapping when the source
+has no message ID), retains it across retries/reconnects, and uses it for that
+message's deltas, final, and result. Never derive it from text, timestamps,
+receive order, or the current run alone: a run may contain multiple messages.
+A new message gets a new ID. Terminal fallback can bind its own bounded text
+observations but cannot assert another source's identity or emit a result.
+
+```ts
+type RuntimeAssistantDeltaPayload = {
+  messageId: string
+  deltaIndex: number // safe integer >= 0, contiguous per scoped message
+  text: string
+}
+type RuntimeAssistantMessagePayload = {
+  messageId: string
+  text: string // complete replacement, not another delta
+  supersedes: 'deltas'
+}
+type RuntimeAssistantResultPayload = {
+  messageId: string
+  summary?: string
+}
+```
+
+Other payload fields remain bounded JSON; these reserved fields are validated
+by `decodeRuntimeEvent` and by the canonical log before persistence or live
+publication. Missing or malformed identity fails closed. Legacy opaque
+assistant records cannot establish supersession and must not be silently
+assigned an identity. At this increment there is no production structured
+assistant-event subscription/emitter; future adapters must provide this
+contract. Host lifecycle facts remain insufficient to fabricate an answer.
+
+The message key is the tuple `(runtimeSessionId, generation, harnessRunId,
+source, payload.messageId)` within the authenticated account/workspace/node
+scope. Equal IDs in another run, generation, session, or source are different
+messages. Neither a lower-confidence source nor a payload field can overwrite
+another source's text. Only `turn.assistant_message` with `supersedes: 'deltas'`
+replaces the deltas for that exact key. Its complete `text` remains usable when
+all deltas have fallen out of retention. A `turn.result` references the same
+key and closes it, but never replaces text, implies success, or proves that a
+final assistant message exists. Results without a final are valid (for example,
+a failed/cancelled source operation); retain the partial text as partial.
+
+For new appends, delta indexes start at zero and increase by one for each
+message independently; events for other messages and tools may interleave.
+A missing index is `resync_required` and appends nothing. An already-used index
+under a new source event ID is `idempotency_conflict`. A final may arrive
+without preceding deltas because it is self-contained. Once a final exists,
+only that message's result may follow; after its result no further text,
+second final, or second result may append. Invalid settlement is `invalid_state`.
+An exact retry using the original `sourceEventId` is checked before settlement
+and returns no event, allocates no sequence, and publishes nothing. Dedupe binds
+kind, canonical key-order-independent payload, harness run, confidence, and
+classification; a supplied source timestamp must also match. Opaque IDs cannot
+collide through delimiter characters in the tuple encoding. Changed content
+under that key is `idempotency_conflict`. Sequence allocation follows dedupe;
+an exact retry at uint64 exhaustion is still a no-op, while a new event at that
+boundary fails `invalid_state` rather than wrapping the generation's cursor.
+
+Replay is a read of original stored events, never a new append: event IDs,
+message IDs, delta indexes, generation, and sequences remain unchanged. Order
+by the canonical generation/uint64 sequence, never `occurredAt`, arrival time,
+or message ID. An inclusive replay cursor can redeliver the boundary event;
+consumers dedupe by canonical event identity/sequence before accumulating text.
+A replay starting at a final can immediately replace only its matching partial
+message, without having seen its deltas. It does not need delta zero. A replay
+starting mid-delta cannot claim complete text. An unexplained transport gap or
+`resync` discards incomplete accumulated deltas and requires a fresh bounded
+replay/checkpoint; never concatenate partial text across the missing range or
+across generations. Existing stream resync and replay-end heartbeat rules apply.
+Identity/order checks use the canonical log's retained window, including after
+restart: a retained final/result still fences late deltas even when delta zero
+has been evicted. Retention is not a permanent idempotency ledger. Adapters must
+not re-ingest evicted source history as new live events or reuse message IDs;
+source-cursor recovery outside that window requires resync rather than a new ID
+for the same response.
+
 ## Terminal protocol
 
 ### PTY adapter
@@ -7906,6 +7990,13 @@ files in the same commit:
   signed attach → `opened` → bounded CBOR replay → live push → ack →
   single-use attach replay refusal → generation-fenced `stale_generation`
   close);
+- `packages/types/tests/dev-runtime-assistant.test.ts` and
+  `apps/desktop/tests/dev-runtime-assistant-events.test.ts` pin #1386 identity,
+  explicit final supersession, per-message delta order, canonical retries,
+  tuple isolation, uint64 exhaustion, and retained final fences across restart;
+  the #1386 case in `apps/desktop/tests/dev-runtime-harness-events.test.ts`
+  proves resync can replay a final with its original identity after excluding
+  its deltas, followed by a replay-end heartbeat and run-isolated live events;
 - `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
   launch→prompt-delivery residues: exactly-once fenced delivery into the
   session PTY through the `prompt_delivery` input authority (with provenance

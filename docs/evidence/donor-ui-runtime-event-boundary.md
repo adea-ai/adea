@@ -6,11 +6,14 @@ working production ACP stream or successful assistant response.
 
 ## Verified source contract
 
-- `packages/types/src/dev-runtime-wire.ts` enumerates assistant, tool, approval,
-  and question event kinds, but their payload is `unknown`. Payload validation
-  checks bounded JSON, not per-kind call identity, interaction eligibility,
-  synthesis, or substantive-answer semantics. Transport provenance binds the
-  envelope's source; a nested payload field named `source` is not that authority.
+- `packages/types/src/dev-runtime-wire.ts` validates shared `messageId` payloads
+  for assistant delta/message/result events (#1386), including delta indexes
+  and explicit final supersession. The canonical log validates them before
+  publication and rejects invalid append order. Tool, approval, and question
+  payloads remain bounded opaque JSON; message identity does not establish
+  call identity, interaction eligibility, synthesis, or substantive-answer
+  semantics. Transport provenance binds the envelope's source; a nested payload
+  field named `source` is not that authority.
 - `apps/desktop/shell/src/dev-runtime/harness/acp-lane.ts` declares a driver
   with spawn, close, and optional prompt delivery. It has no structured-event
   subscription seam. Advertised optional `tools` capability is not evidence that
