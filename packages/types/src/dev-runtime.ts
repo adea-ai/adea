@@ -87,6 +87,7 @@ export {
   RUNTIME_CALL_JSON_DEPTH_MAX,
   RUNTIME_CALL_JSON_ENTRIES_MAX,
   RUNTIME_CALL_JSON_STRING_MAX,
+  decodeRuntimeActivityEvent,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -124,7 +125,41 @@ export type {
   RuntimeCallPayload,
   RuntimeCallPermissionEligibility,
   RuntimeCallPhase,
+  RuntimeActivityEvent,
 } from './dev-runtime-wire'
+export {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  runtimeTestStatuses,
+  runtimeWorkStatuses,
+  runtimeFileChangeKinds,
+  ACTIVITY_PAYLOAD_BYTES_MAX,
+  ACTIVITY_JSON_NODES_MAX,
+  ACTIVITY_JSON_DEPTH_MAX,
+  ACTIVITY_TEXT_MAX,
+} from './dev-runtime-activity'
+export type {
+  RuntimeActivityEventKind,
+  RuntimeActivityPayloads,
+  RuntimeFailureRecord,
+  RuntimeFailurePayload,
+  RuntimeStackFrame,
+  RuntimeStackTrace,
+  RuntimeTestRunPayload,
+  RuntimeTestSummary,
+  RuntimeTestSuite,
+  RuntimeTestCase,
+  RuntimeTestStatus,
+  RuntimeTerminalOutputPayload,
+  RuntimeChangedFilesPayload,
+  RuntimeFileChange,
+  RuntimePlanPayload,
+  RuntimeTaskPayload,
+  RuntimeWorkStatus,
+  RuntimeWorkItem,
+} from './dev-runtime-activity'
+
 export {
   CITED_RESPONSE_BYTES_MAX,
   RESPONSE_CITATION_MAX,

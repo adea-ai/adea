@@ -23,9 +23,11 @@ import { join } from 'node:path'
 import type {
   RuntimeEvent,
   RuntimeEventKind,
+  RuntimeEventProvenance,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
+import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import {
   assertRuntimeEventFrameSize,
@@ -35,6 +37,7 @@ import {
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { createDurableJsonStore } from '../host-store'
 import { assertAssistantEventOrder } from './assistant-events'
+import { admitRuntimeActivityEvent } from './activity-events'
 import {
   snapshotCallEvent,
   validateCallEventAdmission,
@@ -145,7 +148,7 @@ export type SessionEventInput = Readonly<{
 
 export type SessionEventLog = Readonly<{
   /** Appends one event; an identical duplicate returns `undefined`. */
-  append(input: SessionEventInput): RuntimeEvent | undefined
+  append(input: SessionEventInput, provenance?: RuntimeEventProvenance): RuntimeEvent | undefined
   /** Bounded ascending read from `fromSequence` (inclusive). */
   read(
     runtimeSessionId: string,
@@ -213,12 +216,18 @@ export function createSessionEventLog(input: {
     return records
   }
 
-  function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
-    validateRuntimeResponseReferences(
-      sessionInput.kind,
-      sessionInput.payload,
-      sessionInput.source ?? 'host'
-    )
+  function appendEvent(
+    sessionInput: SessionEventInput,
+    provenance?: RuntimeEventProvenance
+  ): RuntimeEvent | undefined {
+    if (isRuntimeActivityEventKind(sessionInput.kind)) {
+      for (const key of ['source', 'confidence', 'classification'] as const) {
+        if (sessionInput[key] === undefined)
+          throw new TypeError(
+            `event.${key}: structured activity requires an explicit producer fact`
+          )
+      }
+    }
     const records = rawEvents()
     assertUsageReplayable(
       records.filter(
@@ -228,6 +237,7 @@ export function createSessionEventLog(input: {
       )
     )
     const source = sessionInput.source ?? 'host'
+    const effectiveProvenance = provenance ?? { source }
     let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
@@ -253,17 +263,28 @@ export function createSessionEventLog(input: {
     // Validate the complete source contract without charging a new sequence or
     // frame budget to retries. Frame size is checked after allocating the exact
     // sequence for every new event below.
-    validateRuntimeEventReplayCandidate(candidate, { source })
+    validateRuntimeEventReplayCandidate(candidate, effectiveProvenance)
+    if (isRuntimeActivityEventKind(candidate.kind)) {
+      const admission = admitRuntimeActivityEvent(
+        candidate,
+        effectiveProvenance,
+        records,
+        sessionInput.occurredAt !== undefined,
+        false
+      )
+      if (admission.duplicate) return undefined
+      candidate = admission.event
+    }
     const duplicate = records.find((event) => sameSourceEvent(event, candidate))
     if (duplicate) {
-      if (
+      const identical =
         duplicate.kind === candidate.kind &&
         duplicate.harnessRunId === candidate.harnessRunId &&
         duplicate.confidence === candidate.confidence &&
         duplicate.classification === candidate.classification &&
         (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt) &&
         canonicalDevCommandJson(duplicate.payload) === canonicalDevCommandJson(candidate.payload)
-      ) {
+      if (identical) {
         if (isVersionedCall(candidate)) {
           const replay = snapshotCallEvent(duplicate)
           validateCallEventAdmission(replay, records, input.verifyCallPermissionEligibility)
@@ -292,11 +313,12 @@ export function createSessionEventLog(input: {
       }
     }
     candidate = { ...candidate, seq: nextSequence.toString() }
-    candidate = decodeRuntimeEvent(candidate, { source })
+    candidate = decodeRuntimeEvent(candidate, effectiveProvenance)
     if (isRuntimeCallEventKind(candidate.kind)) {
       candidate = snapshotCallEvent(candidate)
       validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
     }
+    if (isRuntimeActivityEventKind(candidate.kind)) Object.freeze(candidate)
     assertRuntimeEventFrameSize(candidate)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.

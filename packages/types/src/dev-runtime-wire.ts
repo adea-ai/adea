@@ -25,8 +25,15 @@ import {
   type RuntimeCallEventKind,
   type RuntimeCallPayload,
 } from './dev-runtime-call'
+import {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  type RuntimeActivityEventKind,
+  type RuntimeActivityPayloads,
+} from './dev-runtime-activity'
 import { cborByteLength } from './dev-runtime-cbor-length'
-import { assertWellFormedUnicode } from './dev-runtime-unicode'
+import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
 import {
   decodeRuntimeUsageObservedPayload,
   usageDataRecord,
@@ -100,6 +107,7 @@ export const runtimeEventKinds = [
   'terminal.transcript_reference',
   'capability.degraded',
   'capability.restored',
+  ...runtimeActivityEventKinds,
 ] as const
 export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
 export const dataClassifications = [
@@ -125,7 +133,11 @@ export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readon
   confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
   classification: DataClassification
   kind: K
-  payload: K extends 'usage.observed' ? RuntimeUsageObservedPayload : unknown
+  payload: K extends 'usage.observed'
+    ? RuntimeUsageObservedPayload
+    : K extends RuntimeActivityEventKind
+      ? RuntimeActivityPayloads[K]
+      : unknown
 }>
 
 /** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
@@ -177,10 +189,76 @@ export function decodeRuntimeCallEvent(
   return value as RuntimeCallEvent
 }
 
+export type RuntimeActivityEvent = {
+  [K in RuntimeActivityEventKind]: Omit<
+    RuntimeEvent,
+    'kind' | 'payload' | 'source' | 'confidence'
+  > &
+    Readonly<{
+      source: 'native' | 'acp' | 'authenticated_hook'
+      confidence: 'authoritative'
+      kind: K
+      payload: RuntimeActivityPayloads[K]
+    }>
+}[RuntimeActivityEventKind]
+
+function validateActivity(item: Record<string, unknown>, enforceEnvelopeBounds = true): void {
+  if (!isRuntimeActivityEventKind(item.kind))
+    fail('event.kind', 'expected structured activity kind')
+  decodeRuntimeActivityPayload(item.payload, item.kind)
+  assertJsonUnicode(item)
+  if (item.source === 'host' || item.source === 'terminal_fallback')
+    fail('event.source', 'structured activity requires a native, ACP or owned hook producer')
+  if (item.confidence !== 'authoritative')
+    fail('event.confidence', 'structured activity requires authoritative producer facts')
+  if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(item as RuntimeEvent)
+  if (
+    enforceEnvelopeBounds &&
+    item.source === 'authenticated_hook' &&
+    new TextEncoder().encode(JSON.stringify(item)).byteLength > 8 * 1024
+  )
+    fail('event', 'authenticated hook observation exceeds 8 KiB')
+}
+
+function assertActivityOwnership(
+  item: Record<string, unknown>,
+  provenance: RuntimeEventProvenance
+): void {
+  if (
+    !Array.isArray(provenance.ownedActivityKinds) ||
+    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
+  )
+    fail('event.kind', 'structured activity requires out-of-band producer ownership')
+}
+
+/** Explicit opt-in: an opaque legacy row never gains structured activity semantics. */
+export function decodeRuntimeActivityEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeActivityEvent {
+  decodeRuntimeEvent(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item)
+  assertActivityOwnership(item, provenance)
+  return value as RuntimeActivityEvent
+}
+
+/** @internal Validation-only replay input; no new event or frame is returned. */
+export function validateRuntimeActivityReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  validateRuntimeEventReplayCandidate(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item, false)
+  assertActivityOwnership(item, provenance)
+}
+
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
   if (typeof value === 'string') {
     stringValue(value, path, 0, 65_536)
+    assertWellFormedUnicode(value, path)
     return
   }
   if (value === null || typeof value === 'boolean') return
@@ -195,6 +273,7 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
   const item = record(value, path)
   for (const [key, entry] of Object.entries(item)) {
     stringValue(key, `${path} key`, 1, 256)
+    assertWellFormedUnicode(key, `${path} key`)
     validateEventPayload(entry, `${path}.${key}`, depth + 1)
   }
 }
@@ -202,6 +281,8 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
 export type RuntimeEventProvenance = Readonly<{
   /** Source derived from the authenticated transport/adapter, never event JSON. */
   source: RuntimeEvent['source']
+  /** Exact kinds owned by this authenticated adapter, never capabilities or event JSON. */
+  ownedActivityKinds?: readonly RuntimeActivityEventKind[]
 }>
 
 /**
@@ -232,6 +313,9 @@ const eventSemantics: EventSemantics = {
           `maximum encoded assistant event size exceeded (${RUNTIME_EVENT_CBOR_BYTES_MAX} bytes)`
         )
     }
+    if (isVersionedActivityClaim(item)) {
+      validateActivity(item, enforceEnvelopeBounds)
+    }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
     if (item.kind === 'usage.observed') {
       if (item.confidence !== 'authoritative')
@@ -248,6 +332,15 @@ const eventSemantics: EventSemantics = {
 function isVersionedCallClaim(item: Record<string, unknown>): boolean {
   return (
     isRuntimeCallEventKind(item.kind) &&
+    item.payload !== null &&
+    typeof item.payload === 'object' &&
+    Object.hasOwn(item.payload, 'schemaVersion')
+  )
+}
+
+function isVersionedActivityClaim(item: Record<string, unknown>): boolean {
+  return (
+    isRuntimeActivityEventKind(item.kind) &&
     item.payload !== null &&
     typeof item.payload === 'object' &&
     Object.hasOwn(item.payload, 'schemaVersion')
@@ -314,9 +407,14 @@ function decodeEventEnvelope(
     'event'
   )
   if (item.schemaVersion !== 1) fail('event.schemaVersion', 'expected 1')
-  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const)
-    stringValue(item[key], `event.${key}`, 1, 256)
-  if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const) {
+    const text = stringValue(item[key], `event.${key}`, 1, 256)
+    assertWellFormedUnicode(text, `event.${key}`)
+  }
+  if (item.harnessRunId !== undefined) {
+    const text = stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    assertWellFormedUnicode(text, 'event.harnessRunId')
+  }
   integerValue(item.generation, 'event.generation', 0)
   uint64String(item.seq, 'event.seq')
   timestamp(item.occurredAt, 'event.occurredAt')
@@ -349,11 +447,15 @@ function decodeEventEnvelope(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  // Retained legacy events remain opaque. With semantics, a versioned call claim
-  // or assistant claim must satisfy the complete contract even through the
-  // generic decoder; the lean decoder still bounds versioned call claims.
+  // Retained legacy events remain opaque. Complete decoding applies every
+  // kind-specific contract; the lean decoder keeps whole-frame bounds for
+  // versioned call and activity claims without interpreting their payloads.
   const decodedUsage = semantics?.early(item, enforceEnvelopeBounds)
-  if (!semantics && enforceEnvelopeBounds && isVersionedCallClaim(item))
+  if (
+    !semantics &&
+    enforceEnvelopeBounds &&
+    (isVersionedCallClaim(item) || isVersionedActivityClaim(item))
+  )
     assertRuntimeEventFrameSize(item as RuntimeEvent)
   const payload = decodedUsage ?? item.payload
   validateEventPayload(payload, 'event.payload')
@@ -594,8 +696,13 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
           fail('cbor', 'map keys are not canonically ordered')
         previousKey = keyBytes
-        if (key in out) fail('cbor', 'duplicate map key')
-        out[key] = decode()
+        if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
+        Object.defineProperty(out, key, {
+          value: decode(),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        })
       }
       return out
     }

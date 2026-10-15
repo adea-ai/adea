@@ -30,3 +30,9 @@ nullable current-context used/total figures and optional reported token breakdow
 and exact-decimal cost. Unknown figures stay unknown; no context, price, or usage
 is estimated. See the [normative usage contract](../../docs/specs/dev-runtime.md#context-and-token-usage-observations-1391)
 for counter semantics, bounds, compatibility, and snapshot replacement rules.
+
+`dev-runtime-activity` exports bounded test-run, command-output, failure/stack,
+changed-files, plan and task payload schemas. The wire entry's
+`decodeRuntimeActivityEvent` additionally requires authenticated producer
+ownership; generic replay retains opaque rows without inventing counts or
+statuses. See the Dev Runtime spec's structured activity producer contract.

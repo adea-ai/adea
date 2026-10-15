@@ -185,6 +185,25 @@ describe('lean envelope decoder', () => {
     ).toThrow()
   })
 
+  test('rejects malformed Unicode in envelope metadata, generic payload values and keys', () => {
+    expect(() => decodeRuntimeEnvelope(event({ eventId: 'event-\ud800' }), provenance)).toThrow(
+      'ill-formed Unicode'
+    )
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: { text: 'result-\ud800' } }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+    const payloadWithMalformedKey = JSON.parse('{"bad\\ud800":"value"}')
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: payloadWithMalformedKey }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+  })
+
   test('keeps the complete frame bound for versioned call claims, not for legacy payloads', () => {
     const data = { type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] }
     const oversized = event({
@@ -229,9 +248,9 @@ describe('lean envelope decoder', () => {
         'maximum cited response',
         'duplicate source ID',
         'event.summary',
-        'ill-formed Unicode',
       ])
         expect(text).not.toContain(marker)
+      expect(text).toContain('ill-formed Unicode')
       expect(text.length).toBeLessThan(8_500)
     } finally {
       rmSync(directory, { recursive: true, force: true })

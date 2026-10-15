@@ -2750,6 +2750,8 @@ Required kinds:
 - terminal `command_started`, `command_finished`, `cwd_changed`,
   `transcript_reference`;
 - capability `degraded`, `restored`.
+- structured activity `test_run.observed`, `terminal.output`,
+  `failure.observed`, `files.changed`, `plan.observed`, `task.observed`.
 
 Precedence is native/ACP, then authenticated Adea hook for its owned event, then
 terminal fallback. A lower source cannot overwrite a higher-source fact. Raw
@@ -3294,6 +3296,113 @@ type RuntimeUsageObservedPayload = {
   proportion only when both figures are known. No usage producer, provider
   lookup, model window catalog, pricing table, or Context UI is fabricated by
   this contract; sources that do not report these facts remain unavailable.
+
+### Structured activity producer contracts (#1394)
+
+`packages/types/src/dev-runtime-activity/` owns the six version-1 payload
+schemas. The focused `@adea-ai/types/dev-runtime-activity` entry exports their
+types, bounds, status vocabularies and shape decoder; the full runtime entry
+re-exports the same implementations. These Adea-specific schemas are not
+supplied by the mapped donor lifecycle/write-gate units; no donor code is
+copied. The wire entry's `decodeRuntimeActivityEvent` validates the envelope,
+schema and producer ownership before returning typed activity facts.
+
+| Kind                | Required observed data                                                 | Optional observed data                                                               |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `test_run.observed` | `testRunId`, explicit status                                           | Summary counts/duration, suites, test cases, failures, collection completeness       |
+| `terminal.output`   | Terminal/command IDs, canonical uint64 sequence, phase, status, stream | Exact text, command label, worktree-relative cwd, exit code, observed duration       |
+| `failure.observed`  | Failure ID and message                                                 | Error name, test reference, raw stack and structured frames                          |
+| `files.changed`     | Change-set ID and files with explicit change kinds                     | Rename/copy origin, line-count claims, summary counts, collection completeness       |
+| `plan.observed`     | Plan ID, explicit status and ordered items with IDs/titles/statuses    | Plan title, item descriptions, summary counts, collection completeness               |
+| `task.observed`     | Task ID, title and explicit status                                     | Parent/plan references, description, todos with IDs/titles/statuses, inert HTTPS URL |
+
+Every payload requires `schemaVersion: 1` and rejects unknown keys, versions,
+non-JSON values, duplicate record identities and malformed records. IDs are
+opaque 1–256 character tokens beginning with an ASCII alphanumeric and then
+ASCII alphanumerics, `.`, `_`, `:` or `-`. They grant no authority over a cloud
+task, command, file or source. An absent field remains absent; no decoder
+inserts a count, duration, completion, location, test result or success.
+Every new structured string and map key, including envelope identifiers, MUST
+be well-formed Unicode. Lone UTF-16 surrogates are refused before comparison or
+admission; the CBOR encoder also refuses them instead of substituting U+FFFD.
+Valid surrogate pairs and an explicitly supplied U+FFFD remain unchanged.
+
+Test statuses are `unknown`, `pending`, `running`, `passed`, `failed`,
+`skipped`, `cancelled`. Work statuses are `unknown`, `pending`, `in_progress`,
+`completed`, `failed`, `cancelled`. Parent/summary statuses and counts are
+independent producer claims; they MUST NOT be calculated or reconciled from
+the retained child rows. Missing/partial collections do not establish a total.
+Counts and observed durations are nonnegative safe integers. Test/suite and
+failure references may point outside the retained partial list and do not
+establish that an unlisted row exists or was successful.
+
+Payload JSON has a 64 KiB encoded UTF-8 maximum, depth 12, 4,096 value nodes,
+256 array/object entries per container and 16,384 UTF-16 code units per string.
+The encoder budget includes key escaping and JSON punctuation and is checked
+incrementally before encoding. Narrower bounds are 64 suites, 256 tests,
+64 failures, 64 stack frames, 256 changed files, and 128 plan items or todos.
+Titles/test names are at most 512 code units, descriptions 4,096, error messages
+8,192, source URLs 2,048, and portable relative paths 1,024. The entire
+canonical-CBOR `RuntimeEvent`, including IDs, timestamps, provenance and every
+payload field, MUST also fit the existing 65,536-byte runtime-events data-frame
+grant before admission. Independent field or JSON budgets do not waive this
+aggregate check. An authenticated-hook event additionally fits an 8 KiB JSON
+envelope; its adapter still owns the raw hook-frame bound.
+
+Paths are canonical portable worktree-relative data: no absolute/drive/UNC or
+home paths, traversal/dot/empty segments, backslashes, controls/bidi controls,
+encoded traversal/separators, Git-internal paths, reserved device names or
+ambiguous trailing dot/space. The terminal cwd alone permits `.` as an explicit
+worktree root. Stack locations are either a relative path or an inert public
+HTTPS source URL, never both; a column needs a line and line/column need a
+location. URLs reject credentials, IP/loopback/local addresses, unsafe schemes,
+whitespace/backslashes, malformed escapes and raw/encoded controls. No path or
+URL authorizes navigation, retrieval, execution or filesystem access; a future
+resolver must separately prove scope, classification and network/filesystem
+admission, including DNS and redirects.
+The bidi ban includes U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+in paths and both raw and percent-decoded URL text.
+
+Terminal phases are `started`, `output`, `finished`. Started/output status is
+`unknown` or `running`; finished status is `unknown`, `succeeded`, `failed` or
+`cancelled`. Output requires exact text, including inert markup/ANSI; there is
+no semantic parsing. An exit code may appear only on a finished observation,
+and even zero never implies success. Chunk identity binds session, generation,
+optional harness run, producer source, terminal, command, stream and sequence.
+Identical retained chunks are ignored; conflicting content or classification
+is refused. Missing/evicted chunks or a terminal phase do not synthesize other
+output or success.
+
+New host-log activity appends receive a separate trusted adapter provenance
+argument and explicitly supplied source, confidence and classification; host
+lifecycle defaults do not fill those facts. Known activity requires authoritative native/ACP/owned-hook
+provenance and an exact `ownedActivityKinds` allowlist from that adapter;
+capabilities, process exit, payload fields and host lifecycle receipts cannot
+provide ownership. Validation and aggregate size checks precede persistence,
+retention, sequence consumption and subscription delivery. Published snapshots
+are detached and deeply frozen. A repeated source event with changed run,
+classification, explicit observation time, kind or canonical payload is an
+`idempotency_conflict`; key order and host-assigned IDs/times do not create new
+facts.
+
+Replay candidates still validate all schema, Unicode, provenance, ownership
+and identity/content constraints before duplicate comparison. An identical
+source event or terminal chunk returns only a duplicate result and creates no
+new envelope. It MUST NOT be rejected because a provisional new host sequence
+or receipt would be larger (for example, sequence 9 becoming 10). Changed
+valid claims conflict; malformed claims and missing ownership are refused.
+Every new record then passes the full 65,536-byte CBOR and, when applicable,
+8 KiB hook envelope checks before receiving a publishable event value.
+
+Generic replay continues returning an opaque `RuntimeEvent`: legacy payloads
+without a version remain bounded and readable, and well-formed versioned rows
+can remain plain Trace lines without an ownership allowlist. Versioned claims
+are shape/provenance/size checked, but only the explicit activity decoder and
+host admission establish owned typed facts. Legacy data is never upgraded and
+new legacy appends are refused. No production adapter currently emits these
+six kinds; no runner, terminal parser, UI renderer, queue or reasoning producer
+is added. The integration handoff lists the shared aggregation conflicts in
+[the #1394 evidence note](../evidence/runtime-activity-contract-refs1394.md).
 
 ## Terminal protocol
 
