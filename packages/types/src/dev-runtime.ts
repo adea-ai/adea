@@ -30,12 +30,6 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
-import { decodeFollowUpQueueRequest, decodeFollowUpQueueSnapshot } from './dev-runtime-follow-ups'
-export {
-  decodeFollowUpQueueRequest,
-  decodeFollowUpQueueSnapshot,
-  decodeFollowUpQueueEventPayload,
-} from './dev-runtime-follow-ups'
 export type {
   FollowUpQueueRequest,
   FollowUpQueueSnapshot,
@@ -2209,7 +2203,16 @@ function decodeResourcePreferenceFields(value: unknown, path: string, stored: bo
 }
 
 function namedType(name: string, value: unknown, path: string): unknown {
-  if (name === 'FollowUpQueueRequest') return decodeFollowUpQueueRequest(value)
+  if (name === 'FollowUpQueueRequest') {
+    // Keep the shared command decoder able to bind this body to its session
+    // resource without pulling the queue's full schema into every client.
+    // The host operation provider applies decodeFollowUpQueueRequest before
+    // authorization, locking, or mutation.
+    const item = record(value, path)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    integerValue(item.expectedGeneration, `${path}.expectedGeneration`, 0)
+    return value
+  }
   if (
     name === 'FileIdentity' ||
     name === 'RootBookmark' ||
@@ -4836,7 +4839,6 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.runStatus': (value) => decodeHarnessRun(value),
   'dev.session.launchDefault': (value) => decodeHarnessRun(value),
   'dev.session.events': (value) => decodeDevStreamGrant(value),
-  'dev.session.followUps': (value) => decodeFollowUpQueueSnapshot(value),
   // ADR 0012 workspace memory: an agent proposal lands pending; the reply is
   // the receipt, never the proposed text.
   'dev.memory.propose': (value) => namedType('MemoryProposalReceipt', value, 'reply.value'),
@@ -4960,7 +4962,10 @@ export function decodeDevCommand(value: unknown): DevCommand {
   return value as DevCommand
 }
 
-export function decodeDevReply(value: unknown): DevReply {
+export function decodeDevReply(
+  value: unknown,
+  operationValueDecoders?: Readonly<Partial<Record<DevOperation, (value: unknown) => unknown>>>
+): DevReply {
   const item = record(value, 'reply')
   if (item.schemaVersion !== 1) fail('reply.schemaVersion', 'expected 1')
   const operation = item.operation
@@ -4976,7 +4981,9 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    const decodeValue = devReplyValueDecoders[item.operation as DevOperation]
+    const decodeValue =
+      operationValueDecoders?.[item.operation as DevOperation] ??
+      devReplyValueDecoders[item.operation as DevOperation]
     if (!decodeValue)
       fail(
         'reply.value',

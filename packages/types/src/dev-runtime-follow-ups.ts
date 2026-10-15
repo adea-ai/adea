@@ -6,6 +6,7 @@ import {
   record,
   stringValue,
 } from './dev-runtime-validation-internal'
+import { decodeDevReply, type DevReply } from './dev-runtime'
 
 export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
 export const FOLLOW_UP_TEXT_MAX_BYTES = 16_384
@@ -190,6 +191,11 @@ function decodeSnapshot(
 
 export function decodeFollowUpQueueSnapshot(value: unknown): FollowUpQueueSnapshot {
   return decodeSnapshot(value, false) as FollowUpQueueSnapshot
+}
+
+/** Strict reply decoder for consumers that load the focused queue contract. */
+export function decodeFollowUpQueueReply(value: unknown): DevReply {
+  return decodeDevReply(value, { 'dev.session.followUps': decodeFollowUpQueueSnapshot })
 }
 export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
   return decodeSnapshot(value, true) as FollowUpQueueEventPayload

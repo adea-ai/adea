@@ -1,11 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { decodeDevCommand, decodeRuntimeEvent, devOperationDefinitions } from '../src/dev-runtime'
 import {
-  decodeDevCommand,
-  decodeDevReply,
-  decodeRuntimeEvent,
-  devOperationDefinitions,
-} from '../src/dev-runtime'
-import {
+  decodeFollowUpQueueReply,
   decodeFollowUpQueueRequest,
   decodeFollowUpQueueSnapshot,
 } from '../src/dev-runtime-follow-ups'
@@ -92,7 +88,7 @@ describe('generation-fenced follow-up queue contract', () => {
     expect(decoded).toEqual(snapshot)
     expect(Object.isFrozen(decoded.items)).toBe(true)
     expect(
-      decodeDevReply({
+      decodeFollowUpQueueReply({
         schemaVersion: 1,
         operation: 'dev.session.followUps',
         requestId: '00000000-0000-4000-8000-000000000004',
@@ -101,6 +97,16 @@ describe('generation-fenced follow-up queue contract', () => {
         observedAt: '2026-10-15T05:00:00.000Z',
       }).ok
     ).toBe(true)
+    expect(() =>
+      decodeFollowUpQueueReply({
+        schemaVersion: 1,
+        operation: 'dev.session.followUps',
+        requestId: '00000000-0000-4000-8000-000000000004',
+        ok: true,
+        value: { ...snapshot, items: [{ ...snapshot.items[0], bytes: 10 }] },
+        observedAt: '2026-10-15T05:00:00.000Z',
+      })
+    ).toThrow()
     expect(() =>
       decodeFollowUpQueueSnapshot({ ...snapshot, items: [{ ...snapshot.items[0], bytes: 10 }] })
     ).toThrow()

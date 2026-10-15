@@ -4872,8 +4872,13 @@ the mutation or delivery; reuse for another body is `idempotency_conflict`.
 Exact replay precedes version comparison, while scope, channel, expiry and live
 generation admission always precede replay. New changes use optimistic queue
 `expectedVersion`; concurrent writers cannot silently overwrite each other.
-Unknown actions, extra fields, malformed versions and resource/body mismatches
-fail closed through the canonical command decoder.
+The shared canonical command decoder validates the bounded envelope and the
+`runtimeSessionId`/`expectedGeneration` fields needed to bind the body to its
+resource. The execution host then applies the full
+`decodeFollowUpQueueRequest` schema before authorization, locking, or state
+changes; unknown actions, extra fields, and malformed action-specific versions
+fail closed there. This host-only schema keeps queue action validation out of
+the general client command contract.
 
 Bounds are 16 pending/claimed items, 16,384 UTF-8 bytes per nonempty text, and
 65,536 UTF-8 bytes across the queue. NUL and other C0 controls except tab/CR/LF
@@ -4891,8 +4896,13 @@ where state is `queued | dispatching | ambiguous`. `delivery` is
 `unavailable | busy | ready`, derived from the actual bound run/transport,
 never a process name, terminal idle appearance, or a guessed capability.
 `lastDelivery`, when known, is `{ messageId, status: 'accepted'|'ambiguous' }`.
-Snapshot/request decoders are exported from the complete Dev Runtime entry;
-the focused wire entry also exports the strict queue-event payload decoder.
+The complete Dev Runtime entry exports the queue types. Strict
+request/snapshot/reply/event-payload decoders are exported from the focused
+`dev-runtime-follow-ups` entry; consumers that validate a queue reply use
+`decodeFollowUpQueueReply`. The general wire decoder checks authoritative-host
+provenance, envelope identity, and the absence of prompt-text fields for
+`queue.updated`. The host event log applies the full queue-event payload
+decoder both before append and while projecting persisted/replayed events.
 Returned snapshots and queue-event payloads are detached and frozen so caller
 mutation cannot change the admitted queue facts.
 

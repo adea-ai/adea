@@ -10,11 +10,6 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
-import {
-  decodeFollowUpQueueEventPayload,
-  type FollowUpQueueEventPayload,
-} from './dev-runtime-follow-ups'
-export { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-ups'
 export type { FollowUpQueueEventPayload } from './dev-runtime-follow-ups'
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
@@ -92,7 +87,12 @@ export type RuntimeEvent = Readonly<{
   payload: unknown
 }>
 
-function validateEventPayload(value: unknown, path: string, depth = 0): void {
+function validateEventPayload(
+  value: unknown,
+  path: string,
+  depth = 0,
+  rejectTextFields = false
+): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
   if (typeof value === 'string') {
     stringValue(value, path, 0, 65_536)
@@ -104,13 +104,16 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
     return
   }
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => validateEventPayload(entry, `${path}[${index}]`, depth + 1))
+    value.forEach((entry, index) =>
+      validateEventPayload(entry, `${path}[${index}]`, depth + 1, rejectTextFields)
+    )
     return
   }
   const item = record(value, path)
   for (const [key, entry] of Object.entries(item)) {
     stringValue(key, `${path} key`, 1, 256)
-    validateEventPayload(entry, `${path}.${key}`, depth + 1)
+    if (rejectTextFields && key === 'text') fail(`${path}.${key}`, 'queue text is forbidden')
+    validateEventPayload(entry, `${path}.${key}`, depth + 1, rejectTextFields)
   }
 }
 
@@ -167,15 +170,14 @@ export function decodeRuntimeEvent(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
-  let queuePayload: FollowUpQueueEventPayload | undefined
+  let queuePayload: Record<string, unknown> | undefined
   if (item.kind === 'queue.updated') {
     if (item.source !== 'host' || item.confidence !== 'authoritative')
       fail('event.source', 'queue facts require the authoritative host')
-    const payload = decodeFollowUpQueueEventPayload(item.payload)
-    queuePayload = payload
+    queuePayload = record(item.payload, 'event.payload')
     if (
-      payload.generation !== item.generation ||
-      payload.runtimeSessionId !== item.runtimeSessionId
+      queuePayload.generation !== item.generation ||
+      queuePayload.runtimeSessionId !== item.runtimeSessionId
     )
       fail('event.payload', 'queue identity does not match event')
   }
@@ -193,13 +195,25 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
-  const payload = queuePayload ?? item.payload
-  validateEventPayload(payload, 'event.payload')
+  validateEventPayload(item.payload, 'event.payload', 0, queuePayload !== undefined)
   validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
+  const payload = item.payload
   validateRuntimeResponseReferences(item.kind as string, payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
-  if (queuePayload) return Object.freeze({ ...(value as RuntimeEvent), payload: queuePayload })
+  if (queuePayload) {
+    const copied = structuredClone(queuePayload)
+    if (Array.isArray(copied.items)) {
+      copied.items.forEach((entry: unknown) => {
+        if (entry && typeof entry === 'object') Object.freeze(entry)
+      })
+      Object.freeze(copied.items)
+    }
+    if (copied.lastDelivery && typeof copied.lastDelivery === 'object')
+      Object.freeze(copied.lastDelivery)
+    Object.freeze(copied)
+    return Object.freeze({ ...(value as RuntimeEvent), payload: copied })
+  }
   return value as RuntimeEvent
 }
 

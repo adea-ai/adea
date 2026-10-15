@@ -197,6 +197,26 @@ function value(reply: DevReply): Record<string, unknown> {
 }
 
 describe('follow-up production registration and M10 gate', () => {
+  test('applies the full queue schema on the host before any state change', async () => {
+    const s = boot(false)
+    try {
+      const malformed = s.command({
+        ...s.target,
+        action: 'enqueue',
+        expectedVersion: 0,
+        messageId: 'a',
+        text: 'valid text',
+        extra: true,
+      })
+      expect(await s.execute(malformed)).toMatchObject({ ok: false })
+      expect(s.host.events.events()).toEqual([])
+      expect(value(await s.execute(s.command({ ...s.target, action: 'read' }))).items).toEqual([])
+      expect(s.deliveries).toEqual([])
+    } finally {
+      s.cleanup()
+    }
+  })
+
   test('recovers a durable queue mutation whose event append committed before a subscriber failed', async () => {
     const s = boot(false)
     try {
