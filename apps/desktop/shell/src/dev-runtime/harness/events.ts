@@ -23,9 +23,12 @@ import { join } from 'node:path'
 import type {
   RuntimeEvent,
   RuntimeEventKind,
+  RuntimeEventProvenance,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
+import { admitRuntimeActivityEvent, sameActivityReplay } from './activity-events'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -83,7 +86,7 @@ export type SessionEventInput = Readonly<{
 
 export type SessionEventLog = Readonly<{
   /** Appends one event; an identical duplicate returns `undefined`. */
-  append(input: SessionEventInput): RuntimeEvent | undefined
+  append(input: SessionEventInput, provenance?: RuntimeEventProvenance): RuntimeEvent | undefined
   /** Bounded ascending read from `fromSequence` (inclusive). */
   read(
     runtimeSessionId: string,
@@ -131,10 +134,21 @@ export function createSessionEventLog(input: {
 
   const all = (): RuntimeEvent[] => inScope().map(project)
 
-  function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+  function appendEvent(
+    sessionInput: SessionEventInput,
+    provenance?: RuntimeEventProvenance
+  ): RuntimeEvent | undefined {
+    if (isRuntimeActivityEventKind(sessionInput.kind)) {
+      for (const key of ['source', 'confidence', 'classification'] as const) {
+        if (sessionInput[key] === undefined)
+          throw new TypeError(
+            `event.${key}: structured activity requires an explicit producer fact`
+          )
+      }
+    }
     const records = all()
     const source = sessionInput.source ?? 'host'
-    const candidate: RuntimeEvent = {
+    let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
       runtimeSessionId: sessionInput.runtimeSessionId,
@@ -154,12 +168,19 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    let activityDuplicate = false
+    if (isRuntimeActivityEventKind(candidate.kind)) {
+      const admission = admitRuntimeActivityEvent(candidate, provenance ?? { source }, records)
+      candidate = admission.event
+      activityDuplicate = admission.duplicate
+    }
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {
-      if (
-        duplicate.kind === candidate.kind &&
-        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
-      ) {
+      const identical = isRuntimeActivityEventKind(candidate.kind)
+        ? sameActivityReplay(duplicate, candidate, sessionInput.occurredAt !== undefined)
+        : duplicate.kind === candidate.kind &&
+          JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+      if (identical) {
         return undefined
       }
       throw {
@@ -169,6 +190,7 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (activityDuplicate) return undefined
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

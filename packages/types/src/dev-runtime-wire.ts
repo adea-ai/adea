@@ -10,6 +10,13 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  type RuntimeActivityEventKind,
+  type RuntimeActivityPayloads,
+} from './dev-runtime-activity'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -53,6 +60,7 @@ export const runtimeEventKinds = [
   'terminal.transcript_reference',
   'capability.degraded',
   'capability.restored',
+  ...runtimeActivityEventKinds,
 ] as const
 export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
 export const dataClassifications = [
@@ -81,6 +89,59 @@ export type RuntimeEvent = Readonly<{
   payload: unknown
 }>
 
+/** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
+export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
+
+export function assertRuntimeEventFrameSize(event: RuntimeEvent): void {
+  if (encodeCbor(event).byteLength > RUNTIME_EVENT_CBOR_BYTES_MAX)
+    fail('event', 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+}
+
+export type RuntimeActivityEvent = {
+  [K in RuntimeActivityEventKind]: Omit<
+    RuntimeEvent,
+    'kind' | 'payload' | 'source' | 'confidence'
+  > &
+    Readonly<{
+      source: 'native' | 'acp' | 'authenticated_hook'
+      confidence: 'authoritative'
+      kind: K
+      payload: RuntimeActivityPayloads[K]
+    }>
+}[RuntimeActivityEventKind]
+
+function validateActivity(item: Record<string, unknown>): void {
+  if (!isRuntimeActivityEventKind(item.kind))
+    fail('event.kind', 'expected structured activity kind')
+  decodeRuntimeActivityPayload(item.payload, item.kind)
+  if (item.source === 'host' || item.source === 'terminal_fallback')
+    fail('event.source', 'structured activity requires a native, ACP or owned hook producer')
+  if (item.confidence !== 'authoritative')
+    fail('event.confidence', 'structured activity requires authoritative producer facts')
+  assertRuntimeEventFrameSize(item as RuntimeEvent)
+  if (
+    item.source === 'authenticated_hook' &&
+    new TextEncoder().encode(JSON.stringify(item)).byteLength > 8 * 1024
+  )
+    fail('event', 'authenticated hook observation exceeds 8 KiB')
+}
+
+/** Explicit opt-in: an opaque legacy row never gains structured activity semantics. */
+export function decodeRuntimeActivityEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeActivityEvent {
+  decodeRuntimeEvent(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item)
+  if (
+    !Array.isArray(provenance.ownedActivityKinds) ||
+    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
+  )
+    fail('event.kind', 'structured activity requires out-of-band producer ownership')
+  return value as RuntimeActivityEvent
+}
+
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
   if (typeof value === 'string') {
@@ -106,6 +167,8 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
 export type RuntimeEventProvenance = Readonly<{
   /** Source derived from the authenticated transport/adapter, never event JSON. */
   source: RuntimeEvent['source']
+  /** Exact kinds owned by this authenticated adapter, never capabilities or event JSON. */
+  ownedActivityKinds?: readonly RuntimeActivityEventKind[]
 }>
 
 export function decodeRuntimeEvent(
@@ -170,6 +233,13 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
+  if (
+    isRuntimeActivityEventKind(item.kind) &&
+    item.payload !== null &&
+    typeof item.payload === 'object' &&
+    Object.hasOwn(item.payload, 'schemaVersion')
+  )
+    validateActivity(item)
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
