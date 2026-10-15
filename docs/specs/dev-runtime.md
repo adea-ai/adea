@@ -403,6 +403,8 @@ type RuntimeEventKind =
   | 'turn.user_input'
   | 'turn.assistant_delta'
   | 'turn.assistant_message'
+  | 'turn.reasoning_summary'
+  | 'turn.method_step_summary'
   | 'turn.result'
   | 'tool.requested'
   | 'tool.started'
@@ -2735,7 +2737,8 @@ Required kinds:
 
 - session/run `created`, `starting`, `ready`, `disconnected`, `resumed`,
   `completed`, `failed`, `cancelled`;
-- turn `user_input`, `assistant_delta`, `assistant_message`, `result`;
+- turn `user_input`, `assistant_delta`, `assistant_message`, `result`,
+  `reasoning_summary`, `method_step_summary`;
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
@@ -2868,6 +2871,105 @@ approval authority is introduced by this producer contract.
 `packages/types/tests/dev-runtime-interactions.test.ts` pins the schema and
 wire boundary; `apps/desktop/tests/dev-runtime-interactions.test.ts` pins host
 admission, correlation, answer validation, restart/replay, and retention refusal.
+
+### Explicit user-visible summaries (#1388)
+
+`turn.reasoning_summary` and `turn.method_step_summary` are separate, opt-in
+contracts for summaries a structured source explicitly reports as user-visible.
+They MUST NOT expose hidden chain of thought, raw analysis, reasoning tokens,
+tool transcripts relabelled as reasoning, or prose/status/duration inferred by
+the host. Ordinary assistant text and run/tool completion never create either
+event. Missing summaries remain unavailable; no placeholder summary is invented.
+
+Both payloads have exactly these common fields:
+
+```ts
+type SummarySnapshot = {
+  schemaVersion: 1
+  provenance: 'source_reported'
+  visibility: 'user_visible'
+  format: 'snapshot'
+  revision: number
+  text: string
+  durationMs?: number
+}
+type ReasoningSummary = SummarySnapshot & {
+  summaryId: string
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+type MethodStepSummary = SummarySnapshot & {
+  methodId: string
+  stepId: string
+  position: number
+  title: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+```
+
+The canonical event MUST name a `harnessRunId`, have authenticated `native`,
+`acp` or `authenticated_hook` provenance, authoritative confidence about the
+source observation, and an explicit `public`, `workspace_private` or
+`restricted_local` content classification. `host`, terminal fallback,
+untrusted hints, credential and metadata classifications cannot supply these
+content facts. Source visibility does not establish that the summarized claims
+are true, and it grants no additional disclosure or transport permission.
+
+Payload labels are not admission proof. Before any durable append, sequence consumption,
+retention eviction or live delivery, the host requires a configured
+`verifyVisibleSummary` callback to confirm an independently authenticated
+source observation. It binds the exact scope, session, run, generation,
+source, source-event identity, confidence, classification, kind and payload.
+The verifier receives a defensive copy and MUST verify the source's actual
+explicit user-visible-summary signal; it MUST NOT approve by checking the
+payload's own `visibility`/`provenance`, by classifying raw private reasoning,
+or by interpreting free text. Missing verification, false or nonboolean
+verification fails closed. No current adapter is enabled merely by adding
+these event kinds; actual source protocol support must supply this verifier.
+Replays validate already admitted durable facts and do not re-run a live
+source verifier or redisclose source-private content.
+
+Streaming consists of bounded full snapshots, not append-only reasoning-token
+deltas. Every snapshot is independently readable after a retained-window gap.
+`revision` is an integer 0–2,147,483,647 and MUST increase within the retained
+identity `(scope, session, generation, harnessRunId, source, kind, summaryId)`
+or `(scope, session, generation, harnessRunId, source, kind, methodId, stepId)`.
+It orders genuine source snapshots; it does not authorize generating text.
+Skipped revisions are allowed. Exact source-event duplicates remain ignored;
+conflicting duplicates remain refused. Terminal statuses (`completed`, `failed`,
+`cancelled`) cannot be revised while retained, and a method step's `position`
+cannot change. Run completion cannot complete an individual summary or step.
+
+`durationMs`, when supplied, is a source-reported measurement: elapsed duration
+for an active snapshot and total duration for a terminal snapshot. It is a
+safe integer 0–86,400,000 and cannot decrease across retained snapshots with
+known timing. `pending` and `unknown` statuses MUST omit it. Missing timing is
+unknown, never zero, a reused previous value, or a subtraction of host receive
+timestamps. Status is always supplied by the source, including explicit
+`unknown`. Different runs, generations, sources and method steps do not share
+status or timing. The source verifier owns source continuity beyond the
+bounded retained history; this event log does not introduce an unbounded
+stream ledger.
+
+IDs are 1–128 ASCII characters matching `[a-zA-Z0-9][a-zA-Z0-9_.:-]*`;
+method positions are integers 0–127. Summary text is at most 4,096 UTF-16 code
+units; step titles are nonblank and at most 512 units. Text/titles MUST be
+well-formed UTF-16 so UTF-8/CBOR replay preserves exact content. Each entire
+payload is at most 16 KiB of UTF-8 JSON, below the existing 64 KiB stream frame
+limit. Unknown fields, hidden/inferred provenance, unsupported versions,
+delta formats, malformed bounds and invalid source metadata are rejected.
+Raw chain-of-thought fields have no accepted shape. Retained summaries are
+revalidated, including revision/status/timing/position consistency; invalid
+retained bytes are refused without rewriting the evidence. Unrelated opaque
+payloads, unknown event retention and existing no-summary behavior remain
+unchanged.
+
+The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
+re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
+history checks are in the host's `harness/visible-summaries.ts`. Contract and
+durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
+does not enable shared Reasoning/Chain of Thought presentation or change Chat
+consumer composition.
 
 ## Terminal protocol
 
