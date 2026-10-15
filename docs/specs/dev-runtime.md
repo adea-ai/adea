@@ -2858,6 +2858,17 @@ type RuntimeCallData =
   `idempotency_conflict`, never an ignored duplicate. Host-assigned event ID,
   receive time and sequence are not producer facts and are excluded from this
   comparison.
+- Retry candidates validate the complete schema, Unicode and provenance before
+  identity/content comparison, without assigning a new persisted envelope
+  budget to an existing event. Exact duplicate source tuples reuse the retained
+  event for eligibility/continuity validation; its permission verifier still
+  applies. A duplicate at sequence 9 therefore remains idempotent when the next
+  host sequence would be 10. Every genuinely new record then passes the full
+  envelope budget before callbacks, persistence or publication. Source tuples
+  compare their fields directly, never an ambiguous delimiter-joined key.
+- Structured call strings, keys and envelope values require well-formed
+  Unicode; lone surrogates are rejected without replacement. The CBOR encoder
+  applies the same rule, while valid scalar text remains byte-for-byte intact.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing
 production lifecycle receipts do not become call facts. UI rendering, folding,

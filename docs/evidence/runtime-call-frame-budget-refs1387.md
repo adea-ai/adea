@@ -49,3 +49,25 @@ bun test packages/types/tests/dev-runtime-call-frame-budget.test.ts apps/desktop
 This is source/fixture transport evidence, not native producer or packaged
 qualification. No production call emitter is introduced and no success,
 permission eligibility or producer fact is invented by the size check.
+
+## Exact-fit retry review repair
+
+Independent review of the activity contract identified a provisional sequence
+growth defect; a new regression also reproduced it on call head
+`2b63963896c0c3fe7354ee1fcbbad64ff063f157`. A legitimately accepted 65,536-byte
+event at sequence 9 was checked as a new sequence-10 event before duplicate
+lookup, so an identical retry failed its budget.
+
+Retry input now passes validation-only schema/provenance/Unicode checks before
+exact source-tuple and content comparison. An identical call is checked against
+its retained envelope and existing eligibility/continuity verifier, then returns
+no new event. Changed content still conflicts, missing eligibility is refused,
+and a new sequence-10 record still has to fit the unchanged full CBOR cap.
+Additional regressions cover unknown and known permission facts and delimiter
+collisions between distinct source tuples. No global guard is disabled for new
+records and no internal replay validator returns a publishable event value.
+
+The shared Unicode helper and CBOR encoder refuse lone surrogates rather than
+silently replacing source content. Valid surrogate pairs and explicit U+FFFD
+remain unchanged. This matches the separate PR #1405 repair; integration keeps
+one helper and both contracts' replay/final-admission policy gates.

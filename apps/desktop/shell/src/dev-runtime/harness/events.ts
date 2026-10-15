@@ -28,6 +28,7 @@ import type {
 import { createDurableJsonStore } from '../host-store'
 import {
   decodeRuntimeEvent,
+  validateRuntimeEventReplayCandidate,
   isRuntimeCallEventKind,
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 import {
@@ -71,10 +72,16 @@ function compareRetentionOrder(left: RuntimeEvent, right: RuntimeEvent): number 
   return left.eventId.localeCompare(right.eventId)
 }
 
-function dedupeKey(
-  event: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
-): string {
-  return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
+function sameSourceEvent(
+  left: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>,
+  right: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
+): boolean {
+  return (
+    left.runtimeSessionId === right.runtimeSessionId &&
+    left.generation === right.generation &&
+    left.source === right.source &&
+    left.sourceEventId === right.sourceEventId
+  )
 }
 
 export type SessionEventInput = Readonly<{
@@ -165,12 +172,10 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
-    decodeRuntimeEvent(candidate, { source })
-    if (isRuntimeCallEventKind(candidate.kind)) {
-      candidate = snapshotCallEvent(candidate)
-      validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
-    }
-    const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
+    // A retry does not create a new envelope: validate facts before comparison,
+    // and charge the new host sequence/frame budget only for a new record.
+    validateRuntimeEventReplayCandidate(candidate, { source })
+    const duplicate = records.find((event) => sameSourceEvent(event, candidate))
     if (duplicate) {
       const sameCallMetadata =
         !isRuntimeCallEventKind(candidate.kind) ||
@@ -183,6 +188,10 @@ export function createSessionEventLog(input: {
         JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload) &&
         sameCallMetadata
       ) {
+        if (isRuntimeCallEventKind(candidate.kind)) {
+          const replay = snapshotCallEvent(duplicate)
+          validateCallEventAdmission(replay, records, input.verifyCallPermissionEligibility)
+        }
         return undefined
       }
       throw {
@@ -191,6 +200,11 @@ export function createSessionEventLog(input: {
         message:
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
+    }
+    decodeRuntimeEvent(candidate, { source })
+    if (isRuntimeCallEventKind(candidate.kind)) {
+      candidate = snapshotCallEvent(candidate)
+      validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
     }
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.

@@ -8,6 +8,7 @@ import {
   sha256Pattern,
   stringValue,
 } from './dev-runtime-validation-internal'
+import { assertJsonUnicode } from './dev-runtime-unicode'
 
 export const runtimeCallEventKinds = [
   'tool.requested',
@@ -161,5 +162,6 @@ export function decodeRuntimeCallPayload(
   for (const key of ['input', 'output'] as const) {
     if (Object.hasOwn(item, key)) decodeData(item[key], `${path}.${key}`)
   }
+  assertJsonUnicode(value, path)
   return value as RuntimeCallPayload
 }

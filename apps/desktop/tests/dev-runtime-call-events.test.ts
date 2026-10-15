@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { encodeCbor } from '../../../packages/types/src/dev-runtime-wire'
 
 import {
   createSessionEventLog,
@@ -46,6 +47,75 @@ const callPayload = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('call admission into the canonical event log', () => {
+  test('retry exemptions require the exact source tuple rather than a delimiter collision', () => {
+    const { log } = setup()
+    const first = log.append(
+      observation({ runtimeSessionId: 's', sourceEventId: 'x\u00002\u0000native\u0000y' })
+    )
+    const second = log.append(
+      observation({
+        runtimeSessionId: 's\u00001\u0000acp\u0000x',
+        generation: 2,
+        source: 'native',
+        sourceEventId: 'y',
+      })
+    )
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(log.events()).toHaveLength(2)
+  })
+  test('an exactly fitting call at sequence 9 retries without consuming sequence 10 or bypassing eligibility', () => {
+    for (const permissionEligibility of ['unknown', 'not_required']) {
+      let eligible = true
+      const { log } = setup({ verifyCallPermissionEligibility: () => eligible })
+      let seed
+      for (let index = 1; index <= 8; index += 1)
+        seed = log.append(observation({ sourceEventId: `source-${index}` }))
+      if (!seed) throw new Error('expected a seed event')
+      const data = () => ({ type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] })
+      const payload = {
+        schemaVersion: 1,
+        callId: 'call-1',
+        phase: 'completed',
+        permissionEligibility,
+        input: data(),
+        output: data(),
+      }
+      const probe = {
+        ...seed,
+        kind: 'tool.completed',
+        seq: '9',
+        sourceEventId: 'source-9',
+        payload,
+      }
+      payload.output.value[1] = payload.output.value[1]!.slice(
+        0,
+        -(encodeCbor(probe).byteLength - 65_536)
+      )
+      expect(encodeCbor(probe).byteLength).toBe(65_536)
+      const value = observation({ kind: 'tool.completed', sourceEventId: 'source-9', payload })
+      const accepted = log.append(value)
+      expect(accepted?.seq).toBe('9')
+      const retained = log.events()
+      expect(log.append(value)).toBeUndefined()
+      if (permissionEligibility === 'not_required') {
+        eligible = false
+        expect(() => log.append(value)).toThrow('permissionEligibility')
+        eligible = true
+      }
+      expect(() => log.append({ ...value, sourceEventId: 'source-X' })).toThrow('CBOR')
+      payload.output.value[0] = `y${payload.output.value[0]!.slice(1)}`
+      let refusal: unknown
+      try {
+        log.append(value)
+      } catch (error) {
+        refusal = error
+      }
+      expect(refusal).toMatchObject({ code: 'idempotency_conflict' })
+      expect(log.events()).toEqual(retained)
+      expect(log.latestSequence('session-1')).toBe('9')
+    }
+  })
   test('refuses opaque and invalid calls before persistence, sequence or subscriber effects', () => {
     const { log, create } = setup()
     let delivered = 0

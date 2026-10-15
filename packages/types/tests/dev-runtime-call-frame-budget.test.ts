@@ -5,6 +5,27 @@ import { decodeRuntimeCallEvent, decodeRuntimeEvent, encodeCbor } from '../src/d
 
 const data = () => ({ type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] })
 
+test('call payloads, envelope identifiers and CBOR text refuse lone surrogates losslessly', () => {
+  const observed = event()
+  observed.payload.input.value = ['\ud800']
+  observed.payload.output.value = ['okay']
+  expect(() => {
+    decodeRuntimeCallPayload(observed.payload, 'tool.completed')
+  }).toThrow('Unicode')
+  expect(() => {
+    decodeRuntimeCallEvent(observed, { source: 'acp' })
+  }).toThrow('Unicode')
+  expect(() => {
+    encodeCbor('\ud801')
+  }).toThrow('Unicode')
+  observed.payload.input.value = ['😀�']
+  expect(decodeRuntimeCallEvent(observed, { source: 'acp' })).toEqual(observed)
+  observed.sourceEventId = '\ud800'
+  expect(() => {
+    decodeRuntimeCallEvent(observed, { source: 'acp' })
+  }).toThrow('Unicode')
+})
+
 function event() {
   return {
     schemaVersion: 1,
