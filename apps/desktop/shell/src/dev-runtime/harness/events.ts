@@ -98,6 +98,9 @@ function sameScope(left: Scope, right: Scope): boolean {
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
+  // Queue rows must pass the strict shared wire decoder before replay. Legacy
+  // rows of other kinds retain their existing opaque projection behavior.
+  if (rest.kind === 'queue.updated') return decodeRuntimeEvent(rest, { source: rest.source })
   if (isVersionedCall(rest))
     return snapshotCallEvent(decodeRuntimeEvent(rest, { source: rest.source }))
   return { ...rest }

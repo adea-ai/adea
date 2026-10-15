@@ -192,6 +192,28 @@ the cloud content-ref schema to admit `memory_entry` and lands separately.
 memory records fail authentication and report as `unreadable`, the same
 documented gap as the rest of the transitional store.
 
+## Queued follow-up content
+
+Dev Runtime #1393 stores bounded generation-fenced queued text in sealed
+scope-digest files under `dev-runtime/harness/follow-ups/`. It reads the existing
+`desktop-state/device.key` without creating, rotating, overwriting, or chmodding
+key material. AES-256-GCM nonces are fresh per write; AAD binds format, full
+account/workspace/node scope, session, and generation. Prompts and idempotency
+receipts are encrypted together; queue events expose only IDs, ordering, byte
+counts, state and outcome metadata. Authorized snapshots may return text to
+their own workspace. Missing key and authentication failures are explicit;
+they never create new keys or a plaintext fallback.
+
+The existing workspace deletion receipt and pause/idle gates own removal. Its
+data plan authenticates the queue's exact scope and refuses active mutation
+locks or unreadable ciphertext before any workspace data is deleted. Purge
+removes only that scope's queue file, preserving sibling data and the reusable
+device key. Retained corruption copies or stranded writes also block queue use
+and deletion after the original file has gone; missing data is not mistaken
+for a fresh empty queue. The precise bounded queue, replay, Stop and delivery semantics are
+in [Dev Runtime](./dev-runtime.md#authorized-queued-follow-ups-1393). This is
+transitional device-key storage, not the OS-keyring/SQLite local-content target.
+
 ## Cloud replica boundary
 
 When a workspace enables `agent_hq_e2ee_sync`, the local authority may publish

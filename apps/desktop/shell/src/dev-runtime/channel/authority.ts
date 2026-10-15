@@ -518,6 +518,36 @@ export function createChannelAuthority(options?: {
 
   // ── dev.* command execution (dev.runtime.execute.v1) ─────────────────────
 
+  /** Provider-only re-admission after waiting for a mutation lock. This does
+   * not dispatch or consume a nonce; the original call already passed the gate.
+   * Its returned synchronous fence remains bound to that channel and expiry. */
+  async function reauthorizeCommand(
+    command: DevCommand,
+    identity?: ChannelIdentity
+  ): Promise<() => void> {
+    const decoded = decodeDevCommand(command)
+    const assertCurrent = () => {
+      if (identity) channelFor(identity)
+      if (Date.parse(decoded.expiresAt) < now())
+        throw new ChannelRejection('token_expired', 'command expired before provider effect', 401)
+      options?.assertCommandAllowed?.(decoded)
+    }
+    assertCurrent()
+    if (options?.authorizeCommand) {
+      try {
+        await options.authorizeCommand(decoded, identity)
+      } catch (error) {
+        throw new ChannelRejection(
+          error instanceof ChannelRejection ? error.code : 'channel_unauthenticated',
+          error instanceof Error ? error.message : 'command scope is not authorized',
+          403
+        )
+      }
+    }
+    assertCurrent()
+    return assertCurrent
+  }
+
   /**
    * The M10 gate, in the order the Dev Runtime spec pins it:
    * 1. channel credential/signature and trusted client identity;
@@ -1098,6 +1128,7 @@ export function createChannelAuthority(options?: {
     authenticateLegacyRequest,
     legacyProofMessage,
     execute,
+    reauthorizeCommand,
     inFlightCommands: (scope: Scope) => inFlight.get(scopeKey(scope)) ?? 0,
     dispatchLocal,
     capabilitySnapshot,

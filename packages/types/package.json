@@ -46,6 +46,11 @@
       "development": "./src/dev-runtime-activity/index.ts",
       "import": "./dist/dev-runtime-activity/index.js"
     },
+    "./dev-runtime-follow-ups": {
+      "types": "./dist/dev-runtime-follow-ups.d.ts",
+      "development": "./src/dev-runtime-follow-ups.ts",
+      "import": "./dist/dev-runtime-follow-ups.js"
+    },
     "./dev-runtime-registry-dto": {
       "types": "./dist/dev-runtime-registry-dto.d.ts",
       "development": "./src/dev-runtime-registry-dto.ts",

@@ -36,6 +36,11 @@ import { cborByteLength } from './dev-runtime-cbor-length'
 import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
 import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 import {
+  decodeFollowUpQueueEventPayload,
+  type FollowUpQueueEventPayload,
+} from './dev-runtime-follow-up-event'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+import {
   decodeRuntimeUsageObservedPayload,
   usageDataRecord,
   type RuntimeUsageObservedPayload,
@@ -102,6 +107,7 @@ export const runtimeEventKinds = [
   'checkpoint.observed',
   'subagent.observed',
   'usage.observed',
+  'queue.updated',
   'terminal.command_started',
   'terminal.command_finished',
   'terminal.cwd_changed',
@@ -136,9 +142,11 @@ export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readon
   kind: K
   payload: K extends 'usage.observed'
     ? RuntimeUsageObservedPayload
-    : K extends RuntimeActivityEventKind
-      ? RuntimeActivityPayloads[K]
-      : unknown
+    : K extends 'queue.updated'
+      ? FollowUpQueueEventPayload
+      : K extends RuntimeActivityEventKind
+        ? RuntimeActivityPayloads[K]
+        : unknown
 }>
 
 /** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
@@ -146,7 +154,7 @@ export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
 
 export function assertRuntimeEventFrameSize(event: RuntimeEvent, failureMessage?: string): void {
   if (cborByteLength(event) > RUNTIME_EVENT_CBOR_BYTES_MAX)
-    fail('event', failureMessage ?? 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+    fail('event', failureMessage ?? 'CBOR limit: 64 KiB')
 }
 
 export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
@@ -256,7 +264,7 @@ export function validateRuntimeActivityReplayCandidate(
 }
 
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
-  if (depth > 32) fail(path, 'maximum nesting depth exceeded')
+  if (depth > 32) fail(path, 'nesting too deep')
   if (typeof value === 'string') {
     stringValue(value, path, 0, 65_536)
     assertWellFormedUnicode(value, path)
@@ -297,7 +305,7 @@ type EventSemantics = Readonly<{
   early(
     item: Record<string, unknown>,
     enforceEnvelopeBounds: boolean
-  ): RuntimeUsageObservedPayload | undefined
+  ): RuntimeUsageObservedPayload | FollowUpQueueEventPayload | undefined
   late(item: Record<string, unknown>): void
 }>
 
@@ -317,6 +325,17 @@ const eventSemantics: EventSemantics = {
     if (isVersionedActivityClaim(item)) {
       validateActivity(item, enforceEnvelopeBounds)
     }
+    let queuePayload: FollowUpQueueEventPayload | undefined
+    if (item.kind === 'queue.updated') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'queue facts require the authoritative host')
+      queuePayload = decodeFollowUpQueueEventPayload(item.payload)
+      if (
+        queuePayload.runtimeSessionId !== item.runtimeSessionId ||
+        queuePayload.generation !== item.generation
+      )
+        fail('event.payload', 'queue identity does not match event')
+    }
     const interaction = decodeRuntimeInteractionPayload(kind, item.payload)
     if (interaction) {
       if (item.confidence !== 'authoritative')
@@ -331,7 +350,7 @@ const eventSemantics: EventSemantics = {
         fail('event.confidence', 'usage observations require authoritative reported figures')
       return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
     }
-    return undefined
+    return queuePayload
   },
   late(item) {
     validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
@@ -365,11 +384,11 @@ export function decodeRuntimeEvent(
 }
 
 /**
- * Lean browser decoder: authenticated envelope, generic payload bounds and the
- * full-frame bound for versioned call claims. It never interprets a kind's
- * payload, so a consumer that renders or acts on one must narrow it with the
- * explicit contract (for example `decodeRuntimeCallEvent`). Host admission and
- * persistence use `decodeRuntimeEvent`.
+ * Lean browser decoder: authenticated envelope, generic payload bounds and
+ * focused checks for privacy- and authority-sensitive event claims. Other
+ * kind-specific payloads remain opaque unless a consumer narrows them through
+ * the explicit contract (for example `decodeRuntimeCallEvent`). Host admission
+ * and persistence use `decodeRuntimeEvent`.
  */
 export function decodeRuntimeEnvelope(
   value: unknown,
@@ -442,6 +461,22 @@ function decodeEventEnvelope(
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
+  if (!semantics && item.kind === 'queue.updated') {
+    const queue = usageDataRecord(item.payload, 'event.payload')
+    if (
+      item.source !== 'host' ||
+      item.confidence !== 'authoritative' ||
+      queue.schemaVersion !== 1 ||
+      queue.runtimeSessionId !== item.runtimeSessionId ||
+      queue.generation !== item.generation ||
+      !Object.hasOwn(queue, 'version') ||
+      !Array.isArray(queue.items) ||
+      !Object.hasOwn(queue, 'change') ||
+      Object.hasOwn(queue, 'text') ||
+      queue.items.some((entry) => 'text' in (entry as object))
+    )
+      fail('event', 'invalid')
+  }
   if (item.source === 'terminal_fallback') {
     if (item.confidence === 'authoritative')
       fail('event.confidence', 'terminal fallback cannot be authoritative')
@@ -453,26 +488,24 @@ function decodeEventEnvelope(
       'terminal.cwd_changed',
       'terminal.transcript_reference',
     ]
-    if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
-      fail('event.kind', 'terminal fallback cannot synthesize this event kind')
+    if (!fallbackKinds.includes(item.kind as RuntimeEventKind)) fail('event.kind', 'event kind')
   }
   // Retained legacy events remain opaque. Complete decoding applies every
   // kind-specific contract; the lean decoder keeps whole-frame bounds for
   // versioned call and activity claims without interpreting their payloads.
-  const decodedUsage = semantics?.early(item, enforceEnvelopeBounds)
+  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds)
   if (
     !semantics &&
     enforceEnvelopeBounds &&
     (isVersionedCallClaim(item) || isVersionedActivityClaim(item))
   )
     assertRuntimeEventFrameSize(item as RuntimeEvent)
-  const payload = decodedUsage ?? item.payload
+  const payload = decodedPayload ?? item.payload
   validateEventPayload(payload, 'event.payload')
   semantics?.late({ ...item, payload })
   if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
-    fail('event.payload', 'maximum encoded size exceeded')
-  if (decodedUsage)
-    return Object.freeze({ ...(value as RuntimeEvent), payload: decodedUsage }) as RuntimeEvent
+    fail('event.payload', 'too large')
+  if (decodedPayload) return Object.freeze({ ...(value as RuntimeEvent), payload }) as RuntimeEvent
   return value as RuntimeEvent
 }
 
@@ -625,7 +658,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
     const major = first >> 5
     const info = first & 0x1f
     if (info < 24) return { major, value: BigInt(info) }
-    if (info > 27) fail('cbor', `unsupported additional information ${info}`)
+    if (info > 27) fail('cbor', `bad CBOR info ${info}`)
     const value = read(1 << (info - 24))
     if (value < [24n, 256n, 65_536n, 4_294_967_296n][info - 24]!)
       fail('cbor', 'non-shortest integer head')
@@ -684,7 +717,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       try {
         return cborDecoder.decode(slice)
       } catch {
-        return fail('cbor', 'invalid UTF-8 text string')
+        return fail('cbor', 'invalid UTF-8')
       }
     }
     if (major === 4) {
@@ -701,9 +734,8 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         const keyStart = offset
         const key = decode()
         const keyBytes = bytes.slice(keyStart, offset)
-        if (typeof key !== 'string') fail('cbor', 'map keys must be text strings')
-        if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
-          fail('cbor', 'map keys are not canonically ordered')
+        if (typeof key !== 'string') fail('cbor', 'text map keys')
+        if (previousKey && compareBytes(previousKey, keyBytes) >= 0) fail('cbor', 'bad map order')
         previousKey = keyBytes
         if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
         Object.defineProperty(out, key, {
@@ -715,7 +747,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       }
       return out
     }
-    if (major === 6) fail('cbor', 'tags are not part of the frame vocabulary')
+    if (major === 6) fail('cbor', 'unsupported CBOR')
     return fail('cbor', `unsupported major type ${major}`)
   }
   const value = decode()

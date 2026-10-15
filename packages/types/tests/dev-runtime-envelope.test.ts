@@ -226,7 +226,7 @@ describe('lean envelope decoder', () => {
     expect(decodeRuntimeEnvelope(legacy, provenance)).toBe(legacy)
   })
 
-  test('the browser entry bundle excludes every kind-specific validator', async () => {
+  test('the browser entry excludes unrelated kind validators while retaining envelope checks', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
     try {
       const entry = join(directory, 'entry.ts')
@@ -239,9 +239,9 @@ describe('lean envelope decoder', () => {
       const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
       expect(result.success).toBe(true)
       const text = await result.outputs[0]!.text()
-      // Interaction, attachment and any later contract validators belong behind
-      // `eventSemantics` in dev-runtime-wire.ts; reaching them from the lean
-      // decoder moves their bytes into the shared utility bundle.
+      // Queue.updated gets a compact required-field and privacy check in the
+      // lean decoder; the full queue decoder, interactions, attachments and
+      // other kind-specific contracts remain behind `eventSemantics`.
       for (const marker of [
         'call observations require',
         'expected opaque call identifier',
