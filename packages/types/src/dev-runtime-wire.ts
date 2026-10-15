@@ -119,7 +119,9 @@ export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
-  const item = record(value, 'event')
+  // A programmatic discriminator must be inert before ANY field is read.
+  // Otherwise a changing `kind` getter can select a different validation path.
+  const item = usageDataRecord(value, 'event')
   exactKeys(
     item,
     [
@@ -179,7 +181,6 @@ export function decodeRuntimeEvent(
   }
   let usage: RuntimeUsageObservedPayload | undefined
   if (item.kind === 'usage.observed') {
-    usageDataRecord(item, 'event')
     if (item.confidence !== 'authoritative')
       fail('event.confidence', 'usage observations require authoritative reported figures')
     usage = decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)

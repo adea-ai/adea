@@ -38,6 +38,26 @@ function event(usage: unknown = payload) {
 const decode = (usage: unknown) => decodeRuntimeEvent(event(usage), { source: 'native' })
 
 describe('usage.observed contract', () => {
+  test('rejects envelope accessors before reading any discriminator or provenance', () => {
+    for (const key of ['kind', 'source', 'confidence', 'generation', 'payload']) {
+      let reads = 0
+      const raw = { ...event({}) }
+      Object.defineProperty(raw, key, {
+        enumerable: true,
+        get: () => {
+          reads += 1
+          return key === 'kind'
+            ? reads <= 2
+              ? 'run.ready'
+              : 'usage.observed'
+            : event({})[key as keyof typeof raw]
+        },
+      })
+      expect(() => decodeRuntimeEvent(raw, { source: 'native' })).toThrow()
+      expect(reads).toBe(0)
+    }
+  })
+
   test('refuses accessors and serialization hooks in usage records', () => {
     for (const key of ['model', 'context', 'breakdown', 'cost']) {
       const value = { ...payload }

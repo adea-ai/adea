@@ -1397,6 +1397,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       if (RUN_TERMINAL_STATES.includes(run.state)) {
         throw devError('already_completed', `harness run is already ${run.state}`)
       }
+      // Refuse quarantined history before mutating its run projection.
+      events.latestSequence(session.id, session.generation)
       const observedAt = iso()
       const next = runs.observe({
         runId: run.id,
@@ -1573,9 +1575,27 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         throw devError('identity_mismatch', 'harness run belongs to another runtime session')
       }
       requireLaunchInstallation(prior.installationId)
+      // Explicit resume is a recovery path for incompatible retained usage.
+      // Decide before changing the old run; its quarantined log stays intact.
+      let priorGenerationRequiresRecovery = false
+      try {
+        events.latestSequence(session.id, session.generation)
+      } catch (error) {
+        if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+        priorGenerationRequiresRecovery = true
+      }
       // Resume creates a new run generation under the SAME session; it never
       // reuses the stale run's write authority.
-      if (RUN_ACTIVE_STATES.includes(prior.state)) {
+      const disconnectPrior = RUN_ACTIVE_STATES.includes(prior.state)
+      const recordDisconnection = (target: RuntimeSession) =>
+        appendEventFact({
+          session: target,
+          harnessRunId: prior.id,
+          kind: 'run.disconnected',
+          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
+          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
+        })
+      if (disconnectPrior) {
         runs.observe({
           runId: prior.id,
           to: 'disconnected',
@@ -1583,13 +1603,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           observedAt: iso(),
           detail: 'superseded by resume',
         })
-        appendEventFact({
-          session: { ...session, generation: session.generation },
-          harnessRunId: prior.id,
-          kind: 'run.disconnected',
-          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
-          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
-        })
+        if (!priorGenerationRequiresRecovery) recordDisconnection(session)
       }
       const run = createRun({
         session,
@@ -1605,6 +1619,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         activeHarnessRunId: run.id,
         lifecycle: 'active',
       })
+      // Reconcile the superseded run in the new generation instead of trying
+      // to append into an intentionally quarantined generation mid-resume.
+      if (disconnectPrior && priorGenerationRequiresRecovery) recordDisconnection(nextSession)
       appendEventFact({
         session: nextSession,
         harnessRunId: run.id,

@@ -2864,7 +2864,14 @@ type RuntimeUsageObservedPayload = {
   original durable bytes for operator review/export. Recovery requires
   source-backed compatible records that preserve canonical IDs and sequences,
   or an explicitly authorized resume/new generation; a new generation does
-  not make the quarantined history readable. Do not delete a single row or
+  not make the quarantined history readable. Resume preflights the old
+  generation before mutating the run; when quarantined, it records the
+  superseded run's disconnection in the new generation and completes in that
+  command. Repeating the old generation-bound request is stale and cannot
+  create another run. Ordinary status changes refuse before mutating a
+  quarantined generation. Command refusals project the typed error onto the
+  strict wire fields, including the message, on both dispatch lanes.
+  Do not delete a single row or
   resequence the log to bypass recovery. Normal bounded retention still
   applies; this contract adds no unbounded quarantine store or hidden copy.
 - Consumers key observations by session, generation and provider/model, use
