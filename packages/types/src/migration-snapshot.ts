@@ -98,6 +98,9 @@ export const migrationSnapshotFamilies = [
   'contentReplicas',
   'events',
   'executionAttempts',
+  'groupAdmissions',
+  'groupAudienceGrants',
+  'groupEnlistmentGrants',
   'identityBindings',
   'invitations',
   'leadTurnRuntime',
@@ -366,6 +369,55 @@ export type ArtifactReferenceGrantSnapshotRecord = Readonly<{
   version: number
 }>
 
+/**
+ * One retained group admission: where a human or Agent joined a group and the exact grant that admitted
+ * them. The join frontier and the authorizing (group, grant, revision) are the facts a roster read decides
+ * on; the admission instant is a timestamp and never travels.
+ */
+export type GroupAdmissionSnapshotRecord = Readonly<{
+  family: 'groupAdmissions'
+  authGrantId: string
+  authGroupId: string
+  authRevision: number
+  channelId: string
+  joinedSequence: number
+  principalId: string
+  principalKind: MigrationParticipantKind
+  workspaceId: string
+}>
+
+/** A durable human audience grant for one group. Issue, expiry and revocation instants travel verbatim. */
+export type GroupAudienceGrantSnapshotRecord = Readonly<{
+  family: 'groupAudienceGrants'
+  channelId: string
+  /** The persisted expiry, verbatim; `null` means the grant does not expire. */
+  expiresAt: string | null
+  grantId: string
+  /** The persisted issue instant, verbatim: the policy compares it as a string, so a change is a change in what the grant authorizes. */
+  issuedAt: string
+  revision: number
+  /** The persisted revocation instant, verbatim; `null` means never revoked. A time is compared, never flattened to a flag. */
+  revokedAt: string | null
+  userId: string
+  workspaceId: string
+}>
+
+/** A durable Agent enlistment grant for one group. Issue, expiry and revocation instants travel verbatim. */
+export type GroupEnlistmentGrantSnapshotRecord = Readonly<{
+  family: 'groupEnlistmentGrants'
+  agentId: string
+  channelId: string
+  /** The persisted expiry, verbatim; `null` means the grant does not expire. */
+  expiresAt: string | null
+  grantId: string
+  /** The persisted issue instant, verbatim: the policy compares it as a string, so a change is a change in what the grant authorizes. */
+  issuedAt: string
+  revision: number
+  /** The persisted revocation instant, verbatim; `null` means never revoked. A time is compared, never flattened to a flag. */
+  revokedAt: string | null
+  workspaceId: string
+}>
+
 /** A retained content replica's metadata; ciphertext and nonce never travel. */
 export type ContentReplicaSnapshotRecord = Readonly<{
   family: 'contentReplicas'
@@ -471,6 +523,9 @@ export type MigrationSnapshotRecord =
   | ContentReplicaSnapshotRecord
   | EventSnapshotRecord
   | ExecutionAttemptSnapshotRecord
+  | GroupAdmissionSnapshotRecord
+  | GroupAudienceGrantSnapshotRecord
+  | GroupEnlistmentGrantSnapshotRecord
   | IdentityBindingSnapshotRecord
   | InvitationSnapshotRecord
   | LeadTurnRuntimeSnapshotRecord
@@ -659,6 +714,19 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === 'boolean'
+}
+
+/** A persisted instant: a non-empty string that parses as an instant. */
+function isTimestamp(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
+}
+
+/** A persisted expiry: `null` (never expires) or a non-empty string that parses as an instant. */
+function isNullableTimestamp(value: unknown): boolean {
+  return (
+    value === null ||
+    (typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value)))
+  )
 }
 
 function isInList<T extends string>(value: unknown, values: readonly T[]): value is T {
@@ -1009,6 +1077,42 @@ export function migrationSnapshotRecordIssue(
         check('version', isNonNegativeSafeInteger(record.version) && record.version > 0),
         check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
         check('revoked', isBoolean(record.revoked)),
+      ])
+    case 'groupAdmissions':
+      return firstIssue([
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('principalId', record.principalId),
+        enumField('principalKind', record.principalKind, migrationParticipantKinds),
+        check('joinedSequence', isNonNegativeSafeInteger(record.joinedSequence)),
+        identifierField('authGroupId', record.authGroupId),
+        identifierField('authGrantId', record.authGrantId),
+        check(
+          'authRevision',
+          isNonNegativeSafeInteger(record.authRevision) && record.authRevision > 0
+        ),
+      ])
+    case 'groupAudienceGrants':
+      return firstIssue([
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('grantId', record.grantId),
+        identifierField('userId', record.userId),
+        check('issuedAt', isTimestamp(record.issuedAt)),
+        check('expiresAt', isNullableTimestamp(record.expiresAt)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
+        check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
+      ])
+    case 'groupEnlistmentGrants':
+      return firstIssue([
+        identifierField('channelId', record.channelId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('grantId', record.grantId),
+        identifierField('agentId', record.agentId),
+        check('issuedAt', isTimestamp(record.issuedAt)),
+        check('expiresAt', isNullableTimestamp(record.expiresAt)),
+        check('revokedAt', isNullableTimestamp(record.revokedAt)),
+        check('revision', isNonNegativeSafeInteger(record.revision) && record.revision > 0),
       ])
     case 'contentReplicas':
       return firstIssue([

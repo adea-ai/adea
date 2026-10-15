@@ -100,6 +100,9 @@ describe.skipIf(!provisioned)('registered legacy snapshot capture (#1222)', () =
         reason: expect.any(String),
         table: 'artifact_reference_grants',
       },
+      groupAdmissions: { reason: expect.any(String), table: 'group_admissions' },
+      groupAudienceGrants: { reason: expect.any(String), table: 'group_audience_grants' },
+      groupEnlistmentGrants: { reason: expect.any(String), table: 'group_enlistment_grants' },
     })
     expect(Object.keys(result.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(result.document.identity).toEqual({

@@ -171,6 +171,42 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         sourceWorkspaceId: 'wsp-1',
         version: 1,
       }
+    case 'groupAdmissions':
+      return {
+        authGrantId: 'grant-1',
+        authGroupId: 'group-1',
+        authRevision: 1,
+        channelId: 'ch-1',
+        family: 'groupAdmissions',
+        joinedSequence: 0,
+        principalId: 'user-1',
+        principalKind: 'user',
+        workspaceId: 'wsp-1',
+      }
+    case 'groupAudienceGrants':
+      return {
+        channelId: 'ch-1',
+        expiresAt: null,
+        family: 'groupAudienceGrants',
+        grantId: 'grant-1',
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        revokedAt: null,
+        revision: 1,
+        userId: 'user-1',
+        workspaceId: 'wsp-1',
+      }
+    case 'groupEnlistmentGrants':
+      return {
+        agentId: 'agent-1',
+        channelId: 'ch-1',
+        expiresAt: null,
+        family: 'groupEnlistmentGrants',
+        grantId: 'grant-1',
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        revokedAt: null,
+        revision: 1,
+        workspaceId: 'wsp-1',
+      }
     case 'contentReplicas':
       return {
         availability: 'available',
@@ -288,7 +324,7 @@ describe('migration snapshot contract constants', () => {
   })
 
   test('every record family a migration must inventory is present, sorted and unique', () => {
-    expect(migrationSnapshotFamilies.length).toBe(22)
+    expect(migrationSnapshotFamilies.length).toBe(25)
     expect(isSorted([...migrationSnapshotFamilies])).toBe(true)
     expect(new Set(migrationSnapshotFamilies).size).toBe(migrationSnapshotFamilies.length)
     for (const family of [
@@ -300,6 +336,9 @@ describe('migration snapshot contract constants', () => {
       'contentReplicas',
       'events',
       'executionAttempts',
+      'groupAdmissions',
+      'groupAudienceGrants',
+      'groupEnlistmentGrants',
       'identityBindings',
       'invitations',
       'leadTurnRuntime',
@@ -413,6 +452,23 @@ describe('migration snapshot record validation', () => {
       [withoutField(validRecord('channels'), 'visibility'), 'visibility'],
       [withoutField(validRecord('projects'), 'workspaceId'), 'workspaceId'],
       [withoutField(validRecord('channelParticipants'), 'principalId'), 'principalId'],
+      [withoutField(validRecord('groupAdmissions'), 'authGrantId'), 'authGrantId'],
+      [withField(validRecord('groupAdmissions'), 'authRevision', 0), 'authRevision'],
+      [withField(validRecord('groupAdmissions'), 'joinedSequence', -1), 'joinedSequence'],
+      [withoutField(validRecord('groupAdmissions'), 'principalId'), 'principalId'],
+      [withoutField(validRecord('groupAudienceGrants'), 'userId'), 'userId'],
+      [withField(validRecord('groupAudienceGrants'), 'revision', 0), 'revision'],
+      [withField(validRecord('groupAudienceGrants'), 'expiresAt', 'not-a-date'), 'expiresAt'],
+      [withoutField(validRecord('groupAudienceGrants'), 'expiresAt'), 'expiresAt'],
+      [withField(validRecord('groupAudienceGrants'), 'revokedAt', 'no'), 'revokedAt'],
+      [withField(validRecord('groupAudienceGrants'), 'revokedAt', true), 'revokedAt'],
+      [withoutField(validRecord('groupAudienceGrants'), 'issuedAt'), 'issuedAt'],
+      [withField(validRecord('groupAudienceGrants'), 'issuedAt', ''), 'issuedAt'],
+      [withoutField(validRecord('groupEnlistmentGrants'), 'agentId'), 'agentId'],
+      [withField(validRecord('groupEnlistmentGrants'), 'revision', 1.5), 'revision'],
+      [withField(validRecord('groupEnlistmentGrants'), 'expiresAt', 42), 'expiresAt'],
+      [withoutField(validRecord('groupEnlistmentGrants'), 'revokedAt'), 'revokedAt'],
+      [withField(validRecord('groupEnlistmentGrants'), 'issuedAt', 'not-a-date'), 'issuedAt'],
     ]
     for (const [record, field] of cases) {
       const issue = migrationSnapshotRecordIssue(record)
@@ -430,6 +486,7 @@ describe('migration snapshot record validation', () => {
       [withField(validRecord('projects'), 'visibility', 'everyone'), 'visibility'],
       [withField(validRecord('channels'), 'visibility', 'secret'), 'visibility'],
       [withField(validRecord('channelParticipants'), 'principalKind', 'ghost'), 'principalKind'],
+      [withField(validRecord('groupAdmissions'), 'principalKind', 'ghost'), 'principalKind'],
       [withField(validRecord('agents'), 'lifecycleState', 'zombie'), 'lifecycleState'],
       [withField(validRecord('tasks'), 'lifecycleState', 'deleted'), 'lifecycleState'],
       [withField(validRecord('contentRefs'), 'availability', 'cached'), 'availability'],

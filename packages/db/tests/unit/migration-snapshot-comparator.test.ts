@@ -253,6 +253,51 @@ const grant = (
   ...overrides,
 })
 
+const admission = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupAdmissions' }>> = {}
+): MigrationSnapshotRecord => ({
+  authGrantId: 'grant-1',
+  authGroupId: 'group-1',
+  authRevision: 1,
+  channelId: 'ch-1',
+  family: 'groupAdmissions',
+  joinedSequence: 0,
+  principalId: 'user-1',
+  principalKind: 'user',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const audienceGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupAudienceGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupAudienceGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  revokedAt: null,
+  revision: 1,
+  userId: 'user-1',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const enlistmentGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupEnlistmentGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  agentId: 'agent-1',
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupEnlistmentGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  revokedAt: null,
+  revision: 1,
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
 /**
  * One drift mutation per captured field the root review found uncompared.
  * Every case must be a determinate, non-identical finding on the exact field:
@@ -334,6 +379,142 @@ const FIELD_DRIFT_CASES: ReadonlyArray<{
     expectedClass: 'changed_attribute',
     family: 'artifactReferenceGrants',
     field: 'expiresAt',
+  },
+  // Every captured non-identity field of the group families (#1222) has a drift case.
+  {
+    after: admission({ joinedSequence: 4 }),
+    before: admission(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAdmissions',
+    field: 'joinedSequence',
+  },
+  {
+    after: admission({ authGrantId: 'grant-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'authGrantId',
+  },
+  {
+    after: admission({ authGroupId: 'group-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'authGroupId',
+  },
+  {
+    after: admission({ workspaceId: 'wsp-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'workspaceId',
+  },
+  {
+    after: admission({ authRevision: 2 }),
+    before: admission(),
+    expectedClass: 'digest_drift',
+    family: 'groupAdmissions',
+    field: 'authRevision',
+  },
+  {
+    after: audienceGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'revokedAt',
+  },
+  {
+    // A moved revocation instant is not a flag flip: both sides are revoked, only the time differs.
+    after: audienceGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: audienceGrant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: audienceGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: audienceGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: audienceGrant({ userId: 'user-2' }),
+    before: audienceGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupAudienceGrants',
+    field: 'userId',
+  },
+  {
+    after: audienceGrant({ workspaceId: 'wsp-2' }),
+    before: audienceGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupAudienceGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: audienceGrant({ revision: 2 }),
+    before: audienceGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupAudienceGrants',
+    field: 'revision',
+  },
+  {
+    after: enlistmentGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'revokedAt',
+  },
+  {
+    // A moved revocation instant is not a flag flip: both sides are revoked, only the time differs.
+    after: enlistmentGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: enlistmentGrant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: enlistmentGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: enlistmentGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: enlistmentGrant({ agentId: 'agent-2' }),
+    before: enlistmentGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupEnlistmentGrants',
+    field: 'agentId',
+  },
+  {
+    after: enlistmentGrant({ workspaceId: 'wsp-2' }),
+    before: enlistmentGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupEnlistmentGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: enlistmentGrant({ revision: 2 }),
+    before: enlistmentGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupEnlistmentGrants',
+    field: 'revision',
   },
 ]
 
@@ -706,6 +887,12 @@ describe('migration snapshot comparator', () => {
           version: 1,
         },
       ]),
+      groupAdmissions: section([
+        admission(),
+        admission({ principalId: 'agent-1', principalKind: 'agent' }),
+      ]),
+      groupAudienceGrants: section([audienceGrant()]),
+      groupEnlistmentGrants: section([enlistmentGrant()]),
       contentReplicas: section([
         {
           availability: 'available',
@@ -1659,6 +1846,83 @@ describe('migration snapshot primitive and top-level array intake bounds', () =>
         findingClass: drift.expectedClass,
       })
     )
+  })
+})
+
+describe('group families in comparison (#1222)', () => {
+  test('a new admission or grant row is widened access; a withdrawn one is a missing record', () => {
+    const grew = compare(
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([audienceGrant()]),
+        groupEnlistmentGrants: section([]),
+      },
+      {
+        groupAdmissions: section([admission(), admission({ principalId: 'user-2' })]),
+        groupAudienceGrants: section([
+          audienceGrant(),
+          audienceGrant({ grantId: 'grant-2', userId: 'user-2' }),
+        ]),
+        groupEnlistmentGrants: section([enlistmentGrant()]),
+      }
+    )
+    expect(familyClasses(grew, 'groupAdmissions')).toEqual(['widened_access'])
+    expect(familyClasses(grew, 'groupAudienceGrants')).toEqual(['widened_access'])
+    expect(familyClasses(grew, 'groupEnlistmentGrants')).toEqual(['widened_access'])
+    const withdrawn = compare(
+      {
+        groupAdmissions: section([admission(), admission({ principalId: 'user-2' })]),
+        groupAudienceGrants: section([audienceGrant()]),
+        groupEnlistmentGrants: section([enlistmentGrant()]),
+      },
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([]),
+        groupEnlistmentGrants: section([]),
+      }
+    )
+    expect(familyClasses(withdrawn, 'groupAdmissions')).toEqual(['missing_record'])
+    expect(familyClasses(withdrawn, 'groupAudienceGrants')).toEqual(['missing_record'])
+    expect(familyClasses(withdrawn, 'groupEnlistmentGrants')).toEqual(['missing_record'])
+    expect(withdrawn.verdict).toBe('divergent')
+  })
+
+  test('an admission is identified by channel, principal kind and principal, never by grant', () => {
+    // The same principal admitted under a different grant is one record whose grant link moved.
+    const remapped = compare(
+      { groupAdmissions: section([admission()]) },
+      { groupAdmissions: section([admission({ authGrantId: 'grant-9' })]) }
+    )
+    expect(familyClasses(remapped, 'groupAdmissions')).toEqual(['remapped_record'])
+    // A user and an Agent that share an id string are distinct admissions.
+    const distinct = compare(
+      { groupAdmissions: section([admission({ principalId: 'same' })]) },
+      {
+        groupAdmissions: section([
+          admission({ principalId: 'same' }),
+          admission({ principalId: 'same', principalKind: 'agent' }),
+        ]),
+      }
+    )
+    expect(familyClasses(distinct, 'groupAdmissions')).toEqual(['widened_access'])
+  })
+
+  test('an unknown principal kind or an unparseable expiry is quarantined, not compared', () => {
+    const ambiguous = compare(
+      {
+        groupAdmissions: section([
+          { ...admission(), principalKind: 'ghost' } as unknown as MigrationSnapshotRecord,
+        ]),
+        groupAudienceGrants: section([audienceGrant({ expiresAt: 'soon' })]),
+      },
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([audienceGrant()]),
+      }
+    )
+    expect(ambiguous.verdict).not.toBe('identical')
+    expect(familyClasses(ambiguous, 'groupAdmissions')).toContain('quarantined_record')
+    expect(familyClasses(ambiguous, 'groupAudienceGrants')).toContain('quarantined_record')
   })
 })
 
