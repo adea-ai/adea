@@ -74,12 +74,23 @@ describe('authorized transcript history storage', () => {
       textTruncated: false,
     })
     expect(transcriptPromptText('bad\ud800text').text).toBe('bad\ufffdtext')
+    const compoundNames = transcriptPromptText(
+      'ACCESS_TOKEN=access-secret refresh_token="refresh-secret" GITHUB_TOKEN=github-secret'
+    ).text
+    expect(compoundNames).not.toContain('access-secret')
+    expect(compoundNames).not.toContain('refresh-secret')
+    expect(compoundNames).not.toContain('github-secret')
     const large = transcriptPromptText('😀'.repeat(5000))
     expect(new TextEncoder().encode(large.text).byteLength).toBe(16_384)
     expect(large.text.endsWith('😀')).toBe(true)
     expect(large.textTruncated).toBe(true)
-    const secret = transcriptPromptText(`${'x'.repeat(16_375)} Bearer abcdefghijklmnopqrstuvwxyz`)
+    const secret = transcriptPromptText(
+      `${'x'.repeat(16_375)} Bearer abcdefghijklmnopqrstuvwxyz ACCESS_TOKEN=access-secret refresh_token: "refresh-secret" GITHUB_TOKEN=github-secret`
+    )
     expect(secret.text).not.toContain('abcdefgh')
+    expect(secret.text).not.toContain('access-secret')
+    expect(secret.text).not.toContain('refresh-secret')
+    expect(secret.text).not.toContain('github-secret')
     expect(transcriptPromptText('-----BEGIN PRIVATE KEY-----\nsecret material')).toEqual({
       text: '[secret redacted]',
       textTruncated: false,
@@ -163,7 +174,13 @@ describe('authorized transcript history storage', () => {
       sourceEventId: 'private',
       kind: 'turn.user_input',
       payload: {
-        text: 'hello Bearer abc.def token-abcdefghijk /Users/alice/private password=hunter2\nnext',
+        text: 'hello Bearer abc.def token-abcdefghijk /Users/alice/private password=hunter2 ACCESS_TOKEN=access-secret refresh_token="refresh-secret" GITHUB_TOKEN=github-secret\nnext',
+        metadata: {
+          access_token: 'nested-access-secret',
+          refreshToken: 'nested-refresh-secret',
+          GITHUB_TOKEN: 'nested-github-secret',
+          message: 'safe text',
+        },
       },
     })
     log.append({
@@ -184,9 +201,27 @@ describe('authorized transcript history storage', () => {
     })
     const page = log.history('session-a', { generation: 1 })
     const json = JSON.stringify(page)
-    for (const secret of ['abc.def', 'token-abcdefghijk', '/Users/alice', 'hunter2', 'invisible'])
+    for (const secret of [
+      'abc.def',
+      'token-abcdefghijk',
+      '/Users/alice',
+      'hunter2',
+      'access-secret',
+      'refresh-secret',
+      'github-secret',
+      'nested-access-secret',
+      'nested-refresh-secret',
+      'nested-github-secret',
+      'invisible',
+    ])
       expect(json).not.toContain(secret)
     expect((page.items[0]!.payload as { text: string }).text).toContain('\nnext')
+    expect((page.items[0]!.payload as { metadata: Record<string, string> }).metadata).toEqual({
+      access_token: '[secret redacted]',
+      refreshToken: '[secret redacted]',
+      GITHUB_TOKEN: '[secret redacted]',
+      message: 'safe text',
+    })
     expect(page.items.slice(1).map((e) => e.payload)).toEqual([{}, {}])
     log.append({
       runtimeSessionId: 'session-a',

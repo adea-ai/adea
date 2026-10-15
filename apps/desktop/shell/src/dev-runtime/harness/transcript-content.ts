@@ -10,7 +10,7 @@ function filteredTranscriptText(text: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [secret redacted]')
     .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}/gi, '[secret redacted]')
     .replace(
-      /\b(?:password|passwd|api[_-]?key|token|secret|authorization)\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
+      /\b[A-Za-z0-9_-]*(?:password|passwd|token|secret|api[_-]?key|access[_-]?key|private[_-]?key|signing[_-]?key|authorization|cookie|credentials?|auth)["']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
       '[secret redacted]'
     )
     .replace(/(\b[a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/@]+@/gi, '$1[secret redacted]@')
@@ -52,8 +52,8 @@ export function transcriptEvent(event: RuntimeEvent): RuntimeEvent {
       return Object.fromEntries(
         Object.entries(value).map(([key, entry]) => [
           key,
-          /^(?:password|passwd|api[_-]?key|token|secret|authorization|cookie|credentials?)$/i.test(
-            key
+          /(?:password|passwd|token|secret|apikey|accesskey|privatekey|signingkey|authorization|cookie|credentials?|auth)$/i.test(
+            key.replace(/[^a-z0-9]/gi, '')
           )
             ? '[secret redacted]'
             : filter(entry, depth + 1),
