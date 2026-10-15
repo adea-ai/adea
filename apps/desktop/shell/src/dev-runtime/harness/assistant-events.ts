@@ -22,8 +22,15 @@ export function assertAssistantEventOrder(
       !isRuntimeAssistantEventKind(event.kind)
     )
       return false
-    // Legacy opaque records cannot establish identity or supersession.
-    return (event.payload as { messageId?: unknown } | null)?.messageId === payload.messageId
+    // A legacy row's messageId alone is not identity evidence. Validate the
+    // kind-specific payload before it can establish any lifecycle fence.
+    try {
+      return (
+        decodeRuntimeAssistantPayload(event.kind, event.payload).messageId === payload.messageId
+      )
+    } catch {
+      return false
+    }
   })
   if (
     sameMessage.some(

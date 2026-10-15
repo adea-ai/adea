@@ -2808,7 +2808,11 @@ type RuntimeAssistantResultPayload = {
 
 Other payload fields remain bounded JSON; these reserved fields are validated
 by `decodeRuntimeEvent` and by the canonical log before persistence or live
-publication. Missing or malformed identity fails closed. Legacy opaque
+publication. Missing or malformed identity fails closed. Retained assistant
+payloads must also pass kind-specific validation before their message identity
+can establish ordering, confidence or settlement fences for new appends. A
+malformed retained payload remains opaque historical data and cannot block a
+valid new event merely because it contains the same `messageId`. Legacy opaque
 assistant records cannot establish supersession and must not be silently
 assigned an identity. At this increment there is no production structured
 assistant-event subscription/emitter; future adapters must provide this

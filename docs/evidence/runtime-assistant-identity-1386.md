@@ -87,3 +87,43 @@ wire boundary; they cannot silently supersede other prose. Existing consumer
 unit tests pass, but adopting supersession in the chat canvas remains the
 separate consumer lane. Retention is a bounded replay window, not a permanent
 source-id ledger; adapters must resync rather than re-ingest evicted history.
+
+## Retained opaque-payload correction
+
+At `829e2d97c0a4bd254a69d1224b46ee497165790e`, the append-order guard
+read a retained payload's `messageId` without first validating the remaining
+kind-specific fields. Persisted legacy finals without `supersedes`, results
+with a non-string summary, and deltas with missing/invalid index or text could
+therefore impose settlement, confidence or index fences on a valid new event.
+The focused regression reproduced all eight authoritative/bounded cases before
+the fix (10 passed, 8 failed).
+
+The guard now decodes every matching retained assistant payload before using
+its message identity. Malformed retained payloads remain opaque historical data;
+they do not establish lifecycle fences. Candidate validation, tuple scoping,
+source-event idempotency, valid settlement, confidence ordering and delta-index
+checks remain unchanged. No data migration, history rewriting, source-ID
+reassignment, shared schema/barrel or consumer changes were needed.
+
+The durable-log regressions reopen the actual persisted fixture, confirm the
+legacy row still fails wire decoding, append a valid delta/final/result lifecycle
+with stable next sequences, verify exact retry remains a no-op, preserve the
+original opaque row and event ID, and confirm valid settlement still rejects
+late text.
+
+Validation:
+
+- `bun test packages/types/tests apps/desktop/tests/dev-runtime-harness*.test.ts apps/desktop/tests/harness-events-channel.test.ts apps/desktop/tests/dev-runtime-assistant-events.test.ts scripts/docs-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts scripts/desktop-auth-boundary.test.ts`:
+  **380 passed, 0 failed across 31 files**.
+- `TURBO_CONCURRENCY=1 bun run typecheck`: **31 passed**, 30 cached.
+- `TURBO_CONCURRENCY=1 bun run lint`: **17 package tasks plus root lint passed**,
+  16 package tasks cached.
+- `TURBO_CONCURRENCY=1 bun run build`: **15 passed**, all cached.
+- `bun build --target=bun apps/desktop/shell/src/dev-runtime/harness/events.ts --outdir /tmp/1401-retained-bundle`:
+  fresh host bundle passed.
+
+Existing hooks remain enabled, dependencies were reused, and heavy commands ran
+one at a time. Consumer tests above are historical and were not rerun for this
+host-only repair. Packaged/live/browser/remote/soak qualification remains unrun;
+the production emitter and consumer adoption remain separate follow-up work.
+The draft is retained for parent review; no readiness or merge action was taken.

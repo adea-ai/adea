@@ -226,3 +226,42 @@ test('a weaker observation cannot supersede or close stronger text, while an aut
     expect(log.append(final)).toMatchObject({ confidence: 'authoritative', payload: final.payload })
   })
 })
+
+describe('opaque retained assistant payloads do not establish lifecycle fences', () => {
+  const malformed = [
+    { kind: 'turn.assistant_message', payload: { messageId: 'message-1', text: 'legacy final' } },
+    { kind: 'turn.result', payload: { messageId: 'message-1', summary: 42 } },
+    { kind: 'turn.assistant_delta', payload: { messageId: 'message-1', text: 'legacy delta' } },
+    { kind: 'turn.assistant_delta', payload: { messageId: 'message-1', deltaIndex: 99, text: 42 } },
+  ] as const
+  for (const [index, legacy] of malformed.entries())
+    for (const confidence of ['authoritative', 'bounded_projection'] as const)
+      test(`malformed ${legacy.kind} ${index} cannot block a valid ${confidence} lifecycle after reopen`, () =>
+        withLog((log, dataDir) => {
+          const original = log.append(input())!
+          const path = join(dataDir, 'dev-runtime', 'harness', 'session-events.json')
+          const saved = JSON.parse(readFileSync(path, 'utf8'))
+          saved.records[0].kind = legacy.kind
+          saved.records[0].payload = legacy.payload
+          writeFileSync(path, JSON.stringify(saved))
+          const reopened = createSessionEventLog({ dataDir, scope })
+          const retained = reopened.events()[0]!
+          expect(() => decodeRuntimeEvent(retained, { source: 'acp' })).toThrow()
+          const published: unknown[] = []
+          reopened.subscribe('session-1', (event) => published.push(event))
+          const first = reopened.append(input({ sourceEventId: 'valid-delta', confidence }))!
+          expect(first.seq).toBe('2')
+          expect(first.payload).toEqual(input().payload)
+          const settled = reopened.append(final)!
+          const completed = reopened.append(result)!
+          expect(reopened.append(final)).toBeUndefined()
+          expect(reopened.events()[0]).toMatchObject({
+            eventId: original.eventId,
+            kind: legacy.kind,
+            payload: legacy.payload,
+          })
+          expect(published).toEqual([first, settled, completed])
+          expect(() => reopened.append(input({ sourceEventId: 'late-valid-delta' }))).toThrow()
+          expect(reopened.events().map((event) => event.seq)).toEqual(['1', '2', '3', '4'])
+        }))
+})
