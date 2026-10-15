@@ -2,6 +2,7 @@ import type { RuntimeEvent } from '../../../../../../packages/types/src/dev-runt
 
 function filteredTranscriptText(text: string): string {
   const filtered = text
+    .toWellFormed()
     .replace(
       /-----BEGIN [^-\r\n]{1,64}-+[\s\S]*?(?:-----END [^-\r\n]{1,64}-+|$)/g,
       '[secret redacted]'

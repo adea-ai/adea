@@ -73,6 +73,7 @@ describe('authorized transcript history storage', () => {
       text: 'hello\n\tworld',
       textTruncated: false,
     })
+    expect(transcriptPromptText('bad\ud800text').text).toBe('bad\ufffdtext')
     const large = transcriptPromptText('😀'.repeat(5000))
     expect(new TextEncoder().encode(large.text).byteLength).toBe(16_384)
     expect(large.text.endsWith('😀')).toBe(true)
@@ -125,6 +126,17 @@ describe('authorized transcript history storage', () => {
     ]) {
       const other = createSessionEventLog({ dataDir, scope: foreign })
       expect(other.history('session-a', { generation: 1 }).items).toEqual([])
+      other.append({
+        runtimeSessionId: 'session-a',
+        generation: 1,
+        sourceEventId: 'same-session-other-scope',
+        kind: 'turn.user_input',
+        payload: { text: 'foreign tenant prompt' },
+      })
+      expect(other.history('session-a', { generation: 1 }).items).toHaveLength(1)
+      expect(JSON.stringify(log.history('session-a', { generation: 1 }))).not.toContain(
+        'foreign tenant prompt'
+      )
       expect(() => other.history('session-a', { generation: 1, cursor })).toThrow()
     }
   })

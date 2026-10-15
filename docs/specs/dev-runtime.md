@@ -4515,6 +4515,7 @@ contains `text` and `textTruncated` for the original `initialPrompt`, alongside
 existing delivery provenance. The host filters credentials, private home paths,
 URL credentials and non-display controls **before persistence**, preserves line
 breaks/tabs and bounds the projection to 16 KiB of UTF-8 at a code-point boundary.
+Lone UTF-16 surrogates become U+FFFD before encoding so JSON and CBOR agree.
 `textTruncated: true` explicitly discloses a cut. The harness still receives the
 original admitted prompt; filtering changes the transcript projection only.
 The workspace-memory preamble is a separate input: only its counts enter the
@@ -4847,7 +4848,9 @@ and `hasOlder()`. Loading is single-flight, cancellation/disposal fenced, and
 merges against the latest live state before resolving. It validates page identity,
 order, continuity and duplicate equality; older insertion does not advance live
 acknowledgements or the forward replay cursor. The 1,000-event client bound still
-holds. `ChatConversationModel.openTranscript` publishes accepted backfill into
+holds. A resync replay of an identical backfilled event consumes its expected
+forward sequence without duplicating the row, so the next live event cannot
+become a false gap. `ChatConversationModel.openTranscript` publishes accepted backfill into
 its existing canonical event projection; optional methods preserve compatibility
 with unavailable/demo providers. No second transcript store or scroll authority
 is introduced. The #1385 owner must connect these methods to the shared

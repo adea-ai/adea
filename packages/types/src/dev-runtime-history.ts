@@ -91,6 +91,7 @@ export function decodeRuntimeEventHistoryPage(value: unknown): RuntimeEventHisto
     if (
       page.retainedFromSequence === null ||
       page.retainedThroughSequence === null ||
+      BigInt(page.retainedFromSequence as string) < 1n ||
       BigInt(page.retainedFromSequence as string) > BigInt(page.retainedThroughSequence as string)
     )
       fail('history', 'invalid retained bounds')

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { RuntimeEvent, RuntimeEventHistoryPage } from '@adea-ai/types/dev-runtime'
-import { createTranscriptAccumulator, acceptRuntimeEvent } from '../src/chat/model/transcript'
+import {
+  createTranscriptAccumulator,
+  acceptRuntimeEvent,
+  acceptRuntimeStreamFrame,
+} from '../src/chat/model/transcript'
 import { createRuntimeHistoryLoader, prependRuntimeHistory } from '../src/chat/model/history'
 import { openRuntimeEventStream } from '../src/chat/model/event-stream'
 import { encodeCbor } from '@adea-ai/types/dev-runtime'
@@ -41,6 +45,20 @@ const page = (): RuntimeEventHistoryPage => ({
   nextCursor: 'opaque',
 })
 describe('older transcript loading', () => {
+  test('resync replay advances over backfilled duplicates without duplicating rows or stalling live data', () => {
+    const loaded = prependRuntimeHistory(initial(), page())
+    let replay = acceptRuntimeStreamFrame(
+      loaded,
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '3' },
+      'host'
+    )
+    replay = acceptRuntimeEvent(replay, event(3))
+    replay = acceptRuntimeEvent(replay, event(4))
+    replay = acceptRuntimeEvent(replay, event(5))
+    expect(replay.availability.status).not.toBe('resync_required')
+    expect(replay.expectedSequence).toBe('6')
+    expect(replay.events.map((e) => e.seq)).toEqual(['2', '3', '4', '5'])
+  })
   test('the production stream handle loads through an authorized command and publishes before resolving', async () => {
     const calls: Array<{ operation: string; scope: unknown; body: unknown; resource?: unknown }> =
       []

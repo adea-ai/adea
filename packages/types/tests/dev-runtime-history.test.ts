@@ -17,6 +17,12 @@ test('history replies are exact, bounded, and cannot assert invented retained hi
     { ...empty, generation: -1 },
     { ...empty, beforeSequence: '01' },
     { ...empty, historyStart: 'generation_start' },
+    {
+      ...empty,
+      historyStart: 'retention_boundary',
+      retainedFromSequence: '0',
+      retainedThroughSequence: '4',
+    },
     { ...empty, nextCursor: 'loop' },
     { ...empty, items: Array.from({ length: 501 }, () => ({})) },
     { ...empty, runtimeSessionId: 'x'.repeat(225 * 1024) },

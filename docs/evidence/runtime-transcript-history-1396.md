@@ -79,17 +79,31 @@ The producer/client API can land independently. The canvas owner must:
    restores it during insertion/layout settlement. Its awaited callback must
    resolve only after accepted events are published (the new handle does this).
    Do not manually scroll or replace keyed message nodes in the host callback.
+   At the inspected #1385 head, `buildChatTurns` keys the leading partial turn
+   as `lead`, and assistant messages use `${turn.id}:reply` as the anchor. Loading
+   that turn's earlier prompt changes its key to the prompt event id; extending
+   an assistant delta block backward can also change its first-event entry id.
+   The owner must preserve a retained visible event's anchor through regrouping
+   (or supply an explicit equivalent-anchor mapping to the scroller). A test
+   containing only complete prompt turns will miss this case. Include a page
+   boundary inside one assistant reply and another immediately before its prompt.
 4. Replace the blanket checkpoint notice with the typed retained bounds,
    loading/retry state and permanent retention boundary. Preserve a boundary
    notice when the oldest retained sequence is greater than 1.
 5. Run the real canvas browser test with multiple pages, a parked reader,
    concurrent append, retry, cancellation and A → B → A selection; verify the
    same visible anchor offset, no duplicate DOM rows and no stale insertion.
+6. Read `turn.user_input.payload.textTruncated` when projecting the person's
+   bubble and disclose a truncated prompt. Existing presentation code's own
+   `bodyTruncated` only describes its display cut; it must also include the
+   producer's explicit cut. Keep legacy/memory-only receipts textless.
 
 Unit tests prove canonical order, stable event identities and unchanged live
-cursor across insertion, not rendered pixel geometry. The actual scroller
-callback/DOM binding and browser scroll acceptance remain unverified until the
-#1385 owner connects these APIs after the shared dependency is available.
+cursor across insertion. The optional headless boundary qualification below
+also proves pixel anchoring with real MessageScroller source and event-keyed
+rows. Actual #1385 turn regrouping, callback/DOM binding and rendered canvas
+acceptance remain unverified until its owner connects these APIs after the
+shared dependency is available.
 No UI dependency release is authorized by this task.
 
 The current production desktop Chat model is constructed without a `sendInput`
@@ -105,10 +119,61 @@ storage, gate, prompt and client-loader tests now pass. They cover foreign
 account/workspace/node/session, stale generation, tampered/malformed/query-bound
 cursors, restart/retry, exclusive page edges, byte/count bounds, concurrent
 append, retention pruning/gaps, redaction and memory exclusion, repeated/cancelled
-loads, late disposal and generation replacement. Exact final suite results are
-recorded in the draft PR and updated below after the final validation run.
+loads, late disposal and generation replacement. The resync regression also
+proves that replaying already backfilled events advances the expected live
+sequence without adding duplicate rows.
+
+| Command                                                                                                                                                                          | Result                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `bun test apps/desktop/tests/dev-runtime-transcript-history.test.ts apps/desktop/tests/dev-runtime-harness-events.test.ts apps/desktop/tests/dev-runtime-harness-prompt.test.ts` | 32 pass, 191 assertions; real command-gate and sidecar/fake-PTY integration fixtures included                             |
+| `bun test apps/desktop/tests`                                                                                                                                                    | 1,396 pass, 4 skip, 0 fail                                                                                                |
+| `bun test --conditions=browser packages/dev-view/tests`                                                                                                                          | 896 pass, 3,293 assertions                                                                                                |
+| `bun test packages/types/tests`                                                                                                                                                  | 238 pass, 2,502 assertions                                                                                                |
+| `bun run test:security`                                                                                                                                                          | 31 pass, 206 assertions                                                                                                   |
+| `bun run typecheck`                                                                                                                                                              | 31/31 tasks successful                                                                                                    |
+| `bun run lint`                                                                                                                                                                   | 17/17 workspace tasks successful; root Oxlint clean                                                                       |
+| `bun run build`                                                                                                                                                                  | 15/15 tasks successful                                                                                                    |
+| `bun run format:check`                                                                                                                                                           | All 2,499 matched files formatted                                                                                         |
+| `node scripts/generate-dev-runtime-contract.mjs --check`                                                                                                                         | Passed; generated registry/metadata current                                                                               |
+| `bun test scripts/docs-boundary.test.ts`                                                                                                                                         | 4 pass, 15 assertions                                                                                                     |
+| `bun run test:unit`                                                                                                                                                              | All 30 workspace tasks successful; subsequent root coverage lane fails the unchanged themes-pin guard: 1,162 pass, 1 fail |
+
+The root failure is `scripts/themes-pin.test.ts:260`: its installed-copy scanner
+uses `Dirent.isDirectory()` and misses Bun's symlinked
+`node_modules/.bun/@adea-ai+themes@0.10.6` entry. The identical unchanged guard
+also fails alone with 3 pass/1 fail. This is not a transcript failure and is not
+waived, weakened or fixed in this scope. The first broad run also hit an
+unchanged terminal transport timing assertion under concurrent build load;
+its isolated rerun passed 27 tests, and both final Desktop and root workspace
+runs passed it. Root `test:unit` is still a failing command overall.
+
+The four Desktop skips are existing opt-in packaged terminal replay, worktree
+containment, browser/devices and sidecar-flood lanes. No new packaged bundle,
+real model/harness execution, remote production test or rendered #1385 canvas
+acceptance was performed. The database-wide `test:integration` lane was not run:
+no database/schema path changed; the relevant integration fixtures above exercise
+the authenticated runtime gate and prompt delivery directly.
+
+### Headless shared-scroller boundary qualification
+
+`bun scripts/test-runtime-transcript-scroll.mjs --ui-source "$ADEA_UI_SOURCE"`
+passed against the pinned UI #416 head above. The script reads MessageScroller
+and its anchor helper with `git show`, adapts only import paths, and puts them
+in a disposable Solid fixture. It uses the real event store and client history
+loader, an isolated headless Chromium context, and an equal-height loader row
+matching the published small-control layout contract. It changes no UI files,
+dependency pins or installed package contents.
+
+Two accepted backward pages preserve the original keyed DOM node at offset
+`-46 px` before and after insertion (tolerance 1 px), including a concurrent
+live append. The fixture ends with 41 unique rows and zero duplicates. Four
+requests cover an initial coalesced double-click, an HTTP 503 refusal, a retry,
+and a late response fenced by disposal. The failed and cancelled loads leave
+both the visible rows and anchor offset unchanged. The script closes its
+browser/server and deletes the fixture in `finally`. This is a boundary proof,
+not the actual grouped canvas or native packaged acceptance.
 
 `bunx code-foundry doctor`: passed. `bun install --frozen-lockfile`: passed,
-without dependency or lockfile changes. No delegates or development servers were
-started; only bounded build/test/check commands are task-owned processes. The
+without dependency or lockfile changes. No delegates were started. The bounded
+scroll qualification's temporary server and browser were closed. The
 isolated worktree/branch is intentionally retained for the draft PR and review.

@@ -123,7 +123,14 @@ export function acceptRuntimeEvent(
 
   const existing = state.events.find((candidate) => eventKey(candidate) === eventKey(event))
   if (existing) {
-    if (sameEvent(existing, event)) return state
+    if (sameEvent(existing, event)) {
+      // A resync can replay an event already held by backfill. It still
+      // consumes the expected forward sequence; otherwise the next new frame
+      // would be rejected as a gap even though no event is missing.
+      if (state.expectedSequence === event.seq)
+        return { ...state, expectedSequence: (sequence(event.seq) + 1n).toString() }
+      return state
+    }
     return {
       ...state,
       availability: { status: 'conflict', sourceEventId: event.sourceEventId },
