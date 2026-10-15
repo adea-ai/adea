@@ -31,7 +31,7 @@ const SCOPE: Scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
 const INTENT = '00000000-0000-4000-8000-0000000000a1'
-const ATTEMPT = 'dispatch_11111111111111111111111111111111'
+const ATTEMPT = 'attempt_11111111111111111111111111111111'
 const TASK = '00000000-0000-4000-8000-0000000000f1'
 
 function session(overrides: Partial<RuntimeSession> = {}): RuntimeSession {
@@ -67,7 +67,8 @@ function leadTurn(overrides: Partial<HandoffLeadTurn> = {}): HandoffLeadTurn {
   return {
     intentId: INTENT,
     agentId: '00000000-0000-4000-8000-0000000000b2',
-    dispatchId: ATTEMPT,
+    dispatchId: 'dispatch_22222222222222222222222222222222',
+    attemptId: ATTEMPT,
     state: 'running',
     canCancel: true,
     handoffTarget: { runtimeSessionId: 'session-1', taskId: TASK, observedGeneration: 3 },
@@ -143,6 +144,17 @@ describe('target observation binding', () => {
       expect(result.code).toBe(code)
       expect(result.reason.length).toBeGreaterThan(10)
     }
+  })
+
+  test('the dispatch id is not the owning attempt', () => {
+    const turn = leadTurn({
+      dispatchId: ATTEMPT,
+      attemptId: 'attempt_other',
+      targetObservation: observation(),
+    })
+    const result = resolveLeadCoordination(turn, AGENT, { id: 'session-1', generation: 3 })
+    expect(result.bound).toBe(false)
+    expect(result.reason).toMatch(/different attempt/i)
   })
 
   test('a claim without a task or an undispatched attempt fails closed', () => {

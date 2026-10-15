@@ -100,6 +100,10 @@ export type HandoffLeadTurn = Readonly<{
   agentId: string
   /** Live execution binding when dispatched. */
   dispatchId?: string
+  /** The admitted execution attempt that owns this turn (control-plane
+   *  `attemptId`). Distinct from `dispatchId`: the fenced observation and
+   *  cancel paths bind the attempt, never the dispatch. */
+  attemptId?: string
   state: HandoffLeadTurnState
   /** Caller-observed cancellation availability for this turn. */
   canCancel: boolean
@@ -287,7 +291,7 @@ export function resolveLeadCoordination(
       taskId: target?.taskId,
       generation: session.generation,
       intentId: leadTurn.intentId,
-      attemptId: leadTurn.dispatchId,
+      attemptId: leadTurn.attemptId,
     })
     if (binding.bound) return { bound: true }
     return { bound: false, reason: binding.reason }
@@ -642,7 +646,7 @@ export function deriveDirectSessionHandoff(
       taskId: input.leadTurn?.handoffTarget?.taskId,
       generation: input.session.generation,
       intentId: input.leadTurn?.intentId ?? '',
-      attemptId: input.leadTurn?.dispatchId,
+      attemptId: input.leadTurn?.attemptId,
     },
     cancelWired: input.jobCancelWired === true,
   })

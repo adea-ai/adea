@@ -27,7 +27,7 @@ export type HandoffTargetObservation = Readonly<{
   generation: number
   /** Owning lead-turn intent. */
   intentId: string
-  /** Owning attempt (the dispatch/execution identity of the intent). */
+  /** Owning admitted execution attempt (control-plane `attemptId`, not the dispatch id). */
   attemptId: string
 }>
 
@@ -53,7 +53,7 @@ export type HandoffObservationExpectation = Readonly<{
   generation: number
   /** Owning intent of the lead turn. */
   intentId: string
-  /** Owning attempt of the lead turn; undefined until dispatched. */
+  /** Admitted execution attempt of the lead turn; undefined until admitted. */
   attemptId: string | undefined
 }>
 
