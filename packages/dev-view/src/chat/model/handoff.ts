@@ -322,7 +322,11 @@ export type DirectSessionHandoffInput = Readonly<{
   generationCurrent: boolean
   scopeAuthorized: boolean
   hasUnsentDraft: boolean
+  /** Explicit caller fact: an approval is known to be waiting. */
   awaitingApproval: boolean
+  /** Approval state when it is not just the explicit boolean. Absent means
+   *  the boolean decides (`true` awaiting, `false` none). */
+  approvalState?: HandoffApprovalState
   /** Observed child jobs of the coordinating turn, each with its own
    *  authenticated observation. Absent means none observed. */
   childJobs?: readonly HandoffChildJob[]
@@ -331,6 +335,14 @@ export type DirectSessionHandoffInput = Readonly<{
   /** Evidence counted from the retained transcript window. */
   activity?: HandoffActivity
 }>
+
+/**
+ * Approval state of the session. `awaiting` and `none` come only from an
+ * explicit caller fact (or a complete window with no approval request at
+ * all). Retained approval events carry no qualified identity, so with any
+ * request in the window, or an incomplete window, the state is `unknown`.
+ */
+export type HandoffApprovalState = 'awaiting' | 'none' | 'unknown'
 
 export type DirectSessionHandoffView = Readonly<{
   mode: DirectSessionHandoffMode
@@ -356,6 +368,7 @@ export type DirectSessionHandoffView = Readonly<{
   reconnectRequired: boolean
   draftPreserved: boolean
   awaitingApproval: boolean
+  approvalState: HandoffApprovalState
   /** A handoff was requested and its turn is still pending admission. */
   awaitingTurn: boolean
   /** Who holds the session in this mode: nobody (reference or review),
@@ -445,6 +458,8 @@ export function deriveDirectSessionHandoff(
   const harnessRunId = input.session.activeHarnessRunId
   const draftPreserved = true
   const reconnectRequired = !input.connected
+  const approvalState: HandoffApprovalState =
+    input.approvalState ?? (input.awaitingApproval ? 'awaiting' : 'none')
 
   let notice: string | undefined
   if (!input.connected) {
@@ -709,7 +724,8 @@ export function deriveDirectSessionHandoff(
     ...(notice === undefined ? {} : { notice }),
     reconnectRequired,
     draftPreserved,
-    awaitingApproval: input.awaitingApproval,
+    awaitingApproval: approvalState === 'awaiting',
+    approvalState,
     awaitingTurn:
       input.mode === 'attached' &&
       input.claimedTurn !== undefined &&
@@ -791,20 +807,19 @@ export type DirectSessionHandoffSupply = Readonly<{
  * derivation.
  */
 /**
- * Whether the retained transcript window ends with an open approval: more
- * `approval.requested` events than closing (`resolved`/`expired`) ones.
- * This mirrors exactly what the transcript surface shows, so the handoff
- * badge never claims knowledge beyond the visible window. An explicit
- * caller value always wins.
+ * Approval state read from the retained transcript window alone. Approval
+ * events carry no qualified identity in this contract, so a resolution
+ * cannot be matched to its request and an open count would be a guess. The
+ * only state events can prove is `none`: a complete window containing no
+ * approval request at all. Anything else is `unknown`, never `awaiting`.
+ * An explicit caller value always wins over this.
  */
-export function hasOpenApproval(events: readonly { kind: string }[]): boolean {
-  let open = 0
-  for (const event of events) {
-    if (event.kind === 'approval.requested') open += 1
-    else if (event.kind === 'approval.resolved' || event.kind === 'approval.expired')
-      open = Math.max(0, open - 1)
-  }
-  return open > 0
+export function approvalStateFromEvents(
+  events: readonly { kind: string }[],
+  windowComplete: boolean
+): HandoffApprovalState {
+  if (!windowComplete) return 'unknown'
+  return events.some((event) => event.kind === 'approval.requested') ? 'unknown' : 'none'
 }
 
 export function deriveHandoffInputFromConversation(
@@ -891,7 +906,13 @@ export function deriveHandoffInputFromConversation(
     scopeAuthorized: input.scopeAuthorized ?? true,
     hasUnsentDraft:
       input.conversation.draft.trim().length > 0 || input.conversation.draftBlocks.length > 0,
-    awaitingApproval: input.awaitingApproval ?? hasOpenApproval(input.conversation.events),
+    awaitingApproval: input.awaitingApproval === true,
+    approvalState:
+      input.awaitingApproval === undefined
+        ? approvalStateFromEvents(input.conversation.events, input.conversation.retention.complete)
+        : input.awaitingApproval
+          ? 'awaiting'
+          : 'none',
     ...(input.childJobs === undefined ? {} : { childJobs: input.childJobs }),
     ...(input.jobCancelWired === undefined ? {} : { jobCancelWired: input.jobCancelWired }),
     activity: deriveHandoffActivity({

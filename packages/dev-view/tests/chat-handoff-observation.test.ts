@@ -276,6 +276,16 @@ describe('child-job and descendant controls', () => {
 })
 
 describe('derived handoff view', () => {
+  test('approval state is explicit or unknown, never counted', () => {
+    expect(deriveDirectSessionHandoff(coordinated()).approvalState).toBe('none')
+    expect(deriveDirectSessionHandoff(coordinated({ awaitingApproval: true })).approvalState).toBe(
+      'awaiting'
+    )
+    const unknown = deriveDirectSessionHandoff(coordinated({ approvalState: 'unknown' }))
+    expect(unknown.approvalState).toBe('unknown')
+    expect(unknown.awaitingApproval).toBe(false)
+  })
+
   test('an unobserved lead keeps lead and job controls apart and unavailable by default', () => {
     const view = deriveDirectSessionHandoff(
       coordinated({ leadTurn: leadTurn(), mode: 'attached', leadMismatch: true })

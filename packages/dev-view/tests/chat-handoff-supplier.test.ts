@@ -234,7 +234,7 @@ describe('deriveHandoffInputFromConversation', () => {
     expect(stale.generationCurrent).toBe(false)
   })
 
-  test('awaiting approval derives from open transcript approvals unless overridden', () => {
+  test('approval state comes from an explicit fact, else the events can only say none or unknown', () => {
     const requested = {
       schemaVersion: 1,
       eventId: 'approval-1',
@@ -254,13 +254,23 @@ describe('deriveHandoffInputFromConversation', () => {
       conversation: conversation({ events: [requested] }),
       connected: true,
     })
-    expect(derived.awaitingApproval).toBe(true)
+    // Approval events carry no identity: the state is unknown, never awaiting.
+    expect(derived.awaitingApproval).toBe(false)
+    expect(derived.approvalState).toBe('unknown')
+    const explicit = deriveHandoffInputFromConversation({
+      conversation: conversation({ events: [requested] }),
+      connected: true,
+      awaitingApproval: true,
+    })
+    expect(explicit.awaitingApproval).toBe(true)
+    expect(explicit.approvalState).toBe('awaiting')
     const overridden = deriveHandoffInputFromConversation({
       conversation: conversation({ events: [requested] }),
       connected: true,
       awaitingApproval: false,
     })
     expect(overridden.awaitingApproval).toBe(false)
+    expect(overridden.approvalState).toBe('none')
   })
 
   test('a linked channel flows through for handoff availability', () => {
