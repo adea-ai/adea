@@ -1712,6 +1712,33 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
     return state
   }
 
+  /**
+   * A second cancellation of an archived admission writes nothing. The full snapshot is taken immediately
+   * after the first cancellation (every control-plane row, runtime effect counters, and Adea's intent,
+   * runtime, messages, channel and participants) and the repeat, with and without a restart of both
+   * sides, must leave exactly that snapshot. Returns the first cancellation and its snapshot.
+   */
+  async function expectRepeatedCancelWritesNothing(
+    tenant: Tenant,
+    host: Host,
+    snapshot: () => ReturnType<typeof snapshotOf>
+  ) {
+    const first = await adeaProduct(tenant, host).cancel(tenant.scope)
+    expect(first.cancelRequestedAt).toBeDefined()
+    const afterFirst = await snapshot()
+
+    const second = await adeaProduct(tenant, host).cancel(tenant.scope)
+    expect(second.cancelRequestedAt).toBe(first.cancelRequestedAt)
+    expect(await snapshot()).toEqual(afterFirst)
+
+    await restartAdea(tenant)
+    await host.restart()
+    const third = await adeaProduct(tenant, host).cancel(tenant.scope)
+    expect(third.cancelRequestedAt).toBe(first.cancelRequestedAt)
+    expect(await snapshot()).toEqual(afterFirst)
+    return { first, afterFirst }
+  }
+
   // ---- archived admissions -------------------------------------------------------------------
   //
   // An admission whose channel is archived, before or after it is fenced. Adea's signed reader serves
@@ -1999,6 +2026,15 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
           expect(afterRecovery.effects).toEqual(beforeRecovery.effects)
           expect((await host.receipts.get(dispatchId))?.state).toBe('dispatching')
           await expect(host.lookup()).rejects.toThrow('PI_LEAD_UNAVAILABLE')
+          // The same-attempt binding above is the one write Adea permits before a cancel. With it recorded,
+          // a cancellation writes its request once and a repeat, even across a restart, writes nothing.
+          const cancelled = await expectRepeatedCancelWritesNothing(tenant, host, snapshot)
+          expect(
+            changedColumns(afterRecovery.adea.runtime, cancelled.afterFirst.adea.runtime)
+          ).toEqual(['cancel_requested_at', 'updated_at'])
+          expect(cancelled.afterFirst.controlPlane).toEqual(afterRecovery.controlPlane)
+          expect(cancelled.afterFirst.effects).toEqual(afterRecovery.effects)
+          expect(cancelled.afterFirst.adea.channel).toEqual(afterRecovery.adea.channel)
           // Recording does not reopen any effect: everything is still denied, on both sides.
           const recorded = await rollbackState(tenant)
           expect(recorded).toMatchObject({
@@ -2241,29 +2277,31 @@ describe('joined #1220 × control-plane fence-v2 consumer proof', () => {
         try {
           await settle(tenant, host, runtime, order)
           const before = await snapshot()
-          const product = adeaProduct(tenant, host)
           // The historical boundary lets the original actor record the request. The control plane cannot
           // serve it: the reader refuses an archived product, so the runtime is not cancelled.
-          const cancelled = await product.cancel(tenant.scope)
-          expect(cancelled).toMatchObject({
+          const { first, afterFirst } = await expectRepeatedCancelWritesNothing(
+            tenant,
+            host,
+            snapshot
+          )
+          expect(first).toMatchObject({
             state: 'running',
             availability: 'unavailable',
             dispatchId: binding.dispatchId,
           })
-          expect(cancelled.cancelRequestedAt).toBeDefined()
-          const after = await snapshot()
-          expect(changedColumns(before.adea.runtime, after.adea.runtime)).toEqual([
+          // The first cancellation is the only write: the request time and its audit column on the runtime
+          // row. The control plane, the intent, the messages, the channel and its participants are as before.
+          expect(changedColumns(before.adea.runtime, afterFirst.adea.runtime)).toEqual([
             'cancel_requested_at',
             'updated_at',
           ])
-          expect(after.adea.intents).toEqual(before.adea.intents)
-          expect(after.adea.messages).toEqual(before.adea.messages)
-          expect(after.controlPlane).toEqual(before.controlPlane)
-          expect(runtime.effects()).toEqual(before.effects)
+          expect(afterFirst.adea.intents).toEqual(before.adea.intents)
+          expect(afterFirst.adea.messages).toEqual(before.adea.messages)
+          expect(afterFirst.adea.channel).toEqual(before.adea.channel)
+          expect(afterFirst.adea.participants).toEqual(before.adea.participants)
+          expect(afterFirst.controlPlane).toEqual(before.controlPlane)
+          expect(afterFirst.effects).toEqual(before.effects)
           expect(runtime.effects().cancel).toBe(0)
-          // A retry changes nothing more, and still never starts or cancels a runtime.
-          await product.cancel(tenant.scope)
-          expect(runtime.effects()).toEqual(before.effects)
           await expectNoEffect({ ...run, snapshot })
         } finally {
           await host.close()

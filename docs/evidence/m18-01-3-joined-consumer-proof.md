@@ -105,7 +105,7 @@ What archiving does to the contract, at the pinned control-plane revision:
 | `revoked`                  | After the original actor is removed, the reader is a 404, the control plane cannot observe or cancel, and the revoked actor cannot read, cancel, record a binding or record an observation. The owner, still a participant, can read the history                                                                                                                                                                                                                                                                                                                                                                                  |
 | `wrong principal`          | A workspace member who is not a participant and a user outside the workspace cannot read, status, cancel, record or fence (`ROLLBACK_FENCE_FORBIDDEN` for a plain member), before or after the real fence, and nothing is stored. The first fence keeps its owner attribution. On the control plane a principal outside the receipt is refused before Adea is read (`PI_LEAD_SCOPE_REJECTED`, no reader call)                                                                                                                                                                                                                     |
 | `terminal`                 | A completed admission is fenced as `terminal_retained`; its runtime row is unchanged, publication is denied, nothing is published, and a second fence returns the first attribution                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `cancel`                   | See the first limit below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `cancel`                   | The original actor's cancel is recorded once on Adea (the runtime row's `cancel_requested_at` and `updated_at`) and never reaches the runtime. The full snapshot is taken immediately after that first cancel; a second cancel, and a third after a restart of both sides, leave exactly that snapshot (every control-plane row, the runtime effect counters, and Adea's intent, runtime, messages, channel and participants). The uncertain-start test repeats this after the one permitted write before a cancel, the same-attempt handle binding. See the first limit below                                                    |
 
 **Blocked lookup, permitted recovery.** For the uncertain start these are two different paths and the proof
 keeps them apart. The joined lookup that would prove the handle, and every control-plane read of it, is
@@ -164,7 +164,7 @@ ADEA_CONTROL_PLANE_SOURCE=<checkout at the pinned revision> bun run test:integra
 
 The lane builds the Adea packages, provisions Postgres, and runs the directory from the control-plane
 checkout. Locally the run was the two joined test files together on a freshly migrated database: 33 pass, 0
-fail (29 in this proof, 4 in `management-current`), 1580 assertions. The 29 are the 11 proof tests, 6
+fail (29 in this proof, 4 in `management-current`), 1610 assertions. The 29 are the 11 proof tests, 6
 regressions for the command-binding comparison itself and the 12 archived-admission tests.
 
 Mutation checks, all reverted afterwards:
@@ -188,7 +188,9 @@ Mutation checks, all reverted afterwards:
 - Archived admissions. With the `--conditions=development` resolution, so Adea's source is used instead of
   its build: lifting the active-channel lock and the channel-version pin made all 12 archived tests fail (the
   reader serves the archived product); making the fence refuse an archived channel failed 8 of 12; and removing
-  the binding check from `recoverLeadTurnRuntimeBinding` failed 4 of 12. Against the pinned control plane with
+  the binding check from `recoverLeadTurnRuntimeBinding` failed 4 of 12. A repeated cancellation that rewrites the
+  request time, and one that touches the channel row, each failed 4 of 12 (the cancel and uncertain-start tests);
+  the previous head, which compared only the effect counters after the second cancel, passed both. Against the pinned control plane with
   a refusal that writes a row (pin check relaxed for that run only), all 12 failed. An Adea reader that
   rewrites the channel row on every read failed all 12; the previous head of this patch, whose refusal helper
   compared only the narrower snapshot, failed 6 of 12 under the same change.
