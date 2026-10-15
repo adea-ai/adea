@@ -6126,27 +6126,23 @@ The workspace toolbar opens the appearance Sheet over the current view without
 route navigation. Its editor/catalogue chunk loads on the first intentional
 open. Save commits and closes; Cancel, Escape, and outside dismissal restore
 the opening snapshot and close. Reopening takes a fresh snapshot of committed
-preferences. Both the toolbar Sheet and the Settings section render Adea's
-app-local editor composition (`@adea-ai/dev-view`'s `AdeaAppearanceEditor`),
-adapted from the published `AppearanceEditor` because its fixed internals
-cannot express Adea's row order or accent entries: every control remains a
-published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
-Button) or published composite (font settings group, editor actions, theme
-previews), while Adea owns the composition — the text (font) settings rows
-close the option list, after every palette and surface row, and the accent
-picker offers the six presets plus one control named "Custom". The fork keeps
-the published editor's control idioms, not generic radio rows: the accent
-picker draws the published swatch grid — one round swatch per preset painted
-with the catalogue's light/dark pair value for the resolved appearance,
-selection shown by the checked ring, the single Custom chip beside them, and
-no theme-default entry; the mode cards keep their miniature previews; the
-light, dark, and terminal menus render preview-card items (the published
-`ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the
-menu card's geometry until the published package exports the composite); and
-the glass choices render as the published chips. Swatch and chip colors are
-catalogue values, so a swatch paints its color as an SVG fill: consumers may
-neither inline a style nor author palette literals. Upstreaming a row-order
-and accent-entries seam to the published package retires the fork.
+preferences. Both the toolbar Sheet and the Settings section render the
+published `AppearanceEditor`/`AppearancePopover` from `@adea-ai/ui`, configured
+through its options rather than recomposed: the text (font) settings rows close
+the option list (`fontSettingsPlacement: 'end'`), the accent row draws the six
+presets in one equally spaced line with a Custom button that opens the native
+colour selector and changes nothing until a colour is chosen
+(`accentEntryStyle: 'row'`), there is no theme-default entry because the default
+accent is the Violet preset (`showThemeDefaultAccent: false`), the mode cards
+carry their sun, moon and monitor glyphs (`showModeIcons`), and the toolbar
+trigger holds the pressed rung while the Sheet is open (`triggerVariant:
+'toolbar'`). The mode cards keep their miniature previews, the light, dark and
+terminal menus render the published preview-card items, and the glass choices
+render as the published chips. Adea owns no copy of the editor or its
+primitives: row order, keyboard and focus handling and narrow-panel layout are
+the published component's, and the theme API Adea needs (accent presets,
+canonical records, the projection helpers the importer uses) comes from
+`@adea-ai/ui` rather than a direct `@adea-ai/themes` dependency.
 Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
@@ -6160,7 +6156,12 @@ the appearance editor mounted beneath the dialog, so live preview and the
 uncommitted draft survive Close and Escape; dismissal restores focus to
 Manage themes without closing the containing Settings dialog or Appearance
 popover. No application
-copy of the dialog primitives remains.
+copy of the dialog primitives remains. The import parsing and projection code
+(`custom-theme-import.ts`) loads by dynamic import when a theme file is chosen,
+not when Appearance opens; the dialog shows a pending status while it loads,
+reports a failed load or read as an error, and drops the result of a run that a
+newer selection, closing the dialog, or leaving Appearance has superseded before
+anything is stored or selected (`theme-file-importer.ts`).
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is

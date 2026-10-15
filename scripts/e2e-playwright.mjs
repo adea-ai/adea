@@ -17,6 +17,9 @@ const specs = [
   'apps/web/e2e/dev-view-files-tree.spec.ts',
   'apps/web/e2e/dev-add-project.spec.ts',
   'apps/web/e2e/appearance.spec.ts',
+  // The lazy theme importer: not requested until a file is chosen, and a
+  // superseded, cancelled or failed run stores nothing (#1375).
+  'apps/web/e2e/appearance-theme-import.spec.ts',
   'apps/web/e2e/dev-view-permissions.spec.ts',
   'apps/web/e2e/dev-view-terminal.spec.ts',
   'apps/web/e2e/dev-view-runtime-terminal.spec.ts',

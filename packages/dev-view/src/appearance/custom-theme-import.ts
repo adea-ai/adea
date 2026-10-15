@@ -11,21 +11,22 @@
  * own machine.
  */
 import {
-  editorRolesHex,
-  syntaxRolesHex,
-  type AdeaTheme,
-  type AdeaThemeRecord,
-} from '@adea-ai/themes'
-import { oklchToHex, parseColor } from '@adea-ai/themes/oklch'
-import { shadcnDestructiveProjection, shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
-import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
-
-import {
   colorToHex,
   contrastRatio,
   ensureContrast,
   parseColor as parseHex,
 } from '@adea-ai/ui/lib/accent-roles'
+import {
+  defaultThemeRecord,
+  editorRolesHex,
+  oklchToHex,
+  parseOklchColor,
+  shadcnDestructiveProjection,
+  shadcnVariables,
+  syntaxRolesHex,
+  toXtermTheme,
+} from '@adea-ai/ui/lib/theme-projection'
+import type { AdeaTheme } from '@adea-ai/ui/lib/theme-records'
 import {
   flatVariantTokens,
   setCustomThemes,
@@ -35,8 +36,6 @@ import {
   type StoredThemeColors as ThemeColors,
   type StoredThemeVariant as ThemeVariant,
 } from '@adea-ai/app-ui/components/custom-theme-library'
-import adeaDark from '@adea-ai/themes/themes/adea-dark'
-import adeaLight from '@adea-ai/themes/themes/adea-light'
 
 const CANONICAL_COLOR_KEYS = [
   'background',
@@ -122,10 +121,6 @@ function isHex(value: unknown): value is string {
   return typeof value === 'string' && parseHex(value) !== undefined
 }
 
-function baseRecord(appearance: 'light' | 'dark'): AdeaThemeRecord {
-  return appearance === 'dark' ? adeaDark : adeaLight
-}
-
 /** Repair one foreground/background pair to the readable floor, reporting it. */
 function repairToFloor(
   foreground: string,
@@ -145,7 +140,7 @@ function repairToFloor(
 }
 
 function hexOf(value: string): string {
-  const parsed = parseColor(value)
+  const parsed = parseOklchColor(value)
   return parsed ? oklchToHex(parsed) : value
 }
 
@@ -281,7 +276,7 @@ export function importCustomTheme(
       : rawColors.background === undefined
         ? 'dark'
         : 'light'
-  const base = baseRecord(appearance)
+  const base = defaultThemeRecord(appearance)
   const name =
     typeof record.name === 'string' && record.name.trim().length > 0
       ? record.name.trim().slice(0, 64)

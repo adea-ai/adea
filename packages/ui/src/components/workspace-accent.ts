@@ -1,4 +1,4 @@
-import { getAccent } from '@adea-ai/themes'
+import { getAccent } from '@adea-ai/ui/lib/accent-presets'
 import type { ThemeContextValue } from '@adea-ai/ui/components/theme/lazy'
 import {
   ACCENT_PAINT_PROPERTIES,

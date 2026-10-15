@@ -126,6 +126,23 @@ export default defineConfig(({ command }) => ({
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
                 },
+                // The theme record helpers, their CSS projection and the
+                // defaults they read share every importer today. The lazy theme
+                // importer reaches only the records, which would otherwise split
+                // the projection into a request of its own.
+                {
+                  name: 'theme-records',
+                  test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
+                  includeDependenciesRecursively: false,
+                },
+                // The shared appearance editor reaches Kobalte's radio internals
+                // directly, which would otherwise split them from the radio
+                // group into a second request for the same panel.
+                {
+                  name: 'radio-group',
+                  test: /(@kobalte\/core\/dist\/chunk\/H7BK6JF7\.jsx|@adea-ai\/ui\/src\/components\/ui\/radio-group\/radio-group\.tsx)$/,
+                  includeDependenciesRecursively: false,
+                },
                 // arrow-down, plus and sliders-horizontal are imported by the
                 // startup entries and by terminal, App Library and Chat code;
                 // left alone each is a request of a few hundred bytes. Folding

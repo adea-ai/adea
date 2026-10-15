@@ -179,7 +179,6 @@
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/state": "workspace:*",
-    "@adea-ai/themes": "0.10.6",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "0.131.0",
     "@adea-ai/workspace-nav": "workspace:*",
