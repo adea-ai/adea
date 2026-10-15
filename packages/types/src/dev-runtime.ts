@@ -71,6 +71,16 @@ export {
   dataClassifications,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeCallEvent,
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  runtimeCallEventKinds,
+  runtimeCallPhases,
+  RUNTIME_CALL_INLINE_BYTES_MAX,
+  RUNTIME_CALL_JSON_NODES_MAX,
+  RUNTIME_CALL_JSON_DEPTH_MAX,
+  RUNTIME_CALL_JSON_ENTRIES_MAX,
+  RUNTIME_CALL_JSON_STRING_MAX,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -79,6 +89,13 @@ export type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeCallEvent,
+  RuntimeCallEventKind,
+  RuntimeCallData,
+  RuntimeCallJson,
+  RuntimeCallPayload,
+  RuntimeCallPermissionEligibility,
+  RuntimeCallPhase,
 } from './dev-runtime-wire'
 
 export {

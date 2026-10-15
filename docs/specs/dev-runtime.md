@@ -2775,6 +2775,81 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Versioned tool and subagent call observations (#1387)
+
+`packages/types/src/dev-runtime-call.ts` owns the Adea-specific call contract;
+the mapped donor lifecycle/write-gate units do not supply this versioned,
+bounded Adea wire schema. No donor code is copied for this contract.
+`decodeRuntimeCallEvent` on the existing wire and aggregate entry points
+validates the envelope, transport provenance, and the following payload:
+
+```ts
+type RuntimeCallPayload = {
+  schemaVersion: 1
+  callId: string
+  parentCallId?: string | null
+  phase: 'requested' | 'started' | 'progress' | 'completed' | 'failed' | 'cancelled'
+  permissionEligibility: 'unknown' | 'requires_approval' | 'not_required'
+  name?: string
+  input?: RuntimeCallData
+  output?: RuntimeCallData
+  durationMs?: number
+}
+type RuntimeCallData =
+  | { type: 'inline'; value: Json }
+  | { type: 'reference'; referenceId: string; byteLength?: number; sha256?: string }
+```
+
+- Call identity includes the event's `runtimeSessionId`, `generation`,
+  `harnessRunId`, `source`, and the payload's `callId`;
+  `harnessRunId` is required for validated calls. Calls from separate
+  runs, sources or generations MUST NOT pair. IDs are opaque 1–256 character
+  tokens starting with an ASCII alphanumeric, followed by ASCII alphanumerics,
+  `.`, `_`, `:` or `-`; they are neither paths nor URLs.
+- Each `tool.*` phase MUST equal its own kind suffix. `subagent.observed`
+  carries an explicit phase from the above set. No missing observation implies
+  a spinner, a completion, or a phase transition. This is an observation
+  contract, not a lifecycle state machine. Validated calls require a native,
+  ACP or owned-hook source; host lifecycle and terminal fallback cannot supply
+  call facts, even with unknown permission eligibility.
+- An absent parent means no relationship is established. `null` is an
+  explicitly observed root. A call cannot parent itself; the host refuses a
+  changed known parent, a tool/subagent identity collision, or a cycle proved
+  by its retained same-namespace observations. It does not claim to validate
+  evicted or unobserved history and does not require a parent/start row to be
+  retained before accepting a child/completion.
+- Missing input, output and duration remain absent. Inline JSON is bounded
+  independently for each input/output: 32 KiB of encoded UTF-8 JSON, depth 16,
+  2,048 nodes, 256 array/object entries per container, 16,384 UTF-16 code units
+  per string and 256 per nonempty key. Nonfinite numbers, non-JSON values and
+  sparse arrays are refused. The enclosing 256 KiB event limit still applies.
+- References contain an opaque ID, optional nonnegative safe-integer byte
+  length and optional lowercase SHA-256 digest. They grant no file/network
+  access or proof that bytes exist; a future resolver must independently
+  authorize, classify and bound retrieval. Names are 1–256 code units and
+  duration is observed nonnegative safe-integer milliseconds, never a
+  difference between arrival timestamps.
+- Eligibility MUST be explicit, with `unknown` when the producer lacks the
+  fact. Known values require authoritative native/ACP/owned-hook provenance
+  and, at host-log admission, an affirmative out-of-band
+  `verifyCallPermissionEligibility` result from the owning adapter. Source
+  names, advertised capabilities, payload labels and booleans do not supply
+  this evidence. No production adapter currently supplies that verifier.
+  `not_required` is a permission observation; it is not an approval grant or
+  proof that all content is noninteractive or safe to fold.
+- New host-log call appends MUST pass this contract before persistence,
+  sequence consumption, eviction or subscriber notification. The admitted
+  snapshot is detached and deeply frozen before verifier/subscriber code sees
+  it. The generic envelope decoder retains legacy payloads without a `schemaVersion` as
+  bounded opaque data; the strict call decoder refuses them. A versioned call
+  claim is fully checked even through the generic decoder. Unknown versions
+  fail closed and cannot acquire validated call semantics.
+
+This change adds no native/ACP subscription or tool/subagent emitter. Existing
+production lifecycle receipts do not become call facts. UI rendering, folding,
+nesting and approval-response authority remain separate integration work;
+neither UI #416 nor consumer PR #1385 is modified by this contract.
+
 ## Terminal protocol
 
 ### PTY adapter

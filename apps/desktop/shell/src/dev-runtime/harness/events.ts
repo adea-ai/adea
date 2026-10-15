@@ -26,6 +26,15 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { createDurableJsonStore } from '../host-store'
+import {
+  decodeRuntimeEvent,
+  isRuntimeCallEventKind,
+} from '../../../../../../packages/types/src/dev-runtime-wire'
+import {
+  snapshotCallEvent,
+  validateCallEventAdmission,
+  type VerifyCallPermissionEligibility,
+} from './call-events'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -103,6 +112,8 @@ export function createSessionEventLog(input: {
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
   maxTotal?: number
+  /** No production adapter supplies this yet; absent evidence means unknown only. */
+  verifyCallPermissionEligibility?: VerifyCallPermissionEligibility
 }): SessionEventLog {
   const maxPerSession = input.maxPerSession ?? MAX_EVENTS_PER_SESSION
   const maxTotal = input.maxTotal ?? MAX_TOTAL_EVENTS
@@ -134,7 +145,7 @@ export function createSessionEventLog(input: {
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
     const records = all()
     const source = sessionInput.source ?? 'host'
-    const candidate: RuntimeEvent = {
+    let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
       runtimeSessionId: sessionInput.runtimeSessionId,
@@ -153,6 +164,11 @@ export function createSessionEventLog(input: {
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
+    }
+    decodeRuntimeEvent(candidate, { source })
+    if (isRuntimeCallEventKind(candidate.kind)) {
+      candidate = snapshotCallEvent(candidate)
+      validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
     }
     const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
     if (duplicate) {

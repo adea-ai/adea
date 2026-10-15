@@ -10,6 +10,31 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import {
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  type RuntimeCallEventKind,
+  type RuntimeCallPayload,
+} from './dev-runtime-call'
+export {
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  runtimeCallEventKinds,
+  runtimeCallPhases,
+  RUNTIME_CALL_INLINE_BYTES_MAX,
+  RUNTIME_CALL_JSON_NODES_MAX,
+  RUNTIME_CALL_JSON_DEPTH_MAX,
+  RUNTIME_CALL_JSON_ENTRIES_MAX,
+  RUNTIME_CALL_JSON_STRING_MAX,
+} from './dev-runtime-call'
+export type {
+  RuntimeCallData,
+  RuntimeCallEventKind,
+  RuntimeCallJson,
+  RuntimeCallPayload,
+  RuntimeCallPermissionEligibility,
+  RuntimeCallPhase,
+} from './dev-runtime-call'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -80,6 +105,37 @@ export type RuntimeEvent = Readonly<{
   kind: RuntimeEventKind
   payload: unknown
 }>
+
+export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
+  Readonly<{
+    harnessRunId: string
+    source: 'native' | 'acp' | 'authenticated_hook'
+    kind: RuntimeCallEventKind
+    payload: RuntimeCallPayload
+  }>
+
+function validateCall(event: Record<string, unknown>): void {
+  if (!isRuntimeCallEventKind(event.kind)) fail('event.kind', 'expected tool or subagent call')
+  if (event.source === 'host' || event.source === 'terminal_fallback')
+    fail('event.source', 'call observations require a native, ACP or owned hook producer')
+  stringValue(event.harnessRunId, 'event.harnessRunId', 1, 256)
+  const payload = decodeRuntimeCallPayload(event.payload, event.kind)
+  if (payload.permissionEligibility !== 'unknown' && event.confidence !== 'authoritative')
+    fail(
+      'event.payload.permissionEligibility',
+      'requires an authoritative native, ACP or owned hook observation'
+    )
+}
+
+/** Explicit opt-in narrowing. Legacy opaque payloads never acquire call semantics. */
+export function decodeRuntimeCallEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeCallEvent {
+  decodeRuntimeEvent(value, provenance)
+  validateCall(record(value, 'event'))
+  return value as RuntimeCallEvent
+}
 
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
@@ -170,6 +226,15 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
+  // Retained legacy events remain opaque. A versioned call claim must satisfy
+  // the complete contract even when read through the generic envelope decoder.
+  if (
+    isRuntimeCallEventKind(item.kind) &&
+    item.payload !== null &&
+    typeof item.payload === 'object' &&
+    Object.hasOwn(item.payload, 'schemaVersion')
+  )
+    validateCall(item)
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
