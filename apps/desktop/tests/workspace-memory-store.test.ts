@@ -644,3 +644,215 @@ describe('workspace memory deletion', () => {
     })
   })
 })
+
+describe('explicit promotion under stale writes, tampering and interrupted writes (#1218)', () => {
+  const snapshot = (dir: string) =>
+    Object.fromEntries(
+      readdirSync(join(dir, 'memory')).map((name) => [
+        name,
+        readFileSync(join(dir, 'memory', name), 'utf8'),
+      ])
+    )
+
+  test('an accept made against an edited proposal refuses and promotes only the revision the user saw', () => {
+    withStore(({ store }) => {
+      const proposal = store.propose(WORKSPACE_A, { text: 'original proposal', origin: TRACE })
+      const edited = store.update(WORKSPACE_A, {
+        entryId: proposal.id,
+        expectedRevision: 1,
+        text: 'edited proposal',
+      })
+      expect(edited).toMatchObject({ status: 'pending', revision: 2, source: 'agent' })
+      expect(
+        codeOf(() => store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 }))
+      ).toBe('memory_stale_revision')
+      // The refusal changed nothing: still pending, still not injected.
+      expect(store.list(WORKSPACE_A).entries[0]).toMatchObject({ status: 'pending', revision: 2 })
+      expect(store.preamble(WORKSPACE_A)).toBeUndefined()
+      expect(
+        store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 2 })
+      ).toMatchObject({
+        status: 'active',
+        revision: 3,
+        text: 'edited proposal',
+        origin: proposal.origin,
+      })
+    })
+  })
+
+  test('a retried accept after success promotes once and never advances the revision twice', () => {
+    withStore(({ dir, store }) => {
+      const proposal = store.propose(WORKSPACE_A, { text: 'once only', origin: TRACE })
+      const first = store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 })
+      const after = snapshot(dir)
+      // The retry carries the revision the user saw before the first accept.
+      expect(
+        codeOf(() => store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 }))
+      ).toBe('memory_stale_revision')
+      expect(snapshot(dir)).toEqual(after)
+      expect(store.list(WORKSPACE_A).entries[0]).toEqual(first)
+    })
+  })
+
+  test('a record whose sealed text no longer authenticates is never promoted', () => {
+    withStore(({ dir, store }) => {
+      const proposal = store.propose(WORKSPACE_A, { text: 'sealed text', origin: TRACE })
+      const file = join(dir, 'memory', `${proposal.id}.json`)
+      const record = JSON.parse(readFileSync(file, 'utf8'))
+      const flipped = Buffer.from(record.ciphertext, 'base64')
+      flipped[0] = (flipped[0] ?? 0) ^ 0xff
+      writeFileSync(file, JSON.stringify({ ...record, ciphertext: flipped.toString('base64') }))
+      const before = snapshot(dir)
+      expect(() =>
+        store.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 })
+      ).toThrow()
+      expect(snapshot(dir)).toEqual(before)
+      expect(store.list(WORKSPACE_A)).toMatchObject({ entries: [], unreadable: 1 })
+      expect(store.preamble(WORKSPACE_A)).toBeUndefined()
+    })
+  })
+
+  test('a write a crash stranded before its rename never changes the entry and is swept on the next start', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'adea-memory-crash-'))
+    const key = randomBytes(32)
+    try {
+      const open = () => createMemoryStore({ contentDir: dir, key: () => key })
+      const store = open()
+      const proposal = store.propose(WORKSPACE_A, { text: 'proposal under crash', origin: TRACE })
+      // The accept got as far as writing the promoted record beside the file.
+      const file = join(dir, 'memory', `${proposal.id}.json`)
+      const promoted = { ...JSON.parse(readFileSync(file, 'utf8')), status: 'active', revision: 2 }
+      const stranded = `${file}.0123456789ab.tmp`
+      writeFileSync(stranded, JSON.stringify(promoted))
+      const strandedSettings = join(dir, 'memory-settings.json.ba9876543210.tmp')
+      writeFileSync(strandedSettings, '{"version":1,"injection":{}}')
+
+      // The committed file is still the truth: the crash promoted nothing.
+      expect(store.list(WORKSPACE_A).entries[0]).toMatchObject({ status: 'pending', revision: 1 })
+      expect(store.preamble(WORKSPACE_A)).toBeUndefined()
+
+      // The restarted store removes the stranded copies and the user retries
+      // the same accept: it succeeds once, at the revision they saw.
+      const restarted = open()
+      expect(readdirSync(join(dir, 'memory'))).toEqual([`${proposal.id}.json`])
+      expect(readdirSync(dir)).not.toContain('memory-settings.json.ba9876543210.tmp')
+      expect(
+        restarted.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 })
+      ).toMatchObject({ status: 'active', revision: 2, source: 'agent' })
+      expect(
+        codeOf(() => restarted.accept(WORKSPACE_A, { entryId: proposal.id, expectedRevision: 1 }))
+      ).toBe('memory_stale_revision')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('deletion retried after a crash leaves no stranded copy of a deleted workspace note', () => {
+    withStore(({ dir, store }) => {
+      const own = store.create(WORKSPACE_A, { text: 'delete me' })
+      const sibling = store.create(WORKSPACE_B, { text: 'keep me' })
+      const strandedRecord = join(dir, 'memory', `${own.id}.json.0123456789ab.tmp`)
+      const strandedSettings = join(dir, 'memory-settings.json.ba9876543210.tmp')
+      const foreignName = join(dir, 'memory', 'notes.json.tmp')
+      writeFileSync(strandedRecord, readFileSync(join(dir, 'memory', `${own.id}.json`)))
+      writeFileSync(strandedSettings, '{}')
+      writeFileSync(foreignName, 'not ours')
+      // Validation is read-only: it neither counts nor removes stranded writes.
+      expect(store.validateWorkspacePurge(WORKSPACE_A)).toBe(1)
+      expect(readdirSync(join(dir, 'memory'))).toContain(`${own.id}.json.0123456789ab.tmp`)
+      expect(store.purgeWorkspace(WORKSPACE_A)).toBe(1)
+      expect(readdirSync(join(dir, 'memory')).toSorted()).toEqual(
+        [`${sibling.id}.json`, 'notes.json.tmp'].toSorted()
+      )
+      expect(readdirSync(dir)).not.toContain('memory-settings.json.ba9876543210.tmp')
+      expect(store.list(WORKSPACE_B).entries).toEqual([sibling])
+    })
+  })
+})
+
+describe('memory commands while workspace device cleanup is prepared (#1218)', () => {
+  function pausedSurface() {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-memory-paused-'))
+    const state = { authorized: WORKSPACE_A as string | undefined, paused: false }
+    const invoke = createCommandSurface(dataDir, {
+      authorizedWorkspaceId: () => state.authorized,
+      assertWorkspaceActive: (workspaceId) => {
+        if (state.paused && workspaceId === WORKSPACE_A)
+          throw new Error('workspace_cleanup_pending')
+      },
+    })
+    const store = createMemoryStore({
+      contentDir: join(dataDir, 'local-content'),
+      key: () => loadDeviceKey(join(dataDir, 'desktop-state', 'device.key')),
+    })
+    const call = (cmd: string, args: Record<string, unknown>) =>
+      invoke(cmd, args) as { ok: boolean; value?: unknown; error?: string }
+    return { dataDir, state, store, call }
+  }
+
+  test('every memory command refuses with the cleanup code and the stored records are untouched', () => {
+    const shell = pausedSurface()
+    try {
+      const proposal = shell.store.propose(WORKSPACE_A, { text: 'pending proposal', origin: TRACE })
+      const note = shell.store.create(WORKSPACE_A, { text: 'a note' })
+      const bytes = () =>
+        Object.fromEntries(
+          readdirSync(join(shell.dataDir, 'local-content', 'memory')).map((name) => [
+            name,
+            readFileSync(join(shell.dataDir, 'local-content', 'memory', name), 'utf8'),
+          ])
+        )
+      const before = bytes()
+      shell.state.paused = true
+      for (const [cmd, args] of [
+        ['memory_list', {}],
+        ['memory_create', { text: 'late write' }],
+        ['memory_update', { entryId: note.id, expectedRevision: 1, text: 'late edit' }],
+        ['memory_delete', { entryId: note.id, expectedRevision: 1 }],
+        ['memory_accept_proposal', { entryId: proposal.id, expectedRevision: 1 }],
+        ['memory_reject_proposal', { entryId: proposal.id, expectedRevision: 1 }],
+        ['memory_injection_save', { enabled: false }],
+      ] as const) {
+        expect(shell.call(cmd, { ...args, workspaceId: WORKSPACE_A })).toEqual({
+          ok: false,
+          error: 'workspace_cleanup_pending',
+        })
+      }
+      expect(bytes()).toEqual(before)
+      expect(shell.store.injectionEnabled(WORKSPACE_A)).toBe(true)
+
+      // Cancelled cleanup lifts the fence; the user's pending accept still
+      // runs once, at the revision they saw, because nothing moved it.
+      shell.state.paused = false
+      expect(
+        shell.call('memory_accept_proposal', {
+          workspaceId: WORKSPACE_A,
+          entryId: proposal.id,
+          expectedRevision: 1,
+        })
+      ).toMatchObject({ ok: true, value: { status: 'active', revision: 2 } })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a moved scope still reads as unauthorized, not as a cleanup state of another workspace', () => {
+    const shell = pausedSurface()
+    try {
+      const proposal = shell.store.propose(WORKSPACE_A, { text: 'pending proposal', origin: TRACE })
+      shell.state.paused = true
+      shell.state.authorized = WORKSPACE_B
+      expect(
+        shell.call('memory_accept_proposal', {
+          workspaceId: WORKSPACE_A,
+          entryId: proposal.id,
+          expectedRevision: 1,
+        })
+      ).toEqual({ ok: false, error: 'memory_workspace_unauthorized' })
+      // The paused workspace's fence never leaks onto the authorized sibling.
+      expect(shell.call('memory_list', { workspaceId: WORKSPACE_B })).toMatchObject({ ok: true })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+})

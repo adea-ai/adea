@@ -17,7 +17,7 @@ import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
-import { TaskBoard } from './task-board'
+import { TaskBoardSurface } from './task-board-surface'
 import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspaceController } from './use-workspace-controller'
 import type { WorkspaceCreationContext } from '@adea-ai/workspace-nav/workspace-nav'
@@ -572,7 +572,7 @@ export function ConventionalWorkspaceShell(props: {
                         <Show
                           when={activeSurface() === 'agents'}
                           fallback={
-                            <TaskBoard
+                            <TaskBoardSurface
                               agents={controller.agents}
                               busy={controller.taskBusy}
                               onArchive={controller.taskActions.archive}

@@ -177,3 +177,58 @@ forbidden in body`; the parked-facts expiry regression now creates its
   policy through the surface. The stored malformed-record fail-closed
   regression stays, and `packages/types/tests/dev-runtime.test.ts` pins the
   request decoder contract.
+
+## Follow-up (2026-10-14): gaps found after #1350 and #1359
+
+Retention deletion stays outside this lane (#1221). What this follow-up added:
+
+- **Memory under a prepared device cleanup** — the `memory_*` command family now
+  asks the same `assertWorkspaceActive` fence as local content from inside the
+  command surface (the shell wrapper keeps its own check), so the refusal is
+  tested, and the Memory pane reads it as `workspace_cleanup_pending` instead
+  of "could not be read".
+- **Interrupted memory writes** — `memory/store.ts` removes the temp file an
+  interrupted write strands (record and settings) on open and on workspace
+  purge, so a crash cannot leave sealed text on disk after the workspace is
+  deleted. The committed record is the truth until the rename, so a retried
+  accept runs once at the revision the user saw.
+- **Cleanup journal** — a `rolled_back` entry now cancels the earlier
+  `completed` entry it undid. Before, a plan retried after a crash recovery
+  replayed the recorded quarantine, marked a live checkout `quarantined` and
+  failed later. `previewCleanupRecovery` reports `manual_recovery` for
+  `recovery_required` (nothing continues it automatically).
+- **Parity tests** — `cleanup-gate-parity.test.ts` drives the real worktree
+  service and the real policy authority and checks that the interactive and
+  automatic previews decide as the executors do, including stale plans, a policy
+  revoked or expired while facts are read, and crash/retry.
+- **Persona** — `agent-persona-grants.test.ts` proves against Postgres that a
+  profile re-pin or presentation edit leaves audience, enlistment, sharing,
+  admission and artifact-reference grants, placement and lead designation as
+  stored, and that refused, stale, unauthorized and archived-Agent changes write
+  nothing.
+
+Second follow-up (same day), from review of the first:
+
+- A retained-data-only (or any narrowed) cleanup plan used to record the live
+  worktree as `cleaned`. Only a plan that quarantined the checkout changes its
+  lifecycle now.
+- `resumeCleanup` run again after a rollback used to flag the restored, healthy
+  worktree `recovery_required`. A job whose journaled steps were all rolled back
+  now reports `partial` again and changes nothing; a job that already completed is reported before any recovery mutation, so a lost response cannot flag a retained checkout.
+- A refused `git worktree prune` after a quarantine now restores the checkout,
+  journals the rollback (quarantine and the refused unregister step) and returns
+  the record to its planned lifecycle with a new generation, so the old plan is
+  `plan_stale` and a re-plan completes. When the folder cannot be restored the
+  record becomes `recovery_required`, the rollback is not journaled and the
+  entry stays in trash. `WorktreeServiceOptions.pruneRegistrations` is the test
+  seam for this.
+
+Third follow-up (same day), from Andrew's report that resume could claim a
+deletion that never ran:
+
+- Resuming a completed job reported every selected step `completed`. It now
+  reports only what the journal proves ran: retained-data pruning (the one step
+  that never journals) is `completed`, and any other selected step with no
+  journal entry, such as `delete_quarantine` on a plan that never quarantined,
+  is `skipped`. The commit result agrees: a selected `delete_quarantine` with
+  nothing quarantined is `skipped`, not silently omitted.

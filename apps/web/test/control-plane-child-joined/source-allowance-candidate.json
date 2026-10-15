@@ -1,0 +1,5 @@
+{
+  "repository": "adea-ai/control-plane",
+  "revision": "d0cc27c3b2e8f6e3b31edff2e114ba556e244631",
+  "dependency": "CP draft #1136: optional childAllowance on the lead prepare response. A draft head, not a merged commit; used only by child-allowance-boundary.test.mjs"
+}
