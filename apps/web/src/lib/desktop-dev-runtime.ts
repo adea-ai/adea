@@ -1,4 +1,16 @@
 import { buildDevCommand } from '@adea-ai/dev-view/browser'
+import type { MigrationSnapshotSection } from '@adea-ai/types'
+import {
+  captureNativeSessionSection,
+  type NativeSessionInventoryPage,
+  type NativeSessionInventoryScope,
+  type NativeSessionInventorySession,
+  type NativeSessionInventorySource,
+} from '@adea-ai/types/native-session-inventory'
+import type {
+  NativeSessionInventoryDiagnosticResult,
+  NativeSessionInventoryDiagnosticService,
+} from '@adea-ai/workspace-ui/platform'
 import {
   createUnavailableDevRuntimeService,
   type DevEventSubscription,
@@ -8,12 +20,6 @@ import {
   type DevStreamTransport,
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
-import type {
-  NativeSessionInventoryPage,
-  NativeSessionInventoryScope,
-  NativeSessionInventorySession,
-  NativeSessionInventorySource,
-} from '@adea-ai/db'
 import {
   decodeWorkspaceRunSummary,
   devOperationDecoders,
@@ -31,6 +37,8 @@ import type { DevScopeSelection } from './desktop-dev-scope'
 const DESKTOP_SESSION_LIST_PAGE_LIMIT = 500
 const DESKTOP_SESSION_INVENTORY_MAX_RECORDS = 10_000
 const DESKTOP_SESSION_INVENTORY_TIMEOUT_MS = 15_000
+const DESKTOP_NATIVE_SESSION_INVENTORY_RECORD_BOUND = 1_000
+const DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS = 30_000
 
 /** The structural slice of the injected bridge this module touches. Declared
  *  locally, never imported: the boundary test pins that this module does not
@@ -431,10 +439,16 @@ function copyInventoryScope(scope: Scope): NativeSessionInventoryScope | undefin
   })
 }
 
-async function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
+  let abortListener: (() => void) | undefined
   try {
-    return await Promise.race([
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+    const races: Promise<T>[] = [
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
@@ -442,9 +456,22 @@ async function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<
           timeoutMs
         )
       }),
-    ])
+    ]
+    if (signal) {
+      races.push(
+        new Promise<never>((_, reject) => {
+          abortListener = () => reject(new Error('desktop session inventory read was cancelled'))
+          signal.addEventListener('abort', abortListener, { once: true })
+          if (signal.aborted) abortListener()
+        })
+      )
+    }
+    const result = await Promise.race(races)
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+    return result
   } finally {
     if (timer !== undefined) clearTimeout(timer)
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener)
   }
 }
 
@@ -452,7 +479,8 @@ async function executeSessionListPage(
   execute: (command: DevCommand) => Promise<DevReply>,
   scope: Scope,
   input: Readonly<{ cursor?: string; limit: number }>,
-  timeoutMs = DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+  timeoutMs = DESKTOP_SESSION_INVENTORY_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<DevRuntimePage<RuntimeSession>> {
   if (
     !Number.isSafeInteger(input.limit) ||
@@ -473,7 +501,8 @@ async function executeSessionListPage(
   })
   let rawReply: DevReply
   try {
-    rawReply = await withDeadline(execute(command), timeoutMs)
+    rawReply = await withDeadline(execute(command), timeoutMs, signal)
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
   } catch (error) {
     if (error instanceof Error && error.message === 'desktop session inventory read timed out') {
       throw error
@@ -490,6 +519,7 @@ async function executeSessionListPage(
   } catch {
     throw new Error('desktop session inventory returned a malformed runtime reply')
   }
+  if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
   if (!reply.ok) throw new Error('desktop session inventory read is unavailable')
   const value = reply.value as unknown as DevRuntimePage<RuntimeSession>
   if (
@@ -559,7 +589,7 @@ async function executeAllSessionPages(
  */
 export function createDesktopNativeSessionInventorySource(
   service: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'state'>,
-  options: Readonly<{ timeoutMs?: number }> = {}
+  options: Readonly<{ signal?: AbortSignal; timeoutMs?: number }> = {}
 ): NativeSessionInventorySource | undefined {
   const timeoutMs = options.timeoutMs ?? DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
   if (
@@ -585,6 +615,7 @@ export function createDesktopNativeSessionInventorySource(
     listRuntimeSessions: async (
       input: Readonly<{ cursor?: string; limit: number }>
     ): Promise<NativeSessionInventoryPage> => {
+      if (options.signal?.aborted) throw new Error('desktop session inventory read was cancelled')
       let currentScope: Scope | undefined
       try {
         if (service.state().status !== 'ready')
@@ -596,7 +627,14 @@ export function createDesktopNativeSessionInventorySource(
       if (!currentScope || !sameScope(currentScope, boundScope))
         throw new Error('desktop session inventory runtime scope changed')
 
-      const page = await executeSessionListPage(service.execute, boundScope, input, timeoutMs)
+      const page = await executeSessionListPage(
+        service.execute,
+        boundScope,
+        input,
+        timeoutMs,
+        options.signal
+      )
+      if (options.signal?.aborted) throw new Error('desktop session inventory read was cancelled')
       let verifiedScope: Scope | undefined
       try {
         if (service.state().status === 'ready') verifiedScope = service.preferenceScope?.()
@@ -635,6 +673,159 @@ export function createDesktopNativeSessionInventorySource(
         items: Object.freeze(safeItems),
         ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
       })
+    },
+  })
+}
+
+/**
+ * On-demand local diagnostic used only by Workspace details → Connections →
+ * Execution hosts. Ownership comes from the service's signed preference scope;
+ * the UI supplies only the workspace and host it is displaying. The returned
+ * section is allowlisted and bounded before it can be downloaded locally.
+ */
+export function createDesktopNativeSessionInventoryDiagnosticService(
+  service: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'state'>,
+  options: Readonly<{
+    authorizationContext?: () => string | undefined
+    timeoutMs?: number
+  }> = {}
+): NativeSessionInventoryDiagnosticService {
+  const timeoutMs = options.timeoutMs ?? DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS
+  const validTimeout =
+    Number.isSafeInteger(timeoutMs) &&
+    timeoutMs > 0 &&
+    timeoutMs <= DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS
+
+  function readAuthorizationContext(): string | undefined {
+    if (!options.authorizationContext) return undefined
+    try {
+      const value = options.authorizationContext()
+      return typeof value === 'string' ? value : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const hasAuthorizationContext = options.authorizationContext !== undefined
+  const boundAuthorizationContext = readAuthorizationContext()
+
+  function authorizationContextMatches(): boolean {
+    return (
+      !hasAuthorizationContext ||
+      (boundAuthorizationContext !== undefined &&
+        readAuthorizationContext() === boundAuthorizationContext)
+    )
+  }
+
+  function currentScope(): Scope | undefined {
+    try {
+      return service.state().status === 'ready' ? service.preferenceScope?.() : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  let lastIdentityKey: string | undefined
+  let identityGeneration = 0
+
+  function scopeIdentity(): string | undefined {
+    if (!authorizationContextMatches()) return undefined
+    const scope = currentScope()
+    if (!scope) return undefined
+    const identityKey = JSON.stringify([
+      scope.accountId,
+      scope.workspaceId,
+      scope.runtimeNodeId,
+      boundAuthorizationContext,
+    ])
+    if (identityKey !== lastIdentityKey) {
+      lastIdentityKey = identityKey
+      identityGeneration += 1
+    }
+    // Keep account, workspace, and login identifiers out of UI state and
+    // downloaded output. The opaque generation only fences this provider.
+    return `native-session-binding-${identityGeneration}`
+  }
+
+  return Object.freeze({
+    scopeIdentity,
+    async capture(input): Promise<NativeSessionInventoryDiagnosticResult> {
+      if (input.signal?.aborted) return { status: 'unknown', reason: 'cancelled' }
+      if (!validTimeout) return { status: 'unknown', reason: 'unavailable' }
+      if (!authorizationContextMatches()) {
+        return { status: 'unknown', reason: 'ownership_mismatch' }
+      }
+      const boundScope = currentScope()
+      if (!boundScope) return { status: 'unknown', reason: 'unavailable' }
+      if (
+        input.workspaceId !== boundScope.workspaceId ||
+        input.runtimeNodeId !== boundScope.runtimeNodeId
+      ) {
+        return { status: 'unknown', reason: 'ownership_mismatch' }
+      }
+
+      const captureAbort = new AbortController()
+      let timedOut = false
+      const onAbort = () => captureAbort.abort()
+      input.signal?.addEventListener('abort', onAbort, { once: true })
+      const timer = setTimeout(() => {
+        timedOut = true
+        captureAbort.abort()
+      }, timeoutMs)
+
+      try {
+        const source = createDesktopNativeSessionInventorySource(service, {
+          signal: captureAbort.signal,
+          timeoutMs: Math.min(DESKTOP_SESSION_INVENTORY_TIMEOUT_MS, timeoutMs),
+        })
+        if (!source) return { status: 'unknown', reason: 'unavailable' }
+        const contextBoundSource: NativeSessionInventorySource = Object.freeze({
+          authorizedScopes: source.authorizedScopes,
+          async listRuntimeSessions(pageInput) {
+            if (!authorizationContextMatches()) {
+              throw new Error('desktop authorization context changed')
+            }
+            const page = await source.listRuntimeSessions(pageInput)
+            if (!authorizationContextMatches()) {
+              throw new Error('desktop authorization context changed during the read')
+            }
+            return page
+          },
+        })
+        const section = (await captureNativeSessionSection(
+          contextBoundSource,
+          DESKTOP_NATIVE_SESSION_INVENTORY_RECORD_BOUND,
+          {
+            pageTimeoutMs: Math.min(DESKTOP_SESSION_INVENTORY_TIMEOUT_MS, timeoutMs),
+            signal: captureAbort.signal,
+          }
+        )) as MigrationSnapshotSection<'nativeSessions'>
+        if (captureAbort.signal.aborted) {
+          return { status: 'unknown', reason: timedOut ? 'timed_out' : 'cancelled' }
+        }
+        if (!authorizationContextMatches()) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        const current = currentScope()
+        if (!current || !sameScope(current, boundScope)) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        return Object.freeze({ status: 'captured', section })
+      } catch {
+        if (input.signal?.aborted) return { status: 'unknown', reason: 'cancelled' }
+        if (timedOut) return { status: 'unknown', reason: 'timed_out' }
+        if (!authorizationContextMatches()) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        const current = currentScope()
+        if (!current || !sameScope(current, boundScope)) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        return { status: 'unknown', reason: 'read_failed' }
+      } finally {
+        clearTimeout(timer)
+        input.signal?.removeEventListener('abort', onAbort)
+      }
     },
   })
 }

@@ -322,7 +322,13 @@ export function WorkspaceDetailsDialog(props: {
                     <ConnectionsPane service={props.services?.connections} />
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
-                    <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+                    <RuntimeNodesPane
+                      client={apiClient()}
+                      nativeSessionInventoryDiagnostics={
+                        props.services?.nativeSessionInventoryDiagnostics
+                      }
+                      workspaceId={props.workspace.id}
+                    />
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading agent models…</p>}>
                     <LeadModelPane client={apiClient()} workspaceId={props.workspace.id} />

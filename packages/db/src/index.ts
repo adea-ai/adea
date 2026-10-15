@@ -26,6 +26,7 @@ export {
 } from './migration-snapshot-capture'
 export {
   captureNativeSessionSection,
+  NATIVE_SESSION_INVENTORY_MAX_OUTPUT_BYTES,
   NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
   NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS,
   NativeSessionInventoryError,

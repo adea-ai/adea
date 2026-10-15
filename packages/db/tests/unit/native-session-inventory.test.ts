@@ -7,6 +7,7 @@ import type { RuntimeSession } from '@adea-ai/types/dev-runtime'
 import { compareMigrationSnapshots } from '../../src/migration-snapshot-comparator'
 import {
   captureNativeSessionSection,
+  NATIVE_SESSION_INVENTORY_MAX_OUTPUT_BYTES,
   NATIVE_SESSION_INVENTORY_PAGE_LIMIT,
   NATIVE_SESSION_INVENTORY_PAGE_TIMEOUT_MS,
   NativeSessionInventoryError,
@@ -228,6 +229,50 @@ describe('native session inventory adapter', () => {
       NativeSessionInventoryError
     )
     expect(calls).toBe(0)
+  })
+
+  test('cancels a page that aborts before returning its already-resolved reply', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const capture = captureNativeSessionSection(
+      source(async () => {
+        calls += 1
+        controller.abort()
+        return { items: [session()], nextCursor: 'opaque-cursor' }
+      }),
+      5,
+      { signal: controller.signal }
+    )
+
+    await expect(capture).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await capture.catch((error: NativeSessionInventoryError) =>
+      expect(error.kind).toBe('unavailable')
+    )
+    expect(calls).toBe(1)
+  })
+
+  test('refuses a mapped section whose serialized output exceeds the byte bound', async () => {
+    const largeScope = {
+      accountId: 'a'.repeat(512),
+      runtimeNodeId: 'n'.repeat(512),
+      workspaceId: 'w'.repeat(512),
+    }
+    const largeSessions = Array.from({ length: 500 }, (_, index) =>
+      session({
+        id: `session-${index}`,
+        projectId: 'p'.repeat(512),
+        scope: largeScope,
+        worktreeId: 't'.repeat(512),
+      })
+    )
+    const failure = captureNativeSessionSection(
+      source(async () => ({ items: largeSessions }), [largeScope]),
+      500
+    )
+
+    await expect(failure).rejects.toBeInstanceOf(NativeSessionInventoryError)
+    await failure.catch((error: NativeSessionInventoryError) => expect(error.kind).toBe('invalid'))
+    expect(NATIVE_SESSION_INVENTORY_MAX_OUTPUT_BYTES).toBe(1_048_576)
   })
 
   test('times out a stalled page, clears its deadline on completion, and consumes a late rejection', async () => {
