@@ -1741,23 +1741,45 @@ session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
 snapshot records the scroll offset and whether the reader was following live
 output; it does not create another transcript or session authority.
-Inline approval/question and terminal-jump controls use published shared Button
-and Input primitives; runtime event projection and authorized response callbacks
-remain application-owned.
-The mounted transcript uses the published shared ConversationSurface to restore
-that snapshot and report native scrolling and cleanup through the host callback,
-carrying the immutable mounted session identity. Shared follow intent stops on
+Inline approval/question and terminal-jump controls use the published shared
+Confirmation, Questionnaire and Button primitives; runtime event projection and
+authorized response callbacks remain application-owned.
+The mounted transcript uses the published shared MessageScroller (which wraps
+ConversationSurface) to restore that snapshot and report native scrolling and
+cleanup through the host callback, carrying the immutable mounted session
+identity. Shared follow intent stops on
 upward reader movement even inside the jump-control visibility threshold; new
 events preserve the parked offset until the reader explicitly resumes following.
 The jump control returns to the latest event and focuses the native transcript.
-During append-only streaming, existing transcript row DOM nodes stay mounted so
-the live region adds only the new row instead of replaying prior announcements.
-The published shared TranscriptComposition owns keyed row rendering, with the
-canonical session/generation as its explicit reset scope. The host clears local
-question answers on scope reset and retains response-authority checks. Current
-opaque runtime payloads provide no validated call phase, interaction eligibility,
-synthesis or final-answer boundary; rows therefore stay visible and unfolded.
-Payload hints and run completion cannot authorize grouping or hide an action.
+During append-only streaming, existing transcript DOM nodes (turns, activity
+columns, lines and prose blocks) stay mounted, keyed by stable ids, so the live
+region adds only the new content instead of replaying prior announcements. The
+canonical session/generation is the explicit reset scope. The host clears local
+question answers on scope reset and retains response-authority checks.
+
+The canvas draws turns: a `turn.user_input` event opens a turn, which is the one
+boundary taken from an event kind, and everything after it nests under one
+assistant response until the next prompt. Events before the first prompt form a
+lead turn. Consecutive `turn.assistant_delta` events from one harness run and
+generation are joined into one prose block whose id is the first delta's id;
+`turn.assistant_message` and `turn.result` render as prose when they carry text.
+Current opaque runtime payloads provide no validated call identity or phase,
+interaction eligibility, synthesis or final-answer boundary, and no
+delta-to-message supersession contract; so no event is correlated with another
+by payload, a delta block and a later message both render, and no event is
+hidden. A line shows a status only when its own event kind states one
+(`*.completed`, `*.failed`); `started`, `requested` and `progress` carry no
+success claim. A spinner is drawn only from the host's session lifecycle
+(`active`), never from the absence of a later event. Only a `requested` approval
+draws the Confirmation card; later `resolved` or `expired` events are quiet
+lines that make no approved/denied claim. A `turn.result` marks a failure only
+when its payload sets `isError`. An unrecognised event kind renders in position
+as a line labelled by its wire kind, without payload content; only
+`credential`-classified events are not drawn. Payload hints and run completion
+cannot authorize grouping or hide an action. Reasoning, sources, citations,
+checkpoints, attachments, context usage, test results and queued follow-ups are
+not drawn, because no producer supplies them; each is a separate backend
+dependency documented in `docs/chat-canvas.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an

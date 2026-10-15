@@ -42,7 +42,7 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   const layout = await page.evaluate(() => ({
     viewport: window.innerHeight,
-    chat: document.querySelector('.dev-chat')!.getBoundingClientRect().height,
+    chat: document.querySelector('[data-dev-chat]')!.getBoundingClientRect().height,
     sidebar: document.querySelector('.dev-sidebar')!.getBoundingClientRect().height,
     background: getComputedStyle(document.querySelector('.dev-sidebar')!).backgroundColor,
   }))

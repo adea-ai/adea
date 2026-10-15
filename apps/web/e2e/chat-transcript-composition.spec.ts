@@ -25,10 +25,12 @@ test('runtime transcript rows retain focused question identity and reset scoped 
   await expect(question).toBeFocused()
   await expect(question).toHaveValue('Unfinished answer')
   expect(await element!.evaluate((node) => node.isConnected)).toBe(true)
-  await expect(page.getByRole('button', { name: 'Submit answer' })).toBeDisabled()
+  // A draft is sendable once something is written; sending is not exercised here.
+  await expect(page.getByRole('button', { name: 'Submit answer' })).toBeEnabled()
   await expect(page.getByRole('button', { name: /worked|collapse|expand/i })).toHaveCount(0)
-  const text = page.locator('.dev-chat__text').filter({ hasText: 'Which target?' })
-  const header = page.locator('.dev-chat__row-header').last()
+  const text = page.locator('[data-slot="message-text"]').filter({ hasText: 'Reply prose' })
+  // Chrome (a line's title) follows the UI font; prose follows the content font.
+  const header = page.locator('[data-slot="trace-title"]').filter({ hasText: 'Tool' })
   const originalHeaderSize = await header.evaluate((node) =>
     Number.parseFloat(getComputedStyle(node).fontSize)
   )
