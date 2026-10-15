@@ -310,3 +310,30 @@ describe('authorized local attachment operations', () => {
       ).toBeUndefined()
     }))
 })
+
+test('signed and local AttachmentError refusals survive the actual JSON wire round trip', () =>
+  fixture(async (ctx) => {
+    const command = () =>
+      ctx.command(
+        'dev.session.attachmentUpload',
+        {
+          upload: { ...payload, name: 'image.png', mediaType: 'image/png' },
+        },
+        { idempotencyKey: 'unsupported-wire' }
+      )
+    const signed = await ctx.execute(command())
+    const local = await ctx.authority.dispatchLocal(INTERNAL_DISPATCH_MARKER, command())
+    for (const reply of [signed, local]) {
+      const wire = JSON.parse(JSON.stringify(reply))
+      expect(wire.ok).toBe(false)
+      expect(wire.error).toEqual({
+        code: 'unsupported_capability',
+        retryable: false,
+        message: 'attachment_unsupported_capability',
+      })
+      expect(decodeDevReply(wire)).toEqual(wire)
+      expect(wire.error.name).toBeUndefined()
+      expect(wire.error.stack).toBeUndefined()
+    }
+    expect(ctx.events.events()).toHaveLength(0)
+  }))

@@ -4107,9 +4107,19 @@ atomically commit their encrypted record and a durable transcript outbox item be
 and the canonical session log, then marks the outbox delivered. Interruption
 before commit rolls back bytes and outbox together. A retry after commit but
 before publication publishes the original event; after publication but before
-the delivered marker, canonical dedupe suppresses a second event. If the needed
-source event has fallen outside the canonical log's retained window, recovery
-refuses `recovery_required` rather than inventing a new event cursor. SQLite
+the delivered marker, canonical dedupe suppresses a second event. The retry key
+and content fingerprint are authenticated inside each sealed record, including
+tombstones. The outbox MAC covers its prepared/attempted/delivered state; even
+rows marked delivered must authenticate before being skipped. Before crossing
+the event-log commit boundary, the host durably authenticates the publication
+attempt. If that attempt's source event is absent from retained history, including
+an entirely evicted generation, recovery refuses `recovery_required` rather than
+inventing a new event cursor. This also fails closed if interruption happened
+between recording the attempt and actually appending the event. Local database
+edits without the key cannot substitute retry content or forge a delivery marker.
+The repaired draft uses attachment-store format 2; earlier draft stores are
+preserved and refused with `unsupported_version`, without automatic migration
+of metadata that the old format did not authenticate. SQLite
 uses immediate transactions, WAL and full synchronization; each operation closes
 its database handle and clears its derived key buffer.
 

@@ -315,10 +315,12 @@ describe('local encrypted chat attachments (#1392)', () => {
         ctx.interrupt(stage)
         code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
         expect(ctx.events.events()).toHaveLength(stage === 'after_publish' ? 1 : 0)
+        const published = ctx.events.events()[0]
         ctx.interrupt()
         const attachment = ctx.make().upload(binding, upload(), 'upload-1')
         expect(ctx.make().upload(binding, upload(), 'upload-1')).toEqual(attachment)
         expect(ctx.events.events()).toHaveLength(1)
+        if (published) expect(ctx.events.events()[0]).toEqual(published)
         expect(ctx.store.open(binding, attachment.attachmentId).attachment).toEqual(attachment)
       }))
   }
@@ -548,4 +550,189 @@ test('interrupted first-use initialization rolls back the schema and authentic o
     const attachment = ctx.store.upload(binding, upload(), 'upload-1')
     expect(ctx.store.open(binding, attachment.attachmentId).attachment).toEqual(attachment)
     expect(ctx.events.events()).toHaveLength(1)
+  }))
+
+describe('attachment independent-review regressions (#1407)', () => {
+  test('swapped retry metadata cannot return another valid attachment or its bytes', () =>
+    fixture((ctx) => {
+      const first = ctx.store.upload(binding, upload('first private body', 'first.txt'), 'first')
+      const second = ctx.store.upload(
+        binding,
+        upload('second private body', 'second.txt'),
+        'second'
+      )
+      const db = new Database(ctx.dbPath())
+      try {
+        const rows = db
+          .query<{ id: string; upload_key: string; fingerprint: string }, []>(
+            'SELECT id,upload_key,fingerprint FROM attachments ORDER BY rowid'
+          )
+          .all()
+        db.query('UPDATE attachments SET upload_key=? WHERE id=?').run(
+          'temporary-swap',
+          first.attachmentId
+        )
+        db.query('UPDATE attachments SET upload_key=?,fingerprint=? WHERE id=?').run(
+          rows[0]!.upload_key,
+          rows[0]!.fingerprint,
+          second.attachmentId
+        )
+        db.query('UPDATE attachments SET upload_key=?,fingerprint=? WHERE id=?').run(
+          rows[1]!.upload_key,
+          rows[1]!.fingerprint,
+          first.attachmentId
+        )
+      } finally {
+        db.close(true)
+      }
+      code(
+        () => ctx.make().upload(binding, upload('first private body', 'first.txt'), 'first'),
+        'corrupt_state'
+      )
+      code(
+        () => ctx.make().upload(binding, upload('second private body', 'second.txt'), 'second'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.open(binding, second.attachmentId), 'corrupt_state')
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('a forged delivered marker cannot silently suppress a committed transcript fact', () =>
+    fixture((ctx) => {
+      ctx.interrupt('after_commit')
+      code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+      ctx.interrupt()
+      const db = new Database(ctx.dbPath())
+      try {
+        db.exec('UPDATE attachment_outbox SET delivered=1')
+      } finally {
+        db.close(true)
+      }
+      code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'corrupt_state')
+      expect(ctx.events.events()).toHaveLength(0)
+    }))
+
+  test('a published but unmarked fact fails closed after its entire generation leaves retention', () =>
+    fixture((ctx) => {
+      ctx.events.append({ ...binding, kind: 'run.created', sourceEventId: 'initial' })
+      ctx.interrupt('after_publish')
+      code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+      ctx.interrupt()
+      const published = ctx.events.events().find((event) => event.kind === 'attachment.added')!
+      expect(published.seq).toBe('2')
+      const bounded = createSessionEventLog({
+        dataDir: ctx.dataDir,
+        scope,
+        maxPerSession: 2,
+        maxTotal: 2,
+      })
+      for (let index = 0; index < 4; index += 1)
+        bounded.append({
+          runtimeSessionId: 'other-session',
+          generation: 2,
+          kind: 'run.created',
+          sourceEventId: `other-${index}`,
+        })
+      expect(
+        bounded.events().filter((event) => event.runtimeSessionId === binding.runtimeSessionId)
+      ).toHaveLength(0)
+      code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'recovery_required')
+      expect(
+        bounded.events().some((event) => event.sourceEventId === published.sourceEventId)
+      ).toBe(false)
+    }))
+})
+
+test('an interrupted publication attempt with no retained fact requires recovery', () =>
+  fixture((ctx) => {
+    ctx.interrupt('before_publish')
+    code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+    ctx.interrupt()
+    code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'recovery_required')
+    expect(ctx.events.events()).toHaveLength(0)
+  }))
+
+for (const [stage, forged] of [
+  ['after_commit', 2],
+  ['after_publish', 0],
+  ['after_publish', 1],
+  [undefined, 0],
+  [undefined, 2],
+] as const)
+  test(`publication state tampering ${stage ?? 'delivered'} -> ${forged} is detected`, () =>
+    fixture((ctx) => {
+      ctx.interrupt(stage)
+      if (stage) code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+      else ctx.store.upload(binding, upload(), 'upload-1')
+      ctx.interrupt()
+      const db = new Database(ctx.dbPath())
+      try {
+        db.query('UPDATE attachment_outbox SET delivered=?').run(forged)
+      } finally {
+        db.close(true)
+      }
+      const retained = ctx.events.events()
+      code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'corrupt_state')
+      expect(ctx.events.events()).toEqual(retained)
+    }))
+
+test('older draft format remains untouched and requires explicit recovery, never silent adoption', () =>
+  fixture((ctx) => {
+    ctx.store.upload(binding, upload(), 'upload-1')
+    const db = new Database(ctx.dbPath())
+    try {
+      db.exec('PRAGMA user_version=1')
+    } finally {
+      db.close(true)
+    }
+    const original = readFileSync(ctx.dbPath())
+    const key = Buffer.from(ctx.secret)
+    code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'unsupported_version')
+    code(() => ctx.store.validateWorkspacePurge(), 'unsupported_version')
+    expect(readFileSync(ctx.dbPath())).toEqual(original)
+    expect(ctx.secret).toEqual(key)
+    expect(ctx.events.events()).toHaveLength(1)
+  }))
+
+test('forged outbox binding cannot hide an unpublished fact from authentication or purge', () =>
+  fixture((ctx) => {
+    ctx.interrupt('after_commit')
+    code(() => ctx.store.upload(binding, upload(), 'upload-1'), 'unavailable')
+    ctx.interrupt()
+    const db = new Database(ctx.dbPath())
+    try {
+      db.query('UPDATE attachment_outbox SET binding=?').run('["foreign-session",1]')
+    } finally {
+      db.close(true)
+    }
+    code(() => ctx.make().upload(binding, upload(), 'upload-1'), 'corrupt_state')
+    code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    expect(ctx.events.events()).toHaveLength(0)
+  }))
+
+test('authenticated delivery remains idempotent after its complete generation leaves retention', () =>
+  fixture((ctx) => {
+    const attachment = ctx.store.upload(binding, upload(), 'upload-1')
+    const bounded = createSessionEventLog({
+      dataDir: ctx.dataDir,
+      scope,
+      maxPerSession: 2,
+      maxTotal: 2,
+    })
+    for (let index = 0; index < 4; index += 1)
+      bounded.append({
+        runtimeSessionId: 'other-session',
+        generation: 2,
+        kind: 'run.created',
+        sourceEventId: `other-${index}`,
+      })
+    const retained = bounded.events()
+    expect(retained.every((event) => event.runtimeSessionId !== binding.runtimeSessionId)).toBe(
+      true
+    )
+    expect(ctx.make().upload(binding, upload(), 'upload-1')).toEqual(attachment)
+    expect(bounded.events()).toEqual(retained)
+    expect(ctx.store.open(binding, attachment.attachmentId).contentBase64).toBe(
+      upload().contentBase64
+    )
   }))

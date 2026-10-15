@@ -111,3 +111,65 @@ no old Pi/Claude session or user credential was changed.
    qualification were not run. Runner-heavy CI remains a later ready/review gate;
    this branch is only a draft and no ready, merge, deployment or release action
    is authorized.
+
+## Independent review repairs (#1407)
+
+The four reported P2 regressions reproduced at
+`2cf2f8c9cd941342a274bd861b17ce01af17a198`: the initial focused run had
+33 passes and exactly four failures. Swapping two valid rows' upload-key/
+fingerprint pairs returned the wrong attachment; changing a pending delivery
+flag suppressed its event; complete generation eviction after publication
+allowed another cursor; Error-derived refusals lost `message` and leaked `name`
+through JSON serialization. The first two require local database modification
+without the encryption key. They are local integrity failures, not evidence of
+remote privilege escalation.
+
+The repaired store seals the retry key and fingerprint with the attachment,
+checks them before evaluating a retry, and retains them in encrypted tombstones.
+Its outbox MAC now authenticates the publication state. All outbox rows,
+including delivered rows and their binding selectors, authenticate before
+filtering, skipping or owner-proven purge. Before appending to the separate
+canonical log, the host persists an authenticated attempted state. An attempted
+fact missing from retained history returns `recovery_required`, even when no
+history remains in that generation. This deliberately also refuses an ambiguous
+interruption between the attempted marker and the append itself. Retained
+facts still reconcile through the original source identity; delivered retries
+do not republish after retention.
+
+Attachment-store format 2 does not automatically adopt format 1: its retry and
+delivery metadata cannot be retroactively trusted. Old draft stores are
+preserved and refused with `unsupported_version`; no user data or credentials
+are rewritten or deleted. This does not add protection against arbitrary row
+removal, whole-database rollback or an actor holding the device key.
+
+The shared `channel/authority.ts` repair uses the identical `wireDevError`
+projection and both call sites inspected in usage PR #1397 at
+`99e4941e82e5515cf9cc1bf9f18f9d6f1a15ca75`. It explicitly serializes the public
+error fields, including `message`, and excludes class names/stacks. No usage
+semantics or second helper were imported. This is the only additional shared
+source integration beyond the original attachment PR; schema/barrel and
+operation-registry changes were not needed for these repairs. Integration should
+retain one copy of this shared helper when both drafts land.
+
+Repair validation:
+
+- `bun test packages/types/tests apps/desktop/tests/dev-runtime-chat-attachments*.test.ts apps/desktop/tests/workspace-local-data.test.ts apps/desktop/tests/workspace-cleanup*.test.ts apps/desktop/tests/dev-runtime-composition.test.ts apps/desktop/tests/dev-runtime-harness*.test.ts apps/desktop/tests/harness-events-channel.test.ts apps/desktop/tests/shell-channel.test.ts apps/desktop/tests/terminal-channel.test.ts apps/desktop/tests/terminal-input-authority.test.ts apps/desktop/tests/dev-runtime-dispatch-local.test.ts scripts/docs-boundary.test.ts scripts/dev-runtime-call-conformance.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts scripts/desktop-auth-boundary.test.ts`:
+  **502 passed, 0 failed across 41 files**. Includes the four review regressions,
+  additional publication-state/binding tamper cases, ambiguous pre-append
+  interruption, stable delivered retries after full eviction, old-format byte/key
+  preservation, purge authentication, and
+  signed plus local refusal JSON round trips through `decodeDevReply`.
+- `TURBO_CONCURRENCY=1 bun run typecheck`: **31 tasks passed**, 30 cached.
+- `TURBO_CONCURRENCY=1 bun run lint`: **17 package tasks plus root lint passed**,
+  16 package tasks cached; zero warnings/errors.
+- `TURBO_CONCURRENCY=1 bun run build`: **15 tasks passed**, all cached.
+- `bun build --target=bun apps/desktop/shell/src/dev-runtime/attachments/register.ts --outdir /tmp/1392-repair-host-bundle`:
+  fresh Bun host bundle passed (15 modules).
+- `node scripts/generate-dev-runtime-contract.mjs`: deterministic; no generated
+  file changes. `bunx --no-install code-foundry doctor`: passed.
+
+Heavy job concurrency remained one, with 229 GiB free and existing dependencies
+reused. No consumer code changed; the earlier 890-test consumer result above is
+historical, not rerun for this host-only repair. Packaged/live/browser/remote/soak
+qualification remains unrun. PR #1401 stays on its original exact head; PR #1407
+remains draft with auto-merge disabled. No production action was taken.

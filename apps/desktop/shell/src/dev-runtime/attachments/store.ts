@@ -48,6 +48,7 @@ export type AttachmentStage =
   | 'before_initialization_commit'
   | 'before_commit'
   | 'after_commit'
+  | 'before_publish'
   | 'after_publish'
 type Row = {
   id: string
@@ -67,8 +68,15 @@ type Pending = {
   payload: string
   occurred_at: string
   mac: string
+  /** Authenticated publication state: prepared, delivered, or attempted. */
+  delivered: 0 | 1 | 2
 }
-type SealedRecord = { attachment: ChatAttachment; contentBase64?: string }
+type SealedRecord = {
+  attachment: ChatAttachment
+  uploadKey: string
+  fingerprint: string
+  contentBase64?: string
+}
 
 /** One scope-local database; all bytes and display metadata are sealed. No caller path is accepted. */
 export function createChatAttachmentStore(input: {
@@ -110,7 +118,7 @@ export function createChatAttachmentStore(input: {
   const bind = (binding: AttachmentBinding) =>
     JSON.stringify([binding.runtimeSessionId, binding.generation])
   const aad = (id: string, binding: string) =>
-    Buffer.from(JSON.stringify(['adea-chat-attachment', 1, scopeText, binding, id]))
+    Buffer.from(JSON.stringify(['adea-chat-attachment', 2, scopeText, binding, id]))
 
   function key(): Buffer {
     try {
@@ -206,10 +214,10 @@ export function createChatAttachmentStore(input: {
           scopeText,
           seal(scopeText, secret, 'store', 'scope')
         )
-        db.exec('PRAGMA user_version=1')
+        db.exec('PRAGMA user_version=2')
         input.onStage?.('before_initialization_commit')
       } else {
-        if (version !== 1)
+        if (version !== 2)
           throw new AttachmentError(version === 0 ? 'corrupt_state' : 'unsupported_version')
         if (
           JSON.stringify(tables) !==
@@ -306,7 +314,13 @@ export function createChatAttachmentStore(input: {
       attachment.attachmentId !== row.id ||
       bind(attachment) !== row.binding ||
       attachment.state !== row.state ||
-      attachment.byteLength !== row.byte_length
+      attachment.byteLength !== row.byte_length ||
+      typeof value.uploadKey !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(value.uploadKey) ||
+      value.uploadKey !== row.upload_key ||
+      typeof value.fingerprint !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(value.fingerprint) ||
+      value.fingerprint !== row.fingerprint
     )
       throw new AttachmentError('corrupt_state')
     if (attachment.state === 'available') {
@@ -342,7 +356,7 @@ export function createChatAttachmentStore(input: {
   function eventMac(event: Omit<Pending, 'mac'>, secret: Buffer): string {
     return mac(
       JSON.stringify([
-        'outbox',
+        'outbox-v2',
         scopeText,
         event.id,
         event.binding,
@@ -351,6 +365,7 @@ export function createChatAttachmentStore(input: {
         event.kind,
         event.payload,
         event.occurred_at,
+        event.delivered,
       ]),
       secret
     )
@@ -378,6 +393,7 @@ export function createChatAttachmentStore(input: {
       kind,
       payload: JSON.stringify({ attachment: reference }),
       occurred_at: attachment.removedAt ?? attachment.createdAt,
+      delivered: 0,
     }
     db.query(
       'INSERT INTO attachment_outbox(id,binding,generation,session_id,kind,payload,occurred_at,mac) VALUES(?,?,?,?,?,?,?,?)'
@@ -393,16 +409,22 @@ export function createChatAttachmentStore(input: {
     )
     return id
   }
+  function authenticatedOutbox(db: Database, secret: Buffer): Pending[] {
+    const rows = db.query<Pending, []>('SELECT * FROM attachment_outbox ORDER BY rowid').all()
+    // Authenticate selectors before filtering, just as delivery state before skipping.
+    for (const event of rows)
+      if (![0, 1, 2].includes(event.delivered) || event.mac !== eventMac(event, secret))
+        throw new AttachmentError('corrupt_state')
+    return rows
+  }
   function flush(db: Database, binding: AttachmentBinding, secret: Buffer, fresh?: string): void {
-    const pending = db
-      .query<Pending, [string]>(
-        'SELECT * FROM attachment_outbox WHERE binding=? AND delivered=0 ORDER BY rowid'
-      )
-      .all(bind(binding))
+    const pending = authenticatedOutbox(db, secret).filter(
+      (event) => event.binding === bind(binding)
+    )
     for (const event of pending) {
       input.assertBinding(binding)
       if (!input.events) throw new AttachmentError('capability_unavailable')
-      if (event.mac !== eventMac(event, secret)) throw new AttachmentError('corrupt_state')
+      if (event.delivered === 1) continue
       const retained = input.events
         .events()
         .filter(
@@ -415,8 +437,22 @@ export function createChatAttachmentStore(input: {
       )
       // A crash plus an evicted dedupe window is ambiguous. Never append an old
       // fact under a new cursor merely because its source ID is no longer retained.
-      if (!existing && event.id !== fresh && retained.length > 0 && BigInt(retained[0]!.seq) > 1n)
+      if (
+        !existing &&
+        (event.delivered === 2 ||
+          (event.id !== fresh && retained.length > 0 && BigInt(retained[0]!.seq) > 1n))
+      )
         throw new AttachmentError('recovery_required')
+      // Persist an authenticated attempt BEFORE crossing the separate event-log
+      // commit boundary. A missing retained fact after an attempt is ambiguous,
+      // including when retention has removed every event in this generation.
+      const attempted = { ...event, delivered: 2 as const }
+      db.query('UPDATE attachment_outbox SET delivered=?,mac=? WHERE id=?').run(
+        attempted.delivered,
+        eventMac(attempted, secret),
+        event.id
+      )
+      input.onStage?.('before_publish')
       input.events.append({
         runtimeSessionId: event.session_id,
         generation: event.generation,
@@ -429,7 +465,12 @@ export function createChatAttachmentStore(input: {
         occurredAt: event.occurred_at,
       })
       input.onStage?.('after_publish')
-      db.query('UPDATE attachment_outbox SET delivered=1 WHERE id=?').run(event.id)
+      const delivered = { ...event, delivered: 1 as const }
+      db.query('UPDATE attachment_outbox SET delivered=?,mac=? WHERE id=?').run(
+        delivered.delivered,
+        eventMac(delivered, secret),
+        event.id
+      )
     }
   }
   function upload(
@@ -479,9 +520,9 @@ export function createChatAttachmentStore(input: {
           .query<Row, [string]>('SELECT * FROM attachments WHERE upload_key=?')
           .get(uploadKey)
         if (existing) {
+          const previous = record(existing, secret).attachment
           if (existing.fingerprint !== fingerprint || existing.binding !== bind(binding))
             throw new AttachmentError('idempotency_conflict')
-          const previous = record(existing, secret).attachment
           if (previous.state !== 'available') throw new AttachmentError('invalid_state')
           return previous
         }
@@ -507,7 +548,7 @@ export function createChatAttachmentStore(input: {
           createdAt: now(),
         }
         const sealed = seal(
-          { attachment: next, contentBase64: request.contentBase64 },
+          { attachment: next, uploadKey, fingerprint, contentBase64: request.contentBase64 },
           secret,
           next.attachmentId,
           bind(binding)
@@ -561,7 +602,12 @@ export function createChatAttachmentStore(input: {
         const next: ChatAttachment = { ...previous, state: 'removed', removedAt: now() }
         db.query('UPDATE attachments SET state=?,sealed=? WHERE id=? AND binding=?').run(
           next.state,
-          seal({ attachment: next }, secret, next.attachmentId, bind(binding)),
+          seal(
+            { attachment: next, uploadKey: row.upload_key, fingerprint: row.fingerprint },
+            secret,
+            next.attachmentId,
+            bind(binding)
+          ),
           next.attachmentId,
           bind(binding)
         )
@@ -661,6 +707,7 @@ export function createChatAttachmentStore(input: {
       transaction(db, undefined, () => {
         const rows = db.query<Row, []>('SELECT * FROM attachments').all()
         rows.forEach((row) => record(row, secret))
+        authenticatedOutbox(db, secret)
         if (!validateOnly) db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
         return rows.length
       })
