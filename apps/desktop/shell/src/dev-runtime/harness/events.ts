@@ -29,7 +29,7 @@ import { canonicalDevCommandJson } from '../../../../../../packages/types/src/de
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { createDurableJsonStore } from '../host-store'
-import { assertAssistantEventOrder } from './assistant-events'
+import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import {
   assertVisibleSummaryAppend,
   assertVisibleSummaryReplay,
@@ -211,6 +211,8 @@ export function createSessionEventLog(input: {
       }
     }
     candidate = { ...candidate, seq: nextSequence.toString() }
+    // Size the exact stored event: the allocated sequence can add a digit.
+    assertAssistantEventFitsFrame(candidate)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

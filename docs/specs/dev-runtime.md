@@ -2816,11 +2816,16 @@ type RuntimeAssistantResultPayload = {
 
 Delta and final `text` and result `summary` must be well-formed UTF-16: an
 unpaired surrogate would be rewritten by UTF-8/CBOR replay, so adapters split
-deltas at code-point boundaries. Each assistant payload (its `references` keep
-their own cited-response budget) is at most 48 KiB of UTF-8 JSON, leaving room
-for the envelope in the 64 KiB canonical-CBOR stream frame so an appended
-message can always be streamed and replayed. A complete answer beyond that
-bound cannot be finalized under this contract; a chunked-final contract would be
+deltas at code-point boundaries. The whole stored assistant event, in canonical CBOR including the envelope
+and any extra or `references` fields on any of the three kinds, is at most
+64 KiB (65,536 bytes), the `runtime-events-v1` frame limit, so an appended
+message can always be streamed and replayed. JSON size is no proxy: CBOR
+expands numbers (a `0.1` is nine bytes) and the envelope adds its own. The host
+measures the exact event to be stored, with its allocated sequence, before
+persistence or publication; an oversize event fails with an explicit error, is
+never truncated, and consumes no sequence. An exact retry of a stored event
+stays a no-op even after the cursor gains a digit. A complete answer beyond the
+bound cannot be finalized under this contract; a chunked-final contract is
 separate work. Other payload fields remain bounded JSON; these reserved fields
 are validated by `decodeRuntimeEvent` and by the canonical log before
 persistence or live publication. Missing or malformed identity fails closed. Retained assistant

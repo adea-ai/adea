@@ -154,13 +154,18 @@ Review corrections found while reconciling:
 
 - A final or delta could be appended at up to 65,536 UTF-16 units, but the
   `runtime-events-v1` handler sends each event as one 64 KiB frame and the
-  gateway closes the stream on a larger frame. Multi-byte text was affected
-  well below that count. Each assistant payload is now bounded to 48 KiB of
-  UTF-8 JSON (references keep the #1389 budget), and a test builds the largest
-  accepted event with maximal ID fields and asserts the CBOR frame stays under
-  64 KiB for 1-, 3- and 4-byte characters. A complete answer larger than that
-  bound cannot be finalized under this contract; a chunked-final contract would
-  be separate work.
+  gateway closes the stream on a larger frame. An interim 48 KiB JSON bound was
+  not enough: it skipped `references` on delta/result events and CBOR expands
+  numbers (8,000 values of `0.1` are 32 KB of JSON but over 64 KiB encoded). The
+  canonical log now encodes the exact event to be stored, with its allocated
+  sequence, and refuses one over 65,536 bytes before persistence or publication
+  (`maximum encoded assistant event size exceeded`). Regressions cover the
+  numeric expansion, references on delta/result/final events, the exact maximum
+  and one byte more with 256-character envelope fields, and a stored event that
+  fits as sequence 99 but not 100 (an exact retry stays a no-op). They fail
+  without the check. A complete answer larger than the bound cannot be
+  finalized under this contract; a chunked-final contract would be separate
+  work.
 - Delta and final `text` and result `summary` could contain an unpaired UTF-16
   surrogate, which UTF-8/CBOR replay rewrites to U+FFFD, so live and durable
   text would differ and a delta split mid-pair would corrupt the character.

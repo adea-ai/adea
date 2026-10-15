@@ -3,13 +3,6 @@
 // or process dependencies. Other payload fields retain the bounded JSON contract.
 import { fail, integerValue, literal, record, stringValue } from './dev-runtime-validation-internal'
 
-/**
- * Encoded bound for one assistant payload (references keep their own budget).
- * It leaves room for the event envelope in the 64 KiB canonical-CBOR stream
- * frame, so an appended message can always be streamed and replayed.
- */
-export const RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX = 48 * 1024
-
 export type RuntimeAssistantEventKind =
   | 'turn.assistant_delta'
   | 'turn.assistant_message'
@@ -65,11 +58,6 @@ export function decodeRuntimeAssistantPayload<K extends RuntimeAssistantEventKin
       'event.payload.messageId',
       'expected a well-formed opaque identity without whitespace or controls'
     )
-  const { references: _references, ...own } = payload
-  if (
-    new TextEncoder().encode(JSON.stringify(own)).byteLength > RUNTIME_ASSISTANT_PAYLOAD_BYTES_MAX
-  )
-    fail('event.payload', 'maximum assistant payload encoded size exceeded')
   if (kind === 'turn.assistant_delta') {
     integerValue(payload.deltaIndex, 'event.payload.deltaIndex', 0)
     wellFormed(stringValue(payload.text, 'event.payload.text', 0, 65_536), 'event.payload.text')

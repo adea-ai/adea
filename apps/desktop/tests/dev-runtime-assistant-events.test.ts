@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { decodeRuntimeEvent, type Scope } from '../../../packages/types/src/dev-runtime'
+import { decodeRuntimeEvent, encodeCbor, type Scope } from '../../../packages/types/src/dev-runtime'
 import {
   createSessionEventLog,
   type SessionEventInput,
@@ -55,14 +55,15 @@ describe('canonical assistant event append', () => {
       expect(log.latestSequence('session-1', 1)).toBe('0')
     }))
 
-  test('refuses unstreamable or lossy text without consuming a sequence or publishing', () =>
+  test('refuses lossy text without consuming a sequence or publishing', () =>
     withLog((log) => {
       const published: unknown[] = []
       log.subscribe('session-1', (event) => published.push(event))
-      for (const text of ['x'.repeat(48 * 1024 + 1), 'half \ud83d pair'])
-        expect(() =>
-          log.append(input({ payload: { messageId: 'message-1', deltaIndex: 0, text } }))
-        ).toThrow()
+      expect(() =>
+        log.append(
+          input({ payload: { messageId: 'message-1', deltaIndex: 0, text: 'half \ud83d pair' } })
+        )
+      ).toThrow('unpaired surrogate')
       expect(log.events()).toHaveLength(0)
       expect(published).toHaveLength(0)
       expect(log.append(input())!.seq).toBe('1')
@@ -277,4 +278,110 @@ describe('opaque retained assistant payloads do not establish lifecycle fences',
           expect(() => reopened.append(input({ sourceEventId: 'late-valid-delta' }))).toThrow()
           expect(reopened.events().map((event) => event.seq)).toEqual(['1', '2', '3', '4'])
         }))
+})
+
+describe('assistant events must fit one runtime-events-v1 frame', () => {
+  const oversize = 'maximum encoded assistant event size exceeded'
+  const maxIds = (overrides: Partial<SessionEventInput> = {}) =>
+    input({
+      runtimeSessionId: 's'.repeat(256),
+      harnessRunId: 'r'.repeat(256),
+      sourceEventId: 'x'.repeat(256),
+      occurredAt: '2026-10-15T00:00:00.000Z',
+      ...overrides,
+    })
+  const frame = (event: unknown) => encodeCbor(event as never).byteLength
+  const delta = (text: string, extra: Record<string, unknown> = {}) => ({
+    messageId: 'm'.repeat(256),
+    deltaIndex: 0,
+    text,
+    ...extra,
+  })
+
+  /** Filler length whose stored event encodes to exactly `target` bytes. */
+  function fillerFor(target: number, prior: number, runtimeSessionId: string): number {
+    const probe = 60_000
+    let sized = 0
+    withLog((log) => {
+      for (let index = 0; index < prior; index += 1)
+        log.append(
+          input({
+            runtimeSessionId,
+            sourceEventId: `prior-${index}`,
+            kind: 'tool.progress',
+            payload: {},
+          })
+        )
+      sized = frame(log.append(maxIds({ runtimeSessionId, payload: delta('a'.repeat(probe)) })))
+    })
+    return probe + target - sized
+  }
+
+  test('measures the encoded event, not JSON size: CBOR expands numeric fields', () =>
+    withLog((log) => {
+      const published: unknown[] = []
+      log.subscribe('session-1', (event) => published.push(event))
+      const payload = delta('x', { values: Array.from({ length: 8000 }, () => 0.1) })
+      // The old 48 KiB JSON proxy accepted this; its canonical CBOR is 9 bytes per value.
+      expect(new TextEncoder().encode(JSON.stringify(payload)).byteLength).toBeLessThan(48 * 1024)
+      expect(() => log.append(input({ payload }))).toThrow(oversize)
+      expect(log.events()).toHaveLength(0)
+      expect(published).toHaveLength(0)
+      expect(log.append(input())!.seq).toBe('1')
+    }))
+
+  test('counts references carried on delta and result events', () =>
+    withLog((log) => {
+      const published: unknown[] = []
+      log.subscribe('session-1', (event) => published.push(event))
+      const references = { blob: 'x'.repeat(40_000), more: 'y'.repeat(40_000) }
+      for (const [kind, payload] of [
+        ['turn.assistant_delta', delta('x', { references })],
+        ['turn.result', { messageId: 'message-1', references }],
+        ['turn.assistant_message', { messageId: 'm', text: 'x', supersedes: 'deltas', references }],
+      ] as const)
+        expect(() => log.append(input({ kind, sourceEventId: kind, payload }))).toThrow()
+      expect(log.events()).toHaveLength(0)
+      expect(published).toHaveLength(0)
+      expect(log.append(input())!.seq).toBe('1')
+    }))
+
+  test('accepts the exact maximum with maximal envelope fields and refuses one byte more', () => {
+    const exact = fillerFor(65_536, 0, 's'.repeat(256))
+    withLog((log) => {
+      const accepted = log.append(maxIds({ payload: delta('a'.repeat(exact)) }))!
+      expect(frame(accepted)).toBe(65_536)
+    })
+    withLog((log) => {
+      expect(() => log.append(maxIds({ payload: delta('a'.repeat(exact + 1)) }))).toThrow(oversize)
+      expect(log.events()).toHaveLength(0)
+      expect(log.latestSequence('s'.repeat(256), 1)).toBe('0')
+    })
+  })
+
+  test('sizes the allocated sequence and keeps an exact retry a no-op after it grows', () => {
+    // Fits as sequence 99 but not as sequence 100: the stored event gains a digit.
+    const exactAt99 = fillerFor(65_536, 98, 'session-1')
+    withLog((log) => {
+      for (let index = 0; index < 98; index += 1)
+        log.append(input({ sourceEventId: `prior-${index}`, kind: 'tool.progress', payload: {} }))
+      const fits = maxIds({
+        runtimeSessionId: 'session-1',
+        payload: delta('a'.repeat(exactAt99)),
+      })
+      const stored = log.append(fits)!
+      expect(stored.seq).toBe('99')
+      expect(frame(stored)).toBe(65_536)
+      log.append(input({ sourceEventId: 'prior-98', kind: 'tool.progress', payload: {} }))
+      // An exact retry after the cursor reached three digits is still ignored.
+      expect(log.append(fits)).toBeUndefined()
+      expect(log.latestSequence('session-1', 1)).toBe('100')
+      // The same bytes as a new event now allocate sequence 101 and no longer fit.
+      const next = { ...delta('a'.repeat(exactAt99)), messageId: 'n'.repeat(256) }
+      expect(() => log.append({ ...fits, sourceEventId: 'y'.repeat(256), payload: next })).toThrow(
+        oversize
+      )
+      expect(log.latestSequence('session-1', 1)).toBe('100')
+    })
+  })
 })
