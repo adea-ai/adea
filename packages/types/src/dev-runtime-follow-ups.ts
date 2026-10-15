@@ -194,8 +194,19 @@ export function decodeFollowUpQueueSnapshot(value: unknown): FollowUpQueueSnapsh
 }
 
 /** Strict reply decoder for consumers that load the focused queue contract. */
-export function decodeFollowUpQueueReply(value: unknown): DevReply {
-  return decodeDevReply(value, { 'dev.session.followUps': decodeFollowUpQueueSnapshot })
+export function decodeFollowUpQueueReply(
+  value: unknown
+): DevReply<'dev.session.followUps', FollowUpQueueSnapshot> {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('operation' in value) ||
+    value.operation !== 'dev.session.followUps'
+  )
+    throw new TypeError('reply.operation: expected dev.session.followUps')
+  return decodeDevReply(value, {
+    'dev.session.followUps': decodeFollowUpQueueSnapshot,
+  }) as DevReply<'dev.session.followUps', FollowUpQueueSnapshot>
 }
 export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
   return decodeSnapshot(value, true) as FollowUpQueueEventPayload

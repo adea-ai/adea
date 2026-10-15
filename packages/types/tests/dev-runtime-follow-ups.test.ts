@@ -87,16 +87,30 @@ describe('generation-fenced follow-up queue contract', () => {
     const decoded = decodeFollowUpQueueSnapshot(snapshot)
     expect(decoded).toEqual(snapshot)
     expect(Object.isFrozen(decoded.items)).toBe(true)
-    expect(
+    const reply = decodeFollowUpQueueReply({
+      schemaVersion: 1,
+      operation: 'dev.session.followUps',
+      requestId: '00000000-0000-4000-8000-000000000004',
+      ok: true,
+      value: snapshot,
+      observedAt: '2026-10-15T05:00:00.000Z',
+    })
+    expect(reply.ok).toBe(true)
+    if (reply.ok) {
+      expect(reply.value).not.toBe(snapshot)
+      expect(Object.isFrozen(reply.value)).toBe(true)
+      expect(Object.isFrozen(reply.value.items)).toBe(true)
+    }
+    expect(() =>
       decodeFollowUpQueueReply({
         schemaVersion: 1,
-        operation: 'dev.session.followUps',
+        operation: 'dev.session.events',
         requestId: '00000000-0000-4000-8000-000000000004',
         ok: true,
         value: snapshot,
         observedAt: '2026-10-15T05:00:00.000Z',
-      }).ok
-    ).toBe(true)
+      })
+    ).toThrow('reply.operation: expected dev.session.followUps')
     expect(() =>
       decodeFollowUpQueueReply({
         schemaVersion: 1,

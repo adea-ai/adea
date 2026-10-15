@@ -4981,15 +4981,15 @@ export function decodeDevReply(
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    const decodeValue =
-      operationValueDecoders?.[item.operation as DevOperation] ??
-      devReplyValueDecoders[item.operation as DevOperation]
+    const operationDecoder = operationValueDecoders?.[item.operation as DevOperation]
+    const decodeValue = operationDecoder ?? devReplyValueDecoders[item.operation as DevOperation]
     if (!decodeValue)
       fail(
         'reply.value',
         'success DTO decoder is unavailable until the operation-owning provider slice installs it'
       )
-    decodeValue(item.value)
+    const decodedValue = decodeValue(item.value)
+    if (operationDecoder) return { ...item, value: decodedValue } as unknown as DevReply
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)
