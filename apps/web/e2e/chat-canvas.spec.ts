@@ -354,8 +354,8 @@ test.describe('code: exact copy, bounds and untrusted text', () => {
     expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
     // A 2,500-line block is a handful of nodes, not thousands.
     expect(await block.locator('*').count()).toBeLessThan(40)
-    // The region is a labelled tab stop so the keyboard reaches the overflow.
-    await expect(body).toHaveAttribute('role', 'region')
+    // The block is a labelled tab stop (a group, not a duplicate landmark) so the keyboard reaches the overflow.
+    await expect(body).toHaveAttribute('role', 'group')
     await expect(body).toHaveAttribute('tabindex', '0')
     expect(errors).toEqual([])
   })
