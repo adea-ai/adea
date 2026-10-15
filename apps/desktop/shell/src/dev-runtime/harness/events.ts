@@ -25,6 +25,7 @@ import type {
   RuntimeEventKind,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
 import {
   assertVisibleSummaryAppend,
@@ -54,6 +55,7 @@ function sameScope(left: Scope, right: Scope): boolean {
 
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
+  validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
   return { ...rest }
 }
 
@@ -143,6 +145,11 @@ export function createSessionEventLog(input: {
   }
 
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+    validateRuntimeResponseReferences(
+      sessionInput.kind,
+      sessionInput.payload,
+      sessionInput.source ?? 'host'
+    )
     const records = all()
     const source = sessionInput.source ?? 'host'
     const candidate: RuntimeEvent = {

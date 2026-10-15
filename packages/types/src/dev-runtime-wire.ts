@@ -10,6 +10,7 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
@@ -175,6 +176,7 @@ export function decodeRuntimeEvent(
   }
   validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   validateEventPayload(item.payload, 'event.payload')
+  validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
   return value as RuntimeEvent
