@@ -239,6 +239,33 @@ to stale, expired or unknown without background network polling. Explicit
 refresh and committed node events fetch current observations. Either node read
 can downgrade revoked/stale/unknown registration; discovery is never admission.
 
+## Self-hosted connection setup and recovery (#188)
+
+`packages/workspace-ui/src/self-hosted-connection-{model,panel,pane}` and
+`self-hosted-setup-guide` are the product surface for connecting a Control Plane the user
+runs. They consume the registration and discovery reads above and add no route, column or
+credential. The panel is controlled; each effect (open a pairing, rename, revoke, choose a
+host) is an optional operation, and one that is not supplied renders as unavailable with
+its reason rather than as a working control.
+
+Two authorities are shown separately and never derived from one another. **Execution host**
+is registration (`pairingState`), the last accepted proof and the Control Plane's own
+report. **Synchronized history** is governed by #193 member/device policy; no contract
+reports a history-sync identity for a host, so it is always shown as not reported, and its
+panel takes no host input at all. A host going offline, stale or revoked never changes it,
+and the surface never hides history because of host state.
+
+Status is the worst observation, worded as a report: `Reported eligible`, never ready or
+online. A failed or absent read is `unknown` (could not check, no report received, proof
+unknown), never offline. Compatibility is the Control Plane's reported
+`compatibility.state`; Adea publishes no minimum host version, so none is invented.
+Revoking states what it does and does not do (no deletion on the host, no erasure of Adea
+records, no change to history access, no cancellation of accepted work) and requires the
+reason the route requires. After a revoke is accepted the list read decides: a host still
+shown registered is reported as unconfirmed, not revoked. A pairing's values are held in
+memory only, are cleared on expiry, use by a new host, or account or workspace change, and
+are never stored.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
