@@ -14,6 +14,12 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /**
+   * The intent's immutable admission instant (ISO). Prepare and dispatch send it as the command's
+   * `issuedAt`, so a retry from any process repeats the first attempt's value and CP, which binds
+   * the idempotency key to a digest including `issuedAt`, treats it as the same command.
+   */
+  admittedAt?: string
   /** Exact admission target retained on the intent; absent for legacy admissions. */
   handoffTarget?: Readonly<{
     runtimeSessionId: string
@@ -63,7 +69,13 @@ export type LeadRuntimeAdapter = {
   ): Promise<unknown>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
-  cancel(input: LeadRuntimeAuthority, dispatchId: string, cancelKey: string): Promise<unknown>
+  /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */
+  cancel(
+    input: LeadRuntimeAuthority,
+    dispatchId: string,
+    cancelKey: string,
+    issuedAt?: string
+  ): Promise<unknown>
   /** Current authoritative grant, selection and payer must match this exact execution/attempt. */
   assertPublicationCurrent?: (
     input: LeadRuntimeAuthority &
@@ -469,9 +481,16 @@ export function createLeadTurnRuntime(
         scope,
         async () => {
           await store.cancelRequested(scope)
+          // The first request's instant is stored once; later retries read the same value.
+          const requested = (await storedRecord(scope, 'cancel', held))?.cancelRequestedAt
           await observation(
             scope,
-            await adapter.cancel(authority, prior.dispatchId!, `lead-cancel:${prior.dispatchId}`),
+            await adapter.cancel(
+              authority,
+              prior.dispatchId!,
+              `lead-cancel:${prior.dispatchId}`,
+              requested
+            ),
             held
           )
         },
