@@ -272,40 +272,50 @@ const inherited = (value?: string) => {
 }
 
 describe('VITE_CACHE_PATH', () => {
-  test('an inherited override is resolved and published for the cache path', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'vp-proof-cachepath-'))
+  test('the workflow exports a task-cache override under RUNNER_TEMP', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vp-proof-runner-temp-'))
     try {
-      // Set only in the step process's environment, as on a self-hosted runner.
-      const custom = join(dir, 'custom-cache')
-      const { exported } = runStep('Vite+ cache path', root, {
-        VITE_CACHE_PATH: custom,
-        // `runStep` starts from a clean environment; the script needs node.
+      const expected = join(dir, 'adea-vite-plus-proof-cache')
+      const { exported } = runStep('Set runner-local Vite+ cache path', root, {
+        RUNNER_TEMP: dir,
       })
-      expect(exported.ADEA_VP_CACHE_PATH).toBe(custom)
-      expect(
-        runStep('Vite+ cache path', root, { VITE_CACHE_PATH: 'rel/cache' }).exported
-          .ADEA_VP_CACHE_PATH
-      ).toBe(resolve(root, 'rel/cache'))
-      expect(runStep('Vite+ cache path', root).exported.ADEA_VP_CACHE_PATH).toBe('')
+      expect(exported).toEqual({ VITE_CACHE_PATH: expected })
+      expect(resolve(exported.VITE_CACHE_PATH)).toBe(expected)
+      expect(exported.VITE_CACHE_PATH.startsWith(`${dir}/`)).toBe(true)
+
+      // The proof wrapper must honor inherited absolute overrides, resolve
+      // relative overrides, and keep the default when no override is set.
       const direct = (value?: string) =>
         spawnSync(node, [script, '--cache-path'], {
           encoding: 'utf8',
           env: inherited(value),
         }).stdout.trim()
+      const custom = join(dir, 'custom-cache')
       expect(direct(custom)).toBe(custom)
+      expect(direct('rel/cache')).toBe(resolve(root, 'rel/cache'))
       expect(direct()).toBe('')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('the cache step path is static or env-only and reads the published name', () => {
+  test('the workflow uses the exact Code Foundry action and its cache override contract', () => {
     const workflow = readFileSync(join(root, '.github/workflows/vite-plus-proof.yml'), 'utf8')
-    const step = workflow.slice(workflow.indexOf('- name: Cache Vite+ tasks'))
-    const path = step.match(/^ {10}path: \|\n((?: {12}.+\n)+)/m)?.[1] ?? ''
-    expect(path).toContain('node_modules/.vite/task-cache')
-    expect(path).toContain('${{ env.ADEA_VP_CACHE_PATH }}')
-    expect(path).not.toContain('steps.')
-    expect(path).not.toContain('env.VITE_CACHE_PATH')
+    const foundrySha = '2556bba045a26a6b6b8e9634ae874500785c8e99'
+    expect(workflow).toContain(`CODE_FOUNDRY_SHA: ${foundrySha}`)
+    expect(workflow).toContain(
+      `uses: 0xPlayerOne/code-foundry/.github/actions/setup@${foundrySha}`
+    )
+    expect(workflow).toContain("cache-vite-plus: 'true'")
+    expect(workflow).toContain('ref: ${{ env.CODE_FOUNDRY_SHA }}')
+    expect(workflow).toContain(
+      'cp -R .github/.code-foundry/.github/actions/cache .github/actions/cache'
+    )
+    expect(workflow).toContain('cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"')
+    expect(workflow).toContain('test "$CODE_FOUNDRY_VITE_CACHE_PATH" = "$expected"')
+    expect(workflow).toContain('test "$VITE_CACHE_PATH" = "$expected"')
+    expect(workflow).toContain('test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"')
+    expect(workflow).not.toContain('uses: ./.github/actions/setup')
+    expect(workflow).not.toContain("cache-vite-plus: 'false'")
   })
 })

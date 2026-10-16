@@ -2,9 +2,9 @@ name: Vite+ Cache Proof
 
 # Opt-in, non-required proof lane for the Vite+ task cache (vite.config.ts).
 # Turbo stays the required runner for every Code Foundry workflow. This lane
-# consumes Code Foundry v1.48.0 only, runs on pushes to its own branch, and
-# adds no secrets, remote cache, or deployment: the cache is the repository's
-# GitHub Actions cache.
+# consumes the Code Foundry setup action at the exact reviewed #765 commit,
+# runs on pushes to its own branch, and adds no secrets, remote cache, or
+# deployment: the cache is the repository's GitHub Actions cache.
 #
 # Commit message lines make the run assert the restored cache: `vp-proof-expect:
 # cold|warm|one-miss` (the graph must have exactly 12 tasks), `vp-proof-miss:
@@ -31,24 +31,21 @@ jobs:
     timeout-minutes: 30
     env:
       CODE_FOUNDRY_VERSION: 1.48.0
-      CODE_FOUNDRY_SHA: 0275b72eb25978d02bd1a31712be4c43532a7342
+      CODE_FOUNDRY_SHA: 2556bba045a26a6b6b8e9634ae874500785c8e99
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Checkout Code Foundry runtime
+      - name: Checkout Code Foundry action dependencies
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           repository: 0xPlayerOne/code-foundry
-          ref: v${{ env.CODE_FOUNDRY_VERSION }}
+          ref: ${{ env.CODE_FOUNDRY_SHA }}
           path: .github/.code-foundry
           sparse-checkout: |
-            .github/actions
-            src/lib
-            src/runtime-core.mjs
-            src/runtime.mjs
+            .github/actions/cache
             package.json
       - name: Verify the pinned runtime
         run: |
@@ -58,49 +55,35 @@ jobs:
           echo "Code Foundry runtime: $actual_version at $actual_sha"
           [ "$actual_version" = "$CODE_FOUNDRY_VERSION" ]
           [ "$actual_sha" = "$CODE_FOUNDRY_SHA" ]
-      - name: Install runtime actions
+      - name: Install the pinned cache helper
         run: |
           set -euo pipefail
           mkdir -p .github/actions
-          mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"
-          cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/
+          test ! -e .github/actions/cache
+          cp -R .github/.code-foundry/.github/actions/cache .github/actions/cache
       # Opt this job's workspace into Vite+. The repository's committed
       # code-foundry.yml is untouched, so required workflows keep using Turbo.
       - name: Opt this job into Vite+
         run: |
           printf '\nmonorepo_tool: vite-plus\n' >> .github/code-foundry.yml
-      # cache-vite-plus is off: Code Foundry 1.48.0's own Vite+ cache step
-      # restores but its post-job save fails ("Input required and not
-      # supplied: path"), because that step takes its path from a step output
-      # that composite post steps cannot read. This job saves through the same
-      # Code Foundry cache wrapper with a static path until a fixed release.
-      - name: Setup
-        uses: ./.github/actions/setup
+      # Set the override before setup so both Vite+ and the post-job save use
+      # a cache path under this runner's temporary directory.
+      - name: Set runner-local Vite+ cache path
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"
+          case "$cache_path" in
+            "$RUNNER_TEMP"/*) ;;
+            *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
+          esac
+          printf 'VITE_CACHE_PATH=%s\n' "$cache_path" >> "$GITHUB_ENV"
+      - name: Setup with Code Foundry at exact #765 commit
+        uses: 0xPlayerOne/code-foundry/.github/actions/setup@2556bba045a26a6b6b8e9634ae874500785c8e99
         with:
           install: 'true'
           cache-build: 'false'
-          cache-vite-plus: 'false'
-      - name: Vite+ toolchain id
-        id: toolchain
-        run: echo "id=$(node scripts/vite-plus-proof.mjs --toolchain-id)" >> "$GITHUB_OUTPUT"
-      # The cache `path` below is re-read in the post-job save, where step
-      # outputs are empty but job environment variables are not. Publish the
-      # override under a fixed name; the script reads the step process, so an
-      # inherited runner VITE_CACHE_PATH counts, not just workflow env.
-      - name: Vite+ cache path
-        run: echo "ADEA_VP_CACHE_PATH=$(node scripts/vite-plus-proof.mjs --cache-path)" >> "$GITHUB_ENV"
-      # Restored after Install; saved on push with a rolling per-run key that
-      # never leaves the toolchain id. An absolute VITE_CACHE_PATH is honored.
-      - name: Cache Vite+ tasks
-        uses: ./.github/actions/cache
-        with:
-          path: |
-            node_modules/.vite/task-cache
-            ${{ env.ADEA_VP_CACHE_PATH }}
-          key: vite-plus-proof-${{ steps.toolchain.outputs.id }}-${{ hashFiles('bun.lock', 'vite.config.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            vite-plus-proof-${{ steps.toolchain.outputs.id }}-${{ hashFiles('bun.lock', 'vite.config.ts') }}-
-            vite-plus-proof-${{ steps.toolchain.outputs.id }}-
+          cache-vite-plus: 'true'
       - name: Read the expected cache pattern
         id: expect
         env:
@@ -109,9 +92,11 @@ jobs:
           set -euo pipefail
           message="$(git log -1 --format=%B "$COMMIT_SHA")"
           trailer() { printf '%s\n' "$message" | sed -n "s/^$1: *\(.*[^ ]\) *$/\1/p" | head -n1; }
-          echo "expect=$(trailer vp-proof-expect)" >> "$GITHUB_OUTPUT"
-          echo "miss=$(trailer vp-proof-miss)" >> "$GITHUB_OUTPUT"
-          echo "manifest=$(trailer vp-proof-manifest)" >> "$GITHUB_OUTPUT"
+          {
+            printf 'expect=%s\n' "$(trailer vp-proof-expect)"
+            printf 'miss=%s\n' "$(trailer vp-proof-miss)"
+            printf 'manifest=%s\n' "$(trailer vp-proof-manifest)"
+          } >> "$GITHUB_OUTPUT"
       # A fresh runner has no generated dist, so a warm run that passes here
       # has replayed the outputs from the restored cache.
       - name: Vite+ proof graph (restored task cache)
@@ -133,4 +118,15 @@ jobs:
           ADEA_VP_PROOF: '1'
         run: bun test scripts/vite-plus-proof.test.ts
       - name: Task cache contents
-        run: du -sh node_modules/.vite/task-cache && ls node_modules/.vite/task-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache"
+          test "$VITE_CACHE_PATH" = "$expected"
+          test "$CODE_FOUNDRY_VITE_CACHE_PATH" = "$expected"
+          test -d "$VITE_CACHE_PATH"
+          test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"
+          du -sh "$VITE_CACHE_PATH"
+          if [ -d node_modules/.vite/task-cache ]; then
+            du -sh node_modules/.vite/task-cache
+          fi

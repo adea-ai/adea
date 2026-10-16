@@ -51,18 +51,17 @@ version, platform and architecture.
 ## CI
 
 `.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and
-by dispatch. It checks out Code Foundry `v1.48.0` (asserting the version and
-commit), opts only its own workspace into `monorepo_tool: vite-plus`, and runs
-the Code Foundry setup action with its own Vite+ cache step turned off:
-1.48.0's step restores but its post-job save fails with "Input required and
-not supplied: path". This job restores the task cache after Install and saves
-it on push through the same Code Foundry cache wrapper with a static path
-(`node_modules/.vite/task-cache`, plus the absolute `VITE_CACHE_PATH` when set),
-under a rolling per-run key that never leaves the toolchain id. The override is
-read from the step process (so an inherited runner variable counts, not only
-workflow `env`) by `--cache-path` and exported as `ADEA_VP_CACHE_PATH`, which
-the cache `path` references; the post-job save re-reads that input, where step
-outputs are empty.
+by dispatch. It checks out Code Foundry at the exact reviewed #765 commit
+`2556bba045a26a6b6b8e9634ae874500785c8e99`, verifies the commit and package
+version, and uses that commit's setup action with `cache-vite-plus: true`. The
+workflow copies the matching cache helper from the same commit because the
+composite setup action references `./.github/actions/cache` in the caller's
+workspace. It sets `VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before
+setup; Code Foundry carries the resolved absolute path into the post-job cache
+save. The cache key partitions by toolchain, dependency manifests, Vite config,
+and run attempt. The workflow only opts its own job into `monorepo_tool:
+vite-plus`; the committed `.github/code-foundry.yml` and required Turbo workflows
+remain unchanged. No secrets, remote cache, or Cloudflare are used.
 
 The proof graph then runs on a fresh runner, where no `dist` exists, so a warm
 run replays outputs from the restored cache. Commit-message lines assert the
