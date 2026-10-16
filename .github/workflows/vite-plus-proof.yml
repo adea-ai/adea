@@ -44,6 +44,9 @@ jobs:
           path: .github/.code-foundry
           sparse-checkout: |
             .github/actions
+            src/lib
+            src/runtime-core.mjs
+            src/runtime.mjs
             package.json
       - name: Verify the pinned runtime
         run: |
