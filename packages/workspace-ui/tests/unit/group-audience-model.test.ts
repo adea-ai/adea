@@ -254,7 +254,7 @@ describe('failures', () => {
     )
     expect(failure.kind).toBe('rejected')
     expect(failure.perParticipant[humanKey(userA)]).toBe(
-      'The grant for this participant was withdrawn.'
+      'Access for this participant was withdrawn. Remove them, then add them again if they should come back.'
     )
     expect(failure.perParticipant[agentKey(ariaGlobex)]).toBe(
       'This Agent is not active, so it cannot join.'

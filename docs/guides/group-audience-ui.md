@@ -26,10 +26,15 @@ inside the same transaction that writes the roster. A body that carries `audienc
 - First issuance uses a deterministic grant id at revision 1 (`audience:<userId>`,
   `enlistment:<agentWorkspaceId>:<agentId>`), so a retried create hashes to the same payload and replays to the
   same group.
-- A member whose stored grant is still effective keeps that exact grant, so a roster save never changes a retained
-  member's admission binding (and never holds a job bound to it).
-- Only a member with no effective grant (never granted, expired or revoked) gets a higher revision of the same grant:
-  re-adding someone whose grant was revoked is an explicit owner action and never revives the revoked revision.
+- A member who is on the roster keeps the exact grant their admission is bound to, so jobs bound to it are
+  untouched and their history frontier stays. If that grant has since been revoked or has expired, keeping them
+  is refused with `grant_revoked`/`grant_expired` reasons (shown against their row) and nothing is renewed:
+  a stale draft that still lists them cannot bring them back.
+- Readmission is explicit: remove the person, then add them again. A person who is not on the roster always gets
+  the next revision of their grant, so nothing bound to an earlier admission (for example a child job that
+  finished while they were removed) matches the new one, and the new admission starts at a fresh history
+  frontier. What was said while their access was withdrawn or while they were out stays hidden from them.
+  Any admission whose grant id or revision changes gets a fresh frontier in the store as well.
 - Issuing a grant confers nothing by itself. The unchanged store checks still prove, in the transaction, that each
   person holds a live host-workspace membership, that each Agent is active and that its source workspace
   authorizes the acting principal, and that roster replace comes from an owner or admin at the version seen.

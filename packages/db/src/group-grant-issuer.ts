@@ -15,15 +15,26 @@
  * still needs owner/admin authority. A selection that fails any of them is
  * rejected with the policy's typed reasons and writes nothing.
  *
- * Identity is stable so a save never disturbs people who are already in:
+ * A save never disturbs people who are already in, and never readmits anyone
+ * by accident:
  * - first issuance uses a deterministic grant id at revision 1, so a retried
  *   creation hashes to the same payload and replays to the same group;
- * - a member whose stored grant is still effective keeps that exact grant, id
- *   and revision, so their retained admission binding (and any job bound to
- *   it) is untouched;
- * - only a member with no effective grant (never granted, expired or revoked)
- *   receives a fresh window, as a higher revision of the same grant, which is
- *   the regrant path the store already defines.
+ * - a member who is on the roster the caller saw keeps the exact grant their
+ *   admission is bound to (id and revision), so the binding of any job bound to
+ *   it is untouched. If that grant has been revoked or has expired it is passed
+ *   through unchanged and the policy refuses the save with its typed reason:
+ *   keeping someone whose access was withdrawn is never a silent renewal. The
+ *   owner removes them, and adds them again if they should come back;
+ * - a person who is not on the roster is being (re)admitted, which is the one
+ *   explicit act that issues a grant. It is always a new, higher revision of
+ *   the same grant, so nothing bound to an earlier admission (a job that
+ *   finished while they were removed) can match the new one, and the store
+ *   gives the new admission a fresh history frontier.
+ *
+ * The roster is read at the version the caller saw: the channel row is locked
+ * and the version checked before anything is issued. A grant revoked since
+ * the caller drafted is seen as it now is, so keeping that member is refused
+ * with its typed reason and a stale draft can never regrant anyone.
  */
 import { randomUUID } from 'node:crypto'
 
@@ -44,10 +55,11 @@ import {
   setGroupChannelParticipantsInTransaction,
   type GroupChannelCreateInput,
 } from './group-channels'
-import { evaluateGroupGrantWindow, validateGroupCreation } from './group-participation-policy'
+import { validateGroupCreation } from './group-participation-policy'
 import {
   GroupCreationError,
   groupCreationCandidatesFromGrants,
+  loadGroupRoster,
   requireGroupManagementAuthority,
 } from './group-participation-store'
 import { agents, channels, groupAudienceGrants, groupEnlistmentGrants } from './schema'
@@ -64,13 +76,13 @@ export type GroupSelection = Readonly<{
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
-/** The grant a selection will carry for one human or Agent, before standing is proven. */
+/** The grants a selection will carry, before standing is proven. */
 export type IssuedGroupGrants = Readonly<{
   audienceGrants: readonly GroupAudienceGrant[]
   enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
 }>
 
-/** What is already stored for the group, used only to keep members' grants stable. */
+/** What is already stored for the group, used to keep members' grants stable. */
 export type StoredGroupGrants = Readonly<{
   audienceGrants: readonly GroupAudienceGrant[]
   enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
@@ -91,34 +103,50 @@ export function enlistmentGrantIdFor(agent: QualifiedAgentIdentity): string {
   return `enlistment:${agent.workspaceId}:${agent.agentId}`
 }
 
-function keepsEffectiveGrant<T extends GroupAudienceGrant | GroupAgentEnlistmentGrant>(
-  stored: readonly T[],
-  now: string
+function highestRevision<T extends GroupAudienceGrant | GroupAgentEnlistmentGrant>(
+  grants: readonly T[],
+  preferredGrantId?: string
 ): T | undefined {
-  return stored
-    .filter((grant) => evaluateGroupGrantWindow(grant, now) === 'effective')
-    .toSorted((left, right) => right.revision - left.revision)[0]
+  const preferred = preferredGrantId
+    ? grants.filter((grant) => grant.grantId === preferredGrantId)
+    : []
+  return (preferred.length > 0 ? preferred : grants).toSorted(
+    (left, right) => right.revision - left.revision
+  )[0]
 }
 
 /**
  * Issue the grants a selection needs for one group. Pure: reads only the
- * stored grants it is handed, so the same inputs always issue the same grants.
+ * stored grants and the roster it is handed, so the same inputs always issue
+ * the same grants. `roster` is the group's current admissions; with none, every
+ * identity is a first issuance.
  */
 export function issueGroupGrants(
   input: Readonly<{
     groupId: string
     now: string
+    roster?: readonly GroupAdmission[]
     selection: GroupSelection
     stored?: StoredGroupGrants
   }>
 ): IssuedGroupGrants {
   const stored = input.stored ?? NO_STORED_GROUP_GRANTS
+  const roster = input.roster ?? []
+  const humanAdmission = (userId: string) =>
+    roster.find(({ participant }) => participant.kind === 'user' && participant.userId === userId)
+  const agentAdmission = (agentId: string) =>
+    roster.find(
+      ({ participant }) => participant.kind === 'agent' && participant.agentId === agentId
+    )
   const audienceGrants = input.selection.humans.map((userId): GroupAudienceGrant => {
     const forUser = stored.audienceGrants.filter((grant) => grant.participant.userId === userId)
-    const effective = keepsEffectiveGrant(forUser, input.now)
-    if (effective) return effective
+    const admission = humanAdmission(userId)
+    if (admission) {
+      const held = highestRevision(forUser, admission.authorization.grantId)
+      if (held) return held
+    }
     const grantId = audienceGrantIdFor(userId)
-    const previous = forUser.find((grant) => grant.grantId === grantId)
+    const previous = highestRevision(forUser.filter((grant) => grant.grantId === grantId))
     return {
       expiresAt: null,
       grantId,
@@ -133,14 +161,14 @@ export function issueGroupGrants(
     const forAgent = stored.enlistmentGrants.filter(
       (grant) => grant.agent.agentId === agent.agentId
     )
-    const effective = keepsEffectiveGrant(forAgent, input.now)
-    if (effective)
-      return {
-        ...effective,
-        agent: { agentId: agent.agentId, workspaceId: agent.workspaceId },
-      }
+    const admission = agentAdmission(agent.agentId)
+    if (admission) {
+      const held = highestRevision(forAgent, admission.authorization.grantId)
+      if (held)
+        return { ...held, agent: { agentId: agent.agentId, workspaceId: agent.workspaceId } }
+    }
     const grantId = enlistmentGrantIdFor(agent)
-    const previous = forAgent.find((grant) => grant.grantId === grantId)
+    const previous = highestRevision(forAgent.filter((grant) => grant.grantId === grantId))
     return {
       agent: { agentId: agent.agentId, workspaceId: agent.workspaceId },
       expiresAt: null,
@@ -281,15 +309,26 @@ export async function setGroupChannelParticipantsFromSelection(
   return database.transaction(async (transaction) => {
     // Authority first: only a manager may take the channel lock below.
     await requireGroupManagementAuthority(transaction, workspaceId, principal)
-    await transaction
-      .select({ id: channels.id })
+    const [channel] = await transaction
+      .select({
+        kind: channels.kind,
+        lifecycleState: channels.lifecycleState,
+        version: channels.version,
+      })
       .from(channels)
       .where(and(eq(channels.id, channelId), eq(channels.workspaceId, workspaceId)))
       .limit(1)
       .for('update')
+    if (!channel || channel.kind !== 'group' || channel.lifecycleState !== 'active')
+      throw new Error('Channel unavailable')
+    // Standing is read at exactly the version the caller saw. A removal
+    // since then advanced it, so a stale roster is a conflict; a revocation
+    // does not, and is caught by the retained member's grant state instead.
+    if (channel.version !== input.expectedVersion) throw new Error('Channel version conflict')
     const issued = issueGroupGrants({
       groupId: channelId,
       now: input.now,
+      roster: await loadGroupRoster(transaction, workspaceId, channelId),
       selection: input.selection,
       stored: await loadStoredGroupGrants(transaction, workspaceId, channelId),
     })

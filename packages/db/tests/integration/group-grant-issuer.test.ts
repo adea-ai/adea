@@ -10,8 +10,18 @@ import {
   enlistmentGrantIdFor,
   setGroupChannelParticipantsFromSelection,
 } from '../../src/group-grant-issuer'
-import { loadGroupRoster, revokeGroupGrant } from '../../src/group-channels'
-import { GroupCreationError } from '../../src/group-participation-store'
+import { createMessage } from '../../src/conversations'
+import {
+  authorizeGroupChannelPublication,
+  listGroupChannelMessagesForUser,
+  loadGroupRoster,
+  revokeGroupGrant,
+  setGroupChannelParticipantsWithGrants,
+} from '../../src/group-channels'
+import {
+  GroupCreationError,
+  groupCreationCandidatesFromGrants,
+} from '../../src/group-participation-store'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
 import {
@@ -21,8 +31,18 @@ import {
 } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
-const NOW = '2026-10-16T12:00:00.000Z'
-const LATER = '2026-10-16T13:00:00.000Z'
+// Real recent instants: messages are stamped with the wall clock, so grants must already be in effect.
+const NOW = new Date(Date.now() - 120_000).toISOString()
+const LATER = new Date(Date.now() - 60_000).toISOString()
+
+const rejectionsOf = async (attempt: Promise<unknown>) => {
+  const error = await attempt.then(
+    () => null,
+    (reason: unknown) => reason
+  )
+  expect(error).toBeInstanceOf(GroupCreationError)
+  return (error as GroupCreationError).rejections
+}
 
 describe.skipIf(!connectionUrl)('server-side group grant issuance', () => {
   let connection: DatabaseConnection
@@ -76,6 +96,42 @@ describe.skipIf(!connectionUrl)('server-side group grant issuance', () => {
     return { agent, source, sourceOwner }
   }
 
+  const say = (f: Fixture, channelId: string, bodyText: string) =>
+    createMessage(connection.db, f.workspace.id, channelId, f.owner, {
+      bodyText,
+      idempotencyKey: crypto.randomUUID(),
+      sender: f.owner,
+    })
+  const seenBy = async (f: Fixture, channelId: string, reader: UserPrincipalRef) =>
+    (
+      await listGroupChannelMessagesForUser(connection.db, f.workspace.id, channelId, reader, {})
+    ).messages.map(({ bodyText }) => bodyText)
+  const revoke = (f: Fixture, channelId: string, userId: string, revokedAt = NOW) =>
+    revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
+      grantId: audienceGrantIdFor(userId),
+      kind: 'audience',
+      revokedAt,
+    })
+  test('a roster drafted before another admin revoked someone cannot regrant them', async () => {
+    const f = await fixture()
+    const channelId = crypto.randomUUID()
+    const created = await create(f, { humans: [f.member.userId] }, { channelId })
+    const draftedAt = created.channel.version
+    await revoke(f, channelId, f.member.userId)
+    // The stale draft only meant to add a third person, at the version it saw.
+    const rejections = await rejectionsOf(
+      replace(f, channelId, draftedAt, {
+        humans: [f.owner.userId, f.member.userId, f.second.userId],
+      })
+    )
+    expect(rejections.map(({ reason }) => reason)).toEqual(['grant_revoked'])
+    const [grant] = await grantsOf(channelId, f.member.userId)
+    expect(grant).toMatchObject({ revision: 1 })
+    expect(grant!.revokedAt).not.toBeNull()
+    expect(await grantsOf(channelId, f.second.userId)).toHaveLength(0)
+    expect(await versionOf(channelId)).toBe(draftedAt)
+  })
+
   const create = (
     f: Fixture,
     selection: { agents?: { agentId: string; workspaceId: string }[]; humans?: string[] },
@@ -123,6 +179,15 @@ describe.skipIf(!connectionUrl)('server-side group grant issuance', () => {
       .select()
       .from(schema.groupEnlistmentGrants)
       .where(eq(schema.groupEnlistmentGrants.channelId, channelId))
+  const grantsOf = async (channelId: string, userId: string) =>
+    (await grantRows(channelId)).filter((row) => row.userId === userId)
+  const versionOf = async (channelId: string) => {
+    const [row] = await connection.db
+      .select({ version: schema.channels.version })
+      .from(schema.channels)
+      .where(eq(schema.channels.id, channelId))
+    return row!.version
+  }
   const channelCount = async (channelId: string) =>
     (await connection.db.select().from(schema.channels).where(eq(schema.channels.id, channelId)))
       .length
@@ -305,36 +370,194 @@ describe.skipIf(!connectionUrl)('server-side group grant issuance', () => {
       expect(await loadGroupRoster(connection.db, f.workspace.id, channelId)).toHaveLength(2)
     })
 
-    test('re-adding a member whose grant was revoked issues the next revision of the same grant', async () => {
+    test('keeping someone whose grant was withdrawn is refused with its reason, not renewed', async () => {
       const f = await fixture()
       const channelId = crypto.randomUUID()
-      const created = await create(f, { humans: [f.member.userId] }, { channelId })
-      await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
-        grantId: audienceGrantIdFor(f.member.userId),
-        kind: 'audience',
-        revokedAt: NOW,
-      })
-      const result = await replace(f, channelId, created.channel.version, {
-        humans: [f.owner.userId, f.member.userId],
-      })
-      const admission = result.roster.find(
-        ({ participant }) => participant.kind === 'user' && participant.userId === f.member.userId
-      )!
-      expect(admission.authorization).toMatchObject({
-        grantId: audienceGrantIdFor(f.member.userId),
-        revision: 2,
-      })
-      const rows = await connection.db
-        .select()
-        .from(schema.groupAudienceGrants)
+      await create(f, { humans: [f.member.userId] }, { channelId })
+      await revoke(f, channelId, f.member.userId)
+      const version = await versionOf(channelId)
+      const rejections = await rejectionsOf(
+        replace(f, channelId, version, {
+          humans: [f.owner.userId, f.member.userId, f.second.userId],
+        })
+      )
+      expect(rejections.map(({ reason }) => reason)).toEqual(['grant_revoked'])
+      expect(await versionOf(channelId)).toBe(version)
+      expect(await grantsOf(channelId, f.second.userId)).toHaveLength(0)
+      const [grant] = await grantsOf(channelId, f.member.userId)
+      expect(grant).toMatchObject({ revision: 1 })
+      expect(grant!.revokedAt).not.toBeNull()
+    })
+
+    test('keeping someone whose grant expired is refused with its reason, not renewed', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      await create(f, { humans: [f.member.userId] }, { channelId })
+      await connection.db
+        .update(schema.groupAudienceGrants)
+        .set({ expiresAt: NOW })
         .where(
           and(
             eq(schema.groupAudienceGrants.channelId, channelId),
             eq(schema.groupAudienceGrants.userId, f.member.userId)
           )
         )
-      expect(rows).toHaveLength(1)
-      expect(rows[0]).toMatchObject({ revision: 2, revokedAt: null })
+      const rejections = await rejectionsOf(
+        replace(f, channelId, await versionOf(channelId), {
+          humans: [f.owner.userId, f.member.userId],
+        })
+      )
+      expect(rejections.map(({ reason }) => reason)).toEqual(['grant_expired'])
+    })
+
+    test('readmission is removing and adding again: the next revision, and a new history frontier', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const created = await create(f, { humans: [f.member.userId] }, { channelId })
+      await say(f, channelId, 'before the withdrawal')
+      await revoke(f, channelId, f.member.userId)
+      await say(f, channelId, 'while access was withdrawn')
+      const removed = await replace(f, channelId, await versionOf(channelId), {
+        humans: [f.owner.userId],
+      })
+      await say(f, channelId, 'while removed')
+      const readded = await replace(f, channelId, removed.channel.version, {
+        humans: [f.owner.userId, f.member.userId],
+      })
+      expect(created.channel.version).toBeLessThan(readded.channel.version)
+      const admission = readded.roster.find(
+        ({ participant }) => participant.kind === 'user' && participant.userId === f.member.userId
+      )!
+      expect(admission.authorization).toMatchObject({
+        grantId: audienceGrantIdFor(f.member.userId),
+        revision: 2,
+      })
+      await say(f, channelId, 'after the readmission')
+      // Nothing said while their access was withdrawn or while they were out is theirs to read.
+      expect(await seenBy(f, channelId, f.member)).toEqual(['after the readmission'])
+      const [grant] = await grantsOf(channelId, f.member.userId)
+      expect(grant).toMatchObject({ revision: 2, revokedAt: null })
+    })
+
+    test('a regrant of a member who stayed on the roster also starts a new history frontier', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      await create(f, { humans: [f.member.userId] }, { channelId })
+      await revoke(f, channelId, f.member.userId)
+      await say(f, channelId, 'said while revoked')
+      const version = await versionOf(channelId)
+      const [held] = await grantsOf(channelId, f.member.userId)
+      const regrant = await setGroupChannelParticipantsWithGrants(
+        connection.db,
+        f.workspace.id,
+        channelId,
+        f.owner,
+        {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [
+              {
+                expiresAt: null,
+                grantId: `founder-${f.owner.userId}`,
+                groupId: channelId,
+                issuedAt: NOW,
+                participant: f.owner,
+                revision: 1,
+                revokedAt: null,
+              },
+              {
+                expiresAt: null,
+                grantId: held!.grantId,
+                groupId: channelId,
+                issuedAt: LATER,
+                participant: f.member,
+                revision: held!.revision + 1,
+                revokedAt: null,
+              },
+            ],
+            enlistmentGrants: [],
+          }),
+          expectedVersion: version,
+          now: LATER,
+        }
+      )
+      expect(regrant.roster).toHaveLength(2)
+      await say(f, channelId, 'said after the regrant')
+      expect(await seenBy(f, channelId, f.member)).toEqual(['said after the regrant'])
+    })
+
+    test('a retained member keeps their history frontier while their grant is unchanged', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const created = await create(f, { humans: [f.member.userId] }, { channelId })
+      await say(f, channelId, 'after joining')
+      await replace(f, channelId, created.channel.version, {
+        humans: [f.owner.userId, f.member.userId, f.second.userId],
+      })
+      await say(f, channelId, 'after the roster grew')
+      expect(await seenBy(f, channelId, f.member)).toEqual([
+        'after joining',
+        'after the roster grew',
+      ])
+    })
+
+    test('a child job that finished while its member was removed is still held after they are re-added', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const created = await create(f, { humans: [f.member.userId] }, { channelId })
+      const gate = { channel: created.channel, workspaceId: f.workspace.id }
+      const before = created.roster.find(
+        ({ participant }) => participant.kind === 'user' && participant.userId === f.member.userId
+      )!
+      const job = {
+        authorization: before.authorization,
+        completedAt: NOW,
+        jobId: 'job_started_before_removal',
+        participant: f.member,
+      }
+      const removed = await replace(f, channelId, created.channel.version, {
+        humans: [f.owner.userId],
+      })
+      // It completes while its member is out: nothing publishes for a non-member.
+      expect(
+        authorizeGroupChannelPublication(gate, {
+          admission: undefined,
+          job,
+          now: LATER,
+          publisher: f.member,
+        })
+      ).toMatchObject({ action: 'hold' })
+      const readded = await replace(f, channelId, removed.channel.version, {
+        humans: [f.owner.userId, f.member.userId],
+      })
+      const current = readded.roster.find(
+        ({ participant }) => participant.kind === 'user' && participant.userId === f.member.userId
+      )!
+      expect(current.authorization.revision).toBe(before.authorization.revision + 1)
+      expect(
+        authorizeGroupChannelPublication(gate, {
+          admission: current,
+          job,
+          now: LATER,
+          publisher: f.member,
+        })
+      ).toMatchObject({ action: 'hold', reason: 'publication_binding_mismatch' })
+    })
+
+    test('an Agent removed and added back gets a new binding too', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const qualified = { agentId: f.agent.id, workspaceId: f.workspace.id }
+      const created = await create(f, { agents: [qualified] }, { channelId })
+      const before = created.roster.find(({ participant }) => participant.kind === 'agent')!
+      const removed = await replace(f, channelId, created.channel.version, {
+        humans: [f.owner.userId],
+      })
+      const readded = await replace(f, channelId, removed.channel.version, {
+        agents: [qualified],
+        humans: [f.owner.userId],
+      })
+      const current = readded.roster.find(({ participant }) => participant.kind === 'agent')!
+      expect(current.authorization.revision).toBe(before.authorization.revision + 1)
     })
 
     test('only an owner or admin can replace a roster, and nothing is issued for a refused save', async () => {

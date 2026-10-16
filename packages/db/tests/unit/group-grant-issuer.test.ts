@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { GroupAgentEnlistmentGrant, GroupAudienceGrant } from '@adea-ai/types'
+import type { GroupAdmission, GroupAgentEnlistmentGrant, GroupAudienceGrant } from '@adea-ai/types'
 
 import {
   audienceGrantIdFor,
@@ -121,64 +121,140 @@ describe('issueGroupGrants: first issuance', () => {
   })
 })
 
-describe('issueGroupGrants: members who are already in', () => {
+const admissionFor = (
+  grant: GroupAudienceGrant | GroupAgentEnlistmentGrant,
+  participant: GroupAdmission['participant']
+): GroupAdmission => ({
+  authorization: { grantId: grant.grantId, groupId: GROUP, revision: grant.revision },
+  grant: {
+    expiresAt: grant.expiresAt,
+    issuedAt: grant.issuedAt,
+    revokedAt: grant.revokedAt,
+  },
+  joinPoint: { joinedAt: EARLIER, joinedSequence: 1 },
+  participant,
+})
+const humanAdmission = (grant: GroupAudienceGrant) => admissionFor(grant, grant.participant)
+const agentAdmission = (grant: GroupAgentEnlistmentGrant) =>
+  admissionFor(grant, { agentId: grant.agent.agentId, kind: 'agent' })
+
+describe('issueGroupGrants: members who are on the roster', () => {
   test('a retained member keeps their exact grant: id, revision and original window', () => {
     const stored = audience({ revision: 3 })
+    const storedAgent = enlistment({ revision: 2 })
     const issued = issueGroupGrants({
       groupId: GROUP,
       now: NOW,
+      roster: [humanAdmission(stored), agentAdmission(storedAgent)],
       selection: { agents: [agentA], humans: [userA] },
-      stored: { audienceGrants: [stored], enlistmentGrants: [enlistment({ revision: 2 })] },
+      stored: { audienceGrants: [stored], enlistmentGrants: [storedAgent] },
     })
     expect(issued.audienceGrants).toEqual([stored])
-    expect(issued.enlistmentGrants).toEqual([enlistment({ revision: 2 })])
+    expect(issued.enlistmentGrants).toEqual([storedAgent])
   })
 
-  test('the highest effective revision is the one kept', () => {
+  test('the grant the admission is bound to is the one kept, not just the highest revision', () => {
+    const bound = audience({ grantId: 'legacy-grant', revision: 2 })
     const issued = issueGroupGrants({
       groupId: GROUP,
       now: NOW,
+      roster: [humanAdmission(bound)],
       selection: { agents: [], humans: [userA] },
-      stored: {
-        audienceGrants: [audience({ revision: 1 }), audience({ revision: 4 })],
-        enlistmentGrants: [],
-      },
+      stored: { audienceGrants: [bound, audience({ revision: 9 })], enlistmentGrants: [] },
     })
-    expect(issued.audienceGrants[0]!.revision).toBe(4)
+    expect(issued.audienceGrants[0]).toEqual(bound)
   })
 
-  test('a revoked grant is replaced by a higher revision of the same grant, never revived', () => {
+  test('a retained member whose grant was revoked is passed through unchanged, never renewed', () => {
+    const revoked = audience({ revision: 2, revokedAt: EARLIER })
+    const revokedAgent = enlistment({ revision: 5, revokedAt: EARLIER })
     const issued = issueGroupGrants({
       groupId: GROUP,
       now: NOW,
+      roster: [humanAdmission(revoked), agentAdmission(revokedAgent)],
+      selection: { agents: [agentA], humans: [userA] },
+      stored: { audienceGrants: [revoked], enlistmentGrants: [revokedAgent] },
+    })
+    expect(issued.audienceGrants).toEqual([revoked])
+    expect(issued.enlistmentGrants).toEqual([revokedAgent])
+  })
+
+  test('a retained member whose grant expired is passed through unchanged too', () => {
+    const expired = audience({ expiresAt: EARLIER })
+    const issued = issueGroupGrants({
+      groupId: GROUP,
+      now: NOW,
+      roster: [humanAdmission(expired)],
+      selection: { agents: [], humans: [userA] },
+      stored: { audienceGrants: [expired], enlistmentGrants: [] },
+    })
+    expect(issued.audienceGrants).toEqual([expired])
+  })
+
+  test('a retained Agent grant is qualified by the selection’s workspace, so a mismatch is caught by the policy', () => {
+    const held = enlistment()
+    const issued = issueGroupGrants({
+      groupId: GROUP,
+      now: NOW,
+      roster: [agentAdmission(held)],
+      selection: {
+        agents: [{ agentId: agentA.agentId, workspaceId: agentB.workspaceId }],
+        humans: [],
+      },
+      stored: { audienceGrants: [], enlistmentGrants: [held] },
+    })
+    expect(issued.enlistmentGrants[0]!.agent).toEqual({
+      agentId: agentA.agentId,
+      workspaceId: agentB.workspaceId,
+    })
+  })
+})
+
+describe('issueGroupGrants: people who are not on the roster', () => {
+  test('even a still-effective stored grant is replaced by the next revision, never reused', () => {
+    const issued = issueGroupGrants({
+      groupId: GROUP,
+      now: NOW,
+      roster: [],
       selection: { agents: [agentA], humans: [userA] },
       stored: {
-        audienceGrants: [audience({ revision: 2, revokedAt: EARLIER })],
-        enlistmentGrants: [enlistment({ revision: 5, revokedAt: EARLIER })],
+        audienceGrants: [audience({ revision: 3 })],
+        enlistmentGrants: [enlistment({ revision: 2 })],
       },
     })
     expect(issued.audienceGrants[0]).toMatchObject({
       grantId: audienceGrantIdFor(userA),
       issuedAt: NOW,
-      revision: 3,
+      revision: 4,
       revokedAt: null,
     })
     expect(issued.enlistmentGrants[0]).toMatchObject({
       grantId: enlistmentGrantIdFor(agentA),
       issuedAt: NOW,
-      revision: 6,
+      revision: 3,
       revokedAt: null,
     })
   })
 
-  test('an expired grant is replaced the same way', () => {
+  test('a revoked or expired grant is replaced the same way', () => {
     const issued = issueGroupGrants({
       groupId: GROUP,
       now: NOW,
-      selection: { agents: [], humans: [userA] },
-      stored: { audienceGrants: [audience({ expiresAt: EARLIER })], enlistmentGrants: [] },
+      selection: { agents: [agentA], humans: [userA, userB] },
+      stored: {
+        audienceGrants: [
+          audience({ revision: 2, revokedAt: EARLIER }),
+          audience({
+            expiresAt: EARLIER,
+            grantId: audienceGrantIdFor(userB),
+            participant: { kind: 'user', userId: userB },
+          }),
+        ],
+        enlistmentGrants: [enlistment({ revision: 5, revokedAt: EARLIER })],
+      },
     })
-    expect(issued.audienceGrants[0]).toMatchObject({ expiresAt: null, revision: 2 })
+    expect(issued.audienceGrants.map(({ revision }) => revision)).toEqual([3, 2])
+    expect(issued.enlistmentGrants[0]!.revision).toBe(6)
   })
 
   test('a stored grant for someone else is never applied to the person asked for', () => {
@@ -194,21 +270,5 @@ describe('issueGroupGrants: members who are already in', () => {
       revision: 1,
     })
     expect(issued.enlistmentGrants[0]).toMatchObject({ agent: agentB, revision: 1 })
-  })
-
-  test('a retained Agent grant is qualified by the selection’s workspace, so a mismatch is caught by the policy', () => {
-    const issued = issueGroupGrants({
-      groupId: GROUP,
-      now: NOW,
-      selection: {
-        agents: [{ agentId: agentA.agentId, workspaceId: agentB.workspaceId }],
-        humans: [],
-      },
-      stored: { audienceGrants: [], enlistmentGrants: [enlistment()] },
-    })
-    expect(issued.enlistmentGrants[0]!.agent).toEqual({
-      agentId: agentA.agentId,
-      workspaceId: agentB.workspaceId,
-    })
   })
 })

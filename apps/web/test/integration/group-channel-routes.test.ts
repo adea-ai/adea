@@ -819,9 +819,10 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     expect(await readTexts(f, channelId, f.plain)).toEqual([])
   })
 
-  test('re-adding a member whose grant was revoked issues a higher revision, never the revoked one', async () => {
+  test('after a revoke, a stale or current roster that keeps the member is refused, and readmission is remove then add', async () => {
     const f = await fixture()
-    const { channelId } = await createGroup(f, { audience: [f.member] })
+    const { channelId, response } = await createGroup(f, { audience: [f.member] })
+    const draftedAt = ((await response.json()) as { channel: { version: number } }).channel.version
     expect(
       await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
         grantId: audienceGrantIdFor(f.member.userId),
@@ -829,18 +830,41 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
         revokedAt: new Date().toISOString(),
       })
     ).toEqual({ revoked: true })
-    const gone = await postText(f, channelId, f.member, 'while revoked')
-    expect(gone.status).toBe(404)
+    expect((await postText(f, channelId, f.member, 'while revoked')).status).toBe(404)
+    // A roster drafted before the revoke cannot bring them back: the withdrawn grant is seen as it is now.
+    const stale = await replaceRoster(f, channelId, draftedAt, [f.owner, f.member, f.plain])
+    expect(stale.status).toBe(400)
+    expect(await stale.json()).toMatchObject({
+      code: 'group_grant_rejected',
+      rejections: [{ reason: 'grant_revoked' }],
+    })
+    expect(await storedAudienceGrants(channelId, f.plain.userId)).toHaveLength(0)
+    // At the current version, keeping them is refused with the withdrawn reason, not renewed.
+    const kept = await replaceRoster(f, channelId, await versionOf(channelId), [
+      f.owner,
+      f.member,
+      f.plain,
+    ])
+    expect(kept.status).toBe(400)
+    expect(await kept.json()).toMatchObject({
+      code: 'group_grant_rejected',
+      rejections: [{ reason: 'grant_revoked' }],
+    })
+    expect((await postText(f, channelId, f.member, 'still revoked')).status).toBe(404)
+    // Readmission is explicit: remove, say something, add again.
+    const removed = await replaceRoster(f, channelId, await versionOf(channelId), [f.owner])
+    expect(removed.status).toBe(200)
+    expect((await postText(f, channelId, f.owner, 'said while removed')).status).toBe(201)
     const readded = await replaceRoster(f, channelId, await versionOf(channelId), [
       f.owner,
       f.member,
     ])
     expect(readded.status).toBe(200)
-    const grants = await storedAudienceGrants(channelId, f.member.userId)
-    expect(grants).toHaveLength(1)
-    expect(grants[0]!.revision).toBe(2)
-    expect(grants[0]!.revokedAt).toBeNull()
-    expect((await postText(f, channelId, f.member, 'after re-add')).status).toBe(201)
+    const [grant] = await storedAudienceGrants(channelId, f.member.userId)
+    expect(grant).toMatchObject({ revision: 2, revokedAt: null })
+    expect((await postText(f, channelId, f.owner, 'said after readmission')).status).toBe(201)
+    expect(await readTexts(f, channelId, f.member)).toEqual(['said after readmission'])
+    expect((await postText(f, channelId, f.member, 'back in')).status).toBe(201)
   })
 
   test('only an owner or admin can replace a roster, and a stale version is a conflict', async () => {
