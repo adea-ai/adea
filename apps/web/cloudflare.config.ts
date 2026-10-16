@@ -26,7 +26,7 @@ const controlPlaneStore = 'b3a1b4e8427a4d23ac7925cc18a7a2ac'
 // with a 500, and a preview that cannot work must not be reported as one.
 type EnvSource = Record<string, string | undefined>
 
-const PREVIEW_SELECTION = {
+export const PREVIEW_SELECTION = {
   hyperdriveId: 'ADEA_PREVIEW_HYPERDRIVE_ID',
   storeId: 'ADEA_PREVIEW_SECRETS_STORE_ID',
   databaseUrl: 'ADEA_PREVIEW_DATABASE_URL_SECRET',
