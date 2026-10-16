@@ -39,7 +39,6 @@ render(
   () =>
     createComponent(NativeSessionInventoryDiagnostic, {
       diagnostics,
-      runtimeNodeId: '00000000-0000-4000-8000-000000000003',
       workspaceId: '00000000-0000-4000-8000-000000000002',
     }),
   document.querySelector('#root')!

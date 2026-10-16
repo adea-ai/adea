@@ -8,6 +8,7 @@ import { MIGRATION_SNAPSHOT_FORMAT_VERSION, type MigrationSnapshotDocument } fro
 import type { DevCommand, DevReply, RuntimeSession, Scope } from '@adea-ai/types/dev-runtime'
 
 import {
+  createDesktopDevRuntimeService,
   createDesktopNativeSessionInventoryDiagnosticService,
   createDesktopNativeSessionInventorySource,
 } from '../src/lib/desktop-dev-runtime'
@@ -745,5 +746,51 @@ describe('desktop native session inventory diagnostic caller', () => {
       status: 'unknown',
       reason: 'ownership_mismatch',
     })
+  })
+})
+
+describe('local diagnostic authority independent of cloud registration', () => {
+  test('captures from the shell projection without a renderer node assertion', async () => {
+    const originalWindow = (globalThis as { window?: unknown }).window
+    const commands: DevCommand[] = []
+    try {
+      ;(globalThis as { window?: unknown }).window = {
+        __adeaDesktop: {
+          invoke: async (operation: string) => {
+            expect(operation).toBe('desktop_identity_scope')
+            return SCOPE
+          },
+          devExecute: async (command: DevCommand) => {
+            commands.push(command)
+            return {
+              schemaVersion: 1,
+              operation: command.operation,
+              requestId: command.requestId,
+              ok: true,
+              value: { items: [SESSION], observedAt: '2026-10-15T00:00:00.000Z' },
+              observedAt: '2026-10-15T00:00:00.000Z',
+            }
+          },
+          listen: async () => () => {},
+        },
+      }
+      const runtime = createDesktopDevRuntimeService({ expectedWorkspaceId: SCOPE.workspaceId })
+      await runtime.ready
+      const diagnostic = createDesktopNativeSessionInventoryDiagnosticService(runtime)
+      const result = await diagnostic.capture({ workspaceId: SCOPE.workspaceId })
+      expect(result.status).toBe('captured')
+      if (result.status !== 'captured') throw new Error('local inventory was not captured')
+      expect(result.section.records[0]?.runtimeNodeId).toBe(SCOPE.runtimeNodeId)
+      expect(commands.map(({ operation, scope }) => ({ operation, scope }))).toEqual([
+        { operation: 'dev.session.list', scope: SCOPE },
+      ])
+      expect(await diagnostic.capture({ workspaceId: 'another-workspace' })).toEqual({
+        status: 'unknown',
+        reason: 'ownership_mismatch',
+      })
+      expect(commands).toHaveLength(1)
+    } finally {
+      ;(globalThis as { window?: unknown }).window = originalWindow
+    }
   })
 })

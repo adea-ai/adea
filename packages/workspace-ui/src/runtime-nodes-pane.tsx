@@ -30,6 +30,12 @@ export default function RuntimeNodesPane(props: {
   )
   return (
     <div class="workspace-runtime-inventory">
+      <Show when={props.nativeSessionInventoryDiagnostics}>
+        <NativeSessionInventoryDiagnostic
+          diagnostics={props.nativeSessionInventoryDiagnostics}
+          workspaceId={props.workspaceId}
+        />
+      </Show>
       <Show
         when={scope()}
         keyed
@@ -42,22 +48,14 @@ export default function RuntimeNodesPane(props: {
         }
       >
         {(current) => (
-          <RuntimeNodesContent
-            client={current.client}
-            nativeSessionInventoryDiagnostics={props.nativeSessionInventoryDiagnostics}
-            workspaceId={current.workspaceId}
-          />
+          <RuntimeNodesContent client={current.client} workspaceId={current.workspaceId} />
         )}
       </Show>
     </div>
   )
 }
 
-function RuntimeNodesContent(props: {
-  client: AgentHqApiClient
-  nativeSessionInventoryDiagnostics?: NativeSessionInventoryDiagnosticService
-  workspaceId: string
-}) {
+function RuntimeNodesContent(props: { client: AgentHqApiClient; workspaceId: string }) {
   const nodes = useRuntimeNodesQuery(props.client, () => props.workspaceId)
   const [selectedId, setSelectedId] = createSignal<string>()
   const [now, setNow] = createSignal(Date.now())
@@ -132,7 +130,6 @@ function RuntimeNodesContent(props: {
         {(node) => (
           <RuntimeConnectionsContent
             client={props.client}
-            nativeSessionInventoryDiagnostics={props.nativeSessionInventoryDiagnostics}
             workspaceId={props.workspaceId}
             node={node}
             now={now}
@@ -145,7 +142,6 @@ function RuntimeNodesContent(props: {
 
 function RuntimeConnectionsContent(props: {
   client: AgentHqApiClient
-  nativeSessionInventoryDiagnostics?: NativeSessionInventoryDiagnosticService
   workspaceId: string
   node: ApiRuntimeNode
   now: () => number
@@ -179,13 +175,6 @@ function RuntimeConnectionsContent(props: {
   }
   return (
     <>
-      <Show when={props.node.kind === 'local_device'}>
-        <NativeSessionInventoryDiagnostic
-          diagnostics={props.nativeSessionInventoryDiagnostics}
-          runtimeNodeId={props.node.id}
-          workspaceId={props.workspaceId}
-        />
-      </Show>
       <SettingsSection
         title={`Runtimes on ${props.node.displayName}`}
         description="Inspect host health, runtime connections, and access requirements. Availability is checked again when you start work."

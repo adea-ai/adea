@@ -241,9 +241,17 @@ can downgrade revoked/stale/unknown registration; discovery is never admission.
 
 ### Local native-session diagnostic
 
-In the desktop app, `Workspace details → Connections → Execution hosts → View
-runtimes → Native session inventory` is an explicit, on-demand diagnostic for a
-`local_device` node. It reads only through the desktop runtime service's signed
+In the desktop app, `Workspace details → Connections → Native session inventory`
+is an explicit,
+on-demand diagnostic for this desktop. It is available independently of cloud
+registration and the Execution hosts list, including when no host is registered
+or cloud discovery is unavailable. A cloud registration ID is not a local node
+identity mapping and is never supplied to this action. The UI names only its
+displayed workspace; the desktop service selects its own signed local node.
+An optional explicit node assertion on the service must match that same local
+node. Workspace or provider replacement clears previous results even if the
+new provider reuses an opaque binding generation. It reads only through the
+desktop runtime service's signed
 account/workspace/node scope and rechecks that binding before and after each
 page. The provider also binds to the live desktop session and account-principal
 accessors as an invalidation fence: a login, sign-out, principal change, or

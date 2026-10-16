@@ -680,7 +680,7 @@ export function createDesktopNativeSessionInventorySource(
 /**
  * On-demand local diagnostic used only by Workspace details → Connections →
  * Execution hosts. Ownership comes from the service's signed preference scope;
- * the UI supplies only the workspace and host it is displaying. The returned
+ * the UI supplies only its workspace, independently of cloud host registration. The returned
  * section is allowlisted and bounded before it can be downloaded locally.
  */
 export function createDesktopNativeSessionInventoryDiagnosticService(
@@ -759,7 +759,7 @@ export function createDesktopNativeSessionInventoryDiagnosticService(
       if (!boundScope) return { status: 'unknown', reason: 'unavailable' }
       if (
         input.workspaceId !== boundScope.workspaceId ||
-        input.runtimeNodeId !== boundScope.runtimeNodeId
+        (input.runtimeNodeId !== undefined && input.runtimeNodeId !== boundScope.runtimeNodeId)
       ) {
         return { status: 'unknown', reason: 'ownership_mismatch' }
       }

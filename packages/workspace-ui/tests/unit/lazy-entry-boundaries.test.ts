@@ -113,7 +113,10 @@ test('workspace Connections wires the local session inventory action to the sign
 
   expect(dialog).toContain('nativeSessionInventoryDiagnostics')
   expect(dialog).toContain('workspaceId={props.workspace.id}')
-  expect(pane).toContain("when={props.node.kind === 'local_device'}")
+  expect(pane).not.toContain('runtimeNodeId={props.node.id}')
+  expect(pane.indexOf('<NativeSessionInventoryDiagnostic')).toBeLessThan(
+    pane.indexOf('when={scope()}')
+  )
   expect(pane).toContain('<NativeSessionInventoryDiagnostic')
   expect(diagnostic).toContain('Capture local inventory')
   expect(diagnostic).toContain('Download redacted inventory')

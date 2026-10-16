@@ -35,12 +35,13 @@ const unknownMessages = {
 /** A local-only diagnostic action in Workspace details → Connections. */
 export function NativeSessionInventoryDiagnostic(props: {
   diagnostics?: NativeSessionInventoryDiagnosticService
-  runtimeNodeId: string
   workspaceId: string
 }) {
   const [state, setState] = createSignal<DiagnosticState>({ status: 'idle' })
   let activeController: AbortController | undefined
   let observedBindingIdentity = readBindingIdentity()
+  let observedWorkspaceId = props.workspaceId
+  let observedDiagnostics = props.diagnostics
 
   function readBindingIdentity(): string | undefined {
     try {
@@ -74,7 +75,6 @@ export function NativeSessionInventoryDiagnostic(props: {
     setState({ status: 'capturing', bindingIdentity })
     try {
       const result = await props.diagnostics.capture({
-        runtimeNodeId: props.runtimeNodeId,
         signal: controller.signal,
         workspaceId: props.workspaceId,
       })
@@ -118,8 +118,15 @@ export function NativeSessionInventoryDiagnostic(props: {
 
   createEffect(() => {
     const next = readBindingIdentity()
-    if (next === observedBindingIdentity) return
+    if (
+      next === observedBindingIdentity &&
+      props.workspaceId === observedWorkspaceId &&
+      props.diagnostics === observedDiagnostics
+    )
+      return
     observedBindingIdentity = next
+    observedWorkspaceId = props.workspaceId
+    observedDiagnostics = props.diagnostics
     clearCapture()
   })
 

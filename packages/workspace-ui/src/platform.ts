@@ -287,15 +287,16 @@ export type NativeSessionInventoryDiagnosticResult =
 
 /**
  * Read-only native-session snapshot capture for the active signed desktop
- * scope. The UI supplies only the workspace and host it is displaying; the
- * adapter rechecks those against its authoritative account-bound service.
+ * scope. The UI supplies the displayed workspace; the adapter selects the local
+ * node from its authoritative account-bound service, independent of registration.
+ * An optional explicit node assertion must also match that signed local node.
  */
 export type NativeSessionInventoryDiagnosticService = Readonly<{
   /** Opaque-to-UI identity of the authoritative signed account/workspace/node binding. */
   scopeIdentity(): string | undefined
   capture(
     input: Readonly<{
-      runtimeNodeId: string
+      runtimeNodeId?: string
       signal?: AbortSignal
       workspaceId: string
     }>

@@ -2031,6 +2031,12 @@ process or provider payloads, local paths, credentials, or execution command
 payloads. If the authenticated desktop source is absent, offline, or refuses a
 read, the native-session domain remains unknown rather than captured empty.
 
+The Workspace Details native inventory action reads this authoritative local
+service independently of the cloud runtime-node registration list. It does not
+translate a cloud registration ID into the separately minted local node ID.
+The displayed workspace must match the signed service scope, and all returned
+rows retain the exact account/workspace/local-node ownership checks.
+
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
 binding, and observation freshness; a stale projection renders a visible
