@@ -1,11 +1,8 @@
-import { ApiClientError } from '@adea-ai/api-client'
+import { ApiClientError, type ApiGroupSelection } from '@adea-ai/api-client'
 import type {
   AgentSummary,
   ConversationParticipantRef,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
   GroupCreationRejectionReason,
-  QualifiedAgentIdentity,
   WorkspaceMemberRole,
   WorkspaceMemberSummary,
   WorkspaceSummary,
@@ -16,29 +13,25 @@ import type {
  * decides who is in a group and why, and this module only chooses who to ask for, remembers the draft and
  * says the result truthfully.
  *
- * The one rule that shapes it: **the client never makes a grant.** A grant names its group, a revision and a
- * window, and the server persists the grants it is handed. A grant is therefore only ever received from a
- * trusted issuer (`GroupGrantIssuer`) and forwarded as received, after checking that it is the one asked for.
- * Member names, Agent names and ids only decide who to ask a grant for; none of them is ever an authority.
+ * The one rule that shapes it: **the client never makes a grant.** It sends a selection (user ids and
+ * workspace-qualified Agent identities) and the server issues, bounds and checks every grant itself, inside
+ * the same transaction that writes the roster. Member names, Agent names and ids only decide who to ask for;
+ * none of them is ever an authority.
  */
 
 /** What the person is told, in one place, so the dialogs, the tests and the PR describe the same behavior. */
 export const groupAudienceCopy = {
   creatorFounded:
-    'You start the group as its creator. Everyone else needs an explicit grant to be added.',
+    'You start the group as its creator. The server checks that everyone you add belongs in it before the group is created.',
   earlierAccess:
     'Earlier history and earlier summaries are never shared by joining. Someone with a separate, explicit grant for them sees them; adding a person or an Agent does not.',
-  issuerMissing:
-    'Adding people and Agents needs grants from the server, and none can be requested from here yet. The group starts with only you; nobody else is added by a typed name or an id.',
   joinPointHistory:
     'Everyone added sees the conversation from the moment they join. Messages sent before that stay hidden from them.',
   manageNeedsAuthority: 'Only workspace owners and admins can change who is in a group.',
-  manageNeedsIssuer:
-    'Changing who is in a group needs a grant for everyone who stays, and none can be requested from here yet. The roster below is what the server holds.',
   removal:
     'Removing someone stops them reading the conversation and taking turns right away. Jobs already started keep running under their own owner; removing someone does not cancel them. Records already kept are not erased.',
   sameNameAgents:
-    'Agents can share a name. They are told apart by their workspace and their short id, and the grant follows that identity, not the name.',
+    'Agents can share a name. They are told apart by their workspace and their short id, and the server checks that identity, not the name.',
 } as const
 
 const UNKNOWN_WORKSPACE = 'Another workspace'
@@ -264,26 +257,6 @@ export function toggleSelection(selected: AudienceSelection, key: string): Audie
   return selected.includes(key) ? selected.filter((entry) => entry !== key) : [...selected, key]
 }
 
-export type GroupGrantRequest = Readonly<{
-  /** Qualified identities: each Agent with the workspace it lives in. */
-  agents: readonly QualifiedAgentIdentity[]
-  groupId: string
-  humans: readonly string[]
-  workspaceId: string
-}>
-
-export type IssuedGroupGrants = Readonly<{
-  audienceGrants: readonly GroupAudienceGrant[]
-  enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
-}>
-
-/**
- * The trusted source of grants. It is the dependency this UI cannot supply: nothing in this repository issues
- * grants yet (the routes accept whatever grants they are given). It must authorize the caller, bind every
- * grant to `groupId`, and choose grant ids, revisions and windows itself.
- */
-export type GroupGrantIssuer = (request: GroupGrantRequest) => Promise<IssuedGroupGrants>
-
 export function selectedChoices(selected: AudienceSelection, choices: AudienceChoices) {
   const chosen = new Set(selected)
   return {
@@ -292,79 +265,27 @@ export function selectedChoices(selected: AudienceSelection, choices: AudienceCh
   }
 }
 
-export function grantRequest(input: {
+/**
+ * The selection to send: qualified identities only, never a grant. Choices already carry their Agent's home
+ * workspace; the dialogs refuse to send a member whose workspace is unknown instead of guessing one.
+ */
+export function groupSelection(input: {
   agents: readonly AgentChoice[]
-  groupId: string
   humans: readonly HumanChoice[]
-  workspaceId: string
-}): GroupGrantRequest {
+}): ApiGroupSelection {
   return {
     agents: input.agents.map(({ agentId, workspaceId }) => ({ agentId, workspaceId })),
-    groupId: input.groupId,
     humans: input.humans.map(({ userId }) => userId),
-    workspaceId: input.workspaceId,
   }
-}
-
-export type GrantCheck = Readonly<{ ok: true; grants: IssuedGroupGrants }> | Readonly<{ ok: false }>
-
-/**
- * Checks that what the issuer returned is exactly what was asked for: one grant per requested person and
- * Agent, each naming this group and that identity, none already ended. It guards against a mixed-up issuer,
- * never against the server: the server still validates every grant it receives and stays decisive.
- */
-export function checkIssuedGrants(
-  request: GroupGrantRequest,
-  issued: IssuedGroupGrants
-): GrantCheck {
-  if (
-    !Array.isArray(issued?.audienceGrants) ||
-    !Array.isArray(issued?.enlistmentGrants) ||
-    issued.audienceGrants.length !== request.humans.length ||
-    issued.enlistmentGrants.length !== request.agents.length
-  )
-    return { ok: false }
-  const people = new Set(request.humans)
-  const seenPeople = new Set<string>()
-  for (const grant of issued.audienceGrants) {
-    if (
-      grant.groupId !== request.groupId ||
-      grant.participant?.kind !== 'user' ||
-      !people.has(grant.participant.userId) ||
-      seenPeople.has(grant.participant.userId) ||
-      grant.revokedAt !== null
-    )
-      return { ok: false }
-    seenPeople.add(grant.participant.userId)
-  }
-  const agents = new Set(
-    request.agents.map(({ agentId, workspaceId }) => `${workspaceId}:${agentId}`)
-  )
-  const seenAgents = new Set<string>()
-  for (const grant of issued.enlistmentGrants) {
-    const key = `${grant.agent?.workspaceId}:${grant.agent?.agentId}`
-    if (
-      grant.groupId !== request.groupId ||
-      !agents.has(key) ||
-      seenAgents.has(key) ||
-      grant.revokedAt !== null
-    )
-      return { ok: false }
-    seenAgents.add(key)
-  }
-  return { ok: true, grants: issued }
 }
 
 /**
  * One create attempt. Its channel id and idempotency key stay the same for as long as the request does not
- * change, so a retry after a lost response replays the same request and cannot make a second group. The
- * grants it was issued are kept with it: asking again would produce different grants, which the server
- * would refuse as a different request under the same key.
+ * change, so a retry after a lost response replays the same request and cannot make a second group.
  */
 export type GroupAttempt = Readonly<{
   channelId: string
   fingerprint: string
-  grants: IssuedGroupGrants | null
   idempotencyKey: string
 }>
 
@@ -379,7 +300,7 @@ export function nextAttempt(
   newId: () => string
 ): GroupAttempt {
   if (previous && previous.fingerprint === fingerprint) return previous
-  return { channelId: newId(), fingerprint, grants: null, idempotencyKey: newId() }
+  return { channelId: newId(), fingerprint, idempotencyKey: newId() }
 }
 
 const rejectionCopy = {
@@ -407,7 +328,6 @@ const rejectionCopy = {
 export type GroupFailureKind =
   | 'conflict'
   | 'invalid'
-  | 'issuer'
   | 'offline'
   | 'rejected'
   | 'unavailable'
@@ -450,13 +370,6 @@ function rejectionDetails(error: ApiClientError) {
 /** Says what happened to a create or manage request, from what the server answered. */
 export function groupFailure(error: unknown, operation: 'create' | 'manage'): GroupFailure {
   const none = {}
-  if (error instanceof GroupGrantUnavailableError) {
-    const cause = error.cause
-    // A withdrawn session or access answers the same way whoever was asked.
-    if (cause instanceof ApiClientError && [401, 403, 404].includes(cause.status))
-      return groupFailure(cause, operation)
-    return issuerFailure
-  }
   if (error instanceof ApiClientError) {
     if (error.status === 401)
       return {
@@ -532,8 +445,8 @@ export function groupFailure(error: unknown, operation: 'create' | 'manage'): Gr
 }
 
 /**
- * A roster save whose outcome is not known. Unlike a create, a retry is not the same request: it asks the
- * trusted source for fresh grants and is checked against the group's current version, so the wording says
+ * A roster save whose outcome is not known. Unlike a create, a retry is not the same request: it is checked
+ * against the group's current version, so a save that did go through makes it a conflict, and the wording says
  * that, and says the group is being re-read so a save that did go through shows up in the roster.
  */
 function manageUnclear(what: string, kind: 'offline' | 'unknown'): GroupFailure {
@@ -542,7 +455,7 @@ function manageUnclear(what: string, kind: 'offline' | 'unknown'): GroupFailure 
     kind,
     perParticipant: {},
     retrySame: false,
-    text: `${what}, so it is not known whether your changes were saved. The group is being read again: if they were saved, the roster will change here and you will be asked to review it. Trying again asks for fresh grants and is checked against the group's current version.`,
+    text: `${what}, so it is not known whether your changes were saved. The group is being read again: if they were saved, the roster will change here and you will be asked to review it. Trying again is checked against the group's current version.`,
   }
 }
 
@@ -553,25 +466,6 @@ export const conflictAfterUnclearSave: GroupFailure = {
   perParticipant: {},
   retrySame: false,
   text: 'The group changed since your changes were sent. Your earlier save may have gone through, or someone else may have edited it. Review the updated roster to see what it holds before saving again.',
-}
-
-/** The trusted grant source could not supply what was asked for, so nothing was sent to the server. */
-export class GroupGrantUnavailableError extends Error {
-  override readonly cause?: unknown
-
-  constructor(cause?: unknown) {
-    super('Group grants unavailable')
-    this.name = 'GroupGrantUnavailableError'
-    this.cause = cause
-  }
-}
-
-export const issuerFailure: GroupFailure = {
-  ambiguous: false,
-  kind: 'issuer',
-  perParticipant: {},
-  retrySame: false,
-  text: 'The grants for these participants could not be obtained, so nothing was sent. Try again.',
 }
 
 export type SaveOutcome<T> =

@@ -1,27 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiClientError } from '@adea-ai/api-client'
-import type {
-  AgentSummary,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
-  WorkspaceMemberSummary,
-  WorkspaceSummary,
-} from '@adea-ai/types'
+import type { AgentSummary, WorkspaceMemberSummary, WorkspaceSummary } from '@adea-ai/types'
 
 import {
   agentKey,
   applyDraft,
   audienceChoices,
   canManageGroup,
-  checkIssuedGrants,
   describeAgents,
   describeHumans,
   emptyDraft,
-  grantRequest,
   groupFailure,
   groupFingerprint,
+  groupSelection,
   conflictAfterUnclearSave,
-  GroupGrantUnavailableError,
   humanKey,
   nextAttempt,
   participantLabel,
@@ -36,7 +28,6 @@ import {
 
 const acme = '11111111-0000-4000-8000-0000000000a1'
 const globex = '22222222-0000-4000-8000-0000000000b2'
-const group = '33333333-0000-4000-8000-0000000000c3'
 const userA = '44444444-0000-4000-8000-0000000000d1'
 const userB = '44444444-0000-4000-8000-0000000000d2'
 const me = '44444444-0000-4000-8000-0000000000d9'
@@ -170,88 +161,31 @@ describe('selection', () => {
   })
 })
 
-describe('grant request and issued grants', () => {
+describe('the selection sent to the server', () => {
   const selection = selectedChoices([humanKey(userA), agentKey(ariaGlobex)], choices)
-  const request = grantRequest({ ...selection, groupId: group, workspaceId: acme })
-  const audience = (overrides: Partial<GroupAudienceGrant> = {}): GroupAudienceGrant => ({
-    expiresAt: null,
-    grantId: 'g-user',
-    groupId: group,
-    issuedAt: now,
-    participant: { kind: 'user', userId: userA },
-    revision: 1,
-    revokedAt: null,
-    ...overrides,
-  })
-  const enlistment = (
-    overrides: Partial<GroupAgentEnlistmentGrant> = {}
-  ): GroupAgentEnlistmentGrant => ({
-    agent: { agentId: ariaGlobex, workspaceId: globex },
-    expiresAt: null,
-    grantId: 'g-agent',
-    groupId: group,
-    issuedAt: now,
-    revision: 1,
-    revokedAt: null,
-    ...overrides,
-  })
 
-  test('a request carries identities only: never a grant id, revision or window', () => {
-    expect(request).toEqual({
+  test('carries qualified identities only: never a grant id, revision or window', () => {
+    const sent = groupSelection(selection)
+    expect(sent).toEqual({
       agents: [{ agentId: ariaGlobex, workspaceId: globex }],
-      groupId: group,
       humans: [userA],
-      workspaceId: acme,
     })
+    expect(JSON.stringify(sent)).not.toMatch(/grant|revision|issuedAt|expiresAt/i)
   })
 
-  test('accepts exactly the grants asked for', () => {
-    const issued = { audienceGrants: [audience()], enlistmentGrants: [enlistment()] }
-    expect(checkIssuedGrants(request, issued)).toEqual({ grants: issued, ok: true })
+  test('keeps same-named Agents in different workspaces apart', () => {
+    const sent = groupSelection({
+      agents: [
+        { ...selection.agents[0]!, workspaceId: globex },
+        { ...selection.agents[0]!, agentId: 'other-agent', workspaceId: acme },
+      ],
+      humans: [],
+    })
+    expect(sent.agents.map(({ workspaceId }) => workspaceId)).toEqual([globex, acme])
   })
 
-  test.each([
-    [
-      'a grant for another group',
-      { audienceGrants: [audience({ groupId: 'other' })], enlistmentGrants: [enlistment()] },
-    ],
-    [
-      'a grant for someone who was not asked for',
-      {
-        audienceGrants: [audience({ participant: { kind: 'user', userId: userB } })],
-        enlistmentGrants: [enlistment()],
-      },
-    ],
-    [
-      'an Agent grant for the same name in another workspace',
-      {
-        audienceGrants: [audience()],
-        enlistmentGrants: [enlistment({ agent: { agentId: ariaGlobex, workspaceId: acme } })],
-      },
-    ],
-    [
-      'an already revoked grant',
-      { audienceGrants: [audience({ revokedAt: now })], enlistmentGrants: [enlistment()] },
-    ],
-    ['a missing grant', { audienceGrants: [], enlistmentGrants: [enlistment()] }],
-    [
-      'an extra grant',
-      {
-        audienceGrants: [audience(), audience({ participant: { kind: 'user', userId: userB } })],
-        enlistmentGrants: [enlistment()],
-      },
-    ],
-    [
-      'a duplicated grant',
-      { audienceGrants: [audience()], enlistmentGrants: [enlistment(), enlistment()] },
-    ],
-  ])('refuses %s', (_name, issued) => {
-    expect(checkIssuedGrants(request, issued).ok).toBe(false)
-  })
-
-  test('refuses a malformed answer', () => {
-    expect(checkIssuedGrants(request, undefined as never).ok).toBe(false)
-    expect(checkIssuedGrants(request, {} as never).ok).toBe(false)
+  test('an empty choice is an empty selection', () => {
+    expect(groupSelection({ agents: [], humans: [] })).toEqual({ agents: [], humans: [] })
   })
 })
 
@@ -276,7 +210,6 @@ describe('attempts', () => {
     const second = nextAttempt(first, groupFingerprint('Launch', ['a', 'b']), newId)
     expect(second.channelId).not.toBe(first.channelId)
     expect(second.idempotencyKey).not.toBe(first.idempotencyKey)
-    expect(second.grants).toBeNull()
   })
 })
 
@@ -341,15 +274,6 @@ describe('failures', () => {
     }
   })
 
-  test('an issuer that cannot answer means nothing was sent', () => {
-    const failure = groupFailure(new GroupGrantUnavailableError(new Error('boom')), 'create')
-    expect(failure.kind).toBe('issuer')
-    expect(failure.ambiguous).toBe(false)
-    expect(
-      groupFailure(new GroupGrantUnavailableError(new ApiClientError('x', 404)), 'create').kind
-    ).toBe('unavailable')
-  })
-
   test('an idempotency conflict while creating is not a version conflict', () => {
     expect(
       groupFailure(new ApiClientError('Channel idempotency conflict', 409), 'create').text
@@ -358,12 +282,11 @@ describe('failures', () => {
 })
 
 describe('a manage save whose outcome is unknown', () => {
-  test('says a retry asks for fresh grants against the current version, not that it is the same request', () => {
+  test('says a retry is checked against the current version, not that it is the same request', () => {
     for (const error of [new TypeError('Failed to fetch'), new ApiClientError('x', 502)]) {
       const failure = groupFailure(error, 'manage')
       expect(failure.ambiguous).toBe(true)
       expect(failure.retrySame).toBe(false)
-      expect(failure.text).toContain('fresh grants')
       expect(failure.text).toContain('current version')
       expect(failure.text).not.toContain('same request')
       expect(failure.text).not.toContain('second group')

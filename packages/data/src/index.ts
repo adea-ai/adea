@@ -328,16 +328,30 @@ export const channelMutationOptions = {
         channelId: string
         expectedVersion: number
         participants: Parameters<AgentHqApiClient['setChannelParticipants']>[2]
-        /** Grants for a group's roster, exactly as a trusted issuer returned them. */
-        grants?: Parameters<AgentHqApiClient['setChannelParticipants']>[4]
       }>
     ) =>
       client.setChannelParticipants(
         workspaceId,
         input.channelId,
         input.participants,
-        input.expectedVersion,
-        input.grants
+        input.expectedVersion
+      ),
+    onMutate: () => conversationMutationContext(workspaceId),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  groupSelection: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        channelId: string
+        expectedVersion: number
+        selection: Parameters<AgentHqApiClient['setGroupSelection']>[2]
+      }>
+    ) =>
+      client.setGroupSelection(
+        workspaceId,
+        input.channelId,
+        input.selection,
+        input.expectedVersion
       ),
     onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
@@ -1348,6 +1362,15 @@ export function useSetChannelParticipantsMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.participants(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+/** Replaces a group's roster from a selection of qualified identities; the server issues the grants. */
+export function useSetGroupSelectionMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.groupSelection(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useUpdateChannelMutation(

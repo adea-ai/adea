@@ -2,13 +2,13 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import axe from 'axe-core'
 import { resolve } from 'node:path'
 
-// The group audience dialogs over an in-page stand-in for the server and for the grant issuer that does not
-// exist yet. Every identity is synthetic. What the browser shows for the real roster, same-named Agents,
+// The group audience dialogs over an in-page stand-in for the server. Every identity is synthetic. What the browser shows for the real roster, same-named Agents,
 // keyboard and focus, narrow layouts, stale versions, revoked access, workspace and account switches,
 // duplicate submission and failed creation is proven here; the server rules themselves are proven against
 // the real routes and database in apps/web/test/integration/group-channel-routes.test.ts.
 
 const ids = {
+  acme: '11111111-0000-4000-8000-0000000000a1',
   alexAdmin: '44444444-0000-4000-8000-0000000000d2',
   alexMember: '44444444-0000-4000-8000-0000000000d1',
   ariaAcme: '5a1c0e11-0000-4000-8000-0000000000e1',
@@ -93,7 +93,7 @@ test('same-named Agents and people are told apart by identity in the accessible 
   await expect(agents(page)).toContainText('told apart by their workspace and their short id')
 })
 
-test('a grant is asked for by qualified identity and the group is shown only from the server’s answer', async ({
+test('the server is asked for a qualified selection, never a grant, and the group is shown only from its answer', async ({
   page,
 }) => {
   await openCreate(page)
@@ -102,11 +102,15 @@ test('a grant is asked for by qualified identity and the group is shown only fro
   await expect(roster(page, 'Group audience').getByRole('listitem')).toHaveCount(3)
   await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
   await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toBeFocused()
-  const issued = await harness(page, () => window.audienceHarness.calls.issued)
-  expect(issued).toHaveLength(1)
-  expect(issued[0]!.humans).toEqual([ids.alexAdmin])
+  const { created } = await harness(page, () => window.audienceHarness.calls)
+  expect(created).toHaveLength(1)
+  expect(created[0]!.selection.humans).toEqual([ids.alexAdmin])
   // The Globex Aria, not the Acme one that shares her name.
-  expect(issued[0]!.agents).toEqual([{ agentId: ids.ariaGlobex, workspaceId: ids.globex }])
+  expect(created[0]!.selection.agents).toEqual([
+    { agentId: ids.ariaGlobex, workspaceId: ids.globex },
+  ])
+  // The request carries identities only: no grant id, revision or window of any kind.
+  expect(JSON.stringify(created[0])).not.toMatch(/grant|revision|issuedAt|expiresAt/i)
   const groups = await harness(page, () => window.audienceHarness.groups())
   expect(groups).toHaveLength(1)
   expect(groups[0]!.participants).toHaveLength(3)
@@ -173,11 +177,10 @@ test('a lost response keeps the draft, shows no group, and the retry cannot make
   await expect(people(page).getByRole('checkbox', { name: /Sam/ })).toBeChecked()
   await dialog(page).getByRole('button', { name: 'Try again' }).click()
   await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toBeVisible()
-  const { created, issued } = await harness(page, () => window.audienceHarness.calls)
-  // The identical request, with the grants it was already issued: one group, one issuance.
+  const { created } = await harness(page, () => window.audienceHarness.calls)
+  // The identical request: one group.
   expect(created).toHaveLength(2)
   expect(created[1]).toEqual(created[0])
-  expect(issued).toHaveLength(1)
   expect(await harness(page, () => window.audienceHarness.groups())).toHaveLength(1)
 })
 
@@ -193,35 +196,17 @@ test('a participant the server refuses is marked, nothing is created, and the se
     'no group was created'
   )
   await expect(roster(page, 'Group audience').locator('[data-roster-problem]')).toContainText(
-    'The grant for this participant was withdrawn.'
+    'This participant is outside this workspace and cannot join.'
   )
   await expect(people(page).getByRole('checkbox', { name: /Alex · Admin/ })).toBeChecked()
   await expect(people(page).getByRole('checkbox', { name: /Sam/ })).toBeChecked()
   expect(await harness(page, () => window.audienceHarness.groups())).toHaveLength(0)
-  // Changing the selection is a new request with a new identity and fresh grants.
+  // Changing the selection is a new request with a new identity.
   await toggle(people(page).getByRole('checkbox', { name: /Alex · Admin/ }))
   await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
   await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toBeVisible()
-  const { created, issued } = await harness(page, () => window.audienceHarness.calls)
+  const { created } = await harness(page, () => window.audienceHarness.calls)
   expect(created[1]!.channelId).not.toBe(created[0]!.channelId)
-  expect(issued).toHaveLength(2)
-})
-
-test('an issuer that fails, or answers for the wrong group or Agent, sends nothing to the server', async ({
-  page,
-}) => {
-  for (const mode of ['fail', 'wrong-group', 'wrong-agent-workspace'] as const) {
-    await openCreate(page)
-    await page.evaluate((value) => window.audienceHarness.setIssuer(value), mode)
-    await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-    await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
-    await expect(dialog(page).locator('[data-group-failure="issuer"]')).toContainText(
-      'nothing was sent'
-    )
-    await expect(agents(page).getByRole('checkbox', { name: 'Aria · Globex' })).toBeChecked()
-    expect((await harness(page, () => window.audienceHarness.calls)).created).toHaveLength(0)
-    await page.reload()
-  }
 })
 
 test('revoked access ends the attempt with the uniform answer and shows no group', async ({
@@ -320,20 +305,18 @@ for (const [name, move] of Object.entries(moves)) {
     await expect(title).toHaveValue('')
   })
 
-  test(`an issuer that answers after the ${name} changed creates nothing and cannot restore the attempt`, async ({
+  test(`an answer that arrives after the ${name} changed shows nothing and cannot restore the attempt`, async ({
     page,
   }) => {
     await openCreate(page)
     await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-    await harness(page, () => window.audienceHarness.setIssuer('hold'))
+    await harness(page, () => window.audienceHarness.nextCreate('hold'))
     await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
     await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toBeVisible()
     await page.evaluate(move.away)
-    await harness(page, () => window.audienceHarness.releaseIssuer())
+    await harness(page, () => window.audienceHarness.releaseCreate())
     // Give the late answer every chance to act.
     await page.waitForTimeout(300)
-    const { created } = await harness(page, () => window.audienceHarness.calls)
-    expect(created).toHaveLength(0)
     await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toHaveCount(0)
     await expect(dialog(page).locator('[data-group-failure]')).toHaveCount(0)
     await expect(dialog(page).getByRole('textbox', { name: 'Conversation name' })).toHaveValue('')
@@ -342,66 +325,62 @@ for (const [name, move] of Object.entries(moves)) {
     await expect(dialog(page).getByRole('button', { name: 'Create conversation' })).toBeEnabled()
     await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
     await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toBeVisible()
-    const after = await harness(page, () => window.audienceHarness.calls)
-    expect(after.created).toHaveLength(1)
-    expect(after.created[0]!.title).toBe('Fresh group')
+    const { created } = await harness(page, () => window.audienceHarness.calls)
+    expect(created).toHaveLength(2)
+    expect(created[1]!.title).toBe('Fresh group')
+    expect(created[1]!.channelId).not.toBe(created[0]!.channelId)
   })
 
-  test(`an issuer that answers after leaving and coming back to the ${name} still creates nothing`, async ({
+  test(`an answer that arrives after leaving and coming back to the ${name} still shows nothing`, async ({
     page,
   }) => {
     await openCreate(page)
     await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-    await harness(page, () => window.audienceHarness.setIssuer('hold'))
+    await harness(page, () => window.audienceHarness.nextCreate('hold'))
     await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
     await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toBeVisible()
     await page.evaluate(move.away)
     await page.evaluate(move.back)
-    await harness(page, () => window.audienceHarness.releaseIssuer())
+    await harness(page, () => window.audienceHarness.releaseCreate())
     await page.waitForTimeout(300)
-    const { created } = await harness(page, () => window.audienceHarness.calls)
-    expect(created).toHaveLength(0)
     await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toHaveCount(0)
   })
 
-  test(`a roster save whose issuer answers after the ${name} changed is never sent`, async ({
+  test(`a roster save answered after the ${name} changed is never shown as saved`, async ({
     page,
   }) => {
     await openManage(page)
     await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-    await harness(page, () => window.audienceHarness.setIssuer('hold'))
+    await harness(page, () => window.audienceHarness.nextSave('hold'))
     await dialog(page).getByRole('button', { name: 'Save changes' }).click()
     await expect(dialog(page).getByRole('button', { name: 'Saving…' })).toBeVisible()
     await page.evaluate(move.away)
     await page.evaluate(move.back)
-    await harness(page, () => window.audienceHarness.releaseIssuer())
+    await harness(page, () => window.audienceHarness.releaseSave())
     await page.waitForTimeout(300)
-    const { saves } = await harness(page, () => window.audienceHarness.calls)
-    expect(saves).toHaveLength(0)
+    // The save did reach the server and is kept there, but nothing here claims it as this screen's save.
     await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
-    await expect(agents(page).getByRole('checkbox', { name: 'Aria · Globex' })).not.toBeChecked()
+    await expect(dialog(page).locator('[data-group-draft-summary]')).toHaveText('No changes yet.')
   })
 }
 
-test('a roster save whose issuer answers after another group was opened is never sent', async ({
+test('a roster save answered after another group was opened is never shown as saved', async ({
   page,
 }) => {
   await openManage(page)
   await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-  await harness(page, () => window.audienceHarness.setIssuer('hold'))
+  await harness(page, () => window.audienceHarness.nextSave('hold'))
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
   await expect(dialog(page).getByRole('button', { name: 'Saving…' })).toBeVisible()
   await harness(page, () => window.audienceHarness.switchGroup('other'))
-  await harness(page, () => window.audienceHarness.releaseIssuer())
+  await harness(page, () => window.audienceHarness.releaseSave())
   await page.waitForTimeout(300)
-  const { saves } = await harness(page, () => window.audienceHarness.calls)
-  expect(saves).toHaveLength(0)
   await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
   await expect(dialog(page)).toContainText('Offsite plan')
-  // Coming back to the first group does not revive the send either.
+  // Coming back to the first group does not revive the answer either.
   await harness(page, () => window.audienceHarness.switchGroup('original'))
   await page.waitForTimeout(100)
-  expect((await harness(page, () => window.audienceHarness.calls)).saves).toHaveLength(0)
+  await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
 })
 
 test('a member who leaves the workspace is dropped from the selection and the person is told', async ({
@@ -418,20 +397,17 @@ test('a member who leaves the workspace is dropped from the selection and the pe
   await expect(people(page).getByRole('checkbox', { name: /Alex · Member/ })).toBeChecked()
 })
 
-test('without a trusted grant source the group starts with only its creator, and says so', async ({
+test('the app’s own dialog, without audience lists, starts the group with only its creator', async ({
   page,
 }) => {
-  await open(page)
-  await page.getByRole('button', { name: 'Remove issuer' }).click()
-  await page.getByRole('button', { name: 'Open new group' }).click()
+  await openBare(page)
   await dialog(page).getByRole('textbox', { name: 'Conversation name' }).fill('Solo')
-  await expect(dialog(page).locator('[data-group-issuer-missing]')).toContainText(
-    'none can be requested from here yet'
-  )
   await expect(dialog(page).getByRole('checkbox')).toHaveCount(0)
   await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
   await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toBeVisible()
   await expect(roster(page, 'Who is in the group').getByRole('listitem')).toHaveCount(1)
+  const { created } = await harness(page, () => window.audienceHarness.calls)
+  expect(created[0]!.selection).toEqual({ agents: [], humans: [] })
 })
 
 async function openManage(page: Page) {
@@ -462,7 +438,7 @@ test('the manage dialog shows the roster the server holds, with the history and 
   )
 })
 
-test('adding and removing saves against the version seen, with grants for everyone who stays', async ({
+test('adding and removing saves against the version seen, naming everyone who stays', async ({
   page,
 }) => {
   await openManage(page)
@@ -477,13 +453,17 @@ test('adding and removing saves against the version seen, with grants for everyo
   )
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
   await expect(dialog(page).locator('[data-group-saved]')).toBeVisible()
-  const { issued, saves } = await harness(page, () => window.audienceHarness.calls)
+  const { saves } = await harness(page, () => window.audienceHarness.calls)
   expect(saves).toHaveLength(1)
   expect(saves[0]!.expectedVersion).toBe(4)
-  expect(issued[0]!.humans.toSorted()).toEqual(['44444444-0000-4000-8000-0000000000d9'])
-  expect(issued[0]!.agents.map(({ agentId }) => agentId).toSorted()).toEqual(
-    [ids.ariaAcme, ids.ariaGlobex].toSorted()
+  expect(saves[0]!.selection.humans.toSorted()).toEqual(['44444444-0000-4000-8000-0000000000d9'])
+  expect(saves[0]!.selection.agents.toSorted((a, b) => a.agentId.localeCompare(b.agentId))).toEqual(
+    [
+      { agentId: ids.ariaAcme, workspaceId: ids.acme },
+      { agentId: ids.ariaGlobex, workspaceId: ids.globex },
+    ].toSorted((a, b) => a.agentId.localeCompare(b.agentId))
   )
+  expect(JSON.stringify(saves[0])).not.toMatch(/grant|revision|issuedAt|expiresAt/i)
   await expect(roster(page, 'Participants').getByRole('listitem')).toHaveCount(3)
   await expect(roster(page, 'Participants')).not.toContainText('Alex · Member')
 })
@@ -507,7 +487,7 @@ test('a group that changes under an open draft keeps the draft and asks for a re
   const { saves } = await harness(page, () => window.audienceHarness.calls)
   expect(saves).toHaveLength(1)
   expect(saves[0]!.expectedVersion).toBe(5)
-  expect(saves[0]!.participants.some((p) => p.kind === 'user' && p.userId === ids.sam)).toBe(true)
+  expect(saves[0]!.selection.humans).toContain(ids.sam)
 })
 
 test('a stale version the page was not told about is refused, the draft stays, and the host re-reads', async ({
@@ -539,18 +519,6 @@ test('someone who is not an owner or admin sees the roster and why they cannot c
   await expect(roster(page, 'Participants').getByRole('listitem')).toHaveCount(3)
   await expect(dialog(page).getByRole('button', { name: 'Save changes' })).toHaveCount(0)
   await expect(dialog(page).getByRole('button', { name: /^Remove / })).toHaveCount(0)
-})
-
-test('without a trusted grant source the roster is read-only and the dependency is named', async ({
-  page,
-}) => {
-  await open(page)
-  await page.getByRole('button', { name: 'Remove issuer' }).click()
-  await page.getByRole('button', { name: 'Open manage' }).click()
-  await expect(dialog(page).locator('[data-group-readonly]')).toContainText(
-    'none can be requested from here yet'
-  )
-  await expect(dialog(page).getByRole('button', { name: 'Save changes' })).toHaveCount(0)
 })
 
 for (const [label, mode] of [
@@ -597,8 +565,8 @@ test('a save whose answer was lost after the server kept it says so, re-reads th
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
   const failure = dialog(page).locator('[data-group-failure]')
   await expect(failure).toContainText('not known whether your changes were saved')
-  // A manage retry is not "the same request": it asks for fresh grants against the current version.
-  await expect(failure).toContainText('fresh grants')
+  // A manage retry is not "the same request": it is checked against the current version.
+  await expect(failure).toContainText('current version')
   await expect(failure).not.toContainText('same request')
   await expect(failure).not.toContainText('second group')
   const { staleReads } = await harness(page, () => window.audienceHarness.calls)
@@ -611,68 +579,63 @@ test('a save whose answer was lost after the server kept it says so, re-reads th
   await expect(roster(page, 'Participants')).toContainText('Aria · Globex')
   const calls = await harness(page, () => window.audienceHarness.calls)
   expect(calls.saves).toHaveLength(1)
-  expect(calls.issued).toHaveLength(1)
 })
 
-test('a save lost before the server saw it asks for fresh grants on retry, and a conflict then is explained honestly', async ({
+test('a save lost before the server saw it is retried against the current version, and a conflict then is explained honestly', async ({
   page,
 }) => {
   await openManage(page)
   await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
   await harness(page, () => window.audienceHarness.nextSave('lost-before'))
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
-  await expect(dialog(page).locator('[data-group-failure]')).toContainText('fresh grants')
+  await expect(dialog(page).locator('[data-group-failure]')).toContainText('current version')
   // Meanwhile someone else's write lands first, which this page has not been told about.
   await harness(page, () => window.audienceHarness.nextSaveIsStale())
   await dialog(page).getByRole('button', { name: 'Try again' }).click()
   await expect(dialog(page).locator('[data-group-failure="conflict"]')).toContainText(
     'Your earlier save may have gone through, or someone else may have edited it'
   )
-  const { issued } = await harness(page, () => window.audienceHarness.calls)
-  // Fresh grants were asked for the second time, not replayed.
-  expect(issued).toHaveLength(2)
+  const { saves } = await harness(page, () => window.audienceHarness.calls)
+  expect(saves).toHaveLength(2)
 })
 
-test('closing the create dialog while the issuer is pending means a later answer creates nothing', async ({
+test('closing the create dialog while a request is pending means a later answer shows nothing', async ({
   page,
 }) => {
   await openCreate(page)
   await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-  await harness(page, () => window.audienceHarness.setIssuer('hold'))
+  await harness(page, () => window.audienceHarness.nextCreate('hold'))
   await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
   await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog(page)).toHaveCount(0)
   await page.getByRole('button', { name: 'Open new group', exact: true }).click()
   await expect(dialog(page)).toBeVisible()
-  await harness(page, () => window.audienceHarness.releaseIssuer())
+  await harness(page, () => window.audienceHarness.releaseCreate())
   await page.waitForTimeout(300)
-  const { created } = await harness(page, () => window.audienceHarness.calls)
-  expect(created).toHaveLength(0)
   await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toHaveCount(0)
   // The reopened dialog is a fresh one, ready for use.
   await expect(dialog(page).getByRole('textbox', { name: 'Conversation name' })).toHaveValue('')
   await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toHaveCount(0)
 })
 
-test('closing the manage dialog while the issuer is pending means a later answer saves nothing', async ({
+test('closing the manage dialog while a save is pending means a later answer shows nothing', async ({
   page,
 }) => {
   await openManage(page)
   await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-  await harness(page, () => window.audienceHarness.setIssuer('hold'))
+  await harness(page, () => window.audienceHarness.nextSave('hold'))
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
   await expect(dialog(page).getByRole('button', { name: 'Saving…' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog(page)).toHaveCount(0)
   await page.getByRole('button', { name: 'Open manage' }).click()
   await expect(dialog(page)).toBeVisible()
-  await harness(page, () => window.audienceHarness.releaseIssuer())
+  await harness(page, () => window.audienceHarness.releaseSave())
   await page.waitForTimeout(300)
-  const { saves } = await harness(page, () => window.audienceHarness.calls)
-  expect(saves).toHaveLength(0)
+  // The save did reach the server and is kept there, but the reopened dialog does not claim it as a save.
   await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
-  await expect(agents(page).getByRole('checkbox', { name: 'Aria · Globex' })).not.toBeChecked()
+  await expect(dialog(page).locator('[data-group-draft-summary]')).toHaveText('No changes yet.')
 })
 
 test('a group from another workspace shows nothing about it', async ({ page }) => {

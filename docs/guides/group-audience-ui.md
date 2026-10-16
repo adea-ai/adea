@@ -2,7 +2,8 @@
 
 The new-group and manage-group dialogs live in `packages/workspace-ui/src/group-audience.tsx` (view) and
 `group-audience-model.ts` (pure rules). They are loaded only through `create-workspace-dialogs.tsx`, so they stay
-one lazy chunk; the group header opens the manage dialog from there on demand.
+one lazy chunk; the group header opens the manage dialog from there on demand. The new-group dialog is mounted
+through `ConnectedCreateGroupDialog`, which reads the workspace's members and workspaces only while it is open.
 
 ## What the person sees
 
@@ -16,13 +17,25 @@ one lazy chunk; the group header opens the manage dialog from there on demand.
 
 ## Authority
 
-The client never mints grants and never derives them from ids or names. Grants come from a `GroupGrantIssuer`
-passed in as `audience.issueGrants`; the UI sends the issuer identities only, checks that what comes back matches
-the request exactly, and forwards it. The server stays decisive: the roster shown after a save is the server's
-returned group. No trusted issuer exists yet, so today:
+The client never mints grants and never derives them from ids or names. It sends a **selection**: human user ids
+and Agents as `{agentId, workspaceId}` pairs (`POST .../channels` with `selection`, and `POST .../participants`
+with `selection` for a group). Grants, revisions and windows are issued by `packages/db/src/group-grant-issuer.ts`
+inside the same transaction that writes the roster. A body that carries `audienceGrants`, `enlistmentGrants` or a
+`participants` list for a group is refused with 400.
 
-- creating a group starts with the creator only, with a note that nobody else can be requested from here yet;
-- the manage dialog is read-only and names the missing dependency.
+- First issuance uses a deterministic grant id at revision 1 (`audience:<userId>`,
+  `enlistment:<agentWorkspaceId>:<agentId>`), so a retried create hashes to the same payload and replays to the
+  same group.
+- A member whose stored grant is still effective keeps that exact grant, so a roster save never changes a retained
+  member's admission binding (and never holds a job bound to it).
+- Only a member with no effective grant (never granted, expired or revoked) gets a higher revision of the same grant:
+  re-adding someone whose grant was revoked is an explicit owner action and never revives the revoked revision.
+- Issuing a grant confers nothing by itself. The unchanged store checks still prove, in the transaction, that each
+  person holds a live host-workspace membership, that each Agent is active and that its source workspace
+  authorizes the acting principal, and that roster replace comes from an owner or admin at the version seen.
+  Anything else is refused with the policy's typed reasons (`group_grant_rejected`) or the uniform 404.
+
+## Failure handling
 
 ## Failure handling
 
@@ -31,15 +44,14 @@ returned group. No trusted issuer exists yet, so today:
 - Selections and the title survive every recoverable error. A group is shown as created only from the server answer.
 - Roster saves send `expectedVersion`. A stale answer keeps the draft, re-bases it onto the fresh roster and asks
   for a review before saving again.
-- Every host passes `scope` (account, workspace, audience epoch) to the new-group dialog whether or not an issuer
-  exists. A change in scope, or in the account, workspace or group of the manage dialog, clears the whole draft
-  (title included) and drops the attempt. Each send is fenced by a generation: after the issuer answers, a send
-  that finds the screen has changed (even if it changed and changed back) stops before anything is created or
-  saved, and cannot restore the reset attempt.
-- Closing or unmounting either dialog invalidates its generation too, so an issuer that answers after the dialog
-  was closed (or closed and reopened) never reaches the server.
-- A roster save whose outcome is unknown does not claim a retry is "the same request": a retry asks the trusted
-  source for fresh grants and is checked against the group's current version. The host is asked to re-read the
+- Every host passes `scope` (account, workspace, audience epoch) to the new-group dialog, with or without audience
+  lists. A change in scope, or in the account, workspace or group of the manage dialog, clears the whole draft
+  (title included) and drops the attempt. Each send is fenced by a generation: an answer that arrives after
+  the screen has changed (even if it changed and changed back) is not shown, and cannot restore the reset attempt.
+- Closing or unmounting either dialog invalidates its generation too, so an answer that arrives after the dialog
+  was closed (or closed and reopened) is not shown as that screen's result.
+- A roster save whose outcome is unknown does not claim a retry is "the same request": a retry is checked against
+  the group's current version. The host is asked to re-read the
   group, so a save that did land shows up as a change to review; a conflict right after such a save says the
   earlier save may be what changed it.
 - Switching account or workspace clears drafts. 401, 403, 404 and revoked access in the manage dialog end in the
@@ -47,10 +59,10 @@ returned group. No trusted issuer exists yet, so today:
 
 ## Not covered (backend gaps)
 
-- A trusted grant issuer / selection endpoint. The routes accept caller-authored grants.
+- A tenant-authorized list of Agents from other workspaces. The server accepts a qualified Agent from another
+  workspace when the acting principal is an owner or admin there, but the dialogs can only offer the Agents the
+  host already lists, and a roster member whose Agent workspace is unknown to the screen cannot be retained from
+  it (the save is blocked with a message instead of guessing a workspace).
 - A read model for each member's standing (grant state, join point), so "joined at" and "access ends" cannot be shown.
 - HTTP routes to revoke grants or share earlier history or summaries.
-- A tenant-authorized list of Agents from other workspaces.
-- The participants route compares Agents with the host workspace, so groups holding foreign-workspace Agents may
-  not be editable (suspected, not verified).
-- A roster replace needs fresh grants for every retained member.
+- Cross-device private-history sync (#193) stays deferred.
