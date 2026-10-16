@@ -32,6 +32,10 @@ inside the same transaction that writes the roster. A body that carries `audienc
   is adopted or issued. If that grant has since been revoked or has expired, keeping them
   is refused with `grant_revoked`/`grant_expired` reasons (shown against their row) and nothing is renewed:
   a stale draft that still lists them cannot bring them back.
+  Revoke does not take the channel lock, so a revoke that commits while a save is in flight may be missed by that
+  save and the typed refusal is not guaranteed for it. Nothing is renewed in that case either: saving the same
+  revision never clears a stored revocation, and the policy keeps refusing the member until an explicit
+  remove-then-add.
 - Readmission is explicit: remove the person, then add them again. A person who is not on the roster always gets
   the next revision of their grant, so nothing bound to an earlier admission (for example a child job that
   finished while they were removed) matches the new one, and the new admission starts at a fresh history
