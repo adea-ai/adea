@@ -196,7 +196,15 @@ the page limit is 100. Responses are `private, no-store`.
 
 The projection preserves Adea registration/pairing/proof-derived health separately
 from the reported Control Plane node status/health and individual connection
-status/health/availability. It carries adapter/driver/harness versions, capability
+status/health/availability. For a discovered `local_device`, Control Plane node
+status is the explicit device-online observation. The registration-only inventory
+does not claim device liveness; it keeps `deviceOnline` unknown until discovery.
+For `remote_host`, host reachability is separate and remains `unknown` until the
+public contract supplies a host probe; it is never inferred from node health or
+a successful inventory request. The
+response also distinguishes discovery success from Control Plane service
+readiness, which remains `unknown` because the discovery response does not report
+a readiness signal. It carries adapter/driver/harness versions, capability
 support, compatibility limitations, grant requirements, entitlement state and
 eligibility reason/remediation codes. It is metadata only: public keys, node
 endpoints, native paths, process handles, credentials, free-form upstream labels
@@ -205,8 +213,13 @@ match the registered kind. Missing/foreign node references, changed location,
 duplicate connection identities and managed-cloud entries fail closed.
 
 Every read reclassifies stale, expired or future inventory observations using the
-five-minute admission window. The SDK's discovery schema does not report a
-RuntimeTransport: the DTO says `transport.state: 'unreported'`. It must not infer
+five-minute admission window. The pinned `@adea-ai/sdk@1.18.0` discovery contract
+(which depends on `@adea-ai/runtime-sdk@1.15.1`) does not report host reachability,
+Control Plane readiness, RuntimeTransport or session operations. Those fields
+remain typed `unknown` with the specific
+`control_plane.runtime_connection_discovery.*` dependency that must publish each
+signal. The `discovery` field reports only whether this inventory read succeeded;
+it is not an overall readiness or host-reachability result. The DTO must not infer
 `direct_local` or `remote_gateway` from location or change connection identity.
 Actual execution resolution owns the selected transport. Discovery remains a
 read model, never an execution or authorization proof; submission must freshly
@@ -220,6 +233,14 @@ ContentSyncDevice authorization or history availability. Missing/foreign Adea
 nodes retain the generic workspace refusal. Consumers use the typed
 `listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
 existing host authority and cannot be replaced by this cloud projection.
+An aborted request remains cancelled through the route and SDK fetch timeout
+boundary; cancellation is never converted to an empty successful inventory or
+an unavailable read model.
+
+An offline execution host may queue new work while authorized synchronized
+conversation history remains available. Local-only body content keeps its own
+unavailable state; neither content state is derived from the execution-host
+observation.
 
 Workspace details › Connections › Execution hosts exposes this read model as a
 read-only inspector. Hosts are listed through the existing authorized identity
@@ -368,6 +389,11 @@ shared-message, bounded request and API-client tests in their owning packages.
 - `apps/web/test/control-plane-discovery.test.ts` — actual public SDK fixtures,
   exact node/location binding, duplicate/cloud refusal, independent health,
   freshness, grants, compatibility and metadata-leak canaries.
+- `apps/web/test/integration/runtime-node-connections.test.ts` — the real route,
+  temporary-session authorization, SDK fetch boundary, typed API client and data
+  query; covers pagination, cancellation, sanitized failures, offline node reads
+  alongside authorized encrypted replica history, audience denial and local-only
+  content unavailability.
 - `packages/api-client/tests/unit/control-plane.test.ts` — encoded node discovery
   requests alongside the catalog and credential API contracts.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an

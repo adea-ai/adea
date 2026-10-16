@@ -1,4 +1,49 @@
 /** Cloud-safe projections of the public Control Plane discovery contract. */
+export const runtimeConnectionDiscoveryUnknownDependencies = {
+  controlPlaneReadiness: 'control_plane.runtime_connection_discovery.readiness',
+  deviceOnline: 'control_plane.runtime_connection_discovery.device_online',
+  hostReachability: 'control_plane.runtime_connection_discovery.host_reachability',
+  sessionOperations: 'control_plane.runtime_connection_discovery.session_operations',
+  transport: 'control_plane.runtime_connection_discovery.transport',
+} as const
+
+export type RuntimeConnectionUnknownField<TDependency extends string> = Readonly<{
+  state: 'unknown'
+  dependency: TDependency
+}>
+
+export type ApiRuntimeHostReachability =
+  | Readonly<{ state: 'not_applicable' }>
+  | RuntimeConnectionUnknownField<
+      typeof runtimeConnectionDiscoveryUnknownDependencies.hostReachability
+    >
+
+export type ApiRuntimeDeviceOnline =
+  | Readonly<{ state: 'not_applicable' }>
+  | Readonly<{ state: 'online' | 'offline' }>
+  | RuntimeConnectionUnknownField<typeof runtimeConnectionDiscoveryUnknownDependencies.deviceOnline>
+
+export function runtimeNodeHostReachability(kind: 'local_device' | 'remote_host') {
+  return kind === 'remote_host'
+    ? ({
+        state: 'unknown',
+        dependency: runtimeConnectionDiscoveryUnknownDependencies.hostReachability,
+      } as const)
+    : ({ state: 'not_applicable' } as const)
+}
+
+export function runtimeNodeDeviceOnline(
+  kind: 'local_device' | 'remote_host',
+  status?: 'online' | 'offline' | 'revoked'
+): ApiRuntimeDeviceOnline {
+  if (kind === 'remote_host') return { state: 'not_applicable' }
+  if (status === 'online' || status === 'offline') return { state: status }
+  return {
+    state: 'unknown',
+    dependency: runtimeConnectionDiscoveryUnknownDependencies.deviceOnline,
+  }
+}
+
 export type ApiRuntimeNode = ApiRuntimeNodeConnectionsResponse['node'] &
   Readonly<{
     platform: string
@@ -20,6 +65,9 @@ export type ApiRuntimeConnection = Readonly<{
     location: 'local_device' | 'remote_host'
     status: 'online' | 'offline' | 'revoked'
     health: 'online' | 'offline' | 'unknown' | 'revoked'
+    deviceOnline: ApiRuntimeDeviceOnline
+    /** Remote host probing is not part of the current Control Plane list contract. */
+    hostReachability: ApiRuntimeHostReachability
     observedAt: string
   }>
   connection: Readonly<{
@@ -72,8 +120,13 @@ export type ApiRuntimeConnection = Readonly<{
     degradations: readonly string[]
     remediation: readonly string[]
   }>
-  /** Discovery 1.14.0 does not report transport. Execution resolution owns selection. */
-  transport: Readonly<{ state: 'unreported' }>
+  /** RuntimeConnectionDiscoveryReadModel does not report transport or session operations. */
+  transport: RuntimeConnectionUnknownField<
+    typeof runtimeConnectionDiscoveryUnknownDependencies.transport
+  >
+  sessionOperations: RuntimeConnectionUnknownField<
+    typeof runtimeConnectionDiscoveryUnknownDependencies.sessionOperations
+  >
   observedAt: string
   limitations: readonly string[]
 }>
@@ -87,11 +140,17 @@ export type ApiRuntimeNodeConnectionsResponse = Readonly<{
     health: 'healthy' | 'stale' | 'unknown'
     pairingState: 'paired' | 'revoked'
     lastProofAt: string | null
+    deviceOnline: ApiRuntimeDeviceOnline
+    hostReachability: ApiRuntimeHostReachability
   }>
   /** An unavailable discovery is distinct from a successful empty inventory. */
   discovery:
     | Readonly<{ state: 'available' }>
     | Readonly<{ state: 'unavailable'; code: 'CONTROL_PLANE_UNAVAILABLE' }>
+  /** A successful list request proves discovery reachability, not service readiness. */
+  controlPlaneReadiness: RuntimeConnectionUnknownField<
+    typeof runtimeConnectionDiscoveryUnknownDependencies.controlPlaneReadiness
+  >
   connections: readonly ApiRuntimeConnection[]
   nextCursor?: string
   observedAt: string

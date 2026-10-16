@@ -42,15 +42,25 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
-import type {
-  ApiRuntimeNodeConnectionsResponse,
-  ApiRuntimeNodesResponse,
+import {
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
+  type ApiRuntimeNodeConnectionsResponse,
+  type ApiRuntimeNodesResponse,
 } from './runtime-connections'
 export type {
+  ApiRuntimeDeviceOnline,
+  ApiRuntimeHostReachability,
   ApiRuntimeConnection,
   ApiRuntimeNode,
   ApiRuntimeNodeConnectionsResponse,
   ApiRuntimeNodesResponse,
+  RuntimeConnectionUnknownField,
+} from './runtime-connections'
+export {
+  runtimeConnectionDiscoveryUnknownDependencies,
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
 } from './runtime-connections'
 
 export type ApiAgentCreateInput = Readonly<{
@@ -985,6 +995,8 @@ export class AgentHqApiClient {
           id,
           controlPlaneRuntimeNodeRefId,
           kind,
+          deviceOnline: runtimeNodeDeviceOnline(kind),
+          hostReachability: runtimeNodeHostReachability(kind),
           displayName,
           health,
           pairingState,
