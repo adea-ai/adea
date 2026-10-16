@@ -125,6 +125,13 @@
       "import": "./dist/use-workspace-persistence.js",
       "default": "./dist/use-workspace-persistence.js"
     },
+    "./direct-session-model": {
+      "types": "./dist/direct-session-model.d.ts",
+      "solid": "./src/direct-session-model.ts",
+      "development": "./src/direct-session-model.ts",
+      "import": "./dist/direct-session-model.js",
+      "default": "./dist/direct-session-model.js"
+    },
     "./update-pending": {
       "types": "./dist/update-pending.d.ts",
       "solid": "./src/update-pending.ts",

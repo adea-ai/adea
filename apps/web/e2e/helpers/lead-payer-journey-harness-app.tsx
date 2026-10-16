@@ -44,6 +44,11 @@ function Harness() {
     authorityRevision: 1,
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   }
+  // Scripted refusal scenarios: the check is refused with a bounded readiness reason, or the
+  // recorded payer read is blocked. Both keep the independent draft below.
+  const scenario = new URLSearchParams(location.search)
+  const refusePrepare = scenario.get('refusePrepare')
+  const fundingBlocked = scenario.get('fundingBlocked')
   let changedPayer = false
   let holdFunding = false
   const pendingFunding: (() => void)[] = []
@@ -53,6 +58,15 @@ function Harness() {
   client.getLeadTurnProgress = async () => ({ leadTurn: turn, events: [], nextSequence: 0 })
   client.prepareLeadTurn = async () => {
     setPrepares((value) => value + 1)
+    if (refusePrepare) {
+      return {
+        leadTurn: {
+          ...turn,
+          reasonCode: 'MODEL_NOT_READY',
+          readinessReason: refusePrepare,
+        } satisfies ApiLeadTurnStatus,
+      }
+    }
     turn = {
       ...turn,
       state: 'prepared',
@@ -72,6 +86,19 @@ function Harness() {
         pendingFunding.push(resolve)
       })
     setSettledFunding((value) => value + 1)
+    if (fundingBlocked)
+      return {
+        funding: {
+          schemaVersion: 'model-funding-display/v1',
+          workspaceId: funding.workspaceId,
+          executionId: funding.executionId,
+          attemptId: funding.attemptId,
+          selectionRef: funding.selectionRef,
+          selectionRevision: funding.selectionRevision,
+          state: 'blocked',
+          reasonCode: fundingBlocked,
+        } satisfies ApiModelFundingView,
+      }
     return {
       funding: changedPayer
         ? { ...funding, fundingOwner: { ...funding.fundingOwner, revision: 2 } }
