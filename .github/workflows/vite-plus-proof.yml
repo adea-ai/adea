@@ -6,8 +6,10 @@ name: Vite+ Cache Proof
 # adds no secrets, remote cache, or deployment: the cache is the repository's
 # GitHub Actions cache.
 #
-# A commit message line `vp-proof-expect: cold|warm|one-miss` makes the run
-# assert the observed hit pattern of the restored cache.
+# Commit message lines make the run assert the restored cache: `vp-proof-expect:
+# cold|warm|one-miss` (the graph must have exactly 12 tasks), `vp-proof-miss:
+# <task>` (the lone miss must be that task, e.g. types:test) and
+# `vp-proof-manifest: <sha256>` (the dist outputs after restore).
 
 on:
   push:
@@ -67,30 +69,68 @@ jobs:
       - name: Opt this job into Vite+
         run: |
           printf '\nmonorepo_tool: vite-plus\n' >> .github/code-foundry.yml
+      # cache-vite-plus is off: Code Foundry 1.48.0's own Vite+ cache step
+      # restores but its post-job save fails ("Input required and not
+      # supplied: path"), because that step takes its path from a step output
+      # that composite post steps cannot read. This job saves through the same
+      # Code Foundry cache wrapper with a static path until a fixed release.
       - name: Setup
         uses: ./.github/actions/setup
         with:
           install: 'true'
           cache-build: 'false'
-      - name: Vite+ cache correctness (isolated cache)
-        run: node scripts/vite-plus-proof.mjs --self-check
+          cache-vite-plus: 'false'
+      - name: Vite+ toolchain id
+        id: toolchain
+        run: echo "id=$(node scripts/vite-plus-proof.mjs --toolchain-id)" >> "$GITHUB_OUTPUT"
+      # The cache `path` below is re-read in the post-job save, where step
+      # outputs are empty but job environment variables are not. Publish the
+      # override under a fixed name; the script reads the step process, so an
+      # inherited runner VITE_CACHE_PATH counts, not just workflow env.
+      - name: Vite+ cache path
+        run: echo "ADEA_VP_CACHE_PATH=$(node scripts/vite-plus-proof.mjs --cache-path)" >> "$GITHUB_ENV"
+      # Restored after Install; saved on push with a rolling per-run key that
+      # never leaves the toolchain id. An absolute VITE_CACHE_PATH is honored.
+      - name: Cache Vite+ tasks
+        uses: ./.github/actions/cache
+        with:
+          path: |
+            node_modules/.vite/task-cache
+            ${{ env.ADEA_VP_CACHE_PATH }}
+          key: vite-plus-proof-${{ steps.toolchain.outputs.id }}-${{ hashFiles('bun.lock', 'vite.config.ts') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vite-plus-proof-${{ steps.toolchain.outputs.id }}-${{ hashFiles('bun.lock', 'vite.config.ts') }}-
+            vite-plus-proof-${{ steps.toolchain.outputs.id }}-
       - name: Read the expected cache pattern
         id: expect
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          expect="$(git log -1 --format=%B "$COMMIT_SHA" | sed -n 's/^vp-proof-expect: *\(cold\|warm\|one-miss\) *$/\1/p' | head -n1)"
-          echo "expect=$expect" >> "$GITHUB_OUTPUT"
+          message="$(git log -1 --format=%B "$COMMIT_SHA")"
+          trailer() { printf '%s\n' "$message" | sed -n "s/^$1: *\(.*[^ ]\) *$/\1/p" | head -n1; }
+          echo "expect=$(trailer vp-proof-expect)" >> "$GITHUB_OUTPUT"
+          echo "miss=$(trailer vp-proof-miss)" >> "$GITHUB_OUTPUT"
+          echo "manifest=$(trailer vp-proof-manifest)" >> "$GITHUB_OUTPUT"
+      # A fresh runner has no generated dist, so a warm run that passes here
+      # has replayed the outputs from the restored cache.
       - name: Vite+ proof graph (restored task cache)
         env:
           EXPECT: ${{ steps.expect.outputs.expect }}
+          MISS: ${{ steps.expect.outputs.miss }}
+          MANIFEST: ${{ steps.expect.outputs.manifest }}
         run: |
           set -euo pipefail
-          if [ -n "$EXPECT" ]; then
-            node scripts/vite-plus-proof.mjs --expect "$EXPECT"
-          else
-            node scripts/vite-plus-proof.mjs
-          fi
+          args=(--fresh)
+          [ -z "$EXPECT" ] || args+=(--expect "$EXPECT")
+          [ -z "$MISS" ] || args+=(--miss "$MISS")
+          [ -z "$MANIFEST" ] || args+=(--expect-manifest "$MANIFEST")
+          node scripts/vite-plus-proof.mjs "${args[@]}"
+      - name: Vite+ cache correctness (disposable worktree)
+        run: node scripts/vite-plus-proof.mjs --self-check
+      - name: Wrapper leaves a dirty checkout unchanged
+        env:
+          ADEA_VP_PROOF: '1'
+        run: bun test scripts/vite-plus-proof.test.ts
       - name: Task cache contents
         run: du -sh node_modules/.vite/task-cache && ls node_modules/.vite/task-cache

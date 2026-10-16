@@ -44,8 +44,12 @@ const dependencyInputs = (pkg: Pkg) =>
   ])
 
 // tsc only reads `src` (tsconfig `include`), so tests do not invalidate builds.
+// Generated output (including the incremental `tsbuildinfo` tsc reads back
+// from `dist`) is not an input: deleting it must not invalidate the cache.
 const buildInputs = (pkg: Pkg) => [
   { auto: true },
+  workspace(`!packages/${pkg.dir}/dist/**`),
+  workspace(`!packages/${pkg.dir}/**/*.tsbuildinfo`),
   workspace(`packages/${pkg.dir}/src/**`),
   workspace(`packages/${pkg.dir}/tsconfig.json`),
   workspace(`packages/${pkg.dir}/package.json`),
@@ -75,7 +79,10 @@ for (const [name, pkg] of Object.entries(packages)) {
     cache: {
       env: [toolchain],
       input: buildInputs(pkg),
-      output: ['dist/**', '!**/*.tsbuildinfo'],
+      output: [
+        workspace(`packages/${pkg.dir}/dist/**`),
+        workspace(`!packages/${pkg.dir}/**/*.tsbuildinfo`),
+      ],
     },
   }
   tasks[`${name}:test`] = {
