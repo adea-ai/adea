@@ -5,7 +5,7 @@ import {
   audienceGrantIdFor,
   enlistmentGrantIdFor,
   issueGroupGrants,
-} from '../../src/group-grant-issuer'
+} from '../../src/group-grant-issuance'
 import { GroupCreationError } from '../../src/group-participation-store'
 
 const GROUP = '33333333-0000-4000-8000-0000000000c3'
