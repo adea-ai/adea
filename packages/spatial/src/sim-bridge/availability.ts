@@ -22,28 +22,35 @@ export type SimUnavailableReason = (typeof SIM_UNAVAILABLE_REASONS)[number]
 
 type GrantedLaunch = Extract<SimLaunchGrant, { status: 'granted' }>
 
+/**
+ * Every state carries the `attempt` it belongs to. `start` begins attempt N+1, and every event
+ * that answers a specific attempt (`grant`, `frame`, `timeout`) names the attempt it was issued
+ * for. An event for any other attempt is dropped, so a late grant, frame message or timer from an
+ * abandoned attempt can never launch, fail or close a newer one. Callers also mint a fresh
+ * `bridgeId` per attempt, which stops a stale frame at the message layer as well.
+ */
 export type SimLaunchState =
-  | Readonly<{ phase: 'idle' }>
-  | Readonly<{ phase: 'requesting' }>
-  | Readonly<{ phase: 'awaiting_frame'; grant: GrantedLaunch }>
-  | Readonly<{ phase: 'launching' }>
-  | Readonly<{ phase: 'running' }>
-  | Readonly<{ phase: 'unavailable'; reason: SimUnavailableReason }>
-  | Readonly<{ phase: 'offline' }>
+  | Readonly<{ phase: 'idle'; attempt: number }>
+  | Readonly<{ phase: 'requesting'; attempt: number }>
+  | Readonly<{ phase: 'awaiting_frame'; attempt: number; grant: GrantedLaunch }>
+  | Readonly<{ phase: 'launching'; attempt: number }>
+  | Readonly<{ phase: 'running'; attempt: number }>
+  | Readonly<{ phase: 'unavailable'; attempt: number; reason: SimUnavailableReason }>
+  | Readonly<{ phase: 'offline'; attempt: number }>
 
 export type SimLaunchEvent =
   | Readonly<{ type: 'start' }>
-  /** The backend's parsed reply; `null` is a reply that failed validation. */
-  | Readonly<{ type: 'grant'; grant: SimLaunchGrant | null }>
-  | Readonly<{ type: 'frame'; message: SimFrameMessage; now: number }>
-  | Readonly<{ type: 'timeout' }>
+  /** The backend's parsed reply for `attempt`; `null` is a reply that failed validation. */
+  | Readonly<{ type: 'grant'; attempt: number; grant: SimLaunchGrant | null }>
+  | Readonly<{ type: 'frame'; attempt: number; message: SimFrameMessage; now: number }>
+  | Readonly<{ type: 'timeout'; attempt: number }>
   | Readonly<{ type: 'offline' }>
   | Readonly<{ type: 'dispose' }>
 
 export type SimLaunchEffect =
-  | Readonly<{ type: 'request_grant' }>
-  | Readonly<{ type: 'post_launch'; grant: GrantedLaunch }>
-  | Readonly<{ type: 'dispose_frame' }>
+  | Readonly<{ type: 'request_grant'; attempt: number }>
+  | Readonly<{ type: 'post_launch'; attempt: number; grant: GrantedLaunch }>
+  | Readonly<{ type: 'dispose_frame'; attempt: number }>
 
 export type SimLaunchStep = Readonly<{ state: SimLaunchState; effect?: SimLaunchEffect }>
 
@@ -54,65 +61,76 @@ const FRAME_ERROR_REASONS = {
   bridge_incompatible: 'bridge_incompatible',
 } as const
 
-export const SIM_IDLE: SimLaunchState = { phase: 'idle' }
+export const SIM_IDLE: SimLaunchState = { phase: 'idle', attempt: 0 }
 
 function stay(state: SimLaunchState): SimLaunchStep {
   return { state }
 }
 
-function unavailable(reason: SimUnavailableReason): SimLaunchStep {
-  return { state: { phase: 'unavailable', reason } }
+function unavailable(attempt: number, reason: SimUnavailableReason): SimLaunchStep {
+  return { state: { phase: 'unavailable', attempt, reason } }
 }
 
 function reduceFrame(state: SimLaunchState, message: SimFrameMessage, now: number): SimLaunchStep {
+  const { attempt } = state
   switch (message.type) {
     case 'frame.ready': {
       // Only the first ready of an awaited frame launches; a replay changes nothing.
       if (state.phase !== 'awaiting_frame') return stay(state)
-      if (Date.parse(state.grant.expiresAt) <= now) return unavailable('frame_timeout')
-      return { state: { phase: 'launching' }, effect: { type: 'post_launch', grant: state.grant } }
+      if (Date.parse(state.grant.expiresAt) <= now) return unavailable(attempt, 'frame_timeout')
+      return {
+        state: { phase: 'launching', attempt },
+        effect: { type: 'post_launch', attempt, grant: state.grant },
+      }
     }
     case 'frame.state': {
       if (state.phase !== 'launching' && state.phase !== 'running') return stay(state)
       const { state: reported, reason } = message.payload
-      if (reported === 'running') return stay({ phase: 'running' })
-      if (reported === 'offline') return stay({ phase: 'offline' })
-      if (reported === 'unavailable') return unavailable(reason ?? 'service_unavailable')
+      if (reported === 'running') return stay({ phase: 'running', attempt })
+      if (reported === 'offline') return stay({ phase: 'offline', attempt })
+      if (reported === 'unavailable') return unavailable(attempt, reason ?? 'service_unavailable')
       return stay(state)
     }
     case 'frame.error':
       if (state.phase !== 'launching' && state.phase !== 'running') return stay(state)
-      return unavailable(FRAME_ERROR_REASONS[message.payload.code])
+      return unavailable(attempt, FRAME_ERROR_REASONS[message.payload.code])
     case 'frame.close':
-      return state.phase === 'idle' ? stay(state) : stay(SIM_IDLE)
+      return state.phase === 'idle' ? stay(state) : stay({ phase: 'idle', attempt })
   }
 }
 
 export function reduceSimLaunch(state: SimLaunchState, event: SimLaunchEvent): SimLaunchStep {
+  const { attempt } = state
   switch (event.type) {
-    case 'start':
-      return state.phase === 'idle' || state.phase === 'unavailable' || state.phase === 'offline'
-        ? { state: { phase: 'requesting' }, effect: { type: 'request_grant' } }
-        : stay(state)
+    case 'start': {
+      if (state.phase !== 'idle' && state.phase !== 'unavailable' && state.phase !== 'offline')
+        return stay(state)
+      const next = attempt + 1
+      return {
+        state: { phase: 'requesting', attempt: next },
+        effect: { type: 'request_grant', attempt: next },
+      }
+    }
     case 'grant': {
-      if (state.phase !== 'requesting') return stay(state)
+      if (event.attempt !== attempt || state.phase !== 'requesting') return stay(state)
       const { grant } = event
-      if (!grant) return unavailable('service_unavailable')
-      if (grant.status === 'granted') return stay({ phase: 'awaiting_frame', grant })
-      return unavailable(grant.reason)
+      if (!grant) return unavailable(attempt, 'service_unavailable')
+      if (grant.status === 'granted') return stay({ phase: 'awaiting_frame', attempt, grant })
+      return unavailable(attempt, grant.reason)
     }
     case 'frame':
-      return reduceFrame(state, event.message, event.now)
+      return event.attempt === attempt ? reduceFrame(state, event.message, event.now) : stay(state)
     case 'timeout':
-      return state.phase === 'awaiting_frame' || state.phase === 'launching'
-        ? unavailable('frame_timeout')
+      return event.attempt === attempt &&
+        (state.phase === 'awaiting_frame' || state.phase === 'launching')
+        ? unavailable(attempt, 'frame_timeout')
         : stay(state)
     case 'offline':
-      return state.phase === 'idle' ? stay(state) : stay({ phase: 'offline' })
+      return state.phase === 'idle' ? stay(state) : stay({ phase: 'offline', attempt })
     case 'dispose':
       return state.phase === 'idle'
         ? stay(state)
-        : { state: SIM_IDLE, effect: { type: 'dispose_frame' } }
+        : { state: { phase: 'idle', attempt }, effect: { type: 'dispose_frame', attempt } }
   }
 }
 

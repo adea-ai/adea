@@ -21,6 +21,8 @@ export function strictRecord(
   optional: readonly string[] = []
 ): Record<string, unknown> | null {
   if (!isPlainRecord(value)) return null
+  // Refuse a wide object before allocating a descriptor for each of its keys.
+  if (Object.getOwnPropertyNames(value).length > required.length + optional.length) return null
   const descriptors = Object.getOwnPropertyDescriptors(value)
   const keys = Object.keys(descriptors)
   for (const key of keys) {
@@ -30,6 +32,16 @@ export function strictRecord(
   }
   for (const key of required) if (!keys.includes(key)) return null
   return value
+}
+
+/**
+ * An own data property of a plain record, or undefined. Used to branch on a discriminant before
+ * the strict reader runs, without ever invoking a getter or walking the prototype chain.
+ */
+export function ownDataValue(value: unknown, key: string): unknown {
+  if (!isPlainRecord(value)) return undefined
+  const descriptor = Object.getOwnPropertyDescriptor(value, key)
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined
 }
 
 export function boundedString(value: unknown, pattern: RegExp): string | null {

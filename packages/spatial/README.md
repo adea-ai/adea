@@ -45,7 +45,9 @@ own: callers pass `MessageEvent`-shaped values in and post through `postToFrame`
   Each message is accepted only when its sender origin is on the exact allowlist, its
   `event.source` is the exact frame (or parent) window, its envelope carries the
   per-mount `bridgeId` the host issued (`createBridgeId`), the version is supported, and
-  it is at most 2 KiB. Accessor properties are never read. Posts never use `*`.
+  it stays inside a finite size, depth, width and node budget (about 2 KiB; cyclic, deep and
+  wide payloads are refused without being walked). Accessor properties are never read, and
+  every discriminant is read as an own data property. Posts never use `*`.
 - **Origins** (`origin.ts`): exact canonical `scheme://host[:port]` strings. No
   wildcards, suffix matching, paths or `null`. Loopback `http:` needs an explicit
   `allowLoopbackHttp` opt-in for local development. Being on the allowlist says where a
@@ -64,7 +66,11 @@ own: callers pass `MessageEvent`-shaped values in and post through `postToFrame`
   hour. It authorizes the sim origin's assets only, never an Adea account API.
 - **Availability** (`availability.ts`): `reduceSimLaunch` is a pure state machine
   (`idle`, `requesting`, `awaiting_frame`, `launching`, `running`, `unavailable`,
-  `offline`). A surface is `running` only after the frame says so, and
+  `offline`), and every state carries an `attempt`: `start` begins attempt N+1 and a
+  grant, frame message or timeout is applied only when it names the current attempt, so
+  a late event from an interrupted attempt cannot launch, fail or close a newer one
+  (mint a fresh `bridgeId` per attempt too). A surface is `running` only after the
+  frame says so, and
   `describeSimAvailability` gives truthful copy that states Chat and Dev are not affected.
 
 Not part of this package: the hosted entry, the backend endpoints, the private backing

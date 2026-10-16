@@ -84,20 +84,39 @@ function envelope(
   return { ok: true, message: { type: data.type, payload: data.payload } }
 }
 
-/** A cheap, allocation-bounded size check over plain data (strings and nested plain records). */
+// Traversal limits for the size check. A record costs more than its keys so that even a cyclic
+// structure (reachable through structured clone) exhausts the budget in a bounded number of steps.
+const MAX_NODES = 32
+const MAX_DEPTH = 3
+const MAX_KEYS_PER_RECORD = 16
+const RECORD_COST = 16
+
+/**
+ * A finite size check over plain data: strings, numbers, booleans and nested plain records. It
+ * stops at `MAX_NODES` nodes, `MAX_DEPTH` levels and `MAX_KEYS_PER_RECORD` keys per record, charges
+ * every record against the byte budget, and refuses accessors, so no input (cyclic, deep or wide)
+ * can make it loop or run sender code.
+ */
 function withinBudget(value: unknown): boolean {
   let budget = MAX_SIM_MESSAGE_BYTES
-  const stack: unknown[] = [value]
+  let nodes = 0
+  const stack: { item: unknown; depth: number }[] = [{ item: value, depth: 0 }]
   while (stack.length > 0) {
-    const item = stack.pop()
+    const { item, depth } = stack.pop()!
+    if (++nodes > MAX_NODES) return false
     if (typeof item === 'string') budget -= item.length
     else if (typeof item === 'number' || typeof item === 'boolean') budget -= 8
     else if (isPlainRecord(item)) {
-      for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(item))) {
+      if (depth >= MAX_DEPTH) return false
+      const keys = Object.getOwnPropertyNames(item)
+      if (keys.length > MAX_KEYS_PER_RECORD) return false
+      budget -= RECORD_COST
+      for (const key of keys) {
+        const descriptor = Object.getOwnPropertyDescriptor(item, key)
         // Reading through a getter would run sender-controlled code; refuse accessors outright.
-        if (!('value' in descriptor)) return false
-        budget -= key.length
-        stack.push(descriptor.value)
+        if (!descriptor || !('value' in descriptor)) return false
+        budget -= key.length + 1
+        stack.push({ item: descriptor.value, depth: depth + 1 })
       }
     } else if (item !== undefined) return false
     if (budget < 0) return false

@@ -257,6 +257,46 @@ describe('frame to host messages', () => {
     ).toEqual({ ok: false, reason: 'bridge_mismatch' })
   })
 
+  test('terminates on cyclic payloads, including under an empty-string key', () => {
+    const selfRef: Record<string, unknown> = {}
+    selfRef[''] = selfRef
+    expect(parseFrameMessage(fromFrame(envelope('frame.ready', selfRef)), hostContext)).toEqual({
+      ok: false,
+      reason: 'too_large',
+    })
+    const pair: Record<string, unknown> = {}
+    pair.a = { b: pair }
+    expect(parseFrameMessage(fromFrame(envelope('frame.state', pair)), hostContext).ok).toBe(false)
+    // A cycle through the envelope itself.
+    const looped: Record<string, unknown> = envelope('frame.ready', {})
+    looped.payload = looped
+    expect(parseFrameMessage(fromFrame(looped), hostContext).ok).toBe(false)
+  })
+
+  test('refuses wide and deep payloads without walking them', () => {
+    const wide = Object.fromEntries(Array.from({ length: 100_000 }, (_, i) => [`k${i}`, 1]))
+    expect(parseFrameMessage(fromFrame(envelope('frame.ready', wide)), hostContext)).toEqual({
+      ok: false,
+      reason: 'too_large',
+    })
+    let deep: Record<string, unknown> = {}
+    for (let i = 0; i < 10_000; i++) deep = { n: deep }
+    expect(parseFrameMessage(fromFrame(envelope('frame.ready', deep)), hostContext)).toEqual({
+      ok: false,
+      reason: 'too_large',
+    })
+    // An empty payload nested a few levels is still just an invalid payload, not a hang.
+    expect(
+      parseFrameMessage(
+        fromFrame(envelope('frame.ready', { a: { b: { c: { d: {} } } } })),
+        hostContext
+      ).ok
+    ).toBe(false)
+    expect(
+      parseFrameMessage(fromFrame({ ...envelope('frame.ready', {}), wide }), hostContext)
+    ).toEqual({ ok: false, reason: 'not_a_bridge_message' })
+  })
+
   test('survives prototype pollution keys', () => {
     const polluted = JSON.parse('{"state":"running","__proto__":{"reason":"engine_failed"}}')
     expect(parseFrameMessage(fromFrame(envelope('frame.state', polluted)), hostContext).ok).toBe(
@@ -308,7 +348,7 @@ describe('host to frame messages', () => {
     code: CODE,
     expiresAt: iso(60_000),
     surface: 'hq',
-  }
+  } as const
 
   test('accepts a launch and a dispose from the exact parent', () => {
     expect(
@@ -406,7 +446,7 @@ describe('launch contract', () => {
     expiresAt: iso(60_000),
     surface: 'hq',
     frameOrigin: SIM,
-  }
+  } as const
 
   test('parses a strict launch request', () => {
     const request = {
@@ -415,7 +455,7 @@ describe('launch contract', () => {
       surface: 'hq',
       platform: 'desktop',
       bridgeId: BRIDGE,
-    }
+    } as const
     expect(parseSimLaunchRequest(request)).toEqual(request)
     for (const bad of [
       { ...request, schemaVersion: 2 },
@@ -454,6 +494,53 @@ describe('launch contract', () => {
     expect(
       parseSimLaunchGrant({ ...granted, expiresAt: iso(MAX_SIM_LAUNCH_TTL_MS) }, expectation)
     ).not.toBeNull()
+  })
+
+  test('never runs a getter, including the status discriminant', () => {
+    let ran = 0
+    const throwing = () =>
+      Object.defineProperty({}, 'status', {
+        enumerable: true,
+        get() {
+          ran++
+          throw new Error('getter ran')
+        },
+      })
+    expect(parseSimLaunchGrant(throwing(), expectation)).toBeNull()
+    expect(parseSimSessionExchangeResult(throwing())).toBeNull()
+    expect(parseSimLaunchRequest(throwing())).toBeNull()
+    expect(parseSimSessionExchangeRequest(throwing())).toBeNull()
+
+    // A getter on a later field of an otherwise valid shape is refused too.
+    const grantWithGetter = Object.defineProperty({ ...granted }, 'code', {
+      enumerable: true,
+      get() {
+        ran++
+        return CODE
+      },
+    })
+    expect(parseSimLaunchGrant(grantWithGetter, expectation)).toBeNull()
+    const sessionWithGetter = Object.defineProperty({ status: 'session' }, 'expiresAt', {
+      enumerable: true,
+      get() {
+        ran++
+        return iso(1000)
+      },
+    })
+    expect(parseSimSessionExchangeResult(sessionWithGetter)).toBeNull()
+
+    // A status inherited from the prototype is not an own data property.
+    const inherited = Object.create({ status: 'unavailable' })
+    expect(parseSimSessionExchangeResult(inherited)).toBeNull()
+    expect(ran).toBe(0)
+  })
+
+  test('refuses wide records before reading them', () => {
+    const wide = Object.fromEntries(Array.from({ length: 100_000 }, (_, i) => [`k${i}`, 1]))
+    expect(
+      parseSimLaunchGrant({ status: 'denied', reason: 'not_entitled', ...wide }, expectation)
+    ).toBeNull()
+    expect(parseSimSessionExchangeResult({ status: 'unavailable', ...wide })).toBeNull()
   })
 
   test('carries refusals as closed reasons', () => {
@@ -560,45 +647,54 @@ describe('launch state machine', () => {
   )
   if (granted?.status !== 'granted') throw new Error('fixture')
 
-  const frame = (message: SimFrameMessage, now = NOW) => ({ type: 'frame' as const, message, now })
-  const ready = frame({ type: 'frame.ready', payload: {} })
+  const frame = (attempt: number, message: SimFrameMessage, now = NOW) => ({
+    type: 'frame' as const,
+    attempt,
+    message,
+    now,
+  })
+  const ready = (attempt: number, now = NOW) =>
+    frame(attempt, { type: 'frame.ready', payload: {} }, now)
+  const grant = (attempt: number) => ({ type: 'grant' as const, attempt, grant: granted })
 
   test('walks idle to running only through confirmed steps', () => {
     let step = reduceSimLaunch(SIM_IDLE, { type: 'start' })
-    expect(step).toEqual({ state: { phase: 'requesting' }, effect: { type: 'request_grant' } })
-    step = reduceSimLaunch(step.state, { type: 'grant', grant: granted })
-    expect(step.state).toEqual({ phase: 'awaiting_frame', grant: granted })
-    expect(step.effect).toBeUndefined()
-    step = reduceSimLaunch(step.state, ready)
     expect(step).toEqual({
-      state: { phase: 'launching' },
-      effect: { type: 'post_launch', grant: granted },
+      state: { phase: 'requesting', attempt: 1 },
+      effect: { type: 'request_grant', attempt: 1 },
+    })
+    step = reduceSimLaunch(step.state, grant(1))
+    expect(step.state).toEqual({ phase: 'awaiting_frame', attempt: 1, grant: granted })
+    expect(step.effect).toBeUndefined()
+    step = reduceSimLaunch(step.state, ready(1))
+    expect(step).toEqual({
+      state: { phase: 'launching', attempt: 1 },
+      effect: { type: 'post_launch', attempt: 1, grant: granted },
     })
     step = reduceSimLaunch(
       step.state,
-      frame({ type: 'frame.state', payload: { state: 'loading' } })
+      frame(1, { type: 'frame.state', payload: { state: 'loading' } })
     )
     expect(step.state.phase).toBe('launching')
     step = reduceSimLaunch(
       step.state,
-      frame({ type: 'frame.state', payload: { state: 'running' } })
+      frame(1, { type: 'frame.state', payload: { state: 'running' } })
     )
-    expect(step.state).toEqual({ phase: 'running' })
+    expect(step.state).toEqual({ phase: 'running', attempt: 1 })
   })
 
   test('a replayed ready never posts a second launch', () => {
-    const launching = run(SIM_IDLE, { type: 'start' }, { type: 'grant', grant: granted }, ready)
+    const launching = run(SIM_IDLE, { type: 'start' }, grant(1), ready(1))
     expect(launching.effect?.type).toBe('post_launch')
-    const again = reduceSimLaunch(launching.state, ready)
-    expect(again).toEqual({ state: { phase: 'launching' } })
+    expect(reduceSimLaunch(launching.state, ready(1))).toEqual({
+      state: { phase: 'launching', attempt: 1 },
+    })
   })
 
   test('ready after the code expired launches nothing', () => {
-    const awaiting = run(SIM_IDLE, { type: 'start' }, { type: 'grant', grant: granted })
-    expect(
-      reduceSimLaunch(awaiting.state, frame({ type: 'frame.ready', payload: {} }, NOW + 61_000))
-    ).toEqual({
-      state: { phase: 'unavailable', reason: 'frame_timeout' },
+    const awaiting = run(SIM_IDLE, { type: 'start' }, grant(1))
+    expect(reduceSimLaunch(awaiting.state, ready(1, NOW + 61_000))).toEqual({
+      state: { phase: 'unavailable', attempt: 1, reason: 'frame_timeout' },
     })
   })
 
@@ -607,108 +703,177 @@ describe('launch state machine', () => {
       { type: 'frame.state', payload: { state: 'running' } },
       { type: 'frame.error', payload: { code: 'engine_failed' } },
     ] as SimFrameMessage[]) {
-      expect(reduceSimLaunch(SIM_IDLE, frame(message)).state).toEqual(SIM_IDLE)
-      expect(reduceSimLaunch({ phase: 'requesting' }, frame(message)).state).toEqual({
-        phase: 'requesting',
-      })
+      expect(reduceSimLaunch(SIM_IDLE, frame(0, message)).state).toEqual(SIM_IDLE)
+      const requesting: SimLaunchState = { phase: 'requesting', attempt: 1 }
+      expect(reduceSimLaunch(requesting, frame(1, message)).state).toEqual(requesting)
     }
   })
 
   test('denials, outages and malformed replies name a cause', () => {
-    const requesting: SimLaunchState = { phase: 'requesting' }
+    const requesting: SimLaunchState = { phase: 'requesting', attempt: 1 }
+    const reply = (value: Parameters<typeof reduceSimLaunch>[1] extends infer E ? E : never) =>
+      reduceSimLaunch(requesting, value).state
     expect(
-      reduceSimLaunch(requesting, {
-        type: 'grant',
-        grant: { status: 'denied', reason: 'not_entitled' },
-      }).state
-    ).toEqual({
-      phase: 'unavailable',
-      reason: 'not_entitled',
-    })
+      reply({ type: 'grant', attempt: 1, grant: { status: 'denied', reason: 'not_entitled' } })
+    ).toEqual({ phase: 'unavailable', attempt: 1, reason: 'not_entitled' })
     expect(
-      reduceSimLaunch(requesting, {
+      reply({
         type: 'grant',
+        attempt: 1,
         grant: { status: 'unavailable', reason: 'not_configured' },
-      }).state
-    ).toEqual({ phase: 'unavailable', reason: 'not_configured' })
-    expect(reduceSimLaunch(requesting, { type: 'grant', grant: null }).state).toEqual({
+      })
+    ).toEqual({ phase: 'unavailable', attempt: 1, reason: 'not_configured' })
+    expect(reply({ type: 'grant', attempt: 1, grant: null })).toEqual({
       phase: 'unavailable',
+      attempt: 1,
       reason: 'service_unavailable',
     })
-    expect(reduceSimLaunch(SIM_IDLE, { type: 'grant', grant: granted }).state).toEqual(SIM_IDLE)
+    expect(reduceSimLaunch(SIM_IDLE, grant(0)).state).toEqual(SIM_IDLE)
   })
 
   test('frame errors, timeouts and offline are distinct, retryable ends', () => {
-    const launching = run(
-      SIM_IDLE,
-      { type: 'start' },
-      { type: 'grant', grant: granted },
-      ready
-    ).state
+    const launching = run(SIM_IDLE, { type: 'start' }, grant(1), ready(1)).state
     expect(
       reduceSimLaunch(
         launching,
-        frame({ type: 'frame.error', payload: { code: 'asset_unavailable' } })
+        frame(1, { type: 'frame.error', payload: { code: 'asset_unavailable' } })
       ).state
-    ).toEqual({
+    ).toEqual({ phase: 'unavailable', attempt: 1, reason: 'service_unavailable' })
+    expect(reduceSimLaunch(launching, { type: 'timeout', attempt: 1 }).state).toEqual({
       phase: 'unavailable',
-      reason: 'service_unavailable',
-    })
-    expect(reduceSimLaunch(launching, { type: 'timeout' }).state).toEqual({
-      phase: 'unavailable',
+      attempt: 1,
       reason: 'frame_timeout',
     })
-    expect(reduceSimLaunch(launching, { type: 'offline' }).state).toEqual({ phase: 'offline' })
-    expect(reduceSimLaunch({ phase: 'running' }, { type: 'timeout' }).state).toEqual({
-      phase: 'running',
+    expect(reduceSimLaunch(launching, { type: 'offline' }).state).toEqual({
+      phase: 'offline',
+      attempt: 1,
     })
-    expect(reduceSimLaunch({ phase: 'offline' }, { type: 'start' }).state).toEqual({
+    const running: SimLaunchState = { phase: 'running', attempt: 1 }
+    expect(reduceSimLaunch(running, { type: 'timeout', attempt: 1 }).state).toEqual(running)
+    expect(reduceSimLaunch({ phase: 'offline', attempt: 1 }, { type: 'start' }).state).toEqual({
       phase: 'requesting',
+      attempt: 2,
     })
     expect(
-      reduceSimLaunch({ phase: 'unavailable', reason: 'engine_failed' }, { type: 'start' }).effect
-    ).toEqual({
-      type: 'request_grant',
-    })
+      reduceSimLaunch(
+        { phase: 'unavailable', attempt: 1, reason: 'engine_failed' },
+        { type: 'start' }
+      ).effect
+    ).toEqual({ type: 'request_grant', attempt: 2 })
     expect(reduceSimLaunch(SIM_IDLE, { type: 'offline' }).state).toEqual(SIM_IDLE)
   })
 
   test('dispose and close return to idle; dispose tells the frame', () => {
-    expect(reduceSimLaunch({ phase: 'running' }, { type: 'dispose' })).toEqual({
-      state: SIM_IDLE,
-      effect: { type: 'dispose_frame' },
+    const running: SimLaunchState = { phase: 'running', attempt: 3 }
+    expect(reduceSimLaunch(running, { type: 'dispose' })).toEqual({
+      state: { phase: 'idle', attempt: 3 },
+      effect: { type: 'dispose_frame', attempt: 3 },
     })
-    expect(
-      reduceSimLaunch({ phase: 'running' }, frame({ type: 'frame.close', payload: {} })).state
-    ).toEqual(SIM_IDLE)
+    expect(reduceSimLaunch(running, frame(3, { type: 'frame.close', payload: {} })).state).toEqual({
+      phase: 'idle',
+      attempt: 3,
+    })
     expect(reduceSimLaunch(SIM_IDLE, { type: 'dispose' })).toEqual({ state: SIM_IDLE })
   })
 
-  test('start does not interrupt a launch in flight', () => {
+  test('start does not interrupt a launch in flight or change its attempt', () => {
     for (const state of [
-      { phase: 'requesting' },
-      { phase: 'launching' },
-      { phase: 'running' },
+      { phase: 'requesting', attempt: 4 },
+      { phase: 'launching', attempt: 4 },
+      { phase: 'running', attempt: 4 },
     ] as SimLaunchState[])
       expect(reduceSimLaunch(state, { type: 'start' })).toEqual({ state })
   })
 
+  describe('attempt fencing', () => {
+    test('a late grant for an interrupted attempt cannot start the next one', () => {
+      for (const interrupt of [{ type: 'dispose' }, { type: 'offline' }] as const) {
+        let step = reduceSimLaunch(SIM_IDLE, { type: 'start' }) // attempt 1
+        step = reduceSimLaunch(step.state, interrupt)
+        step = reduceSimLaunch(step.state, { type: 'start' }) // attempt 2
+        expect(step.state).toEqual({ phase: 'requesting', attempt: 2 })
+        // Attempt 1's reply arrives while attempt 2 is requesting.
+        const late = reduceSimLaunch(step.state, grant(1))
+        expect(late).toEqual({ state: { phase: 'requesting', attempt: 2 } })
+        const lateDenied = reduceSimLaunch(step.state, {
+          type: 'grant',
+          attempt: 1,
+          grant: { status: 'denied', reason: 'not_entitled' },
+        })
+        expect(lateDenied.state).toEqual({ phase: 'requesting', attempt: 2 })
+        // Attempt 2's own reply still works.
+        expect(reduceSimLaunch(step.state, grant(2)).state.phase).toBe('awaiting_frame')
+      }
+    })
+
+    test('repeated starts after failures keep counting up and fence every earlier attempt', () => {
+      let state: SimLaunchState = SIM_IDLE
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        state = reduceSimLaunch(state, { type: 'start' }).state
+        expect(state).toEqual({ phase: 'requesting', attempt })
+        state = reduceSimLaunch(state, { type: 'grant', attempt, grant: null }).state
+        expect(state.phase).toBe('unavailable')
+      }
+      state = reduceSimLaunch(state, { type: 'start' }).state // attempt 4
+      for (const stale of [1, 2, 3, 5])
+        expect(reduceSimLaunch(state, grant(stale)).state).toEqual({
+          phase: 'requesting',
+          attempt: 4,
+        })
+    })
+
+    test('a stale timeout cannot fail a newer attempt', () => {
+      let step = reduceSimLaunch(SIM_IDLE, { type: 'start' })
+      step = reduceSimLaunch(step.state, grant(1))
+      step = reduceSimLaunch(step.state, { type: 'dispose' })
+      step = reduceSimLaunch(step.state, { type: 'start' })
+      step = reduceSimLaunch(step.state, grant(2))
+      expect(reduceSimLaunch(step.state, { type: 'timeout', attempt: 1 }).state).toEqual(step.state)
+      expect(reduceSimLaunch(step.state, { type: 'timeout', attempt: 2 }).state).toEqual({
+        phase: 'unavailable',
+        attempt: 2,
+        reason: 'frame_timeout',
+      })
+    })
+
+    test('a stale frame cannot launch, fail or close a newer attempt', () => {
+      let step = reduceSimLaunch(SIM_IDLE, { type: 'start' })
+      step = reduceSimLaunch(step.state, grant(1))
+      step = reduceSimLaunch(step.state, { type: 'offline' })
+      step = reduceSimLaunch(step.state, { type: 'start' })
+      step = reduceSimLaunch(step.state, grant(2))
+      const awaiting = step.state
+      // The old frame's ready must not make attempt 2 post its code to the wrong frame.
+      expect(reduceSimLaunch(awaiting, ready(1))).toEqual({ state: awaiting })
+
+      const launching = reduceSimLaunch(awaiting, ready(2)).state
+      for (const message of [
+        { type: 'frame.state', payload: { state: 'running' } },
+        { type: 'frame.state', payload: { state: 'offline' } },
+        { type: 'frame.error', payload: { code: 'engine_failed' } },
+        { type: 'frame.close', payload: {} },
+      ] as SimFrameMessage[])
+        expect(reduceSimLaunch(launching, frame(1, message))).toEqual({ state: launching })
+    })
+  })
+
   test('every unavailable reason has copy that keeps Chat and Dev independent', () => {
     for (const reason of SIM_UNAVAILABLE_REASONS) {
-      const notice = describeSimAvailability({ phase: 'unavailable', reason })
+      const notice = describeSimAvailability({ phase: 'unavailable', attempt: 1, reason })
       expect(notice?.tone).toBe('error')
       expect(notice?.detail).toContain('Chat and Dev are not affected')
       expect(notice?.title.length).toBeGreaterThan(0)
     }
-    const offline = describeSimAvailability({ phase: 'offline' })
+    const offline = describeSimAvailability({ phase: 'offline', attempt: 1 })
     expect(offline?.title).toBe('Agent Sim is offline')
     expect(offline?.retryable).toBe(true)
     expect(
-      describeSimAvailability({ phase: 'unavailable', reason: 'not_entitled' })?.retryable
+      describeSimAvailability({ phase: 'unavailable', attempt: 1, reason: 'not_entitled' })
+        ?.retryable
     ).toBe(false)
-    expect(describeSimAvailability({ phase: 'launching' })?.tone).toBe('neutral')
+    expect(describeSimAvailability({ phase: 'launching', attempt: 1 })?.tone).toBe('neutral')
     expect(describeSimAvailability(SIM_IDLE)).toBeNull()
-    expect(describeSimAvailability({ phase: 'running' })).toBeNull()
+    expect(describeSimAvailability({ phase: 'running', attempt: 1 })).toBeNull()
   })
 })
 
@@ -789,7 +954,7 @@ describe('local bootstrap flow', () => {
       { origins, now: NOW, surface: 'hq' }
     )
     let step = reduceSimLaunch(SIM_IDLE, { type: 'start' })
-    step = reduceSimLaunch(step.state, { type: 'grant', grant })
+    step = reduceSimLaunch(step.state, { type: 'grant', attempt: 1, grant })
 
     // Frame says ready; host validates and posts the launch.
     postToHost(channel.toHost, HOST, bridgeId, { type: 'frame.ready', payload: {} })
@@ -806,7 +971,12 @@ describe('local bootstrap flow', () => {
       bridgeId,
     })
     if (!ready.ok) throw new Error(ready.reason)
-    step = reduceSimLaunch(step.state, { type: 'frame', message: ready.message, now: NOW })
+    step = reduceSimLaunch(step.state, {
+      type: 'frame',
+      attempt: 1,
+      message: ready.message,
+      now: NOW,
+    })
     if (step.effect?.type !== 'post_launch') throw new Error('expected a launch')
     const { code, expiresAt, surface } = step.effect.grant
     postToFrame(channel.toFrame, step.effect.grant.frameOrigin, origins, bridgeId, {
@@ -826,7 +996,7 @@ describe('local bootstrap flow', () => {
     const once = createLaunchOnce()
     const payload = once.take(launch.message.payload, NOW)
     expect(payload).not.toBeNull()
-    const exchange = { schemaVersion: 1, code: payload!.code, bridgeId }
+    const exchange = { schemaVersion: 1 as const, code: payload!.code, bridgeId }
     expect(parseSimSessionExchangeRequest(exchange)).toEqual(exchange)
     expect(JSON.stringify(exchange)).not.toMatch(/token|secret|password/i)
 
@@ -850,9 +1020,11 @@ describe('local bootstrap flow', () => {
     })
     if (!running.ok) throw new Error(running.reason)
     expect(
-      reduceSimLaunch(step.state, { type: 'frame', message: running.message, now: NOW }).state
+      reduceSimLaunch(step.state, { type: 'frame', attempt: 1, message: running.message, now: NOW })
+        .state
     ).toEqual({
       phase: 'running',
+      attempt: 1,
     })
   })
 
@@ -887,7 +1059,7 @@ describe('local bootstrap flow', () => {
   })
 
   test('an offline host stays truthful and leaves other surfaces alone', () => {
-    const step = reduceSimLaunch({ phase: 'launching' }, { type: 'offline' })
+    const step = reduceSimLaunch({ phase: 'launching', attempt: 1 }, { type: 'offline' })
     expect(describeSimAvailability(step.state)?.detail).toContain('Chat and Dev are not affected')
   })
 })

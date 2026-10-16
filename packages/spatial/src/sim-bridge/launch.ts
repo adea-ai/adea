@@ -1,4 +1,4 @@
-import { boundedString, isoInstant, strictRecord } from './record'
+import { boundedString, isoInstant, ownDataValue, strictRecord } from './record'
 import type { OriginAllowlist } from './origin'
 
 /**
@@ -106,7 +106,7 @@ export function parseSimLaunchGrant(
   value: unknown,
   expected: SimGrantExpectation
 ): SimLaunchGrant | null {
-  const status = (value as { status?: unknown } | null)?.status
+  const status = ownDataValue(value, 'status')
   if (status === 'denied') {
     const body = strictRecord(value, ['status', 'reason'])
     const reason = DENIED_REASONS.find((item) => item === body?.reason)
@@ -139,7 +139,7 @@ export function parseSimSessionExchangeRequest(value: unknown): SimSessionExchan
 
 /** The sim origin's exchange reply. A session reply carries its expiry and nothing else. */
 export function parseSimSessionExchangeResult(value: unknown): SimSessionExchangeResult | null {
-  const status = (value as { status?: unknown } | null)?.status
+  const status = ownDataValue(value, 'status')
   if (status === 'unavailable') return strictRecord(value, ['status']) ? { status } : null
   if (status === 'rejected') {
     const body = strictRecord(value, ['status', 'reason'])
