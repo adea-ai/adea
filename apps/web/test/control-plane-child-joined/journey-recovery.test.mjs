@@ -4,10 +4,7 @@
 // is reopened in-process only (its fixture cannot reopen a composition in a new process), which is
 // said wherever it is used. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { pin, root } from './harness.mjs'
-import { verifyInstalledPackages } from './installed-packages.mjs'
-import { installedLeadSdkPort } from '../../src/server/lead-turn-sdk-port.ts'
-import { startJourney, finalText } from './journey-support.mjs'
+import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
@@ -15,12 +12,7 @@ if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
 describe('crash and restart recovery across the journey boundaries', () => {
   let journey, control, ids
   beforeAll(async () => {
-    await verifyInstalledPackages({
-      manifestPath,
-      expectedHead: pin.revision,
-      cpRoot: root,
-      port: installedLeadSdkPort,
-    })
+    await verifyJourneyPackages(manifestPath)
     journey = await startJourney('1173 recovery')
     control = journey.control
     await control('hold', { name: 'lead-first' })

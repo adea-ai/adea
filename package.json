@@ -24,7 +24,7 @@
     "test:integration:control-plane-child-sdk": "bun --conditions=react-server test apps/web/test/control-plane-child-joined/installed-sdk-child.test.mjs",
     "test:integration:control-plane-child-allowance": "PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json PI_FACTORY_INSTALL=registry PI_FACTORY_EXPECT_SDK=accepts bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allowance-boundary.test.mjs",
     "test:integration:control-plane-child-allowance-predating": "PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json PI_FACTORY_INSTALL=registry-predating-candidate PI_FACTORY_EXPECT_SDK=rejects bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allowance-boundary.test.mjs",
-    "test:integration:control-plane-journey": "PI_FACTORY_SOURCE_PIN=source-journey-candidate.json bun --conditions=react-server test apps/web/test/control-plane-child-joined/journey.test.mjs apps/web/test/control-plane-child-joined/journey-recovery.test.mjs apps/web/test/control-plane-child-joined/journey-authority.test.mjs",
+    "test:integration:control-plane-journey": "PI_FACTORY_SOURCE_PIN=source-journey.json bun --conditions=react-server test apps/web/test/control-plane-child-joined/journey.test.mjs apps/web/test/control-plane-child-joined/journey-recovery.test.mjs apps/web/test/control-plane-child-joined/journey-authority.test.mjs",
     "test:integration:control-plane-joined": "bun scripts/test-integration.mjs --control-plane-joined",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",

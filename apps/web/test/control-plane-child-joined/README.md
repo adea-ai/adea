@@ -265,15 +265,22 @@ bump.
 
 One workspace lead, one direct topic, one pinned BYO selection, one real Pi child and one logical
 outcome, through Adea's production lead product and the installed SDK, over HTTP to CP's actual
-control API, against **CP #1134 head `58346e0`** (`source-journey-candidate.json`). That head is an
-open, unmerged candidate that carries the production child bridge builder and
-`PiChildTerminalSettlement` (CP #1137); it is not released and not on CP main. The installed SDK
-(sdk 1.18.0, runtime-sdk 1.15.1, contracts 1.21.1, Adea's lockfile) is verified byte-identical to the
-candidate's packed archives before any database connection is opened.
+control API, against **CP main `0a453d8`**, the squash merge of CP #1134 (reviewed head
+`421f225d`; `source-journey.json`). It carries the production child bridge builder and
+`PiChildTerminalSettlement` (CP #1137). It is a merged source revision, not a published release.
+The installed SDK comes from Adea's lockfile (sdk 1.18.0, runtime-sdk 1.15.1, contracts 1.21.1) and
+is compared with the packages that revision builds (sdk 1.18.1, runtime-sdk 1.15.1, contracts
+1.21.3) before any database connection is opened. `runtime-sdk`, which holds the lead contract, is
+byte-identical. The lockfile trails CP main only by CP #1149/#1150: an optional `digestVersion` on
+graph digests and the files behind it (contracts `canonical-json`, `graphs`, `control-api`; sdk
+`operations.d.ts` and `openapi/control-plane.v3.json`). None of them is loaded by the lead
+operations used here. `journey-support.mjs` (`declaredDrift`) names those files exactly; any other
+difference, or a declared file that stops differing, fails the run. This is not an
+Adea-lockfile-equals-CP claim: a published SDK/contracts release plus an Adea bump closes it.
 
 ```sh
-# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 58346e0
-ADEA_CONTROL_PLANE_SOURCE=<CP checkout at 58346e0> PI_FACTORY_BUN=<abs bun> \
+# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 0a453d8
+ADEA_CONTROL_PLANE_SOURCE=<CP checkout at 0a453d8> PI_FACTORY_BUN=<abs bun> \
 PI_FACTORY_MANIFEST=<dir>/manifest.json DATABASE_URL=<local postgres> \
   bun run test:integration:control-plane-journey
 ```
@@ -294,7 +301,7 @@ composition in a new OS process, so CP process-restart recovery is **not** claim
 
 Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic accounts):
 
-- 20 pass, 0 fail, 234 expects, 189.6 s (`bun run test:integration:control-plane-journey`).
+- 20 pass, 0 fail, 234 expects, 165 s at CP `0a453d8` (`bun run test:integration:control-plane-journey`).
 - Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
   attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
   calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one
@@ -317,7 +324,7 @@ exercise it with real process restarts.
 - The lead finishes after it _starts_ the child; the child's outcome is a separate record. The lead's
   answer text does not carry it.
 - Lead stop never cascades. With the lead running and the child's provider request in flight, a lead
-  stop left the child `running` and CP's delegation record `running`. CP holds a lead stop open
+  stop left the child `running` and CP's delegation record not terminal (`dispatched` or `running`, depending on when CP's progress scan last ran). CP holds a lead stop open
   while the provider call is in flight, so the first reply can time out; the retry returns
   `cancelling`.
 - An acknowledged stop is not termination: the lead was still `cancelling` after its provider call
@@ -331,8 +338,8 @@ exercise it with real process restarts.
 - A member removed from the audience is refused outright on every read and retry (no projection, no
   result); a result whose CP publication authority was withdrawn is withheld with
   `PUBLICATION_WITHHELD` and published once, exact bytes, after it is restored.
-- CP usage-ledger rows settle a few seconds after the terminal states, so counters are compared on
-  a settled read.
+- CP usage-ledger rows are written by CP on its own schedule after the terminal states (child
+  settlement), so counters are compared on a settled read, and "no new CP work" excludes them.
 
 ### Not proved (acceptance stays open on #1173)
 
@@ -348,7 +355,8 @@ exercise it with real process restarts.
   the existing publication tests, not by a process fault here.
 - **Handoff target / one RuntimeSession across Dev and Chat.** The harness admits no handoff target,
   so the shared-RuntimeSession path is not exercised by this journey.
-- **Released packages.** The candidate is unmerged CP; this is not evidence about a release or live
+- **Released packages.** The CP revision is merged but unreleased, and Adea's lockfile packages
+  differ from its build by the declared drift above; this is not evidence about a release or a live
   provider.
 
 ## Remaining dependencies

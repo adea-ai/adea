@@ -1,6 +1,6 @@
 // TEST ONLY: the CP side of the lead-to-child journey (#1173). One separate pinned-Bun process runs
-// CP's production Pi lead factory with the governed `delegate_child` tool from the pinned candidate
-// (CP #1134 head), serves CP's actual control API for Adea's installed SDK, and answers a JSON-line
+// CP's production Pi lead factory with the governed `delegate_child` tool from the pinned CP revision
+// (merged CP #1134), serves CP's actual control API for Adea's installed SDK, and answers a JSON-line
 // control channel for evidence and fault injection. The provider transport, funding records, scope
 // and policy ports are scripted fixtures; there is no live provider and no credential.
 import { createRequire } from 'node:module'

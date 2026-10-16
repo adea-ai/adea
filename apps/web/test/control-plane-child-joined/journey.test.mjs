@@ -1,11 +1,8 @@
 // Opt-in joined proof for #1173: one workspace lead, one direct topic, one pinned BYO selection, one
 // real Pi child and one logical outcome, through Adea's real product and the installed SDK, against
-// the pinned CP candidate (source-journey-candidate.json). See README.md "Lead-to-child journey".
+// the pinned CP revision (source-journey.json). See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { pin, root } from './harness.mjs'
-import { verifyInstalledPackages } from './installed-packages.mjs'
-import { installedLeadSdkPort } from '../../src/server/lead-turn-sdk-port.ts'
-import { startJourney, finalText, childText } from './journey-support.mjs'
+import { startJourney, verifyJourneyPackages, finalText, childText } from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
@@ -14,12 +11,7 @@ describe('happy journey and exactly-once replays', () => {
   let journey, control, lead, firstEvidence
   beforeAll(async () => {
     // Package and source identity are verified before any database connection is opened.
-    await verifyInstalledPackages({
-      manifestPath,
-      expectedHead: pin.revision,
-      cpRoot: root,
-      port: installedLeadSdkPort,
-    })
+    await verifyJourneyPackages(manifestPath)
     journey = await startJourney('1173 journey')
     control = journey.control
   }, 90000)
@@ -140,9 +132,9 @@ describe('happy journey and exactly-once replays', () => {
       parentAttemptId: lead.attemptId,
       // CP's canonical delegation record moves only when its progress scan reads the terminal
       // child; the scan is a separate CP step, taken in the next test.
-      state: 'running',
       cancellation: 'cascade',
     })
+    expect(['dispatched', 'running']).toContain(delegation.state)
     expect(evidence.child).toMatchObject({
       executionId: delegation.childExecutionId,
       attemptId: delegation.childAttemptId,

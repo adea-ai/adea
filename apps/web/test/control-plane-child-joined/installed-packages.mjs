@@ -28,6 +28,10 @@ const loadFields = ['name', 'version', 'type', 'main', 'module', 'types', 'expor
  * 'registry-predating-candidate': registry installs as above, but the candidate is expected to
  * differ (it carries a CP change no release has yet). The payload is not asserted equal; the files
  * that differ are returned so the gap a release must close is on the record.
+ * 'registry-declared-drift': registry installs whose payload may differ from the build only in the
+ * files `declaredDrift` names for that package, exactly: any other difference, and any declared
+ * file that no longer differs, fails. For a CP revision that has moved past Adea's lockfile only in
+ * changes the consumer path does not load, which the caller states and justifies.
  */
 export async function verifyInstalledPackages({
   manifestPath,
@@ -35,9 +39,15 @@ export async function verifyInstalledPackages({
   cpRoot,
   port,
   installKind = 'registry',
+  declaredDrift = {},
 }) {
   assert.ok(
-    ['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind),
+    [
+      'registry',
+      'registry-predating-candidate',
+      'registry-declared-drift',
+      'candidate-overlay',
+    ].includes(installKind),
     'UNKNOWN_INSTALL_KIND'
   )
   const manifest = verifyFactoryArchives(manifestPath, expectedHead)
@@ -82,7 +92,10 @@ export async function verifyInstalledPackages({
         maxBuffer: 20 * 1024 * 1024,
       })
       const actual = readFileSync(resolve(installedRoot, name.slice('package/'.length)))
-      if (installKind === 'registry-predating-candidate') {
+      if (
+        installKind === 'registry-predating-candidate' ||
+        installKind === 'registry-declared-drift'
+      ) {
         if (sha256(actual) !== sha256(built)) differing.push(name.slice('package/'.length))
         continue
       }
@@ -92,11 +105,18 @@ export async function verifyInstalledPackages({
         `INSTALLED_PAYLOAD_DIFFERS:${artifact.name}:${name}`
       )
     }
+    if (installKind === 'registry-declared-drift')
+      assert.deepEqual(
+        differing.toSorted(),
+        (declaredDrift[artifact.name] ?? []).toSorted(),
+        `UNDECLARED_PAYLOAD_DRIFT:${artifact.name}`
+      )
     packages.push({
       name: artifact.name,
       version: installed.version,
       comparedFiles: tarEntries.length,
-      ...(installKind === 'registry-predating-candidate'
+      ...(installKind === 'registry-predating-candidate' ||
+      installKind === 'registry-declared-drift'
         ? { candidateVersion: artifact.version, differingFiles: differing.toSorted() }
         : {}),
     })

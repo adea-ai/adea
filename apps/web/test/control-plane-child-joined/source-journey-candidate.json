@@ -1,5 +1,0 @@
-{
-  "repository": "adea-ai/control-plane",
-  "revision": "58346e02e049915784a01582e655e845569cc0ca",
-  "dependency": "CP draft-then-ready PR #1134, head 58346e0: the governed child dispatch qualification, which also carries the production child bridge builder and PiChildTerminalSettlement (CP #1137, merged into that branch only). An unmerged candidate head, not a released or main commit; used only by journey.test.mjs"
-}

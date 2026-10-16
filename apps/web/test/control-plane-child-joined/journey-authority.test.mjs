@@ -1,22 +1,25 @@
 // Opt-in joined proof for #1173: authority at the edges of the journey. A lead stop is not a child
 // cancellation and an acknowledgement is not termination; publication rechecks CP's and Adea's
 // authority late; a revoked audience receives no result. Adea's side runs as its own processes
-// against the pinned CP candidate. See README.md "Lead-to-child journey".
+// against the pinned CP revision. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { pin, root } from './harness.mjs'
-import { verifyInstalledPackages } from './installed-packages.mjs'
-import { installedLeadSdkPort } from '../../src/server/lead-turn-sdk-port.ts'
-import { startJourney, finalText } from './journey-support.mjs'
+import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
-const verify = () =>
-  verifyInstalledPackages({
-    manifestPath,
-    expectedHead: pin.revision,
-    cpRoot: root,
-    port: installedLeadSdkPort,
-  })
+const verify = () => verifyJourneyPackages(manifestPath)
+/** What counts as new CP work. Usage-ledger rows are excluded: CP settles them on its own schedule. */
+const cpWork = (evidence) => {
+  const { commands, executions, attempts, budgets } = evidence.canonical
+  return {
+    commands,
+    executions,
+    attempts,
+    budgets,
+    physicalSends: evidence.physicalSends,
+    childStarts: evidence.childStarts,
+  }
+}
 const eventTypes = (evidence) => evidence.publications.map((record) => record.value.event.type)
 
 /** Runs prepare, dispatch and bind, leaving the lead released from its first provider gate. */
@@ -52,7 +55,7 @@ describe('lead stop, child cancellation and physical termination', () => {
     expect(inflight.lead.state).toBe('running')
     expect(inflight.child.state).toBe('running')
     expect(inflight.delegations.map((d) => d.state)).toEqual(['dispatched'])
-    const before = inflight.canonical
+    const before = cpWork(inflight)
 
     // CP holds this stop open while the lead's provider call is in flight, so the first reply may be
     // lost to a client timeout. Either way Adea has durably recorded that a stop was requested.
@@ -69,7 +72,7 @@ describe('lead stop, child cancellation and physical termination', () => {
     const row = await journey.runtimeRow()
     expect(row.cancelRequestedAt.toISOString()).toBe(first.result.cancelRequestedAt)
     const after = await control('evidence')
-    expect(after.canonical).toEqual(before)
+    expect(cpWork(after)).toEqual(before)
     expect(after.lead.state).toBe('cancelling')
   }, 120000)
 
@@ -77,7 +80,9 @@ describe('lead stop, child cancellation and physical termination', () => {
     const evidence = await control('evidence')
     // Lead-stop never cascades: the child and CP's delegation record are untouched.
     expect(evidence.child.state).toBe('running')
-    expect(evidence.delegations.map((d) => d.state)).toEqual(['running'])
+    // CP moves the record from dispatched to running when its progress scan next reads the child.
+    expect(['dispatched', 'running']).toContain(evidence.delegations[0].state)
+    expect(evidence.delegations).toHaveLength(1)
     expect(eventTypes(evidence)).not.toContain('delegation.cancelled')
     expect(evidence.childSends).toBe(1)
     const status = await journey.driver('status')
@@ -233,9 +238,7 @@ describe('a revoked audience receives no result', () => {
       expect(read.stderr).toContain('Lead turn unavailable')
     }
     const after = await control('evidence')
-    expect(after.canonical).toEqual(before.canonical)
-    expect(after.physicalSends).toBe(before.physicalSends)
-    expect(after.childStarts).toBe(before.childStarts)
+    expect(cpWork(after)).toEqual(cpWork(before))
     expect(await journey.channelMessages()).toEqual(messages)
     expect(await journey.publishedMessages()).toHaveLength(0)
   }, 120000)
