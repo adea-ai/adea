@@ -113,6 +113,15 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
   verbatim slice of `payload.text`, and only where the shared parser agrees it is
   prose (not code, a link label, or split emphasis). Otherwise the sources remain
   and the row says "n citation(s) is/are not marked in the text".
+- **Source text is untrusted.** Source titles and snippets pass the same display
+  redaction as message text (secrets, bearer tokens, private paths, control
+  characters, bounded length). A link the redaction would change is dropped: the
+  source is listed by title without a link, never linked to a rewritten or
+  secret-bearing address. A path such as `/home/...` in a URL is treated as private
+  and also drops the link (it fails closed).
+- **The unmarked count is per span.** Spans that end together share one marker; the
+  note counts producer spans whose end received a marker (`placeCitationMarkers`
+  returns `ends`), not marker positions.
 - **Still absent on purpose.** Usage, checkpoints, queue, attachments, and the
   streaming-to-final supersession, tool/subagent nesting and approval outcomes (see
   the dependency matrix). #1417 is draft and unverified, so nothing from it is consumed.
@@ -161,7 +170,7 @@ hostile, large and a partial code stream, light and dark, desktop and mobile.
 | Dependency                        | Exact head                                 | State                                      | How this canvas treats it                                                                                                                                                                                                    |
 | --------------------------------- | ------------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Adea `main`                       | `632776c7eb77165b302e7e68613ec42f2d4bf653` | merged into this branch (`0c828d14`)       | visible-summary (#1388) and cited-response (#1389) contracts consumed through `decodeRuntimeEvent`                                                                                                                           |
-| `adea-ai/ui` #416 (AI Elements)   | `8fd394732abe43088f7d7ca2fc2b32692f30958e` | open, draft                                | adds `placeCitationMarkers` and the preserved repair patch (sha256 `b9c1c3beb1c6f7478050aaacc403178ec2d27228998bacef2dd1f07aadd436b2`, base `50562af`, applied unchanged apart from a type cast in its confirmation fixture) |
+| `adea-ai/ui` #416 (AI Elements)   | `a26b693560bae32889ecbc7165a649f6ab239709` | open, draft                                | adds `placeCitationMarkers` and the preserved repair patch (sha256 `b9c1c3beb1c6f7478050aaacc403178ec2d27228998bacef2dd1f07aadd436b2`, base `50562af`, applied unchanged apart from a type cast in its confirmation fixture) |
 | Published `@adea-ai/ui`           | 0.134.0 pinned on main; 0.137.0 on ui main | neither has the AI Elements exports        | Adea typecheck, build and CI cannot pass until a release containing #416 is published and pinned; local checks here use a build mirror that is never committed                                                               |
 | #1417 runtime contracts and queue | `60c0f597d0fdfbeef34f22d34155b9878af308ea` | draft, blocked on review and validation    | not consumed: no supersession, tool or subagent identity, approval outcome, usage or queue adapter yet                                                                                                                       |
 | #1414 native session inventory    | `cdf186402e017548ee5793c25bab73430b98ef72` | draft, Workspace Details; not this canvas  | no overlap with `packages/dev-view/src/chat/`                                                                                                                                                                                |

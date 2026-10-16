@@ -56,7 +56,11 @@ import {
   type ChatTurnReasoning,
   type ChatTurnText,
 } from './model/turns'
-import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
+import {
+  projectTranscriptEvents,
+  type ChatResponseSource,
+  type ChatTranscriptItem,
+} from './presentation'
 import type { TranscriptAccumulator } from './model'
 import { transcriptHistoryNotice } from './model/transcript'
 import { ChatApproval } from './chat-approval'
@@ -669,11 +673,11 @@ function EntryView(props: {
   )
 }
 
-function toSource(source: { id: string; title: string; url: string; snippet?: string }): Source {
+function toSource(source: ChatResponseSource): Source {
   return {
     id: source.id,
     title: source.title,
-    url: source.url,
+    ...(source.url !== undefined ? { url: source.url } : {}),
     ...(source.snippet !== undefined ? { snippet: source.snippet } : {}),
   }
 }
@@ -698,9 +702,14 @@ function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Elem
     )
   })
   const marked = () => (placement() && placement()!.placed > 0 ? placement() : undefined)
+  // Count the producer's spans, not marker positions: spans that end together
+  // share one marker and are all represented by it.
   const unmarked = () => {
     const refs = references()
-    return refs ? refs.cited - (marked()?.placed ?? 0) : 0
+    if (!refs) return 0
+    const ends = new Set(marked()?.ends ?? [])
+    const represented = refs.citations.filter((citation) => ends.has(citation.end)).length
+    return refs.cited - represented
   }
   return (
     <div

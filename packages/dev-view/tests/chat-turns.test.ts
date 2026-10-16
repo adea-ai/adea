@@ -635,6 +635,87 @@ describe('reasoning and method summaries', () => {
 
 describe('cited responses', () => {
   const text = 'Rust needs no GC. It is fast.'
+
+  test('source titles, snippets and links pass through the display redaction', () => {
+    const secret = 'sk-supersecretvalue1234'
+    const [row] = projectTranscriptEvents([
+      message({
+        text,
+        references: {
+          schemaVersion: 1,
+          sources: [
+            {
+              id: 'a',
+              title: `Guide ${secret} for /Users/example/private`,
+              url: 'https://example.com/guide',
+              snippet: `Bearer abcdefghijklmnop1234 and /home/example/notes`,
+            },
+          ],
+          citations: [{ sourceId: 'a', start: 0, end: 4 }],
+        },
+      }),
+    ])
+    const [source] = row!.references!.sources
+    expect(source!.title).toBe('Guide [secret redacted] for [private path]')
+    expect(source!.snippet).toBe('Bearer [secret redacted] and [private path]')
+    expect(source!.url).toBe('https://example.com/guide')
+    expect(JSON.stringify(row!.references)).not.toMatch(
+      /supersecret|abcdefghijklmnop|example\/private/
+    )
+  })
+
+  test('a link the redaction would change is dropped, never rewritten or shown', () => {
+    const rows = projectTranscriptEvents([
+      message(
+        {
+          text,
+          references: {
+            schemaVersion: 1,
+            sources: [
+              { id: 'tok', title: 'Token link', url: 'https://example.com/cb?token_abcdefgh12345' },
+              {
+                id: 'key',
+                title: 'Key link',
+                url: 'https://example.com/a/sk-supersecretvalue1234',
+              },
+              { id: 'path', title: 'Path link', url: 'https://example.com/home/someone/notes' },
+              { id: 'ok', title: 'Plain', url: 'https://example.com/docs/ownership' },
+            ],
+            citations: [{ sourceId: 'ok', start: 0, end: 4 }],
+          },
+        },
+        'links'
+      ),
+    ])
+    const sources = rows[0]!.references!.sources
+    expect(sources.map((source) => source.url)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      'https://example.com/docs/ownership',
+    ])
+    expect(sources.map((source) => source.title)).toEqual([
+      'Token link',
+      'Key link',
+      'Path link',
+      'Plain',
+    ])
+    expect(JSON.stringify(rows[0]!.references)).not.toMatch(/token_abcdefgh|supersecret/)
+  })
+
+  test('a title that redaction or trimming empties still names its source', () => {
+    const [row] = projectTranscriptEvents([
+      message({
+        text,
+        references: {
+          schemaVersion: 1,
+          sources: [{ id: 'a', title: '\u0007\u0007', url: 'https://example.com/x' }],
+          citations: [{ sourceId: 'a', start: 0, end: 4 }],
+        },
+      }),
+    ])
+    expect(row!.references!.sources[0]!.title).toBe('Source 1')
+  })
   test('spans map onto the displayed body, shifted past trimmed leading whitespace', () => {
     const padded = `\n  ${text}\n`
     const start = padded.indexOf('Rust')

@@ -50,8 +50,16 @@ export type ChatTranscriptItem = Readonly<{
  * when the body is not the producer's exact text (redaction, control characters
  * or a CRLF changed it, so an offset would point somewhere else).
  */
+export type ChatResponseSource = Readonly<{
+  id: string
+  title: string
+  /** Absent when the producer's URL did not survive the display redaction unchanged. */
+  url?: string
+  snippet?: string
+}>
+
 export type ChatResponseReferences = Readonly<{
-  sources: readonly RuntimeResponseSource[]
+  sources: readonly ChatResponseSource[]
   citations: readonly RuntimeCitationReference[]
   /** How many spans the producer sent, so the canvas can say when fewer than that are marked. */
   cited: number
@@ -419,6 +427,32 @@ function visibleSummary(event: RuntimeEvent): RuntimeVisibleSummary | undefined 
  * drops the spans, and `inline` says so, because a shifted span cites the wrong
  * words.
  */
+const SOURCE_SNIPPET_LIMIT = 2_048
+const SOURCE_URL_LIMIT = 2_048
+
+/**
+ * A source reaches the screen through the same redaction as every other string.
+ * Its link fails closed: a URL the redaction would change (a token, a private
+ * path, a dropped control character) is not a destination we can vouch for, so
+ * the source is listed by its title without a link rather than linking to a
+ * rewritten or secret-bearing address.
+ */
+function displaySource(source: RuntimeResponseSource, index: number): ChatResponseSource {
+  const title = redact(source.title.trim(), MAX_LABEL).trim()
+  const snippet =
+    source.snippet === undefined
+      ? ''
+      : redact(source.snippet.trim(), SOURCE_SNIPPET_LIMIT, { layout: true }).trim()
+  const safeUrl =
+    source.url.length <= SOURCE_URL_LIMIT && redact(source.url, SOURCE_URL_LIMIT) === source.url
+  return {
+    id: source.id,
+    title: title || `Source ${index + 1}`,
+    ...(safeUrl ? { url: source.url } : {}),
+    ...(snippet ? { snippet } : {}),
+  }
+}
+
 function responseReferences(event: RuntimeEvent, body: string): ChatResponseReferences | undefined {
   const payload = event.payload as { text?: unknown; references?: unknown } | null
   if (payload === null || typeof payload !== 'object' || !('references' in payload))
@@ -436,7 +470,7 @@ function responseReferences(event: RuntimeEvent, body: string): ChatResponseRefe
   const shift = text.length - text.trimStart().length
   if (text.slice(shift, shift + body.length) !== body) {
     return {
-      sources: references.sources,
+      sources: references.sources.map(displaySource),
       citations: [],
       cited: references.citations.length,
       inline: 'text-changed',
@@ -448,7 +482,7 @@ function responseReferences(event: RuntimeEvent, body: string): ChatResponseRefe
     return start >= 0 && end <= body.length ? [{ sourceId: citation.sourceId, start, end }] : []
   })
   return {
-    sources: references.sources,
+    sources: references.sources.map(displaySource),
     citations,
     cited: references.citations.length,
     inline: 'mapped',

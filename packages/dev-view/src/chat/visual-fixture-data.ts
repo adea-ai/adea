@@ -280,6 +280,12 @@ const groundedMessage = (seq: string) =>
         citations: [
           { sourceId: 'book-ownership', start: 0, end: endOf('is freed.') },
           { sourceId: 'book-ownership', start: 0, end: endOf('out of scope.') },
+          // Ends where the span above ends: one shared badge, both spans represented.
+          {
+            sourceId: 'book-borrowing',
+            start: GROUNDED_REPLY.indexOf('Each value'),
+            end: endOf('out of scope.'),
+          },
           {
             sourceId: 'book-borrowing',
             start: GROUNDED_REPLY.indexOf('Borrowing'),
@@ -404,8 +410,20 @@ export const groundedHostileEvents: readonly RuntimeEvent[] = [
             url: 'https://evil.example/path?q=1',
             snippet: '<b>not bold</b> javascript:alert(1)',
           },
+          {
+            // Secrets in every field: the title and snippet are redacted, and a link the
+            // redaction would change is not shown as a link at all.
+            id: 'canary-source',
+            title: 'Report sk-supersecretvalue1234',
+            url: 'https://canary.example/cb?token_abcdefgh12345',
+            snippet: 'Saved to /Users/example/secret with Bearer abcdefghijklmnop1234',
+          },
         ],
-        citations: [{ sourceId: 'hostile-source', start: 0, end: 18 }],
+        // Both spans end together, so they share one badge and both are represented.
+        citations: [
+          { sourceId: 'hostile-source', start: 0, end: 18 },
+          { sourceId: 'canary-source', start: 4, end: 18 },
+        ],
       },
     },
     'chat-visual-hostile-answer'

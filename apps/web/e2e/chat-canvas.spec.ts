@@ -250,7 +250,7 @@ test.describe('summaries and citations: truth, preservation and untrusted text',
     await reasoning(page).getByRole('button').first().click()
     await method(page).getByRole('button').first().click()
     const answer = entry(page, 'chat-visual-hostile-answer')
-    await answer.getByRole('button', { name: /Used 1 source/ }).click()
+    await answer.getByRole('button', { name: /Used 2 sources/ }).click()
 
     const transcript = log(page)
     await expect(transcript.locator('script, img, iframe')).toHaveCount(0)
@@ -266,10 +266,19 @@ test.describe('summaries and citations: truth, preservation and untrusted text',
     expect(text).not.toContain('sk-supersecretvalue1234')
     expect(text).not.toContain('abcdefghijklmnop1234')
     expect(text).not.toContain('/Users/example')
+    // Source metadata is redacted like message text, and an unsafe link is not offered.
+    expect(text).toContain('Report [secret redacted]')
+    expect(text).toContain('Saved to [private path] with Bearer [secret redacted]')
+    expect(text).not.toContain('token_abcdefgh12345')
+    await expect(answer.locator('a[href*="token_"], a[href*="canary.example"]')).toHaveCount(0)
+    // The two spans end together: one badge, and no span is called unmarked.
+    await expect(answer.locator('[data-slot="inline-citation"]')).toHaveCount(1)
+    await expect(answer.getByText(/not marked in the text/)).toHaveCount(0)
     // The direction override is stripped and the 440-character title is clipped.
     expect(text).not.toContain('\u202e')
     const row = answer.getByRole('link').first()
     expect((await row.textContent())?.length ?? 0).toBeLessThan(400)
+    await expect(answer.getByRole('link')).toHaveCount(1)
     // The link is the reported address, safe, and its host comes from the URL.
     await expect(answer.getByRole('link').first()).toHaveAttribute(
       'href',
