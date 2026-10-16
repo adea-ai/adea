@@ -53,7 +53,13 @@ function Harness() {
         />
       </Show>
       <Show when={kind() === 'group'}>
-        <CreateGroupDialog open busy={false} onClose={close} onCreate={save} />
+        <CreateGroupDialog
+          open
+          busy={false}
+          onClose={close}
+          onCreate={save}
+          scope={{ accountId: 'synthetic-user', workspaceId: 'synthetic-workspace' }}
+        />
       </Show>
       <Show when={kind() === 'about'}>
         <AboutDialog
