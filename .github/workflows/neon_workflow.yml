@@ -120,9 +120,11 @@ jobs:
           console.log(`::add-mask::${runtimeUrl}`);
           console.log(`::add-mask::${runtimeUnpooledUrl}`);
           console.log(`::add-mask::${migrationUrl}`);
+          // The hosts the create-branch step just emitted are the only remote
+          // database hosts the test guard accepts from CI (scripts/test-target-guard.mjs).
           appendFileSync(
             GITHUB_ENV,
-            `DATABASE_URL=${runtimeUrl}\nDATABASE_URL_UNPOOLED=${runtimeUnpooledUrl}\nDATABASE_MIGRATION_URL=${migrationUrl}\n`,
+            `DATABASE_URL=${runtimeUrl}\nDATABASE_URL_UNPOOLED=${runtimeUnpooledUrl}\nDATABASE_MIGRATION_URL=${migrationUrl}\nADEA_CI_BRANCH_HOSTS=${DATABASE_HOST},${DATABASE_HOST_POOLED}\n`,
           );
           NODE
 
@@ -136,6 +138,13 @@ jobs:
           node <<'NODE'
           const url = process.env.NEON_AUTH_BASE_URL;
           if (!url) throw new Error("The preview branch did not expose a Neon Auth URL");
+          // Record the auth host the create-branch step emitted, so the test
+          // guard accepts exactly that remote auth endpoint and no other.
+          const { appendFileSync } = await import("node:fs");
+          appendFileSync(
+            process.env.GITHUB_ENV,
+            `ADEA_CI_AUTH_HOSTS=${new URL(url).hostname}\n`,
+          );
           const response = await fetch(`${url}/.well-known/jwks.json`, {
             signal: AbortSignal.timeout(15_000),
           });
