@@ -49,7 +49,7 @@ async function fixture() {
       calls.push({ method, body, claims })
       if (method === 'getModelSelectionFunding') return { data: { funding } }
       if (method === 'getPiDurableLeadPublication') return { data: { publication } }
-      if (method === 'dispatchPiDurableLead') {
+      if (method === 'dispatchPiDurableLead' || method === 'cancelPiDurableLead') {
         // Installed public base envelope is real; the new lead DTO is a disclosed mock
         // until compatible public SDK/runtime schemas are released.
         return SuccessResponseEnvelopeSchema.strict().parse({
@@ -183,4 +183,52 @@ test('publication requires exact current actor, selection, receipt and unmodifie
   await expect(composed.adapter!.assertPublicationCurrent!(expected)).rejects.toThrow(
     'RUNTIME_RESPONSE_INVALID'
   )
+})
+test('a retried key-bearing command repeats the same issuedAt so CP binds it to the same digest', async () => {
+  const f = await fixture()
+  let clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const composed = await createConfiguredLeadTurnDependencies(
+    { ...f.dependencies, now: () => (clock += 60_000) },
+    undefined,
+    f.port
+  )
+  const admitted = { ...authority, admittedAt: '2029-12-31T23:00:00.000Z' }
+  await composed.adapter!.prepare!(admitted).catch(() => undefined)
+  await composed.adapter!.prepare!(admitted).catch(() => undefined)
+  await composed.adapter!.dispatch(admitted, `lead-turn:${authority.intentId}`, prepared)
+  await composed.adapter!.dispatch(admitted, `lead-turn:${authority.intentId}`, prepared)
+  await composed.adapter!.cancel(
+    admitted,
+    f.publication.dispatchId,
+    `lead-cancel:${f.publication.dispatchId}`,
+    '2029-12-31T23:30:00.000Z'
+  )
+  await composed.adapter!.cancel(
+    admitted,
+    f.publication.dispatchId,
+    `lead-cancel:${f.publication.dispatchId}`,
+    '2029-12-31T23:30:00.000Z'
+  )
+  const keyed = f.calls.filter((call) => call.body.idempotencyKey !== undefined)
+  expect(keyed.map((call) => [call.method, call.body.issuedAt])).toEqual([
+    ['preparePiDurableLead', admitted.admittedAt],
+    ['preparePiDurableLead', admitted.admittedAt],
+    ['dispatchPiDurableLead', admitted.admittedAt],
+    ['dispatchPiDurableLead', admitted.admittedAt],
+    ['cancelPiDurableLead', '2029-12-31T23:30:00.000Z'],
+    ['cancelPiDurableLead', '2029-12-31T23:30:00.000Z'],
+  ])
+  // Only the anchor is stable: every attempt is still its own signed, fresh command.
+  expect(new Set(keyed.map((call) => call.body.commandId)).size).toBe(keyed.length)
+})
+test('without an anchor a key-bearing command is issued now, as before', async () => {
+  const f = await fixture()
+  const clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const composed = await createConfiguredLeadTurnDependencies(
+    { ...f.dependencies, now: () => clock },
+    undefined,
+    f.port
+  )
+  await composed.adapter!.dispatch(authority, `lead-turn:${authority.intentId}`, prepared)
+  expect(f.calls.at(-1)!.body.issuedAt).toBe('2030-01-01T00:00:00.000Z')
 })

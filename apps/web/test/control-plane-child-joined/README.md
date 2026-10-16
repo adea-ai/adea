@@ -261,6 +261,96 @@ typecheck, unit lanes) have not run against it. The qualification is complete on
 `test:integration:control-plane-child-allowance` passes on the default registry install after the
 bump.
 
+## Lead-to-child journey (#1173)
+
+One workspace lead, one direct topic, one pinned BYO selection, one real Pi child and one logical
+outcome, through Adea's production lead product and the installed SDK, over HTTP to CP's actual
+control API, against **CP #1134 head `58346e0`** (`source-journey-candidate.json`). That head is an
+open, unmerged candidate that carries the production child bridge builder and
+`PiChildTerminalSettlement` (CP #1137); it is not released and not on CP main. The installed SDK
+(sdk 1.18.0, runtime-sdk 1.15.1, contracts 1.21.1, Adea's lockfile) is verified byte-identical to the
+candidate's packed archives before any database connection is opened.
+
+```sh
+# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 58346e0
+ADEA_CONTROL_PLANE_SOURCE=<CP checkout at 58346e0> PI_FACTORY_BUN=<abs bun> \
+PI_FACTORY_MANIFEST=<dir>/manifest.json DATABASE_URL=<local postgres> \
+  bun run test:integration:control-plane-journey
+```
+
+Architecture: Adea's real PostgreSQL; a CP host process (`host-journey.mjs`: CP's production Pi lead
+factory with the governed `delegate_child` tool, a scripted provider transport with named gates, no
+live provider and no credential); and Adea's operations as separate OS processes
+(`journey-driver.ts`) that build the product from nothing but PostgreSQL and the CP address. A fault
+named in `JOURNEY_FAULT` SIGKILLs the driver at one boundary, so the next run is a real Adea process
+restart. CP's side is reopened **in-process only** (`reopen`): CP's fixture cannot reopen its
+composition in a new OS process, so CP process-restart recovery is **not** claimed.
+
+| File                             | Proves                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `journey.test.mjs` (6)           | An accepted message, snapshot, status and progress start nothing. Prepare discloses the payer with no inference and replays as the same preparation. Dispatch runs the lead once; the child is allocated, funded and started once. The exact answer bytes are published once with the identity chain intent, execution, attempt, native session and child. Retries and a CP reopen change no durable row. An ordinary direct message creates no intent or CP work. |
+| `journey-recovery.test.mjs` (6)  | Prepare reply lost (SIGKILL); dispatch accepted by CP but lost to Adea, recovered by lookup with no second dispatch; terminal receipt lost; killed inside the publication transaction (nothing published); killed after commit (same message, same digest on every retry). Counters at the end.                                                                                                                                                                    |
+| `journey-authority.test.mjs` (8) | A lead stop retried from a new process is one CP stop, does not cancel the child, and an acknowledgement is not termination. CP's publication authority withdrawn: result withheld, then published once when restored. A stop after completion is refused and changes nothing. A revoked audience gets no result and no projection.                                                                                                                                |
+
+Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic accounts):
+
+- 20 pass, 0 fail, 234 expects, 189.6 s (`bun run test:integration:control-plane-journey`).
+- Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
+  attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
+  calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one
+  `delegation.completed` publication (revision 1); one intent, one published Adea message.
+
+### Defect found and fixed in Adea
+
+CP binds a command's idempotency key to a digest that includes the envelope `issuedAt`. Adea minted
+a fresh `issuedAt` for every attempt, so any retry of prepare, dispatch or cancel after a lost reply
+(or from a new process) was refused as `PI_LEAD_COMMAND_CONFLICT`, surfacing as
+`RUNTIME_UNAVAILABLE`. Only the unit fakes and in-process replays ever saw success. Adea now sends the
+intent's immutable creation time as `issuedAt` for prepare and dispatch, and the stored
+`cancel_requested_at` for cancel (`LeadRuntimeAuthority.admittedAt`, `commandEnvelope({ issuedAt })`).
+CP is unchanged and accepted the older instants. Failing-first unit tests are in
+`lead-turn-composition.test.ts` and `lead-turn-runtime.test.ts`; the joined recovery and stop suites
+exercise it with real process restarts.
+
+### Behavior the proof recorded (not designed here)
+
+- The lead finishes after it _starts_ the child; the child's outcome is a separate record. The lead's
+  answer text does not carry it.
+- Lead stop never cascades. With the lead running and the child's provider request in flight, a lead
+  stop left the child `running` and CP's delegation record `running`. CP holds a lead stop open
+  while the provider call is in flight, so the first reply can time out; the retry returns
+  `cancelling`.
+- An acknowledged stop is not termination: the lead was still `cancelling` after its provider call
+  was released.
+- Child cancellation exists only as CP's host-side `cancelChildren` (not on the public lead contract
+  or in Adea). The delegation record became `cancelled` while the child's native session was still
+  `running`, and became `unknown` once its request ended.
+- A stop pressed after the lead completed is refused by CP (`RUNTIME_UNAVAILABLE`); the published
+  answer and the child are untouched. A stop requested before the answer exists does not by itself
+  suppress a later published answer if CP reports the lead completed.
+- A member removed from the audience is refused outright on every read and retry (no projection, no
+  result); a result whose CP publication authority was withdrawn is withheld with
+  `PUBLICATION_WITHHELD` and published once, exact bytes, after it is restored.
+- CP usage-ledger rows settle a few seconds after the terminal states, so counters are compared on
+  a settled read.
+
+### Not proved (acceptance stays open on #1173)
+
+- **No public child interface.** CP's public lead contract (prepare, dispatch, lookup, status,
+  progress, cancel) has no child status, child outcome, child cancel or approval operation. Adea
+  therefore cannot show or publish the child's logical outcome, cancel a child, or surface an
+  approval, and these states are not drawn (see the changed-views note in
+  `design-consolidation/changed-views-1173-lead-child-states.md`). The child result was checked from
+  CP's own records only.
+- **CP process restart.** CP is reopened in-process only.
+- **Revocation inside the publication transaction.** The audience fault revokes before Adea's next
+  audience check, so Adea refuses before the transaction; the in-transaction recheck is covered by
+  the existing publication tests, not by a process fault here.
+- **Handoff target / one RuntimeSession across Dev and Chat.** The harness admits no handoff target,
+  so the shared-RuntimeSession path is not exercised by this journey.
+- **Released packages.** The candidate is unmerged CP; this is not evidence about a release or live
+  provider.
+
 ## Remaining dependencies
 
 - Repin `source.json` to a published CP release once one carries #1123 and #1131 (CP main
