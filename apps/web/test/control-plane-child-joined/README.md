@@ -244,7 +244,9 @@ PI_FACTORY_MANIFEST=<candidate>/manifest.json \
 
 The first script is the gate that must pass after the SDK release and the Adea bump, and it fails
 until then (today the lockfile SDK is not byte-identical to the candidate, so it stops at the
-identity check). Local results at `d0cc27c3`, 2026-10-14:
+identity check). Local results at `d0cc27c3`, 2026-10-14, before the lockfile moved to sdk 1.18.1 and
+contracts 1.21.3 (#1416); they were not re-run for the journey change and the versions below are
+those of that date:
 
 | Run                                                                                                                                    | Expectation | Result                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -268,21 +270,20 @@ outcome, through Adea's production lead product and the installed SDK, over HTTP
 control API, against **CP main `0a453d8`**, the squash merge of CP #1134 (reviewed head
 `421f225d`; `source-journey.json`). It carries the production child bridge builder and
 `PiChildTerminalSettlement` (CP #1137). It is a merged source revision, not a published release.
-The installed SDK comes from Adea's lockfile (sdk 1.18.0, runtime-sdk 1.15.1, contracts 1.21.1) and
-is compared with the packages that revision builds (sdk 1.18.1, runtime-sdk 1.15.1, contracts
-1.21.3) before any database connection is opened. `runtime-sdk`, which holds the lead contract, is
-byte-identical. Twelve files differ, and `declaredDrift` in `journey-support.mjs` pins each one to
-its reviewed installed and built sha256 (install kind `registry-declared-drift`); a different
-content in either file, an undeclared difference, or a declared file that stops differing fails the
-run (checked with a negative control).
+The installed SDK comes from Adea's lockfile (sdk 1.18.1, runtime-sdk 1.15.1, contracts 1.21.3) and
+is compared, file by file, with the packages that revision builds (the same three versions) before
+any database connection is opened. Every file is **byte-identical**, so there is no allowed drift:
+the gate (install kind `registry`) fails on any differing or missing file, a changed load field or a
+floating range. `journey-identity.test.mjs` is the executable negative control: it copies the real
+installed packages into a throwaway tree, tampers with the copy (a changed byte in contracts and in
+the lead contract of runtime-sdk, a missing file, a changed `main`, a `^` range) and requires the
+same gate to refuse each one. A stale install (an older SDK/contracts than the lockfile pins) fails
+the gate until `bun install --frozen-lockfile` is run; an earlier revision of this branch recorded
+its drift hashes from such a stale install.
 
-| Files                                                                                                                                 | Change in the CP build                                                            | Import-path impact                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| contracts `dist/graphs.js` (+ `.d.ts`, `control-api.d.ts`, maps), sdk `dist/operations.d.ts`, `openapi/control-plane.v3.json` (+ map) | CP #1149/#1150: an optional `digestVersion: 'canonical-json-v1'` on graph digests | Strictly additive and optional. Evaluated when contracts loads, never parsed by the lead operations, which carry no graph digest. Types and OpenAPI text are not executed.                                                                                                                                                                                                                                                  |
-| contracts `dist/canonical-json.js` (+ maps)                                                                                           | Loop-based rewrite of `canonicalJsonStringify`, same canonical form               | Evaluated when contracts loads and used by runtime-sdk modules (health, eligibility, models, sessions, ...), not by Adea's lead operations (Adea hashes payloads with its own `canonicalJson`). `journey-drift.test.mjs` runs both implementations on edge values, 2,000 seeded random documents and code-point ordering and requires identical output and identical thrown errors; a `localeCompare` mutation is detected. |
-
-This is not an Adea-lockfile-equals-CP claim and the release-parity gap stays open: a published
-SDK/contracts release plus an Adea bump would remove the table.
+This is a merged CP source revision, not a published release: the release-parity gap stays open (a
+published CP release carrying #1123 and #1131 and an Adea bump to it). See `RECEIPT.md` for the
+recorded run and the exact prerequisites; the lane is opt-in and is not wired into CI.
 
 ```sh
 # manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 0a453d8
@@ -303,12 +304,13 @@ composition in a new OS process, so CP process-restart recovery is **not** claim
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `journey.test.mjs` (6)           | An accepted message, snapshot, status and progress start nothing. Prepare discloses the payer with no inference and replays as the same preparation. Dispatch runs the lead once; the child is allocated, funded and started once. The exact answer bytes are published once with the identity chain intent, execution, attempt, native session and child. Retries and a CP reopen change no durable row. An ordinary direct message creates no intent or CP work. |
 | `journey-recovery.test.mjs` (6)  | Prepare reply lost (SIGKILL); dispatch accepted by CP but lost to Adea, recovered by lookup with no second dispatch; terminal receipt lost; killed inside the publication transaction (nothing published); killed after commit (same message, same digest on every retry). Counters at the end.                                                                                                                                                                    |
-| `journey-drift.test.mjs` (3)     | `canonicalJsonStringify` in the installed contracts and in the CP build agree on edge values, seeded random documents and ordering.                                                                                                                                                                                                                                                                                                                                |
+| `journey-identity.test.mjs` (6)  | The package identity gate: the real lockfile install passes with no allowed drift, and a changed byte (contracts, runtime-sdk lead contract), a missing file, a changed load field or a floating range in a tampered copy is refused.                                                                                                                                                                                                                              |
 | `journey-authority.test.mjs` (8) | A lead stop retried from a new process is one CP stop, does not cancel the child, and an acknowledgement is not termination. CP's publication authority withdrawn: result withheld, then published once when restored. A stop after completion is refused and changes nothing. A revoked audience gets no result and no projection.                                                                                                                                |
 
 Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic accounts):
 
-- 23 pass, 0 fail at CP `0a453d8` (`bun run test:integration:control-plane-journey`).
+- 26 pass, 0 fail at CP `0a453d8` (`bun run test:integration:control-plane-journey`); recorded in
+  `RECEIPT.md` with versions, digests and prerequisites.
 - Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
   attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
   calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one
@@ -368,8 +370,8 @@ exercise it with real process restarts.
 - **Handoff target / one RuntimeSession across Dev and Chat.** The harness admits no handoff target,
   so the shared-RuntimeSession path is not exercised by this journey.
 - **Released packages.** The CP revision is merged but unreleased, and Adea's lockfile packages
-  differ from its build by the declared drift above; this is not evidence about a release or a live
-  provider.
+  are byte-identical to its build, but that build is unreleased; this is not evidence about a
+  release or a live provider.
 
 ## Remaining dependencies
 

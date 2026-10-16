@@ -14,7 +14,7 @@ import {
 } from '../../../../packages/db/tests/fixtures/lead-production-factory-preflight.mjs'
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
-const webManifestUrl = new URL('../../package.json', import.meta.url)
+const defaultWebManifestUrl = new URL('../../package.json', import.meta.url)
 // The fields that decide what a consumer resolves and loads. The publish step rewrites the
 // remaining manifest fields (dependency ranges, empty dev/peer maps), so those are reported, not
 // compared.
@@ -28,12 +28,6 @@ const loadFields = ['name', 'version', 'type', 'main', 'module', 'types', 'expor
  * 'registry-predating-candidate': registry installs as above, but the candidate is expected to
  * differ (it carries a CP change no release has yet). The payload is not asserted equal; the files
  * that differ are returned so the gap a release must close is on the record.
- * 'registry-declared-drift': registry installs whose payload may differ from the build only in the
- * files `declaredDrift` names for that package, and only with exactly the reviewed content:
- * `declaredDrift[package][file]` pins the installed file's sha256 and the built file's sha256.
- * Any other differing file, a declared file that no longer differs, or a declared file whose
- * installed or built content is not the pinned content, fails. For a CP revision that has moved
- * past Adea's lockfile only in changes the caller states and justifies.
  */
 export async function verifyInstalledPackages({
   manifestPath,
@@ -41,15 +35,11 @@ export async function verifyInstalledPackages({
   cpRoot,
   port,
   installKind = 'registry',
-  declaredDrift = {},
+  /** The web app manifest whose resolution decides which installed packages are compared. */
+  webManifestUrl = defaultWebManifestUrl,
 }) {
   assert.ok(
-    [
-      'registry',
-      'registry-predating-candidate',
-      'registry-declared-drift',
-      'candidate-overlay',
-    ].includes(installKind),
+    ['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind),
     'UNKNOWN_INSTALL_KIND'
   )
   const manifest = verifyFactoryArchives(manifestPath, expectedHead)
@@ -84,7 +74,6 @@ export async function verifyInstalledPackages({
     for (const field of loadFields.filter((key) => key !== 'version'))
       assert.deepEqual(installed[field], artifact.declared[field], `${artifact.name} ${field}`)
     const differing = []
-    const differingHashes = {}
     const tarEntries = execFileSync('tar', ['-tf', artifact.archivePath], { encoding: 'utf8' })
       .split('\n')
       .filter((name) => name && !name.endsWith('/') && name !== 'package/package.json')
@@ -95,17 +84,8 @@ export async function verifyInstalledPackages({
         maxBuffer: 20 * 1024 * 1024,
       })
       const actual = readFileSync(resolve(installedRoot, name.slice('package/'.length)))
-      if (
-        installKind === 'registry-predating-candidate' ||
-        installKind === 'registry-declared-drift'
-      ) {
-        if (sha256(actual) !== sha256(built)) {
-          differing.push(name.slice('package/'.length))
-          differingHashes[name.slice('package/'.length)] = {
-            installed: sha256(actual),
-            built: sha256(built),
-          }
-        }
+      if (installKind === 'registry-predating-candidate') {
+        if (sha256(actual) !== sha256(built)) differing.push(name.slice('package/'.length))
         continue
       }
       assert.equal(
@@ -114,24 +94,11 @@ export async function verifyInstalledPackages({
         `INSTALLED_PAYLOAD_DIFFERS:${artifact.name}:${name}`
       )
     }
-    if (installKind === 'registry-declared-drift')
-      assert.deepEqual(
-        Object.fromEntries(
-          Object.entries(differingHashes).toSorted(([a], [b]) => (a < b ? -1 : 1))
-        ),
-        Object.fromEntries(
-          Object.entries(declaredDrift[artifact.name] ?? {}).toSorted(([a], [b]) =>
-            a < b ? -1 : 1
-          )
-        ),
-        `UNDECLARED_OR_CHANGED_PAYLOAD_DRIFT:${artifact.name}`
-      )
     packages.push({
       name: artifact.name,
       version: installed.version,
       comparedFiles: tarEntries.length,
-      ...(installKind === 'registry-predating-candidate' ||
-      installKind === 'registry-declared-drift'
+      ...(installKind === 'registry-predating-candidate'
         ? { candidateVersion: artifact.version, differingFiles: differing.toSorted() }
         : {}),
     })
