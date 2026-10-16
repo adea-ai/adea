@@ -308,8 +308,11 @@ describe('VITE_CACHE_PATH', () => {
     )
     expect(workflow).toContain("cache-vite-plus: 'true'")
     expect(workflow).toContain('ref: ${{ env.CODE_FOUNDRY_SHA }}')
+    expect(workflow).toContain('src/runtime.mjs')
+    expect(workflow).toContain('src/runtime-core.mjs')
+    expect(workflow).toContain('mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"')
     expect(workflow).toContain(
-      'cp -R .github/.code-foundry/.github/actions/cache .github/actions/cache'
+      'cp -R "$RUNNER_TEMP/code-foundry/.github/actions/cache" .github/actions/cache'
     )
     expect(workflow).toContain('cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"')
     expect(workflow).toContain('test "$CODE_FOUNDRY_VITE_CACHE_PATH" = "$expected"')

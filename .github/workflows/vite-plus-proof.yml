@@ -46,6 +46,9 @@ jobs:
           path: .github/.code-foundry
           sparse-checkout: |
             .github/actions/cache
+            src/lib
+            src/runtime-core.mjs
+            src/runtime.mjs
             package.json
       - name: Verify the pinned runtime
         run: |
@@ -58,9 +61,10 @@ jobs:
       - name: Install the pinned cache helper
         run: |
           set -euo pipefail
+          mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"
           mkdir -p .github/actions
           test ! -e .github/actions/cache
-          cp -R .github/.code-foundry/.github/actions/cache .github/actions/cache
+          cp -R "$RUNNER_TEMP/code-foundry/.github/actions/cache" .github/actions/cache
       # Opt this job's workspace into Vite+. The repository's committed
       # code-foundry.yml is untouched, so required workflows keep using Turbo.
       - name: Opt this job into Vite+
