@@ -42,10 +42,13 @@ const inspect = async (page: Page, ref: string) => {
     .click()
   await expect(page.getByTestId('host-detail-heading')).toBeVisible()
 }
-const run = (page: Page, source: string) =>
+// The source is always a constant string; anything that varies is passed as `arg`, never spliced
+// into the code.
+const run = (page: Page, source: string, arg?: unknown) =>
   page.evaluate(
-    (code) => new Function('s', `return (${code})(s)`)(window.selfHostedHarness),
-    source
+    ([code, value]) =>
+      new Function('s', 'a', `return (${code as string})(s, a)`)(window.selfHostedHarness, value),
+    [source, arg] as const
   )
 const text = (page: Page) => page.locator('body').innerText()
 
@@ -241,7 +244,7 @@ for (const status of [401, 403, 404]) {
     await page.getByRole('button', { name: 'Connect a host…' }).click()
     await page.getByRole('button', { name: 'Create pairing' }).click()
     await expect(page.getByLabel('Nonce', { exact: true })).toBeVisible()
-    await run(page, `(s) => s.queueListFailure({ status: ${status} })`)
+    await run(page, '(s, a) => s.queueListFailure({ status: a })', status)
     await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
     // Nothing the reader may no longer see stays on screen, and nothing secret outlives the access.
     await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
@@ -511,7 +514,7 @@ test('setup: pairing refusals give distinct recovery, keep focus, and never echo
     [{ status: 503 }, 'Adea had a problem'],
   ]
   for (const [failure, title] of cases) {
-    await run(page, `(s) => { s.state.pairingFailure = ${JSON.stringify(failure)} }`)
+    await run(page, '(s, a) => { s.state.pairingFailure = a }', failure)
     const create = page.getByRole('button', { name: 'Create pairing' })
     await create.click()
     await expect(page.getByTestId('pairing-failure')).toContainText(title)
