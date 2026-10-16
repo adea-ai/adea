@@ -4,10 +4,12 @@ import {
   listWorkspaceEventsAfter,
   type WorkspaceEventView,
   markEventDispatchesNotified,
+  prepareWorkspaceEventsAfter,
   workspaceEventWindow,
   WORKSPACE_EVENT_PAGE_LIMIT,
 } from '@adea-ai/db'
 
+import { keepAliveUntil } from '../../../../../../server/background-task'
 import { applicationDatabase } from '../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
@@ -18,6 +20,7 @@ import {
   decodeWorkspaceEventCursor,
   encodeWorkspaceEventCursor,
 } from '../../../../../../server/event-cursor'
+import { openRequestScope, type RequestScope } from '../../../../../../server/request-scope'
 import { authorizeWorkspace } from '../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../server/workspace-principal'
 import {
@@ -66,7 +69,11 @@ function streamUnavailableResponse(
   return withDesktopWorkspaceCors(Response.json({ code, message }, { status }), request)
 }
 
-async function get(request: Request, { params }: { params: { workspaceId: string } }) {
+async function get(
+  request: Request,
+  { params }: { params: { workspaceId: string } },
+  requestScope: RequestScope
+) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
 
@@ -107,22 +114,50 @@ async function get(request: Request, { params }: { params: { workspaceId: string
   }
 
   const encoder = new TextEncoder()
-  let released = false
-  const release = () => {
-    if (released) return
-    released = true
+  // Two different things end at two different moments. DELIVERY ends when the
+  // client goes away or cancels: the connection slot frees at once and the
+  // producer is told to stop. The producer's RESOURCES (the request's database
+  // client) end only when the producer has actually unwound, because a read or
+  // reauthorization may still be in flight on that client. The request scope
+  // would close the client as soon as this handler returns the Response, so a
+  // hold keeps it open until the producer's `finally`.
+  let cancelled = false
+  const stopped = () => cancelled || request.signal.aborted
+  let slotReleased = false
+  const releaseSlot = () => {
+    if (slotReleased) return
+    slotReleased = true
     connections.release(workspaceId)
   }
+  let wake: (() => void) | undefined
+  const cancelDelivery = () => {
+    cancelled = true
+    releaseSlot()
+    wake?.()
+  }
+  // The poll interval ends early on cancellation instead of holding the
+  // producer (and its database client) open for up to a second.
+  const pause = (ms: number) =>
+    new Promise<void>((resolve) => {
+      if (stopped()) return resolve()
+      const done = () => {
+        clearTimeout(timer)
+        wake = undefined
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      wake = done
+    })
+  const releaseProducer = requestScope.retain()
 
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (frame: string) => controller.enqueue(encoder.encode(frame))
-      // Captures release from the enclosing route handler.
-      // oxlint-disable-next-line unicorn/consistent-function-scoping
-      const close = () => release()
+      const send = (frame: string) => {
+        if (!stopped()) controller.enqueue(encoder.encode(frame))
+      }
 
       request.signal.addEventListener('abort', () => {
-        release()
+        cancelDelivery()
         try {
           controller.close()
         } catch {
@@ -134,30 +169,36 @@ async function get(request: Request, { params }: { params: { workspaceId: string
       // current project access before it is framed, so a members-only project
       // never reaches someone who cannot see it, and a resumed cursor is
       // filtered exactly like live delivery. `false` means the subscriber is no
-      // longer a member: the stream ends as a revoked membership.
-      const sendPage = async (page: readonly WorkspaceEventView[]): Promise<boolean> => {
+      // longer a member: the stream ends as a revoked membership. `stopped`
+      // means the subscriber went away mid-page: nothing more is read or sent.
+      const sendPage = async (
+        page: readonly WorkspaceEventView[]
+      ): Promise<'sent' | 'revoked' | 'stopped'> => {
         const deliveries = await classifyWorkspaceEventsForUser(
           database,
           workspaceId,
           resolution.principal.userId,
           page
         )
-        if (!deliveries) return false
+        if (stopped()) return 'stopped'
+        if (!deliveries) return 'revoked'
         for (const [index, delivery] of deliveries.entries()) {
           const event = page[index]!
           const cursor = await encodeWorkspaceEventCursor({
             sequence: event.workspaceSequence,
             workspaceId,
           })
+          if (stopped()) return 'stopped'
           send(deliveryFrame(delivery, cursor ?? ''))
         }
-        return true
+        return 'sent'
       }
 
       try {
         send(`retry: ${STREAM_RETRY_MS}\n\n`)
 
         const window = await workspaceEventWindow(database, workspaceId)
+        if (stopped()) return
         const decision = cursorRejection
           ? ({ mode: 'resync', reason: cursorRejection } as const)
           : decideReplay(requestedSequence, window)
@@ -167,6 +208,7 @@ async function get(request: Request, { params }: { params: { workspaceId: string
           // Tell the client where to resume from, then continue live: replaying
           // an unprovable range would hand it a silent gap.
           const cursor = await encodeWorkspaceEventCursor({ sequence: window.latest, workspaceId })
+          if (stopped()) return
           send(resyncFrame(decision.reason, cursor ?? ''))
           lastSequence = window.latest
         } else {
@@ -178,12 +220,16 @@ async function get(request: Request, { params }: { params: { workspaceId: string
             WORKSPACE_EVENT_PAGE_LIMIT
           )
           while (page.length > 0) {
-            if (!(await sendPage(page))) {
+            if (stopped()) return
+            const sent = await sendPage(page)
+            if (sent === 'stopped') return
+            if (sent === 'revoked') {
               send(drainingFrame('membership-revoked'))
               return
             }
             lastSequence = page.at(-1)!.workspaceSequence
             await markEventDispatchesNotified(database, workspaceId, lastSequence)
+            if (stopped()) return
             page =
               page.length < WORKSPACE_EVENT_PAGE_LIMIT
                 ? []
@@ -196,28 +242,35 @@ async function get(request: Request, { params }: { params: { workspaceId: string
           }
         }
 
+        // The poll below repeats the same read every second for the life of the
+        // stream, so its query is built once here and only the cursor changes.
+        const pollEventsAfter = prepareWorkspaceEventsAfter(
+          database,
+          workspaceId,
+          WORKSPACE_EVENT_PAGE_LIMIT
+        )
         const startedAt = Date.now()
         let lastHeartbeat = Date.now()
         let lastReauthorize = Date.now()
 
-        while (!request.signal.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, STREAM_POLL_MS))
+        while (!stopped()) {
+          await pause(STREAM_POLL_MS)
+          if (stopped()) break
 
           // Bounded catch-up reads are what keep delivery correct when a wake-up
           // is lost or delayed; the log is the source of truth.
-          const events = await listWorkspaceEventsAfter(
-            database,
-            workspaceId,
-            lastSequence,
-            WORKSPACE_EVENT_PAGE_LIMIT
-          )
+          const events = await pollEventsAfter(lastSequence)
+          if (stopped()) break
           if (events.length > 0) {
-            if (!(await sendPage(events))) {
+            const sent = await sendPage(events)
+            if (sent === 'stopped') break
+            if (sent === 'revoked') {
               send(drainingFrame('membership-revoked'))
               break
             }
             lastSequence = events.at(-1)!.workspaceSequence
             await markEventDispatchesNotified(database, workspaceId, lastSequence)
+            if (stopped()) break
           }
 
           const now = Date.now()
@@ -232,9 +285,13 @@ async function get(request: Request, { params }: { params: { workspaceId: string
           if (now - lastReauthorize >= STREAM_REAUTHORIZE_MS) {
             lastReauthorize = now
             const current = await resolveWorkspacePrincipal(request)
+            // A subscriber that left while the principal resolved gets no
+            // further database work on its behalf.
+            if (stopped()) break
             const recheck = current
               ? await authorizeWorkspace(current.principal, 'workspace.events.read', workspaceId)
               : { allowed: false }
+            if (stopped()) break
             const outcome = revalidationOutcome(
               current ? { principalId: current.principal.userId } : null,
               resolution.principal.userId,
@@ -257,16 +314,19 @@ async function get(request: Request, { params }: { params: { workspaceId: string
         // The client went away or the database read failed: end the stream and
         // let the client reconnect with its cursor.
       } finally {
-        close()
+        releaseSlot()
         try {
           controller.close()
         } catch {
           // Already closed.
         }
+        // Last: the producer has unwound, so nothing is still using the
+        // request's database client and the scope may close it.
+        releaseProducer()
       }
     },
     cancel() {
-      release()
+      cancelDelivery()
     },
   })
 
@@ -287,7 +347,16 @@ export const Route = createFileRoute('/api/v1/workspaces/$workspaceId/events')({
     handlers: {
       GET: ({ request, params }) => {
         if (!params?.workspaceId) return workspaceInvalidRequestResponse(request)
-        return get(request, { params: { workspaceId: params.workspaceId } })
+        const workspaceId = params.workspaceId
+        const requestScope = openRequestScope()
+        return requestScope
+          .run(() => get(request, { params: { workspaceId } }, requestScope))
+          .finally(async () => {
+            await requestScope.end()
+            // A stream's client closes after the handler returned; the runtime
+            // keeps the isolate alive for that teardown.
+            keepAliveUntil(requestScope.completion)
+          })
       },
       OPTIONS: ({ request }) => handleDesktopWorkspacePreflight(request),
     },

@@ -4,10 +4,15 @@ import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { assertLocalTestTargets } from '../../../scripts/test-target-guard.mjs'
+
 // Hosted checks for the remaining promotion gates that can be exercised
 // without private provider or Control Plane credentials: desktop device
 // exchange, session-cookie rotation, and fail-closed behaviour for
 // unconfigured hosted integrations.
+// The acceptance origin must be loopback or a host named in
+// ADEA_ALLOW_REMOTE_TEST_TARGET; production hosts are refused outright.
+assertLocalTestTargets()
 const base = process.env.ADEA_ACCEPTANCE_URL
 if (!base) throw new Error('Set ADEA_ACCEPTANCE_URL to the isolated acceptance origin')
 const origin = new URL(base).origin

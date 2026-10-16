@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { assertLocalTestTargets } from './test-target-guard.mjs'
 import {
   captureCommand,
   composePostgresImage,
@@ -17,6 +18,9 @@ import {
 } from './capture-provisioning.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+
+// An inherited DATABASE_URL must be a local or CI-created target before anything runs.
+assertLocalTestTargets()
 const localDatabaseEnvironment = {
   DATABASE_URL:
     'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',

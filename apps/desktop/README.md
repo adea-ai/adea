@@ -28,9 +28,18 @@ bun run shell:dev
 ```
 
 `shell:client:build` runs `apps/web`'s `desktop:build` with
-`ADEA_DESKTOP_CLOUD_ORIGIN` set from the canonical
-`apps/desktop/scripts/cloud-config.mjs` value (release default `https://adea.dev`). The
-shell itself never restates the cloud origin; `scripts/check-desktop-origins.mjs`
+`ADEA_DESKTOP_CLOUD_ORIGIN` resolved by `apps/desktop/scripts/cloud-config.mjs`, and records
+that one decision next to the client in `adea-desktop-target.json` (`release`, `local` or
+`hosted-dev`, plus the origin). The bundle copies the client directory, so a packaged shell
+carries the record its client was built from; the shell reads it at boot and stops if it is
+missing or malformed. Only a release build (`ADEA_DESKTOP_RELEASE_BUILD=true`, set by the
+release workflow, which also verifies the record inside the packaged bundle) defaults to the
+hosted origin (`https://adea.dev`). Every other build, including a local `shell:build` package,
+targets the local dev server (`http://localhost:3000`) unless `ADEA_CLOUD_ORIGIN` names another
+loopback origin at build time. A hosted origin in a development build needs both
+`ADEA_CLOUD_ORIGIN=<hosted origin>` and `ADEA_ALLOW_HOSTED_CLOUD=true`, and the shell needs the
+same opt-in at run time. At run time `ADEA_CLOUD_ORIGIN` can only restate the recorded origin.
+The shell itself never restates the cloud origin; `scripts/check-desktop-origins.mjs`
 enforces that.
 
 `shell:build` copies the SPA output into the application bundle
