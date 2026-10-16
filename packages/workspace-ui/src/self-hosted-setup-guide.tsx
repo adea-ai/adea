@@ -32,11 +32,13 @@ type ActivePairing = Readonly<{
 const STATE_COPY: Readonly<Record<PairingState, { label: string; detail: string }>> = {
   active: {
     label: 'Waiting for the host',
-    detail: 'The pairing works for one registration until it expires.',
+    detail:
+      'The values are shown until the deadline passes or you clear them. Adea cannot see whether a host has already used them.',
   },
   expired: {
     label: 'Expired',
-    detail: 'The pairing ran out before a host used it. The values were cleared; create a new one.',
+    detail:
+      'The deadline passed. The values were cleared; create a new pairing. Expiry shows only that time ran out: Adea cannot tell whether a host used the pairing first, so check the list.',
   },
   discarded: {
     label: 'Discarded',
@@ -343,8 +345,8 @@ function PairingValues(props: {
         <p class="text-muted-foreground text-sm text-pretty" data-testid="pairing-new-host-note">
           {props.newHostCount === 1 ? 'A host' : `${props.newHostCount} hosts`} registered since
           this pairing was created. Adea cannot tell which pairing{' '}
-          {props.newHostCount === 1 ? 'it' : 'they'} used, so these values stay valid until they
-          expire or you clear them. Check the list to see whether your host appeared.
+          {props.newHostCount === 1 ? 'it' : 'they'} used, so these values are still shown and may
+          already have been used. Check the list to see whether your host appeared.
         </p>
       </Show>
       <Show when={grant()}>

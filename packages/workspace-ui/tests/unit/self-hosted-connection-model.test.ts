@@ -423,3 +423,33 @@ test('a fresh compatible report with unknown entitlement is not summarised as el
   expect(hostSelectability(unknown, now).allowed).toBe(false)
   expect(hostSelectability(unknown, now).blockers.join(' ')).toContain('Unknown')
 })
+
+test('a report must carry both identity fields before any of its facts are used', () => {
+  const host = node()
+  const good = page(host, [connection()])
+  for (const mismatch of [
+    { controlPlaneRuntimeNodeRefId: 'rnr_other' },
+    { id: 'other-node' },
+    { id: 'other-node', controlPlaneRuntimeNodeRefId: 'rnr_other' },
+  ]) {
+    if (good.state !== 'read') throw new Error('fixture')
+    const wrong: HostInput = {
+      node: host,
+      discovery: {
+        state: 'read',
+        page: { ...good.page, node: { ...good.page.node, ...mismatch } },
+      },
+    }
+    expect(byId(wrong, 'discovery')).toMatchObject({
+      tone: 'unknown',
+      verdict: 'Report names another identity',
+    })
+    // No eligibility, compatibility, capability or access fact is taken from it.
+    expect(byId(wrong, 'compatibility').verdict).toBe('Not checked')
+    expect(byId(wrong, 'capabilities').verdict).toBe('Not reported')
+    expect(byId(wrong, 'access').verdict).toBe('Not reported')
+    expect(hostHeadline(wrong, now).label).not.toBe('Reported eligible')
+    expect(hostSelectability(wrong, now).allowed).toBe(false)
+  }
+  expect(hostHeadline({ node: host, discovery: good }, now).label).toBe('Reported eligible')
+})

@@ -128,6 +128,9 @@ function Content(
       if (connections.isFetching) return { state: 'loading' }
       if (connections.isError) return { state: 'failed', ...statusOf(connections.error) }
     }
+    // The cache only stores what was read. Whether a report is about this host is decided by the
+    // model, which requires both the node id and the Control Plane ref to match the list entry
+    // and otherwise shows the mismatch and uses none of the report.
     const page = reports()[hostId]
     return page ? { state: 'read', page } : { state: 'not_read' }
   }

@@ -42,6 +42,8 @@ export type FakeState = {
   listFailures: FakeFailure[]
   discoveryFailures: Record<string, FakeFailure>
   discoveryUnavailable: string[]
+  /** Host id to the Control Plane ref its discovery report claims, for identity-mismatch tests. */
+  discoveryRefs: Record<string, string>
   pairingFailure?: FakeFailure
   pairingLifetimeMs: number
   renameFailure?: FakeFailure
@@ -104,6 +106,7 @@ export function createFakeState(hosts: FakeHost[]): FakeState {
     listFailures: [],
     discoveryFailures: {},
     discoveryUnavailable: [],
+    discoveryRefs: {},
     pairingLifetimeMs: 10 * MINUTE,
     revokeIgnored: false,
     holdRevoke: false,
@@ -228,7 +231,7 @@ export function createFakeFetch(state: FakeState): typeof fetch {
     const body: ApiRuntimeNodeConnectionsResponse = {
       node: {
         id: item.id,
-        controlPlaneRuntimeNodeRefId: item.ref,
+        controlPlaneRuntimeNodeRefId: state.discoveryRefs[item.id] ?? item.ref,
         kind: item.kind,
         displayName: item.displayName,
         health: toNode(item).health,

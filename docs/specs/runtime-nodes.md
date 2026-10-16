@@ -263,8 +263,13 @@ Revoking states what it does and does not do (no deletion on the host, no erasur
 records, no change to history access, no cancellation of accepted work) and requires the
 reason the route requires. After a revoke is accepted the list read decides: a host still
 shown registered is reported as unconfirmed, not revoked. A pairing's values are held in
-memory only, are cleared on expiry, use by a new host, or account or workspace change, and
-are never stored.
+memory only, are cleared on expiry, on an explicit clear, or on account or workspace change,
+and are never stored. A host appearing after a pairing was issued does not clear them or mark
+the pairing used: no registration read carries a challenge reference, so consumption is
+unknown and the values stay displayed (with a note that they may already have been used).
+Expiry shows only that the deadline passed, not that no host used the pairing. A Control
+Plane report is used only when both its node id and Control Plane ref match the host; any
+other report supplies no eligibility, capability, access or proof facts.
 
 ## Durable events
 

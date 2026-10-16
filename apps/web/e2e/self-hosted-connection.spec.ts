@@ -154,6 +154,23 @@ test('a fresh report with unknown entitlement is not shown as eligible', async (
   await expect(page.getByRole('button', { name: 'Use this host' })).toBeDisabled()
 })
 
+test('a report that names another Control Plane ref supplies no facts for the host', async ({
+  page,
+}) => {
+  await open(page)
+  await run(page, `(s) => { s.state.discoveryRefs['host-aaaaaa'] = 'rnr_someone_else' }`)
+  await inspect(page, '…AAAAAA')
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).not.toContainText('Reported eligible')
+  await expect(page.getByTestId('diagnostics')).toContainText('Report names another identity')
+  await expect(page.getByTestId('diagnostics')).not.toContainText('reports a compatible runtime')
+  await expect(page.getByRole('button', { name: 'Use this host' })).toBeDisabled()
+  // The matching report is used again once the identity agrees.
+  await run(page, `(s) => { delete s.state.discoveryRefs['host-aaaaaa'] }`)
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Reported eligible')
+})
+
 test('choosing a host is unavailable, with its reason, when it is not connected', async ({
   page,
 }) => {
@@ -307,6 +324,9 @@ test('setup: another host registering does not spend or clear a still-valid pair
   await expect(page.getByTestId('pairing-values')).toHaveAttribute('data-pairing-state', 'active')
   await expect(page.getByTestId('pairing-new-host-note')).toContainText(
     'Adea cannot tell which pairing it used'
+  )
+  await expect(page.getByTestId('pairing-new-host-note')).toContainText(
+    'may already have been used'
   )
   await expect(page.getByTestId('pairing-values')).not.toContainText('Used')
   await expect(page.getByLabel('Registration credential', { exact: true })).toBeVisible()

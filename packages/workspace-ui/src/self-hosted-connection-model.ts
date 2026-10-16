@@ -68,8 +68,25 @@ function boundedList(values: readonly string[]): string {
     .join(' · ')
 }
 
-function connectionsOf(discovery: DiscoveryRead): readonly ApiRuntimeConnection[] {
-  return discovery.state === 'read' && discovery.page.discovery.state === 'available'
+/**
+ * A Control Plane report belongs to one registered identity: both the Adea node id and the
+ * Control Plane ref must match. A report that names anything else is not evidence about this host.
+ */
+function reportIdentityMatches(input: HostInput): boolean {
+  if (input.discovery.state !== 'read') return true
+  const other = input.discovery.page.node
+  return (
+    other.id === input.node.id &&
+    other.controlPlaneRuntimeNodeRefId === input.node.controlPlaneRuntimeNodeRefId
+  )
+}
+
+/** Runtimes from a report about this host. A mismatched report supplies none: it fails closed. */
+function connectionsOf(input: HostInput): readonly ApiRuntimeConnection[] {
+  const { discovery } = input
+  return discovery.state === 'read' &&
+    reportIdentityMatches(input) &&
+    discovery.page.discovery.state === 'available'
     ? discovery.page.connections
     : []
 }
@@ -80,14 +97,9 @@ function connectionsOf(discovery: DiscoveryRead): readonly ApiRuntimeConnection[
  */
 export function effectiveNodeProof(input: HostInput, now: number): NodeProof {
   const own: NodeProof = input.node
-  if (input.discovery.state !== 'read') return conservativeNodeProof(own, own, now)
-  const other = input.discovery.page.node
-  const sameIdentity =
-    other.id === input.node.id &&
-    other.controlPlaneRuntimeNodeRefId === input.node.controlPlaneRuntimeNodeRefId
-  return sameIdentity
-    ? conservativeNodeProof(own, other, now)
-    : conservativeNodeProof(own, own, now)
+  if (input.discovery.state !== 'read' || !reportIdentityMatches(input))
+    return conservativeNodeProof(own, own, now)
+  return conservativeNodeProof(own, input.discovery.page.node, now)
 }
 
 const COMPAT_RANK: Readonly<Record<ApiRuntimeConnection['compatibility']['state'], number>> = {
@@ -220,6 +232,15 @@ function discoveryDiagnostic(input: HostInput, now: number): Diagnostic {
     }
   }
   const page = discovery.page
+  if (!reportIdentityMatches(input))
+    return {
+      ...base,
+      tone: 'unknown',
+      verdict: 'Report names another identity',
+      detail:
+        'The report does not carry this host’s node id and Control Plane ref, so none of its facts are used. Check again to read a report for this host.',
+      action: 'refresh_location',
+    }
   if (page.discovery.state === 'unavailable')
     return {
       ...base,
@@ -258,7 +279,7 @@ function discoveryDiagnostic(input: HostInput, now: number): Diagnostic {
 
 function compatibilityDiagnostic(input: HostInput): Diagnostic {
   const base = { id: 'compatibility', label: 'Version compatibility' } as const
-  const connections = connectionsOf(input.discovery)
+  const connections = connectionsOf(input)
   const worst = worstCompatibility(connections)
   if (!worst)
     return {
@@ -344,7 +365,7 @@ export function unavailableCapabilityFacts(connection: ApiRuntimeConnection): re
 
 function capabilitiesDiagnostic(input: HostInput): Diagnostic {
   const base = { id: 'capabilities', label: 'Capabilities' } as const
-  const connections = connectionsOf(input.discovery)
+  const connections = connectionsOf(input)
   if (connections.length === 0)
     return {
       ...base,
@@ -384,7 +405,7 @@ function capabilitiesDiagnostic(input: HostInput): Diagnostic {
 
 function accessDiagnostic(input: HostInput): Diagnostic {
   const base = { id: 'access', label: 'Project access and entitlement' } as const
-  const connections = connectionsOf(input.discovery)
+  const connections = connectionsOf(input)
   if (connections.length === 0)
     return {
       ...base,
@@ -487,9 +508,7 @@ export function hostHeadline(input: HostInput, now: number): HostHeadline {
       }
   }
   if (compat.tone === 'warning') return { label: compat.verdict, tone: 'warning' }
-  const eligible = connectionsOf(input.discovery).some(
-    (item) => item.eligibility.state !== 'ineligible'
-  )
+  const eligible = connectionsOf(input).some((item) => item.eligibility.state !== 'ineligible')
   return eligible
     ? { label: 'Reported eligible', tone: 'success' }
     : { label: 'Reported ineligible', tone: 'warning' }
@@ -511,7 +530,7 @@ export function hostSelectability(input: HostInput, now: number): Selectability 
     }
     if (item.tone !== 'success') blockers.push(`${item.label}: ${item.verdict}`)
   }
-  const connections = connectionsOf(input.discovery)
+  const connections = connectionsOf(input)
   if (
     connections.length > 0 &&
     !connections.some(
