@@ -85,8 +85,281 @@ async function overflowsHorizontally(locator: Locator): Promise<boolean> {
   return locator.evaluate((element) => element.scrollWidth > element.clientWidth + 1)
 }
 
+/** Elements that animate without end: a spinner or shimmer (a one-shot enter is not). */
+const endlessAnimations = (root: Locator) =>
+  root.evaluate(
+    (element) =>
+      [...element.querySelectorAll('*')].filter((node) => {
+        const style = getComputedStyle(node)
+        const seconds = Math.max(
+          ...style.animationDuration.split(',').map((value) => parseFloat(value))
+        )
+        return (
+          style.animationName !== 'none' &&
+          style.animationIterationCount.includes('infinite') &&
+          seconds > 0.01
+        )
+      }).length
+  )
+
 const append = (page: Page) =>
   page.evaluate(() => window.dispatchEvent(new Event('chat-visual:append')))
+
+const reasoning = (page: Page) => page.locator('[data-kind="turn.reasoning_summary"]')
+const method = (page: Page) => page.locator('[data-kind="turn.method_step_summary"]')
+const entry = (page: Page, id: string) => page.locator(`[data-entry-id="${id}"]`)
+
+test.describe('source-reported summaries and cited answers', () => {
+  test('reasoning and method snapshots update one node in place and settle', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'grounded-stream')
+    await expect(page.getByRole('article', { name: 'You' })).toBeVisible()
+    // Nothing is shown until a producer reports it.
+    await expect(reasoning(page)).toHaveCount(0)
+    await expect(method(page)).toHaveCount(0)
+
+    await append(page)
+    await expect(reasoning(page)).toHaveCount(1)
+    await expect(reasoning(page)).toContainText('Thinking…')
+    const node = await reasoning(page).evaluate((element) => {
+      element.setAttribute('data-test-node', 'same')
+      return element.getAttribute('data-entry-id')
+    })
+
+    await append(page) // method step: running
+    await expect(method(page)).toHaveCount(1)
+    await expect(method(page)).toContainText('1 method step')
+    await append(page) // reasoning revision 2
+    await append(page) // step 1 completed
+    await append(page) // step 2 running
+    await expect(method(page)).toContainText('2 method steps')
+    // The same two nodes, however many snapshots arrived.
+    await expect(reasoning(page)).toHaveCount(1)
+    await expect(reasoning(page)).toHaveAttribute('data-test-node', 'same')
+    await expect(reasoning(page)).toHaveAttribute('data-entry-id', node ?? '')
+
+    await append(page) // reasoning completed, 4.2s
+    await expect(reasoning(page)).toContainText('Thought for 4s')
+    await expect(reasoning(page)).not.toContainText('Thinking…')
+    await append(page) // step 2 completed
+    await method(page).getByRole('button').first().click()
+    const steps = method(page).locator('[data-slot="trace-line"]')
+    await expect(steps.filter({ hasText: 'Search the Rust book' })).toContainText('Done')
+    await expect(steps.filter({ hasText: 'Compare the claims' })).toContainText('Done')
+    expect(errors).toEqual([])
+  })
+
+  test('a cited answer lists its sources and marks only prose, never code', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'grounded')
+    const answer = page.locator('[data-entry-id="chat-visual-grounded-answer"]')
+    await expect(answer).toBeVisible()
+    await expect(answer.getByText('Used 2 sources')).toBeVisible()
+    // Two spans in the first paragraph share one source; the second source cites the borrowing
+    // sentence. The span inside the fenced block gets no badge.
+    const badges = answer.locator('[data-slot="inline-citation"]')
+    await expect(badges).toHaveCount(3)
+    await expect(
+      answer.locator('[data-slot="code-block"] [data-slot="inline-citation"]')
+    ).toHaveCount(0)
+    await expect(answer.locator('[data-slot="code-block"]')).toContainText('let r = &s;')
+    // A citation the producer sent that the canvas did not mark is said, not hidden.
+    await expect(answer.getByText('1 citation is not marked in the text.')).toBeVisible()
+    // Copy source stays the producer's exact text.
+    await expect(answer.locator('[data-slot="code-block"]')).not.toContainText('[^')
+    expect(errors).toEqual([])
+  })
+
+  test('a citation opens its source and a source link is safe', async ({ page }) => {
+    await openCanvas(page, 'grounded')
+    const answer = page.locator('[data-entry-id="chat-visual-grounded-answer"]')
+    await answer.locator('[data-slot="inline-citation"]').first().click()
+    const card = page.getByRole('dialog')
+    await expect(card).toContainText('What is Ownership?')
+    await expect(card).toContainText('doc.rust-lang.org')
+    await page.keyboard.press('Escape')
+    await expect(card).toHaveCount(0)
+
+    await answer.getByRole('button', { name: /Used 2 sources/ }).click()
+    const link = answer.getByRole('link', { name: /What is Ownership/ })
+    await expect(link).toHaveAttribute('href', /^https:\/\/doc\.rust-lang\.org\//)
+    await expect(link).toHaveAttribute('rel', /noopener/)
+  })
+})
+
+test.describe('summaries and citations: truth, preservation and untrusted text', () => {
+  test('a last word of "streaming" does not spin once the session has stopped', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'grounded-stopped')
+    await expect(reasoning(page)).toHaveCount(1)
+    await expect(reasoning(page)).not.toContainText('Thinking')
+    await expect(reasoning(page)).toContainText('not finished')
+    await method(page).getByRole('button').first().click()
+    const step = method(page)
+      .locator('[data-slot="trace-line"]')
+      .filter({ hasText: 'Search the Rust book' })
+    await expect(step).toContainText('not finished')
+    await expect(step).not.toContainText('In progress')
+    // Nothing in the transcript animates without end: no spinner, no shimmer, no caret.
+    expect(await endlessAnimations(log(page))).toBe(0)
+    expect(errors).toEqual([])
+  })
+
+  test('a selection and a reader-chosen fold survive every snapshot that arrives', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'grounded-stream')
+    await expect(page.getByRole('article', { name: 'You' })).toBeVisible()
+    await append(page)
+    await expect(reasoning(page)).toContainText('Thinking…')
+    // The reader closes the reasoning while it is open, and selects their own prompt.
+    const toggle = reasoning(page).getByRole('button').first()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await page.getByRole('article', { name: 'You' }).getByText('Does Rust need').dblclick()
+    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+    expect(selected.length).toBeGreaterThan(0)
+
+    for (let index = 0; index < 7; index += 1) await append(page)
+    await expect(entry(page, 'chat-visual-grounded-answer')).toBeVisible()
+    // Still closed, still selected, still the one node.
+    await expect(reasoning(page)).toHaveCount(1)
+    await expect(reasoning(page).getByRole('button').first()).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(selected)
+  })
+
+  test('a remount draws the same summaries and citations once, not twice', async ({ page }) => {
+    await openCanvas(page, 'grounded')
+    await expect(page.locator('[data-slot="inline-citation"]')).toHaveCount(3)
+    await page.evaluate(() => window.dispatchEvent(new Event('chat-visual:remount')))
+    await expect(page.locator('[data-slot="inline-citation"]')).toHaveCount(3)
+    await expect(reasoning(page)).toHaveCount(1)
+    await expect(method(page)).toHaveCount(1)
+    await expect(page.getByText('Used 2 sources')).toHaveCount(1)
+  })
+
+  test('untrusted summary and source text is inert, redacted and bounded', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'grounded-hostile')
+    await reasoning(page).getByRole('button').first().click()
+    await method(page).getByRole('button').first().click()
+    const answer = entry(page, 'chat-visual-hostile-answer')
+    await answer.getByRole('button', { name: /Used 1 source/ }).click()
+
+    const transcript = log(page)
+    await expect(transcript.locator('script, img, iframe')).toHaveCount(0)
+    await expect(transcript.locator('a[href^="javascript:" i]')).toHaveCount(0)
+    expect(
+      await page.evaluate(() => (window as unknown as { pwned?: unknown }).pwned)
+    ).toBeUndefined()
+    const text = (await transcript.textContent()) ?? ''
+    expect(text).toContain('<img src=x onerror=alert(1)> step title')
+    // Markup is text; a link with a script address is shown as its text, never followed.
+    expect(text).toContain('<script>window.pwned = true</script>')
+    expect(text).toContain('[click](javascript:window.pwned=true)')
+    expect(text).not.toContain('sk-supersecretvalue1234')
+    expect(text).not.toContain('abcdefghijklmnop1234')
+    expect(text).not.toContain('/Users/example')
+    // The direction override is stripped and the 440-character title is clipped.
+    expect(text).not.toContain('\u202e')
+    const row = answer.getByRole('link').first()
+    expect((await row.textContent())?.length ?? 0).toBeLessThan(400)
+    // The link is the reported address, safe, and its host comes from the URL.
+    await expect(answer.getByRole('link').first()).toHaveAttribute(
+      'href',
+      'https://evil.example/path?q=1'
+    )
+    expect(errors).toEqual([])
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    for (const width of [1280, 320]) {
+      test(`no accessibility violations of any impact: grounded answer (${theme}, ${width}px)`, async ({
+        page,
+      }) => {
+        await openCanvas(page, 'grounded', { theme, width, height: 900 })
+        await reasoning(page).getByRole('button').first().click()
+        await method(page).getByRole('button').first().click()
+        await entry(page, 'chat-visual-grounded-answer')
+          .getByRole('button', { name: /Used 2 sources/ })
+          .click()
+        await page.addScriptTag({ content: axe.source })
+        const violations = await page.evaluate(async () => {
+          const runner = (
+            window as unknown as {
+              axe: {
+                run: (c: Element) => Promise<{
+                  violations: Array<{ id: string; nodes: Array<{ target: unknown[] }> }>
+                }>
+              }
+            }
+          ).axe
+          const result = await runner.run(document.querySelector('[data-dev-chat]') as Element)
+          return result.violations.map((violation) => ({
+            id: violation.id,
+            targets: violation.nodes.map((node) => node.target.join(' ')),
+          }))
+        })
+        expect(violations).toEqual([])
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        ).toBe(true)
+      })
+    }
+  }
+
+  test('keyboard: fold, citation and sources are all reachable and return focus', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'grounded')
+    const toggle = reasoning(page).getByRole('button').first()
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press('Space')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    const badge = page.locator('[data-slot="inline-citation"]').first()
+    await badge.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('dialog')).toContainText('What is Ownership?')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(badge).toBeFocused()
+
+    const sources = page.getByRole('button', { name: /Used 2 sources/ })
+    await sources.focus()
+    await page.keyboard.press('Enter')
+    await expect(sources).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  test('text zoomed to 200% reflows at 640px with no horizontal overflow', async ({ page }) => {
+    await openCanvas(page, 'grounded', { width: 640, height: 900 })
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '200%'
+    })
+    await expect(page.locator('[data-slot="inline-citation"]').first()).toBeVisible()
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+    ).toBe(true)
+    expect(await overflowsHorizontally(log(page))).toBe(false)
+  })
+
+  test('reduced motion: a streaming reasoning line has no animation', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openCanvas(page, 'grounded-stream')
+    await append(page)
+    const line = reasoning(page)
+    await expect(line).toContainText('Thinking…')
+    expect(await endlessAnimations(line)).toBe(0)
+  })
+})
 
 test.describe('streaming', () => {
   test('a code fence grows in place: partial then complete, same node', async ({ page }) => {

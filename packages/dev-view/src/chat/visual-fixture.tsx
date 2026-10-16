@@ -15,6 +15,11 @@ import {
   failedEvents,
   FIXTURE_SESSION_ID,
   fixtureEvent,
+  groundedEvents,
+  groundedHostileEvents,
+  groundedPrompt,
+  groundedScript,
+  groundedStoppedEvents,
   hostileEvents,
   largeEvents,
   richEvents,
@@ -40,6 +45,14 @@ export type ChatVisualFixtureState =
   | 'large'
   /** A code block whose exact whitespace a copy must preserve. */
   | 'copy'
+  /** Source-reported reasoning and method summaries and a cited answer, settled. */
+  | 'grounded'
+  /** The same, one scripted event per `chat-visual:append`. */
+  | 'grounded-stream'
+  /** The producer's last word was streaming and the session then stopped. */
+  | 'grounded-stopped'
+  /** Untrusted text in every summary and reference field. */
+  | 'grounded-hostile'
 
 const codeStreamInitial: readonly RuntimeEvent[] = [
   fixtureEvent('1', 'turn.user_input', { text: 'Add a helper.' }),
@@ -54,6 +67,10 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   'code-stream': codeStreamInitial,
   large: largeEvents,
   copy: copyEvents,
+  grounded: groundedEvents,
+  'grounded-stream': [groundedPrompt],
+  'grounded-stopped': groundedStoppedEvents,
+  'grounded-hostile': groundedHostileEvents,
 }
 
 const STATE_TITLES: Partial<Record<ChatVisualFixtureState, string>> = {
@@ -121,9 +138,9 @@ function conversation(
         ? 'disconnected'
         : state === 'failed'
           ? 'failed'
-          : state === 'cancelled'
+          : state === 'cancelled' || state === 'grounded-stopped'
             ? 'cancelled'
-            : state === 'empty'
+            : state === 'empty' || state === 'grounded' || state === 'grounded-hostile'
               ? 'ready'
               : 'active',
     archived: false,
@@ -230,7 +247,7 @@ function reconnectModel(): Pick<ChatConversationModel, 'openTranscript' | 'send'
 
 function streamingModel(
   initial: readonly RuntimeEvent[] = transcriptEvents,
-  streamTexts: readonly string[] = [
+  streamTexts: readonly (string | ((seq: string) => RuntimeEvent))[] = [
     'A later stream update arrived.',
     'Streaming continues to append rows.',
   ],
@@ -257,9 +274,12 @@ function streamingModel(
       const firstSeq = Number(initial.at(-1)?.seq ?? '0') + 1
       let nextSeq = firstSeq
       const append = () => {
-        const text = streamTexts[nextSeq - firstSeq]
-        if (text === undefined) return
-        const next = event(String(nextSeq), 'turn.assistant_delta', { text })
+        const step = streamTexts[nextSeq - firstSeq]
+        if (step === undefined) return
+        const next =
+          typeof step === 'function'
+            ? step(String(nextSeq))
+            : event(String(nextSeq), 'turn.assistant_delta', { text: step })
         nextSeq += 1
         state = {
           ...state,
@@ -305,7 +325,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
           ? streamingModel(codeStreamInitial, codeStreamTexts, () =>
               setCancelCount((count) => count + 1)
             )
-          : undefined
+          : state === 'grounded-stream'
+            ? streamingModel([groundedPrompt], groundedScript, () =>
+                setCancelCount((count) => count + 1)
+              )
+            : undefined
   const [draft, setDraft] = createSignal<ChatDraftValue>({
     text: state === 'attention' ? 'I can clarify the target environment.' : '',
     blocks: [],
@@ -406,7 +430,10 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 connected={state !== 'reconnect'}
                 awaitingApproval={state === 'attention' || state === 'rich'}
                 autoAttach={
-                  state === 'reconnect' || state === 'streaming' || state === 'code-stream'
+                  state === 'reconnect' ||
+                  state === 'streaming' ||
+                  state === 'code-stream' ||
+                  state === 'grounded-stream'
                 }
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}

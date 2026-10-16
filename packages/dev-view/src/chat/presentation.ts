@@ -1,4 +1,11 @@
-import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
+import type {
+  RuntimeCitationReference,
+  RuntimeEvent,
+  RuntimeResponseSource,
+  RuntimeSession,
+  RuntimeVisibleSummary,
+} from '@adea-ai/types/dev-runtime'
+import { decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
 
 /** A bounded, renderable row in the canonical transcript. */
 export type ChatTranscriptItem = Readonly<{
@@ -11,6 +18,10 @@ export type ChatTranscriptItem = Readonly<{
     | 'question'
     | 'subagent'
     | 'status'
+    /** A validated source-reported reasoning summary snapshot (`turn.reasoning_summary`). */
+    | 'reasoning'
+    /** A validated source-reported method step snapshot (`turn.method_step_summary`). */
+    | 'method'
     /** A kind the chat has no dedicated presentation for. Shown, never dropped. */
     | 'other'
   kind: RuntimeEvent['kind']
@@ -25,8 +36,26 @@ export type ChatTranscriptItem = Readonly<{
   body?: string
   /** `body` was cut at the bound. The canvas says so rather than showing a shorter message as whole. */
   bodyTruncated?: boolean
+  /** The snapshot, present only for `reasoning` and `method` rows that passed the wire gate. */
+  summary?: RuntimeVisibleSummary
+  /** The producer's sources and cited spans, present only when they validated against the exact text. */
+  references?: ChatResponseReferences
   state?: 'requested' | 'started' | 'in_progress' | 'completed' | 'failed' | 'resolved' | 'expired'
   event?: RuntimeEvent
+}>
+
+/**
+ * A final message's sources and the spans that cite them. `citations` are in the
+ * coordinates of the displayed `body`; they are empty, and `inline` says why,
+ * when the body is not the producer's exact text (redaction, control characters
+ * or a CRLF changed it, so an offset would point somewhere else).
+ */
+export type ChatResponseReferences = Readonly<{
+  sources: readonly RuntimeResponseSource[]
+  citations: readonly RuntimeCitationReference[]
+  /** How many spans the producer sent, so the canvas can say when fewer than that are marked. */
+  cited: number
+  inline: 'mapped' | 'text-changed'
 }>
 
 const MAX_RENDERED_TEXT = 4_096
@@ -346,6 +375,8 @@ function stateFor(kind: RuntimeEvent['kind']): ChatTranscriptItem['state'] {
 
 function roleFor(kind: RuntimeEvent['kind']): ChatTranscriptItem['role'] {
   if (kind === 'turn.user_input') return 'user'
+  if (kind === 'turn.reasoning_summary') return 'reasoning'
+  if (kind === 'turn.method_step_summary') return 'method'
   if (
     kind === 'turn.assistant_delta' ||
     kind === 'turn.assistant_message' ||
@@ -358,6 +389,70 @@ function roleFor(kind: RuntimeEvent['kind']): ChatTranscriptItem['role'] {
   if (kind === 'subagent.observed') return 'subagent'
   if (kind.startsWith('session.') || kind.startsWith('capability.')) return 'status'
   return 'other'
+}
+
+const SUMMARY_TEXT_LIMIT = 4_096
+
+/**
+ * The snapshot an event carries, or nothing. The whole event goes through the
+ * wire decoder (provenance, authoritative confidence, run identity, schema, size),
+ * so a payload that only looks like a summary never becomes one. The text is then
+ * redacted like every other renderable string; the structure stays the producer's.
+ */
+function visibleSummary(event: RuntimeEvent): RuntimeVisibleSummary | undefined {
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  const payload = event.payload as RuntimeVisibleSummary
+  const text = redact(payload.text, SUMMARY_TEXT_LIMIT, { layout: true })
+  const title = 'title' in payload ? redact(payload.title, MAX_LABEL) : undefined
+  return { ...payload, text, ...(title !== undefined ? { title } : {}) } as RuntimeVisibleSummary
+}
+
+/**
+ * Sources and cited spans for a final message, in the coordinates of its body.
+ * Spans are the producer's offsets into its exact `payload.text`; the body is
+ * that text trimmed, redacted and bounded, so a span is carried over only while
+ * the body is verbatim a slice of the text. Anything else keeps the sources and
+ * drops the spans, and `inline` says so, because a shifted span cites the wrong
+ * words.
+ */
+function responseReferences(event: RuntimeEvent, body: string): ChatResponseReferences | undefined {
+  const payload = event.payload as { text?: unknown; references?: unknown } | null
+  if (payload === null || typeof payload !== 'object' || !('references' in payload))
+    return undefined
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  const text = payload.text as string
+  const references = payload.references as {
+    sources: readonly RuntimeResponseSource[]
+    citations: readonly RuntimeCitationReference[]
+  }
+  const shift = text.length - text.trimStart().length
+  if (text.slice(shift, shift + body.length) !== body) {
+    return {
+      sources: references.sources,
+      citations: [],
+      cited: references.citations.length,
+      inline: 'text-changed',
+    }
+  }
+  const citations = references.citations.flatMap((citation) => {
+    const start = citation.start - shift
+    const end = citation.end - shift
+    return start >= 0 && end <= body.length ? [{ sourceId: citation.sourceId, start, end }] : []
+  })
+  return {
+    sources: references.sources,
+    citations,
+    cited: references.citations.length,
+    inline: 'mapped',
+  }
 }
 
 /**
@@ -375,6 +470,23 @@ export function projectTranscriptEvents(
     // malformed upstream producer gives one a normally renderable event kind.
     if (event.classification === 'credential') continue
     const role = roleFor(event.kind)
+    if (role === 'reasoning' || role === 'method') {
+      const summary = visibleSummary(event)
+      rows.push(
+        summary
+          ? {
+              id: event.eventId,
+              role,
+              kind: event.kind,
+              label: event.kind,
+              summary,
+              event,
+            }
+          : // Not a snapshot the wire gate admits: an unknown line, no payload content.
+            { id: event.eventId, role: 'other', kind: event.kind, label: event.kind }
+      )
+      continue
+    }
     if (role === 'other') {
       rows.push({
         id: event.eventId,
@@ -388,6 +500,10 @@ export function projectTranscriptEvents(
     const body = bodyFromPayload(event)
     const label = labelFromPayload(event)
     const state = stateFor(event.kind)
+    const references =
+      body !== undefined && event.kind === 'turn.assistant_message'
+        ? responseReferences(event, body.body)
+        : undefined
     rows.push({
       id: event.eventId,
       role,
@@ -398,6 +514,7 @@ export function projectTranscriptEvents(
         ? { body: body.body, ...(body.truncated ? { bodyTruncated: true } : {}) }
         : {}),
       ...(state !== undefined ? { state } : {}),
+      ...(references !== undefined ? { references } : {}),
       event,
     })
   }

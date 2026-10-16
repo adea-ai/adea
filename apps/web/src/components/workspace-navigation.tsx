@@ -774,6 +774,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'copy'
     | 'empty'
     | 'failed'
+    | 'grounded'
+    | 'grounded-hostile'
+    | 'grounded-stopped'
+    | 'grounded-stream'
     | 'hostile'
     | 'large'
     | 'reconnect'
@@ -786,6 +790,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       value === 'copy' ||
       value === 'empty' ||
       value === 'failed' ||
+      value === 'grounded' ||
+      value === 'grounded-hostile' ||
+      value === 'grounded-stopped' ||
+      value === 'grounded-stream' ||
       value === 'hostile' ||
       value === 'large' ||
       value === 'reconnect' ||

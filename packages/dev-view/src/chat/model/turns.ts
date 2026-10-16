@@ -17,11 +17,21 @@
 //   call identity, and a spinner on a line whose completion is somewhere below it
 //   would be a claim nobody made. A line carries a status only when its own event
 //   kind states one (`*.completed`, `*.failed`).
+// - Source-reported summaries are snapshots, not a stream. A `turn.reasoning_summary`
+//   (identity `summaryId`) and a `turn.method_step_summary` (identity `methodId` +
+//   `stepId`) each carry the whole current text and a revision. The canvas draws one
+//   stable entry per identity at the position its first snapshot arrived, replaced
+//   by a later snapshot only when its revision is higher and the last one was not
+//   already terminal; an older, repeated or post-terminal snapshot is folded into
+//   that entry without changing it. The identity includes session, generation, run
+//   and source, so two runs that reuse an id never merge.
 // - No event disappears. A kind the chat has no dedicated presentation for is an
 //   `other` entry with its kind as the label, in position.
+import type { RuntimeMethodStepSummary, RuntimeReasoningSummary } from '@adea-ai/types/dev-runtime'
 import {
   redactAssistantDeltaFragments,
   redactAssistantDeltaGroup,
+  type ChatResponseReferences,
   type ChatTranscriptItem,
 } from '../presentation'
 
@@ -38,6 +48,32 @@ export type ChatTurnText = Readonly<{
   truncated: boolean
   failed: boolean
   eventIds: readonly string[]
+  /** Sources and cited spans the producer sent with this final message, when they validated. */
+  references?: ChatResponseReferences
+}>
+
+export type ChatTurnReasoning = Readonly<{
+  type: 'reasoning'
+  /** Stable for the summary's lifetime: its first snapshot's event id. */
+  id: string
+  summary: RuntimeReasoningSummary
+  eventIds: readonly string[]
+}>
+
+export type ChatTurnMethodStep = Readonly<{
+  stepId: string
+  position: number
+  summary: RuntimeMethodStepSummary
+}>
+
+export type ChatTurnMethod = Readonly<{
+  type: 'method'
+  /** Stable for the method's lifetime: its first step snapshot's event id. */
+  id: string
+  methodId: string
+  /** Ordered by the producer's `position`; arrival order breaks a tie. */
+  steps: readonly ChatTurnMethodStep[]
+  eventIds: readonly string[]
 }>
 
 export type ChatTurnActivity = Readonly<{
@@ -52,6 +88,8 @@ export type ChatTurnNotice = Readonly<{ type: 'notice'; id: string; item: ChatTr
 
 export type ChatTurnEntry =
   | ChatTurnText
+  | ChatTurnReasoning
+  | ChatTurnMethod
   | ChatTurnActivity
   | ChatTurnApproval
   | ChatTurnQuestion
@@ -103,6 +141,37 @@ function join(
     : { text, truncated: alreadyTruncated }
 }
 
+type OpenTurn = { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] }
+type ReasoningState = {
+  entries: ChatTurnEntry[]
+  at: number
+  id: string
+  revision: number
+  terminal: boolean
+  eventIds: string[]
+  summary: RuntimeReasoningSummary
+}
+type MethodState = {
+  entries: ChatTurnEntry[]
+  at: number
+  id: string
+  methodId: string
+  steps: Map<
+    string,
+    { order: number; summary: RuntimeMethodStepSummary; revision: number; terminal: boolean }
+  >
+  eventIds: string[]
+}
+
+const isTerminal = (status: string) =>
+  status === 'completed' || status === 'failed' || status === 'cancelled'
+
+/** Two runs, generations, sessions or sources that reuse an id are different summaries. */
+function summaryScope(item: ChatTranscriptItem): readonly unknown[] {
+  const event = item.event
+  return [event?.runtimeSessionId, event?.generation, event?.harnessRunId, event?.source]
+}
+
 /**
  * Group projected transcript rows into turns.
  *
@@ -132,6 +201,102 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     | undefined
 
   const index = (eventId: string, entryId: string) => entryByEventId.set(eventId, entryId)
+
+  const reasoning = new Map<string, ReasoningState>()
+  const methods = new Map<string, MethodState>()
+  const foldReasoning = (turn: OpenTurn, item: ChatTranscriptItem) => {
+    const summary = item.summary as RuntimeReasoningSummary
+    const key = JSON.stringify([summaryScope(item), summary.summaryId])
+    const known = reasoning.get(key)
+    if (!known) {
+      const entry: ChatTurnReasoning = {
+        type: 'reasoning',
+        id: item.id,
+        summary,
+        eventIds: [item.id],
+      }
+      turn.entries.push(entry)
+      reasoning.set(key, {
+        entries: turn.entries,
+        at: turn.entries.length - 1,
+        id: item.id,
+        revision: summary.revision,
+        terminal: isTerminal(summary.status),
+        eventIds: [item.id],
+        summary,
+      })
+      index(item.id, item.id)
+      return
+    }
+    known.eventIds.push(item.id)
+    index(item.id, known.id)
+    if (summary.revision > known.revision && !known.terminal) {
+      known.summary = summary
+      known.revision = summary.revision
+      known.terminal = isTerminal(summary.status)
+    }
+    known.entries[known.at] = {
+      type: 'reasoning',
+      id: known.id,
+      summary: known.summary,
+      eventIds: [...known.eventIds],
+    }
+  }
+  const foldMethod = (turn: OpenTurn, item: ChatTranscriptItem) => {
+    const summary = item.summary as RuntimeMethodStepSummary
+    const key = JSON.stringify([summaryScope(item), summary.methodId])
+    let known = methods.get(key)
+    if (!known) {
+      known = {
+        entries: turn.entries,
+        at: turn.entries.length,
+        id: item.id,
+        methodId: summary.methodId,
+        steps: new Map(),
+        eventIds: [],
+      }
+      methods.set(key, known)
+      turn.entries.push({
+        type: 'method',
+        id: item.id,
+        methodId: summary.methodId,
+        steps: [],
+        eventIds: [],
+      })
+    }
+    known.eventIds.push(item.id)
+    index(item.id, known.id)
+    const step = known.steps.get(summary.stepId)
+    if (!step) {
+      known.steps.set(summary.stepId, {
+        order: known.steps.size,
+        summary,
+        revision: summary.revision,
+        terminal: isTerminal(summary.status),
+      })
+    } else if (summary.revision > step.revision && !step.terminal) {
+      // A step keeps the position its first snapshot gave it.
+      step.summary = { ...summary, position: step.summary.position }
+      step.revision = summary.revision
+      step.terminal = isTerminal(summary.status)
+    }
+    known.entries[known.at] = {
+      type: 'method',
+      id: known.id,
+      methodId: known.methodId,
+      steps: [...known.steps.entries()]
+        .toSorted(
+          ([, left], [, right]) =>
+            left.summary.position - right.summary.position || left.order - right.order
+        )
+        .map(([stepId, entry]) => ({
+          stepId,
+          position: entry.summary.position,
+          summary: entry.summary,
+        })),
+      eventIds: [...known.eventIds],
+    }
+  }
 
   const flushDelta = () => {
     if (!pendingDelta || !open) return
@@ -232,6 +397,14 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       continue
     }
     flushDelta()
+    if (item.role === 'reasoning' && item.summary) {
+      foldReasoning(turn, item)
+      continue
+    }
+    if (item.role === 'method' && item.summary) {
+      foldMethod(turn, item)
+      continue
+    }
     if (item.kind === 'turn.assistant_message' || item.kind === 'turn.result') {
       if (item.body === undefined) {
         turn.entries.push({ type: 'notice', id: item.id, item })
@@ -245,6 +418,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
           truncated,
           failed: item.kind === 'turn.result' && resultFailed(item),
           eventIds: [item.id],
+          ...(item.references !== undefined ? { references: item.references } : {}),
         })
       }
     } else if (item.role === 'approval') {
@@ -262,9 +436,12 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
   return { turns, entryByEventId }
 }
 
+/** The entries that share the turn's one quiet column of lines. */
+export type ChatTurnColumnEntry = ChatTurnActivity | ChatTurnReasoning | ChatTurnMethod
+
 export type ChatTurnSegment =
-  | Readonly<{ type: 'activity'; id: string; entries: readonly ChatTurnActivity[] }>
-  | Readonly<{ type: 'entry'; id: string; entry: Exclude<ChatTurnEntry, ChatTurnActivity> }>
+  | Readonly<{ type: 'activity'; id: string; entries: readonly ChatTurnColumnEntry[] }>
+  | Readonly<{ type: 'entry'; id: string; entry: Exclude<ChatTurnEntry, ChatTurnColumnEntry> }>
 
 /**
  * Lay a turn's entries out for drawing: consecutive activity lines share one
@@ -275,9 +452,9 @@ export type ChatTurnSegment =
  */
 export function segmentTurnEntries(entries: readonly ChatTurnEntry[]): readonly ChatTurnSegment[] {
   const segments: ChatTurnSegment[] = []
-  let run: ChatTurnActivity[] | undefined
+  let run: ChatTurnColumnEntry[] | undefined
   for (const entry of entries) {
-    if (entry.type === 'activity') {
+    if (entry.type === 'activity' || entry.type === 'reasoning' || entry.type === 'method') {
       if (!run) {
         run = []
         segments.push({ type: 'activity', id: entry.id, entries: run })

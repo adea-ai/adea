@@ -1,8 +1,9 @@
 // Canonical event windows for the ChatView visual fixture. Everything here is a
 // plausible RuntimeEvent a host could deliver today: only the payload keys the
 // chat reads (`text`, `name`, `summary`, `question`, `isError`) are used, and
-// nothing models data no producer sends (no citations, checkpoints, reasoning,
-// token counts or call identities).
+// nothing models data no producer sends (no checkpoints, token counts or call
+// identities). Source-reported summaries and cited responses use the exact
+// payloads the merged wire contracts admit (#1388 and #1389).
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 export const FIXTURE_SESSION_ID = '00000000-0000-4000-8000-000000000004'
@@ -178,4 +179,235 @@ export const copyEvents: readonly RuntimeEvent[] = [
   event('2', 'turn.assistant_message', {
     text: `Here it is:\n\n\`\`\`js\n${FIXTURE_EXACT_SOURCE}\n\`\`\`\n\nDone.`,
   }),
+]
+
+const SUMMARY_CLASSIFICATION = 'workspace_private' as const
+
+function reasoningSummary(
+  seq: string,
+  revision: number,
+  text: string,
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | 'unknown',
+  extra: { summaryId?: string; durationMs?: number; eventId?: string } = {}
+): RuntimeEvent {
+  return {
+    ...fixtureEvent(
+      seq,
+      'turn.reasoning_summary',
+      {
+        schemaVersion: 1,
+        provenance: 'source_reported',
+        visibility: 'user_visible',
+        format: 'snapshot',
+        revision,
+        summaryId: extra.summaryId ?? 'think-1',
+        text,
+        status,
+        ...(extra.durationMs !== undefined ? { durationMs: extra.durationMs } : {}),
+      },
+      extra.eventId
+    ),
+    classification: SUMMARY_CLASSIFICATION,
+  }
+}
+
+function methodStep(
+  seq: string,
+  revision: number,
+  step: { id: string; position: number; title: string },
+  text: string,
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown',
+  durationMs?: number
+): RuntimeEvent {
+  return {
+    ...fixtureEvent(seq, 'turn.method_step_summary', {
+      schemaVersion: 1,
+      provenance: 'source_reported',
+      visibility: 'user_visible',
+      format: 'snapshot',
+      revision,
+      methodId: 'method-1',
+      stepId: step.id,
+      position: step.position,
+      title: step.title,
+      text,
+      status,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    }),
+    classification: SUMMARY_CLASSIFICATION,
+  }
+}
+
+const GROUNDED_REPLY = [
+  'Rust needs no garbage collector because ownership decides when a value is freed.',
+  'Each value has one owner, and it is dropped when that owner goes out of scope.',
+  '',
+  'Borrowing lets code read a value without owning it:',
+  '',
+  '```rust',
+  'let s = String::from("hi");',
+  'let r = &s;',
+  '```',
+  '',
+  'The compiler checks borrows at compile time, so there is no runtime cost.',
+].join('\n')
+
+const endOf = (needle: string) => GROUNDED_REPLY.indexOf(needle) + needle.length
+
+export const GROUNDED_SOURCES = [
+  {
+    id: 'book-ownership',
+    title: 'What is Ownership? - The Rust Programming Language',
+    url: 'https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html',
+    snippet: 'Rust uses a third approach: memory is managed through a system of ownership.',
+  },
+  {
+    id: 'book-borrowing',
+    title: 'References and Borrowing',
+    url: 'https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html',
+  },
+] as const
+
+const groundedMessage = (seq: string) =>
+  fixtureEvent(
+    seq,
+    'turn.assistant_message',
+    {
+      text: GROUNDED_REPLY,
+      references: {
+        schemaVersion: 1,
+        sources: GROUNDED_SOURCES,
+        citations: [
+          { sourceId: 'book-ownership', start: 0, end: endOf('is freed.') },
+          { sourceId: 'book-ownership', start: 0, end: endOf('out of scope.') },
+          {
+            sourceId: 'book-borrowing',
+            start: GROUNDED_REPLY.indexOf('Borrowing'),
+            end: endOf('owning it:'),
+          },
+          // Inside the fenced block: the producer may cite it, the canvas will not put a badge in code.
+          {
+            sourceId: 'book-borrowing',
+            start: GROUNDED_REPLY.indexOf('let r'),
+            end: endOf('let r = &s;'),
+          },
+        ],
+      },
+    },
+    'chat-visual-grounded-answer'
+  )
+
+export const groundedPrompt = fixtureEvent('1', 'turn.user_input', {
+  text: 'Does Rust need a garbage collector? Cite your sources.',
+})
+
+/** One scripted step per `chat-visual:append`; each receives the next sequence number. */
+export const groundedScript: readonly ((seq: string) => RuntimeEvent)[] = [
+  (seq) =>
+    reasoningSummary(seq, 1, 'Checking what the Rust book says about memory.', 'streaming', {
+      eventId: 'chat-visual-think-1',
+    }),
+  (seq) =>
+    methodStep(seq, 1, { id: 'search', position: 0, title: 'Search the Rust book' }, '', 'running'),
+  (seq) =>
+    reasoningSummary(
+      seq,
+      2,
+      'Checking what the Rust book says about memory.\n\nOwnership and borrowing are the two chapters that matter.',
+      'streaming'
+    ),
+  (seq) =>
+    methodStep(
+      seq,
+      2,
+      { id: 'search', position: 0, title: 'Search the Rust book' },
+      'Chapter 4 covers ownership and borrowing.',
+      'completed',
+      1800
+    ),
+  (seq) =>
+    methodStep(seq, 1, { id: 'compare', position: 1, title: 'Compare the claims' }, '', 'running'),
+  (seq) =>
+    reasoningSummary(
+      seq,
+      3,
+      'Checking what the Rust book says about memory.\n\nOwnership and borrowing are the two chapters that matter.',
+      'completed',
+      { durationMs: 4200 }
+    ),
+  (seq) =>
+    methodStep(
+      seq,
+      2,
+      { id: 'compare', position: 1, title: 'Compare the claims' },
+      'Both claims match the book.',
+      'completed',
+      900
+    ),
+  groundedMessage,
+]
+
+/** The grounded conversation after the script has run: nothing left in flight. */
+export const groundedEvents: readonly RuntimeEvent[] = [
+  groundedPrompt,
+  ...groundedScript.map((step, index) => step(String(index + 2))),
+]
+
+/** The producer's last word was "streaming" and the session then stopped: nothing may spin. */
+export const groundedStoppedEvents: readonly RuntimeEvent[] = [
+  groundedPrompt,
+  reasoningSummary('2', 1, 'Checking what the Rust book says about memory.', 'streaming', {
+    eventId: 'chat-visual-stopped-think',
+  }),
+  methodStep(
+    '3',
+    1,
+    { id: 'search', position: 0, title: 'Search the Rust book' },
+    'Reading chapter 4.',
+    'running'
+  ),
+  fixtureEvent('4', 'session.cancelled', {
+    name: 'Session cancelled',
+    text: 'Stopped from the composer.',
+  }),
+]
+
+/** Untrusted text in every field a producer can fill. */
+export const groundedHostileEvents: readonly RuntimeEvent[] = [
+  fixtureEvent('1', 'turn.user_input', { text: 'Summarise the page.' }),
+  reasoningSummary(
+    '2',
+    1,
+    '<script>window.pwned = true</script> **kept as text** [click](javascript:window.pwned=true) key sk-supersecretvalue1234 in /Users/example/private',
+    'completed',
+    { eventId: 'chat-visual-hostile-think', durationMs: 900 }
+  ),
+  methodStep(
+    '3',
+    1,
+    { id: 'one', position: 0, title: '<img src=x onerror=alert(1)> step title' },
+    'Fetched /Users/example/notes and Bearer abcdefghijklmnop1234',
+    'completed'
+  ),
+  fixtureEvent(
+    '4',
+    'turn.assistant_message',
+    {
+      text: 'Per the page, it is hostile. See the source.',
+      references: {
+        schemaVersion: 1,
+        sources: [
+          {
+            id: 'hostile-source',
+            // A direction override and a long title: both are bounded and cleaned on display.
+            title: `\u202eevil.example ${'long title '.repeat(40)}`,
+            url: 'https://evil.example/path?q=1',
+            snippet: '<b>not bold</b> javascript:alert(1)',
+          },
+        ],
+        citations: [{ sourceId: 'hostile-source', start: 0, end: 18 }],
+      },
+    },
+    'chat-visual-hostile-answer'
+  ),
 ]

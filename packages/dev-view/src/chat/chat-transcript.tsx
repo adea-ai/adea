@@ -12,7 +12,12 @@ import { Bubble } from '@adea-ai/ui/components/ui/bubble'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { CodeBlock } from '@adea-ai/ui/components/ui/code-block'
 import { Marker } from '@adea-ai/ui/components/ui/marker'
-import { Message, MessageContent, MessageText } from '@adea-ai/ui/components/ui/message'
+import {
+  Message,
+  MessageContent,
+  MessageText,
+  placeCitationMarkers,
+} from '@adea-ai/ui/components/ui/message'
 import {
   Questionnaire,
   type QuestionnaireAnswers,
@@ -20,6 +25,14 @@ import {
 } from '@adea-ai/ui/components/ui/questionnaire'
 import { Trace, TraceDetail, TraceLine } from '@adea-ai/ui/components/ui/trace'
 import { ChatEmpty, ChatNotice } from '@adea-ai/ui/components/composites/chat'
+import {
+  ChainOfThought,
+  ChainOfThoughtStep,
+  type ChainOfThoughtStepStatus,
+} from '@adea-ai/ui/components/composites/chain-of-thought'
+import { messageCitations } from '@adea-ai/ui/components/composites/inline-citation'
+import { formatDuration, Reasoning } from '@adea-ai/ui/components/composites/reasoning'
+import { Sources, type Source } from '@adea-ai/ui/components/composites/sources'
 import { MessageScroller } from '@adea-ai/ui/components/composites/message-scroller'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
@@ -35,9 +48,12 @@ import {
   type ChatTurn,
   type ChatTurnActivity,
   type ChatTurnApproval,
+  type ChatTurnColumnEntry,
   type ChatTurnEntry,
+  type ChatTurnMethod,
   type ChatTurnNotice,
   type ChatTurnQuestion,
+  type ChatTurnReasoning,
   type ChatTurnText,
 } from './model/turns'
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
@@ -395,7 +411,9 @@ function SegmentView(props: {
   }
   return (
     <>
-      <Show when={activity()}>{(entries) => <ActivityColumn entries={entries} />}</Show>
+      <Show when={activity()}>
+        {(entries) => <ActivityColumn entries={entries} live={props.live} />}
+      </Show>
       <Show when={single()}>
         {(entry) => (
           <EntryView
@@ -432,15 +450,145 @@ function WorkingLine(props: { awaitingApproval: boolean }): JSX.Element {
   )
 }
 
-function ActivityColumn(props: { entries: () => readonly ChatTurnActivity[] }): JSX.Element {
+function ActivityColumn(props: {
+  entries: () => readonly ChatTurnColumnEntry[]
+  live: () => boolean
+}): JSX.Element {
   const ids = createMemo<readonly string[]>(() => props.entries().map((entry) => entry.id), [], {
     equals: sameIds,
   })
   const byId = createMemo(() => new Map(props.entries().map((entry) => [entry.id, entry])))
   return (
     <Trace>
-      <For each={ids()}>{(id) => <ActivityLine item={() => byId().get(id)?.item} />}</For>
+      <For each={ids()}>
+        {(id) => {
+          const entry = () => byId().get(id)
+          return (
+            <>
+              <Show when={entry()?.type === 'activity' ? (entry() as ChatTurnActivity) : undefined}>
+                {(activity) => <ActivityLine item={() => byId().get(id) && activity().item} />}
+              </Show>
+              <Show when={entry()?.type === 'reasoning'}>
+                <ReasoningLine entry={() => entry() as ChatTurnReasoning} live={props.live} />
+              </Show>
+              <Show when={entry()?.type === 'method'}>
+                <MethodLine entry={() => entry() as ChatTurnMethod} live={props.live} />
+              </Show>
+            </>
+          )
+        }}
+      </For>
     </Trace>
+  )
+}
+
+const isTerminalStatus = (status: string) =>
+  status === 'completed' || status === 'failed' || status === 'cancelled'
+
+/**
+ * What a source-reported status lets the line say. A `streaming`/`running` status
+ * is the producer's last word, not a fact about now: it animates only while the
+ * session is working. A turn that stopped mid-stream says it did not finish rather
+ * than spinning on forever or claiming a completion nobody reported.
+ */
+function snapshotWords(
+  status: string,
+  live: boolean,
+  durationMs: number | undefined
+): string | undefined {
+  const parts: string[] = []
+  if (status === 'failed') parts.push('failed')
+  else if (status === 'cancelled') parts.push('cancelled')
+  else if ((status === 'streaming' || status === 'running') && !live) parts.push('not finished')
+  if (isTerminalStatus(status) && durationMs !== undefined)
+    parts.push(formatDuration(durationMs / 1000) ?? '')
+  const words = parts.filter(Boolean).join(' · ')
+  return words.length > 0 ? words : undefined
+}
+
+function ReasoningLine(props: {
+  entry: () => ChatTurnReasoning
+  live: () => boolean
+}): JSX.Element {
+  const summary = () => props.entry().summary
+  const streaming = () => summary().status === 'streaming' && props.live()
+  const done = () => isTerminalStatus(summary().status)
+  return (
+    <Reasoning
+      text={summary().text.length > 0 ? summary().text : undefined}
+      streaming={streaming()}
+      duration={
+        done() && summary().durationMs !== undefined ? summary().durationMs! / 1000 : undefined
+      }
+      meta={
+        summary().status === 'failed' || summary().status === 'cancelled' || !streaming()
+          ? snapshotWords(
+              summary().status,
+              props.live(),
+              // The title already says "Thought for 4s"; the meta carries only the state.
+              undefined
+            )
+          : undefined
+      }
+      data-entry-id={props.entry().id}
+      data-event-id={props.entry().id}
+      data-kind="turn.reasoning_summary"
+    />
+  )
+}
+
+const STEP_STATUS: Partial<Record<string, ChainOfThoughtStepStatus>> = {
+  pending: 'pending',
+  completed: 'complete',
+}
+
+function MethodLine(props: { entry: () => ChatTurnMethod; live: () => boolean }): JSX.Element {
+  const stepIds = createMemo<readonly string[]>(
+    () => props.entry().steps.map((step) => step.stepId),
+    [],
+    { equals: sameIds }
+  )
+  const stepById = createMemo(
+    () => new Map(props.entry().steps.map((step) => [step.stepId, step.summary]))
+  )
+  const count = () => props.entry().steps.length
+  return (
+    <ChainOfThought
+      summary={`${count().toLocaleString('en-US')} method ${count() === 1 ? 'step' : 'steps'}`}
+      stepsLabel="Method steps"
+      data-entry-id={props.entry().id}
+      data-event-id={props.entry().id}
+      data-kind="turn.method_step_summary"
+    >
+      <For each={stepIds()}>
+        {(id) => {
+          const step = () => stepById().get(id)
+          return (
+            <Show when={step()}>
+              {(summary) => (
+                <ChainOfThoughtStep
+                  label={summary().title}
+                  status={
+                    summary().status === 'running'
+                      ? props.live()
+                        ? 'active'
+                        : undefined
+                      : STEP_STATUS[summary().status]
+                  }
+                  meta={snapshotWords(summary().status, props.live(), summary().durationMs)}
+                >
+                  <Show when={summary().text.length > 0}>
+                    <TraceDetail>
+                      <MessageText text={summary().text} />
+                    </TraceDetail>
+                  </Show>
+                </ChainOfThoughtStep>
+              )}
+            </Show>
+          )
+        }}
+      </For>
+    </ChainOfThought>
   )
 }
 
@@ -484,7 +632,7 @@ function ActivityLine(props: { item: () => ChatTranscriptItem | undefined }): JS
 }
 
 function EntryView(props: {
-  entry: Exclude<ChatTurnEntry, ChatTurnActivity>
+  entry: Exclude<ChatTurnEntry, ChatTurnColumnEntry>
   streaming: boolean
   chat: ChatTranscriptProps
   answers: () => Record<string, QuestionnaireAnswers>
@@ -521,7 +669,39 @@ function EntryView(props: {
   )
 }
 
+function toSource(source: { id: string; title: string; url: string; snippet?: string }): Source {
+  return {
+    id: source.id,
+    title: source.title,
+    url: source.url,
+    ...(source.snippet !== undefined ? { snippet: source.snippet } : {}),
+  }
+}
+
 function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Element {
+  const references = () => props.entry.references
+  const sources = createMemo(() => references()?.sources.map(toSource) ?? [])
+  // The producer's spans become markers only where the shared parser agrees the
+  // spot is prose; the displayed text may then differ from `entry.text` by those
+  // markers, and nothing else. A message with no references is untouched.
+  const placement = createMemo(() => {
+    const refs = references()
+    if (!refs || refs.citations.length === 0 || sources().length === 0) return undefined
+    const numberById = new Map(refs.sources.map((source, index) => [source.id, index + 1]))
+    return placeCitationMarkers(
+      props.entry.text,
+      refs.citations.flatMap((citation) => {
+        const number = numberById.get(citation.sourceId)
+        return number === undefined ? [] : [{ end: citation.end, numbers: [number] }]
+      }),
+      sources().length
+    )
+  })
+  const marked = () => (placement() && placement()!.placed > 0 ? placement() : undefined)
+  const unmarked = () => {
+    const refs = references()
+    return refs ? refs.cited - (marked()?.placed ?? 0) : 0
+  }
   return (
     <div
       class="flex min-w-0 flex-col gap-2 rounded-md data-revealed:bg-primary-subtle"
@@ -530,15 +710,27 @@ function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Elem
       data-source={props.entry.source}
     >
       <MessageText
-        text={props.entry.text}
+        text={marked()?.text ?? props.entry.text}
         streaming={props.streaming && props.entry.source === 'delta'}
         codeBlockProps={{ maxHeight: '24rem' }}
+        citations={marked() ? messageCitations(sources()) : undefined}
       />
       <Show when={props.entry.truncated}>
         <TruncationNote />
       </Show>
       <Show when={props.entry.failed}>
         <Marker variant="note" tone="danger" label="The runtime reported an error for this turn." />
+      </Show>
+      <Show when={sources().length > 0}>
+        <Sources sources={sources()} />
+        <Show when={unmarked() > 0}>
+          <Marker
+            variant="note"
+            tone="neutral"
+            label={`${unmarked().toLocaleString('en-US')} ${unmarked() === 1 ? 'citation is' : 'citations are'} not marked in the text.`}
+            description="It falls inside code, or redaction or the display limit changed the text it points at."
+          />
+        </Show>
       </Show>
     </div>
   )

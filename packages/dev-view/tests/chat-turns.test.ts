@@ -450,3 +450,337 @@ describe('whitespace-only streamed fragments', () => {
     expect(texts[0]?.length).toBeLessThanOrEqual(CHAT_ASSISTANT_TEXT_LIMIT)
   })
 })
+
+// ─── Source-reported summaries and cited responses (#1388, #1389) ───────────
+
+function wire(
+  kind: RuntimeEvent['kind'],
+  payload: unknown,
+  id: string,
+  over: Partial<RuntimeEvent> = {}
+): RuntimeEvent {
+  return {
+    ...event(kind, payload, id),
+    source: 'native',
+    classification: 'workspace_private',
+    ...over,
+  }
+}
+
+const snapshot = {
+  schemaVersion: 1,
+  provenance: 'source_reported',
+  visibility: 'user_visible',
+  format: 'snapshot',
+} as const
+
+const think = (
+  id: string,
+  revision: number,
+  text: string,
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | 'unknown' = 'streaming',
+  over: Partial<RuntimeEvent> = {},
+  summaryId = 'think-1',
+  durationMs?: number
+) =>
+  wire(
+    'turn.reasoning_summary',
+    {
+      ...snapshot,
+      revision,
+      summaryId,
+      text,
+      status,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    },
+    id,
+    over
+  )
+
+const step = (
+  id: string,
+  revision: number,
+  stepId: string,
+  position: number,
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown',
+  text = '',
+  methodId = 'method-1'
+) =>
+  wire(
+    'turn.method_step_summary',
+    { ...snapshot, revision, methodId, stepId, position, title: `Step ${stepId}`, text, status },
+    id
+  )
+
+const references = (citations: readonly { sourceId: string; start: number; end: number }[]) => ({
+  schemaVersion: 1,
+  sources: [{ id: 'book', title: 'The Book', url: 'https://doc.rust-lang.org/book/' }],
+  citations,
+})
+const message = (payload: unknown, id = 'a1') => wire('turn.assistant_message', payload, id)
+const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength
+const shown = (events: readonly RuntimeEvent[]) => projectTranscriptEvents(events)[0]!
+const many = (sources: number, citations: number) => ({
+  text: 'abcdefghij'.repeat(20),
+  references: {
+    schemaVersion: 1,
+    sources: Array.from({ length: sources }, (_, index) => ({
+      id: `s${index}`,
+      title: `Source ${index}`,
+      url: `https://example.com/${index}`,
+    })),
+    citations: Array.from({ length: citations }, (_, index) => ({
+      sourceId: `s${index % Math.max(sources, 1)}`,
+      start: index,
+      end: index + 1 + (index % 7),
+    })),
+  },
+})
+
+describe('reasoning and method summaries', () => {
+  test('a snapshot becomes one stable entry that later revisions replace in place', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      think('r1', 1, 'First thought'),
+      event('tool.started', { name: 'bash' }, 't1'),
+      think('r2', 2, 'First thought, then more'),
+      think('r3', 3, 'First thought, then more, done', 'completed', {}, 'think-1', 4200),
+    ])
+    const entries = built[0]!.entries
+    expect(entries.map((entry) => `${entry.type}:${entry.id}`)).toEqual([
+      'reasoning:r1',
+      'activity:t1',
+    ])
+    const reasoning = entries[0] as Extract<(typeof entries)[number], { type: 'reasoning' }>
+    expect(reasoning.summary).toMatchObject({ revision: 3, status: 'completed', durationMs: 4200 })
+    expect(reasoning.summary.text).toBe('First thought, then more, done')
+    expect(reasoning.eventIds).toEqual(['r1', 'r2', 'r3'])
+    // Every snapshot event finds the entry that shows it.
+    expect(['r1', 'r2', 'r3'].map((id) => entryByEventId.get(id))).toEqual(['r1', 'r1', 'r1'])
+  })
+
+  test('an older, repeated or post-terminal snapshot never changes what is shown', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      think('r1', 2, 'Second'),
+      think('r2', 1, 'Stale first'),
+      think('r3', 2, 'Same revision again'),
+      think('r4', 3, 'Done', 'completed'),
+      think('r5', 4, 'Revived after completion'),
+    ])
+    const [reasoning] = built[0]!.entries as readonly {
+      type: 'reasoning'
+      summary: { text: string; revision: number; status: string }
+      eventIds: readonly string[]
+    }[]
+    expect(reasoning!.summary).toMatchObject({ text: 'Done', revision: 3, status: 'completed' })
+    expect(reasoning!.eventIds).toEqual(['r1', 'r2', 'r3', 'r4', 'r5'])
+  })
+
+  test('ids reused by another run, generation or source are separate summaries', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      think('a', 1, 'run one'),
+      think('b', 1, 'run two', 'streaming', { harnessRunId: 'run-2' }),
+      think('c', 1, 'generation two', 'streaming', { generation: 2 }),
+      think('d', 1, 'other id', 'streaming', {}, 'think-2'),
+    ])
+    expect(built[0]!.entries.map((entry) => entry.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  test('method steps group by method, order by position, and keep the first position', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      step('s1', 1, 'compare', 1, 'pending'),
+      step('s2', 1, 'search', 0, 'running'),
+      event('tool.started', { name: 'bash' }, 't1'),
+      step('s3', 2, 'search', 5, 'completed', 'found it'),
+      step('s4', 1, 'other', 0, 'running', '', 'method-2'),
+    ])
+    const entries = built[0]!.entries
+    expect(entries.map((entry) => `${entry.type}:${entry.id}`)).toEqual([
+      'method:s1',
+      'activity:t1',
+      'method:s4',
+    ])
+    const method = entries[0] as Extract<(typeof entries)[number], { type: 'method' }>
+    expect(method.steps.map((item) => [item.stepId, item.position, item.summary.status])).toEqual([
+      ['search', 0, 'completed'],
+      ['compare', 1, 'pending'],
+    ])
+    expect(method.eventIds).toEqual(['s1', 's2', 's3'])
+  })
+
+  test('a payload that does not satisfy the wire contract stays an unknown line', () => {
+    const wrongSource = think('x1', 1, 'forged', 'streaming', { source: 'host' })
+    const hint = think('x2', 1, 'hint', 'streaming', { confidence: 'untrusted_hint' })
+    const extraKey = wire(
+      'turn.reasoning_summary',
+      { ...snapshot, revision: 1, summaryId: 's', text: 't', status: 'streaming', hidden: 'cot' },
+      'x3'
+    )
+    const noRun = think('x4', 1, 'no run', 'streaming', { harnessRunId: undefined })
+    const rows = projectTranscriptEvents([wrongSource, hint, extraKey, noRun])
+    expect(rows.map((row) => row.role)).toEqual(['other', 'other', 'other', 'other'])
+    expect(rows.every((row) => row.summary === undefined && row.text === undefined)).toBe(true)
+  })
+
+  test('summary text is redacted and bounded like every other rendered string', () => {
+    const [row] = projectTranscriptEvents([
+      think('r1', 1, 'Key sk-supersecretvalue1234 in /Users/example/private'),
+    ])
+    expect(row!.summary?.text).toBe('Key [secret redacted] in [private path]')
+  })
+})
+
+describe('cited responses', () => {
+  const text = 'Rust needs no GC. It is fast.'
+  test('spans map onto the displayed body, shifted past trimmed leading whitespace', () => {
+    const padded = `\n  ${text}\n`
+    const start = padded.indexOf('Rust')
+    const [row] = projectTranscriptEvents([
+      message({
+        text: padded,
+        references: references([{ sourceId: 'book', start, end: start + 17 }]),
+      }),
+    ])
+    expect(row!.body).toBe(text)
+    expect(row!.references).toMatchObject({
+      inline: 'mapped',
+      cited: 1,
+      citations: [{ sourceId: 'book', start: 0, end: 17 }],
+    })
+  })
+
+  test('a body that redaction changed keeps the sources and drops every span', () => {
+    const secret = 'Use sk-supersecretvalue1234 here.'
+    const [row] = projectTranscriptEvents([
+      message({ text: secret, references: references([{ sourceId: 'book', start: 0, end: 3 }]) }),
+    ])
+    expect(row!.body).toBe('Use [secret redacted] here.')
+    expect(row!.references).toMatchObject({ inline: 'text-changed', citations: [], cited: 1 })
+    expect(row!.references?.sources).toHaveLength(1)
+  })
+
+  test('references that fail validation are not drawn at all', () => {
+    const bad = {
+      ...references([{ sourceId: 'book', start: 0, end: 4 }]),
+      sources: [{ id: 'book', title: 'Local', url: 'http://localhost/secret' }],
+    }
+    const rows = projectTranscriptEvents([
+      message({ text, references: bad }, 'bad-url'),
+      message(
+        { text, references: references([{ sourceId: 'missing', start: 0, end: 4 }]) },
+        'bad-id'
+      ),
+      message(
+        { text, references: references([{ sourceId: 'book', start: 0, end: 999 }]) },
+        'bad-range'
+      ),
+      wire('turn.assistant_message', { text, references: references([]) }, 'terminal', {
+        source: 'terminal_fallback',
+        confidence: 'bounded_projection',
+      }),
+    ])
+    expect(rows.map((row) => row.references)).toEqual([undefined, undefined, undefined, undefined])
+    expect(rows.every((row) => row.body === text)).toBe(true)
+  })
+
+  test('a message without references carries none, and the turn entry passes them through', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      message({ text, references: references([{ sourceId: 'book', start: 0, end: 17 }]) }, 'a1'),
+      wire('turn.assistant_message', { text: 'plain' }, 'a2'),
+    ])
+    const [cited, plain] = built[0]!.entries as readonly { references?: unknown }[]
+    expect(cited!.references).toMatchObject({ cited: 1 })
+    expect(plain!.references).toBeUndefined()
+  })
+})
+
+describe('exact limits of summaries and cited responses', () => {
+  test('summary text of exactly 4,096 characters is drawn whole; one more is not a summary', () => {
+    expect(shown([think('a', 1, 'x'.repeat(4096))]).summary?.text).toHaveLength(4096)
+    const over = shown([think('b', 1, 'x'.repeat(4097))])
+    expect(over.role).toBe('other')
+    expect(over.summary).toBeUndefined()
+  })
+
+  test('astral characters count as two UTF-16 units against the 4,096-unit summary bound', () => {
+    // 2,048 four-byte characters are exactly 4,096 units; one more is over.
+    const at = wire(
+      'turn.reasoning_summary',
+      {
+        ...snapshot,
+        revision: 1,
+        summaryId: 'think-1',
+        text: '😀'.repeat(2048),
+        status: 'streaming',
+      },
+      'at'
+    )
+    const over = wire(
+      'turn.reasoning_summary',
+      {
+        ...snapshot,
+        revision: 1,
+        summaryId: 'think-2',
+        text: '😀'.repeat(2049),
+        status: 'streaming',
+      },
+      'over'
+    )
+    expect(shown([at]).role).toBe('reasoning')
+    expect(shown([over]).role).toBe('other')
+  })
+
+  test('an unpaired surrogate makes a summary unknown rather than drawing a repaired string', () => {
+    expect(shown([think('s', 1, `bad ${String.fromCharCode(0xd83d)}`)]).role).toBe('other')
+  })
+
+  describe('cited response size and the display limit', () => {
+    const source = { id: 'book', title: 'The Book', url: 'https://doc.rust-lang.org/book/' }
+    const reply = (length: number, endAt: number) => ({
+      text: 'a'.repeat(length),
+      references: {
+        schemaVersion: 1,
+        sources: [source],
+        citations: [{ sourceId: 'book', start: 0, end: endAt }],
+      },
+    })
+
+    test('the 48 KiB bound on text plus references is exact', () => {
+      let length = 40_000
+      while (bytes(reply(length + 1, 1)) <= 48 * 1024) length += 1
+      const at = wire('turn.assistant_message', reply(length, 1), 'at')
+      const over = wire('turn.assistant_message', reply(length + 1, 1), 'over')
+      expect(shown([at]).references?.sources).toHaveLength(1)
+      expect(shown([over]).references).toBeUndefined()
+      // Either way the prose is drawn; only the claim of sources depends on the bound.
+      expect(shown([over]).body?.length).toBeGreaterThan(0)
+    })
+
+    test('a span ending exactly at the 32,768-character display limit is kept; one past it is not', () => {
+      const atLimit = shown([wire('turn.assistant_message', reply(32_768, 32_768), 'a')])
+      expect(atLimit.bodyTruncated).toBe(true)
+      expect(atLimit.references).toMatchObject({ inline: 'mapped', cited: 1 })
+      expect(atLimit.references?.citations).toEqual([{ sourceId: 'book', start: 0, end: 32_768 }])
+
+      const past = shown([wire('turn.assistant_message', reply(32_769, 32_769), 'b')])
+      expect(past.references).toMatchObject({ inline: 'mapped', cited: 1 })
+      expect(past.references?.citations).toEqual([])
+    })
+
+    test('exactly 32 sources and 128 citations are accepted, one more of either is not', () => {
+      expect(
+        shown([wire('turn.assistant_message', many(32, 128), 'ok')]).references?.sources
+      ).toHaveLength(32)
+      expect(
+        shown([wire('turn.assistant_message', many(33, 128), 'x1')]).references
+      ).toBeUndefined()
+      expect(
+        shown([wire('turn.assistant_message', many(32, 129), 'x2')]).references
+      ).toBeUndefined()
+    })
+  })
+})

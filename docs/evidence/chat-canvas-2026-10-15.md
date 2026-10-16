@@ -58,8 +58,8 @@ Adea chat does not draw it because no producer supplies its data.
 | Conversation | Message          | Live            | user and assistant turns from `buildChatTurns`                                                                 |
 | Conversation | Prompt Input     | Live (existing) | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                      |
 | Conversation | Suggestion       | Available       | no prompt-suggestion producer                                                                                  |
-| Activity     | Chain of Thought | Available       | no step-level method summary event                                                                             |
-| Activity     | Reasoning        | Available       | no user-visible reasoning summary event; none is invented                                                      |
+| Activity     | Chain of Thought | Live            | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration              |
+| Activity     | Reasoning        | Live            | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred       |
 | Activity     | Tool             | Partly live     | tool events render as Trace lines; no call identity to pair started with completed, so no inputs/outputs panel |
 | Activity     | Subagent         | Partly live     | `subagent.*` events render as lines; no nesting contract                                                       |
 | Activity     | Task             | Available       | no task-list event                                                                                             |
@@ -69,8 +69,8 @@ Adea chat does not draw it because no producer supplies its data.
 | Results      | Stack Trace      | Available       | no failure payload schema                                                                                      |
 | Results      | Test Results     | Available       | no structured test-run payload                                                                                 |
 | Results      | File Tree        | Available       | no changed-files event                                                                                         |
-| Grounding    | Sources          | Available       | no citation or source event                                                                                    |
-| Grounding    | Inline Citation  | Available       | same                                                                                                           |
+| Grounding    | Sources          | Live            | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                    |
+| Grounding    | Inline Citation  | Live            | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text |
 | Controls     | Confirmation     | Live            | `approval.requested` (requested state only)                                                                    |
 | Controls     | Checkpoint       | Available       | no restorable-checkpoint contract                                                                              |
 | Controls     | Context          | Available       | `usage.observed` payload is opaque                                                                             |
@@ -88,8 +88,8 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Delta to message supersession (a stable message identity so a streamed message and its final `turn.assistant_message` are one)               | [#1386](https://github.com/adea-ai/adea/issues/1386) | both render                                                                                                                                                                                     |
 | Call identity and phase for `tool.*` and `subagent.*` events                                                                                 | [#1387](https://github.com/adea-ai/adea/issues/1387) | separate lines; no spinner pairing, no inputs/outputs                                                                                                                                           |
-| User-visible reasoning summaries                                                                                                             | [#1388](https://github.com/adea-ai/adea/issues/1388) | none shown                                                                                                                                                                                      |
-| Sources and citations                                                                                                                        | [#1389](https://github.com/adea-ai/adea/issues/1389) | none shown                                                                                                                                                                                      |
+| User-visible reasoning summaries (contract merged on main; drawn)                                                                            | [#1388](https://github.com/adea-ai/adea/issues/1388) | drawn only from a validated, source-reported summary                                                                                                                                            |
+| Sources and citations (contract merged on main; drawn)                                                                                       | [#1389](https://github.com/adea-ai/adea/issues/1389) | drawn only from producer references; text never creates a citation                                                                                                                              |
 | Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | none shown                                                                                                                                                                                      |
 | Token and context usage with a documented payload                                                                                            | [#1391](https://github.com/adea-ai/adea/issues/1391) | none shown                                                                                                                                                                                      |
 | Attachments with a working upload/open path                                                                                                  | [#1392](https://github.com/adea-ai/adea/issues/1392) | none                                                                                                                                                                                            |
@@ -97,6 +97,25 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 | Test-run, terminal, stack-trace, changed-file, plan and task payload schemas                                                                 | [#1394](https://github.com/adea-ai/adea/issues/1394) | lines only                                                                                                                                                                                      |
 | Question schema (options, multi-question) and approval outcome/request correlation (`approval.resolved` naming the request and the decision) | [#1395](https://github.com/adea-ai/adea/issues/1395) | free-text questions; a quiet line for later approval events, no approved/denied claim                                                                                                           |
 | Older-history loading (a checkpoint that returns earlier events) and production `turn.user_input` text                                       | [#1396](https://github.com/adea-ai/adea/issues/1396) | `onLoadOlder` is wired in the shared scroller only, the host shows the bounded-history notice; the register records a delivery receipt without text, so the canvas draws what the event carries |
+
+### Summaries and cited answers
+
+- **Gate.** Every summary and cited answer passes `decodeRuntimeEvent` from
+  `@adea-ai/types/dev-runtime-wire` before it is drawn. Anything that fails stays an
+  "other" row labelled by its wire kind, with no content.
+- **Summaries.** One node per summary id (reasoning) or method id and step id
+  (method), keyed by the first event's id. A snapshot replaces its node only with a
+  higher revision and never after a terminal status; a step keeps its position.
+  A last word of `streaming` or `running` animates only while the session is live;
+  after that it reads "not finished". Text is redacted and bounded for display.
+- **Citations.** Sources are listed whenever the producer supplied them. A marker
+  `[^n]` is placed only at a producer span end, only when the displayed body is a
+  verbatim slice of `payload.text`, and only where the shared parser agrees it is
+  prose (not code, a link label, or split emphasis). Otherwise the sources remain
+  and the row says "n citation(s) is/are not marked in the text".
+- **Still absent on purpose.** Usage, checkpoints, queue, attachments, and the
+  streaming-to-final supersession, tool/subagent nesting and approval outcomes (see
+  the dependency matrix). #1417 is draft and unverified, so nothing from it is consumed.
 
 ## Qualification evidence
 
@@ -137,8 +156,17 @@ nothing in production.
 empty, rich, attention, conversation, streaming, reconnect, cancelled, failed,
 hostile, large and a partial code stream, light and dark, desktop and mobile.
 
-## Dependency note
+## Dependency matrix (2026-10-16)
 
-This branch needs the unreleased `@adea-ai/ui` from `adea-ai/ui` (the AI Elements
-pull request). Adea still pins 0.131.0; the version bump and lockfile change go
-through the coordinator after the ui release, so this PR stays draft until then.
+| Dependency                        | Exact head                                 | State                                      | How this canvas treats it                                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adea `main`                       | `632776c7eb77165b302e7e68613ec42f2d4bf653` | merged into this branch (`0c828d14`)       | visible-summary (#1388) and cited-response (#1389) contracts consumed through `decodeRuntimeEvent`                                                                                                                           |
+| `adea-ai/ui` #416 (AI Elements)   | `8fd394732abe43088f7d7ca2fc2b32692f30958e` | open, draft                                | adds `placeCitationMarkers` and the preserved repair patch (sha256 `b9c1c3beb1c6f7478050aaacc403178ec2d27228998bacef2dd1f07aadd436b2`, base `50562af`, applied unchanged apart from a type cast in its confirmation fixture) |
+| Published `@adea-ai/ui`           | 0.134.0 pinned on main; 0.137.0 on ui main | neither has the AI Elements exports        | Adea typecheck, build and CI cannot pass until a release containing #416 is published and pinned; local checks here use a build mirror that is never committed                                                               |
+| #1417 runtime contracts and queue | `60c0f597d0fdfbeef34f22d34155b9878af308ea` | draft, blocked on review and validation    | not consumed: no supersession, tool or subagent identity, approval outcome, usage or queue adapter yet                                                                                                                       |
+| #1414 native session inventory    | `cdf186402e017548ee5793c25bab73430b98ef72` | draft, Workspace Details; not this canvas  | no overlap with `packages/dev-view/src/chat/`                                                                                                                                                                                |
+| #1412 connection read models      | `27a28322ff133cc819d4169d91d828e2d264ef78` | open; unknown upstream fields stay unknown | not a chat input                                                                                                                                                                                                             |
+| #1402 history, #1407 attachments  | draft                                      | not drawn as working capabilities          | attachments and older-history loading stay absent or explicitly unavailable                                                                                                                                                  |
+
+This PR stays draft until a ui release is published and pinned (the version bump
+goes through the coordinator).
