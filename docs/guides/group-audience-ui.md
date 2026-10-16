@@ -31,6 +31,11 @@ returned group. No trusted issuer exists yet, so today:
 - Selections and the title survive every recoverable error. A group is shown as created only from the server answer.
 - Roster saves send `expectedVersion`. A stale answer keeps the draft, re-bases it onto the fresh roster and asks
   for a review before saving again.
+- Every host passes `scope` (account, workspace, audience epoch) to the new-group dialog whether or not an issuer
+  exists. A change in scope, or in the account, workspace or group of the manage dialog, clears the whole draft
+  (title included) and drops the attempt. Each send is fenced by a generation: after the issuer answers, a send
+  that finds the screen has changed (even if it changed and changed back) stops before anything is created or
+  saved, and cannot restore the reset attempt.
 - Switching account or workspace clears drafts. 404 and revoked access end in the uniform "unavailable" message
   with nothing from the group shown. `group_grant_rejected` keeps the form and shows the per-identity reasons.
 

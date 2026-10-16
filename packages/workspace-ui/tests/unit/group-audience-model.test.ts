@@ -28,6 +28,7 @@ import {
   reconcileSelection,
   rosterChange,
   runGroupSave,
+  StaleSaveError,
   selectedChoices,
   toggleSelection,
 } from '../../src/group-audience-model'
@@ -377,6 +378,47 @@ describe('saving', () => {
       },
     })
     expect(failed).toEqual({ status: 'ignored' })
+  })
+
+  test('a send that finds the screen gone after waiting stops before anything is changed', async () => {
+    let token = 'acme|me#0'
+    let sent = 0
+    const outcome = await runGroupSave({
+      context: () => token,
+      operation: 'create',
+      send: async (stillHere) => {
+        token = 'acme|me#1'
+        if (!stillHere()) throw new StaleSaveError()
+        sent += 1
+        return 'created'
+      },
+    })
+    expect(outcome).toEqual({ status: 'ignored' })
+    expect(sent).toBe(0)
+  })
+
+  test('coming back to where a save started does not make its answer current again', async () => {
+    let generation = 0
+    const outcome = await runGroupSave({
+      context: () => `acme|me#${generation}`,
+      operation: 'manage',
+      send: async () => {
+        generation += 1
+        return 'saved'
+      },
+    })
+    expect(outcome).toEqual({ status: 'ignored' })
+  })
+
+  test('a stale-save error is never shown as a failure', async () => {
+    const outcome = await runGroupSave({
+      context: () => 'same',
+      operation: 'create',
+      send: async () => {
+        throw new StaleSaveError()
+      },
+    })
+    expect(outcome).toEqual({ status: 'ignored' })
   })
 
   test('a normal answer is returned as received', async () => {

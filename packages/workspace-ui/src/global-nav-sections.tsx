@@ -10,6 +10,7 @@ import {
   usePrefetchChannelMessages,
   useReadStateQuery,
   useUpdateChannelMutation,
+  useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
 import { useWorkspaceState } from '@adea-ai/state'
 import type { ChannelSummary } from '@adea-ai/types'
@@ -101,6 +102,7 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
   const audienceEpoch = useWorkspaceState(
     (state) => state.conversationAudienceEpochs[workspaceId() ?? ''] ?? 0
   )
+  const bootstrap = useWorkspaceBootstrapQuery(props.client)
   const navigation = createMemo(() => {
     const list = settledConversationPage(channels, audienceEpoch())
     return projectWorkspaceNavigation(
@@ -172,6 +174,11 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
           <CreateGroupDialog
             busy={createGroup.isPending}
             onClose={() => setCreating(false)}
+            scope={{
+              accountId: settledData(bootstrap)?.principal.userId,
+              epoch: audienceEpoch(),
+              workspaceId: workspaceId(),
+            }}
             onCreate={async (title, request) => {
               const submittedWorkspaceId = workspaceId()
               const submittedAudienceEpoch = audienceEpoch()

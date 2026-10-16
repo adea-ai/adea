@@ -43,7 +43,7 @@ import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
 import { useWorkspacePersistence } from './use-workspace-persistence'
-import type { GroupCreateRequest } from './group-audience'
+import type { GroupCreateRequest, GroupScope } from './group-audience'
 import { createClientRequestId } from './request-id'
 
 const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
@@ -224,6 +224,14 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     get createGroupBusy() {
       return createGroup.isPending
+    },
+    /** Whose group a new one would be, so a draft never outlives the account or workspace it was written for. */
+    get groupScope(): GroupScope {
+      return {
+        accountId: settledData(bootstrap)?.principal.userId,
+        epoch: audienceEpoch(),
+        workspaceId: workspaceId(),
+      }
     },
     createProject: async (input: Readonly<{ iconKey: string; name: string }>) => {
       const result = await createProject.mutateAsync(input)

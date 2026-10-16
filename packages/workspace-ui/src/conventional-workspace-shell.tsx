@@ -779,6 +779,7 @@ export function ConventionalWorkspaceShell(props: {
                   onClose={() => setDialog(null)}
                   onCreate={controller.createGroup}
                   open
+                  scope={controller.groupScope}
                 />
               </Show>
               <Show when={dialog() === 'search' || dialog() === 'conversation-search'}>

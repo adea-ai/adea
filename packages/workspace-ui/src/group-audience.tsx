@@ -49,6 +49,7 @@ import {
   rosterChange,
   rosterKeys,
   runGroupSave,
+  StaleSaveError,
   selectedChoices,
   toggleSelection,
   type AudienceChoices,
@@ -95,6 +96,20 @@ export type GroupAudienceContext = Readonly<{
   workspaceId: string
   workspaces: readonly WorkspaceSummary[]
 }>
+
+/**
+ * Whose group this is and where: the signed-in account, the workspace, and the workspace's audience epoch.
+ * It is passed by every host independently of whether a grant issuer exists, so a draft can never outlive the
+ * account or workspace it was written for.
+ */
+export type GroupScope = Readonly<{
+  accountId: string | undefined
+  epoch?: number
+  workspaceId: string | undefined
+}>
+
+const scopeKey = (scope: GroupScope) =>
+  `${scope.workspaceId ?? ''}|${scope.accountId ?? ''}|${scope.epoch ?? 0}`
 
 type RosterRowView = Readonly<{
   detail?: string
@@ -285,6 +300,7 @@ export function CreateGroupDialog(props: {
   onCreate: (title: string, request?: GroupCreateRequest) => Promise<ChannelSummary | void>
   onOpen?: (channelId: string) => void
   open: boolean
+  scope: GroupScope
 }) {
   const [title, setTitle] = createSignal('')
   const [selected, setSelected] = createSignal<AudienceSelection>([])
@@ -294,11 +310,16 @@ export function CreateGroupDialog(props: {
   const [notice, setNotice] = createSignal<string | null>(null)
   let attempt: GroupAttempt | null = null
   let inFlight = false
+  // Bumped whenever the account or workspace changes, so an answer to a send that began before the change is
+  // dropped even if the person has since come back to where it started.
+  let generation = 0
   const titleId = createUniqueId()
   // A memo, so the effects below run when the account or workspace changes, not whenever the tenant's lists reload.
   const context = createMemo(
-    () => `${props.audience?.workspaceId ?? ''}|${props.audience?.currentUserId ?? ''}`
+    () =>
+      `${scopeKey(props.scope)}|${props.audience?.workspaceId ?? ''}|${props.audience?.currentUserId ?? ''}`
   )
+  const token = () => `${context()}#${generation}`
   const choices = createMemo(() =>
     props.audience
       ? audienceChoices({
@@ -317,6 +338,10 @@ export function CreateGroupDialog(props: {
     on(
       context,
       () => {
+        generation += 1
+        inFlight = false
+        setPending(false)
+        setTitle('')
         setSelected([])
         setFailure(null)
         setCreated(null)
@@ -355,6 +380,7 @@ export function CreateGroupDialog(props: {
   const submit = async () => {
     if (inFlight || empty()) return
     inFlight = true
+    const started = generation
     setPending(true)
     setFailure(null)
     const text = title().trim()
@@ -362,9 +388,9 @@ export function CreateGroupDialog(props: {
     const current = nextAttempt(attempt, groupFingerprint(text, selected()), createClientRequestId)
     attempt = current
     const outcome = await runGroupSave({
-      context,
+      context: token,
       operation: 'create',
-      send: async () => {
+      send: async (stillHere) => {
         let grants = current.grants
         if (!grants) {
           const wanted = chosen.humans.length + chosen.agents.length
@@ -382,6 +408,9 @@ export function CreateGroupDialog(props: {
                   })
                 )
               : noGrants
+          // The account or workspace moved while the issuer was answering: nothing is created and the
+          // reset attempt is not brought back.
+          if (!stillHere()) throw new StaleSaveError()
           attempt = { ...current, grants }
         }
         return props.onCreate(text, {
@@ -393,6 +422,7 @@ export function CreateGroupDialog(props: {
         })
       },
     })
+    if (started !== generation) return
     inFlight = false
     setPending(false)
     if (outcome.status === 'ignored') return
@@ -591,6 +621,8 @@ export function GroupManageDialog(props: {
   const [local, setLocal] = createSignal<string | null>(null)
   const [saved, setSaved] = createSignal(false)
   let inFlight = false
+  // See CreateGroupDialog: an answer to a send that began before a switch is dropped even after switching back.
+  let generation = 0
   const choices = createMemo(() =>
     audienceChoices({
       agents: props.audience.agents,
@@ -601,6 +633,7 @@ export function GroupManageDialog(props: {
   const context = createMemo(
     () => `${props.audience.workspaceId}|${props.audience.currentUserId ?? ''}|${props.channel.id}`
   )
+  const token = () => `${context()}#${generation}`
   const sameWorkspace = () => props.channel.workspaceId === props.audience.workspaceId
   const archived = () => props.channel.lifecycleState !== 'active'
   const canManage = () =>
@@ -615,6 +648,9 @@ export function GroupManageDialog(props: {
     on(
       context,
       () => {
+        generation += 1
+        inFlight = false
+        setPending(false)
         setDraft(emptyDraft)
         setFailure(null)
         setLocal(null)
@@ -721,14 +757,15 @@ export function GroupManageDialog(props: {
       return
     }
     inFlight = true
+    const started = generation
     setPending(true)
     setFailure(null)
     setSaved(false)
     const expectedVersion = props.channel.version
     const outcome = await runGroupSave({
-      context,
+      context: token,
       operation: 'manage',
-      send: async () => {
+      send: async (stillHere) => {
         const request = {
           agents,
           groupId: props.channel.id,
@@ -736,9 +773,12 @@ export function GroupManageDialog(props: {
           workspaceId: props.audience.workspaceId,
         }
         const grants = await issueChecked(issue, request)
+        // The account, workspace or group changed while the issuer was answering: nothing is saved.
+        if (!stillHere()) throw new StaleSaveError()
         return props.onSave({ ...grants, expectedVersion, participants })
       },
     })
+    if (started !== generation) return
     inFlight = false
     setPending(false)
     if (outcome.status === 'ignored') return

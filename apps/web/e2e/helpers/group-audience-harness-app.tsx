@@ -38,6 +38,7 @@ export const harnessIds = {
   existingGroup: '33333333-0000-4000-8000-0000000000c3',
   globex: '22222222-0000-4000-8000-0000000000b2',
   me: '44444444-0000-4000-8000-0000000000d9',
+  otherGroup: '33333333-0000-4000-8000-0000000000c4',
   sam: '44444444-0000-4000-8000-0000000000d3',
 } as const
 const ids = harnessIds
@@ -65,7 +66,7 @@ const members = (role: WorkspaceMemberSummary['role'] = 'owner'): WorkspaceMembe
 ]
 
 type CreateMode = 'hold' | 'lost' | 'ok' | 'rejected' | 'unavailable'
-type IssuerMode = 'fail' | 'ok' | 'wrong-group' | 'wrong-agent-workspace'
+type IssuerMode = 'fail' | 'hold' | 'ok' | 'wrong-group' | 'wrong-agent-workspace'
 
 export type AudienceHarness = {
   calls: {
@@ -87,10 +88,14 @@ export type AudienceHarness = {
   /** The next manage save is refused as a stale version without the page having been told. */
   nextSaveIsStale: () => void
   releaseCreate: () => void
+  /** Lets a held issuer answer (see setIssuer('hold')). */
+  releaseIssuer: () => void
   setIssuer: (mode: IssuerMode) => void
   setRole: (role: WorkspaceMemberSummary['role']) => void
   /** Moves the page to another workspace (`other`) or back, or to another account. */
   switchAccount: (userId: string) => void
+  /** Moves the manage dialog to another group in the same workspace, or back. */
+  switchGroup: (to: 'other' | 'original') => void
   switchWorkspace: (workspaceId: string) => void
 }
 declare global {
@@ -133,6 +138,7 @@ function build() {
   let issuerMode: IssuerMode = 'ok'
   let staleNext = false
   let gate: { promise: Promise<void>; release: () => void } | undefined
+  let issuerGate: { promise: Promise<void>; release: () => void } | undefined
   let grantCount = 0
 
   const issueGrants: GroupGrantIssuer = async (request) => {
@@ -145,6 +151,7 @@ function build() {
       humans: [...request.humans],
     })
     if (issuerMode === 'fail') throw new TypeError('issuer unreachable')
+    if (issuerMode === 'hold') await issuerGate?.promise
     const groupId = issuerMode === 'wrong-group' ? 'some-other-group' : request.groupId
     const audienceGrants: GroupAudienceGrant[] = request.humans.map((userId) => ({
       expiresAt: null,
@@ -290,11 +297,26 @@ function build() {
       gate?.release()
       gate = undefined
     },
+    releaseIssuer: () => {
+      issuerMode = 'ok'
+      issuerGate?.release()
+      issuerGate = undefined
+    },
     setIssuer: (mode) => {
       issuerMode = mode
+      if (mode === 'hold') {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        issuerGate = { promise, release: resolve }
+      }
     },
     setRole: setMemberRole,
     switchAccount: setCurrentUserId,
+    switchGroup: (to) =>
+      setChannel((value) =>
+        to === 'other'
+          ? { ...value, id: ids.otherGroup, title: 'Offsite plan', version: 1 }
+          : { ...value, id: ids.existingGroup, title: 'Launch review', version: 4 }
+      ),
     switchWorkspace: (next) => {
       setWorkspaceId(next)
       setChannel((value) => value)
@@ -306,7 +328,9 @@ function build() {
 
 function Harness() {
   const server = build()
-  const [dialog, setDialog] = createSignal<'create' | 'manage' | 'manage-readonly' | ''>('')
+  const [dialog, setDialog] = createSignal<
+    'create' | 'create-bare' | 'manage' | 'manage-readonly' | ''
+  >('')
   const [withIssuer, setWithIssuer] = createSignal(true)
   const [opened, setOpened] = createSignal<string>('')
   const audience = createMemo<GroupAudienceContext>(() => ({
@@ -327,6 +351,7 @@ function Harness() {
   return (
     <main>
       <Button onClick={() => setDialog('create')}>Open new group</Button>
+      <Button onClick={() => setDialog('create-bare')}>Open the app's group dialog</Button>
       <Button onClick={() => setDialog('manage')}>Open manage</Button>
       <Button onClick={() => setWithIssuer(false)}>Remove issuer</Button>
       <output aria-label="Opened conversation">{opened()}</output>
@@ -334,12 +359,23 @@ function Harness() {
         <CreateGroupDialog
           audience={audience()}
           busy={false}
+          scope={{ accountId: currentUserId(), workspaceId: workspaceId() }}
           onClose={() => setDialog('')}
           onCreate={server.onCreate}
           onOpen={(id) => {
             setOpened(id)
             setDialog('')
           }}
+          open
+        />
+      </Show>
+      <Show when={dialog() === 'create-bare'}>
+        {/* The production entry: no audience and no issuer, only the scope the host always knows. */}
+        <CreateGroupDialog
+          busy={false}
+          scope={{ accountId: currentUserId(), workspaceId: workspaceId() }}
+          onClose={() => setDialog('')}
+          onCreate={server.onCreate}
           open
         />
       </Show>

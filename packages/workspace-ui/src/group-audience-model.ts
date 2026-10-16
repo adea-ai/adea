@@ -552,21 +552,32 @@ export type SaveOutcome<T> =
   /** The workspace or account changed while the request ran: its answer belongs to nobody on screen now. */
   | Readonly<{ status: 'ignored' }>
 
+/** Thrown by a send that found, after waiting, that the screen it started on is gone. */
+export class StaleSaveError extends Error {
+  constructor() {
+    super('The account or workspace changed before the save could be sent.')
+    this.name = 'StaleSaveError'
+  }
+}
+
 /**
- * Runs one save with the context it started in. If the workspace or account on screen is different when the
- * answer arrives, the answer is dropped: it neither shows a group nor an error for somewhere else.
+ * Runs one save with the context it started in. `context` returns a token that changes whenever the account,
+ * workspace or group on screen changes. The send is handed `stillHere`, and must check it after every wait
+ * and before anything that changes the server; if the token differs when the answer arrives, the answer is
+ * dropped: it neither shows a group nor an error for somewhere else.
  */
 export async function runGroupSave<T>(options: {
   context: () => string
   operation: 'create' | 'manage'
-  send: () => Promise<T>
+  send: (stillHere: () => boolean) => Promise<T>
 }): Promise<SaveOutcome<T>> {
   const started = options.context()
+  const stillHere = () => options.context() === started
   try {
-    const value = await options.send()
-    return options.context() === started ? { status: 'saved', value } : { status: 'ignored' }
+    const value = await options.send(stillHere)
+    return stillHere() ? { status: 'saved', value } : { status: 'ignored' }
   } catch (error) {
-    if (options.context() !== started) return { status: 'ignored' }
+    if (!stillHere() || error instanceof StaleSaveError) return { status: 'ignored' }
     return { failure: groupFailure(error, options.operation), status: 'failed' }
   }
 }
