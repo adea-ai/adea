@@ -5,6 +5,7 @@ import type {
   LeadTurnRuntimeState,
   LeadTurnReasonCode,
 } from '@adea-ai/api-client'
+import { LeadRuntimeRefusal } from './lead-runtime-refusal'
 
 export type LeadRuntimeScope = Readonly<{ workspaceId: string; intentId: string; userId: string }>
 export type LeadRuntimeAuthority = Readonly<{
@@ -230,7 +231,8 @@ export function createLeadTurnRuntime(
   async function projection(
     scope: LeadRuntimeScope,
     reasonCode?: LeadTurnReasonCode,
-    held?: LeadRuntimeHeldAuthority
+    held?: LeadRuntimeHeldAuthority,
+    readinessReason?: string
   ): Promise<ApiLeadTurnStatus> {
     const authority = held ? checkedHeld(scope, held) : await store.authorize(scope, 'read')
     const stored = await storedRecord(scope, held?.purpose ?? 'read', held)
@@ -255,7 +257,7 @@ export function createLeadTurnRuntime(
       ...(stored?.publishedMessageId ? { publishedMessageId: stored.publishedMessageId } : {}),
       availability: reasonCode || !adapter ? 'unavailable' : 'available',
       ...(reasonCode
-        ? { reasonCode }
+        ? { reasonCode, ...(readinessReason ? { readinessReason } : {}) }
         : !adapter
           ? { reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }
           : {}),
@@ -286,6 +288,8 @@ export function createLeadTurnRuntime(
       await work()
       return await projection(scope, undefined, held)
     } catch (error) {
+      if (error instanceof LeadRuntimeRefusal)
+        return projection(scope, 'MODEL_NOT_READY', held, error.readinessReason)
       return projection(
         scope,
         error instanceof Error && error.message === 'RUNTIME_RESPONSE_INVALID'

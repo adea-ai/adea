@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
 import { SuccessResponseEnvelopeSchema } from '@adea-ai/contracts'
 import { createConfiguredLeadTurnDependencies } from '../src/server/lead-turn-composition'
-import { type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
+import { installedLeadSdkPort, type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
+import { LeadRuntimeRefusal } from '../src/server/lead-runtime-refusal'
 const workspaceId = `wsp_${'0'.repeat(26)}`
 const actor = `user:${crypto.randomUUID()}` as const
 const authority = {
@@ -183,4 +184,70 @@ test('publication requires exact current actor, selection, receipt and unmodifie
   await expect(composed.adapter!.assertPublicationCurrent!(expected)).rejects.toThrow(
     'RUNTIME_RESPONSE_INVALID'
   )
+})
+
+test('a blocked funding read at start carries only its bounded readiness reason', async () => {
+  const f = await fixture()
+  const composed = await createConfiguredLeadTurnDependencies(f.dependencies, undefined, f.port)
+  for (const reasonCode of ['CREDENTIAL_EXPIRED', 'QUOTA_EXHAUSTED', 'WORKSPACE_GRANT_REVOKED']) {
+    f.setFunding({ ...prepared, state: 'blocked', reasonCode } as never)
+    const error = await composed.authorizeConfirmedStart!(authority, prepared).catch((e) => e)
+    expect(error).toBeInstanceOf(LeadRuntimeRefusal)
+    expect(error.readinessReason).toBe(reasonCode)
+  }
+  // Unknown text, READY and another workspace's block never become a named reason.
+  for (const blocked of [
+    { reasonCode: 'sk-live-provider-text' },
+    { reasonCode: 'READY' },
+    { reasonCode: 'QUOTA_EXHAUSTED', workspaceId: `wsp_${'1'.repeat(26)}` },
+  ]) {
+    f.setFunding({ ...prepared, state: 'blocked', ...blocked } as never)
+    const error = await composed.authorizeConfirmedStart!(authority, prepared).catch((e) => e)
+    expect(error).not.toBeInstanceOf(LeadRuntimeRefusal)
+    expect(String(error.message)).toBe('RUNTIME_UNAVAILABLE')
+  }
+})
+const refuse = (code: string, status: number) => async (_url: unknown, init?: RequestInit) => {
+  const request = JSON.parse(String(init?.body))
+  return new Response(
+    JSON.stringify({
+      contractVersion: request.contractVersion,
+      requestId: request.requestId,
+      correlation: { traceId: request.correlation.traceId },
+      error: {
+        class: 'conflict',
+        code,
+        message: 'provider said: secret-token',
+        retryable: false,
+        source: 'policy',
+      },
+    }),
+    { status, headers: { 'content-type': 'application/json' } }
+  )
+}
+
+test('the installed SDK port keeps only a readiness code from a Control Plane refusal', async () => {
+  const f = await fixture()
+  const attempt = async (code: string, status: number) => {
+    const composed = await createConfiguredLeadTurnDependencies(
+      {
+        ...f.dependencies,
+        environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+        fetch: refuse(code, status) as never,
+      },
+      undefined,
+      installedLeadSdkPort
+    )
+    return composed.adapter!.prepare!(authority).catch((error) => error)
+  }
+  const refused = await attempt('CREDENTIAL_EXPIRED', 409)
+  expect(refused).toBeInstanceOf(LeadRuntimeRefusal)
+  expect(refused.readinessReason).toBe('CREDENTIAL_EXPIRED')
+  expect(JSON.stringify(refused)).not.toContain('secret-token')
+  for (const other of [
+    await attempt('PI_LEAD_UNAVAILABLE', 503),
+    await attempt('provider-text', 409),
+    await attempt('QUOTA_EXHAUSTED', 500),
+  ])
+    expect(other).not.toBeInstanceOf(LeadRuntimeRefusal)
 })

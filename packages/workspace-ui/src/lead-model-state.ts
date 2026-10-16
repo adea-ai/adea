@@ -333,6 +333,13 @@ const fundingBindingKeys = [
   'selectionRevision',
 ] as const
 
+/** A named reason gets its remedy; anything unnamed stays the generic unavailable text. */
+export function blockedFundingMessage(value: ProjectedModelFunding | null): string {
+  return value?.state === 'blocked' && value.reasonCode !== 'READINESS_UNAVAILABLE'
+    ? `Current payer authorization is blocked. ${value.remedy.message}`
+    : 'Current payer authorization is unavailable.'
+}
+
 function blockedFunding(
   reason: unknown = 'READINESS_UNAVAILABLE'
 ): Extract<ProjectedModelFunding, { state: 'blocked' }> {

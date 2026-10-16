@@ -40,14 +40,29 @@ can supply model readiness.
 The server probes the actual installed public SDK's seven model operation
 descriptors, request/response schemas and corresponding client methods. It uses
 those exported schemas and methods exclusively. Older versions remain inactive;
-there is no fabricated API implementation or raw HTTP fallback. The pinned SDK
-1.11.0 does not expose these operations.
+there is no fabricated API implementation or raw HTTP fallback. SDK 1.18.1
+exports all seven operations.
 
-Host composition must independently supply a qualified execution target. Browser
-requests cannot supply or qualify one. Current production route wiring has no
-such target, so list/defaults explicitly return `availability: unavailable` and
-selection preparation fails closed. No live-provider qualification, credential
-configuration, access change or production activation is claimed.
+Host composition must independently supply a qualified execution target
+(`PI_DURABLE_LEAD_ENABLED` with `PI_DURABLE_LEAD_TARGET`). Browser requests
+cannot supply or qualify one. Without a target, list/defaults explicitly return
+`availability: unavailable` and selection preparation fails closed. No
+live-provider qualification, credential configuration, access change or
+production activation is claimed.
+
+## Refused lead checks keep their reason
+
+A Control Plane refusal of a lead turn (preparation, or the funding recheck at
+explicit start) can carry one value of the model readiness `reasonCode` set, such as
+`QUOTA_EXHAUSTED` or `CREDENTIAL_EXPIRED`. Only that exact vocabulary crosses
+the server boundary, and only from a refusal on a client-error status whose
+request ID matches; provider text, other codes and server errors stay the
+generic runtime failure. The lead turn then reports `MODEL_NOT_READY` with the
+bounded `readinessReason`, nothing is stored or dispatched, and the UI shows the
+matching remedy while saying nothing ran and no other model was substituted. A
+blocked payer read names its remedy the same way. An unnamed or unknown reason
+reads as "could not be verified". These are projections only: they authorize no
+inference, and a later check is always a fresh Control Plane decision.
 
 ## Funding boundary
 
