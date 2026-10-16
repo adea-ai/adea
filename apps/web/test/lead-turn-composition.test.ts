@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test'
 import { SuccessResponseEnvelopeSchema } from '@adea-ai/contracts'
+import { ControlPlaneClientError } from '@adea-ai/sdk'
 import { createConfiguredLeadTurnDependencies } from '../src/server/lead-turn-composition'
+import { createLeadTurnRuntime } from '../src/server/lead-turn-runtime'
 import { installedLeadSdkPort, type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
 import { LeadRuntimeRefusal, leadRefusalReason } from '../src/server/lead-runtime-refusal'
 const workspaceId = `wsp_${'0'.repeat(26)}`
@@ -240,9 +242,27 @@ const nameRefusal = (patch: Record<string, unknown>, matches = true) =>
 test('the agreed PI_LEAD_MODEL_NOT_READY refusal keeps only its vocabulary reason', () => {
   expect(nameRefusal({})).toBe('QUOTA_EXHAUSTED')
   // READINESS_UNAVAILABLE arrives as a retryable 503 with the same code.
-  expect(nameRefusal({ status: 503, details: { reasonCode: 'READINESS_UNAVAILABLE' } })).toBe(
+  expect(
+    nameRefusal({
+      status: 503,
+      retryable: true,
+      details: { reasonCode: 'READINESS_UNAVAILABLE' },
+    })
+  ).toBe('READINESS_UNAVAILABLE')
+  // The SDK's own closed `reasonCode` field is read first.
+  expect(nameRefusal({ details: undefined, reasonCode: 'CREDENTIAL_EXPIRED' })).toBe(
+    'CREDENTIAL_EXPIRED'
+  )
+  // A 503 is recognized only as the exact retryable unavailable envelope.
+  expect(nameRefusal({ status: 503, details: undefined })).toBeUndefined()
+  expect(nameRefusal({ status: 503, retryable: true, details: undefined })).toBe(
     'READINESS_UNAVAILABLE'
   )
+  expect(nameRefusal({ status: 503, retryable: false, details: undefined })).toBeUndefined()
+  expect(
+    nameRefusal({ status: 503, retryable: true, reasonCode: 'QUOTA_EXHAUSTED' })
+  ).toBeUndefined()
+  expect(nameRefusal({ status: 502, retryable: true })).toBeUndefined()
   // An SDK without details, or provider text in details, is a refusal with an unverifiable reason.
   expect(nameRefusal({ details: undefined })).toBe('READINESS_UNAVAILABLE')
   expect(nameRefusal({ details: { reasonCode: 'sk-live-provider-text' } })).toBe(
@@ -279,4 +299,112 @@ test('the installed SDK port keeps only a readiness code from a Control Plane re
     await attempt('QUOTA_EXHAUSTED', 500),
   ])
     expect(other).not.toBeInstanceOf(LeadRuntimeRefusal)
+})
+
+// The actual Control Plane envelope (CP #1159): the closed reason rides in `error.details`.
+const cpReadinessRefusal =
+  (status: number, error: Record<string, unknown>, requestIdOverride?: string) =>
+  async (_url: unknown, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        contractVersion: request.contractVersion,
+        requestId: requestIdOverride ?? request.requestId,
+        correlation: { traceId: request.correlation.traceId },
+        error: { message: 'provider said: secret-token', source: 'policy', ...error },
+      }),
+      { status, headers: { 'content-type': 'application/json' } }
+    )
+  }
+const conflict = (reasonCode: string) => ({
+  class: 'conflict',
+  code: 'PI_LEAD_MODEL_NOT_READY',
+  retryable: false,
+  details: { reasonCode },
+})
+const unavailable = {
+  class: 'runtime_unavailable',
+  code: 'PI_LEAD_MODEL_NOT_READY',
+  retryable: true,
+  details: { reasonCode: 'READINESS_UNAVAILABLE' },
+}
+// True once the installed SDK exposes the closed reason (shipped by CP #1159's next release).
+const sdkCarriesReason =
+  new ControlPlaneClientError({
+    code: 'PI_LEAD_MODEL_NOT_READY',
+    errorClass: 'conflict',
+    message: 'm',
+    requestId: 'r',
+    retryable: false,
+    status: 409,
+    reasonCode: 'QUOTA_EXHAUSTED',
+  } as never).reasonCode === 'QUOTA_EXHAUSTED'
+
+test('a Control Plane readiness refusal reaches the Adea lead runtime from the HTTP response', async () => {
+  const f = await fixture()
+  const stored: unknown[] = []
+  const run = async (fetchImpl: unknown) => {
+    const composed = await createConfiguredLeadTurnDependencies(
+      {
+        ...f.dependencies,
+        environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+        fetch: fetchImpl as never,
+      },
+      undefined,
+      installedLeadSdkPort
+    )
+    const service = createLeadTurnRuntime({
+      store: {
+        async authorize() {
+          return authority
+        },
+        async read() {
+          return undefined
+        },
+        async prepare(value: unknown) {
+          stored.push(value)
+        },
+        async pending() {},
+        async observe() {
+          return undefined
+        },
+      } as never,
+      adapter: composed.adapter as never,
+      authorizeConfirmedStart: composed.authorizeConfirmedStart!,
+    })
+    return service.prepare({
+      workspaceId: authority.workspaceId,
+      intentId: authority.intentId,
+      userId: 'owner',
+    } as never)
+  }
+  // 409 with a named reason: exact reason when the SDK carries it, otherwise an unverifiable one.
+  for (const reasonCode of ['QUOTA_EXHAUSTED', 'CREDENTIAL_EXPIRED', 'WORKSPACE_GRANT_REVOKED']) {
+    const result = await run(cpReadinessRefusal(409, conflict(reasonCode)))
+    expect(result).toMatchObject({
+      state: 'blocked',
+      availability: 'unavailable',
+      reasonCode: 'MODEL_NOT_READY',
+      readinessReason: sdkCarriesReason ? reasonCode : 'READINESS_UNAVAILABLE',
+    })
+    expect(JSON.stringify(result)).not.toContain('secret-token')
+  }
+  // The retryable 503 envelope is recognized; the same status with another code or shape is not.
+  expect(await run(cpReadinessRefusal(503, unavailable))).toMatchObject({
+    reasonCode: 'MODEL_NOT_READY',
+    readinessReason: 'READINESS_UNAVAILABLE',
+  })
+  for (const generic of [
+    cpReadinessRefusal(503, { ...unavailable, code: 'PI_LEAD_UNAVAILABLE', details: undefined }),
+    cpReadinessRefusal(503, { ...unavailable, retryable: false }),
+    cpReadinessRefusal(409, { ...conflict('QUOTA_EXHAUSTED'), code: 'PI_LEAD_UNAVAILABLE' }),
+  ]) {
+    const result = await run(generic)
+    expect(result).toMatchObject({ state: 'blocked' })
+    expect((result as { reasonCode?: string }).reasonCode).not.toBe('MODEL_NOT_READY')
+  }
+  // A response for another request ID is never trusted, so no reason is read from it.
+  const foreign = await run(cpReadinessRefusal(409, conflict('QUOTA_EXHAUSTED'), 'req_other'))
+  expect((foreign as { reasonCode?: string }).reasonCode).not.toBe('MODEL_NOT_READY')
+  expect(stored).toEqual([])
 })

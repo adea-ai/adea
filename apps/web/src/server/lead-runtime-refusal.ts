@@ -27,22 +27,41 @@ export const LEAD_MODEL_NOT_READY_CODE = 'PI_LEAD_MODEL_NOT_READY'
 
 /**
  * The bounded reason of a Control Plane client error, or undefined when it is not a readiness
- * refusal. Only a client-error or readiness status with a matching request ID counts. An older
- * SDK may not carry `details`, in which case the refusal is known but its reason is not.
+ * refusal. Only a matching request ID counts.
+ *
+ * Wire contract (CP #1159): HTTP 409 `PI_LEAD_MODEL_NOT_READY` with `details.reasonCode` for every
+ * reason except READINESS_UNAVAILABLE, which is a retryable 503 with the same code. The SDK
+ * surfaces the closed reason as `error.reasonCode`; an SDK that predates it drops `details`, so
+ * the refusal is known but its reason is not (READINESS_UNAVAILABLE). A 503 counts only as that
+ * exact envelope: any other 503 stays the generic failure.
  */
 export function leadRefusalReason(
-  error: { code?: unknown; status?: unknown; details?: unknown },
+  error: {
+    code?: unknown
+    status?: unknown
+    retryable?: unknown
+    reasonCode?: unknown
+    details?: unknown
+  },
   requestMatches: boolean
 ): LeadReadinessReason | undefined {
   if (!requestMatches) return undefined
   const status = typeof error.status === 'number' ? error.status : 0
-  if (error.code === LEAD_MODEL_NOT_READY_CODE && (status === 409 || status === 503)) {
+  if (error.code === LEAD_MODEL_NOT_READY_CODE) {
     const details = error.details
     const reason =
-      details && typeof details === 'object'
+      leadReadinessReason(error.reasonCode) ??
+      (details && typeof details === 'object'
         ? leadReadinessReason((details as { reasonCode?: unknown }).reasonCode)
-        : undefined
-    return reason ?? 'READINESS_UNAVAILABLE'
+        : undefined)
+    if (status === 409) return reason ?? 'READINESS_UNAVAILABLE'
+    if (
+      status === 503 &&
+      error.retryable === true &&
+      (reason === undefined || reason === 'READINESS_UNAVAILABLE')
+    )
+      return 'READINESS_UNAVAILABLE'
+    return undefined
   }
   return [400, 403, 404, 409, 422].includes(status) ? leadReadinessReason(error.code) : undefined
 }
