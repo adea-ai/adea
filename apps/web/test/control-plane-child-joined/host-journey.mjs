@@ -260,7 +260,14 @@ async function evidence() {
   const childStatus = child ? await adapter.status(child.admission.handle) : undefined
   const leadStatus = lead ? await adapter.status(lead.admission.handle) : undefined
   const call = hooks.toolCalls ? await hooks.toolCalls.get(childIds.toolCallId) : undefined
+  // CP's retained child cost state: the terminal accounting receipt is `settled`.
+  const cost =
+    parentExecutionId && child
+      ? await governed.readChildCostState(hooks).catch(() => undefined)
+      : undefined
   return {
+    costState: cost?.outcome?.costState,
+    costRevision: cost?.revision,
     canonical: host.canonicalCounts(),
     physicalSends: host.state.physicalSends,
     leadSends: sent.lead.length,

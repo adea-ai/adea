@@ -165,8 +165,8 @@ describe('happy journey and exactly-once replays', () => {
     expect(
       beforeScan.publications.filter((record) => record.value.event.type === 'delegation.completed')
     ).toHaveLength(0)
-    await control('scan')
-    const evidence = await control('evidence')
+    // The terminal accounting receipt (cost state settled) is the baseline for the replays below.
+    const evidence = await journey.accounted()
     expect(evidence.delegations[0].state).toBe('completed')
     const terminal = evidence.publications.filter(
       (record) => record.value.event.type === 'delegation.completed'
@@ -195,7 +195,11 @@ describe('happy journey and exactly-once replays', () => {
     }
     const after = await control('evidence')
     expect(after.publications).toEqual(evidence.publications)
-    expect(after.canonical).toEqual(firstEvidence.canonical)
+    // Settled-ledger idempotence: the full ledger (usage rows included) and the retained cost
+    // state are unchanged by replays, scans and a CP reopen once the accounting receipt exists.
+    expect(after.canonical).toEqual(evidence.canonical)
+    expect(after.costState).toBe('settled')
+    expect(after.costRevision).toBe(evidence.costRevision)
     expect(after.physicalSends).toBe(3)
     expect(after.childStarts).toBe(1)
     expect(after.reservations).toEqual(firstEvidence.reservations)

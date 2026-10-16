@@ -271,12 +271,18 @@ control API, against **CP main `0a453d8`**, the squash merge of CP #1134 (review
 The installed SDK comes from Adea's lockfile (sdk 1.18.0, runtime-sdk 1.15.1, contracts 1.21.1) and
 is compared with the packages that revision builds (sdk 1.18.1, runtime-sdk 1.15.1, contracts
 1.21.3) before any database connection is opened. `runtime-sdk`, which holds the lead contract, is
-byte-identical. The lockfile trails CP main only by CP #1149/#1150: an optional `digestVersion` on
-graph digests and the files behind it (contracts `canonical-json`, `graphs`, `control-api`; sdk
-`operations.d.ts` and `openapi/control-plane.v3.json`). None of them is loaded by the lead
-operations used here. `journey-support.mjs` (`declaredDrift`) names those files exactly; any other
-difference, or a declared file that stops differing, fails the run. This is not an
-Adea-lockfile-equals-CP claim: a published SDK/contracts release plus an Adea bump closes it.
+byte-identical. Twelve files differ, and `declaredDrift` in `journey-support.mjs` pins each one to
+its reviewed installed and built sha256 (install kind `registry-declared-drift`); a different
+content in either file, an undeclared difference, or a declared file that stops differing fails the
+run (checked with a negative control).
+
+| Files                                                                                                                                 | Change in the CP build                                                            | Import-path impact                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| contracts `dist/graphs.js` (+ `.d.ts`, `control-api.d.ts`, maps), sdk `dist/operations.d.ts`, `openapi/control-plane.v3.json` (+ map) | CP #1149/#1150: an optional `digestVersion: 'canonical-json-v1'` on graph digests | Strictly additive and optional. Evaluated when contracts loads, never parsed by the lead operations, which carry no graph digest. Types and OpenAPI text are not executed.                                                                                                                                                                                                                                                  |
+| contracts `dist/canonical-json.js` (+ maps)                                                                                           | Loop-based rewrite of `canonicalJsonStringify`, same canonical form               | Evaluated when contracts loads and used by runtime-sdk modules (health, eligibility, models, sessions, ...), not by Adea's lead operations (Adea hashes payloads with its own `canonicalJson`). `journey-drift.test.mjs` runs both implementations on edge values, 2,000 seeded random documents and code-point ordering and requires identical output and identical thrown errors; a `localeCompare` mutation is detected. |
+
+This is not an Adea-lockfile-equals-CP claim and the release-parity gap stays open: a published
+SDK/contracts release plus an Adea bump would remove the table.
 
 ```sh
 # manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 0a453d8
@@ -297,11 +303,12 @@ composition in a new OS process, so CP process-restart recovery is **not** claim
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `journey.test.mjs` (6)           | An accepted message, snapshot, status and progress start nothing. Prepare discloses the payer with no inference and replays as the same preparation. Dispatch runs the lead once; the child is allocated, funded and started once. The exact answer bytes are published once with the identity chain intent, execution, attempt, native session and child. Retries and a CP reopen change no durable row. An ordinary direct message creates no intent or CP work. |
 | `journey-recovery.test.mjs` (6)  | Prepare reply lost (SIGKILL); dispatch accepted by CP but lost to Adea, recovered by lookup with no second dispatch; terminal receipt lost; killed inside the publication transaction (nothing published); killed after commit (same message, same digest on every retry). Counters at the end.                                                                                                                                                                    |
+| `journey-drift.test.mjs` (3)     | `canonicalJsonStringify` in the installed contracts and in the CP build agree on edge values, seeded random documents and ordering.                                                                                                                                                                                                                                                                                                                                |
 | `journey-authority.test.mjs` (8) | A lead stop retried from a new process is one CP stop, does not cancel the child, and an acknowledgement is not termination. CP's publication authority withdrawn: result withheld, then published once when restored. A stop after completion is refused and changes nothing. A revoked audience gets no result and no projection.                                                                                                                                |
 
 Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic accounts):
 
-- 20 pass, 0 fail, 234 expects, 165 s at CP `0a453d8` (`bun run test:integration:control-plane-journey`).
+- 23 pass, 0 fail at CP `0a453d8` (`bun run test:integration:control-plane-journey`).
 - Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
   attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
   calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one
@@ -338,8 +345,13 @@ exercise it with real process restarts.
 - A member removed from the audience is refused outright on every read and retry (no projection, no
   result); a result whose CP publication authority was withdrawn is withheld with
   `PUBLICATION_WITHHELD` and published once, exact bytes, after it is restored.
-- CP usage-ledger rows are written by CP on its own schedule after the terminal states (child
-  settlement), so counters are compared on a settled read, and "no new CP work" excludes them.
+- CP settles the child on its own recovery interval after the terminal states: the retained child
+  cost state moves `reserved` to `settled` (revision 1 to 4) and the usage ledger grows (14 to 21
+  rows) roughly ten to twenty seconds later. Counter and replay comparisons therefore wait for the
+  terminal accounting receipt (`costState: settled`, delegation `completed`) and then assert that
+  the complete ledger, usage rows included, and the cost-state revision are unchanged by scans, a
+  CP reopen, retried commands, crashes and refused reads. Only the transient "no new CP work"
+  snapshots taken while the child is in flight leave usage rows out.
 
 ### Not proved (acceptance stays open on #1173)
 

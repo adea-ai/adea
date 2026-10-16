@@ -10,7 +10,7 @@ const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
 
 describe('crash and restart recovery across the journey boundaries', () => {
-  let journey, control, ids
+  let journey, control, ids, finished
   beforeAll(async () => {
     await verifyJourneyPackages(manifestPath)
     journey = await startJourney('1173 recovery')
@@ -85,8 +85,8 @@ describe('crash and restart recovery across the journey boundaries', () => {
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
       'lead and child completed'
     )
-    // Usage settlement lands shortly after the terminal states; compare against the settled ledger.
-    const finished = await journey.settled(() => control('evidence'))
+    // CP settles on its own recovery interval; the baseline is the terminal accounting receipt.
+    finished = await journey.accounted()
     expect(finished.leadSends).toBe(2)
     expect(finished.childSends).toBe(1)
     expect(finished.childStarts).toBe(1)
@@ -105,15 +105,10 @@ describe('crash and restart recovery across the journey boundaries', () => {
     const reopened = await control('evidence')
     expect(reopened.lead.state).toBe('completed')
     expect(reopened.child.state).toBe('completed')
-    for (const key of [
-      'physicalSends',
-      'childStarts',
-      'canonical',
-      'reservations',
-      'delegations',
-    ]) {
-      if (key !== 'delegations') expect(reopened[key]).toEqual(finished[key])
-    }
+    for (const key of ['physicalSends', 'childStarts', 'canonical', 'reservations'])
+      expect(reopened[key]).toEqual(finished[key])
+    expect(reopened.costState).toBe('settled')
+    expect(reopened.costRevision).toBe(finished.costRevision)
     expect(reopened.delegations).toHaveLength(1)
     expect(reopened.delegations[0].state).toBe('completed')
   }, 120000)
@@ -155,7 +150,12 @@ describe('crash and restart recovery across the journey boundaries', () => {
   test('counters: one accepted command pair, one lead, one child, one start, one send each', async () => {
     await control('scan')
     await control('scan')
-    const evidence = await control('evidence')
+    const evidence = await journey.accounted()
+    // Settled-ledger idempotence across the whole recovery chain: crashes, restarts, reopen and
+    // repeated reads leave the ledger and the retained cost state exactly as the receipt had them.
+    expect(evidence.canonical).toEqual(finished.canonical)
+    expect(evidence.costRevision).toBe(finished.costRevision)
+    expect(evidence.reservations).toEqual(finished.reservations)
     expect(evidence.canonical).toMatchObject({
       commands: 1,
       executions: 2,

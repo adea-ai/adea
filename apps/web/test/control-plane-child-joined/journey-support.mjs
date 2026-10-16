@@ -10,29 +10,73 @@ const requireDb = createRequire(new URL('../../../../packages/db/package.json', 
 const { eq, and } = await import(requireDb.resolve('drizzle-orm'))
 
 /**
- * Adea's lockfile (sdk 1.18.0, contracts 1.21.1) trails CP main (sdk 1.18.1, contracts 1.21.3) only
- * by CP #1149/#1150's optional `digestVersion` on graph digests and the canonical-json/graph files
- * behind it. None of it is loaded by the lead operations the journey uses (prepare, dispatch,
- * lookup, status, progress, cancel, publication.current), and runtime-sdk, which holds the lead
- * contract, is byte-identical. The drift is declared exactly; any other difference fails.
+ * Adea's lockfile (sdk 1.18.0, contracts 1.21.1) trails CP main (sdk 1.18.1, contracts 1.21.3) in
+ * exactly these files, each pinned to the reviewed installed and built content (sha256). The CP
+ * changes are #1149/#1150 (graph digest compatibility) and a behavior-preserving rewrite of
+ * `canonicalJsonStringify`:
+ * - `graphs.js`: one added line, `digestVersion: z.literal('canonical-json-v1').optional()`;
+ *   `graphs.d.ts`, `control-api.d.ts`, sdk `operations.d.ts` and the OpenAPI JSON carry the same
+ *   optional field as types or documentation; the `.map` files are source maps.
+ * - `canonical-json.js`: loop-based serialization of the same canonical form. It is evaluated when
+ *   `@adea-ai/contracts` loads and is used by runtime-sdk modules, not by Adea's lead operations
+ *   (Adea hashes payloads with its own `canonicalJson`). `journey-drift.test.mjs` runs the
+ *   installed and the built implementation side by side and requires identical output.
+ * runtime-sdk, which holds the lead contract, is byte-identical. The lead operations never carry a
+ * graph digest. A published SDK/contracts release plus an Adea bump would remove this table.
  */
 export const declaredDrift = {
-  '@adea-ai/contracts': [
-    'dist/canonical-json.d.ts.map',
-    'dist/canonical-json.js',
-    'dist/canonical-json.js.map',
-    'dist/control-api.d.ts',
-    'dist/control-api.d.ts.map',
-    'dist/graphs.d.ts',
-    'dist/graphs.d.ts.map',
-    'dist/graphs.js',
-    'dist/graphs.js.map',
-  ],
-  '@adea-ai/sdk': [
-    'dist/operations.d.ts',
-    'dist/operations.d.ts.map',
-    'openapi/control-plane.v3.json',
-  ],
+  '@adea-ai/contracts': {
+    'dist/canonical-json.d.ts.map': {
+      installed: 'd257ab44bf4729f10754ce78425d1efb720590346e1b7dd32f99303f71d7b847',
+      built: '1b5055800caea02be72ec18518694ff580828d510678b17e3da221839aecc296',
+    },
+    'dist/canonical-json.js': {
+      installed: 'ce5ba8bf89991a1ae29d8b74c57757aa0ea73dd2e4360c3cca81d7911becb2a2',
+      built: '6bffa314b7467e0ba74230e0326a62c0a51468940c1934b0dfe77862c93e21fe',
+    },
+    'dist/canonical-json.js.map': {
+      installed: '1551f0171f7656eb92ae8523c3e4c66efaba40a28a16f7fd423ecd98e9ba3ecc',
+      built: '6f36e0d4e421cc699d3c9589e7cd2977db91fc1ccba8e18de37a72215de83f13',
+    },
+    'dist/control-api.d.ts': {
+      installed: '6f5c80a812ee6a35d6dd854bc92238dbb405b730efacb3e499a722e66c73ac01',
+      built: 'c3482632ead29a664b571f7337a45fb9faadfc7657658a4ef68e7cb22abd2f12',
+    },
+    'dist/control-api.d.ts.map': {
+      installed: 'ac16db58edc08a44b70bc3f9917b262103dc47dfe65b8a6da839b35b5c6a823f',
+      built: '2aaa8d129fc60bedbd7667f693cdc440be6e46f4d14089c42968736ec40a1d66',
+    },
+    'dist/graphs.d.ts': {
+      installed: '7b7ae64cebe73a52db8981977440d3f68eac2399c81e2d38e69f9b1797797808',
+      built: '7044786dbf9a2e689317059139f649b04783309f341d3808ff8519d69ecc6e44',
+    },
+    'dist/graphs.d.ts.map': {
+      installed: '2b32e88642efff2723a6252de1261e6ff7ff674dcd8fc3665a95365f13d750fc',
+      built: 'bb579dc24a83983a0d5c223a1fb7ed775a6f6e8c04241c26c9240374bf905f13',
+    },
+    'dist/graphs.js': {
+      installed: '4561ed18b083358dbd9dd3e4300a48bef92107389c4563e9fd90c2bfedee81c5',
+      built: '980d36c3f4b3d53af7913c0acfeaba63baec3513a3b974a889464d8dc5b0b9cc',
+    },
+    'dist/graphs.js.map': {
+      installed: 'b8ce56fa0b85501a22da1daf17c08088071026c955a611efe33b5a61cb45ed3f',
+      built: 'b983feab4677113ac575bafc2078e20ada6c880a75ffa7e30d5409ad5f86090a',
+    },
+  },
+  '@adea-ai/sdk': {
+    'dist/operations.d.ts': {
+      installed: '4cff485e33e7339e8828074d2be13be8119bce5efcc852eb25737e30cd8f8f0a',
+      built: '56613da4d134d60f4ddf17507dacfda7ef9ccf1101fbfaeea49554a8315e8eee',
+    },
+    'dist/operations.d.ts.map': {
+      installed: 'f5cab99ff469d60643aaa94b9a4fd77c8589aeb9ba86f9eb2231d0be82b02c25',
+      built: '35e5056f7b2f7d5e240d698814ba859f2b89409f938bfc6325622e907aebb166',
+    },
+    'openapi/control-plane.v3.json': {
+      installed: '92d0594c2dec72cffd47575aaf78c89a10d5ff399b8a8b8c3499d8338ed353a5',
+      built: '0f86a1280c4449a3e8d68e102dec3a0cd9acfaff95847664212274013f8aa785',
+    },
+  },
 }
 
 /** Package and source identity, before any database connection is opened. */
@@ -59,20 +103,6 @@ async function waitFor(read, predicate, label, timeoutMs = 30000) {
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(`JOURNEY_WAIT_TIMEOUT:${label}:${JSON.stringify(last)?.slice(0, 600)}`)
-}
-
-/** Reads until two reads 1.5 s apart agree: eventual settlement has finished, nothing is pending. */
-async function settled(read, timeoutMs = 30000) {
-  const end = Date.now() + timeoutMs
-  let last = JSON.stringify(await read())
-  while (Date.now() < end) {
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-    const value = await read()
-    const text = JSON.stringify(value)
-    if (text === last) return value
-    last = text
-  }
-  throw new Error('JOURNEY_SETTLE_TIMEOUT')
 }
 
 export async function startJourney(title) {
@@ -147,6 +177,22 @@ export async function startJourney(title) {
         )
       )
 
+  /**
+   * Waits for the terminal accounting receipt: CP's retained child cost state is `settled` and its
+   * delegation record is `completed`. CP settles on its own recovery interval, so the usage ledger
+   * is only comparable once this receipt exists; each poll runs CP's idempotent progress scan.
+   */
+  const accounted = () =>
+    waitFor(
+      async () => {
+        await control('scan')
+        return control('evidence')
+      },
+      (e) => e.costState === 'settled' && e.delegations[0]?.state === 'completed',
+      'terminal accounting receipt',
+      60000
+    )
+
   return {
     harness,
     adea,
@@ -160,7 +206,7 @@ export async function startJourney(title) {
     publishedMessages,
     revokeAudience,
     waitFor,
-    settled,
+    accounted,
     stop: () => harness.stop(),
   }
 }

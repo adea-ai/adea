@@ -29,9 +29,11 @@ const loadFields = ['name', 'version', 'type', 'main', 'module', 'types', 'expor
  * differ (it carries a CP change no release has yet). The payload is not asserted equal; the files
  * that differ are returned so the gap a release must close is on the record.
  * 'registry-declared-drift': registry installs whose payload may differ from the build only in the
- * files `declaredDrift` names for that package, exactly: any other difference, and any declared
- * file that no longer differs, fails. For a CP revision that has moved past Adea's lockfile only in
- * changes the consumer path does not load, which the caller states and justifies.
+ * files `declaredDrift` names for that package, and only with exactly the reviewed content:
+ * `declaredDrift[package][file]` pins the installed file's sha256 and the built file's sha256.
+ * Any other differing file, a declared file that no longer differs, or a declared file whose
+ * installed or built content is not the pinned content, fails. For a CP revision that has moved
+ * past Adea's lockfile only in changes the caller states and justifies.
  */
 export async function verifyInstalledPackages({
   manifestPath,
@@ -82,6 +84,7 @@ export async function verifyInstalledPackages({
     for (const field of loadFields.filter((key) => key !== 'version'))
       assert.deepEqual(installed[field], artifact.declared[field], `${artifact.name} ${field}`)
     const differing = []
+    const differingHashes = {}
     const tarEntries = execFileSync('tar', ['-tf', artifact.archivePath], { encoding: 'utf8' })
       .split('\n')
       .filter((name) => name && !name.endsWith('/') && name !== 'package/package.json')
@@ -96,7 +99,13 @@ export async function verifyInstalledPackages({
         installKind === 'registry-predating-candidate' ||
         installKind === 'registry-declared-drift'
       ) {
-        if (sha256(actual) !== sha256(built)) differing.push(name.slice('package/'.length))
+        if (sha256(actual) !== sha256(built)) {
+          differing.push(name.slice('package/'.length))
+          differingHashes[name.slice('package/'.length)] = {
+            installed: sha256(actual),
+            built: sha256(built),
+          }
+        }
         continue
       }
       assert.equal(
@@ -107,9 +116,15 @@ export async function verifyInstalledPackages({
     }
     if (installKind === 'registry-declared-drift')
       assert.deepEqual(
-        differing.toSorted(),
-        (declaredDrift[artifact.name] ?? []).toSorted(),
-        `UNDECLARED_PAYLOAD_DRIFT:${artifact.name}`
+        Object.fromEntries(
+          Object.entries(differingHashes).toSorted(([a], [b]) => (a < b ? -1 : 1))
+        ),
+        Object.fromEntries(
+          Object.entries(declaredDrift[artifact.name] ?? {}).toSorted(([a], [b]) =>
+            a < b ? -1 : 1
+          )
+        ),
+        `UNDECLARED_OR_CHANGED_PAYLOAD_DRIFT:${artifact.name}`
       )
     packages.push({
       name: artifact.name,

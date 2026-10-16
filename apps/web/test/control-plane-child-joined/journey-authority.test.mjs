@@ -209,8 +209,8 @@ describe('a revoked audience receives no result', () => {
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
       'lead and child completed'
     )
-    // Usage settlement lands shortly after the terminal states; compare against the settled ledger.
-    const before = await journey.settled(() => control('evidence'))
+    // CP settles on its own recovery interval; the baseline is the terminal accounting receipt.
+    const before = await journey.accounted()
     const messages = await journey.channelMessages()
     // CP's own authority is current throughout; only Adea's audience changes, inside the status read.
     const withheld = await journey.driver('status', { fault: 'revoke-audience-before-publication' })
@@ -228,7 +228,7 @@ describe('a revoked audience receives no result', () => {
   }, 120000)
 
   test('the revoked member gets nothing from later reads or retries, and CP sees no new work', async () => {
-    const before = await journey.settled(() => control('evidence'))
+    const before = await journey.accounted()
     const messages = await journey.channelMessages()
     for (const command of ['status', 'snapshot', 'progress', 'dispatch', 'cancel']) {
       const read = await journey.driver(command)
@@ -239,6 +239,9 @@ describe('a revoked audience receives no result', () => {
     }
     const after = await control('evidence')
     expect(cpWork(after)).toEqual(cpWork(before))
+    // Settled-ledger idempotence: refused reads leave the ledger and cost state untouched.
+    expect(after.canonical).toEqual(before.canonical)
+    expect(after.costRevision).toBe(before.costRevision)
     expect(await journey.channelMessages()).toEqual(messages)
     expect(await journey.publishedMessages()).toHaveLength(0)
   }, 120000)
