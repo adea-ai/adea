@@ -44,8 +44,6 @@ inside the same transaction that writes the roster. A body that carries `audienc
 
 ## Failure handling
 
-## Failure handling
-
 - Create attempts keep `channelId` and `idempotencyKey` while the payload is unchanged, so a lost response is
   retried to the same group and a double submit sends once. A changed payload starts a new attempt.
 - Selections and the title survive every recoverable error. A group is shown as created only from the server answer.
