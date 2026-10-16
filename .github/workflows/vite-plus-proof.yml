@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 30
     env:
       CODE_FOUNDRY_VERSION: 1.48.0
-      CODE_FOUNDRY_SHA: 2556bba045a26a6b6b8e9634ae874500785c8e99
+      CODE_FOUNDRY_SHA: de2e9bb275a4fb16d6709893c588c922977f061d
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,6 +46,7 @@ jobs:
           path: .github/.code-foundry
           sparse-checkout: |
             .github/actions/cache
+            .github/actions/vite-plus-cache-save
             src/lib
             src/runtime-core.mjs
             src/runtime.mjs
@@ -58,20 +59,21 @@ jobs:
           echo "Code Foundry runtime: $actual_version at $actual_sha"
           [ "$actual_version" = "$CODE_FOUNDRY_VERSION" ]
           [ "$actual_sha" = "$CODE_FOUNDRY_SHA" ]
-      - name: Install the pinned cache helper
+      - name: Install the pinned cache actions
         run: |
           set -euo pipefail
           mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"
           mkdir -p .github/actions
           test ! -e .github/actions/cache
-          cp -R "$RUNNER_TEMP/code-foundry/.github/actions/cache" .github/actions/cache
+          test ! -e .github/actions/vite-plus-cache-save
+          cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/
       # Opt this job's workspace into Vite+. The repository's committed
       # code-foundry.yml is untouched, so required workflows keep using Turbo.
       - name: Opt this job into Vite+
         run: |
           printf '\nmonorepo_tool: vite-plus\n' >> .github/code-foundry.yml
-      # Set the override before setup so both Vite+ and the post-job save use
-      # a cache path under this runner's temporary directory.
+      # Set the override before setup so the shared cache contract includes a
+      # runner-local Vite+ path.
       - name: Set runner-local Vite+ cache path
         shell: bash
         run: |
@@ -83,7 +85,8 @@ jobs:
           esac
           printf 'VITE_CACHE_PATH=%s\n' "$cache_path" >> "$GITHUB_ENV"
       - name: Setup with Code Foundry at exact #765 commit
-        uses: 0xPlayerOne/code-foundry/.github/actions/setup@2556bba045a26a6b6b8e9634ae874500785c8e99
+        id: code-foundry-setup
+        uses: 0xPlayerOne/code-foundry/.github/actions/setup@de2e9bb275a4fb16d6709893c588c922977f061d
         with:
           install: 'true'
           cache-build: 'false'
@@ -127,10 +130,16 @@ jobs:
           set -euo pipefail
           expected="$RUNNER_TEMP/adea-vite-plus-proof-cache"
           test "$VITE_CACHE_PATH" = "$expected"
-          test "$CODE_FOUNDRY_VITE_CACHE_PATH" = "$expected"
+          printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"
           test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"
           du -sh "$VITE_CACHE_PATH"
           if [ -d node_modules/.vite/task-cache ]; then
             du -sh node_modules/.vite/task-cache
           fi
+      - name: Save Vite+ task cache
+        uses: ./.github/actions/vite-plus-cache-save
+        with:
+          path: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-path }}
+          key: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-key }}
+          save: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-save }}

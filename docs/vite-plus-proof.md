@@ -51,16 +51,18 @@ version, platform and architecture.
 ## CI
 
 `.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and
-by dispatch. It checks out Code Foundry at the exact reviewed #765 commit
-`2556bba045a26a6b6b8e9634ae874500785c8e99`, verifies the commit and package
-version, stages the pinned runtime under `$RUNNER_TEMP/code-foundry`, and uses
-that commit's setup action with `cache-vite-plus: true`. The workflow copies the
-matching cache helper from the same commit because the composite setup action
-references `./.github/actions/cache` in the caller's workspace. It sets
-`VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before setup; Code Foundry
-carries the resolved absolute path into the post-job cache save. The cache key
-partitions by toolchain, dependency manifests, Vite config, and run attempt. The
-workflow only opts its own job into `monorepo_tool: vite-plus`; the committed
+by dispatch. It checks out Code Foundry at the exact reviewed #765 fix commit
+`de2e9bb275a4fb16d6709893c588c922977f061d`, verifies the commit and package version, stages the pinned
+runtime under `$RUNNER_TEMP/code-foundry`, and uses that commit's setup action
+with `cache-vite-plus: true`. The workflow copies the pinned cache and save
+actions from the same commit into the consumer workspace. It sets
+`VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before setup, then calls
+the supported `vite-plus-cache-save` action after the proof tasks with the
+setup action's published path, key, and save-intent outputs. The product action
+owns the cache namespace, key, restore prefixes, and push-only save behavior;
+Adea has no bespoke cache-key computation. The key partitions by toolchain,
+dependency manifests, Vite config, and run attempt. The workflow only opts its
+own job into `monorepo_tool: vite-plus`; the committed
 `.github/code-foundry.yml` and required Turbo workflows remain unchanged. No
 secrets, remote cache, or Cloudflare are used.
 

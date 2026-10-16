@@ -301,23 +301,29 @@ describe('VITE_CACHE_PATH', () => {
 
   test('the workflow uses the exact Code Foundry action and its cache override contract', () => {
     const workflow = readFileSync(join(root, '.github/workflows/vite-plus-proof.yml'), 'utf8')
-    const foundrySha = '2556bba045a26a6b6b8e9634ae874500785c8e99'
+    const foundrySha = 'de2e9bb275a4fb16d6709893c588c922977f061d'
     expect(workflow).toContain(`CODE_FOUNDRY_SHA: ${foundrySha}`)
-    expect(workflow).toContain(
-      `uses: 0xPlayerOne/code-foundry/.github/actions/setup@${foundrySha}`
-    )
+    expect(workflow).toContain(`uses: 0xPlayerOne/code-foundry/.github/actions/setup@${foundrySha}`)
     expect(workflow).toContain("cache-vite-plus: 'true'")
     expect(workflow).toContain('ref: ${{ env.CODE_FOUNDRY_SHA }}')
     expect(workflow).toContain('src/runtime.mjs')
     expect(workflow).toContain('src/runtime-core.mjs')
     expect(workflow).toContain('mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"')
+    expect(workflow).toContain('.github/actions/vite-plus-cache-save')
     expect(workflow).toContain(
-      'cp -R "$RUNNER_TEMP/code-foundry/.github/actions/cache" .github/actions/cache'
+      'cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/'
     )
     expect(workflow).toContain('cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"')
-    expect(workflow).toContain('test "$CODE_FOUNDRY_VITE_CACHE_PATH" = "$expected"')
+    expect(workflow).toContain('CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"')
     expect(workflow).toContain('test "$VITE_CACHE_PATH" = "$expected"')
     expect(workflow).toContain('test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"')
+    expect(workflow).toContain('uses: ./.github/actions/vite-plus-cache-save')
+    expect(workflow).toContain('steps.code-foundry-setup.outputs.vite-plus-cache-path')
+    expect(workflow).toContain('steps.code-foundry-setup.outputs.vite-plus-cache-key')
+    expect(workflow).toContain('steps.code-foundry-setup.outputs.vite-plus-cache-save')
+    expect(workflow).not.toContain('uses: actions/cache/restore@v5')
+    expect(workflow).not.toContain('uses: actions/cache/save@v5')
+    expect(workflow).not.toContain('vite-plus-v1')
     expect(workflow).not.toContain('uses: ./.github/actions/setup')
     expect(workflow).not.toContain("cache-vite-plus: 'false'")
   })
