@@ -3,10 +3,16 @@
 Recorded local runs of `bun run test:integration:control-plane-journey`. They are not CI results
 and the lane is not wired into CI (see Prerequisites).
 
-| Run | Adea head                                  | Result                                                                          |
-| --- | ------------------------------------------ | ------------------------------------------------------------------------------- |
-| 1   | `ab3e828a93e80a63ea04ea21af62801815fcb262` | 26 pass, 0 fail, 254 expects, 177.5 s                                           |
-| 2   | `40bede118d5328655a49f7e9e07bfdd598a7a003` | 26 pass, 0 fail, 254 expects, 175.5 s (exact PR head, main `f0e98ce` merged in) |
+| Run | Adea head                                  | Result                                                                                                          |
+| --- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| 1   | `ab3e828a93e80a63ea04ea21af62801815fcb262` | 26 pass, 0 fail, 254 expects, 177.5 s                                                                           |
+| 2   | `40bede118d5328655a49f7e9e07bfdd598a7a003` | 26 pass, 0 fail, 254 expects, 175.5 s (exact PR head, main `f0e98ce` merged in)                                 |
+| 3   | `1db1296888c89f16fb8fc6a8056a9f049bbe3689` | 26 pass, 0 fail, 254 expects, 179.2 s (main `0b05aee` / #1419 merged in, plus the `admittedAt` regression test) |
+
+Run 3 was taken on `1db1296`: `6e51924` plus the db regression test `c9c961a` and a merge of main
+`0b05aee` (#1419, self-hosted connection UX). That merge added only web/e2e/workspace-ui files and
+one spec page; it changed no journey file and not `bun.lock`. The same run also passed the db
+integration file `lead-turn-historical.test.ts` (19 pass, including the new test).
 
 Run 2 was taken on a clean worktree at head `40bede1`, which is `ab3e828` plus a merge of main
 `f0e98ce` (#1422, readiness reasons). The merge changed no journey file and not `bun.lock`
@@ -14,7 +20,7 @@ Run 2 was taken on a clean worktree at head `40bede1`, which is `ab3e828` plus a
 and database setup as run 1, with a freshly started disposable PostgreSQL. This file itself is
 committed after run 2, so the PR head after that commit differs from `40bede1` by documentation only.
 
-| Item                   | Value (identical for both runs)                                                                                              |
+| Item                   | Value (identical for all runs)                                                                                               |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Result                 | **26 pass, 0 fail**, 254 expects (runs above)                                                                                |
 | Files                  | `journey.test.mjs` 6, `journey-recovery.test.mjs` 6, `journey-authority.test.mjs` 8, `journey-identity.test.mjs` 6           |
