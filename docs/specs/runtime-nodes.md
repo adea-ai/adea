@@ -260,6 +260,54 @@ to stale, expired or unknown without background network polling. Explicit
 refresh and committed node events fetch current observations. Either node read
 can downgrade revoked/stale/unknown registration; discovery is never admission.
 
+## Self-hosted connection setup and recovery (#188)
+
+`packages/workspace-ui/src/self-hosted-connection-{model,panel,pane}` and
+`self-hosted-setup-guide` are the product surface for connecting a Control Plane the user
+runs. They consume the registration and discovery reads above and add no route, column or
+credential. The panel is controlled; each effect (open a pairing, rename, revoke, choose a
+host) is an optional operation, and one that is not supplied renders as unavailable with
+its reason rather than as a working control.
+
+Two authorities are shown separately and never derived from one another. **Execution host**
+is registration (`pairingState`), the last accepted proof and the Control Plane's own
+report. **Synchronized history** is governed by #193 member/device policy; no contract
+reports a history-sync identity for a host, so it is always shown as not reported, and its
+panel takes no host input at all. A host going offline, stale or revoked never changes it,
+and the surface never hides history because of host state.
+
+Retained observations (this surface differs deliberately from the Connections inspector,
+which hides previous inventory on any pending or failed read). The self-hosted pane keeps the
+last host list and discovery reports through a pending refresh or a transient failure (network
+or 5xx), labelled "could not be refreshed" and aging, so an open host, a typed draft and the
+keyboard position survive a flaky connection. That applies only while the reader is still
+authorized. A 401, 403 or 404 on the list drops the list, every cached report, the open host
+and any pairing values, and disables "Connect a host" until an authorized read succeeds; a
+refused discovery read drops every cached report (the list stays, being freshly read). An
+`audience_changed` event erases the resident queries before the refetch, and the pane shows
+loading with nothing retained until the authorized read returns. A refusal stays in force
+through any later retry error until a read succeeds. The pane keeps its own copy of the last
+list only from settled query results, never by reading a pending or failed query's `data`
+(which would suspend or throw), and discards that copy on refusal and on reset. Nothing here
+is a server authorization decision: it only stops this component keeping metadata the reader
+may no longer see.
+
+Status is the worst observation, worded as a report: `Reported eligible`, never ready or
+online. A failed or absent read is `unknown` (could not check, no report received, proof
+unknown), never offline. Compatibility is the Control Plane's reported
+`compatibility.state`; Adea publishes no minimum host version, so none is invented.
+Revoking states what it does and does not do (no deletion on the host, no erasure of Adea
+records, no change to history access, no cancellation of accepted work) and requires the
+reason the route requires. After a revoke is accepted the list read decides: a host still
+shown registered is reported as unconfirmed, not revoked. A pairing's values are held in
+memory only, are cleared on expiry, on an explicit clear, or on account or workspace change,
+and are never stored. A host appearing after a pairing was issued does not clear them or mark
+the pairing used: no registration read carries a challenge reference, so consumption is
+unknown and the values stay displayed (with a note that they may already have been used).
+Expiry shows only that the deadline passed, not that no host used the pairing. A Control
+Plane report is used only when both its node id and Control Plane ref match the host; any
+other report supplies no eligibility, capability, access or proof facts.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
