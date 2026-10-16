@@ -156,6 +156,11 @@ function toConnection(item: FakeHost): ApiRuntimeConnection {
       location: 'remote_host',
       status: 'online',
       health: 'online',
+      deviceOnline: { state: 'not_applicable' },
+      hostReachability: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+      },
       observedAt,
     },
     connection: { status: 'connected', health: 'healthy', availability: 'healthy' },
@@ -193,7 +198,14 @@ function toConnection(item: FakeHost): ApiRuntimeConnection {
       degradations: [],
       remediation: bad ? ['upgrade_control_plane'] : [],
     },
-    transport: { state: 'unreported' },
+    transport: {
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.transport',
+    },
+    sessionOperations: {
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.session_operations',
+    },
     observedAt,
     limitations: [],
   }
@@ -246,6 +258,15 @@ export function createFakeFetch(state: FakeState): typeof fetch {
         health: toNode(item).health,
         pairingState: item.pairingState,
         lastProofAt: toNode(item).lastProofAt,
+        deviceOnline: { state: 'not_applicable' },
+        hostReachability: {
+          state: 'unknown',
+          dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+        },
+      },
+      controlPlaneReadiness: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.readiness',
       },
       discovery: unavailable
         ? { state: 'unavailable', code: 'CONTROL_PLANE_UNAVAILABLE' }
