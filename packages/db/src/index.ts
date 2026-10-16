@@ -252,6 +252,7 @@ export {
   listWorkspaceEventsAfter,
   markEventDispatchesNotified,
   pendingEventDispatches,
+  prepareWorkspaceEventsAfter,
   pruneWorkspaceEventsBefore,
   workspaceEventWindow,
   WORKSPACE_EVENT_PAGE_LIMIT,

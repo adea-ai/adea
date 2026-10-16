@@ -31,3 +31,22 @@ export function runAfterResponse(task: () => Promise<unknown>): void {
     // Outside a request context `waitUntil` throws; the task still runs.
   }
 }
+
+/**
+ * Keeps the isolate alive until `work` settles, for teardown that outlives the
+ * response (a stream's database client closing after the client went away).
+ * `work` must not reject; outside the Worker nothing is captured and this is a
+ * no-op.
+ */
+export function keepAliveUntil(work: Promise<unknown>): void {
+  try {
+    captured?.(
+      work.then(
+        () => undefined,
+        () => undefined
+      )
+    )
+  } catch {
+    // Outside a request context `waitUntil` throws; the work still runs.
+  }
+}
