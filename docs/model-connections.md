@@ -86,7 +86,10 @@ model that is not ready blocks the start with its remedy; nothing substitutes
 another model. Only a successful read that names no direct model (or a host that
 reports model metadata inactive) leaves the harness's own model. The default's
 `providerModel` is sent as the launch `modelId`, and the desktop host refuses one
-it cannot run. Sessions created empty on a worktree choose no model at creation, so
+it cannot run. The choice made before the host create is dispatched, including
+"no model", is kept for that idempotency key: a retry after a lost response
+replays it even if the stored default changed meanwhile, while a start that was
+blocked before any create is decided again on retry. Sessions created empty on a worktree choose no model at creation, so
 this default does not apply to them. Readiness is a projection from the listing;
 direct sessions are never gated by the Control Plane.
 
