@@ -1,6 +1,7 @@
-import { ControlApiOperations, ControlPlaneClient } from '@adea-ai/sdk'
+import { ControlApiOperations, ControlPlaneClient, ControlPlaneClientError } from '@adea-ai/sdk'
 import { isRecord, type ControlPlaneHopDependencies } from './control-plane-client'
 import type { ControlPlaneCredential } from './control-plane-credential'
+import { LeadRuntimeRefusal, leadRefusalReason } from './lead-runtime-refusal'
 
 export const LEAD_SDK_METHODS = [
   'preparePiDurableLead',
@@ -86,9 +87,19 @@ export const installedLeadSdkPort: LeadSdkPort = {
     })
     const methodFunction: unknown = Reflect.get(client, method)
     if (typeof methodFunction !== 'function') throw new Error('RUNTIME_UNAVAILABLE')
-    const response = responseSchema.parse(
-      await Reflect.apply(methodFunction, client, [requestSchema.parse(body)])
-    )
+    let raw: unknown
+    try {
+      raw = await Reflect.apply(methodFunction, client, [requestSchema.parse(body)])
+    } catch (error) {
+      // A refusal may carry only the agreed readiness vocabulary; other text never crosses.
+      const reason =
+        error instanceof ControlPlaneClientError
+          ? leadRefusalReason(error, error.requestId === body.requestId)
+          : undefined
+      if (reason) throw new LeadRuntimeRefusal(reason)
+      throw error
+    }
+    const response = responseSchema.parse(raw)
     if (
       !isRecord(response) ||
       response.requestId !== body.requestId ||

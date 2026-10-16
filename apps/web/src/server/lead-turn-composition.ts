@@ -8,6 +8,7 @@ import {
   type ControlPlaneHopDependencies,
 } from './control-plane-client'
 import type { ControlPlaneServiceScope } from './control-plane-credential'
+import { LeadRuntimeRefusal, leadReadinessReason } from './lead-runtime-refusal'
 import { createLeadTurnSdkAdapter } from './lead-turn-sdk-adapter'
 import { installedLeadSdkPort, type LeadSdkMethod, type LeadSdkPort } from './lead-turn-sdk-port'
 import type { LeadTurnProductDependencies } from './lead-turn-product'
@@ -91,6 +92,11 @@ export async function createConfiguredLeadTurnDependencies(
     if (!isRecord(response) || !isRecord(response.data) || !isRecord(response.data.funding))
       throw new Error('RUNTIME_RESPONSE_INVALID')
     const value = response.data.funding
+    // A blocked read names the current reason; keep that bounded fact instead of a generic failure.
+    if (value.state === 'blocked' && value.workspaceId === scope!.workspaceId) {
+      const reason = leadReadinessReason(value.reasonCode)
+      if (reason) throw new LeadRuntimeRefusal(reason)
+    }
     if (
       value.state !== 'ready' ||
       value.workspaceId !== scope!.workspaceId ||

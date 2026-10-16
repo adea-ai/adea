@@ -1,4 +1,5 @@
 import type { ApiLeadTurnStatus } from '@adea-ai/api-client'
+import { modelReadinessRemedy } from './lead-model-state'
 
 const labels: Readonly<Record<ApiLeadTurnStatus['state'], string>> = {
   blocked: 'Setup blocked',
@@ -16,8 +17,35 @@ const labels: Readonly<Record<ApiLeadTurnStatus['state'], string>> = {
 }
 
 /** Execution observation and public answer delivery are separate facts. */
-export function leadTurnPresentation(turn: ApiLeadTurnStatus | null, preparationCurrent: boolean) {
+export function leadTurnPresentation(
+  turn: ApiLeadTurnStatus | null,
+  preparationCurrent: boolean,
+  /** The last refused readiness check this view observed, kept until the next check. */
+  lastRefusal?: string | null
+) {
   if (!turn) return { label: 'Workspace lead', notice: null }
+  const fresh = turn.reasonCode === 'MODEL_NOT_READY'
+  const refusal = fresh
+    ? turn.readinessReason
+    : turn.state === 'blocked' &&
+        !turn.reasonCode?.match(/^(REQUESTED_MODEL_MISMATCH|PUBLICATION_WITHHELD)$/)
+      ? lastRefusal
+      : undefined
+  if (fresh || refusal) {
+    // Remedies come from the bounded vocabulary; an unknown reason reads as "could not verify".
+    const remedy =
+      modelReadinessRemedy(refusal)?.message ??
+      modelReadinessRemedy('READINESS_UNAVAILABLE')!.message
+    return {
+      label: labels[turn.state],
+      notice: {
+        kind: 'readiness',
+        text: turn.dispatchId
+          ? `Model authorization changed during this turn. ${remedy} Refresh lead status to see the recorded outcome; refreshing does not start another model call. Your saved message and draft are preserved.`
+          : `Nothing ran and no other model was substituted. ${remedy} Then choose Review model and payer to check again. Your saved message, draft and lead customization are preserved.`,
+      },
+    }
+  }
   if (turn.reasonCode === 'PUBLICATION_WITHHELD')
     return {
       label: labels[turn.state],
