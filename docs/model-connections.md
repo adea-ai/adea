@@ -64,16 +64,17 @@ blocked payer read names its remedy the same way. An unnamed or unknown reason
 reads as "could not be verified". These are projections only: they authorize no
 inference, and a later check is always a fresh Control Plane decision.
 
-The Control Plane refusal (CP #1159) is HTTP 409 `PI_LEAD_MODEL_NOT_READY` with
-`error.details.reasonCode` from the same vocabulary. READINESS_UNAVAILABLE is the
-same code as a retryable 503 (`runtime_unavailable`). The SDK exposes the closed
-reason as `ControlPlaneClientError.reasonCode`; the installed 1.18.1 drops
-`details`, so a 409 there is a known refusal with an unverifiable reason
-(READINESS_UNAVAILABLE) until a release carries the field. Adea reads `reasonCode`
-first, then `details.reasonCode`, only on a matching request ID. A 503 counts only
-as the exact retryable envelope with that code; any other 503 stays the generic
-failure. A byo_api selection paid by an Adea account is never ready, here or in
-the client projection.
+The Control Plane refusal (CP #1159) is HTTP 409 `PI_LEAD_MODEL_NOT_READY` (class
+`conflict`, not retryable) with `error.details.reasonCode` from the same
+vocabulary. READINESS_UNAVAILABLE is the same code as a retryable 503 (class
+`runtime_unavailable`). The SDK parses the reason into the closed
+`ControlPlaneClientError.reasonCode` and drops `details`; Adea consumes that field
+only, behind its own allowlist and a matching request ID. The installed 1.18.1 has
+no such field, so a 409 there is a known refusal with an unverifiable reason
+(READINESS_UNAVAILABLE) until a release carries it. A 503 counts only as the exact
+envelope (code, retryable, class, and no other reason); any other 503 stays the
+generic failure. A byo_api selection paid by an Adea account is never ready, here
+or in the client projection.
 
 ## New direct sessions
 

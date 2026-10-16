@@ -233,42 +233,44 @@ const nameRefusal = (patch: Record<string, unknown>, matches = true) =>
     {
       code: 'PI_LEAD_MODEL_NOT_READY',
       status: 409,
-      details: { reasonCode: 'QUOTA_EXHAUSTED' },
+      retryable: false,
+      errorClass: 'conflict',
+      reasonCode: 'QUOTA_EXHAUSTED',
       ...patch,
     },
     matches
   )
 
-test('the agreed PI_LEAD_MODEL_NOT_READY refusal keeps only its vocabulary reason', () => {
+test('the agreed PI_LEAD_MODEL_NOT_READY refusal keeps only the SDK reason in its vocabulary', () => {
+  const unavailable = { status: 503, retryable: true, errorClass: 'runtime_unavailable' }
   expect(nameRefusal({})).toBe('QUOTA_EXHAUSTED')
-  // READINESS_UNAVAILABLE arrives as a retryable 503 with the same code.
+  expect(nameRefusal({ reasonCode: 'CREDENTIAL_EXPIRED' })).toBe('CREDENTIAL_EXPIRED')
+  // READINESS_UNAVAILABLE is the retryable runtime_unavailable 503 with the same code.
+  expect(nameRefusal({ ...unavailable, reasonCode: 'READINESS_UNAVAILABLE' })).toBe(
+    'READINESS_UNAVAILABLE'
+  )
+  // An SDK without the field (or with an unusable value) is a known refusal with an unverifiable reason.
+  expect(nameRefusal({ reasonCode: undefined })).toBe('READINESS_UNAVAILABLE')
+  expect(nameRefusal({ reasonCode: 'sk-live-provider-text' })).toBe('READINESS_UNAVAILABLE')
+  expect(nameRefusal({ reasonCode: 'READY' })).toBe('READINESS_UNAVAILABLE')
+  // Raw details are never read: the SDK drops them, and a stray copy cannot name a reason.
   expect(
-    nameRefusal({
-      status: 503,
-      retryable: true,
-      details: { reasonCode: 'READINESS_UNAVAILABLE' },
-    })
+    nameRefusal({ reasonCode: undefined, details: { reasonCode: 'QUOTA_EXHAUSTED' } } as never)
   ).toBe('READINESS_UNAVAILABLE')
-  // The SDK's own closed `reasonCode` field is read first.
-  expect(nameRefusal({ details: undefined, reasonCode: 'CREDENTIAL_EXPIRED' })).toBe(
-    'CREDENTIAL_EXPIRED'
-  )
-  // A 503 is recognized only as the exact retryable unavailable envelope.
-  expect(nameRefusal({ status: 503, details: undefined })).toBeUndefined()
-  expect(nameRefusal({ status: 503, retryable: true, details: undefined })).toBe(
-    'READINESS_UNAVAILABLE'
-  )
-  expect(nameRefusal({ status: 503, retryable: false, details: undefined })).toBeUndefined()
-  expect(
-    nameRefusal({ status: 503, retryable: true, reasonCode: 'QUOTA_EXHAUSTED' })
-  ).toBeUndefined()
-  expect(nameRefusal({ status: 502, retryable: true })).toBeUndefined()
-  // An SDK without details, or provider text in details, is a refusal with an unverifiable reason.
-  expect(nameRefusal({ details: undefined })).toBe('READINESS_UNAVAILABLE')
-  expect(nameRefusal({ details: { reasonCode: 'sk-live-provider-text' } })).toBe(
-    'READINESS_UNAVAILABLE'
-  )
-  expect(nameRefusal({ details: { reasonCode: 'READY' } })).toBe('READINESS_UNAVAILABLE')
+  // A 503 is the validated envelope only: code, retryable, class and an absent or UNAVAILABLE reason.
+  expect(nameRefusal({ ...unavailable, reasonCode: undefined })).toBe('READINESS_UNAVAILABLE')
+  for (const invalid of [
+    { ...unavailable, retryable: false, reasonCode: undefined },
+    { ...unavailable, errorClass: 'conflict', reasonCode: undefined },
+    { ...unavailable, reasonCode: 'QUOTA_EXHAUSTED' },
+    { ...unavailable, code: 'PI_LEAD_UNAVAILABLE', reasonCode: undefined },
+    { ...unavailable, status: 502, reasonCode: undefined },
+  ])
+    expect(nameRefusal(invalid)).toBeUndefined()
+  // A 409 must be a non-retryable conflict that does not claim UNAVAILABLE.
+  expect(nameRefusal({ retryable: true })).toBeUndefined()
+  expect(nameRefusal({ errorClass: 'runtime_unavailable' })).toBeUndefined()
+  expect(nameRefusal({ reasonCode: 'READINESS_UNAVAILABLE' })).toBeUndefined()
   // Another request, status or code is not a readiness refusal.
   expect(nameRefusal({}, false)).toBeUndefined()
   expect(nameRefusal({ status: 500 })).toBeUndefined()
@@ -301,7 +303,8 @@ test('the installed SDK port keeps only a readiness code from a Control Plane re
     expect(other).not.toBeInstanceOf(LeadRuntimeRefusal)
 })
 
-// The actual Control Plane envelope (CP #1159): the closed reason rides in `error.details`.
+// CP #1159's real normalized envelope, as captured from its Nest HTTP test: the closed reason
+// rides in `error.details.reasonCode` and `meta.requestId` is a separate transport id.
 const cpReadinessRefusal =
   (status: number, error: Record<string, unknown>, requestIdOverride?: string) =>
   async (_url: unknown, init?: RequestInit) => {
@@ -311,7 +314,12 @@ const cpReadinessRefusal =
         contractVersion: request.contractVersion,
         requestId: requestIdOverride ?? request.requestId,
         correlation: { traceId: request.correlation.traceId },
-        error: { message: 'provider said: secret-token', source: 'policy', ...error },
+        error: {
+          message: 'Lead dispatch request could not be completed',
+          source: 'workflow',
+          ...error,
+        },
+        meta: { requestId: 'req_01JABCDEF0123456789TRANSPT' },
       }),
       { status, headers: { 'content-type': 'application/json' } }
     )
