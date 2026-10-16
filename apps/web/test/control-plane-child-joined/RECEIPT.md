@@ -1,12 +1,22 @@
 # Lead-to-child journey receipt (#1173)
 
-A recorded local run of `bun run test:integration:control-plane-journey`. It is evidence for the
-commit that adds this file, whose code is the parent `15c784c` plus the identity-gate change in the
-same commit; it is not a CI result and the lane is not wired into CI (see Prerequisites).
+Recorded local runs of `bun run test:integration:control-plane-journey`. They are not CI results
+and the lane is not wired into CI (see Prerequisites).
 
-| Item                   | Value                                                                                                                        |
+| Run | Adea head                                  | Result                                                                          |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1   | `ab3e828a93e80a63ea04ea21af62801815fcb262` | 26 pass, 0 fail, 254 expects, 177.5 s                                           |
+| 2   | `40bede118d5328655a49f7e9e07bfdd598a7a003` | 26 pass, 0 fail, 254 expects, 175.5 s (exact PR head, main `f0e98ce` merged in) |
+
+Run 2 was taken on a clean worktree at head `40bede1`, which is `ab3e828` plus a merge of main
+`f0e98ce` (#1422, readiness reasons). The merge changed no journey file and not `bun.lock`
+(sha256 below, unchanged). Run 2 used the same CP revision, candidate manifest, `source-journey.json`
+and database setup as run 1, with a freshly started disposable PostgreSQL. This file itself is
+committed after run 2, so the PR head after that commit differs from `40bede1` by documentation only.
+
+| Item                   | Value (identical for both runs)                                                                                              |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Result                 | **26 pass, 0 fail**, 254 expects, 177.5 s (one run)                                                                          |
+| Result                 | **26 pass, 0 fail**, 254 expects (runs above)                                                                                |
 | Files                  | `journey.test.mjs` 6, `journey-recovery.test.mjs` 6, `journey-authority.test.mjs` 8, `journey-identity.test.mjs` 6           |
 | CP revision under test | `0a453d83103a787bdcc6c38a6571de9188f7f559` (CP main, squash of CP #1134), tree `e05dc61fd86f5ca3f5176834148fa2885f4a5098`    |
 | CP source digest       | `sha256:027e74f46f52abde673ff1dc238be5b5c26ef308cecbf7dc169b56796cddac89`                                                    |
