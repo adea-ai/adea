@@ -10,6 +10,7 @@ import {
   executionAuthority,
   historyAuthority,
   hostHeadline,
+  hostsRegisteredSince,
   hostIdentityLabel,
   hostNameProblem,
   hostSelectability,
@@ -331,13 +332,16 @@ test('failures map stable codes to distinct recovery, and never echo server text
   expect(JSON.stringify(leaky)).not.toContain('sensitive-error-canary')
 })
 
-test('a pairing is discarded on scope change, expires, and is consumed by a new host', () => {
+test('a pairing is discarded on scope change and expires, and another host appearing never marks it used', () => {
   const scope = { accountId: 'user-a', workspaceId: 'ws-1' }
   const grant = { expiresAt: iso(600_000), issuedAt: now, scope }
   const current = { hostIds: ['h1'], hostIdsAtIssue: ['h1'], scope }
   expect(pairingState(grant, current, now)).toBe('active')
   expect(pairingState(grant, current, now + 600_000)).toBe('expired')
-  expect(pairingState(grant, { ...current, hostIds: ['h1', 'h2'] }, now + 1_000)).toBe('consumed')
+  // Another host appearing cannot be tied to this challenge, so it never marks it used.
+  expect(pairingState(grant, { ...current, hostIds: ['h1', 'h2'] }, now + 1_000)).toBe('active')
+  expect(hostsRegisteredSince(['h1', 'h2'], ['h1'])).toEqual(['h2'])
+  expect(hostsRegisteredSince(['h1'], ['h1'])).toEqual([])
   // Wrong account or workspace: the pairing the previous scope created is not carried over.
   expect(pairingState(grant, { ...current, scope: { ...scope, accountId: 'user-b' } }, now)).toBe(
     'discarded'
@@ -399,4 +403,23 @@ test('the self-hosted surface stays isolated from the inventory pane and the det
     for (const forbidden of ['runtime-nodes-pane', 'workspace-details-dialog', 'platform'])
       expect(code).not.toMatch(new RegExp(`from '\\./${forbidden}'`))
   }
+})
+
+test('a fresh compatible report with unknown entitlement is not summarised as eligible', () => {
+  const host = node()
+  const unknown = input({
+    node: host,
+    discovery: page(host, [
+      connection({
+        access: {
+          localProjectGrant: { required: false, state: 'not_required' },
+          entitlement: { state: 'unknown' },
+        },
+      }),
+    ]),
+  })
+  expect(hostHeadline(unknown, now)).toEqual({ label: 'Access unknown', tone: 'unknown' })
+  // The headline and the selection gate agree.
+  expect(hostSelectability(unknown, now).allowed).toBe(false)
+  expect(hostSelectability(unknown, now).blockers.join(' ')).toContain('Unknown')
 })

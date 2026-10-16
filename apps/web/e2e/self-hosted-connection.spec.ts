@@ -124,6 +124,36 @@ test('explicit selection never falls back to another host', async ({ page }) => 
   await expect(page.getByText('Chosen for new work')).toHaveCount(0)
 })
 
+test('a chosen host that is then revoked can still be cleared', async ({ page }) => {
+  await open(page)
+  await inspect(page, '…AAAAAA')
+  await page.getByRole('button', { name: 'Use this host' }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Chosen for new work')
+  await run(page, `(s) => s.revokeExternally('host-aaaaaa')`)
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Revoked')
+  await expect(page.getByTestId('choose-reason')).toContainText('Stop using it to clear the choice')
+  const stop = page.getByRole('button', { name: 'Stop using this host' })
+  await expect(stop).toBeEnabled()
+  await stop.click()
+  await expect(page.getByText('Chosen for new work')).toHaveCount(0)
+  // Once cleared, a revoked host cannot be chosen again.
+  await expect(page.getByRole('button', { name: 'Use this host' })).toBeDisabled()
+})
+
+test('a fresh report with unknown entitlement is not shown as eligible', async ({ page }) => {
+  await open(page)
+  await run(
+    page,
+    `(s) => { const h = s.state.hosts['user-a:ws-1'].find((x) => x.id === 'host-aaaaaa'); h.entitlement = 'unknown' }`
+  )
+  await inspect(page, '…AAAAAA')
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Access unknown')
+  await expect(row(page, '…AAAAAA')).not.toContainText('Reported eligible')
+  await expect(page.getByRole('button', { name: 'Use this host' })).toBeDisabled()
+})
+
 test('choosing a host is unavailable, with its reason, when it is not connected', async ({
   page,
 }) => {
@@ -263,21 +293,24 @@ test('setup: an expired pairing clears its values and asks for a new one', async
   await expect(page.getByTestId('pairing-values')).toHaveAttribute('data-pairing-state', 'active')
 })
 
-test('setup: a pairing a host has used is spent, and replaying it is not possible from here', async ({
+test('setup: another host registering does not spend or clear a still-valid pairing', async ({
   page,
 }) => {
   await open(page, ['data-empty'])
   await page.getByRole('button', { name: 'Connect a host…' }).click()
   await page.getByRole('button', { name: 'Create pairing' }).click()
   await expect(page.getByTestId('pairing-values')).toHaveAttribute('data-pairing-state', 'active')
+  // Another admin registers a host. Nothing ties it to this challenge.
   await run(page, `(s) => s.register({ id: 'host-ffffff', displayName: 'Rack 2' })`)
   await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
-  await expect(page.getByTestId('pairing-values')).toHaveAttribute('data-pairing-state', 'consumed')
-  await expect(page.getByTestId('pairing-values')).toContainText(
-    'If that was not your host, revoke it'
-  )
-  expect(await text(page)).not.toContain(CREDENTIAL)
   await expect(row(page, 'Rack 2')).toBeVisible()
+  await expect(page.getByTestId('pairing-values')).toHaveAttribute('data-pairing-state', 'active')
+  await expect(page.getByTestId('pairing-new-host-note')).toContainText(
+    'Adea cannot tell which pairing it used'
+  )
+  await expect(page.getByTestId('pairing-values')).not.toContainText('Used')
+  await expect(page.getByLabel('Registration credential', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Nonce', { exact: true })).toBeVisible()
 })
 
 test('setup: pairing refusals give distinct recovery, keep focus, and never echo server text', async ({

@@ -630,7 +630,7 @@ function HostDetail(props: {
           <Button
             type="button"
             variant={props.chosen ? 'secondary' : 'outline'}
-            disabled={!props.onChoose || (!props.chosen && !selectable().allowed) || revoked()}
+            disabled={!props.onChoose || (!props.chosen && (!selectable().allowed || revoked()))}
             aria-pressed={props.chosen}
             aria-describedby="choose-reason"
             onClick={() => props.onChoose?.(props.chosen ? undefined : props.node.id)}
@@ -647,7 +647,14 @@ function HostDetail(props: {
             when={props.onChoose}
             fallback="Not available yet: choosing a host is not connected in this build."
           >
-            <Show when={!revoked()} fallback="A revoked host cannot be chosen.">
+            <Show
+              when={!revoked()}
+              fallback={
+                props.chosen
+                  ? 'This host is still chosen but its execution was revoked, so Adea will not send it work. Stop using it to clear the choice.'
+                  : 'A revoked host cannot be chosen.'
+              }
+            >
               <Show
                 when={props.chosen && !selectable().allowed}
                 fallback={

@@ -11,6 +11,7 @@ import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 import {
   classifyFailure,
   pairingRemaining,
+  hostsRegisteredSince,
   pairingState,
   sameScope,
   type PairingGrant,
@@ -36,11 +37,6 @@ const STATE_COPY: Readonly<Record<PairingState, { label: string; detail: string 
   expired: {
     label: 'Expired',
     detail: 'The pairing ran out before a host used it. The values were cleared; create a new one.',
-  },
-  consumed: {
-    label: 'Used',
-    detail:
-      'A host registered after this pairing was created, so its one-time values were used and cleared. If that was not your host, revoke it from the list.',
   },
   discarded: {
     label: 'Discarded',
@@ -231,6 +227,7 @@ export function SelfHostedSetupGuide(props: SetupGuideProps) {
                 now={props.now}
                 revealed={revealed()}
                 state={state() ?? 'discarded'}
+                newHostCount={hostsRegisteredSince(props.hostIds, current().hostIdsAtIssue).length}
                 onCopy={copy}
                 onReveal={() => setRevealed(!revealed())}
                 setHeading={(element) => (valuesHeading = element)}
@@ -294,6 +291,8 @@ function PairingValues(props: {
   now: () => number
   revealed: boolean
   state: PairingState
+  /** Hosts that registered since issue. Not attributable to this pairing. */
+  newHostCount: number
   onCopy: (label: string, value: string) => void | Promise<void>
   onReveal: () => void
   setHeading: (element: HTMLHeadingElement) => void
@@ -340,6 +339,14 @@ function PairingValues(props: {
       <p class="text-muted-foreground text-sm text-pretty" role="status">
         {copy().detail}
       </p>
+      <Show when={props.state === 'active' && props.newHostCount > 0}>
+        <p class="text-muted-foreground text-sm text-pretty" data-testid="pairing-new-host-note">
+          {props.newHostCount === 1 ? 'A host' : `${props.newHostCount} hosts`} registered since
+          this pairing was created. Adea cannot tell which pairing{' '}
+          {props.newHostCount === 1 ? 'it' : 'they'} used, so these values stay valid until they
+          expire or you clear them. Check the list to see whether your host appeared.
+        </p>
+      </Show>
       <Show when={grant()}>
         <div class="flex flex-col">
           <For each={rows()}>

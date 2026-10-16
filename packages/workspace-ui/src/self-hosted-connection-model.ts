@@ -476,6 +476,16 @@ export function hostHeadline(input: HostInput, now: number): HostHeadline {
   if (proof.tone !== 'success') return { label: proof.verdict, tone: proof.tone }
   const discovery = byId('discovery')
   if (discovery.tone !== 'success') return { label: discovery.verdict, tone: discovery.tone }
+  // A fresh report that leaves access or capabilities unknown is not eligible news; keep it
+  // visible here, as hostSelectability does, instead of summarising the host as eligible.
+  for (const id of ['access', 'capabilities'] as const) {
+    const item = byId(id)
+    if (item.tone === 'unknown')
+      return {
+        label: `${id === 'access' ? 'Access' : 'Capabilities'} ${item.verdict.toLowerCase()}`,
+        tone: 'unknown',
+      }
+  }
   if (compat.tone === 'warning') return { label: compat.verdict, tone: 'warning' }
   const eligible = connectionsOf(input.discovery).some(
     (item) => item.eligibility.state !== 'ineligible'
@@ -776,16 +786,17 @@ export type PairingGrant = Readonly<{
 
 export type PairingScope = Readonly<{ accountId: string; workspaceId: string }>
 
-export type PairingState = 'active' | 'consumed' | 'discarded' | 'expired'
+export type PairingState = 'active' | 'discarded' | 'expired'
 
 export function sameScope(left: PairingScope, right: PairingScope): boolean {
   return left.accountId === right.accountId && left.workspaceId === right.workspaceId
 }
 
 /**
- * Where a pairing stands. A pairing from another account or workspace is discarded, an
- * expired one is dead whatever else happened, and a new host appearing after it was issued is
- * treated as consumed because a pairing registers at most one host.
+ * Where a pairing stands. A pairing from another account or workspace is discarded and an
+ * expired one is dead whatever else happened. Nothing ties a registered host to the challenge it
+ * used, so another host appearing never marks this pairing used: it stays active (waiting) until
+ * it expires or the person clears it. `hostsRegisteredSince` reports the unattributed hosts.
  */
 export function pairingState(
   grant: Readonly<{ expiresAt: string; issuedAt: number; scope: PairingScope }>,
@@ -799,8 +810,19 @@ export function pairingState(
   if (!sameScope(grant.scope, current.scope)) return 'discarded'
   const expires = Date.parse(grant.expiresAt)
   if (!Number.isFinite(expires) || now >= expires) return 'expired'
-  const before = new Set(current.hostIdsAtIssue)
-  return current.hostIds.some((id) => !before.has(id)) ? 'consumed' : 'active'
+  return 'active'
+}
+
+/**
+ * Hosts that appeared after a pairing was issued. They may have used it or may have used another
+ * admin's pairing; the registration read model carries no challenge reference to tell which.
+ */
+export function hostsRegisteredSince(
+  hostIds: readonly string[],
+  hostIdsAtIssue: readonly string[]
+): readonly string[] {
+  const before = new Set(hostIdsAtIssue)
+  return hostIds.filter((id) => !before.has(id))
 }
 
 export function pairingRemaining(expiresAt: string, now: number): string {

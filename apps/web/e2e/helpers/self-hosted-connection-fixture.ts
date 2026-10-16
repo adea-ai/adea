@@ -29,6 +29,8 @@ export type FakeHost = {
   lastProofAt: number | null
   compat: FakeCompat
   capabilities: string[]
+  /** The entitlement the Control Plane reports. Defaults to allowed. */
+  entitlement?: 'allowed' | 'unknown'
   unsupported?: { name: string; limitation: string }
 }
 
@@ -177,7 +179,7 @@ function toConnection(item: FakeHost): ApiRuntimeConnection {
     },
     access: {
       localProjectGrant: { required: false, state: 'not_required' },
-      entitlement: { state: 'allowed' },
+      entitlement: { state: item.entitlement ?? 'allowed' },
     },
     eligibility: {
       state: bad ? 'ineligible' : 'eligible',
