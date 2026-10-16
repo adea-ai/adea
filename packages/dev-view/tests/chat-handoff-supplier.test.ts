@@ -13,6 +13,10 @@ import {
   type HandoffLeadAgent,
   type HandoffLeadTurn,
 } from '../src/chat/model/handoff'
+import type {
+  HandoffChildJob,
+  HandoffTargetObservation,
+} from '../src/chat/model/handoff-observation'
 import type { ChatConversation } from '../src/chat/model/types'
 
 const SCOPE: Scope = {
@@ -477,5 +481,76 @@ describe('deriveHandoffInputFromConversation', () => {
     })
     const session: RuntimeSession = supplied.session
     expect(session.repoId).toBe('repo-1')
+  })
+
+  describe('child jobs through the supplier never outrun the lead observation', () => {
+    const OWNING_INTENT = '00000000-0000-4000-8000-0000000000a1'
+    const OWNING_TASK = '00000000-0000-4000-8000-0000000000f1'
+    const ATTEMPT = 'attempt_11111111111111111111111111111111'
+    function observed(overrides: Partial<HandoffTargetObservation> = {}): HandoffTargetObservation {
+      return {
+        source: 'runtime_authenticated',
+        sessionId: 'session-1',
+        taskId: OWNING_TASK,
+        generation: 3,
+        intentId: OWNING_INTENT,
+        attemptId: ATTEMPT,
+        ...overrides,
+      }
+    }
+    const childJob: HandoffChildJob = {
+      jobId: 'job-1',
+      label: 'Index the repository',
+      state: 'running',
+      descendantCount: 2,
+      observation: observed(),
+    }
+    const jobControls = (turn: HandoffLeadTurn | undefined, mode?: 'coordination_handoff') =>
+      deriveDirectSessionHandoff(
+        deriveHandoffInputFromConversation({
+          conversation: conversation(),
+          connected: true,
+          leadTurn: turn,
+          leadAgent: leadAgent(),
+          childJobs: [childJob],
+          jobCancelWired: true,
+          ...(mode === undefined ? {} : { mode }),
+        })
+      ).controls
+
+    test('an absent lead observation cannot enable jobs, even when the coordination mode is forced', () => {
+      for (const mode of [undefined, 'coordination_handoff'] as const) {
+        const controls = jobControls(leadTurn({ attemptId: ATTEMPT }), mode)
+        expect(controls.job_cancel.available).toBe(false)
+        expect(controls.descendant_cancel.available).toBe(false)
+      }
+      expect(jobControls(undefined, 'coordination_handoff').job_cancel.available).toBe(false)
+    })
+
+    test.each([
+      ['another session', observed({ sessionId: 'session-2' })],
+      ['another generation', observed({ generation: 4 })],
+      ['another task', observed({ taskId: 'task-other' })],
+      ['another intent', observed({ intentId: 'intent-other' })],
+      ['another attempt', observed({ attemptId: 'attempt-other' })],
+    ] as const)(
+      'a lead observation naming %s cannot enable jobs, mode forced or not',
+      (_name, observation) => {
+        for (const mode of [undefined, 'coordination_handoff'] as const) {
+          const controls = jobControls(
+            leadTurn({ attemptId: ATTEMPT, targetObservation: observation }),
+            mode
+          )
+          expect(controls.job_cancel.available).toBe(false)
+          expect(controls.descendant_cancel.available).toBe(false)
+        }
+      }
+    )
+
+    test('the matching lead observation enables the matching job (positive control)', () => {
+      const controls = jobControls(leadTurn({ attemptId: ATTEMPT, targetObservation: observed() }))
+      expect(controls.job_cancel.available).toBe(true)
+      expect(controls.descendant_cancel.available).toBe(true)
+    })
   })
 })

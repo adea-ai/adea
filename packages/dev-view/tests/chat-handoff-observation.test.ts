@@ -459,3 +459,44 @@ describe('interrupted actions', () => {
     expect(handoffActionReducer(state, { type: 'succeed' })).toEqual({ status: 'idle' })
   })
 })
+
+describe('child jobs need the lead observation itself (review regression)', () => {
+  test('a supplied coordination mode and a job-level observation do not enable job or descendant cancel without the lead targetObservation', () => {
+    const view = deriveDirectSessionHandoff(
+      coordinated({
+        leadTurn: leadTurn(), // no targetObservation
+        childJobs: [job()],
+        jobCancelWired: true,
+      })
+    )
+    expect(view.controls.job_cancel.available).toBe(false)
+    expect(view.controls.descendant_cancel.available).toBe(false)
+    expect(view.childJobs[0]?.job.reason).toContain(
+      'Unavailable until an authenticated observation'
+    )
+  })
+
+  test.each([
+    ['another session', observation({ sessionId: 'session-2' })],
+    ['another generation', observation({ generation: 4 })],
+    ['another intent', observation({ intentId: 'intent-other' })],
+    ['another attempt', observation({ attemptId: 'attempt-other' })],
+  ] as const)('a lead observation naming %s does not enable child jobs either', (_name, lead) => {
+    const view = deriveDirectSessionHandoff(
+      coordinated({
+        leadTurn: leadTurn({ targetObservation: lead }),
+        childJobs: [job()],
+        jobCancelWired: true,
+      })
+    )
+    expect(view.controls.job_cancel.available).toBe(false)
+  })
+
+  test('the bound lead observation still enables a matching job (positive control)', () => {
+    const view = deriveDirectSessionHandoff(
+      coordinated({ childJobs: [job()], jobCancelWired: true })
+    )
+    expect(view.controls.job_cancel.available).toBe(true)
+    expect(view.controls.descendant_cancel.available).toBe(true)
+  })
+})

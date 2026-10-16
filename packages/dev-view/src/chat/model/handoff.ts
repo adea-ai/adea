@@ -652,6 +652,13 @@ export function deriveDirectSessionHandoff(
     input.mode === 'coordination_handoff' &&
     input.leadTurn !== undefined &&
     !input.leadMismatch &&
+    bindTargetObservation(input.leadTurn.targetObservation, {
+      sessionId: input.session.id,
+      taskId: input.leadTurn.handoffTarget?.taskId,
+      generation: input.session.generation,
+      intentId: input.leadTurn.intentId,
+      attemptId: input.leadTurn.attemptId,
+    }).bound &&
     transportGuard(input, 'Job cancel') === undefined
   const childJobs = deriveChildJobRows({
     jobs: input.childJobs ?? [],
