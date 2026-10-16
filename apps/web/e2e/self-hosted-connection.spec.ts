@@ -229,6 +229,96 @@ test('a failed host list keeps the last one on screen, ages it, and recovers on 
   await expect(failed).toHaveCount(0)
 })
 
+for (const status of [401, 403, 404]) {
+  test(`a ${status} on the host list drops retained hosts, reports and pairing values`, async ({
+    page,
+  }) => {
+    await open(page)
+    // Build up everything the pane could retain: a checked host, an open host and live pairing values.
+    await inspect(page, '…AAAAAA')
+    await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+    await expect(row(page, '…AAAAAA')).toContainText('Reported eligible')
+    await page.getByRole('button', { name: 'Connect a host…' }).click()
+    await page.getByRole('button', { name: 'Create pairing' }).click()
+    await expect(page.getByLabel('Nonce', { exact: true })).toBeVisible()
+    await run(page, `(s) => s.queueListFailure({ status: ${status} })`)
+    await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
+    // Nothing the reader may no longer see stays on screen, and nothing secret outlives the access.
+    await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
+    await expect(page.getByTestId('host-row')).toHaveCount(0)
+    await expect(page.getByTestId('host-detail-heading')).toHaveCount(0)
+    await expect(page.getByTestId('pairing-values')).toHaveCount(0)
+    await expect(page.getByLabel('Nonce', { exact: true })).toHaveCount(0)
+    expect(await text(page)).not.toContain('Home server')
+    expect(await text(page)).not.toContain(CREDENTIAL)
+    await expect(page.getByRole('button', { name: 'Connect a host…' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
+    // A later authorized read brings hosts back with no report: it is read again, not remembered.
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByTestId('host-row')).toHaveCount(4)
+    await expect(row(page, '…AAAAAA')).not.toContainText('Reported eligible')
+    await expect(page.getByTestId('host-detail-heading')).toHaveCount(0)
+  })
+}
+
+test('a refused discovery read drops every cached report, not only the refused host’s', async ({
+  page,
+}) => {
+  await open(page)
+  for (const ref of ['…AAAAAA', '…BBBBBB']) {
+    await inspect(page, ref)
+    await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  }
+  await expect(row(page, '…AAAAAA')).toContainText('Reported eligible')
+  await run(page, `(s) => { s.state.discoveryFailures['host-bbbbbb'] = { status: 403 } }`)
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(page.getByTestId('diagnostics')).toContainText('Could not check')
+  // The other host's earlier report is no longer shown as current evidence.
+  await expect(row(page, '…AAAAAA')).not.toContainText('Reported eligible')
+  await expect(row(page, '…AAAAAA')).toContainText('Not checked')
+  // The host list itself was read fine, so it stays.
+  await expect(page.getByTestId('host-row')).toHaveCount(4)
+})
+
+test('an audience reset erases hosts, reports, the open host and pairing values before the refetch', async ({
+  page,
+}) => {
+  await open(page)
+  await inspect(page, '…AAAAAA')
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Reported eligible')
+  await page.getByRole('button', { name: 'Connect a host…' }).click()
+  await page.getByRole('button', { name: 'Create pairing' }).click()
+  await expect(page.getByLabel('Nonce', { exact: true })).toBeVisible()
+  // The real event subscription delivers an audience change; the refetch is held so the erase is
+  // observed on its own.
+  await run(page, `(s) => { s.state.holdList = true }`)
+  await run(page, `(s) => s.audienceChanged()`)
+  await expect(page.getByText('Loading hosts…')).toBeVisible()
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  await expect(page.getByTestId('host-detail-heading')).toHaveCount(0)
+  await expect(page.getByTestId('pairing-values')).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+  expect(await text(page)).not.toContain(CREDENTIAL)
+  // Once the authorized read returns, hosts are back but nothing earlier is remembered.
+  await run(page, `(s) => s.releaseList()`)
+  await expect(page.getByTestId('host-row')).toHaveCount(4)
+  await expect(row(page, '…AAAAAA')).not.toContainText('Reported eligible')
+  await expect(page.getByTestId('host-detail-heading')).toHaveCount(0)
+})
+
+test('an audience reset followed by a refusal leaves nothing on screen', async ({ page }) => {
+  await open(page)
+  await inspect(page, '…AAAAAA')
+  await run(page, `(s) => { s.queueListFailure({ status: 403 }) }`)
+  await run(page, `(s) => s.audienceChanged()`)
+  await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+})
+
 test('reconnect: a stale host says what to do, and recovers once it proves liveness again', async ({
   page,
 }) => {

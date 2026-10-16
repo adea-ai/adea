@@ -40,6 +40,8 @@ export type FakeState = {
   account: string
   workspace: string
   listFailures: FakeFailure[]
+  /** Hold the next host-list read until `releaseList()` is called. */
+  holdList: boolean
   discoveryFailures: Record<string, FakeFailure>
   discoveryUnavailable: string[]
   /** Host id to the Control Plane ref its discovery report claims, for identity-mismatch tests. */
@@ -104,6 +106,7 @@ export function createFakeState(hosts: FakeHost[]): FakeState {
     account: 'user-a',
     workspace: 'ws-1',
     listFailures: [],
+    holdList: false,
     discoveryFailures: {},
     discoveryUnavailable: [],
     discoveryRefs: {},
@@ -217,6 +220,12 @@ export function createFakeFetch(state: FakeState): typeof fetch {
     if (!match) return respond({ message: 'not found' }, 404)
     if (match[1] !== state.workspace) return respond({ message: 'unavailable' }, 404)
     if (!match[2]) {
+      if (state.holdList) {
+        state.holdList = false
+        await new Promise<void>((resolve) => {
+          releaseListHeld = resolve
+        })
+      }
       const queued = state.listFailures.shift()
       if (queued)
         return respond({ code: queued.code, message: 'sensitive-error-canary' }, queued.status)
@@ -250,6 +259,12 @@ export function createFakeFetch(state: FakeState): typeof fetch {
 
 export function createFakeClient(state: FakeState): AgentHqApiClient {
   return createApiClient({ fetchImpl: createFakeFetch(state) })
+}
+
+let releaseListHeld: (() => void) | undefined
+export function releaseList(): void {
+  releaseListHeld?.()
+  releaseListHeld = undefined
 }
 
 let releaseHeld: (() => void) | undefined

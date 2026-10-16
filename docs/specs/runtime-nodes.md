@@ -255,6 +255,19 @@ reports a history-sync identity for a host, so it is always shown as not reporte
 panel takes no host input at all. A host going offline, stale or revoked never changes it,
 and the surface never hides history because of host state.
 
+Retained observations (this surface differs deliberately from the Connections inspector,
+which hides previous inventory on any pending or failed read). The self-hosted pane keeps the
+last host list and discovery reports through a pending refresh or a transient failure (network
+or 5xx), labelled "could not be refreshed" and aging, so an open host, a typed draft and the
+keyboard position survive a flaky connection. That applies only while the reader is still
+authorized. A 401, 403 or 404 on the list drops the list, every cached report, the open host
+and any pairing values, and disables "Connect a host" until an authorized read succeeds; a
+refused discovery read drops every cached report (the list stays, being freshly read). An
+`audience_changed` event erases the resident queries before the refetch, and the pane shows
+loading with nothing retained until the authorized read returns; the cache is never mirrored
+outside the query. Nothing here is a server authorization decision: it only stops this
+component keeping metadata the reader may no longer see.
+
 Status is the worst observation, worded as a report: `Reported eligible`, never ready or
 online. A failed or absent read is `unknown` (could not check, no report received, proof
 unknown), never offline. Compatibility is the Control Plane's reported

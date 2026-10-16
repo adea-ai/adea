@@ -2,11 +2,7 @@
 // existing registration and discovery APIs through the typed client and hands the panel only
 // observations. It owns no effect: operations the backend or client do not expose yet are simply
 // not passed, and the panel shows them as unavailable.
-import type {
-  AgentHqApiClient,
-  ApiRuntimeNode,
-  ApiRuntimeNodeConnectionsResponse,
-} from '@adea-ai/api-client'
+import type { AgentHqApiClient, ApiRuntimeNodeConnectionsResponse } from '@adea-ai/api-client'
 import { settledData } from '@adea-ai/data'
 import { useRuntimeNodeConnectionsQuery, useRuntimeNodesQuery } from '@adea-ai/data/runtime-nodes'
 import { SettingsSection } from '@adea-ai/ui/components/composites/settings'
@@ -96,31 +92,38 @@ function Content(
     () => undefined
   )
 
+  // What was read stays on screen only while the reader is still authorized for it. A refusal
+  // (401, 403, 404) or a reset of the query (an audience change erases resident data before it
+  // refetches) drops the host list, every cached report and the open host, so metadata the
+  // reader may no longer see is not kept in this component. A transient failure (a network or 5xx
+  // error) keeps what was read, labelled as possibly out of date.
   createEffect(() => {
     const id = inspectedId()
-    const received = connections.isFetching ? undefined : settledData(connections)
+    const received =
+      connections.isFetching || refused(connections) ? undefined : settledData(connections)
     if (id && received?.node.id === id) setReports((current) => ({ ...current, [id]: received }))
   })
-
-  // The last list that was read stays on screen while a refresh runs or after one fails, so an
-  // open host, a typed draft and the keyboard position survive a flaky connection. Its ages keep
-  // counting, so it can only ever look older, never fresher.
-  const [lastNodes, setLastNodes] = createSignal<readonly ApiRuntimeNode[]>()
   createEffect(() => {
-    const data = nodes.isFetching ? undefined : settledData(nodes)
-    if (data) setLastNodes(data.nodes)
+    if (!nodes.data || refused(nodes)) {
+      setReports({})
+      setInspectedId(undefined)
+    } else if (refused(connections)) {
+      setReports({})
+    }
   })
+
   const hosts = (): HostsRead => {
-    const last = lastNodes()
-    if (last)
+    if (refused(nodes)) return nodes.isFetching ? { state: 'loading' } : failedRead(nodes.error)
+    const data = nodes.data
+    if (data)
       return {
         state: 'ready',
-        nodes: last,
+        nodes: data.nodes,
         ...(nodes.isFetching ? { refreshing: true } : {}),
         ...(!nodes.isFetching && nodes.isError ? { refreshFailed: statusOf(nodes.error) } : {}),
       }
     if (nodes.isFetching || nodes.isPending) return { state: 'loading' }
-    return { state: 'failed', ...statusOf(nodes.error) }
+    return failedRead(nodes.error)
   }
 
   const discoveryFor = (hostId: string): DiscoveryRead => {
@@ -131,7 +134,7 @@ function Content(
     // The cache only stores what was read. Whether a report is about this host is decided by the
     // model, which requires both the node id and the Control Plane ref to match the list entry
     // and otherwise shows the mismatch and uses none of the report.
-    const page = reports()[hostId]
+    const page = refused(connections) ? undefined : reports()[hostId]
     return page ? { state: 'read', page } : { state: 'not_read' }
   }
 
@@ -166,6 +169,18 @@ function Content(
       requiredCapabilities={props.requiredCapabilities}
     />
   )
+}
+
+function refused(result: { isError: boolean; error: unknown }): boolean {
+  return result.isError && isRefusal(statusOf(result.error).status)
+}
+
+function isRefusal(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 404
+}
+
+function failedRead(error: unknown): HostsRead {
+  return { state: 'failed', ...statusOf(error) }
 }
 
 function statusOf(error: unknown): { status?: number } {

@@ -21,7 +21,7 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
-import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { keyedRows } from './keyed-rows'
 import {
@@ -104,6 +104,16 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
     generation += 1
   })
 
+  // Authorization lost, or the list erased for a reset, leaves nothing the setup or the open
+  // host was based on. Pairing values are secret and tied to the access that created them, so
+  // they go with it; a transient refresh failure leaves the list ready and changes nothing here.
+  createEffect(() => {
+    if (props.hosts.state === 'ready') return
+    setSetup(undefined)
+    setNotice(undefined)
+    setUnconfirmed([])
+  })
+
   const nodes = (): readonly ApiRuntimeNode[] =>
     props.hosts.state === 'ready' ? props.hosts.nodes.filter((n) => n.kind === 'remote_host') : []
   const refreshing = () => props.hosts.state === 'ready' && props.hosts.refreshing === true
@@ -152,7 +162,9 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
             ref={(element) => (addButton = element)}
             type="button"
             variant="outline"
+            aria-disabled={props.hosts.state !== 'ready' || undefined}
             onClick={() => {
+              if (props.hosts.state !== 'ready') return
               setNotice(undefined)
               setSetup('new')
             }}

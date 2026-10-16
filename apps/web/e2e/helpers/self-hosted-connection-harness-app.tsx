@@ -1,7 +1,8 @@
 import '../../src/start/globals.css'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
-import { AgentHqQueryProvider } from '@adea-ai/data/provider'
-import { createMemo, createSignal } from 'solid-js'
+import { createWorkspaceEventSubscription } from '@adea-ai/data/events'
+import { QueryClient, QueryClientProvider } from '@tanstack/solid-query'
+import { createMemo, createSignal, onCleanup } from 'solid-js'
 import { render } from 'solid-js/web'
 
 import SelfHostedConnectionPane from '../../../../packages/workspace-ui/src/self-hosted-connection-pane'
@@ -12,6 +13,7 @@ import {
   key,
   host,
   release,
+  releaseList,
   seedHosts,
   type FakeFailure,
   type FakeHost,
@@ -35,6 +37,9 @@ declare global {
       setWorkspace: (workspace: string) => void
       queueListFailure: (failure: FakeFailure) => void
       release: () => void
+      releaseList: () => void
+      /** Delivers a real audience-change frame through the workspace event subscription. */
+      audienceChanged: () => void
     }
   }
 }
@@ -46,6 +51,22 @@ const state = createFakeState(flag('data-empty') ? [] : seedHosts())
 const [account, setAccount] = createSignal(state.account)
 const [workspace, setWorkspace] = createSignal(state.workspace)
 const [chosen, setChosen] = createSignal<string>()
+
+// The app's own provider settings, with the real event subscription feeding it a frame on demand,
+// so an audience reset goes through the production erase-before-refetch path.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000, refetchOnWindowFocus: false } },
+})
+let eventController: ReadableStreamDefaultController<Uint8Array> | undefined
+let eventSequence = 0
+const sendAudienceChanged = () => {
+  eventSequence += 1
+  eventController?.enqueue(
+    new TextEncoder().encode(
+      `id: signed.cursor${eventSequence}\nevent: workspace.audience_changed\ndata: ${JSON.stringify({ workspaceSequence: eventSequence })}\n\n`
+    )
+  )
+}
 
 window.selfHostedHarness = {
   state,
@@ -70,6 +91,8 @@ window.selfHostedHarness = {
   },
   queueListFailure: (failure) => state.listFailures.push(failure),
   release,
+  releaseList,
+  audienceChanged: () => sendAudienceChanged(),
 }
 
 function Harness() {
@@ -78,11 +101,27 @@ function Harness() {
     account()
     return createFakeClient(state)
   })
+  const subscription = createWorkspaceEventSubscription({
+    workspaceId: 'ws-1',
+    url: 'https://harness.invalid/events',
+    queryClient,
+    schedule: () => () => {},
+    fetchImpl: (async (_input, init) =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            eventController = controller
+            init?.signal?.addEventListener('abort', () => controller.close(), { once: true })
+          },
+        })
+      )) as typeof fetch,
+  })
+  onCleanup(() => subscription.stop())
   const operations = createFakeOperations(state, () => undefined)
   const noOperations = flag('data-no-operations')
   const requiredCapabilities = root.getAttribute('data-required-capabilities')?.split(',')
   return (
-    <AgentHqQueryProvider>
+    <QueryClientProvider client={queryClient}>
       <div class="mx-auto max-w-3xl p-4">
         <SelfHostedConnectionPane
           client={client()}
@@ -94,7 +133,7 @@ function Harness() {
           requiredCapabilities={requiredCapabilities}
         />
       </div>
-    </AgentHqQueryProvider>
+    </QueryClientProvider>
   )
 }
 
