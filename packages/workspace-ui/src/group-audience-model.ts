@@ -309,14 +309,16 @@ const rejectionCopy = {
   audience_empty: 'A group needs at least one person.',
   audience_requires_human: 'A group needs at least one person, not only Agents.',
   duplicate_participant: 'This participant was listed twice.',
-  grant_absent: 'No grant was provided for this participant.',
+  grant_absent:
+    'The access record for this participant is missing. Remove them, then add them again.',
   grant_expired:
     'Access for this participant has expired. Remove them, then add them again to renew it.',
   grant_id_missing: 'The grant for this participant is not valid.',
   grant_mismatched_group: 'The grant for this participant belongs to a different group.',
   grant_mismatched_participant: 'The grant for this participant names someone else.',
   grant_not_yet_issued: 'The grant for this participant is not active yet.',
-  grant_revision_invalid: 'The grant for this participant is not valid.',
+  grant_revision_invalid:
+    'The access record for this participant is out of date. Remove them, then add them again.',
   grant_revoked:
     'Access for this participant was withdrawn. Remove them, then add them again if they should come back.',
   grant_workspace_mismatch:

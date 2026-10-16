@@ -40,6 +40,8 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   ChannelSummary,
+  ConversationParticipantRef,
+  GroupCreationRejection,
   GroupAdmission,
   GroupAgentEnlistmentGrant,
   GroupAudienceGrant,
@@ -104,22 +106,34 @@ export function enlistmentGrantIdFor(agent: QualifiedAgentIdentity): string {
 }
 
 function highestRevision<T extends GroupAudienceGrant | GroupAgentEnlistmentGrant>(
-  grants: readonly T[],
-  preferredGrantId?: string
+  grants: readonly T[]
 ): T | undefined {
-  const preferred = preferredGrantId
-    ? grants.filter((grant) => grant.grantId === preferredGrantId)
-    : []
-  return (preferred.length > 0 ? preferred : grants).toSorted(
-    (left, right) => right.revision - left.revision
-  )[0]
+  return grants.toSorted((left, right) => right.revision - left.revision)[0]
+}
+
+/**
+ * The stored grant a retained admission is bound to: exactly its grant id and
+ * revision, or nothing. A binding that is absent from storage, or whose
+ * revision is no longer the stored one, is never repaired by picking another
+ * grant or issuing a fresh one; the caller refuses the save instead.
+ */
+function boundGrant<T extends GroupAudienceGrant | GroupAgentEnlistmentGrant>(
+  grants: readonly T[],
+  binding: GroupAdmission['authorization']
+): T | undefined {
+  return grants.find(
+    (grant) => grant.grantId === binding.grantId && grant.revision === binding.revision
+  )
 }
 
 /**
  * Issue the grants a selection needs for one group. Pure: reads only the
  * stored grants and the roster it is handed, so the same inputs always issue
  * the same grants. `roster` is the group's current admissions; with none, every
- * identity is a first issuance.
+ * identity is a first issuance. An identity that is on the roster must still
+ * hold the exact grant (id and revision) its admission is bound to; if storage
+ * no longer holds that binding, the whole request is refused with a
+ * `GroupCreationError` and nothing is issued.
  */
 export function issueGroupGrants(
   input: Readonly<{
@@ -132,53 +146,75 @@ export function issueGroupGrants(
 ): IssuedGroupGrants {
   const stored = input.stored ?? NO_STORED_GROUP_GRANTS
   const roster = input.roster ?? []
-  const humanAdmission = (userId: string) =>
-    roster.find(({ participant }) => participant.kind === 'user' && participant.userId === userId)
-  const agentAdmission = (agentId: string) =>
-    roster.find(
-      ({ participant }) => participant.kind === 'agent' && participant.agentId === agentId
-    )
-  const audienceGrants = input.selection.humans.map((userId): GroupAudienceGrant => {
+  const refusals: GroupCreationRejection[] = []
+  const refuse = (
+    candidateIndex: number,
+    participant: ConversationParticipantRef,
+    sameId: boolean
+  ) => {
+    refusals.push({
+      candidateIndex,
+      participant,
+      reason: sameId ? 'grant_revision_invalid' : 'grant_absent',
+      scope: 'candidate',
+    })
+  }
+  const audienceGrants = input.selection.humans.map((userId, index): GroupAudienceGrant => {
     const forUser = stored.audienceGrants.filter((grant) => grant.participant.userId === userId)
-    const admission = humanAdmission(userId)
-    if (admission) {
-      const held = highestRevision(forUser, admission.authorization.grantId)
-      if (held) return held
-    }
+    const admission = roster.find(
+      ({ participant }) => participant.kind === 'user' && participant.userId === userId
+    )
     const grantId = audienceGrantIdFor(userId)
-    const previous = highestRevision(forUser.filter((grant) => grant.grantId === grantId))
-    return {
+    const fresh = (): GroupAudienceGrant => ({
       expiresAt: null,
       grantId,
       groupId: input.groupId,
       issuedAt: input.now,
       participant: { kind: 'user', userId },
-      revision: (previous?.revision ?? 0) + 1,
+      revision:
+        (highestRevision(forUser.filter((grant) => grant.grantId === grantId))?.revision ?? 0) + 1,
       revokedAt: null,
-    }
+    })
+    if (!admission) return fresh()
+    const held = boundGrant(forUser, admission.authorization)
+    if (held) return held
+    refuse(
+      index,
+      { kind: 'user', userId },
+      forUser.some((grant) => grant.grantId === admission.authorization.grantId)
+    )
+    return fresh()
   })
-  const enlistmentGrants = input.selection.agents.map((agent): GroupAgentEnlistmentGrant => {
+  const enlistmentGrants = input.selection.agents.map((agent, index): GroupAgentEnlistmentGrant => {
     const forAgent = stored.enlistmentGrants.filter(
       (grant) => grant.agent.agentId === agent.agentId
     )
-    const admission = agentAdmission(agent.agentId)
-    if (admission) {
-      const held = highestRevision(forAgent, admission.authorization.grantId)
-      if (held)
-        return { ...held, agent: { agentId: agent.agentId, workspaceId: agent.workspaceId } }
-    }
+    const admission = roster.find(
+      ({ participant }) => participant.kind === 'agent' && participant.agentId === agent.agentId
+    )
+    const qualified = { agentId: agent.agentId, workspaceId: agent.workspaceId }
     const grantId = enlistmentGrantIdFor(agent)
-    const previous = highestRevision(forAgent.filter((grant) => grant.grantId === grantId))
-    return {
-      agent: { agentId: agent.agentId, workspaceId: agent.workspaceId },
+    const fresh = (): GroupAgentEnlistmentGrant => ({
+      agent: qualified,
       expiresAt: null,
       grantId,
       groupId: input.groupId,
       issuedAt: input.now,
-      revision: (previous?.revision ?? 0) + 1,
+      revision:
+        (highestRevision(forAgent.filter((grant) => grant.grantId === grantId))?.revision ?? 0) + 1,
       revokedAt: null,
-    }
+    })
+    if (!admission) return fresh()
+    const held = boundGrant(forAgent, admission.authorization)
+    if (held) return { ...held, agent: qualified }
+    refuse(
+      input.selection.humans.length + index,
+      { agentId: agent.agentId, kind: 'agent' },
+      forAgent.some((grant) => grant.grantId === admission.authorization.grantId)
+    )
+    return fresh()
   })
+  if (refusals.length > 0) throw new GroupCreationError(refusals)
   return { audienceGrants, enlistmentGrants }
 }
 

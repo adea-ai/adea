@@ -410,6 +410,57 @@ describe.skipIf(!connectionUrl)('server-side group grant issuance', () => {
       expect(rejections.map(({ reason }) => reason)).toEqual(['grant_expired'])
     })
 
+    test('a retained admission whose stored grant moved on is refused, and nothing is adopted or issued', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const created = await create(f, { humans: [f.member.userId] }, { channelId })
+      // A low-level writer rotates the grant without rewriting the roster.
+      await connection.db
+        .update(schema.groupAudienceGrants)
+        .set({ revision: 5 })
+        .where(
+          and(
+            eq(schema.groupAudienceGrants.channelId, channelId),
+            eq(schema.groupAudienceGrants.userId, f.member.userId)
+          )
+        )
+      const rejections = await rejectionsOf(
+        replace(f, channelId, created.channel.version, {
+          humans: [f.owner.userId, f.member.userId, f.second.userId],
+        })
+      )
+      expect(rejections.map(({ reason }) => reason)).toEqual(['grant_revision_invalid'])
+      expect(await versionOf(channelId)).toBe(created.channel.version)
+      expect(await grantsOf(channelId, f.second.userId)).toHaveLength(0)
+      expect((await grantsOf(channelId, f.member.userId))[0]).toMatchObject({ revision: 5 })
+      const [admission] = (await loadGroupRoster(connection.db, f.workspace.id, channelId)).filter(
+        ({ participant }) => participant.kind === 'user' && participant.userId === f.member.userId
+      )
+      expect(admission!.authorization.revision).toBe(1)
+    })
+
+    test('a retained admission whose grant row is gone is refused, never reissued', async () => {
+      const f = await fixture()
+      const channelId = crypto.randomUUID()
+      const created = await create(f, { humans: [f.member.userId] }, { channelId })
+      await connection.db
+        .delete(schema.groupAudienceGrants)
+        .where(
+          and(
+            eq(schema.groupAudienceGrants.channelId, channelId),
+            eq(schema.groupAudienceGrants.userId, f.member.userId)
+          )
+        )
+      const rejections = await rejectionsOf(
+        replace(f, channelId, created.channel.version, {
+          humans: [f.owner.userId, f.member.userId],
+        })
+      )
+      expect(rejections.map(({ reason }) => reason)).toEqual(['grant_absent'])
+      expect(await grantsOf(channelId, f.member.userId)).toHaveLength(0)
+      expect(await versionOf(channelId)).toBe(created.channel.version)
+    })
+
     test('readmission is removing and adding again: the next revision, and a new history frontier', async () => {
       const f = await fixture()
       const channelId = crypto.randomUUID()

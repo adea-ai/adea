@@ -26,8 +26,10 @@ inside the same transaction that writes the roster. A body that carries `audienc
 - First issuance uses a deterministic grant id at revision 1 (`audience:<userId>`,
   `enlistment:<agentWorkspaceId>:<agentId>`), so a retried create hashes to the same payload and replays to the
   same group.
-- A member who is on the roster keeps the exact grant their admission is bound to, so jobs bound to it are
-  untouched and their history frontier stays. If that grant has since been revoked or has expired, keeping them
+- A member who is on the roster keeps the exact grant their admission is bound to (grant id **and** revision), so
+  jobs bound to it are untouched and their history frontier stays. If storage no longer holds that exact binding
+  (missing, or the revision moved on), the save is refused with `grant_absent`/`grant_revision_invalid` and nothing
+  is adopted or issued. If that grant has since been revoked or has expired, keeping them
   is refused with `grant_revoked`/`grant_expired` reasons (shown against their row) and nothing is renewed:
   a stale draft that still lists them cannot bring them back.
 - Readmission is explicit: remove the person, then add them again. A person who is not on the roster always gets

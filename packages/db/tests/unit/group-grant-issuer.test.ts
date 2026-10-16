@@ -6,6 +6,7 @@ import {
   enlistmentGrantIdFor,
   issueGroupGrants,
 } from '../../src/group-grant-issuer'
+import { GroupCreationError } from '../../src/group-participation-store'
 
 const GROUP = '33333333-0000-4000-8000-0000000000c3'
 const OTHER_GROUP = '33333333-0000-4000-8000-0000000000c4'
@@ -207,6 +208,107 @@ describe('issueGroupGrants: members who are on the roster', () => {
       agentId: agentA.agentId,
       workspaceId: agentB.workspaceId,
     })
+  })
+})
+
+const refusal = (attempt: () => unknown) => {
+  try {
+    attempt()
+  } catch (error) {
+    expect(error).toBeInstanceOf(GroupCreationError)
+    return (error as GroupCreationError).rejections
+  }
+  throw new Error('Expected the request to be refused')
+}
+
+describe('issueGroupGrants: a retained admission must keep its exact binding', () => {
+  test('a binding whose grant is missing from storage is refused, not repaired', () => {
+    const bound = audience({ grantId: 'legacy-grant' })
+    const boundAgent = enlistment({ grantId: 'legacy-agent-grant' })
+    const rejections = refusal(() =>
+      issueGroupGrants({
+        groupId: GROUP,
+        now: NOW,
+        roster: [humanAdmission(bound), agentAdmission(boundAgent)],
+        selection: { agents: [agentA], humans: [userA] },
+        // Storage holds other grants for the same people, which must not stand in.
+        stored: { audienceGrants: [audience()], enlistmentGrants: [enlistment()] },
+      })
+    )
+    expect(rejections).toEqual([
+      {
+        candidateIndex: 0,
+        participant: { kind: 'user', userId: userA },
+        reason: 'grant_absent',
+        scope: 'candidate',
+      },
+      {
+        candidateIndex: 1,
+        participant: { agentId: agentA.agentId, kind: 'agent' },
+        reason: 'grant_absent',
+        scope: 'candidate',
+      },
+    ])
+  })
+
+  test('a binding with no stored grant at all is refused too', () => {
+    const rejections = refusal(() =>
+      issueGroupGrants({
+        groupId: GROUP,
+        now: NOW,
+        roster: [humanAdmission(audience())],
+        selection: { agents: [], humans: [userA] },
+      })
+    )
+    expect(rejections.map(({ reason }) => reason)).toEqual(['grant_absent'])
+  })
+
+  test('a stored revision that moved past the bound one is refused, not adopted', () => {
+    const rejections = refusal(() =>
+      issueGroupGrants({
+        groupId: GROUP,
+        now: NOW,
+        roster: [humanAdmission(audience({ revision: 1 })), agentAdmission(enlistment())],
+        selection: { agents: [agentA], humans: [userA] },
+        stored: {
+          audienceGrants: [audience({ revision: 3 })],
+          enlistmentGrants: [enlistment({ revision: 2 })],
+        },
+      })
+    )
+    expect(rejections.map(({ reason }) => reason)).toEqual([
+      'grant_revision_invalid',
+      'grant_revision_invalid',
+    ])
+  })
+
+  test('a grant of the same id that belongs to someone else never matches', () => {
+    const rejections = refusal(() =>
+      issueGroupGrants({
+        groupId: GROUP,
+        now: NOW,
+        roster: [humanAdmission(audience())],
+        selection: { agents: [], humans: [userA] },
+        stored: {
+          audienceGrants: [audience({ participant: { kind: 'user', userId: userB } })],
+          enlistmentGrants: [],
+        },
+      })
+    )
+    expect(rejections.map(({ reason }) => reason)).toEqual(['grant_absent'])
+  })
+
+  test('one divergent binding refuses the whole request: nothing is issued for the others', () => {
+    const rejections = refusal(() =>
+      issueGroupGrants({
+        groupId: GROUP,
+        now: NOW,
+        roster: [humanAdmission(audience({ revision: 4 }))],
+        selection: { agents: [], humans: [userA, userB] },
+        stored: { audienceGrants: [audience({ revision: 5 })], enlistmentGrants: [] },
+      })
+    )
+    expect(rejections).toHaveLength(1)
   })
 })
 
