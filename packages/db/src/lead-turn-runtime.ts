@@ -91,6 +91,8 @@ export function resolveLeadTurnAuthority(
     workspaceId,
     controlPlaneWorkspaceId,
     originalActorRef: `user:${intent.actorUserId}` as const,
+    // Immutable column: every process that reads this intent derives the same instant.
+    admittedAt: intent.createdAt.toISOString(),
     ...(intent.handoffTargetSessionId !== null && intent.handoffTargetGeneration !== null
       ? {
           handoffTarget: {

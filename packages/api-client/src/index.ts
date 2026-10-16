@@ -42,15 +42,25 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
-import type {
-  ApiRuntimeNodeConnectionsResponse,
-  ApiRuntimeNodesResponse,
+import {
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
+  type ApiRuntimeNodeConnectionsResponse,
+  type ApiRuntimeNodesResponse,
 } from './runtime-connections'
 export type {
+  ApiRuntimeDeviceOnline,
+  ApiRuntimeHostReachability,
   ApiRuntimeConnection,
   ApiRuntimeNode,
   ApiRuntimeNodeConnectionsResponse,
   ApiRuntimeNodesResponse,
+  RuntimeConnectionUnknownField,
+} from './runtime-connections'
+export {
+  runtimeConnectionDiscoveryUnknownDependencies,
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
 } from './runtime-connections'
 
 export type ApiAgentCreateInput = Readonly<{
@@ -658,19 +668,59 @@ function boundedInt(value: number | undefined, min: number, max: number, fallbac
   return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
+/**
+ * One refusal in a `400 group_grant_rejected` answer: the group-creation reason, and the participant it is
+ * about when it is about one (a group-wide reason carries none). Values are read as received; the reader
+ * decides which reasons it recognizes.
+ */
+export type ApiGroupGrantRejection = Readonly<{
+  participant?: ConversationParticipantRef
+  reason: string
+}>
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code?: string
   /** Names why a `409 turn_conflict` was refused; only present on addressed-turn conflicts. */
   readonly reason?: string
+  /** Every refused participant of a `group_grant_rejected` answer; absent on other failures. */
+  readonly rejections?: readonly ApiGroupGrantRejection[]
 
-  constructor(message: string, status: number, code?: string, reason?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    reason?: string,
+    rejections?: readonly ApiGroupGrantRejection[]
+  ) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
     this.code = code
     this.reason = reason
+    this.rejections = rejections
   }
+}
+
+function groupGrantRejections(value: unknown): readonly ApiGroupGrantRejection[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const parsed: ApiGroupGrantRejection[] = []
+  for (const entry of value.slice(0, 100)) {
+    if (!entry || typeof entry !== 'object' || typeof entry.reason !== 'string') continue
+    const participant = entry.participant as Record<string, unknown> | undefined
+    if (participant?.kind === 'user' && typeof participant.userId === 'string')
+      parsed.push({
+        participant: { kind: 'user', userId: participant.userId },
+        reason: entry.reason,
+      })
+    else if (participant?.kind === 'agent' && typeof participant.agentId === 'string')
+      parsed.push({
+        participant: { agentId: participant.agentId, kind: 'agent' },
+        reason: entry.reason,
+      })
+    else parsed.push({ reason: entry.reason })
+  }
+  return parsed
 }
 
 export class AgentHqApiClient {
@@ -945,6 +995,8 @@ export class AgentHqApiClient {
           id,
           controlPlaneRuntimeNodeRefId,
           kind,
+          deviceOnline: runtimeNodeDeviceOnline(kind),
+          hostReachability: runtimeNodeHostReachability(kind),
           displayName,
           health,
           pairingState,
@@ -2018,20 +2070,29 @@ export class AgentHqApiClient {
     let code: string | undefined
     let message: string | undefined
     let reason: string | undefined
+    let rejections: readonly ApiGroupGrantRejection[] | undefined
     try {
       const payload = (await response.json()) as {
         code?: string
         error?: string
         message?: string
         reason?: unknown
+        rejections?: unknown
       }
       code = payload.code ?? payload.error
       message = payload.message
       reason = typeof payload.reason === 'string' ? payload.reason : undefined
+      if (code === 'group_grant_rejected') rejections = groupGrantRejections(payload.rejections)
     } catch {
       // A non-JSON failure body keeps the status text.
     }
-    return new ApiClientError(message ?? response.statusText, response.status, code, reason)
+    return new ApiClientError(
+      message ?? response.statusText,
+      response.status,
+      code,
+      reason,
+      rejections
+    )
   }
 
   protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {

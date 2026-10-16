@@ -5,6 +5,7 @@ import type {
   LeadTurnRuntimeState,
   LeadTurnReasonCode,
 } from '@adea-ai/api-client'
+import { LeadRuntimeRefusal } from './lead-runtime-refusal'
 
 export type LeadRuntimeScope = Readonly<{ workspaceId: string; intentId: string; userId: string }>
 export type LeadRuntimeAuthority = Readonly<{
@@ -13,6 +14,12 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /**
+   * The intent's immutable admission instant (ISO). Prepare and dispatch send it as the command's
+   * `issuedAt`, so a retry from any process repeats the first attempt's value and CP, which binds
+   * the idempotency key to a digest including `issuedAt`, treats it as the same command.
+   */
+  admittedAt?: string
   /** Exact admission target retained on the intent; absent for legacy admissions. */
   handoffTarget?: Readonly<{
     runtimeSessionId: string
@@ -62,7 +69,13 @@ export type LeadRuntimeAdapter = {
   ): Promise<unknown>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
-  cancel(input: LeadRuntimeAuthority, dispatchId: string, cancelKey: string): Promise<unknown>
+  /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */
+  cancel(
+    input: LeadRuntimeAuthority,
+    dispatchId: string,
+    cancelKey: string,
+    issuedAt?: string
+  ): Promise<unknown>
   /** Current authoritative grant, selection and payer must match this exact execution/attempt. */
   assertPublicationCurrent?: (
     input: LeadRuntimeAuthority &
@@ -230,7 +243,8 @@ export function createLeadTurnRuntime(
   async function projection(
     scope: LeadRuntimeScope,
     reasonCode?: LeadTurnReasonCode,
-    held?: LeadRuntimeHeldAuthority
+    held?: LeadRuntimeHeldAuthority,
+    readinessReason?: string
   ): Promise<ApiLeadTurnStatus> {
     const authority = held ? checkedHeld(scope, held) : await store.authorize(scope, 'read')
     const stored = await storedRecord(scope, held?.purpose ?? 'read', held)
@@ -255,7 +269,7 @@ export function createLeadTurnRuntime(
       ...(stored?.publishedMessageId ? { publishedMessageId: stored.publishedMessageId } : {}),
       availability: reasonCode || !adapter ? 'unavailable' : 'available',
       ...(reasonCode
-        ? { reasonCode }
+        ? { reasonCode, ...(readinessReason ? { readinessReason } : {}) }
         : !adapter
           ? { reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }
           : {}),
@@ -286,6 +300,8 @@ export function createLeadTurnRuntime(
       await work()
       return await projection(scope, undefined, held)
     } catch (error) {
+      if (error instanceof LeadRuntimeRefusal)
+        return projection(scope, 'MODEL_NOT_READY', held, error.readinessReason)
       return projection(
         scope,
         error instanceof Error && error.message === 'RUNTIME_RESPONSE_INVALID'
@@ -465,9 +481,16 @@ export function createLeadTurnRuntime(
         scope,
         async () => {
           await store.cancelRequested(scope)
+          // The first request's instant is stored once; later retries read the same value.
+          const requested = (await storedRecord(scope, 'cancel', held))?.cancelRequestedAt
           await observation(
             scope,
-            await adapter.cancel(authority, prior.dispatchId!, `lead-cancel:${prior.dispatchId}`),
+            await adapter.cancel(
+              authority,
+              prior.dispatchId!,
+              `lead-cancel:${prior.dispatchId}`,
+              requested
+            ),
             held
           )
         },
