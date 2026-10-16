@@ -263,6 +263,77 @@ for (const status of [401, 403, 404]) {
   })
 }
 
+test('a refusal stays latched through a transient retry error until a read succeeds', async ({
+  page,
+}) => {
+  const errors = await open(page)
+  await inspect(page, '…AAAAAA')
+  await page.getByRole('button', { name: /Check again|Reconnect check/ }).click()
+  await expect(row(page, '…AAAAAA')).toContainText('Reported eligible')
+  await run(
+    page,
+    `(s) => { s.queueListFailure({ status: 403 }); s.queueListFailure({ status: 500 }) }`
+  )
+  await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
+  await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  // The retry fails for a transient reason. The refusal that came first still holds: the earlier
+  // list is not brought back, and "Showing the last list" never appears.
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  await expect(page.getByTestId('refresh-failed')).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+  await expect(page.getByRole('button', { name: 'Connect a host…' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  // Only a successful read re-authorizes.
+  await page.getByRole('button', { name: 'Try again' }).first().click()
+  await expect(page.getByTestId('host-row')).toHaveCount(4)
+  await expect(page.getByRole('button', { name: 'Connect a host…' })).not.toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  await expect(page.getByTestId('suspended')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a refusal followed by a held retry shows no rows while the retry is in flight', async ({
+  page,
+}) => {
+  const errors = await open(page)
+  await inspect(page, '…AAAAAA')
+  await run(page, `(s) => s.queueListFailure({ status: 403 })`)
+  await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
+  await expect(page.getByText('Hosts could not be loaded')).toBeVisible()
+  await run(page, `(s) => { s.state.holdList = true }`)
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByText('Loading hosts…')).toBeVisible()
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+  await expect(page.getByRole('button', { name: 'Connect a host…' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  await run(page, `(s) => s.releaseList()`)
+  await expect(page.getByTestId('host-row')).toHaveCount(4)
+  await expect(page.getByTestId('suspended')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('loading and a first failed read never suspend or throw', async ({ page }) => {
+  const errors = await open(page, ['data-empty'])
+  await expect(page.getByTestId('suspended')).toHaveCount(0)
+  await expect(page.getByTestId('host-row')).toHaveCount(0)
+  expect(errors).toEqual([])
+  await run(page, `(s) => s.queueListFailure({ status: 500 })`)
+  await page.getByRole('button', { name: 'Refresh hosts', exact: true }).first().click()
+  await expect(page.getByTestId('refresh-failed')).toBeVisible()
+  await expect(page.getByTestId('suspended')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test('a refused discovery read drops every cached report, not only the refused host’s', async ({
   page,
 }) => {

@@ -285,9 +285,12 @@ authorized. A 401, 403 or 404 on the list drops the list, every cached report, t
 and any pairing values, and disables "Connect a host" until an authorized read succeeds; a
 refused discovery read drops every cached report (the list stays, being freshly read). An
 `audience_changed` event erases the resident queries before the refetch, and the pane shows
-loading with nothing retained until the authorized read returns; the cache is never mirrored
-outside the query. Nothing here is a server authorization decision: it only stops this
-component keeping metadata the reader may no longer see.
+loading with nothing retained until the authorized read returns. A refusal stays in force
+through any later retry error until a read succeeds. The pane keeps its own copy of the last
+list only from settled query results, never by reading a pending or failed query's `data`
+(which would suspend or throw), and discards that copy on refusal and on reset. Nothing here
+is a server authorization decision: it only stops this component keeping metadata the reader
+may no longer see.
 
 Status is the worst observation, worded as a report: `Reported eligible`, never ready or
 online. A failed or absent read is `unknown` (could not check, no report received, proof

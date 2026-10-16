@@ -2,7 +2,11 @@
 // existing registration and discovery APIs through the typed client and hands the panel only
 // observations. It owns no effect: operations the backend or client do not expose yet are simply
 // not passed, and the panel shows them as unavailable.
-import type { AgentHqApiClient, ApiRuntimeNodeConnectionsResponse } from '@adea-ai/api-client'
+import type {
+  AgentHqApiClient,
+  ApiRuntimeNode,
+  ApiRuntimeNodeConnectionsResponse,
+} from '@adea-ai/api-client'
 import { settledData } from '@adea-ai/data'
 import { useRuntimeNodeConnectionsQuery, useRuntimeNodesQuery } from '@adea-ai/data/runtime-nodes'
 import { SettingsSection } from '@adea-ai/ui/components/composites/settings'
@@ -92,33 +96,62 @@ function Content(
     () => undefined
   )
 
-  // What was read stays on screen only while the reader is still authorized for it. A refusal
-  // (401, 403, 404) or a reset of the query (an audience change erases resident data before it
-  // refetches) drops the host list, every cached report and the open host, so metadata the
-  // reader may no longer see is not kept in this component. A transient failure (a network or 5xx
-  // error) keeps what was read, labelled as possibly out of date.
+  // What was read stays on screen only while the reader is still authorized for it, and it is
+  // mirrored here only from settled results: a query's `data` is backed by a resource, so a read
+  // before it settles would suspend the workspace and a read after a failure would throw.
+  // - A refusal (401, 403, 404) latches. The list, every cached report and the open host are
+  //   dropped and stay dropped, through any retry or later transient error, until a read succeeds
+  //   again.
+  // - A reset of the query (an audience change erases resident data before it refetches) returns
+  //   it to pending, which drops the same things.
+  // - A transient failure (network, 5xx) with no refusal keeps what was read, labelled as possibly
+  //   out of date.
+  const [lastNodes, setLastNodes] = createSignal<readonly ApiRuntimeNode[]>()
+  const [listRefusal, setListRefusal] = createSignal<{ status?: number }>()
+  const [discoveryRefused, setDiscoveryRefused] = createSignal(false)
   createEffect(() => {
-    const id = inspectedId()
-    const received =
-      connections.isFetching || refused(connections) ? undefined : settledData(connections)
-    if (id && received?.node.id === id) setReports((current) => ({ ...current, [id]: received }))
-  })
-  createEffect(() => {
-    if (!nodes.data || refused(nodes)) {
+    if (refused(nodes)) {
+      setListRefusal(statusOf(nodes.error))
+      setLastNodes(undefined)
       setReports({})
       setInspectedId(undefined)
-    } else if (refused(connections)) {
+    } else if (nodes.isPending) {
+      setLastNodes(undefined)
       setReports({})
+      setInspectedId(undefined)
+    } else if (nodes.isSuccess && !nodes.isFetching) {
+      const data = settledData(nodes)
+      if (data) {
+        setLastNodes(data.nodes)
+        setListRefusal(undefined)
+      }
+    }
+  })
+  createEffect(() => {
+    if (refused(connections)) {
+      setDiscoveryRefused(true)
+      setReports({})
+    } else if (connections.isSuccess && !connections.isFetching) {
+      const id = inspectedId()
+      const received = settledData(connections)
+      if (id && received?.node.id === id) {
+        setDiscoveryRefused(false)
+        setReports((current) => ({ ...current, [id]: received }))
+      }
     }
   })
 
   const hosts = (): HostsRead => {
-    if (refused(nodes)) return nodes.isFetching ? { state: 'loading' } : failedRead(nodes.error)
-    const data = nodes.data
-    if (data)
+    const refusal = listRefusal()
+    if (refusal) {
+      if (nodes.isFetching) return { state: 'loading' }
+      return failedRead(nodes.isError ? nodes.error : undefined, refusal.status)
+    }
+    const last = lastNodes()
+    if (last)
       return {
         state: 'ready',
-        nodes: data.nodes,
+        nodes: last,
         ...(nodes.isFetching ? { refreshing: true } : {}),
         ...(!nodes.isFetching && nodes.isError ? { refreshFailed: statusOf(nodes.error) } : {}),
       }
@@ -134,7 +167,7 @@ function Content(
     // The cache only stores what was read. Whether a report is about this host is decided by the
     // model, which requires both the node id and the Control Plane ref to match the list entry
     // and otherwise shows the mismatch and uses none of the report.
-    const page = refused(connections) ? undefined : reports()[hostId]
+    const page = discoveryRefused() ? undefined : reports()[hostId]
     return page ? { state: 'read', page } : { state: 'not_read' }
   }
 
@@ -179,8 +212,9 @@ function isRefusal(status: number | undefined): boolean {
   return status === 401 || status === 403 || status === 404
 }
 
-function failedRead(error: unknown): HostsRead {
-  return { state: 'failed', ...statusOf(error) }
+function failedRead(error: unknown, fallbackStatus?: number): HostsRead {
+  const status = statusOf(error).status ?? fallbackStatus
+  return { state: 'failed', ...(status === undefined ? {} : { status }) }
 }
 
 function statusOf(error: unknown): { status?: number } {

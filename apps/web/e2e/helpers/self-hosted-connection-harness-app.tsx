@@ -2,7 +2,7 @@ import '../../src/start/globals.css'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { createWorkspaceEventSubscription } from '@adea-ai/data/events'
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query'
-import { createMemo, createSignal, onCleanup } from 'solid-js'
+import { createMemo, createSignal, onCleanup, Suspense } from 'solid-js'
 import { render } from 'solid-js/web'
 
 import SelfHostedConnectionPane from '../../../../packages/workspace-ui/src/self-hosted-connection-pane'
@@ -123,15 +123,19 @@ function Harness() {
   return (
     <QueryClientProvider client={queryClient}>
       <div class="mx-auto max-w-3xl p-4">
-        <SelfHostedConnectionPane
-          client={client()}
-          accountId={account()}
-          workspaceId={workspace()}
-          operations={noOperations ? {} : operations}
-          chosenHostId={chosen()}
-          onChooseHost={flag('data-no-choose') ? undefined : setChosen}
-          requiredCapabilities={requiredCapabilities}
-        />
+        {/* The app has no fallback of its own: a suspended read would blank the workspace, so the
+            harness makes it visible. */}
+        <Suspense fallback={<p data-testid="suspended">Suspended</p>}>
+          <SelfHostedConnectionPane
+            client={client()}
+            accountId={account()}
+            workspaceId={workspace()}
+            operations={noOperations ? {} : operations}
+            chosenHostId={chosen()}
+            onChooseHost={flag('data-no-choose') ? undefined : setChosen}
+            requiredCapabilities={requiredCapabilities}
+          />
+        </Suspense>
       </div>
     </QueryClientProvider>
   )
