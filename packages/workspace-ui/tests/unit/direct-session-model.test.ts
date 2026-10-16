@@ -102,7 +102,7 @@ test('an unreadable listing is unverifiable, not ready and not the harness defau
   }
 })
 
-test('the harness decides only after a verified absence or an inactive host', () => {
+test('the harness decides only after a successful read that names no direct model', () => {
   expect(
     resolveDirectSessionModel({ defaults: read({ revision: 1 }), connections: listing(ready) })
   ).toEqual({ kind: 'harness_default', verified: 'absent' })
@@ -110,12 +110,15 @@ test('the harness decides only after a verified absence or an inactive host', ()
     kind: 'harness_default',
     verified: 'absent',
   })
-  expect(
-    resolveDirectSessionModel({
-      defaults: { availability: 'unavailable', canManage: false, defaults: null },
-      connections: null,
-    })
-  ).toEqual({ kind: 'harness_default', verified: 'inactive' })
+})
+
+test('an unavailable defaults read blocks: it never read the stored default', () => {
+  const result = resolveDirectSessionModel({
+    defaults: { availability: 'unavailable', canManage: false, defaults: null },
+    connections: null,
+  })
+  expect(result).toMatchObject({ kind: 'blocked', reasonCode: 'READINESS_UNAVAILABLE' })
+  expect(result).not.toHaveProperty('choice')
 })
 
 test('a defaults read that is missing, loading, failed or malformed blocks and never falls back', () => {
@@ -208,6 +211,21 @@ test('an unauthorized default blocks with its recovery path', async () => {
   expect(result.kind).toBe('blocked')
   if (result.kind === 'blocked')
     expect(result.message).toContain(modelReadinessRemedy('CREDENTIAL_EXPIRED')!.message)
+})
+
+test('an unavailable defaults response blocks the launch with a recovery message', async () => {
+  const { client, calls } = reads(async () => ({
+    availability: 'unavailable',
+    canManage: false,
+    defaults: null,
+  }))
+  const result = await readDirectLaunchModel(client, 'workspace-1')
+  expect(result.kind).toBe('blocked')
+  if (result.kind === 'blocked') {
+    expect(result.message).toContain('could not be read')
+    expect(result.message).toContain('No other model was substituted')
+  }
+  expect(calls.listing).toBe(0)
 })
 
 test('verified absence leaves the harness model and never reads the listing', async () => {

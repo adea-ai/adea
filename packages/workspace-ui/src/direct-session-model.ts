@@ -35,11 +35,12 @@ export type DirectSessionModel =
       remedy: ModelReadinessRemedy
     }>
   /**
-   * The harness's own model decides, but only after a verified fact: the defaults were read and
-   * name no direct model (`absent`), or this host reported model metadata inactive (`inactive`).
-   * A missing, loading or failed read never reaches this state.
+   * The harness's own model decides, but only after a verified fact: the defaults were read
+   * successfully and name no direct model. A missing, loading, failed or `unavailable` read never
+   * reaches this state: `unavailable` also covers metadata that cannot qualify its target, which
+   * hides any stored default, so it blocks like any other unreadable read.
    */
-  | Readonly<{ kind: 'harness_default'; verified: 'absent' | 'inactive' }>
+  | Readonly<{ kind: 'harness_default'; verified: 'absent' }>
 
 export function resolveDirectSessionModel(input: {
   /** The model pinned on an already-created session, if any. Never replaced here. */
@@ -54,10 +55,7 @@ export function resolveDirectSessionModel(input: {
   let choice = input.explicit ?? undefined
   if (!choice) {
     const read = input.defaults
-    if (!read || (read.availability !== 'available' && read.availability !== 'unavailable'))
-      return unreadable()
-    if (read.availability === 'unavailable')
-      return { kind: 'harness_default', verified: 'inactive' }
+    if (!read || read.availability !== 'available') return unreadable()
     // Available with no stored record is verified absence; a malformed record is not.
     if (read.defaults === null) return { kind: 'harness_default', verified: 'absent' }
     if (typeof read.defaults !== 'object' || !Number.isSafeInteger(read.defaults.revision))
@@ -125,7 +123,7 @@ type ModelReads = Readonly<{
 
 /**
  * Reads the workspace's stored direct default for a new session. Any failed read blocks: only a
- * successful read that names no direct model (or an inactive host) leaves the harness's own model.
+ * successful read that names no direct model leaves the harness's own model; an unavailable read blocks.
  * The default's `providerModel` is sent as the launch `modelId`; the host rejects one it cannot
  * run, which is a visible refusal, never a substitute.
  */

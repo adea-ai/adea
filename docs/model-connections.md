@@ -83,8 +83,12 @@ Existing sessions keep their provider and model, and a model named when the
 session is created always wins. The conversation host reads the default before any
 session exists. A failed or unreadable read, a revoked or missing connection, or a
 model that is not ready blocks the start with its remedy; nothing substitutes
-another model. Only a successful read that names no direct model (or a host that
-reports model metadata inactive) leaves the harness's own model. The default's
+another model. Only a successful read that names no direct model leaves the harness's
+own model. An `unavailable` defaults response (SDK unsupported, no configured
+execution target, or metadata that cannot qualify its target) never read the stored
+default, so it blocks with a recovery message; a deployment without model metadata
+therefore cannot start launched conversations until it is configured or the user
+sets a model for that session. The default's
 `providerModel` is sent as the launch `modelId`, and the desktop host refuses one
 it cannot run. The choice made before the host create is dispatched, including
 "no model", is kept for that idempotency key: a retry after a lost response

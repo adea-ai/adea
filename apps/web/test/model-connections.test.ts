@@ -14,6 +14,7 @@ import {
   type ModelMetadataRouteDependencies,
 } from '../src/server/model-connections-routes'
 import { installedModelMetadataPort } from '../src/server/model-connections-sdk'
+import { readDirectLaunchModel } from '../../../packages/workspace-ui/src/direct-session-model'
 
 const WORKSPACE = '00000000-0000-4000-8000-000000000001'
 const CP_WORKSPACE = 'wsp_01JABCDEF0123456789ABCDEFG'
@@ -258,6 +259,43 @@ describe('model metadata product boundary', () => {
     // SDK 1.15 exports every model-metadata operation, so the installed port
     // is supported; the adapter still must not reach it without readiness.
     expect(installedModelMetadataPort.supported).toBeTrue()
+  })
+
+  test('a workspace with a stored direct default never falls back when metadata cannot qualify its target', async () => {
+    const stored = {
+      defaults: {
+        workspaceId: CP_WORKSPACE,
+        revision: 3,
+        direct: { ...CHOICE, providerModel: 'direct-model' },
+      },
+    }
+    // The stored default exists in Control Plane. Each adapter below is unable to read it:
+    // no host target, or an SDK port without the operations. Both answer `unavailable`.
+    const unqualified = async (overrides: Partial<ModelMetadataDependencies>) => {
+      const f = await fixture(stored)
+      const adapter = createWorkspaceModelMetadataAdapter(WORKSPACE, true, CORRELATION, {
+        ...f.dependencies,
+        ...overrides,
+      })
+      const result = await readDirectLaunchModel(
+        {
+          getWorkspaceModelDefaults: async () => adapter.getDefaults(),
+          listModelConnections: async () => adapter.list(),
+        },
+        WORKSPACE
+      )
+      return { result, requests: f.requests }
+    }
+    for (const overrides of [
+      { target: () => null },
+      { port: { supported: false, invoke: async () => ({}) } },
+    ] as Partial<ModelMetadataDependencies>[]) {
+      const { result, requests } = await unqualified(overrides)
+      expect(result.kind).toBe('blocked')
+      if (result.kind === 'blocked')
+        expect(result.message).toContain('No other model was substituted')
+      expect(requests).toEqual([])
+    }
   })
 
   test('defaults retain distinct roles and CAS identity under the existing write scope', async () => {
