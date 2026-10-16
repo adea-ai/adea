@@ -275,7 +275,7 @@ describe('VITE_CACHE_PATH', () => {
   test('the workflow exports a task-cache override under RUNNER_TEMP', () => {
     const dir = mkdtempSync(join(tmpdir(), 'vp-proof-runner-temp-'))
     try {
-      const expected = join(dir, 'adea-vite-plus-proof-cache')
+      const expected = join(dir, 'adea-vite-plus-proof-cache-v1.48.1')
       const { exported } = runStep('Set runner-local Vite+ cache path', root, {
         RUNNER_TEMP: dir,
       })
@@ -301,9 +301,11 @@ describe('VITE_CACHE_PATH', () => {
 
   test('the workflow uses the exact Code Foundry action and its cache override contract', () => {
     const workflow = readFileSync(join(root, '.github/workflows/vite-plus-proof.yml'), 'utf8')
-    const foundrySha = 'de2e9bb275a4fb16d6709893c588c922977f061d'
+    const foundrySha = 'e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d'
+    expect(workflow).toContain('CODE_FOUNDRY_VERSION: 1.48.1')
     expect(workflow).toContain(`CODE_FOUNDRY_SHA: ${foundrySha}`)
     expect(workflow).toContain(`uses: 0xPlayerOne/code-foundry/.github/actions/setup@${foundrySha}`)
+    expect(workflow).toContain('  proof_v1_48_1:\n    name: Vite+ cache proof')
     expect(workflow).toContain("cache-vite-plus: 'true'")
     expect(workflow).toContain('ref: ${{ env.CODE_FOUNDRY_SHA }}')
     expect(workflow).toContain('src/runtime.mjs')
@@ -313,7 +315,7 @@ describe('VITE_CACHE_PATH', () => {
     expect(workflow).toContain(
       'cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/'
     )
-    expect(workflow).toContain('cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"')
+    expect(workflow).toContain('cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-v1.48.1"')
     expect(workflow).toContain('CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"')
     expect(workflow).toContain('test "$VITE_CACHE_PATH" = "$expected"')
     expect(workflow).toContain('test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"')

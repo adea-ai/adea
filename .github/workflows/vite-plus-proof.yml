@@ -2,7 +2,7 @@ name: Vite+ Cache Proof
 
 # Opt-in, non-required proof lane for the Vite+ task cache (vite.config.ts).
 # Turbo stays the required runner for every Code Foundry workflow. This lane
-# consumes the Code Foundry setup action at the exact reviewed #765 commit,
+# consumes the Code Foundry setup action at the exact published v1.48.1 commit,
 # runs on pushes to its own branch, and adds no secrets, remote cache, or
 # deployment: the cache is the repository's GitHub Actions cache.
 #
@@ -24,14 +24,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  proof:
+  proof_v1_48_1:
     name: Vite+ cache proof
     if: vars.CI_BILLING_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      CODE_FOUNDRY_VERSION: 1.48.0
-      CODE_FOUNDRY_SHA: de2e9bb275a4fb16d6709893c588c922977f061d
+      CODE_FOUNDRY_VERSION: 1.48.1
+      CODE_FOUNDRY_SHA: e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -78,15 +78,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache"
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-v1.48.1"
           case "$cache_path" in
             "$RUNNER_TEMP"/*) ;;
             *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
           esac
           printf 'VITE_CACHE_PATH=%s\n' "$cache_path" >> "$GITHUB_ENV"
-      - name: Setup with Code Foundry at exact #765 commit
+      - name: Setup with Code Foundry v1.48.1
         id: code-foundry-setup
-        uses: 0xPlayerOne/code-foundry/.github/actions/setup@de2e9bb275a4fb16d6709893c588c922977f061d
+        uses: 0xPlayerOne/code-foundry/.github/actions/setup@e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
         with:
           install: 'true'
           cache-build: 'false'
@@ -128,7 +128,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache"
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-v1.48.1"
           test "$VITE_CACHE_PATH" = "$expected"
           printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"

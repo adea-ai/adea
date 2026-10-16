@@ -51,9 +51,10 @@ version, platform and architecture.
 ## CI
 
 `.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and
-by dispatch. It checks out Code Foundry at the exact reviewed #765 fix commit
-`de2e9bb275a4fb16d6709893c588c922977f061d`, verifies the commit and package version, stages the pinned
-runtime under `$RUNNER_TEMP/code-foundry`, and uses that commit's setup action
+by dispatch. It checks out Code Foundry v1.48.1 at release commit
+[`e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d`](https://github.com/0xPlayerOne/code-foundry/releases/tag/v1.48.1),
+verifies the commit and package version, stages the pinned runtime under
+`$RUNNER_TEMP/code-foundry`, and uses that release's setup action
 with `cache-vite-plus: true`. The workflow copies the pinned cache and save
 actions from the same commit into the consumer workspace. It sets
 `VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before setup, then calls
@@ -65,6 +66,15 @@ dependency manifests, Vite config, and run attempt. The workflow only opts its
 own job into `monorepo_tool: vite-plus`; the committed
 `.github/code-foundry.yml` and required Turbo workflows remain unchanged. No
 secrets, remote cache, or Cloudflare are used.
+
+The proof job id is `proof_v1_48_1`, which gives this release qualification a
+separate Vite+ cache-key prefix. Its `VITE_CACHE_PATH` also ends in
+`adea-vite-plus-proof-cache-v1.48.1`. GitHub derives the archive version from
+the cache path list and compression tool ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
+so even a restore-key fallback to the global compatibility prefix cannot
+select the earlier proof archive. The first v1.48.1 run can therefore assert a
+cold cache without deleting or replacing older entries; the visible job name
+remains `Vite+ cache proof`.
 
 The proof graph then runs on a fresh runner, where no `dist` exists, so a warm
 run replays outputs from the restored cache. Commit-message lines assert the
