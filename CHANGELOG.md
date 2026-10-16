@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.94.0](https://github.com/adea-ai/adea/compare/v0.93.0...v0.94.0) (2026-10-16)
+
+
+### Features
+
+* **models:** readiness reasons for lead turns and the stored default for new direct conversations ([#1422](https://github.com/adea-ai/adea/issues/1422)) ([f0e98ce](https://github.com/adea-ai/adea/commit/f0e98ce6019fd2bbc9907aa78eda0328bfe1ed45))
+* **runtime:** clarify connection discovery signals ([#1412](https://github.com/adea-ai/adea/issues/1412)) ([0c83661](https://github.com/adea-ai/adea/commit/0c836616e9c93ac338f2a84bd81e716431bd9df6))
+* **workspace-ui:** group audience and participation dialogs ([#1178](https://github.com/adea-ai/adea/issues/1178) UI slice) ([#1421](https://github.com/adea-ai/adea/issues/1421)) ([66da9ee](https://github.com/adea-ai/adea/commit/66da9eee84670d8838be7bda9bf5580cf6233b7c))
+
+
+### Bug Fixes
+
+* **deps:** update adea-ai design system ([#1416](https://github.com/adea-ai/adea/issues/1416)) ([a680123](https://github.com/adea-ai/adea/commit/a680123993f6d37597fb5600ad56955bba2b9dd0))
+
+
+### Tests
+
+* **db:** guard workspace deletion against retention evidence ([#1413](https://github.com/adea-ai/adea/issues/1413)) ([632776c](https://github.com/adea-ai/adea/commit/632776c7eb77165b302e7e68613ec42f2d4bf653)), closes [#1221](https://github.com/adea-ai/adea/issues/1221)
+* **web:** prove the Pi Durable lead-to-child journey; fix lead command retries ([#1420](https://github.com/adea-ai/adea/issues/1420)) ([e5b58b4](https://github.com/adea-ai/adea/commit/e5b58b4cdb68763012c473909cb4b99f3e884a9d))
+
 ## [0.93.0](https://github.com/adea-ai/adea/compare/v0.92.0...v0.93.0) (2026-10-15)
 
 
