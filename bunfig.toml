@@ -1,4 +1,5 @@
 [test]
+preload = ["./scripts/test-target-preload.ts"]
 coverageThreshold = { line = 0.8, function = 0.8 }
 coverageSkipTestFiles = true
 # This lane covers the auth/db/scripts sources its tests execute. Generated
