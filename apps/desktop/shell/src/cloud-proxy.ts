@@ -4,25 +4,43 @@
 // API call and every forwarded request still presents the trusted shell origin
 // the cloud's desktop lane requires. The origin literal stays owned by
 // `apps/desktop/scripts/cloud-config.mjs` (scripts/check-desktop-origins.mjs).
-import { DEFAULT_CLOUD_ORIGIN } from '../../scripts/cloud-config.mjs'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import {
+  DESKTOP_TARGET_FILE,
+  parseDesktopTarget,
+  resolveShellCloudOrigin,
+} from '../../scripts/cloud-config.mjs'
 
 /**
- * The origin forwarded requests target. `ADEA_CLOUD_ORIGIN` re-points it at a
- * local stack for development, mirroring `apps/desktop/scripts/client.mjs`.
+ * The origin forwarded requests target. It is the origin the client was built
+ * for, read from the target record `apps/desktop/scripts/client.mjs` persists
+ * next to the client, so one build-time decision drives the client and the
+ * shell alike, however the shell is launched. The shell
+ * never infers a target from how it was launched:
+ *
+ * - no record, or a malformed one, stops the shell (fail closed);
+ * - `ADEA_CLOUD_ORIGIN` may only restate the recorded origin;
+ * - a build for a hosted origin outside a release build also needs
+ *   `ADEA_ALLOW_HOSTED_CLOUD=true` at run time.
  */
-export function resolveCloudOrigin(env: Record<string, string | undefined> = process.env): string {
-  const value = env.ADEA_CLOUD_ORIGIN
-  if (!value) return DEFAULT_CLOUD_ORIGIN
-  const url = new URL(value)
-  const loopback =
-    url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'
-  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') {
-    throw new Error('ADEA_CLOUD_ORIGIN must be a bare origin')
+export function resolveCloudOrigin(
+  clientRoot: string,
+  env: Record<string, string | undefined> = process.env
+): string {
+  let text: string
+  try {
+    text = readFileSync(join(clientRoot, DESKTOP_TARGET_FILE), 'utf8')
+  } catch {
+    throw new Error(
+      `The desktop client has no build target (${DESKTOP_TARGET_FILE}); build it with the desktop client build`
+    )
   }
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw new Error('ADEA_CLOUD_ORIGIN must use HTTPS (or loopback HTTP)')
-  }
-  return url.origin
+  return resolveShellCloudOrigin(parseDesktopTarget(text), {
+    explicit: env.ADEA_CLOUD_ORIGIN || undefined,
+    allowHosted: env.ADEA_ALLOW_HOSTED_CLOUD,
+  })
 }
 
 /** Headers that never travel between the shell process and the cloud. */
