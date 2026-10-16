@@ -32,6 +32,11 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./sim-bridge": {
+      "types": "./dist/sim-bridge/index.d.ts",
+      "development": "./src/sim-bridge/index.ts",
+      "import": "./dist/sim-bridge/index.js"
     }
   },
   "scripts": {
