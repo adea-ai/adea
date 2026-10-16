@@ -66,6 +66,7 @@ const members = (role: WorkspaceMemberSummary['role'] = 'owner'): WorkspaceMembe
 ]
 
 type CreateMode = 'hold' | 'lost' | 'ok' | 'rejected' | 'unavailable'
+type SaveMode = 'forbidden' | 'lost' | 'lost-before' | 'ok' | 'unauthorized' | 'unknown'
 type IssuerMode = 'fail' | 'hold' | 'ok' | 'wrong-group' | 'wrong-agent-workspace'
 
 export type AudienceHarness = {
@@ -85,6 +86,11 @@ export type AudienceHarness = {
   dropMember: (userId: string) => void
   groups: () => { channelId: string; participants: ConversationParticipantRef[]; title: string }[]
   nextCreate: (mode: CreateMode) => void
+  /**
+   * How the next manage save ends: refused as signed out or forbidden, or committed on the server but with the
+   * answer lost (`lost`) or garbled (`unknown`), or lost before the server saw it (`lost-before`).
+   */
+  nextSave: (mode: SaveMode) => void
   /** The next manage save is refused as a stale version without the page having been told. */
   nextSaveIsStale: () => void
   releaseCreate: () => void
@@ -137,6 +143,7 @@ function build() {
   let createMode: CreateMode = 'ok'
   let issuerMode: IssuerMode = 'ok'
   let staleNext = false
+  let saveMode: SaveMode = 'ok'
   let gate: { promise: Promise<void>; release: () => void } | undefined
   let issuerGate: { promise: Promise<void>; release: () => void } | undefined
   let grantCount = 0
@@ -242,6 +249,18 @@ function build() {
       participants: [...request.participants],
     })
     if (memberRole() === 'member' || dropped().includes(currentUserId())) throw unavailable()
+    if (saveMode === 'unauthorized') {
+      saveMode = 'ok'
+      throw new ApiClientError('Unauthorized', 401)
+    }
+    if (saveMode === 'forbidden') {
+      saveMode = 'ok'
+      throw new ApiClientError('Forbidden', 403)
+    }
+    if (saveMode === 'lost-before') {
+      saveMode = 'ok'
+      throw new TypeError('Failed to fetch')
+    }
     if (staleNext) {
       staleNext = false
       // Someone else's write landed first; this page has not been told yet.
@@ -264,6 +283,14 @@ function build() {
       version: channel().version + 1,
     }
     setChannel(next)
+    if (saveMode === 'lost') {
+      saveMode = 'ok'
+      throw new TypeError('Failed to fetch')
+    }
+    if (saveMode === 'unknown') {
+      saveMode = 'ok'
+      throw new ApiClientError('Bad gateway', 502)
+    }
     return next
   }
 
@@ -288,6 +315,9 @@ function build() {
         const { promise, resolve } = Promise.withResolvers<void>()
         gate = { promise, release: resolve }
       }
+    },
+    nextSave: (mode) => {
+      saveMode = mode
     },
     nextSaveIsStale: () => {
       staleNext = true

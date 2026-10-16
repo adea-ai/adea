@@ -36,8 +36,14 @@ returned group. No trusted issuer exists yet, so today:
   (title included) and drops the attempt. Each send is fenced by a generation: after the issuer answers, a send
   that finds the screen has changed (even if it changed and changed back) stops before anything is created or
   saved, and cannot restore the reset attempt.
-- Switching account or workspace clears drafts. 404 and revoked access end in the uniform "unavailable" message
-  with nothing from the group shown. `group_grant_rejected` keeps the form and shows the per-identity reasons.
+- Closing or unmounting either dialog invalidates its generation too, so an issuer that answers after the dialog
+  was closed (or closed and reopened) never reaches the server.
+- A roster save whose outcome is unknown does not claim a retry is "the same request": a retry asks the trusted
+  source for fresh grants and is checked against the group's current version. The host is asked to re-read the
+  group, so a save that did land shows up as a change to review; a conflict right after such a save says the
+  earlier save may be what changed it.
+- Switching account or workspace clears drafts. 401, 403, 404 and revoked access in the manage dialog end in the
+  uniform "unavailable" message and hide the group's title, roster, choices and draft. `group_grant_rejected` keeps the form and shows the per-identity reasons.
 
 ## Not covered (backend gaps)
 

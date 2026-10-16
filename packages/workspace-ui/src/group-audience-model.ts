@@ -503,13 +503,15 @@ export function groupFailure(error: unknown, operation: 'create' | 'manage'): Gr
       }
     }
     if (error.status >= 500)
-      return {
-        ambiguous: true,
-        kind: 'unknown',
-        perParticipant: none,
-        retrySame: true,
-        text: 'The server did not answer clearly, so it is not known whether this was saved. Trying again sends the same request and cannot make a second group.',
-      }
+      return operation === 'manage'
+        ? manageUnclear('The server did not answer clearly', 'unknown')
+        : {
+            ambiguous: true,
+            kind: 'unknown',
+            perParticipant: none,
+            retrySame: true,
+            text: 'The server did not answer clearly, so it is not known whether this was saved. Trying again sends the same request and cannot make a second group.',
+          }
     return {
       ambiguous: false,
       kind: 'invalid',
@@ -518,13 +520,39 @@ export function groupFailure(error: unknown, operation: 'create' | 'manage'): Gr
       text: 'The server did not accept this request. Check the details and try again. Nothing was changed.',
     }
   }
+  return operation === 'manage'
+    ? manageUnclear('The request did not reach the server or its answer was lost', 'offline')
+    : {
+        ambiguous: true,
+        kind: 'offline',
+        perParticipant: none,
+        retrySame: true,
+        text: 'The request did not reach the server or its answer was lost, so it is not known whether this was saved. Trying again sends the same request and cannot make a second group.',
+      }
+}
+
+/**
+ * A roster save whose outcome is not known. Unlike a create, a retry is not the same request: it asks the
+ * trusted source for fresh grants and is checked against the group's current version, so the wording says
+ * that, and says the group is being re-read so a save that did go through shows up in the roster.
+ */
+function manageUnclear(what: string, kind: 'offline' | 'unknown'): GroupFailure {
   return {
     ambiguous: true,
-    kind: 'offline',
-    perParticipant: none,
-    retrySame: true,
-    text: 'The request did not reach the server or its answer was lost, so it is not known whether this was saved. Trying again sends the same request and cannot make a second group.',
+    kind,
+    perParticipant: {},
+    retrySame: false,
+    text: `${what}, so it is not known whether your changes were saved. The group is being read again: if they were saved, the roster will change here and you will be asked to review it. Trying again asks for fresh grants and is checked against the group's current version.`,
   }
+}
+
+/** A version conflict right after a save whose outcome was unknown: the earlier save may be what moved it. */
+export const conflictAfterUnclearSave: GroupFailure = {
+  ambiguous: false,
+  kind: 'conflict',
+  perParticipant: {},
+  retrySame: false,
+  text: 'The group changed since your changes were sent. Your earlier save may have gone through, or someone else may have edited it. Review the updated roster to see what it holds before saving again.',
 }
 
 /** The trusted grant source could not supply what was asked for, so nothing was sent to the server. */

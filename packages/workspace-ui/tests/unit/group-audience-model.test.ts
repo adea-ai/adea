@@ -20,6 +20,7 @@ import {
   grantRequest,
   groupFailure,
   groupFingerprint,
+  conflictAfterUnclearSave,
   GroupGrantUnavailableError,
   humanKey,
   nextAttempt,
@@ -353,6 +354,31 @@ describe('failures', () => {
     expect(
       groupFailure(new ApiClientError('Channel idempotency conflict', 409), 'create').text
     ).toContain('different details')
+  })
+})
+
+describe('a manage save whose outcome is unknown', () => {
+  test('says a retry asks for fresh grants against the current version, not that it is the same request', () => {
+    for (const error of [new TypeError('Failed to fetch'), new ApiClientError('x', 502)]) {
+      const failure = groupFailure(error, 'manage')
+      expect(failure.ambiguous).toBe(true)
+      expect(failure.retrySame).toBe(false)
+      expect(failure.text).toContain('fresh grants')
+      expect(failure.text).toContain('current version')
+      expect(failure.text).not.toContain('same request')
+      expect(failure.text).not.toContain('second group')
+    }
+  })
+
+  test('a create still retries the same request', () => {
+    const failure = groupFailure(new TypeError('Failed to fetch'), 'create')
+    expect(failure.retrySame).toBe(true)
+    expect(failure.text).toContain('same request')
+  })
+
+  test('a conflict right after it is explained as possibly its own earlier save', () => {
+    expect(conflictAfterUnclearSave.kind).toBe('conflict')
+    expect(conflictAfterUnclearSave.text).toContain('earlier save may have gone through')
   })
 })
 

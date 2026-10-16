@@ -22,6 +22,7 @@ import {
   createUniqueId,
   For,
   on,
+  onCleanup,
   Show,
   untrack,
   type JSX,
@@ -32,6 +33,7 @@ import {
   audienceChoices,
   canManageGroup,
   checkIssuedGrants,
+  conflictAfterUnclearSave,
   describeAgents,
   describeHumans,
   draftIsEmpty,
@@ -320,6 +322,23 @@ export function CreateGroupDialog(props: {
       `${scopeKey(props.scope)}|${props.audience?.workspaceId ?? ''}|${props.audience?.currentUserId ?? ''}`
   )
   const token = () => `${context()}#${generation}`
+  // Closing or unmounting the dialog ends any send still waiting on the issuer: it must not reach the server later.
+  const invalidate = () => {
+    generation += 1
+    inFlight = false
+  }
+  onCleanup(invalidate)
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (open) return
+        invalidate()
+        setPending(false)
+      },
+      { defer: true }
+    )
+  )
   const choices = createMemo(() =>
     props.audience
       ? audienceChoices({
@@ -634,6 +653,25 @@ export function GroupManageDialog(props: {
     () => `${props.audience.workspaceId}|${props.audience.currentUserId ?? ''}|${props.channel.id}`
   )
   const token = () => `${context()}#${generation}`
+  // See CreateGroupDialog: closing or unmounting ends any send still waiting on the issuer.
+  const invalidate = () => {
+    generation += 1
+    inFlight = false
+  }
+  onCleanup(invalidate)
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (open) return
+        invalidate()
+        setPending(false)
+      },
+      { defer: true }
+    )
+  )
+  // Set when the last save's outcome was not known, so a conflict right after it is explained truthfully.
+  let unclear = false
   const sameWorkspace = () => props.channel.workspaceId === props.audience.workspaceId
   const archived = () => props.channel.lifecycleState !== 'active'
   const canManage = () =>
@@ -643,6 +681,8 @@ export function GroupManageDialog(props: {
   const canChange = () => canManage() && Boolean(props.audience.issueGrants) && !archived()
   const stale = () => props.channel.version !== reviewed()
   const unavailable = () => failure()?.kind === 'unavailable'
+  // Once access is gone the group's title and roster are not shown any more, whatever was loaded before.
+  const hidden = () => !sameWorkspace() || unavailable()
 
   createEffect(
     on(
@@ -650,6 +690,7 @@ export function GroupManageDialog(props: {
       () => {
         generation += 1
         inFlight = false
+        unclear = false
         setPending(false)
         setDraft(emptyDraft)
         setFailure(null)
@@ -783,10 +824,22 @@ export function GroupManageDialog(props: {
     setPending(false)
     if (outcome.status === 'ignored') return
     if (outcome.status === 'failed') {
-      setFailure(outcome.failure)
-      if (outcome.failure.kind === 'conflict') props.onStale?.()
+      const next =
+        unclear && outcome.failure.kind === 'conflict' ? conflictAfterUnclearSave : outcome.failure
+      unclear = next.ambiguous
+      if (next.kind === 'unavailable') {
+        // Access is gone: nothing retained about the group stays on screen or in the draft.
+        setDraft(emptyDraft)
+        setRosterAtReview([])
+        setLocal(null)
+        setSaved(false)
+      }
+      setFailure(next)
+      // A conflict, or a save that may or may not have landed, means the host should read the group again.
+      if (next.kind === 'conflict' || next.ambiguous) props.onStale?.()
       return
     }
+    unclear = false
     setDraft(emptyDraft)
     setReviewed(outcome.value.version)
     setRosterAtReview(outcome.value.participants)
@@ -810,18 +863,27 @@ export function GroupManageDialog(props: {
       class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
-      title={sameWorkspace() ? `Manage ${props.channel.title}` : 'Manage group'}
+      title={hidden() ? 'Manage group' : `Manage ${props.channel.title}`}
       description="Who can read this conversation and take part in it."
     >
       <Show
-        when={sameWorkspace()}
+        when={!hidden()}
         fallback={
-          <Alert role="alert" data-group-failure="unavailable">
-            <AlertDescription>
-              This group belongs to a different workspace than the one you are in, so nothing about
-              it is shown.
-            </AlertDescription>
-          </Alert>
+          <div class="grid gap-4" data-group-unavailable="">
+            <Alert role="alert" data-group-failure="unavailable">
+              <AlertDescription>
+                {sameWorkspace()
+                  ? (failure()?.text ??
+                    'This group is not available to you anymore, so nothing about it is shown.')
+                  : 'This group belongs to a different workspace than the one you are in, so nothing about it is shown.'}
+              </AlertDescription>
+            </Alert>
+            <div class="flex justify-end">
+              <Button variant="outline" onClick={() => props.onClose()}>
+                Close
+              </Button>
+            </div>
+          </div>
         }
       >
         <div class="grid gap-4" aria-busy={pending()} data-group-manage="">
@@ -929,7 +991,11 @@ export function GroupManageDialog(props: {
                   disabled={pending() || draftIsEmpty(draft()) || stale() || unavailable()}
                   onClick={() => void save()}
                 >
-                  {pending() ? 'Saving…' : failure()?.retrySame ? 'Try again' : 'Save changes'}
+                  {pending()
+                    ? 'Saving…'
+                    : failure()?.retrySame || failure()?.ambiguous
+                      ? 'Try again'
+                      : 'Save changes'}
                 </Button>
               </div>
             </div>

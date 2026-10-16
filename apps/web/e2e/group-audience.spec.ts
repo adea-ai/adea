@@ -39,7 +39,8 @@ const toggle = async (box: Locator) => {
   await box.page().locator(`[id="${labelId}"]`).click()
 }
 const dialog = (page: Page) => page.getByRole('dialog')
-const harness = <T>(page: Page, run: () => T) => page.evaluate(run)
+const harness = <T, A = undefined>(page: Page, run: (arg: A) => T, arg?: A) =>
+  page.evaluate(run, arg as A)
 const people = (page: Page) => dialog(page).locator('[data-audience-people]')
 const agents = (page: Page) => dialog(page).locator('[data-audience-agents]')
 const roster = (page: Page, label: string) => dialog(page).getByRole('list', { name: label })
@@ -552,20 +553,126 @@ test('without a trusted grant source the roster is read-only and the dependency 
   await expect(dialog(page).getByRole('button', { name: 'Save changes' })).toHaveCount(0)
 })
 
-test('access revoked while editing ends in the uniform answer and nothing is shown as saved', async ({
+for (const [label, mode] of [
+  ['not available (404)', undefined],
+  ['signed out (401)', 'unauthorized'],
+  ['forbidden (403)', 'forbidden'],
+] as const) {
+  test(`access ended while editing (${label}) hides the group's title and roster and shows nothing as saved`, async ({
+    page,
+  }) => {
+    await openManage(page)
+    await expect(dialog(page)).toContainText('Launch review')
+    await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
+    if (mode) await harness(page, (m) => window.audienceHarness.nextSave(m), mode)
+    else
+      await harness(page, () =>
+        window.audienceHarness.dropMember('44444444-0000-4000-8000-0000000000d9')
+      )
+    await dialog(page).getByRole('button', { name: 'Save changes' }).click()
+    await expect(dialog(page).locator('[data-group-failure="unavailable"]')).toContainText(
+      'Nothing was changed'
+    )
+    // Nothing retained about the group stays on screen: not its name, its people, or the choices.
+    await expect(dialog(page)).not.toContainText('Launch review')
+    await expect(dialog(page)).not.toContainText('Alex')
+    await expect(dialog(page)).not.toContainText('Sam')
+    await expect(dialog(page)).not.toContainText('Aria')
+    await expect(dialog(page).getByRole('list', { name: 'Participants' })).toHaveCount(0)
+    await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
+    await expect(dialog(page).getByRole('button', { name: 'Save changes' })).toHaveCount(0)
+    await expect(
+      dialog(page).getByRole('heading', { name: 'Manage group', level: 2 })
+    ).toBeVisible()
+    await expect(dialog(page).getByText('Close', { exact: true })).toBeVisible()
+  })
+}
+
+test('a save whose answer was lost after the server kept it says so, re-reads the group and does not save twice', async ({
   page,
 }) => {
   await openManage(page)
   await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
-  await harness(page, () =>
-    window.audienceHarness.dropMember('44444444-0000-4000-8000-0000000000d9')
-  )
+  await harness(page, () => window.audienceHarness.nextSave('lost'))
   await dialog(page).getByRole('button', { name: 'Save changes' }).click()
-  await expect(dialog(page).locator('[data-group-failure="unavailable"]')).toContainText(
-    'Nothing was changed'
+  const failure = dialog(page).locator('[data-group-failure]')
+  await expect(failure).toContainText('not known whether your changes were saved')
+  // A manage retry is not "the same request": it asks for fresh grants against the current version.
+  await expect(failure).toContainText('fresh grants')
+  await expect(failure).not.toContainText('same request')
+  await expect(failure).not.toContainText('second group')
+  const { staleReads } = await harness(page, () => window.audienceHarness.calls)
+  expect(staleReads).toBeGreaterThanOrEqual(1)
+  // The group was re-read: the committed save shows up as a change to review, and nothing is sent again.
+  await expect(dialog(page).locator('[data-group-stale]')).toContainText('Aria · Globex')
+  await expect(dialog(page).getByRole('button', { name: 'Try again' })).toBeDisabled()
+  await dialog(page).getByRole('button', { name: 'Review updated roster' }).click()
+  await expect(dialog(page).locator('[data-group-draft-summary]')).toHaveText('No changes yet.')
+  await expect(roster(page, 'Participants')).toContainText('Aria · Globex')
+  const calls = await harness(page, () => window.audienceHarness.calls)
+  expect(calls.saves).toHaveLength(1)
+  expect(calls.issued).toHaveLength(1)
+})
+
+test('a save lost before the server saw it asks for fresh grants on retry, and a conflict then is explained honestly', async ({
+  page,
+}) => {
+  await openManage(page)
+  await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
+  await harness(page, () => window.audienceHarness.nextSave('lost-before'))
+  await dialog(page).getByRole('button', { name: 'Save changes' }).click()
+  await expect(dialog(page).locator('[data-group-failure]')).toContainText('fresh grants')
+  // Meanwhile someone else's write lands first, which this page has not been told about.
+  await harness(page, () => window.audienceHarness.nextSaveIsStale())
+  await dialog(page).getByRole('button', { name: 'Try again' }).click()
+  await expect(dialog(page).locator('[data-group-failure="conflict"]')).toContainText(
+    'Your earlier save may have gone through, or someone else may have edited it'
   )
+  const { issued } = await harness(page, () => window.audienceHarness.calls)
+  // Fresh grants were asked for the second time, not replayed.
+  expect(issued).toHaveLength(2)
+})
+
+test('closing the create dialog while the issuer is pending means a later answer creates nothing', async ({
+  page,
+}) => {
+  await openCreate(page)
+  await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
+  await harness(page, () => window.audienceHarness.setIssuer('hold'))
+  await dialog(page).getByRole('button', { name: 'Create conversation' }).click()
+  await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open new group', exact: true }).click()
+  await expect(dialog(page)).toBeVisible()
+  await harness(page, () => window.audienceHarness.releaseIssuer())
+  await page.waitForTimeout(300)
+  const { created } = await harness(page, () => window.audienceHarness.calls)
+  expect(created).toHaveLength(0)
+  await expect(dialog(page).getByRole('heading', { name: 'Group created' })).toHaveCount(0)
+  // The reopened dialog is a fresh one, ready for use.
+  await expect(dialog(page).getByRole('textbox', { name: 'Conversation name' })).toHaveValue('')
+  await expect(dialog(page).getByRole('button', { name: 'Creating…' })).toHaveCount(0)
+})
+
+test('closing the manage dialog while the issuer is pending means a later answer saves nothing', async ({
+  page,
+}) => {
+  await openManage(page)
+  await toggle(agents(page).getByRole('checkbox', { name: 'Aria · Globex' }))
+  await harness(page, () => window.audienceHarness.setIssuer('hold'))
+  await dialog(page).getByRole('button', { name: 'Save changes' }).click()
+  await expect(dialog(page).getByRole('button', { name: 'Saving…' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog(page)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Open manage' }).click()
+  await expect(dialog(page)).toBeVisible()
+  await harness(page, () => window.audienceHarness.releaseIssuer())
+  await page.waitForTimeout(300)
+  const { saves } = await harness(page, () => window.audienceHarness.calls)
+  expect(saves).toHaveLength(0)
   await expect(dialog(page).locator('[data-group-saved]')).toHaveCount(0)
-  await expect(dialog(page).getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  await expect(agents(page).getByRole('checkbox', { name: 'Aria · Globex' })).not.toBeChecked()
 })
 
 test('a group from another workspace shows nothing about it', async ({ page }) => {
