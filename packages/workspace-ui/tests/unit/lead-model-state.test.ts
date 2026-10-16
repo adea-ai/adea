@@ -289,6 +289,18 @@ const blockedRead = (reasonCode: string) =>
     reasonCode,
   })
 
+const ownerOfKind = (kind: string) => ({
+  ...funding,
+  fundingSource: 'byo_api',
+  fundingOwner: { ...(funding as { fundingOwner: object }).fundingOwner, kind },
+})
+
+test('a bring-your-own payer that is Adea-paid is blocked, other payers stay ready', () => {
+  expect(projectFunding(ownerOfKind('adea_account')).state).toBe('blocked')
+  expect(projectFunding(ownerOfKind('workspace_account')).state).toBe('ready')
+  expect(projectFunding(ownerOfKind('provider_account')).state).toBe('ready')
+})
+
 test('a blocked payer read shows its remedy and an unnamed block stays generic', () => {
   expect(blockedFundingMessage(blockedRead('QUOTA_EXHAUSTED'))).toBe(
     `Current payer authorization is blocked. ${modelReadinessRemedy('QUOTA_EXHAUSTED')!.message}`

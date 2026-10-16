@@ -1,7 +1,7 @@
 import { ControlApiOperations, ControlPlaneClient, ControlPlaneClientError } from '@adea-ai/sdk'
 import { isRecord, type ControlPlaneHopDependencies } from './control-plane-client'
 import type { ControlPlaneCredential } from './control-plane-credential'
-import { LeadRuntimeRefusal, leadReadinessReason } from './lead-runtime-refusal'
+import { LeadRuntimeRefusal, leadRefusalReason } from './lead-runtime-refusal'
 
 export const LEAD_SDK_METHODS = [
   'preparePiDurableLead',
@@ -93,10 +93,8 @@ export const installedLeadSdkPort: LeadSdkPort = {
     } catch (error) {
       // A refusal may carry only the agreed readiness vocabulary; other text never crosses.
       const reason =
-        error instanceof ControlPlaneClientError &&
-        error.requestId === body.requestId &&
-        [400, 403, 404, 409, 422].includes(error.status ?? 0)
-          ? leadReadinessReason(error.code)
+        error instanceof ControlPlaneClientError
+          ? leadRefusalReason(error, error.requestId === body.requestId)
           : undefined
       if (reason) throw new LeadRuntimeRefusal(reason)
       throw error

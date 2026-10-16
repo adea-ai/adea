@@ -477,6 +477,84 @@ describe('ChatConversationModel', () => {
     expect(model.project().conversations[0]?.draftBlocks).toEqual([block])
   })
 
+  describe('initial model for a new launched conversation', () => {
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'Fix the login flow',
+    }
+    test('launches with the resolved default model id', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: async () => ({ kind: 'model', modelId: 'gpt-5' }),
+      })
+      await model.create({ ...input, idempotencyKey: 'k-1' })
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).toMatchObject({ modelId: 'gpt-5' })
+    })
+
+    test('an explicit model id is never replaced and the hook is not consulted', async () => {
+      const { calls, service } = launchService()
+      let consulted = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          consulted += 1
+          return { kind: 'model', modelId: 'default-model' }
+        },
+      })
+      await model.create({ ...input, modelId: 'chosen-model', idempotencyKey: 'k-2' })
+      expect(consulted).toBe(0)
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).toMatchObject({ modelId: 'chosen-model' })
+    })
+
+    test('a blocked default stops the create before any session exists', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => ({ kind: 'blocked', message: 'Reconnect the provider.' }),
+      })
+      await expect(model.create({ ...input, idempotencyKey: 'k-3' })).rejects.toThrow(
+        'Reconnect the provider.'
+      )
+      expect(calls.some((call) => call.operation.startsWith('dev.session.'))).toBe(false)
+    })
+
+    test('the harness default sends no model id', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => ({ kind: 'harness_default' }),
+      })
+      await model.create({ ...input, idempotencyKey: 'k-4' })
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).not.toHaveProperty('modelId')
+    })
+
+    test('an unlaunched session ignores the hook', async () => {
+      const { calls, service } = launchService()
+      let consulted = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          consulted += 1
+          return { kind: 'blocked', message: 'blocked' }
+        },
+      })
+      await model.create({
+        projectId: 'project-1',
+        repoId: 'repo-1',
+        worktreeId: 'worktree-1',
+        idempotencyKey: 'k-5',
+      })
+      expect(consulted).toBe(0)
+      expect(calls.map((call) => call.operation)).toEqual(['dev.session.create'])
+    })
+  })
+
   test('create is staged and idempotent, with one session, run, and prompt', async () => {
     const calls: Array<{
       operation: string
@@ -1357,3 +1435,19 @@ describe('conversation derivations from canonical events', () => {
     expect(deriveConversationStatus(subject, events)).toBe('completed')
   })
 })
+
+function launchService() {
+  const calls: Array<{ operation: string; body: Record<string, unknown> }> = []
+  const created = session({ lifecycle: 'ready' })
+  const service = fakeService(async (command) => {
+    const hierarchy = hierarchyReply(command.operation)
+    if (hierarchy) return hierarchy
+    calls.push({ operation: command.operation, body: command.body })
+    if (command.operation === 'dev.session.create') return ok(command.operation, created)
+    if (command.operation === 'dev.session.launchDefault')
+      return ok(command.operation, { id: 'run-1', runtimeSessionId: created.id })
+    if (command.operation === 'dev.session.get') return ok(command.operation, created)
+    throw new Error(`unexpected ${command.operation}`)
+  })
+  return { calls, service }
+}

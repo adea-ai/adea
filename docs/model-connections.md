@@ -64,6 +64,27 @@ blocked payer read names its remedy the same way. An unnamed or unknown reason
 reads as "could not be verified". These are projections only: they authorize no
 inference, and a later check is always a fresh Control Plane decision.
 
+The refusal shape agreed with the Control Plane (not yet in a published SDK, which
+drops `details`) is HTTP 409 `PI_LEAD_MODEL_NOT_READY`, or 503 when readiness is
+unavailable, with `error.details.reasonCode` from the same vocabulary. Adea reads
+it only on a matching request ID; any other value stays `READINESS_UNAVAILABLE`.
+A byo_api selection paid by an Adea account is never ready, here or in the client
+projection.
+
+## New direct sessions
+
+The stored `direct` default initializes a NEW launched desktop conversation only.
+Existing sessions keep their provider and model, and a model named when the
+session is created always wins. The conversation host reads the default before any
+session exists. A failed or unreadable read, a revoked or missing connection, or a
+model that is not ready blocks the start with its remedy; nothing substitutes
+another model. Only a successful read that names no direct model (or a host that
+reports model metadata inactive) leaves the harness's own model. The default's
+`providerModel` is sent as the launch `modelId`, and the desktop host refuses one
+it cannot run. Sessions created empty on a worktree choose no model at creation, so
+this default does not apply to them. Readiness is a projection from the listing;
+direct sessions are never gated by the Control Plane.
+
 ## Funding boundary
 
 Funding reads take only the accepted execution ID, attempt ID and selection

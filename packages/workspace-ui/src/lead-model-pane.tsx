@@ -213,7 +213,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
             label={label}
             description={
               role === 'direct'
-                ? `${defaultLabel(role)} · Starts new direct sessions only. Existing sessions keep their model, and a model chosen for one session overrides this.`
+                ? `${defaultLabel(role)} · Initial model for new direct conversations only. Existing sessions keep their model, and a model chosen for one session overrides this.`
                 : defaultLabel(role)
             }
           >

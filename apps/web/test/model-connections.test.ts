@@ -339,6 +339,24 @@ describe('model metadata product boundary', () => {
     ).rejects.toMatchObject({ code: 'READINESS_UNAVAILABLE' })
   })
 
+  test('a bring-your-own funding view cannot name an Adea-paid payer', () => {
+    const adeaPaid = {
+      ...FUNDING,
+      fundingSource: 'byo_api',
+      fundingOwner: { ...FUNDING.fundingOwner, kind: 'adea_account' },
+    }
+    expect(
+      projectModelSelectionFunding(adeaPaid, WORKSPACE, CP_WORKSPACE, BINDING, NOW)
+    ).toMatchObject({ state: 'blocked', reasonCode: 'READINESS_UNAVAILABLE' })
+    const owned = {
+      ...adeaPaid,
+      fundingOwner: { ...adeaPaid.fundingOwner, kind: 'provider_account' },
+    }
+    expect(
+      projectModelSelectionFunding(owned, WORKSPACE, CP_WORKSPACE, BINDING, NOW)
+    ).toMatchObject({ state: 'ready' })
+  })
+
   test('funding exposes only explicit payer evidence bound to the accepted execution and mapped workspace', () => {
     const result = projectModelSelectionFunding(FUNDING, WORKSPACE, CP_WORKSPACE, BINDING, NOW)
     expect(result).toMatchObject({

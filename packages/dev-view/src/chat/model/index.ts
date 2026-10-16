@@ -284,6 +284,8 @@ export function createChatConversationModel(
     fingerprint: string
     promise?: Promise<ChatConversation>
     result?: ChatConversation
+    /** Fixed on first resolution so a retried launch replays the same body. */
+    modelId?: string
     createdAt: number
     expirationTimer?: ReturnType<typeof setTimeout>
   }
@@ -408,6 +410,20 @@ export function createChatConversationModel(
           retryable: true,
           message: 'The canonical project registry has not resolved this conversation project.',
         })
+      // Resolved before the session exists: a blocked default must not leave an unlaunched session.
+      const launches = input.agentProfileId !== undefined || input.initialPrompt !== undefined
+      if (launches && input.modelId === undefined && request.modelId === undefined) {
+        const decision = options.initialModel ? await options.initialModel() : undefined
+        if (decision?.kind === 'blocked')
+          throw new ChatRuntimeError({
+            code: 'capability_unavailable',
+            retryable: true,
+            message: decision.message,
+          })
+        if (decision?.kind === 'model') request.modelId = decision.modelId
+      }
+      const launchInput =
+        request.modelId === undefined ? input : { ...input, modelId: request.modelId }
       const createCommand = buildDevCommand({
         operation: 'dev.session.create',
         scope,
@@ -449,7 +465,7 @@ export function createChatConversationModel(
         const launchCommand = buildDevCommand({
           operation: launchOperation,
           scope,
-          body: launchBody(created, input),
+          body: launchBody(created, launchInput),
           resource: sessionResource(created),
           idempotencyKey,
         })

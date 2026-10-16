@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { SuccessResponseEnvelopeSchema } from '@adea-ai/contracts'
 import { createConfiguredLeadTurnDependencies } from '../src/server/lead-turn-composition'
 import { installedLeadSdkPort, type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
-import { LeadRuntimeRefusal } from '../src/server/lead-runtime-refusal'
+import { LeadRuntimeRefusal, leadRefusalReason } from '../src/server/lead-runtime-refusal'
 const workspaceId = `wsp_${'0'.repeat(26)}`
 const actor = `user:${crypto.randomUUID()}` as const
 const authority = {
@@ -226,6 +226,35 @@ const refuse = (code: string, status: number) => async (_url: unknown, init?: Re
   )
 }
 
+const nameRefusal = (patch: Record<string, unknown>, matches = true) =>
+  leadRefusalReason(
+    {
+      code: 'PI_LEAD_MODEL_NOT_READY',
+      status: 409,
+      details: { reasonCode: 'QUOTA_EXHAUSTED' },
+      ...patch,
+    },
+    matches
+  )
+
+test('the agreed PI_LEAD_MODEL_NOT_READY refusal keeps only its vocabulary reason', () => {
+  expect(nameRefusal({})).toBe('QUOTA_EXHAUSTED')
+  // READINESS_UNAVAILABLE arrives as a retryable 503 with the same code.
+  expect(nameRefusal({ status: 503, details: { reasonCode: 'READINESS_UNAVAILABLE' } })).toBe(
+    'READINESS_UNAVAILABLE'
+  )
+  // An SDK without details, or provider text in details, is a refusal with an unverifiable reason.
+  expect(nameRefusal({ details: undefined })).toBe('READINESS_UNAVAILABLE')
+  expect(nameRefusal({ details: { reasonCode: 'sk-live-provider-text' } })).toBe(
+    'READINESS_UNAVAILABLE'
+  )
+  expect(nameRefusal({ details: { reasonCode: 'READY' } })).toBe('READINESS_UNAVAILABLE')
+  // Another request, status or code is not a readiness refusal.
+  expect(nameRefusal({}, false)).toBeUndefined()
+  expect(nameRefusal({ status: 500 })).toBeUndefined()
+  expect(nameRefusal({ code: 'PI_LEAD_UNAVAILABLE' })).toBeUndefined()
+  expect(nameRefusal({ code: 'PI_LEAD_FUNDING_CONFIRMATION_STALE' })).toBeUndefined()
+})
 test('the installed SDK port keeps only a readiness code from a Control Plane refusal', async () => {
   const f = await fixture()
   const attempt = async (code: string, status: number) => {
