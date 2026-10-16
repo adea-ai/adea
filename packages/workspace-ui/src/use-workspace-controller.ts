@@ -43,6 +43,7 @@ import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
 import { useWorkspacePersistence } from './use-workspace-persistence'
+import type { GroupCreateRequest } from './group-audience'
 import { createClientRequestId } from './request-id'
 
 const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
@@ -212,10 +213,11 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     get createAgentBusy() {
       return createAgent.isPending
     },
-    createGroup: async (title: string) => {
+    createGroup: async (title: string, request?: GroupCreateRequest) => {
       const authority = selectionAuthority()
       const result = await createGroup.mutateAsync({
-        idempotencyKey: createClientRequestId(),
+        ...request,
+        idempotencyKey: request?.idempotencyKey ?? createClientRequestId(),
         title,
       })
       if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)

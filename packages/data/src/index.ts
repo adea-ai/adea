@@ -328,13 +328,16 @@ export const channelMutationOptions = {
         channelId: string
         expectedVersion: number
         participants: Parameters<AgentHqApiClient['setChannelParticipants']>[2]
+        /** Grants for a group's roster, exactly as a trusted issuer returned them. */
+        grants?: Parameters<AgentHqApiClient['setChannelParticipants']>[4]
       }>
     ) =>
       client.setChannelParticipants(
         workspaceId,
         input.channelId,
         input.participants,
-        input.expectedVersion
+        input.expectedVersion,
+        input.grants
       ),
     onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
@@ -1329,6 +1332,22 @@ export function useCreateGroupChannelMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.group(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+/** Re-reads the channel list and details, for a caller that learned its copy of a group is stale. */
+export function useRefreshChannels(workspaceId: MaybeAccessor<string>) {
+  const queryClient = useQueryClient()
+  return () =>
+    void queryClient.invalidateQueries({
+      queryKey: channelQueryKeys.all(resolveAccessor(workspaceId)),
+    })
+}
+export function useSetChannelParticipantsMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.participants(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useUpdateChannelMutation(

@@ -172,11 +172,12 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
           <CreateGroupDialog
             busy={createGroup.isPending}
             onClose={() => setCreating(false)}
-            onCreate={async (title) => {
+            onCreate={async (title, request) => {
               const submittedWorkspaceId = workspaceId()
               const submittedAudienceEpoch = audienceEpoch()
               const result = await createGroup.mutateAsync({
-                idempotencyKey: createClientRequestId(),
+                ...request,
+                idempotencyKey: request?.idempotencyKey ?? createClientRequestId(),
                 title,
               })
               if (
