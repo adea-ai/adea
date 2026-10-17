@@ -1,3 +1,4 @@
+import { interactionContextDisabledReason } from './model/approval'
 import {
   createEffect,
   createMemo,
@@ -232,7 +233,8 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   const items = createMemo(() =>
     projectTranscriptEvents(
       props.events,
-      props.projection ? { projection: props.projection } : undefined
+      props.projection ? { projection: props.projection } : undefined,
+      props.transcript
     )
   )
   // One naming memory per session and generation: a new one starts with the
@@ -444,13 +446,21 @@ function SegmentView(props: {
   )
 }
 
-function TruncationNote(props: { limit?: number }): JSX.Element {
+function TruncationNote(props: { limit?: number; contextUnavailable?: boolean }): JSX.Element {
   return (
     <Marker
       variant="note"
       tone="warning"
-      label={`Showing the first ${(props.limit ?? CHAT_ASSISTANT_TEXT_LIMIT).toLocaleString('en-US')} characters`}
-      description="The rest of this message is not shown."
+      label={
+        props.contextUnavailable
+          ? 'Safe response context is unavailable'
+          : `Showing the first ${(props.limit ?? CHAT_ASSISTANT_TEXT_LIMIT).toLocaleString('en-US')} characters`
+      }
+      description={
+        props.contextUnavailable
+          ? 'This response is hidden because its earlier context is incomplete.'
+          : 'The rest of this message is not shown.'
+      }
     />
   )
 }
@@ -629,7 +639,7 @@ function ActivityLine(props: { item: () => ChatTranscriptItem | undefined }): JS
         })
         return (
           <Show
-            when={item().text !== undefined && inline() === undefined ? item().text : undefined}
+            when={item().output ?? (inline() === undefined ? item().text : undefined)}
             fallback={<TraceLine {...lineProps()} />}
           >
             {(text) => (
@@ -736,7 +746,7 @@ function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Elem
         citations={marked() ? messageCitations(sources()) : undefined}
       />
       <Show when={props.entry.truncated}>
-        <TruncationNote />
+        <TruncationNote contextUnavailable={props.entry.text.length === 0} />
       </Show>
       <Show when={props.entry.failed}>
         <Marker variant="note" tone="danger" label="The runtime reported an error for this turn." />
@@ -789,19 +799,20 @@ function QuestionEntry(props: {
   // rebuilt `questions` array would remount the field and lose the draft and focus.
   const prompt = createMemo(
     () =>
-      item().text ??
+      item().requestContext ??
       (item().label !== item().kind ? item().label : 'The runtime is waiting for an answer.')
   )
   const questions = createMemo(() => [
     { id: 'answer', prompt: prompt(), allowText: true, textLabel: 'Answer question' },
   ])
   const disabledReason = () =>
+    interactionContextDisabledReason(item()) ??
     chatTranscriptActionDisabledReason('question', props.chat.onResolveQuestion)
   const requested = () => item().state === 'requested'
   const submit = async (value: QuestionnaireAnswers) => {
     const event = item().event
     const text = value.answer?.text.trim() ?? ''
-    if (!event || text.length === 0) return
+    if (!event || text.length === 0 || disabledReason()) return
     setStatus('submitting')
     setError(undefined)
     try {

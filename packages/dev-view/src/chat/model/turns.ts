@@ -344,7 +344,11 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       // `undefined` from an existing sanitizer result means sanitized/omitted,
       // not "try the raw body again". Only an absent result may fall back.
       const text = safe === undefined ? item.body : safe.body
-      if ((text === undefined || text.length === 0) && safe?.continuation !== true) {
+      if (
+        (text === undefined || text.length === 0) &&
+        safe?.continuation !== true &&
+        item.withheldRun === undefined
+      ) {
         // An empty fragment adds no prose but is still an event: keep it visible.
         // The LF half of a CRLF split across fragments is empty too, yet it
         // continues the prose run instead of interrupting it.

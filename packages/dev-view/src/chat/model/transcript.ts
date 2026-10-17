@@ -28,6 +28,8 @@ export type TranscriptAccumulator = Readonly<{
   fromSequence: string
   expectedSequence?: string
   events: readonly RuntimeEvent[]
+  /** The leading assistant streak lost its prefix; never store raw redaction context. */
+  assistantContextLost?: boolean
   availability: TranscriptAvailability
   retention: ChatRetentionTruth
 }>
@@ -95,6 +97,7 @@ export function createTranscriptAccumulator(input: {
     generation: input.generation,
     fromSequence,
     events: [],
+    assistantContextLost: sequence(fromSequence) > 0n,
     availability: { status: 'available' },
     retention: { maxEvents: CHAT_EVENT_RETENTION_LIMIT, complete: true },
   }
@@ -162,6 +165,12 @@ export function acceptRuntimeEvent(
   const nextSequence = (eventSequence + 1n).toString()
   const bounded =
     events.length > CHAT_EVENT_RETENTION_LIMIT ? events.slice(-CHAT_EVENT_RETENTION_LIMIT) : events
+  const dropped = events.length - bounded.length
+  const assistantContextLost =
+    bounded[0]?.kind === 'turn.assistant_delta' &&
+    (dropped > 0
+      ? events[dropped - 1]?.kind === 'turn.assistant_delta'
+      : state.assistantContextLost === true)
   const priorBoundedReason =
     state.availability.status === 'bounded' ? state.availability.reason : undefined
   const window = retention(bounded, state.fromSequence, priorBoundedReason)
@@ -171,6 +180,7 @@ export function acceptRuntimeEvent(
     expectedSequence:
       expected === undefined || eventSequence >= sequence(expected) ? nextSequence : expected,
     events: bounded,
+    assistantContextLost,
     availability:
       boundedReason !== undefined
         ? {
@@ -201,6 +211,7 @@ export function acceptRuntimeStreamFrame(
     return {
       ...state,
       expectedSequence: frame.nextSequence,
+      assistantContextLost: openedSequence > requested || state.assistantContextLost === true,
       availability:
         openedSequence > requested
           ? {
@@ -233,6 +244,7 @@ export function acceptRuntimeStreamFrame(
     return {
       ...state,
       expectedSequence: frame.checkpointSequence,
+      assistantContextLost: true,
       availability: {
         status: 'bounded',
         reason: frame.reason,

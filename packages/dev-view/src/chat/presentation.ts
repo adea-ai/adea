@@ -28,6 +28,11 @@ export type ChatTranscriptItem = Readonly<{
   label: string
   /** One trimmed, bounded run of text for labels and one-line summaries. */
   text?: string
+  /** Safe request wording; separate from the clipped one-line summary. */
+  requestContext?: string
+  requestContextIncomplete?: boolean
+  /** Redacted copyable tool output, preserving LF and tabs within the same bound. */
+  output?: string
   /**
    * Prose for the message body: the same redaction, but line breaks and tabs
    * survive, a streamed fragment keeps its surrounding whitespace, and the bound
@@ -36,6 +41,8 @@ export type ChatTranscriptItem = Readonly<{
   body?: string
   /** `body` was cut at the bound. The canvas says so rather than showing a shorter message as whole. */
   bodyTruncated?: boolean
+  /** Payload-free grouping identity for an explicitly withheld retained suffix. */
+  withheldRun?: Readonly<Pick<RuntimeEvent, 'harnessRunId' | 'generation'>>
   /** The snapshot, present only for `reasoning` and `method` rows that passed the wire gate. */
   summary?: RuntimeVisibleSummary
   /** The producer's sources and cited spans, present only when they validated against the exact text. */
@@ -125,6 +132,44 @@ function textFromPayload(event: RuntimeEvent): string | undefined {
     const value = payload[key]
     if (typeof value === 'string' && value.trim().length > 0)
       return redact(value.trim(), MAX_RENDERED_TEXT)
+  }
+  return undefined
+}
+
+/** Keep existing text/scan bounds, and explicitly report undisplayed request content. */
+function requestContextFromPayload(event: RuntimeEvent): {
+  requestContext?: string
+  requestContextIncomplete?: boolean
+} {
+  if (!event.kind.startsWith('approval.') && !event.kind.startsWith('question.')) return {}
+  if (event.payload === null || typeof event.payload !== 'object')
+    return { requestContextIncomplete: true }
+  const payload = event.payload as Record<string, unknown>
+  const keys = event.kind.startsWith('question.')
+    ? ['question', 'prompt', 'text', 'content', 'message', 'reason', 'title', 'name']
+    : ['prompt', 'text', 'content', 'message', 'reason', 'approval', 'title', 'name']
+  for (const key of keys) {
+    const value = payload[key]
+    if (typeof value !== 'string' || value.trim().length === 0) continue
+    const raw = value.trim().replace(/\r\n?/g, '\n')
+    return {
+      requestContext: redact(raw, MAX_RENDERED_TEXT, { layout: true }),
+      // Conservative on redaction/control removal: never approve content outside
+      // the inspected bound, even if sanitizing would make the preview shorter.
+      requestContextIncomplete: raw.length > MAX_RENDERED_TEXT,
+    }
+  }
+  return { requestContextIncomplete: true }
+}
+
+function outputFromPayload(event: RuntimeEvent): string | undefined {
+  if (!event.kind.startsWith('tool.')) return undefined
+  if (event.payload === null || typeof event.payload !== 'object') return undefined
+  const payload = event.payload as Record<string, unknown>
+  for (const key of ['text', 'content', 'message', 'delta', 'summary', 'reason']) {
+    const value = payload[key]
+    if (typeof value === 'string' && value.length > 0)
+      return redact(value.replace(/\r\n?/g, '\n'), MAX_RENDERED_TEXT, { layout: true })
   }
   return undefined
 }
@@ -408,16 +453,18 @@ export function redactAssistantDeltaFragments(
 
 /** Whether two projected rows belong to one known harness run and generation. */
 export function sameRun(a: ChatTranscriptItem, b: ChatTranscriptItem): boolean {
-  const left = a.event?.harnessRunId
-  const right = b.event?.harnessRunId
+  const leftRun = a.withheldRun ?? a.event
+  const rightRun = b.withheldRun ?? b.event
+  const left = leftRun?.harnessRunId
+  const right = rightRun?.harnessRunId
   return (
     typeof left === 'string' &&
     left.trim().length > 0 &&
     typeof right === 'string' &&
     right.trim().length > 0 &&
     left === right &&
-    typeof a.event?.generation === 'number' &&
-    a.event.generation === b.event?.generation
+    typeof leftRun?.generation === 'number' &&
+    leftRun.generation === rightRun?.generation
   )
 }
 
@@ -563,14 +610,31 @@ function responseReferences(event: RuntimeEvent, body: string): ChatResponseRefe
  */
 export function projectTranscriptEvents(
   events: readonly RuntimeEvent[],
-  session?: Pick<RuntimeSession, 'projection'>
+  session?: Pick<RuntimeSession, 'projection'>,
+  context?: Readonly<{ assistantContextLost?: boolean }>
 ): readonly ChatTranscriptItem[] {
   const rows: ChatTranscriptItem[] = []
+  let missingPrefix = context?.assistantContextLost === true
   for (const event of events) {
+    if (event.kind !== 'turn.assistant_delta') missingPrefix = false
     // Credential-classified payloads are never renderer content, even if a
     // malformed upstream producer gives one a normally renderable event kind.
     if (event.classification === 'credential') continue
     const role = roleFor(event.kind)
+    if (missingPrefix) {
+      // A retained suffix can lose the prefix that identified it as a secret.
+      // Withhold the entire leading delta streak until a canonical boundary;
+      // do not pass raw text, labels or event references to a renderer fallback.
+      rows.push({
+        id: event.eventId,
+        role,
+        kind: event.kind,
+        label: event.kind,
+        bodyTruncated: true,
+        withheldRun: { harnessRunId: event.harnessRunId, generation: event.generation },
+      })
+      continue
+    }
     if (role === 'reasoning' || role === 'method') {
       const summary = visibleSummary(event)
       rows.push(
@@ -598,6 +662,7 @@ export function projectTranscriptEvents(
       continue
     }
     const text = textFromPayload(event)
+    const output = outputFromPayload(event)
     const body = bodyFromPayload(event)
     const label = labelFromPayload(event)
     const state = stateFor(event.kind)
@@ -611,6 +676,8 @@ export function projectTranscriptEvents(
       kind: event.kind,
       label,
       ...(text !== undefined ? { text } : {}),
+      ...requestContextFromPayload(event),
+      ...(output !== undefined ? { output } : {}),
       ...(body !== undefined
         ? { body: body.body, ...(body.truncated ? { bodyTruncated: true } : {}) }
         : {}),

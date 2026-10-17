@@ -165,7 +165,7 @@ nothing in production.
 empty, rich, attention, conversation, streaming, reconnect, cancelled, failed,
 hostile, large and a partial code stream, light and dark, desktop and mobile.
 
-## Dependency matrix (2026-10-16)
+## Historical dependency matrix (2026-10-16)
 
 | Dependency                        | Exact head                                                                | State                                                                                                                  | How this canvas treats it                                                                                                                                                                                                                                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -177,5 +177,64 @@ hostile, large and a partial code stream, light and dark, desktop and mobile.
 | #1412 connection read models      | `27a28322ff133cc819d4169d91d828e2d264ef78`                                | open; unknown upstream fields stay unknown                                                                             | not a chat input                                                                                                                                                                                                                                                                                           |
 | #1402 history, #1407 attachments  | draft                                                                     | not drawn as working capabilities                                                                                      | attachments and older-history loading stay absent or explicitly unavailable                                                                                                                                                                                                                                |
 
-This PR stays draft until a ui release is published and pinned (the version bump
-goes through the coordinator).
+At that receipt, the PR was held for a published UI release and coordinated pin.
+The current qualification below supersedes that historical dependency state.
+
+## Current repair qualification (2026-10-17)
+
+The existing Sol owner resumed under the explicit transfer, preserving the six-path
+retention patch (SHA-256
+`2be9ce478527f71f7ed95fec8ac7a5968c1888be3a31072b716d9f502256e49e`).
+Current main `65a30256d922a904e777abb5ca99b284283214ec`, including #1398's
+immutable interaction snapshots, reconciles without conflicts. Its types and
+host implementation remain unchanged by this consumer repair.
+
+The retention fix carries one bounded provenance boolean and withholds the
+leading incomplete assistant streak after eviction/replay; it never retains
+secret prefixes. Approval/question inspection now uses a dedicated redacted
+request context within the existing 4,096-character limit. Missing or clipped
+context disables approval/answer submission, including callback guards. Question
+wording outranks incidental text; incomplete details are labeled as previews.
+Tool output uses separate safe LF/tab-preserving text for copy, normalizing CRLF
+to LF. Credentials/private paths remain redacted; other unsafe controls remain
+removed. Citation fixtures include the current required message identity fields;
+no decoder or size limit was weakened.
+
+UI #416 and #462 have merged; UI v0.142.3's GitHub release exists and themes
+0.10.10 is available in the registry. The actual UI0.142.3 registry archive became
+available at21:39UTC, with integrity
+`sha512-h8kxErZ+NmX+yZUjuWpeHfWzPgfxNJ5gyHGntIky2uvgHxGo480GMUy98nGxNBjAhPr8e6VDdl6Dxyntihd8Ng==`.
+All seven root/workspace manifests pin that release exactly and the Bun lock records its archive
+and themes0.10.10 dependency. Validation below uses that released package. Historical local
+UI mirrors and earlier browser results above are not current release evidence.
+The PR remains draft with auto-merge off; the coordinator owns exact-head review.
+
+Qualification also covers Bun's symlinked global store: the theme boundary follows
+matching installed store links and still rejects an incompatible catalogue. A
+new symlinked-store regression proves that fail-closed behavior. The dev icon shim
+uses the installed Lucide canonical ShieldQuestion module. A clean frozen install
+removed unused local store links; all 18 theme/icon/release boundary tests pass.
+Linux workflow fixture tests use the existing Homebrew GNU tools on this Mac.
+
+Current local validation uses Bun1.4.3 and Node24.21.0:
+
+- Dev View:1,032 tests/3,786 assertions, zero failures.
+- Workspace unit task graph:32/32 tasks successful. The separate coverage lane
+  passes1,295 tests/14,080 assertions in isolation, zero failures.
+- The complete chat-canvas browser suite passes47/47 against the actual registry
+  UI package and an isolated loopback server/database, including retention DOM
+  identity, safe truncation, citations, keyboard/touch behavior and accessibility.
+- Full formatting, lint, Bun type checking, required declaration/library emit and
+  production build pass. The unchanged normal commit hook gates publication.
+
+Retained diagnostic evidence: the first browser run hit the default4GB Node heap
+limit and exposed stale citation fixture identity fields; a corrected rerun
+passed46/47 and exposed withheld-fragment grouping, now repaired and pinned by a
+failing-before/passing-after1,000-row regression. The complete final browser run
+passes with an8GB local heap. Initial coverage also exposed the Bun-store/icon
+boundaries above and GNU-stat fixture requirements. A concurrent coverage run
+had one100ms child-startup fixture failure; its unchanged isolated rerun passes
+all1,295 tests. No assertion, deadline, privacy rule or bound was relaxed.
+Historical UI mirrors, screenshots and other browser-lane results above remain
+historical; packaged, full-app integration and visual-baseline lanes are not
+claimed by these focused repair receipts.

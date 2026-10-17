@@ -29,7 +29,10 @@ export function fixtureEvent(
     confidence: 'authoritative',
     classification: 'workspace_metadata',
     kind,
-    payload,
+    payload:
+      kind === 'turn.assistant_message' && payload !== null && typeof payload === 'object'
+        ? { messageId: `message-${eventId}`, supersedes: 'deltas', ...payload }
+        : payload,
   }
 }
 

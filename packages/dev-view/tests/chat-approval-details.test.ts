@@ -20,9 +20,9 @@ describe('approval request details', () => {
     expect(item.text!.length).toBeGreaterThan(APPROVAL_DESCRIPTION_LIMIT)
     // The decisive part is beyond what the description can show.
     expect(item.text!.indexOf(LONG_APPROVAL_TAIL)).toBeGreaterThan(APPROVAL_DESCRIPTION_LIMIT)
-    expect(approvalDetails(item.text)).toEqual({
+    expect(approvalDetails(item.requestContext, item.requestContextIncomplete)).toEqual({
       kind: 'code',
-      code: item.text!,
+      code: item.requestContext!,
       title: 'Full request',
     })
   })
@@ -33,10 +33,10 @@ describe('approval request details', () => {
     const [, request] = longApprovalEvents
     const long = `${'step '.repeat(120)}${secret} then /Users/example/private ${'z'.repeat(5_000)}`
     const item = approval([source!, { ...request!, payload: { name: 'Run', text: long } }])
-    const details = approvalDetails(item.text)
+    const details = approvalDetails(item.requestContext, item.requestContextIncomplete)
 
     expect(details).toBeDefined()
-    expect(details!.code).toBe(item.text!)
+    expect(details!.code).toBe(item.requestContext!)
     expect(details!.code).not.toContain('supersecretvalue1234')
     expect(details!.code).not.toContain('/Users/example/private')
     expect(details!.code).toContain('[secret redacted]')

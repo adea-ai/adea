@@ -7,6 +7,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -145,7 +146,11 @@ function collectInstalledCopies(rootDirectory: string, packageName: string): str
     const store = join(nodeModules, '.bun')
     if (!existsSync(store)) return
     for (const entry of readdirSync(store, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith(`${storePrefix}@`)) continue
+      if (
+        (!entry.isDirectory() && !entry.isSymbolicLink()) ||
+        !entry.name.startsWith(`${storePrefix}@`)
+      )
+        continue
       const nested = join(store, entry.name, 'node_modules', ...segments)
       if (existsSync(join(nested, 'package.json'))) found.push(nested)
     }
@@ -327,6 +332,31 @@ describe('themes pin guard', () => {
 
       rmSync(join(fixture, 'node_modules/.bun'), { recursive: true, force: true })
       expect(auditThemesPin(fixture).violations).toEqual([])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
+  test('audits symlinked Bun global-store package copies instead of skipping them', () => {
+    const fixture = mkdtemp()
+    try {
+      writePackageManifest(join(fixture, 'node_modules/@adea-ai/ui'), {
+        name: UI_PACKAGE,
+        version: '0.142.3',
+        dependencies: { [THEMES_PACKAGE]: '^0.10.10' },
+      })
+      const cache = join(fixture, '.cache/themes')
+      writePackageManifest(join(cache, 'node_modules/@adea-ai/themes'), {
+        name: THEMES_PACKAGE,
+        version: '0.10.6',
+      })
+      const store = join(fixture, 'node_modules/.bun')
+      mkdirSync(store, { recursive: true })
+      symlinkSync(cache, join(store, '@adea-ai+themes@0.10.6'), 'dir')
+      const report = auditThemesPin(fixture)
+      expect(report.installedCopies).toHaveLength(1)
+      expect(report.violations).toHaveLength(1)
+      expect(report.violations[0]).toContain('0.10.6')
     } finally {
       rmSync(fixture, { recursive: true, force: true })
     }

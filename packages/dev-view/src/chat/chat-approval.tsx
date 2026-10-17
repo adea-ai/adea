@@ -3,7 +3,7 @@ import { Confirmation } from '@adea-ai/ui/components/composites/confirmation'
 import { Trace, TraceLine } from '@adea-ai/ui/components/ui/trace'
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
-import { approvalDetails } from './model/approval'
+import { approvalDetails, interactionContextDisabledReason } from './model/approval'
 import type { ChatTranscriptItem } from './presentation'
 
 export type ChatApprovalProps = Readonly<{
@@ -47,15 +47,16 @@ export function ChatApproval(props: ChatApprovalProps): JSX.Element {
       <Confirmation
         state="requested"
         title={title()}
-        description={item().text ?? APPROVAL_PROMPT}
-        details={approvalDetails(item().text)}
+        description={item().requestContext ?? APPROVAL_PROMPT}
+        details={approvalDetails(item().requestContext, item().requestContextIncomplete)}
         approveLabel="Approve"
         denyLabel="Deny"
         onApprove={
           props.onResolve
             ? () => {
                 const event = item().event
-                if (event) return props.onResolve?.(event, 'approved')
+                if (event && !interactionContextDisabledReason(item()))
+                  return props.onResolve?.(event, 'approved')
               }
             : undefined
         }
@@ -67,7 +68,7 @@ export function ChatApproval(props: ChatApprovalProps): JSX.Element {
               }
             : undefined
         }
-        disabledReason={props.disabledReason}
+        disabledReason={interactionContextDisabledReason(item()) ?? props.disabledReason}
         data-entry-id={item().id}
         data-event-id={item().id}
       />

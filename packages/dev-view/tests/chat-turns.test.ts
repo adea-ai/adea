@@ -517,7 +517,13 @@ function wire(
   over: Partial<RuntimeEvent> = {}
 ): RuntimeEvent {
   return {
-    ...event(kind, payload, id),
+    ...event(
+      kind,
+      kind === 'turn.assistant_message' && payload !== null && typeof payload === 'object'
+        ? { messageId: `message-${id}`, supersedes: 'deltas', ...payload }
+        : payload,
+      id
+    ),
     source: 'native',
     classification: 'workspace_private',
     ...over,

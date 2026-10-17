@@ -578,7 +578,9 @@ test.describe('identity across the retention window', () => {
     await expect(block).toHaveCount(1)
     expect(await block.getAttribute('data-entry-id')).not.toBe(firstId)
     await expect(block).not.toHaveText(new RegExp(`(^|\\s)${word(3)}(\\s|$)`))
-    await expect(block).toContainText(word(1080))
+    // Once its prefix is evicted, retain the block but withhold the unsafe suffix.
+    await expect(block).not.toContainText(word(1080))
+    await expect(block.getByText('Safe response context is unavailable')).toBeVisible()
     expect(errors).toEqual([])
   })
 })
