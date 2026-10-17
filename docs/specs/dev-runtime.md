@@ -2895,6 +2895,112 @@ six kinds; no runner, terminal parser, UI renderer, queue or reasoning producer
 is added. The integration handoff lists the shared aggregation conflicts in
 [the #1394 evidence note](../evidence/runtime-activity-contract-refs1394.md).
 
+### Structured questions and correlated outcomes (#1395)
+
+`packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
+contract for the six approval/question kinds. A payload with `schemaVersion: 1`
+MUST pass its kind-specific decoder; unknown keys and versions are refused.
+Legacy text or unversioned objects remain opaque: they establish neither a
+structured question, response eligibility, nor an approved/denied outcome.
+An unversioned payload carrying `eligibility` is refused rather than elevated to
+a host permission fact. This contract does not change Chat presentation or
+introduce an approval/question response operation.
+
+A versioned request carries a nonblank `requestId` from the owning protocol and
+the host's validated `eligibility`. An approval request also carries `prompt`.
+A question request carries 1–32 questions with unique nonblank `id`, `prompt`,
+explicit `required`, and one of:
+
+- `kind: 'text'` for a free-text answer;
+- `kind: 'choice'`, explicit `multiple`, and 1–32 options with unique nonblank
+  `id`, `label`, and optional `description`.
+
+IDs are bounded to 256 characters, prompts to 4,096, option labels to 512, and
+option descriptions to 2,048. Questions may mix required choices and optional
+free text within one request. Option IDs are scoped to their question; question
+IDs are scoped to their request. No display label serves as identity.
+
+Every versioned outcome MUST carry both the protocol `requestId` and the
+canonical `requestEventId` of the exact requested event. Decisions are explicit:
+`approval.resolved` uses `approved | denied`, `question.resolved` uses
+`answered`, and either `expired` kind uses `expired` (never approved or denied).
+`actorId` and UTC `decidedAt` are optional facts from the authenticated owning
+adapter; the host MUST NOT fill them from the viewer, receipt clock, or event
+ordering when the source does not know them. Actor IDs have the same 256-character
+bound. They are observations, not grants of response authority.
+
+A question resolution carries at most 32 uniquely keyed answers. Each names
+`questionId` and exactly one of `text` (1–65,536 characters), `optionIds`
+(1–32 unique IDs), or `skipped: true`. Admission checks these answers against
+the retained request: required questions must be answered, skipped answers are
+allowed only for optional questions, unknown questions/options are refused,
+text/choice forms must match, and a single-choice question accepts exactly one
+option. Omitted optional questions are unanswered. Expiry carries no answers.
+The enclosing event's 256 KiB encoded payload budget also applies.
+
+For example, the payloads for one optional-note question and its known answer
+are:
+
+```ts
+// question.requested (canonical eventId: 'event-1')
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  questions: [{ id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' }],
+  eligibility: { eligible: false, reason: 'response_unavailable' },
+}
+// question.resolved; actor/time remain absent when unknown
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  requestEventId: 'event-1',
+  decision: 'answered',
+  answers: [{ questionId: 'notes', text: 'Keep the existing defaults.' }],
+}
+```
+
+The host admits versioned interactions only from the trusted adapter append
+path, with authoritative provenance, `workspace_private` classification, and
+a `harnessRunId`. Immediately before persistence/publication it resolves the
+existing canonical session and rechecks account/workspace/runtime-node scope,
+session identity, current generation, current harness run, and archive state.
+New requests require a ready or active session; an already admitted request may
+still receive its observed outcome when that same generation/run completes.
+It requires a retained request in that same binding and from the same adapter
+source; a lower event tier cannot close another source's request. Missing
+retained requests return `resync_required`. Kind/ID/source mismatches are
+`identity_mismatch`; a reused request ID is `idempotency_conflict`. A second
+distinct outcome is `already_completed`. Exact source-event replay stays
+idempotent, including across restart. Refusals persist and publish nothing.
+Interaction decoding returns a detached, recursively frozen snapshot of bounded
+enumerable data. Accessors, symbol/non-enumerable properties, serialization
+hooks, sparse arrays and cycles are refused; accessor/serialization hooks are
+never invoked. The
+existing 256 KiB encoded payload and 64 KiB string bounds still apply. Admission
+uses this inert event/payload snapshot consistently for correlation, dedupe,
+persistence, subscribers and return values; replay reads detach/freeze versioned
+interaction payloads too. Opaque legacy interaction JSON is also snapshotted
+under its existing generic bounds, so a hidden hook cannot turn it into an
+unadmitted versioned record during storage. It remains opaque and grants no
+response eligibility. Caller aliases and session-resolver callbacks cannot
+rewrite previously validated questions, choices or outcomes.
+
+Eligibility is deliberately fail-closed while the M11 response command is
+absent: the only admitted fact is
+`{ eligible: false, reason: 'response_unavailable' }`. `eligible: true`, caller
+authority fields, missing reasons, or a claimed callback cannot create
+permission. Positive eligibility and dispatch require the separately owned
+M11 authorization contract described above: authenticated scope and capability,
+canonical session/generation/run/request binding, current input owner, expiry,
+and single-use/idempotency enforcement revalidated at the side effect. An
+observed resolution from an owning native/ACP/hook adapter does not imply that
+Chat was authorized to submit that response. No PTY response or parallel
+approval authority is introduced by this producer contract.
+
+`packages/types/tests/dev-runtime-interactions.test.ts` pins the schema and
+wire boundary; `apps/desktop/tests/dev-runtime-interactions.test.ts` pins host
+admission, correlation, answer validation, restart/replay, and retention refusal.
+
 ### Assistant message identity (#1386)
 
 The known `turn.assistant_delta`, `turn.assistant_message`, and `turn.result`
