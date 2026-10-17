@@ -64,5 +64,8 @@ with the same manifest, the miss being `apps/web build` ("'.vite-temp' removed f
 Graph `orch-r2-v1.48.1` (`node_modules` listing excluded): cold run 39019670060 saved (0/15, same sha256). Its warm run
 39019923271 failed 14/15 with the same manifest, the miss being `apps/web build` ("'assets' removed from 'apps/web/public'").
 
-These are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's manifest; the
+Graph `orch-r3-v1.48.1` (`apps/web` and `apps/web/public` listings also excluded from the web build): cold run 39020698367 saved
+(0/15, 1792 files, same sha256).
+
+The two warm runs above are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's manifest; the
 result for the current graph is recorded on the pull request.
