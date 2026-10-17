@@ -14,7 +14,7 @@ import {
 } from '../../../../packages/db/tests/fixtures/lead-production-factory-preflight.mjs'
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
-const webManifestUrl = new URL('../../package.json', import.meta.url)
+const defaultWebManifestUrl = new URL('../../package.json', import.meta.url)
 // The fields that decide what a consumer resolves and loads. The publish step rewrites the
 // remaining manifest fields (dependency ranges, empty dev/peer maps), so those are reported, not
 // compared.
@@ -35,6 +35,8 @@ export async function verifyInstalledPackages({
   cpRoot,
   port,
   installKind = 'registry',
+  /** The web app manifest whose resolution decides which installed packages are compared. */
+  webManifestUrl = defaultWebManifestUrl,
 }) {
   assert.ok(
     ['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind),

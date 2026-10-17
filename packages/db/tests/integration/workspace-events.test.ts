@@ -23,6 +23,7 @@ import {
   listWorkspaceEventsAfter,
   markEventDispatchesNotified,
   pendingEventDispatches,
+  prepareWorkspaceEventsAfter,
   pruneWorkspaceEventsBefore,
   workspaceEventWindow,
 } from '../../src/event-log'
@@ -173,6 +174,124 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
     const otherEvents = await listWorkspaceEventsAfter(connection.db, other.id, 0)
     expect(otherEvents.length).toBeGreaterThan(0)
     expect(otherEvents.map((event) => event.eventId)).not.toContain(firstPage[0]!.eventId)
+  })
+
+  test('a prepared poll reads exactly what the plain read does, one workspace at a time', async () => {
+    const { start, workspace } = await fixture('events-prepared-poll')
+    const { start: otherStart, workspace: other } = await fixture('events-prepared-other')
+    const poll = prepareWorkspaceEventsAfter(connection.db, workspace.id, 2)
+    const otherPoll = prepareWorkspaceEventsAfter(connection.db, other.id)
+
+    // Nothing new: the poll is empty, repeatedly, without re-planning anything.
+    expect(await poll(start)).toEqual([])
+    expect(await poll(start)).toEqual([])
+
+    for (let index = 0; index < 5; index += 1) {
+      await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
+    }
+    await append(other.id, 'project.updated', { projectId: crypto.randomUUID(), index: 99 })
+
+    // The same cursor and page size give the same rows as the plain read, and the
+    // cursor binds per call: the next poll continues strictly after it.
+    const first = await poll(start)
+    expect(first).toEqual(await listWorkspaceEventsAfter(connection.db, workspace.id, start, 2))
+    expect(first.map((event) => event.workspaceSequence)).toEqual([start + 1, start + 2])
+    const second = await poll(first.at(-1)!.workspaceSequence)
+    expect(second).toEqual(
+      await listWorkspaceEventsAfter(
+        connection.db,
+        workspace.id,
+        first.at(-1)!.workspaceSequence,
+        2
+      )
+    )
+    expect(second.map((event) => event.workspaceSequence)).toEqual([start + 3, start + 4])
+    expect(await poll(start + 99)).toEqual([])
+
+    // Bound to its own workspace: it never returns another workspace's events.
+    const foreign = await otherPoll(otherStart)
+    expect(foreign.map((event) => event.workspaceSequence)).toEqual([otherStart + 1])
+    expect(foreign.map((event) => event.eventId)).not.toContain(first[0]!.eventId)
+    expect(first.map((event) => event.eventId)).not.toContain(foreign[0]!.eventId)
+  })
+
+  test('a prepared poll matches the plain read at the limit extremes and sees events appended after it was built', async () => {
+    const { start, workspace } = await fixture('events-prepared-limits')
+    // Built while the workspace has nothing after the cursor.
+    const clampedLow = prepareWorkspaceEventsAfter(connection.db, workspace.id, 0)
+    const negative = prepareWorkspaceEventsAfter(connection.db, workspace.id, -5)
+    const huge = prepareWorkspaceEventsAfter(connection.db, workspace.id, 10_000)
+    const defaulted = prepareWorkspaceEventsAfter(connection.db, workspace.id)
+    expect(await huge(start)).toEqual([])
+
+    for (let index = 0; index < 3; index += 1) {
+      await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
+    }
+
+    // The events were appended after every poll was prepared; each sees them,
+    // clamped exactly as the plain read clamps its limit (floor 1, cap page limit).
+    for (const [poll, limit] of [
+      [clampedLow, 0],
+      [negative, -5],
+      [huge, 10_000],
+      [defaulted, undefined],
+    ] as const) {
+      const prepared = await poll(start)
+      const plain = await listWorkspaceEventsAfter(connection.db, workspace.id, start, limit)
+      expect(prepared).toEqual(plain)
+    }
+    expect((await clampedLow(start)).map((event) => event.workspaceSequence)).toEqual([start + 1])
+    expect((await huge(start)).map((event) => event.workspaceSequence)).toEqual([
+      start + 1,
+      start + 2,
+      start + 3,
+    ])
+
+    // Later appends keep appearing on the same prepared poll, in order.
+    await append(workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index: 3 })
+    expect((await huge(start + 3)).map((event) => event.workspaceSequence)).toEqual([start + 4])
+  })
+
+  test('interleaved prepared polls sharing one name stay bound to their own workspace and cursor', async () => {
+    const first = await fixture('events-interleave-a')
+    const second = await fixture('events-interleave-b')
+    for (let index = 0; index < 3; index += 1) {
+      await append(first.workspace.id, 'project.updated', { projectId: crypto.randomUUID(), index })
+      await append(second.workspace.id, 'project.updated', {
+        projectId: crypto.randomUUID(),
+        index: 100 + index,
+      })
+    }
+    const pollFirst = prepareWorkspaceEventsAfter(connection.db, first.workspace.id, 2)
+    const pollSecond = prepareWorkspaceEventsAfter(connection.db, second.workspace.id, 3)
+
+    // Alternating and concurrent execution on the same connection pool.
+    const results = await Promise.all([
+      pollFirst(first.start),
+      pollSecond(second.start),
+      pollFirst(first.start + 2),
+      pollSecond(second.start + 1),
+      pollFirst(first.start),
+    ])
+    expect(results[0]!.map((event) => event.workspaceSequence)).toEqual([
+      first.start + 1,
+      first.start + 2,
+    ])
+    expect(results[1]!.map((event) => event.workspaceSequence)).toEqual([
+      second.start + 1,
+      second.start + 2,
+      second.start + 3,
+    ])
+    expect(results[2]!.map((event) => event.workspaceSequence)).toEqual([first.start + 3])
+    expect(results[3]!.map((event) => event.workspaceSequence)).toEqual([
+      second.start + 2,
+      second.start + 3,
+    ])
+    expect(results[4]).toEqual(results[0])
+    expect(new Set([...results[0]!, ...results[2]!].map((event) => event.eventId)).size).toBe(3)
+    const secondIds = new Set(results[1]!.map((event) => event.eventId))
+    for (const event of [...results[0]!, ...results[2]!])
+      expect(secondIds.has(event.eventId)).toBe(false)
   })
 
   test('retention prunes the oldest events and their publication records only', async () => {

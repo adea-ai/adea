@@ -763,7 +763,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture', () => {
       const result = await capture(connection, 'snapshot-shaped')
       // No section may trip the comparator's structure checks: bounds, limit
       // and truncation evidence all agree by construction.
-      expect(result.document.identity.formatVersion).toBe(2)
+      expect(result.document.identity.formatVersion).toBe(3)
       const comparison = compareMigrationSnapshots({
         after: result.document,
         before: result.document,

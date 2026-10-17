@@ -92,6 +92,9 @@ const specs = [
   // names, and paging across the 1,000-event window, mounted over module-only
   // fixtures that need no host inputs.
   'apps/web/e2e/history-pane.spec.ts',
+  // Hosted Agent Sim host embed: initial offline, online recovery, configuration changes and the
+  // channel-nonce fencing in a real browser, over its own local fixture server (no host inputs).
+  'apps/web/e2e/hosted-agent-sim.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)

@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/app-ui",
-  "version": "0.93.0",
+  "version": "0.94.0",
   "private": true,
   "description": "Adea application preferences, host adapters, and product styles over the shared UI system.",
   "keywords": [
@@ -62,11 +62,11 @@
     "lint": "oxlint",
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
-    "test": "bun test --conditions=browser tests",
+    "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/ui": "0.137.0",
+    "@adea-ai/ui": "0.140.0",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },
