@@ -1,0 +1,367 @@
+// The installer's retained payload tar is retired for the running build only.
+// These tests stage a real on-disk layout (Application Support identity root
+// plus an installed bundle's Resources) and execute the removal, including the
+// stable -> dev upgrade shape where an earlier install's archive must survive.
+import { afterAll, describe, expect, test } from 'bun:test'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { loadNativeOps, retireInstallerArchive } from '../shell/src/installer-archive'
+
+const roots: string[] = []
+afterAll(() => {
+  for (const root of roots) rmSync(root, { recursive: true, force: true })
+})
+
+const IDENTIFIER = 'dev.adea.desktop'
+
+function stage(options: { hash: string; channel?: string; archives?: readonly string[] }) {
+  const root = mkdtempSync(join(tmpdir(), 'installer-archive-'))
+  roots.push(root)
+  const channel = options.channel ?? 'stable'
+  const resourcesDir = join(root, 'bundle', 'Contents', 'Resources')
+  mkdirSync(resourcesDir, { recursive: true })
+  writeFileSync(
+    join(resourcesDir, 'version.json'),
+    JSON.stringify({ identifier: IDENTIFIER, channel, version: '1.2.3', hash: options.hash })
+  )
+  const applicationSupportDir = join(root, 'Application Support')
+  const extractionDir = join(applicationSupportDir, IDENTIFIER, channel, 'self-extraction')
+  mkdirSync(extractionDir, { recursive: true })
+  for (const name of options.archives ?? []) writeFileSync(join(extractionDir, name), 'tar bytes')
+  return { root, resourcesDir, applicationSupportDir, extractionDir }
+}
+
+describe('retireInstallerArchive', () => {
+  test('removes the archive the installer wrote for the running build', () => {
+    const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+    const outcome = retireInstallerArchive(f)
+    expect(outcome).toEqual({ state: 'removed', path: join(f.extractionDir, 'abc123.tar') })
+    expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(false)
+    // The directory itself and the installed bundle are untouched.
+    expect(existsSync(f.extractionDir)).toBe(true)
+    expect(existsSync(join(f.resourcesDir, 'version.json'))).toBe(true)
+  })
+
+  test('a second boot finds nothing to do', () => {
+    const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+    retireInstallerArchive(f)
+    expect(retireInstallerArchive(f)).toEqual({ state: 'absent' })
+  })
+
+  test('stable -> dev upgrade: the original installer archive is historical and stays', () => {
+    // The user installed stable build `stablehash`; Adea's own updater later
+    // swapped in dev build `devhash`. The running bundle's hash is the dev one.
+    const f = stage({ hash: 'devhash', archives: ['stablehash.tar'] })
+    expect(retireInstallerArchive(f)).toEqual({ state: 'absent' })
+    expect(existsSync(join(f.extractionDir, 'stablehash.tar'))).toBe(true)
+  })
+
+  test('fresh dev install removes its own archive and no one else’s', () => {
+    const f = stage({
+      hash: 'devhash',
+      channel: 'dev',
+      archives: ['devhash.tar', 'olderhash.tar', 'devhash.tar.previous'],
+    })
+    expect(retireInstallerArchive(f).state).toBe('removed')
+    expect(existsSync(join(f.extractionDir, 'devhash.tar'))).toBe(false)
+    expect(existsSync(join(f.extractionDir, 'olderhash.tar'))).toBe(true)
+    expect(existsSync(join(f.extractionDir, 'devhash.tar.previous'))).toBe(true)
+  })
+
+  test('a pending Electrobun update record means hands off', () => {
+    const f = stage({
+      hash: 'abc123',
+      archives: ['abc123.tar', '.electrobun-prepared-update.json'],
+    })
+    expect(retireInstallerArchive(f)).toEqual({
+      state: 'skipped',
+      reason: 'a prepared update record exists or cannot be ruled out',
+    })
+    expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+  })
+
+  test('a symlink is never followed or removed', () => {
+    const f = stage({ hash: 'abc123' })
+    const target = join(f.root, 'precious.bin')
+    writeFileSync(target, 'user data')
+    symlinkSync(target, join(f.extractionDir, 'abc123.tar'))
+    expect(retireInstallerArchive(f)).toEqual({
+      state: 'skipped',
+      reason: 'not a regular file',
+    })
+    expect(existsSync(target)).toBe(true)
+  })
+
+  test('an unsafe identity never reaches the filesystem', () => {
+    for (const identity of [
+      { identifier: IDENTIFIER, channel: 'stable', hash: '../escape' },
+      { identifier: '../..', channel: 'stable', hash: 'abc123' },
+      { identifier: IDENTIFIER, channel: '../x', hash: 'abc123' },
+      { identifier: IDENTIFIER, channel: 'stable', hash: '' },
+      { identifier: IDENTIFIER, channel: 'stable' },
+    ]) {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      writeFileSync(join(f.resourcesDir, 'version.json'), JSON.stringify(identity))
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    }
+  })
+
+  test('not a packaged install, or unreadable identity: skipped, never thrown', () => {
+    const missing = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+    rmSync(join(missing.resourcesDir, 'version.json'))
+    expect(retireInstallerArchive(missing)).toEqual({
+      state: 'skipped',
+      reason: 'not a packaged install',
+    })
+
+    const garbled = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+    writeFileSync(join(garbled.resourcesDir, 'version.json'), '{not json')
+    expect(retireInstallerArchive(garbled).state).toBe('skipped')
+    expect(existsSync(join(garbled.extractionDir, 'abc123.tar'))).toBe(true)
+  })
+
+  describe('deletion is confined to the verified install directories', () => {
+    /** An outside directory holding a file with the name the install would match. */
+    function outsideFile(f: ReturnType<typeof stage>, name = 'abc123.tar') {
+      const outside = join(f.root, 'outside')
+      mkdirSync(outside, { recursive: true })
+      const file = join(outside, name)
+      writeFileSync(file, 'must survive')
+      return { outside, file }
+    }
+
+    test('a symlinked identifier directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside, file } = outsideFile(f)
+      mkdirSync(join(outside, 'stable', 'self-extraction'), { recursive: true })
+      writeFileSync(join(outside, 'stable', 'self-extraction', 'abc123.tar'), 'must survive')
+      rmSync(join(f.applicationSupportDir, IDENTIFIER), { recursive: true })
+      symlinkSync(outside, join(f.applicationSupportDir, IDENTIFIER))
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(file)).toBe(true)
+      expect(existsSync(join(outside, 'stable', 'self-extraction', 'abc123.tar'))).toBe(true)
+    })
+
+    test('a symlinked channel directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside } = outsideFile(f)
+      mkdirSync(join(outside, 'self-extraction'), { recursive: true })
+      writeFileSync(join(outside, 'self-extraction', 'abc123.tar'), 'must survive')
+      rmSync(join(f.applicationSupportDir, IDENTIFIER, 'stable'), { recursive: true })
+      symlinkSync(outside, join(f.applicationSupportDir, IDENTIFIER, 'stable'))
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(join(outside, 'self-extraction', 'abc123.tar'))).toBe(true)
+    })
+
+    test('a symlinked self-extraction directory is refused', () => {
+      const f = stage({ hash: 'abc123' })
+      const { outside, file } = outsideFile(f)
+      rmSync(f.extractionDir, { recursive: true })
+      symlinkSync(outside, f.extractionDir)
+      expect(retireInstallerArchive(f).state).toBe('skipped')
+      expect(existsSync(file)).toBe(true)
+    })
+
+    test('a directory swapped for a symlink after verification cannot redirect the delete', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const { outside, file } = outsideFile(f)
+      const outcome = retireInstallerArchive({
+        ...f,
+        // The moment between "verified" and "unlinked": replace the real
+        // directory with a symlink to the outside one. The delete must still
+        // act inside the directory it already holds.
+        beforeUnlink: () => {
+          renameSync(f.extractionDir, `${f.extractionDir}.moved`)
+          symlinkSync(outside, f.extractionDir)
+        },
+      })
+      expect(outcome.state).toBe('removed')
+      expect(existsSync(file)).toBe(true)
+      expect(existsSync(join(`${f.extractionDir}.moved`, 'abc123.tar'))).toBe(false)
+    })
+
+    test('the final name swapped for a symlink is unlinked as a link, not followed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const { file } = outsideFile(f)
+      retireInstallerArchive({
+        ...f,
+        beforeUnlink: () => {
+          rmSync(join(f.extractionDir, 'abc123.tar'))
+          symlinkSync(file, join(f.extractionDir, 'abc123.tar'))
+        },
+      })
+      expect(existsSync(file)).toBe(true)
+    })
+
+    test('without descriptor-relative operations nothing is deleted', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      expect(retireInstallerArchive({ ...f, ops: null }).state).toBe('skipped')
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+  })
+
+  describe('a named pipe can never hang boot', () => {
+    /**
+     * Run the retirement in a child process with a hard timeout: an in-process
+     * hang would freeze the test runner itself instead of failing the test.
+     */
+    function retireInChild(f: ReturnType<typeof stage>) {
+      const moduleUrl = new URL('../shell/src/installer-archive.ts', import.meta.url).href
+      const script = `
+        const { retireInstallerArchive } = await import(${JSON.stringify(moduleUrl)})
+        const outcome = retireInstallerArchive(${JSON.stringify({
+          resourcesDir: f.resourcesDir,
+          applicationSupportDir: f.applicationSupportDir,
+        })})
+        process.stdout.write(JSON.stringify(outcome))
+      `
+      const result = spawnSync(process.execPath, ['-e', script], {
+        encoding: 'utf8',
+        timeout: 8000,
+      })
+      return {
+        timedOut: result.error !== undefined || result.signal !== null,
+        outcome: result.stdout ? JSON.parse(result.stdout) : undefined,
+      }
+    }
+
+    function mkfifo(path: string) {
+      const made = spawnSync('mkfifo', [path])
+      expect(made.status).toBe(0)
+    }
+
+    test('a pipe at the archive name is skipped without blocking', () => {
+      const f = stage({ hash: 'abc123' })
+      mkfifo(join(f.extractionDir, 'abc123.tar'))
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome).toEqual({ state: 'skipped', reason: 'not a regular file' })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a pipe at the prepared-update record name is skipped without blocking', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      mkfifo(join(f.extractionDir, '.electrobun-prepared-update.json'))
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome).toEqual({
+        state: 'skipped',
+        reason: 'a prepared update record exists or cannot be ruled out',
+      })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a pipe in place of an install directory is refused without blocking', () => {
+      const f = stage({ hash: 'abc123' })
+      rmSync(f.extractionDir, { recursive: true })
+      mkfifo(f.extractionDir)
+      const { timedOut, outcome } = retireInChild(f)
+      expect(timedOut).toBe(false)
+      expect(outcome?.state).toBe('skipped')
+    })
+  })
+
+  describe('the prepared-update check is descriptor-relative and fails closed', () => {
+    const RECORD = '.electrobun-prepared-update.json'
+
+    test('a dangling prepared-record symlink counts as a record', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      symlinkSync(join(f.root, 'does-not-exist'), join(f.extractionDir, RECORD))
+      expect(retireInstallerArchive(f)).toEqual({
+        state: 'skipped',
+        reason: 'a prepared update record exists or cannot be ruled out',
+      })
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a parent directory renamed and replaced mid-check cannot hide a record', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      // The directory we verified holds a dangling prepared-record symlink.
+      symlinkSync(join(f.root, 'does-not-exist'), join(f.extractionDir, RECORD))
+      const moved = `${f.extractionDir}.moved`
+      const outcome = retireInstallerArchive({
+        ...f,
+        // After verification, the real directory is renamed away and a fresh
+        // one with its own archive and no record takes its place. A pathname
+        // lookup would see the replacement and proceed; the check must stay
+        // on the directory already held.
+        afterDirectoryVerified: () => {
+          renameSync(f.extractionDir, moved)
+          mkdirSync(f.extractionDir)
+          writeFileSync(join(f.extractionDir, 'abc123.tar'), 'replacement archive')
+        },
+      })
+      expect(outcome.state).toBe('skipped')
+      expect(existsSync(join(moved, 'abc123.tar'))).toBe(true)
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('a parent directory replaced by a symlink mid-check is not followed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const outside = join(f.root, 'outside')
+      mkdirSync(outside)
+      writeFileSync(join(outside, 'abc123.tar'), 'must survive')
+      const outcome = retireInstallerArchive({
+        ...f,
+        afterDirectoryVerified: () => {
+          renameSync(f.extractionDir, `${f.extractionDir}.moved`)
+          symlinkSync(outside, f.extractionDir)
+        },
+      })
+      // The held directory is the original one; the outside file is untouched.
+      expect(outcome.state).toBe('removed')
+      expect(existsSync(join(outside, 'abc123.tar'))).toBe(true)
+    })
+
+    test('an inconclusive lookup of the record never lets the removal proceed', () => {
+      const f = stage({ hash: 'abc123', archives: ['abc123.tar'] })
+      const real = loadNativeOps()
+      expect(real).not.toBeNull()
+      const failing = { ...real!, probe: () => 'unknown' as const }
+      expect(retireInstallerArchive({ ...f, ops: failing }).state).toBe('skipped')
+      expect(existsSync(join(f.extractionDir, 'abc123.tar'))).toBe(true)
+    })
+
+    test('an inconclusive lookup of a missing archive is not reported as absent', () => {
+      const f = stage({ hash: 'abc123' })
+      const real = loadNativeOps()!
+      // Record lookup is conclusive; the archive lookup is not.
+      let calls = 0
+      const flaky = {
+        ...real,
+        probe: (fd: number, name: string) => (calls++ === 0 ? real.probe(fd, name) : 'unknown'),
+      } as typeof real
+      expect(retireInstallerArchive({ ...f, ops: flaky })).toEqual({
+        state: 'skipped',
+        reason: 'the archive could not be inspected',
+      })
+    })
+
+    test('the real lookup tells absent, present and dangling apart', () => {
+      const f = stage({ hash: 'abc123', archives: ['here.tar'] })
+      symlinkSync(join(f.root, 'nowhere'), join(f.extractionDir, 'dangling.tar'))
+      const ops = loadNativeOps()!
+      const { O_RDONLY, O_DIRECTORY } = require('node:fs').constants
+      const fd = require('node:fs').openSync(f.extractionDir, O_RDONLY | O_DIRECTORY)
+      try {
+        expect(ops.probe(fd, 'missing.tar')).toBe('absent')
+        expect(ops.probe(fd, 'here.tar')).toBe('present')
+        expect(ops.probe(fd, 'dangling.tar')).toBe('present')
+      } finally {
+        require('node:fs').closeSync(fd)
+      }
+    })
+  })
+})
