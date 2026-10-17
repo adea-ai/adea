@@ -317,3 +317,281 @@ describe('session exchange', () => {
       expect(await w.exchange(body)).toEqual({ body: { status: 'invalid_request' } })
   })
 })
+
+// Misconfigured or hostile injected inputs fail closed, and they fail before anything is stored or
+// any code is spent.
+const BAD_CLOCKS: ReadonlyArray<readonly [string, () => number]> = [
+  ['NaN', () => Number.NaN],
+  ['Infinity', () => Number.POSITIVE_INFINITY],
+  ['-Infinity', () => Number.NEGATIVE_INFINITY],
+  ['a string', () => '1700000000000' as unknown as number],
+  ['past the Date range once the lifetime is added', () => 8.64e15],
+  [
+    'a throw',
+    () => {
+      throw new Error('clock down')
+    },
+  ],
+]
+
+const BAD_LIFETIMES: ReadonlyArray<readonly [string, number]> = [
+  ['NaN', Number.NaN],
+  ['Infinity', Number.POSITIVE_INFINITY],
+  ['-Infinity', Number.NEGATIVE_INFINITY],
+  ['a string', '60' as unknown as number],
+]
+
+/** A store that records every call and delegates to the reference ledger. */
+function spyStore() {
+  const ledger = createLaunchCodeLedger()
+  const calls = { issue: 0, redeem: 0 }
+  const store: SimLaunchCodeStore = {
+    issue: (code, binding, expiresAt) => {
+      calls.issue += 1
+      return ledger.issue(code, binding, expiresAt)
+    },
+    redeem: (code, presented, now) => {
+      calls.redeem += 1
+      return ledger.redeem(code, presented, now)
+    },
+  }
+  return { store, calls }
+}
+
+async function grantFor(store: SimLaunchCodeStore) {
+  const grant = await createSimLaunchIssuer({
+    frameOrigin: SIM,
+    entitlement: () => 'entitled',
+    store,
+    now: () => NOW,
+  })(request)
+  if (grant.status !== 'granted') throw new Error('expected a grant')
+  return grant
+}
+
+describe('invalid lifetimes, clocks and dates', () => {
+  test.each(BAD_LIFETIMES)(
+    'issuer: a code lifetime of %s is not configured and asks nothing',
+    async (_label, codeTtlMs) => {
+      const { store, calls } = spyStore()
+      let asked = 0
+      const issue = createSimLaunchIssuer({
+        frameOrigin: SIM,
+        entitlement: () => (asked++, 'entitled'),
+        store,
+        codeTtlMs,
+        now: () => NOW,
+      })
+      expect(await issue(request)).toEqual({ status: 'unavailable', reason: 'not_configured' })
+      expect(asked).toBe(0)
+      expect(calls.issue).toBe(0)
+    }
+  )
+
+  test.each(BAD_CLOCKS)(
+    'issuer: a clock reading of %s is unavailable and nothing is stored',
+    async (_label, now) => {
+      const { store, calls } = spyStore()
+      const issue = createSimLaunchIssuer({
+        frameOrigin: SIM,
+        entitlement: () => 'entitled',
+        store,
+        now,
+      })
+      expect(await issue(request)).toEqual({ status: 'unavailable', reason: 'service_unavailable' })
+      expect(calls.issue).toBe(0)
+    }
+  )
+
+  test('issuer: a failing random source stores nothing', async () => {
+    const { store, calls } = spyStore()
+    const issue = createSimLaunchIssuer({
+      frameOrigin: SIM,
+      entitlement: () => 'entitled',
+      store,
+      now: () => NOW,
+      randomBytes: () => {
+        throw new Error('entropy down')
+      },
+    })
+    expect(await issue(request)).toEqual({ status: 'unavailable', reason: 'service_unavailable' })
+    expect(calls.issue).toBe(0)
+  })
+
+  test('finite lifetimes below one are raised to the minimum, not rejected', async () => {
+    const issue = createSimLaunchIssuer({
+      frameOrigin: SIM,
+      entitlement: () => 'entitled',
+      store: createLaunchCodeLedger(),
+      codeTtlMs: -5,
+      now: () => NOW,
+    })
+    const grant = await issue(request)
+    expect(grant.status === 'granted' && Date.parse(grant.expiresAt)).toBe(NOW + 1)
+  })
+
+  test.each(BAD_LIFETIMES)(
+    'exchange: a session lifetime of %s is unavailable and spends no code',
+    async (_label, sessionSeconds) => {
+      const { store, calls } = spyStore()
+      const grant = await grantFor(store)
+      const sessions = new Map<string, SimSessionRecord>()
+      const save = (value: string, record: SimSessionRecord) => void sessions.set(value, record)
+      const broken = createSimSessionExchange({
+        origin: SIM,
+        store,
+        sessions: { save },
+        sessionSeconds,
+        now: () => NOW,
+      })
+      expect(await broken(exchangeBody(grant.code))).toEqual({ body: { status: 'unavailable' } })
+      expect(calls.redeem).toBe(0)
+      expect(sessions.size).toBe(0)
+
+      const good = createSimSessionExchange({
+        origin: SIM,
+        store,
+        sessions: { save },
+        now: () => NOW,
+      })
+      expect((await good(exchangeBody(grant.code))).body.status).toBe('session')
+    }
+  )
+
+  test.each(BAD_CLOCKS)(
+    'exchange: a clock reading of %s is unavailable, spends no code and saves no session',
+    async (_label, now) => {
+      const { store, calls } = spyStore()
+      const grant = await grantFor(store)
+      const sessions = new Map<string, SimSessionRecord>()
+      const save = (value: string, record: SimSessionRecord) => void sessions.set(value, record)
+      const broken = createSimSessionExchange({ origin: SIM, store, sessions: { save }, now })
+      expect(await broken(exchangeBody(grant.code))).toEqual({ body: { status: 'unavailable' } })
+      expect(calls.redeem).toBe(0)
+      expect(sessions.size).toBe(0)
+
+      // The code was not consumed, so a healthy exchange can still redeem it.
+      const good = createSimSessionExchange({
+        origin: SIM,
+        store,
+        sessions: { save },
+        now: () => NOW,
+      })
+      expect((await good(exchangeBody(grant.code))).body.status).toBe('session')
+      expect(sessions.size).toBe(1)
+    }
+  )
+
+  test('exchange: a failing random source spends no code', async () => {
+    const { store, calls } = spyStore()
+    const grant = await grantFor(store)
+    const broken = createSimSessionExchange({
+      origin: SIM,
+      store,
+      sessions: { save: () => {} },
+      now: () => NOW,
+      randomBytes: () => {
+        throw new Error('entropy down')
+      },
+    })
+    expect(await broken(exchangeBody(grant.code))).toEqual({ body: { status: 'unavailable' } })
+    expect(calls.redeem).toBe(0)
+  })
+
+  test('the reference ledger fails closed on an unusable clock without spending the code', () => {
+    const ledger = createLaunchCodeLedger()
+    const binding = { bridgeId: BRIDGE, origin: SIM, surface: 'hq' } as const
+    ledger.issue('code', binding, NOW + 1000)
+    const presented = { bridgeId: BRIDGE, origin: SIM }
+    for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
+      expect(ledger.redeem('code', presented, now)).toEqual({ ok: false, reason: 'code_expired' })
+    expect(ledger.redeem('code', presented, NOW)).toEqual({ ok: true, surface: 'hq' })
+  })
+
+  test('the reference ledger refuses a non-finite expiry instead of storing it', () => {
+    const ledger = createLaunchCodeLedger()
+    const binding = { bridgeId: BRIDGE, origin: SIM, surface: 'hq' } as const
+    for (const expiresAt of [Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() => ledger.issue('code', binding, expiresAt)).toThrow(RangeError)
+    expect(ledger.redeem('code', { bridgeId: BRIDGE, origin: SIM }, NOW)).toEqual({
+      ok: false,
+      reason: 'unknown',
+    })
+  })
+})
+
+describe('port contract under concurrency and failure', () => {
+  test('concurrent exchanges of one code produce exactly one session', async () => {
+    const ledger = createLaunchCodeLedger()
+    // An asynchronous store: each call yields before reaching the (atomic) ledger operation.
+    const store: SimLaunchCodeStore = {
+      issue: async (code, binding, expiresAt) => {
+        await Promise.resolve()
+        ledger.issue(code, binding, expiresAt)
+      },
+      redeem: async (code, presented, now) => {
+        await Promise.resolve()
+        return ledger.redeem(code, presented, now)
+      },
+    }
+    const grant = await grantFor(store)
+    const sessions = new Map<string, SimSessionRecord>()
+    const exchange = createSimSessionExchange({
+      origin: SIM,
+      store,
+      sessions: { save: (value, record) => void sessions.set(value, record) },
+      now: () => NOW,
+      randomBytes: counter(),
+    })
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => exchange(exchangeBody(grant.code)))
+    )
+    expect(results.filter((r) => r.body.status === 'session')).toHaveLength(1)
+    expect(results.filter((r) => r.setCookie !== undefined)).toHaveLength(1)
+    expect(
+      results.filter((r) => r.body.status === 'rejected' && r.body.reason === 'code_used')
+    ).toHaveLength(4)
+    expect(sessions.size).toBe(1)
+  })
+
+  test('a failed session save spends the code, so a retry gets no session and a new launch works', async () => {
+    const store = createLaunchCodeLedger()
+    const sessions = new Map<string, SimSessionRecord>()
+    let failSave = true
+    const exchange = createSimSessionExchange({
+      origin: SIM,
+      store,
+      sessions: {
+        save: (value, record) => {
+          if (failSave) return Promise.reject(new Error('down'))
+          sessions.set(value, record)
+        },
+      },
+      now: () => NOW,
+      randomBytes: counter(),
+    })
+    const grant = await grantFor(store)
+
+    expect(await exchange(exchangeBody(grant.code))).toEqual({ body: { status: 'unavailable' } })
+    expect(sessions.size).toBe(0)
+
+    failSave = false
+    expect(await exchange(exchangeBody(grant.code))).toEqual({
+      body: { status: 'rejected', reason: 'code_used' },
+    })
+    expect(sessions.size).toBe(0)
+
+    const next = await createSimLaunchIssuer({
+      frameOrigin: SIM,
+      entitlement: () => 'entitled',
+      store,
+      now: () => NOW,
+      randomBytes: counter(),
+    })(request)
+    if (next.status !== 'granted') throw new Error('expected a grant')
+    const retried = await exchange(exchangeBody(next.code))
+    expect(retried.body.status).toBe('session')
+    expect(retried.setCookie).toBeDefined()
+    expect(sessions.size).toBe(1)
+  })
+})

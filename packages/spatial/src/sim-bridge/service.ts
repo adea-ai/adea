@@ -100,15 +100,13 @@ export function createSimLaunchIssuer(
   const frameOrigin = configuredOrigin(config.frameOrigin, config.allowLoopbackHttp === true)
   const now = config.now ?? systemClock
   const random = config.randomBytes ?? systemRandom
-  const ttl = Math.min(
-    Math.max(1, Math.floor(config.codeTtlMs ?? DEFAULT_LAUNCH_TTL_MS)),
-    MAX_SIM_LAUNCH_TTL_MS
-  )
+  const ttl = clampedLifetime(config.codeTtlMs, DEFAULT_LAUNCH_TTL_MS, MAX_SIM_LAUNCH_TTL_MS)
 
   return async (body) => {
     const request = parseSimLaunchRequest(body)
     if (!request) return { status: 'invalid_request' }
-    if (!frameOrigin) return { status: 'unavailable', reason: 'not_configured' }
+    // A lifetime that is not a finite number is a misconfiguration, treated like a missing origin.
+    if (!frameOrigin || ttl === null) return { status: 'unavailable', reason: 'not_configured' }
 
     let verdict: SimEntitlementVerdict
     try {
@@ -125,8 +123,19 @@ export function createSimLaunchIssuer(
     // Anything but an explicit "entitled" fails closed, including a verdict this code does not know.
     if (verdict !== 'entitled') return { status: 'unavailable', reason: 'service_unavailable' }
 
-    const code = base64url(random(CODE_BYTES))
-    const expiresAt = now() + ttl
+    // Everything that can fail on bad injected input is computed before the store is touched, so a
+    // bad clock or random source leaves no stored code behind.
+    let code: string
+    let expiresAt: number
+    let expiresAtIso: string | null
+    try {
+      code = base64url(random(CODE_BYTES))
+      expiresAt = readClock(now) + ttl
+      expiresAtIso = isoInstant(expiresAt)
+    } catch {
+      return { status: 'unavailable', reason: 'service_unavailable' }
+    }
+    if (!expiresAtIso) return { status: 'unavailable', reason: 'service_unavailable' }
     try {
       await config.store.issue(
         code,
@@ -139,7 +148,7 @@ export function createSimLaunchIssuer(
     return {
       status: 'granted',
       code,
-      expiresAt: new Date(expiresAt).toISOString(),
+      expiresAt: expiresAtIso,
       surface: request.surface,
       frameOrigin,
     }
@@ -171,22 +180,41 @@ export function createSimSessionExchange(
   const origin = configuredOrigin(config.origin, config.allowLoopbackHttp === true)
   const now = config.now ?? systemClock
   const random = config.randomBytes ?? systemRandom
-  const seconds = Math.min(
-    Math.max(1, Math.floor(config.sessionSeconds ?? DEFAULT_SESSION_SECONDS)),
+  const seconds = clampedLifetime(
+    config.sessionSeconds,
+    DEFAULT_SESSION_SECONDS,
     MAX_SIM_SESSION_SECONDS
   )
 
   return async (body) => {
     const request = parseSimSessionExchangeRequest(body)
     if (!request) return { body: { status: 'invalid_request' } }
-    if (!origin) return { body: { status: 'unavailable' } }
+    if (!origin || seconds === null) return { body: { status: 'unavailable' } }
+
+    // The session is fully prepared before the code is redeemed. Redeeming spends the code, so a
+    // bad clock or random source must fail here, where nothing has been consumed or stored.
+    let at: number
+    let value: string
+    let expiresAt: number
+    let expiresAtIso: string | null
+    let setCookie: string
+    try {
+      at = readClock(now)
+      value = base64url(random(SESSION_BYTES))
+      expiresAt = at + seconds * 1000
+      expiresAtIso = isoInstant(expiresAt)
+      setCookie = buildSimSessionSetCookie(value, seconds)
+    } catch {
+      return { body: { status: 'unavailable' } }
+    }
+    if (!expiresAtIso) return { body: { status: 'unavailable' } }
 
     let redemption: LaunchCodeRedemption
     try {
       redemption = await config.store.redeem(
         request.code,
         { bridgeId: request.bridgeId, origin },
-        now()
+        at
       )
     } catch {
       return { body: { status: 'unavailable' } }
@@ -198,18 +226,41 @@ export function createSimSessionExchange(
       return { body: { status: 'rejected', reason } }
     }
 
-    const value = base64url(random(SESSION_BYTES))
-    const expiresAt = now() + seconds * 1000
+    // The code is spent from here on: if saving fails the same code is not retryable, and the client
+    // starts a new launch.
     try {
       await config.sessions.save(value, { surface: redemption.surface, expiresAt })
     } catch {
       return { body: { status: 'unavailable' } }
     }
-    return {
-      body: { status: 'session', expiresAt: new Date(expiresAt).toISOString() },
-      setCookie: buildSimSessionSetCookie(value, seconds),
-    }
+    return { body: { status: 'session', expiresAt: expiresAtIso }, setCookie }
   }
+}
+
+/**
+ * A configured lifetime in the unit the caller passes (milliseconds or seconds): the default when
+ * absent, clamped to [1, max] when a finite number, and null for anything else (NaN, Infinity, a
+ * non-number), which callers treat as a misconfiguration rather than guessing a value.
+ */
+function clampedLifetime(value: unknown, fallback: number, max: number): number | null {
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.min(Math.max(1, Math.floor(value)), max)
+}
+
+/** One clock reading, which must be a finite number of milliseconds; anything else throws. */
+function readClock(now: Clock): number {
+  const reading: unknown = now()
+  if (typeof reading !== 'number' || !Number.isFinite(reading)) {
+    throw new RangeError('clock returned a non-finite reading')
+  }
+  return reading
+}
+
+/** The ISO string for an instant, or null when it is not a valid Date (NaN, beyond the Date range). */
+function isoInstant(ms: number): string | null {
+  const date = new Date(ms)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 function configuredOrigin(origin: unknown, allowLoopbackHttp: boolean): string | null {
