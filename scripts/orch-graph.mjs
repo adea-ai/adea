@@ -37,6 +37,22 @@ export const GLOBAL_INPUTS = [
   '.oxlintrc.json',
 ]
 
+/**
+ * Vite's config loader writes the config it bundled to `<nearest node_modules>/.vite-temp/<name>.timestamp-<ms>-<hash>.mjs`
+ * and deletes the file, but not the directory. Run under `vp`, Vite reports that directory to the runner as an ignored
+ * input (`ignoreInput`); the web build unsets the runner's client address (see `buildUnsetEnv`), so the report never
+ * arrives and the runner tracks the paths itself. The root `node_modules` directory is not an input (its listing gained
+ * `.vite-temp` while a task ran), nor are `node_modules/.vite-temp` and the temporary file in it. The saved web-build
+ * entry of the hosted cold run recorded both of those paths, and the fresh runner of the next run had neither
+ * ("'.vite-temp' removed from 'node_modules'"). The exclusions are exact: the dependency files below `node_modules`
+ * stay inputs, as do `bun.lock` and the toolchain id.
+ */
+export const VOLATILE_INPUTS = [
+  '!node_modules',
+  '!node_modules/.vite-temp',
+  '!node_modules/.vite-temp/**',
+]
+
 /** `bunfig.toml` preloads these into every `bun test`; only the test tasks run them. */
 export const TEST_INPUTS = ['scripts/test-target-preload.ts', 'scripts/test-target-guard.mjs']
 
@@ -76,7 +92,17 @@ export const PACKAGE_RULES = {
     generated: ['dist', 'dist-desktop', 'public/assets', 'cloudflare-env.d.ts', '.assets.*'],
     // `bun ../../scripts/sync-assets.mjs` copies these into `public/assets`, which `vite build` then reads; it
     // imports `scripts/pack-agent-sim.mjs`, which stages the Agent Sim engine pack into the same tree.
-    build: ['scripts/sync-assets.mjs', 'scripts/pack-agent-sim.mjs', 'packages/spatial/data/**'],
+    build: [
+      'scripts/sync-assets.mjs',
+      'scripts/pack-agent-sim.mjs',
+      'packages/spatial/data/**',
+      // The build creates `.wrangler`, `dist`, `cloudflare-env.d.ts` and `public/assets` itself, so the directory
+      // listings of `apps/web` and `apps/web/public` differ between the run that built them and a fresh checkout
+      // ("'.wrangler' removed from 'apps/web'", "'assets' removed from 'apps/web/public'"). Only those two listings
+      // are excluded; the files in them stay tracked.
+      '!apps/web',
+      '!apps/web/public',
+    ],
     // Build-time values the web build reads. `vite.config.ts` substitutes the four `ADEA_PUBLIC_*` names
     // (`PUBLIC_ENV_NAMES`) into the browser code, and `pack-agent-sim.mjs` stages the pack at `ADEA_AGENT_SIM_DIST`.
     // A cached task is given only the variables it declares, so an undeclared name would never reach the build.
@@ -259,7 +285,10 @@ export function buildTasks(root, toolchainId, env = process.env) {
     // process (packages/db's factory-process test). Turbo passes no such variable, so it is removed.
     command: `ORCH_TOOLCHAIN=${toolchainId}${cache.prefix ? ` ${cache.prefix}` : ''} env ${['FORCE_COLOR', ...(cache.unsetEnv ?? [])].map((name) => `-u ${name}`).join(' ')} ${command}`,
     dependsOn: ['orch:toolchain', ...dependsOn],
-    cache: { input: [{ auto: true }, ...GLOBAL_INPUTS, ...cache.input], ...cache.rest },
+    cache: {
+      input: [{ auto: true }, ...GLOBAL_INPUTS, ...VOLATILE_INPUTS, ...cache.input],
+      ...cache.rest,
+    },
   })
   const buildsOf = (names) =>
     names.map((name) => byName.get(name)).filter((dep) => has(dep, 'build'))
