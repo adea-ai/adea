@@ -1522,15 +1522,15 @@
         "result": "Trusted writer0/1 hits; independent reader restored exact key and hit1/1 on first and second builds,3/3 tasks successful."
       },
       "agentSimHosted": {
-        "head": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6",
-        "writer": "https://github.com/adea-ai/agent-sim/actions/runs/39061573583",
+        "head": "19e5b9c045dc1746f1a5c9a8c6ddfb54082008b8",
+        "writer": "https://github.com/adea-ai/agent-sim/actions/runs/39061625438",
         "freshReader": "https://github.com/adea-ai/agent-sim/actions/runs/39061768434",
         "result": "Trusted writer0/13 hits; independent reader restored cache and hit13/13 on first and second builds,15/15 tasks successful. Private packaging remains separately owned."
       },
       "compilerRollout": {
         "adea1453": "Merged4c416eb9c7028167b6a1876923561a018002fbee",
         "cortana2597": "Merged7940c0d0f479b7cc6f4c6aa88cf627493a5bb6ff",
-        "controlPlane1176": "Same-head diagnostic rerun39060929989 attempt2 passes478 tests/3793assertions in98.9s against unchanged120s. Original124.2s failure retained; aggregate gate was queued at observation.",
+        "controlPlane1176": "Same-head diagnostic rerun39060929989 attempt2 passes478 tests/3793assertions in98.9s against unchanged120s. Original124.2s failure retained; Validation/Gate passed at2026-10-17T19:24:07Z before this checkpoint.",
         "ui460": "Source-reviewed2f55b1b28c9f95895e22c68e63bcce97d0b0b81b;967 local tests/57516assertions,build/declaration emit,checks,lint,format pass. Hosted qualification pending."
       },
       "localDiagnostic": "Extra CP E2E diagnostic terminated without a passing verdict on a Mac running concurrent held-owner unit/E2E/smoke suites. Only our known diagnostic child was signalled; held owner processes untouched.",
