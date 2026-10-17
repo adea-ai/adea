@@ -5,6 +5,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { captureMigrationSnapshot } from '../../src/migration-snapshot-capture'
 import {
   captureLegacyMigrationSnapshot,
   LEGACY_MIGRATION_SNAPSHOT_VERSIONS,
